@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type CreateEntityInput, type CreateEventInput, type DeliveryAcknowledgement, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type CreateEntityInput, type CreateEventInput, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -110,6 +110,28 @@ type EventRow = {
   no_count: number;
   waitlist_count: number;
   attendees: EventRsvpAttendeeRow[] | null;
+};
+
+type DeliverySummaryRow = {
+  delivery_id: string;
+  network_id: string;
+  recipient_member_id: string;
+  topic: string;
+  payload: Record<string, unknown> | null;
+  status: 'pending' | 'processing' | 'sent' | 'failed' | 'canceled';
+  entity_id: string | null;
+  entity_version_id: string | null;
+  transcript_message_id: string | null;
+  scheduled_at: string;
+  sent_at: string | null;
+  failed_at: string | null;
+  created_at: string;
+  acknowledgement_id: string | null;
+  acknowledgement_state: 'shown' | 'suppressed' | null;
+  acknowledgement_suppression_reason: string | null;
+  acknowledgement_version_no: number | null;
+  acknowledgement_created_at: string | null;
+  acknowledgement_created_by_member_id: string | null;
 };
 
 type PendingDeliveryRow = {
@@ -297,6 +319,35 @@ function mapPendingDeliveryRow(row: PendingDeliveryRow): PendingDelivery {
   };
 }
 
+function mapDeliverySummaryRow(row: DeliverySummaryRow): DeliverySummary {
+  return {
+    deliveryId: row.delivery_id,
+    networkId: row.network_id,
+    recipientMemberId: row.recipient_member_id,
+    topic: row.topic,
+    payload: row.payload ?? {},
+    status: row.status,
+    entityId: row.entity_id,
+    entityVersionId: row.entity_version_id,
+    transcriptMessageId: row.transcript_message_id,
+    scheduledAt: row.scheduled_at,
+    sentAt: row.sent_at,
+    failedAt: row.failed_at,
+    createdAt: row.created_at,
+    acknowledgement:
+      row.acknowledgement_id && row.acknowledgement_state && row.acknowledgement_version_no && row.acknowledgement_created_at
+        ? {
+            acknowledgementId: row.acknowledgement_id,
+            state: row.acknowledgement_state,
+            suppressionReason: row.acknowledgement_suppression_reason,
+            versionNo: Number(row.acknowledgement_version_no),
+            createdAt: row.acknowledgement_created_at,
+            createdByMemberId: row.acknowledgement_created_by_member_id,
+          }
+        : null,
+  };
+}
+
 function mapDeliveryAcknowledgementRow(row: DeliveryAcknowledgementRow): DeliveryAcknowledgement {
   return {
     acknowledgementId: row.acknowledgement_id,
@@ -382,6 +433,46 @@ async function listPendingDeliveries(client: DbClient, actorMemberId: string, ac
   );
 
   return result.rows.map(mapPendingDeliveryRow);
+}
+
+async function listDeliveries(client: DbClient, input: ListDeliveriesInput): Promise<DeliverySummary[]> {
+  if (input.networkIds.length === 0) {
+    return [];
+  }
+
+  const result = await client.query<DeliverySummaryRow>(
+    `
+      select
+        cdr.delivery_id,
+        cdr.network_id,
+        cdr.recipient_member_id,
+        cdr.topic,
+        cdr.payload,
+        cdr.status,
+        cdr.entity_id,
+        cdr.entity_version_id,
+        cdr.transcript_message_id,
+        cdr.scheduled_at::text as scheduled_at,
+        cdr.sent_at::text as sent_at,
+        cdr.failed_at::text as failed_at,
+        cdr.created_at::text as created_at,
+        cdr.acknowledgement_id,
+        cdr.acknowledgement_state,
+        cdr.acknowledgement_suppression_reason,
+        cdr.acknowledgement_version_no,
+        cdr.acknowledgement_created_at::text as acknowledgement_created_at,
+        cdr.acknowledgement_created_by_member_id
+      from app.current_delivery_receipts cdr
+      where cdr.recipient_member_id = $1
+        and cdr.network_id = any($2::app.short_id[])
+        and ($3::boolean = false or cdr.acknowledgement_id is null)
+      order by coalesce(cdr.sent_at, cdr.created_at) desc, cdr.delivery_id desc
+      limit $4
+    `,
+    [input.actorMemberId, input.networkIds, input.pendingOnly, input.limit],
+  );
+
+  return result.rows.map(mapDeliverySummaryRow);
 }
 
 function mapEventRow(row: EventRow): EventSummary {
@@ -1293,6 +1384,10 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       }
     },
 
+
+    async listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]> {
+      return withActorContext(pool, input.actorMemberId, input.networkIds, (client) => listDeliveries(client, input));
+    },
 
     async acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null> {
       const client = await pool.connect();

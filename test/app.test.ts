@@ -7,6 +7,8 @@ import {
   type AuthResult,
   type CreateEntityInput,
   type DeliveryAcknowledgement,
+  type DeliverySummary,
+  type ListDeliveriesInput,
   type DirectMessageSummary,
   type DirectMessageThreadSummary,
   type DirectMessageTranscriptEntry,
@@ -100,6 +102,26 @@ function makeDeliveryAcknowledgement(overrides: Partial<DeliveryAcknowledgement>
     supersedesAcknowledgementId: null,
     createdAt: '2026-03-12T00:02:00Z',
     createdByMemberId: 'member-1',
+    ...overrides,
+  };
+}
+
+function makeDeliverySummary(overrides: Partial<DeliverySummary> = {}): DeliverySummary {
+  return {
+    deliveryId: 'delivery-1',
+    networkId: 'network-1',
+    recipientMemberId: 'member-1',
+    topic: 'transcript.message.created',
+    payload: { kind: 'dm', threadId: 'thread-1' },
+    status: 'sent',
+    entityId: null,
+    entityVersionId: null,
+    transcriptMessageId: 'message-1',
+    scheduledAt: '2026-03-12T00:02:00Z',
+    sentAt: '2026-03-12T00:03:00Z',
+    failedAt: null,
+    createdAt: '2026-03-12T00:02:00Z',
+    acknowledgement: null,
     ...overrides,
   };
 }
@@ -281,6 +303,9 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -362,6 +387,9 @@ test('members.search narrows scope when a permitted network is requested', async
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -432,6 +460,9 @@ test('profile.get defaults to the actor member id', async () => {
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -501,6 +532,9 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
+    },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -595,6 +629,9 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
+    },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -847,6 +884,9 @@ test('events.create writes the smallest sane event payload', async () => {
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -931,6 +971,9 @@ test('events.list stays inside accessible scope', async () => {
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
+    },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -1162,6 +1205,9 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -1334,6 +1380,9 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
     async sendDirectMessage() {
       return null;
     },
@@ -1406,6 +1455,9 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -1476,6 +1528,9 @@ test('messages.read scopes thread access server-side and returns transcript entr
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -1525,6 +1580,97 @@ test('messages.read scopes thread access server-side and returns transcript entr
   assert.equal(result.data.thread.threadId, 'thread-1');
   assert.equal(result.data.messages.length, 2);
   assert.equal(result.data.messages[1]?.inReplyToMessageId, 'message-1');
+});
+
+test('deliveries.list stays inside accessible scope and can filter pending receipts', async () => {
+  let capturedInput: ListDeliveriesInput | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async listDeliveries(input) {
+      capturedInput = input;
+      return [
+        makeDeliverySummary({
+          networkId: 'network-2',
+          acknowledgement: {
+            acknowledgementId: 'ack-9',
+            state: 'shown',
+            suppressionReason: null,
+            versionNo: 1,
+            createdAt: '2026-03-12T00:04:00Z',
+            createdByMemberId: 'member-1',
+          },
+        }),
+      ];
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.list',
+    payload: {
+      networkId: 'network-2',
+      limit: 4,
+      pendingOnly: true,
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkIds: ['network-2'],
+    limit: 4,
+    pendingOnly: true,
+  });
+  assert.equal(result.action, 'deliveries.list');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.equal(result.data.pendingOnly, true);
+  assert.equal(result.data.results[0]?.networkId, 'network-2');
+  assert.equal(result.data.results[0]?.acknowledgement?.acknowledgementId, 'ack-9');
 });
 
 test('deliveries.acknowledge derives scope server-side and removes the item from shared context', async () => {
@@ -1641,6 +1787,9 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
+    },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
     },
     async sendDirectMessage() {
       return makeDirectMessage();

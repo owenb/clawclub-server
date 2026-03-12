@@ -237,6 +237,37 @@ export type DeliveryAcknowledgement = {
   createdByMemberId: string | null;
 };
 
+export type DeliverySummary = {
+  deliveryId: string;
+  networkId: string;
+  recipientMemberId: string;
+  topic: string;
+  payload: Record<string, unknown>;
+  status: 'pending' | 'processing' | 'sent' | 'failed' | 'canceled';
+  entityId: string | null;
+  entityVersionId: string | null;
+  transcriptMessageId: string | null;
+  scheduledAt: string;
+  sentAt: string | null;
+  failedAt: string | null;
+  createdAt: string;
+  acknowledgement: {
+    acknowledgementId: string;
+    state: DeliveryAckState;
+    suppressionReason: string | null;
+    versionNo: number;
+    createdAt: string;
+    createdByMemberId: string | null;
+  } | null;
+};
+
+export type ListDeliveriesInput = {
+  actorMemberId: string;
+  networkIds: string[];
+  limit: number;
+  pendingOnly: boolean;
+};
+
 export type DirectMessageSummary = {
   threadId: string;
   networkId: string;
@@ -312,6 +343,7 @@ export type Repository = {
   listEvents(input: ListEventsInput): Promise<EventSummary[]>;
   rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null>;
   acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null>;
+  listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
   listDirectMessageThreads(input: { actorMemberId: string; networkIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
   readDirectMessageThread(input: {
@@ -799,6 +831,45 @@ export function buildApp({ repository }: { repository: Repository }) {
           });
         }
 
+
+        case 'deliveries.list': {
+          const limit = normalizeLimit(payload.limit);
+          let networkScope = actor.memberships;
+
+          if (payload.networkId !== undefined) {
+            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
+          }
+
+          if (networkScope.length === 0) {
+            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
+          }
+
+          const networkIds = networkScope.map((network) => network.networkId);
+          const pendingOnly = payload.pendingOnly === true;
+          const results = await repository.listDeliveries({
+            actorMemberId: actor.member.id,
+            networkIds,
+            limit,
+            pendingOnly,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId:
+                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
+              activeNetworkIds: networkIds,
+            },
+            sharedContext,
+            data: {
+              limit,
+              pendingOnly,
+              networkScope,
+              results,
+            },
+          });
+        }
 
         case 'deliveries.acknowledge': {
           const deliveryId = requireNonEmptyString(payload.deliveryId, 'deliveryId');
