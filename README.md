@@ -4,79 +4,106 @@
   <img src="assets/brand/clawclub-logo-door.png" alt="ClawClub door logo" width="320" />
 </p>
 
-**MIT-licensed open source software for agent-native private member networks.**
+**Open source software for running private member networks through OpenClaw.**
 
-ClawClub is the software layer.
-The value is in the network, the trust, the curation, and the people — not in keeping the code closed.
+The internet is full of slop. Attention is fried. Trust is thin.
 
-Inside ClawClub, there can be many different private member networks, each with its own purpose, rules, and membership.
-**ConsciousClaw** is one example network inside ClawClub — the original spiritually oriented club that inspired the whole thing.
+ClawClub is for the opposite:
+- private networks instead of public feeds
+- curation instead of mass access
+- real context instead of algorithmic reach
+- agent-native interaction instead of dashboard sprawl
+
+If you want to run a serious private club for your community, ClawClub is the software for that.
+
+## What it is
+
+ClawClub lets anyone run one or more private member networks where people can:
+- find other members
+- maintain rich profiles
+- post updates, asks, services, and opportunities
+- create events
+- DM other members who share a network
+- receive relevant alerts through OpenClaw
 
 This is **not** a public social network.
 It is **not** a dating app.
-It is a private, invitation-based system for helping aligned people find one another for friendship, collaboration, service, projects, opportunities, gatherings, and direct connection.
+It is infrastructure for trust-based communities.
 
-## Why this exists
+## Why it’s interesting
 
-Most community software assumes one of two models:
-- public audience building
+Most software for communities optimizes for one of two things:
+- public audience growth
 - generic workplace collaboration
 
-ClawClub is for neither.
+ClawClub optimizes for something else:
+- membership quality
+- trusted introductions
+- network boundaries
+- conversational access through AI agents
 
-It is for curated, trust-based member networks where:
-- membership matters
-- introductions matter
-- context matters
-- private discovery matters
-- the interface can be conversational instead of form-heavy
+The core idea is simple:
+**an agent can be a better interface to a private network than a pile of tabs, forms, and feeds.**
 
-The design assumption is that an AI agent can be a better interface to a private network than a traditional dashboard full of tabs and filters.
+## Clubs on the network today
 
-## What ClawClub is for
+### Live / active clubs
+- **ConsciousClaw** — for tech-minded spiritual people
+- **AI Club** — for serious people who want to stay close to the frontier of AI and use it well
 
-ClawClub is meant to support private networks where members can:
-- discover other members
-- maintain rich profiles
-- post updates
-- offer services
-- post opportunities
-- make asks
-- create events and recurring gatherings
-- RSVP to events
-- share travel / temporary presence
-- exchange resources
-- coordinate projects
-- vouch for one another
-- DM other members when they share a network
+These clubs are currently run directly by **Owen Barnes**, who has the final say on admissions.
 
-The interface is primarily **agent-native**:
-- people interact through OpenClaw
-- the agent talks to the ClawClub server
-- the server enforces hard permissions and network scope
-- there is no assumption of a public web UI
+### Coming soon
+- **VC Club** — a private network for venture capital and adjacent people
+
+## Join one of Owen's clubs
+
+There are two entry paths.
+
+### Sponsored path
+If an existing member sponsors someone, the next step is a **10-minute fit check with Owen for $49**.
+
+What this is:
+- a quick human check
+- a lightweight onboarding conversation
+- a chance to confirm the person is a real fit for the club
+
+Important:
+- sponsorship does **not** guarantee admission
+- the **$49** is the membership/onboarding fee for this path
+- Owen still has the final say
+
+### Outside / unsponsored path
+If someone wants to join from outside the network without sponsorship, they can book a **30-minute call with Owen for $250**.
+
+What this is:
+- a real AI advice / consultation call
+- a chance for Owen to understand the person better
+- a chance to assess whether they are a good fit for one of the clubs
+
+People can ask about anything AI-related, including:
+- Claude Code
+- OpenClaw
+- agents
+- local vs frontier LLMs
+- tooling, workflows, and practical adoption
+
+Important:
+- **the advice is what is guaranteed**
+- **membership is not guaranteed**
+- the call is paid regardless of whether someone is admitted to a club
+- this is not a paid shortcut into membership
+
+Booking link:
+- _coming soon_
 
 ## Open source stance
 
 ClawClub is being built as an **MIT-licensed open source project**.
 
-That means the code should be:
-- readable
-- self-hostable
-- inspectable
-- easy to extend
-- easy to eject from
-- useful even without a central hosted service
+The value is in the network, the trust, the curation, and the people — not in keeping the code closed.
 
-The moat, if there is one, is not proprietary code.
-It is the quality of the network itself:
-- trust
-- taste
-- curation
-- relationships
-- culture
-
-This open source project is provided **as is**:
+This project is provided **as is**:
 - no warranty
 - no guarantee of support
 - no guarantee of security, uptime, or suitability
@@ -96,58 +123,33 @@ If you self-host ClawClub, you are responsible for your own:
 
 ### 1. Global identity, network-local trust
 A person has one core identity across ClawClub.
-They do not become different people in different networks.
-
-But membership, trust, sponsorship, subscriptions, and most activity are scoped per network.
+But membership, sponsorship, trust, and most activity are scoped per network.
 
 That means:
 - one member identity
 - one profile history
-- one auth token surface per person
-- many possible network memberships
-- sponsor fixed per network membership
+- many network memberships
+- sponsor fixed per membership
 - private visibility scoped to shared networks only
 
 ### 2. Private by default
 There is no public content anywhere in the system.
-
 Members should only see content inside networks where they are active members.
-Network membership itself should be treated as private by default, except where overlapping shared context makes disclosure appropriate.
 
 ### 3. Conversation is the interface
 Writes should be agent-mediated.
 The human talks to OpenClaw, OpenClaw talks to ClawClub, and ClawClub records the resulting facts.
 
-This means the system should preserve:
-- chat transcripts for traceability
-- provenance from created entities back to transcript rows where possible
-- reviewable action flows rather than direct raw table manipulation by ordinary members
-
 ### 4. Immutable history
 Important content should be append-only and versioned.
 Edits should create new versions rather than overwriting old ones.
-Users normally see only the latest version, but the older history remains available for admin/debug/audit.
 
-### 5. Structured enough to query, flexible enough to evolve
-ClawClub uses:
-- typed Postgres columns for high-value filters and invariants
-- JSONB for evolving shape
-- embeddings for semantic search and matching
-
-The goal is to avoid freezing the schema too early while still making reliable search, scoping, and policy enforcement possible.
-
-### 6. Keep the surface area small
-The product should use the fewest primitives and actions needed to express the real use cases.
-A smaller surface area makes the system:
-- easier to reason about
-- easier to test
-- easier to document
-- easier for agents to use well
-- easier to maintain in public
+### 5. Small surface area
+Use the fewest primitives and actions needed to express the real use cases.
+Smaller systems are easier to reason about, test, document, and trust.
 
 ## Networks inside ClawClub
 
-ClawClub is the platform.
 A network inside ClawClub is a private club with its own:
 - name
 - purpose
@@ -157,13 +159,7 @@ A network inside ClawClub is a private club with its own:
 - payment/subscription rules
 - content and activity scope
 
-Examples of possible networks:
-- ConsciousClaw
-- a local founders network
-- a service/community network
-- a neighborhood or city-based private club
-
-Most people may belong to one network, but the model supports membership in many.
+People may belong to one or more networks.
 
 ## Membership model
 
@@ -172,15 +168,12 @@ Membership is intended to be:
 - invitation-based
 - sponsor-backed
 - responsibility-based
-- usually paid, but waivable
 
 Important rules already agreed:
 - use **sponsor** for the accountable inviter
 - use **vouching** for lighter endorsements
 - sponsor is permanent for that membership
-- every vouch must include a reason
-- sponsors may eventually be limited in how many new people they bring in over time
-- members may only search/post/interact inside networks where they are currently entitled to act
+- Owen/operator review can still be required even when sponsorship exists
 
 ## Trust and moderation
 
@@ -192,11 +185,6 @@ Moderation assumptions:
 - sponsor accountability matters
 - the system should support auditability without turning into hidden social scoring
 
-Current trust primitives are intentionally simple:
-- sponsor
-- vouch
-- historical actions / participation
-
 ## Supported content types
 
 The current model distinguishes at least these kinds of things:
@@ -207,17 +195,7 @@ The current model distinguishes at least these kinds of things:
 - **ask**
 - **event**
 
-Important distinctions:
-- opportunities are not necessarily paid or full-time
-- services are offerings, often with prices or terms
-- asks are requests for help/resources/people
-- events include time and place, and can recur
-
-Expired asks, services, opportunities, and events should auto-hide.
-
 ## Search and discovery
-
-Search is one of the core reasons this product exists.
 
 ClawClub should support search across:
 - people
@@ -236,24 +214,12 @@ Search should combine:
 - embedding ranking
 - trust/vouch context
 
-Important search behavior already agreed:
-- ambiguous requests should sometimes trigger clarification before searching
-- for example, "find me a builder" may need clarification
-- people/services should not be confused with opportunities
-- results should default to current/latest information, not raw historical dumps
-
 ## Messaging, alerts, and acknowledgement
 
 DMs are person-to-person.
 Two people may DM only when they share at least one network.
 
-When showing a DM, the system should reveal only the networks shared by both parties in that context — not unrelated memberships.
-
 Webhook delivery to each member’s OpenClaw is central to the design.
-
-Alerting should use a two-layer judgment model:
-1. central ClawClub agent/server decides whether something is relevant enough to send
-2. the member’s OpenClaw decides whether to surface it to the human
 
 ClawClub should track **agent acknowledgement**, not just reply state.
 A pending item remains unread/unacknowledged until the member’s agent either:
@@ -262,24 +228,15 @@ A pending item remains unread/unacknowledged until the member’s agent either:
 
 That acknowledgement state should feed back into the shared response context for future requests.
 
-The system should store transcripts for:
-- debugging
-- traceability
-- provenance links back into content creation flows
-
 ## Events and presence
 
-Events are first-class enough to support:
+Events need to support:
 - dates/times
 - locations
 - recurring schedules
 - RSVPs
 - max capacities
 - visible RSVP lists within the relevant network
-
-Location should distinguish between:
-- home base
-- current city / temporary presence
 
 Presence updates and travel windows are expected to be important use cases.
 
@@ -291,11 +248,6 @@ Current stack:
 - SQL-first design
 - OpenClaw as the primary interface
 - bearer-token auth for the first cut
-
-Likely security hardening later:
-- Row Level Security where it genuinely adds defense in depth
-- stronger token verification / token tables instead of the current development placeholder
-- richer audit and permission boundaries
 
 ## Current code status
 
@@ -330,71 +282,6 @@ It has moved beyond idea/spec stage and into actual implementation, but it is no
 - subscription/billing enforcement flows
 - full OpenClaw skill integration against the live server
 - polished first-user bootstrap walkthrough
-
-## Clubs on the network today
-
-The software is generic, but there are already specific clubs being formed on top of it.
-
-### Live / active clubs
-- **ConsciousClaw** — for tech-minded spiritual people
-- **AI Club** — for serious people who want to stay close to the frontier of AI and use it well
-
-These clubs are currently run directly by **Owen Barnes**, who has the final say on admissions.
-
-### Coming soon
-- **VC Club** — a private network for venture capital and adjacent people
-
-## Joining one of Owen's clubs
-
-For the first clubs run directly by Owen, sponsorship helps, but Owen still makes the final decision.
-
-There are two entry paths:
-
-### 1. Sponsored path
-If an existing member sponsors someone, the next step is a **10-minute fit check with Owen for $49**.
-
-This is:
-- a quick human check
-- a lightweight onboarding conversation
-- a chance to confirm the person is a real fit for the club
-
-Important:
-- sponsorship does **not** guarantee admission
-- the **$49** is the membership/onboarding fee for this path
-- Owen still has the final say
-
-### 2. Outside / unsponsored path
-If someone wants to join from outside the network without sponsorship, they can book a **30-minute call with Owen for $250**.
-
-This is:
-- a real AI advice / consultation call
-- a chance for Owen to understand the person better
-- a chance to assess whether they are a good fit for one of the clubs
-
-People can ask about anything AI-related, including:
-- Claude Code
-- OpenClaw
-- agents
-- local vs frontier LLMs
-- tooling, workflows, and practical adoption
-
-Important:
-- **the advice is what is guaranteed**
-- **membership is not guaranteed**
-- the call is paid regardless of whether someone is admitted to a club
-- this is not a paid shortcut into membership
-
-Booking link:
-- _coming soon_
-
-## If we announced this today
-
-The truthful framing would be:
-- the project is open source
-- the foundation is real
-- the product is under active construction
-- early adopters can inspect, follow, contribute, and self-host
-- it is not yet a finished public launch
 
 ## Quickstart
 
@@ -442,12 +329,6 @@ A minimal believable demo path today is:
 7. call `entities.create`
 8. call `entities.list`
 
-That is enough to show:
-- real auth
-- real actor context
-- profile reads/writes
-- generic network content creation/listing
-
 ## Data model direction
 
 The data model currently centers on these ideas:
@@ -476,7 +357,6 @@ Important design choices already made:
 ## Why the current API is action-based
 
 The current API uses one endpoint with action routing instead of route-per-table CRUD.
-
 That is intentional.
 This product is meant to be consumed by agents, and the actions should map to user intentions more than table operations.
 
@@ -525,9 +405,6 @@ That means:
 
 ## Key supporting documents
 
-This README now holds the main project overview.
-The remaining documents are still useful for deeper detail:
-
 - `docs/api.md` — current action envelope and bearer-scoped server behavior
 - `docs/foundation.md` — why the schema is shaped this way
 - `docs/pressure-test.md` — where the first model was too loose and how it was hardened
@@ -535,11 +412,8 @@ The remaining documents are still useful for deeper detail:
 - `covenant.md` — the original network covenant draft
 - `notes.md` — older scratchpad/design notes
 
-Over time, some of these may be reduced further as the README becomes the main canonical overview.
-
 ## Near-term roadmap
 
-The next practical implementation steps are:
 1. add `entities.update` append-only versioning
 2. add event + RSVP flows
 3. add delivery acknowledgement and unread-context flow
@@ -552,7 +426,7 @@ The next practical implementation steps are:
 ## Contributing
 
 The code is open source because the project benefits from scrutiny, contribution, and self-hosting.
-If you want to contribute, the best early areas are likely to be:
+Useful early contribution areas:
 - API shape review
 - Postgres schema review
 - self-hosting/dev setup polish
