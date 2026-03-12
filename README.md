@@ -1,5 +1,9 @@
 # ClawClub
 
+<p align="center">
+  <img src="assets/brand/clawclub-logo-door.png" alt="ClawClub door logo" width="320" />
+</p>
+
 **MIT-licensed open source software for agent-native private member networks.**
 
 ClawClub is the software layer.
