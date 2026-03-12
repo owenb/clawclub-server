@@ -962,3 +962,81 @@ test('postgres repository fails a processing delivery attempt and touches endpoi
   assert.deepEqual(calls[2]?.params, ['member-1', 'delivery-1', ['network-2'], 'timeout', 504, 'timeout']);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
+
+test('postgres repository lists current membership projections for admin scope', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('from app.current_network_memberships cnm')) {
+        return {
+          rows: [{
+            membership_id: 'membership-9', network_id: 'network-2', member_id: 'member-9', public_name: 'Member Nine', handle: 'member-nine',
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', role: 'member', status: 'pending_review',
+            state_reason: 'Booked intro call', state_version_no: 2, state_created_at: '2026-03-12T00:04:00Z', state_created_by_member_id: 'member-1',
+            joined_at: '2026-03-12T00:00:00Z', accepted_covenant_at: null, metadata: { source: 'operator' },
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const results = await repository.listMemberships({ actorMemberId: 'member-1', networkIds: ['network-2'], limit: 5, status: 'pending_review' });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.state.status, 'pending_review');
+  assert.equal(results[0]?.sponsor?.memberId, 'member-1');
+  assert.match(calls[2]?.sql ?? '', /from app\.current_network_memberships cnm/);
+  assert.deepEqual(calls[2]?.params, [['network-2'], 'pending_review', 5]);
+});
+
+test('postgres repository appends membership state transitions and reloads current projection', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('join app.accessible_network_memberships admin_scope')) {
+        return {
+          rows: [{
+            membership_id: 'membership-9', network_id: 'network-2', member_id: 'member-9', current_status: 'pending_review', current_version_no: 2, current_state_version_id: 'state-2',
+          }], rowCount: 1,
+        };
+      }
+      if (sql.includes('insert into app.network_membership_state_versions')) {
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes('where cnm.id = $1')) {
+        return {
+          rows: [{
+            membership_id: 'membership-9', network_id: 'network-2', member_id: 'member-9', public_name: 'Member Nine', handle: 'member-nine',
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', role: 'member', status: 'active',
+            state_reason: 'Fit check passed', state_version_no: 3, state_created_at: '2026-03-12T00:05:00Z', state_created_by_member_id: 'member-1',
+            joined_at: '2026-03-12T00:00:00Z', accepted_covenant_at: null, metadata: {},
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const membership = await repository.transitionMembershipState({ actorMemberId: 'member-1', membershipId: 'membership-9', nextStatus: 'active', reason: 'Fit check passed', accessibleNetworkIds: ['network-2'] });
+
+  assert.ok(membership);
+  assert.equal(membership?.state.status, 'active');
+  assert.equal(membership?.state.versionNo, 3);
+  assert.match(calls[2]?.sql ?? '', /join app\.accessible_network_memberships admin_scope/);
+  assert.deepEqual(calls[2]?.params, ['member-1', 'membership-9', ['network-2']]);
+  assert.deepEqual(calls[3]?.params, ['membership-9', 'active', 'Fit check passed', 3, 'state-2', 'member-1']);
+  assert.equal(calls.at(-1)?.sql, 'commit');
+});

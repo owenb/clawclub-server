@@ -1,3 +1,5 @@
+export type MembershipState = 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected';
+
 export type MembershipSummary = {
   membershipId: string;
   networkId: string;
@@ -9,6 +11,51 @@ export type MembershipSummary = {
   status: 'active';
   sponsorMemberId: string | null;
   joinedAt: string;
+};
+
+export type MembershipAdminSummary = {
+  membershipId: string;
+  networkId: string;
+  member: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  };
+  sponsor: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  } | null;
+  role: 'owner' | 'admin' | 'member';
+  state: {
+    status: MembershipState;
+    reason: string | null;
+    versionNo: number;
+    createdAt: string;
+    createdByMemberId: string | null;
+  };
+  joinedAt: string;
+  acceptedCovenantAt: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CreateMembershipInput = {
+  actorMemberId: string;
+  networkId: string;
+  memberId: string;
+  sponsorMemberId: string;
+  role: 'admin' | 'member';
+  initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active'>;
+  reason?: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type TransitionMembershipInput = {
+  actorMemberId: string;
+  membershipId: string;
+  nextStatus: MembershipState;
+  reason?: string | null;
+  accessibleNetworkIds: string[];
 };
 
 export type ActorContext = {
@@ -521,6 +568,14 @@ export type UpdateEntityInput = {
 
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
+  listMemberships(input: {
+    actorMemberId: string;
+    networkIds: string[];
+    limit: number;
+    status?: MembershipState;
+  }): Promise<MembershipAdminSummary[]>;
+  createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
+  transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listDeliveryEndpoints(input: { actorMemberId: string }): Promise<DeliveryEndpointSummary[]>;
   createDeliveryEndpoint(input: CreateDeliveryEndpointInput): Promise<DeliveryEndpointSummary>;
   updateDeliveryEndpoint(input: UpdateDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null>;
@@ -721,6 +776,28 @@ function normalizeEntityKinds(value: unknown): EntityKind[] {
   return [...new Set(kinds)];
 }
 
+function isMembershipState(value: unknown): value is MembershipState {
+  return value === 'invited' || value === 'pending_review' || value === 'active' || value === 'paused' || value === 'revoked' || value === 'rejected';
+}
+
+function requireMembershipState(value: unknown, field: string): MembershipState {
+  if (!isMembershipState(value)) {
+    throw new AppError(400, 'invalid_input', `${field} must be one of: invited, pending_review, active, paused, revoked, rejected`);
+  }
+
+  return value;
+}
+
+function requireMembershipAdmin(actor: ActorContext, networkIdValue: unknown): MembershipSummary {
+  const membership = requireAccessibleNetwork(actor, networkIdValue);
+
+  if (membership.role !== 'owner' && membership.role !== 'admin') {
+    throw new AppError(403, 'forbidden', 'This action requires owner or admin membership in the requested network');
+  }
+
+  return membership;
+}
+
 function normalizeEntityPatch(payload: Record<string, unknown>): UpdateEntityInput['patch'] {
   const patch = {
     title: normalizeOptionalString(payload.title, 'title'),
@@ -899,6 +976,104 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
               accessibleNetworks: actor.memberships,
             },
           });
+
+        case 'memberships.list': {
+          const limit = normalizeLimit(payload.limit);
+          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner' || membership.role === 'admin');
+
+          if (payload.networkId !== undefined) {
+            networkScope = [requireMembershipAdmin(actor, payload.networkId)];
+          }
+
+          if (networkScope.length === 0) {
+            throw new AppError(403, 'forbidden', 'This member does not currently administer any networks');
+          }
+
+          const status = payload.status === undefined ? undefined : requireMembershipState(payload.status, 'status');
+          const networkIds = networkScope.map((network) => network.networkId);
+          const results = await repository.listMemberships({
+            actorMemberId: actor.member.id,
+            networkIds,
+            limit,
+            status,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId:
+                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
+              activeNetworkIds: networkIds,
+            },
+            sharedContext,
+            data: {
+              limit,
+              status: status ?? null,
+              networkScope,
+              results,
+            },
+          });
+        }
+
+        case 'memberships.create': {
+          const network = requireMembershipAdmin(actor, payload.networkId);
+          const membership = await repository.createMembership({
+            actorMemberId: actor.member.id,
+            networkId: network.networkId,
+            memberId: requireNonEmptyString(payload.memberId, 'memberId'),
+            sponsorMemberId: requireNonEmptyString(payload.sponsorMemberId, 'sponsorMemberId'),
+            role: payload.role === undefined ? 'member' : payload.role === 'member' || payload.role === 'admin' ? payload.role : (() => { throw new AppError(400, 'invalid_input', 'role must be member or admin'); })(),
+            initialStatus: payload.initialStatus === undefined
+              ? 'invited'
+              : payload.initialStatus === 'invited' || payload.initialStatus === 'pending_review' || payload.initialStatus === 'active'
+                ? payload.initialStatus
+                : (() => { throw new AppError(400, 'invalid_input', 'initialStatus must be one of: invited, pending_review, active'); })(),
+            reason: normalizeOptionalString(payload.reason, 'reason'),
+            metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
+          });
+
+          if (!membership) {
+            throw new AppError(404, 'not_found', 'Member or sponsor not found inside the admin scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: membership.networkId,
+              activeNetworkIds: [membership.networkId],
+            },
+            sharedContext,
+            data: { membership },
+          });
+        }
+
+        case 'memberships.transition': {
+          const membershipId = requireNonEmptyString(payload.membershipId, 'membershipId');
+          const membership = await repository.transitionMembershipState({
+            actorMemberId: actor.member.id,
+            membershipId,
+            nextStatus: requireMembershipState(payload.status, 'status'),
+            reason: normalizeOptionalString(payload.reason, 'reason'),
+            accessibleNetworkIds: actor.memberships.filter((item) => item.role === 'owner' || item.role === 'admin').map((item) => item.networkId),
+          });
+
+          if (!membership) {
+            throw new AppError(404, 'not_found', 'Membership not found inside the admin scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: membership.networkId,
+              activeNetworkIds: [membership.networkId],
+            },
+            sharedContext,
+            data: { membership },
+          });
+        }
 
         case 'members.search': {
           const query = requireNonEmptyString(payload.query, 'query');

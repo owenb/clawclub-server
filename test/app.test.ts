@@ -20,6 +20,7 @@ import {
   type EventSummary,
   type ListEntitiesInput,
   type ListEventsInput,
+  type MembershipAdminSummary,
   type MemberProfile,
   type NetworkMemberSummary,
   type RsvpEventInput,
@@ -45,7 +46,7 @@ function makeActor(): ActorContext {
         name: 'Alpha',
         summary: 'First network',
         manifestoMarkdown: null,
-        role: 'member',
+        role: 'admin',
         status: 'active',
         sponsorMemberId: 'member-2',
         joinedAt: '2026-03-12T00:00:00Z',
@@ -57,7 +58,7 @@ function makeActor(): ActorContext {
         name: 'Beta',
         summary: 'Second network',
         manifestoMarkdown: null,
-        role: 'member',
+        role: 'admin',
         status: 'active',
         sponsorMemberId: 'member-3',
         joinedAt: '2026-03-12T00:00:00Z',
@@ -260,6 +261,35 @@ function makeDirectMessageTranscriptEntry(
   };
 }
 
+function makeMembershipAdmin(overrides: Partial<MembershipAdminSummary> = {}): MembershipAdminSummary {
+  return {
+    membershipId: 'membership-9',
+    networkId: 'network-1',
+    member: {
+      memberId: 'member-9',
+      publicName: 'Member Nine',
+      handle: 'member-nine',
+    },
+    sponsor: {
+      memberId: 'member-1',
+      publicName: 'Member One',
+      handle: 'member-one',
+    },
+    role: 'member',
+    state: {
+      status: 'invited',
+      reason: 'Warm intro',
+      versionNo: 1,
+      createdAt: '2026-03-12T00:00:00Z',
+      createdByMemberId: 'member-1',
+    },
+    joinedAt: '2026-03-12T00:00:00Z',
+    acceptedCovenantAt: null,
+    metadata: {},
+    ...overrides,
+  };
+}
+
 function makeNetworkMember(overrides: Partial<NetworkMemberSummary> = {}): NetworkMemberSummary {
   return {
     memberId: 'member-1',
@@ -378,6 +408,15 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
 
       return makeAuthResult();
     },
+    async listMemberships() {
+      return [makeMembershipAdmin()];
+    },
+    async createMembership() {
+      return makeMembershipAdmin();
+    },
+    async transitionMembershipState() {
+      return makeMembershipAdmin({ state: { ...makeMembershipAdmin().state, status: 'active', versionNo: 2 } });
+    },
     async searchMembers() {
       return results;
     },
@@ -473,6 +512,126 @@ test('session.describe returns the current member and accessible networks', asyn
   );
   assert.equal(result.actor.sharedContext.pendingDeliveries.length, 1);
   assert.equal(result.actor.sharedContext.pendingDeliveries[0]?.deliveryId, 'delivery-1');
+});
+
+test('memberships.list stays inside admin network scope and can filter by status', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async listMemberships(input) {
+      capturedInput = input as Record<string, unknown>;
+      return [makeMembershipAdmin({ networkId: 'network-2', state: { ...makeMembershipAdmin().state, status: 'pending_review' } })];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'memberships.list',
+    payload: { networkId: 'network-2', status: 'pending_review', limit: 4 },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkIds: ['network-2'],
+    limit: 4,
+    status: 'pending_review',
+  });
+  assert.equal(result.action, 'memberships.list');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.equal(result.data.results[0]?.state.status, 'pending_review');
+});
+
+test('memberships.create derives scope server-side and preserves sponsor semantics', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createMembership(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeMembershipAdmin({
+        membershipId: 'membership-10',
+        networkId: 'network-2',
+        member: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
+        sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
+        state: { ...makeMembershipAdmin().state, status: 'invited' },
+      });
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'memberships.create',
+    payload: {
+      networkId: 'network-2',
+      memberId: 'member-9',
+      sponsorMemberId: 'member-1',
+      initialStatus: 'invited',
+      reason: 'Trusted intro',
+      metadata: { source: 'operator' },
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkId: 'network-2',
+    memberId: 'member-9',
+    sponsorMemberId: 'member-1',
+    role: 'member',
+    initialStatus: 'invited',
+    reason: 'Trusted intro',
+    metadata: { source: 'operator' },
+  });
+  assert.equal(result.action, 'memberships.create');
+  assert.equal(result.data.membership.sponsor.memberId, 'member-1');
+  assert.equal(result.data.membership.state.status, 'invited');
+});
+
+test('memberships.transition appends a new membership state version inside admin scope', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async transitionMembershipState(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeMembershipAdmin({
+        membershipId: 'membership-10',
+        networkId: 'network-2',
+        state: {
+          status: 'active',
+          reason: 'Fit check complete',
+          versionNo: 2,
+          createdAt: '2026-03-12T00:05:00Z',
+          createdByMemberId: 'member-1',
+        },
+      });
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'memberships.transition',
+    payload: {
+      membershipId: 'membership-10',
+      status: 'active',
+      reason: 'Fit check complete',
+      networkId: 'network-999',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    membershipId: 'membership-10',
+    nextStatus: 'active',
+    reason: 'Fit check complete',
+    accessibleNetworkIds: ['network-1', 'network-2'],
+  });
+  assert.equal(result.action, 'memberships.transition');
+  assert.equal(result.data.membership.state.versionNo, 2);
+  assert.equal(result.data.membership.state.status, 'active');
 });
 
 test('members.search narrows scope when a permitted network is requested', async () => {
