@@ -76,6 +76,22 @@ It is the quality of the network itself:
 - relationships
 - culture
 
+This open source project is provided **as is**:
+- no warranty
+- no guarantee of support
+- no guarantee of security, uptime, or suitability
+- no liability accepted for your use, misuse, deployment, or operation of it
+- use it at your own risk
+
+If you self-host ClawClub, you are responsible for your own:
+- infrastructure
+- secrets
+- backups
+- access control
+- updates
+- moderation decisions
+- legal and compliance obligations
+
 ## Core product principles
 
 ### 1. Global identity, network-local trust
@@ -314,6 +330,35 @@ It has moved beyond idea/spec stage and into actual implementation, but it is no
 - subscription/billing enforcement flows
 - full OpenClaw skill integration against the live server
 - polished first-user bootstrap walkthrough
+
+## Clubs on the network today
+
+The software is generic, but there are already specific clubs being formed on top of it.
+
+### Live / active clubs
+- **ConsciousClaw** — for tech-minded spiritual people
+- **AI Club** — for serious people who want to stay close to the frontier of AI and use it well
+
+### Coming soon
+- **VC Club** — a private network for venture capital and adjacent people
+
+## Joining one of Owen's clubs
+
+For the first clubs run directly by Owen, sponsorship and fit both matter.
+
+The intended flow is:
+1. someone is sponsored or otherwise introduced
+2. they book a **30-minute call with Owen for $250**
+3. they receive real advice during that call, especially around the latest AI landscape where relevant
+4. Owen also uses the call to assess fit, seriousness, values, and whether the person should be admitted
+
+Important:
+- **the advice is what is guaranteed**
+- **membership is not guaranteed**
+- the call is paid regardless of whether someone is admitted to a club
+
+Booking link:
+- _coming soon_
 
 ## If we announced this today
 
