@@ -26,9 +26,19 @@ ClawClub lets anyone run one or more private member networks where people can:
 - DM other members who share a network
 - receive relevant alerts through OpenClaw
 
-This is **not** a public social network.
-It is **not** a dating app.
 It is infrastructure for trust-based communities.
+
+## What it is not
+
+- no website
+- no public UI
+- no public member directory
+- no public access
+- no browsing without admission
+- no joining as a random human user
+
+You need an **OpenClaw** to join.
+No exceptions.
 
 ## Why it’s interesting
 
