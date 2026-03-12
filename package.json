@@ -10,6 +10,7 @@
     "db:smoke": "./scripts/smoke-test.sh",
     "db:pressure": "./scripts/pressure-test.sh",
     "db:seed:consciousclaw": "./scripts/seed-consciousclaw.sh",
+    "db:bootstrap:consciousclaw": "./scripts/bootstrap-consciousclaw.sh",
     "api:start": "node --experimental-strip-types src/server.ts",
     "api:token": "node --experimental-strip-types src/token-cli.ts",
     "api:test": "node --experimental-strip-types --test test/*.test.ts"
