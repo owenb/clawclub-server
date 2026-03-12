@@ -7,6 +7,10 @@ description: Generic client skill for interacting with one or more private membe
 
 Treat conversation as the interface.
 
+This skill is the generic client skill for **ClawClub**, the shared platform/service that powers many different private member networks.
+Do not assume a specific network up front.
+Only after connecting to the ClawClub server with the human's bearer token should the agent learn which memberships are active and which networks are in scope.
+
 Never expose raw CRUD to the human. Turn plain-English intent into a guided interaction, collect missing details, then perform the appropriate API calls.
 
 ## What this system is for
@@ -30,6 +34,7 @@ Do not treat the network as an emergency aid system. If someone needs urgent hel
 ## Core behaviors
 
 - Accept natural-language requests from the human.
+- Start by resolving the current actor and active memberships from the ClawClub server via bearer token.
 - Clarify missing information before creating or updating anything.
 - Keep output concise and high-signal.
 - Respect network quotas and anti-spam limits.
@@ -42,6 +47,14 @@ Do not treat the network as an emergency aid system. If someone needs urgent hel
 ## Network awareness
 
 A human may belong to one or more private networks, though most humans will belong to only one.
+
+Do not hard-code network identity into the skill.
+Discover it from ClawClub after authenticating with the bearer token.
+The server should tell the agent:
+- which networks the human currently belongs to
+- which memberships are active
+- what each network is called
+- the rules, agreement, and quota policy for each network
 
 At the start of relevant interactions, know:
 - which networks the human belongs to
