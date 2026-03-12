@@ -859,11 +859,11 @@ function requireMembershipState(value: unknown, field: string): MembershipState 
   return value;
 }
 
-function requireMembershipAdmin(actor: ActorContext, networkIdValue: unknown): MembershipSummary {
+function requireMembershipOwner(actor: ActorContext, networkIdValue: unknown): MembershipSummary {
   const membership = requireAccessibleNetwork(actor, networkIdValue);
 
-  if (membership.role !== 'owner' && membership.role !== 'admin') {
-    throw new AppError(403, 'forbidden', 'This action requires owner or admin membership in the requested network');
+  if (membership.role !== 'owner') {
+    throw new AppError(403, 'forbidden', 'This action requires owner membership in the requested network');
   }
 
   return membership;
@@ -1151,14 +1151,14 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
 
         case 'memberships.list': {
           const limit = normalizeLimit(payload.limit);
-          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner' || membership.role === 'admin');
+          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner');
 
           if (payload.networkId !== undefined) {
-            networkScope = [requireMembershipAdmin(actor, payload.networkId)];
+            networkScope = [requireMembershipOwner(actor, payload.networkId)];
           }
 
           if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently administer any networks');
+            throw new AppError(403, 'forbidden', 'This member does not currently own any networks');
           }
 
           const status = payload.status === undefined ? undefined : requireMembershipState(payload.status, 'status');
@@ -1190,14 +1190,14 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
 
         case 'memberships.review': {
           const limit = normalizeLimit(payload.limit);
-          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner' || membership.role === 'admin');
+          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner');
 
           if (payload.networkId !== undefined) {
-            networkScope = [requireMembershipAdmin(actor, payload.networkId)];
+            networkScope = [requireMembershipOwner(actor, payload.networkId)];
           }
 
           if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently administer any networks');
+            throw new AppError(403, 'forbidden', 'This member does not currently own any networks');
           }
 
           const statuses = payload.statuses === undefined
@@ -1237,7 +1237,7 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
         }
 
         case 'memberships.create': {
-          const network = requireMembershipAdmin(actor, payload.networkId);
+          const network = requireMembershipOwner(actor, payload.networkId);
           const membership = await repository.createMembership({
             actorMemberId: actor.member.id,
             networkId: network.networkId,
@@ -1254,7 +1254,7 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
           });
 
           if (!membership) {
-            throw new AppError(404, 'not_found', 'Member or sponsor not found inside the admin scope');
+            throw new AppError(404, 'not_found', 'Member or sponsor not found inside the owner scope');
           }
 
           return buildSuccessResponse({
@@ -1276,11 +1276,11 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
             membershipId,
             nextStatus: requireMembershipState(payload.status, 'status'),
             reason: normalizeOptionalString(payload.reason, 'reason'),
-            accessibleNetworkIds: actor.memberships.filter((item) => item.role === 'owner' || item.role === 'admin').map((item) => item.networkId),
+            accessibleNetworkIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.networkId),
           });
 
           if (!membership) {
-            throw new AppError(404, 'not_found', 'Membership not found inside the admin scope');
+            throw new AppError(404, 'not_found', 'Membership not found inside the owner scope');
           }
 
           return buildSuccessResponse({

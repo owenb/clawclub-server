@@ -1877,7 +1877,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             from app.accessible_network_memberships anm
             where anm.member_id = $1
               and anm.network_id = $2
-              and anm.role in ('owner', 'admin')
+              and anm.role = 'owner'
             limit 1
           `,
           [input.actorMemberId, input.networkId],
@@ -2004,10 +2004,10 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
               cnm.state_version_no as current_version_no,
               cnm.state_version_id as current_state_version_id
             from app.current_network_memberships cnm
-            join app.accessible_network_memberships admin_scope
-              on admin_scope.network_id = cnm.network_id
-             and admin_scope.member_id = $1
-             and admin_scope.role in ('owner', 'admin')
+            join app.accessible_network_memberships owner_scope
+              on owner_scope.network_id = cnm.network_id
+             and owner_scope.member_id = $1
+             and owner_scope.role = 'owner'
             where cnm.id = $2
               and cnm.network_id = any($3::app.short_id[])
             limit 1

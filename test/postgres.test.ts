@@ -1035,7 +1035,7 @@ test('postgres repository fails a processing delivery attempt and touches endpoi
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
-test('postgres repository lists current membership projections for admin scope', async () => {
+test('postgres repository lists current membership projections for owner scope', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
   const client = {
@@ -1116,7 +1116,7 @@ test('postgres repository appends membership state transitions and reloads curre
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('join app.accessible_network_memberships admin_scope')) {
+      if (sql.includes('join app.accessible_network_memberships owner_scope')) {
         return {
           rows: [{
             membership_id: 'membership-9', network_id: 'network-2', member_id: 'member-9', current_status: 'pending_review', current_version_no: 2, current_state_version_id: 'state-2',
@@ -1147,7 +1147,7 @@ test('postgres repository appends membership state transitions and reloads curre
   assert.ok(membership);
   assert.equal(membership?.state.status, 'active');
   assert.equal(membership?.state.versionNo, 3);
-  assert.match(calls[2]?.sql ?? '', /join app\.accessible_network_memberships admin_scope/);
+  assert.match(calls[2]?.sql ?? '', /join app\.accessible_network_memberships owner_scope/);
   assert.deepEqual(calls[2]?.params, ['member-1', 'membership-9', ['network-2']]);
   assert.deepEqual(calls[3]?.params, ['membership-9', 'active', 'Fit check passed', 3, 'state-2', 'member-1']);
   assert.equal(calls.at(-1)?.sql, 'commit');

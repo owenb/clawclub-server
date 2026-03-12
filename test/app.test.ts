@@ -61,7 +61,7 @@ function makeActor(): ActorContext {
         name: 'Beta',
         summary: 'Second network',
         manifestoMarkdown: null,
-        role: 'admin',
+        role: 'owner',
         status: 'active',
         sponsorMemberId: 'member-3',
         joinedAt: '2026-03-12T00:00:00Z',
@@ -682,7 +682,7 @@ test('networks.assignOwner appends a new owner version via the superadmin surfac
   assert.equal(result.data.network.ownerVersion.versionNo, 2);
 });
 
-test('memberships.list stays inside admin network scope and can filter by status', async () => {
+test('memberships.list stays inside owner network scope and can filter by status', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -711,6 +711,25 @@ test('memberships.list stays inside admin network scope and can filter by status
   assert.equal(result.data.results[0]?.state.status, 'pending_review');
 });
 
+test('memberships.list rejects admin-only network membership', async () => {
+  const app = buildApp({ repository: makeRepository() });
+
+  await assert.rejects(
+    () => app.handleAction({
+      bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+      action: 'memberships.list',
+      payload: { networkId: 'network-1', limit: 4 },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 403);
+      assert.equal(error.code, 'forbidden');
+      assert.match(error.message, /owner membership/);
+      return true;
+    },
+  );
+});
+
 test('memberships.review defaults to admissions-focused statuses and returns sponsor/vouch context', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
@@ -727,14 +746,14 @@ test('memberships.review defaults to admissions-focused statuses and returns spo
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'memberships.review',
     payload: {
-      networkId: 'network-1',
+      networkId: 'network-2',
       limit: 3,
     },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-1'],
+    networkIds: ['network-2'],
     limit: 3,
     statuses: ['invited', 'pending_review'],
   });
@@ -789,7 +808,7 @@ test('memberships.create derives scope server-side and preserves sponsor semanti
   assert.equal(result.data.membership.state.status, 'invited');
 });
 
-test('memberships.transition appends a new membership state version inside admin scope', async () => {
+test('memberships.transition appends a new membership state version inside owner scope', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -827,11 +846,55 @@ test('memberships.transition appends a new membership state version inside admin
     membershipId: 'membership-10',
     nextStatus: 'active',
     reason: 'Fit check complete',
-    accessibleNetworkIds: ['network-1', 'network-2'],
+    accessibleNetworkIds: ['network-2'],
   });
   assert.equal(result.action, 'memberships.transition');
   assert.equal(result.data.membership.state.versionNo, 2);
   assert.equal(result.data.membership.state.status, 'active');
+});
+
+test('memberships.transition rejects admin-only network scope', async () => {
+  const actor = makeActor();
+  actor.memberships = [actor.memberships[0]!];
+
+  const app = buildApp({
+    repository: {
+      ...makeRepository(),
+      async authenticateBearerToken() {
+        return {
+          actor,
+          requestScope: {
+            requestedNetworkId: null,
+            activeNetworkIds: actor.memberships.map((membership) => membership.networkId),
+          },
+          sharedContext: { pendingDeliveries: [makePendingDelivery()] },
+        };
+      },
+      async transitionMembershipState(input) {
+        assert.deepEqual(input.accessibleNetworkIds, []);
+        return null;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => app.handleAction({
+      bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+      action: 'memberships.transition',
+      payload: {
+        membershipId: 'membership-10',
+        status: 'active',
+        reason: 'Fit check complete',
+      },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 404);
+      assert.equal(error.code, 'not_found');
+      assert.match(error.message, /owner scope/);
+      return true;
+    },
+  );
 });
 
 test('members.search narrows scope when a permitted network is requested', async () => {
