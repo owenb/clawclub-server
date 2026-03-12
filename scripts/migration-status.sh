@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${DATABASE_URL:?DATABASE_URL must be set}"
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MIGRATIONS_DIR="$ROOT_DIR/db/migrations"
+
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_catalog.pg_class c
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'schema_migrations'
+      and c.relkind = 'r'
+  ) then
+    create table public.schema_migrations (
+      filename text primary key,
+      applied_at timestamptz not null default now()
+    );
+  end if;
+end
+$$;
+SQL
+
+printf '%-40s %s\n' "MIGRATION" "STATUS"
+printf '%-40s %s\n' "---------" "------"
+
+shopt -s nullglob
+for file in "$MIGRATIONS_DIR"/*.sql; do
+  name="$(basename "$file")"
+  applied="$({
+    psql "$DATABASE_URL" -X -A -t -q \
+      -v ON_ERROR_STOP=1 \
+      -c "select applied_at::text from public.schema_migrations where filename = '$name'";
+  } | tr -d '\r')"
+
+  if [ -n "$applied" ]; then
+    printf '%-40s applied %s\n' "$name" "$applied"
+  else
+    printf '%-40s pending\n' "$name"
+  fi
+done

@@ -1,0 +1,18 @@
+{
+  "name": "clawclub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SQL-first backend foundation for private members networks",
+  "type": "module",
+  "scripts": {
+    "db:migrate": "./scripts/migrate.sh",
+    "db:status": "./scripts/migration-status.sh",
+    "db:smoke": "./scripts/smoke-test.sh",
+    "db:pressure": "./scripts/pressure-test.sh",
+    "api:start": "node --experimental-strip-types src/server.ts",
+    "api:test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "dependencies": {
+    "pg": "^8.20.0"
+  }
+}
