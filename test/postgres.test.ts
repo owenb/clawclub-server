@@ -2,6 +2,78 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPostgresRepository } from '../src/postgres.ts';
 
+test('postgres repository lists networks for superadmin scope including archived ones on request', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('from app.networks n') && sql.includes('where ($1::boolean = true or n.archived_at is null)')) {
+        return {
+          rows: [{
+            network_id: 'network-1', slug: 'alpha', name: 'Alpha', summary: 'First network', manifesto_markdown: null,
+            archived_at: '2026-03-12T01:00:00Z', owner_member_id: 'member-1', owner_public_name: 'Member One', owner_handle: 'member-one',
+            owner_version_no: 2, owner_created_at: '2026-03-12T00:30:00Z', owner_created_by_member_id: 'member-1',
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const results = await repository.listNetworks({ actorMemberId: 'member-1', includeArchived: true });
+
+  assert.equal(results[0]?.networkId, 'network-1');
+  assert.equal(results[0]?.archivedAt, '2026-03-12T01:00:00Z');
+  assert.equal(results[0]?.ownerVersion.versionNo, 2);
+  assert.deepEqual(calls[1]?.params, ['member-1', '']);
+  assert.deepEqual(calls[2]?.params, [true]);
+});
+
+test('postgres repository creates, archives, and reassigns network owners through superadmin scope', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('with owner_member as (')) return { rows: [{ network_id: 'network-9' }], rowCount: 1 };
+      if (sql.includes("update app.networks n\n            set archived_at = coalesce")) return { rows: [{ network_id: 'network-9' }], rowCount: 1 };
+      if (sql.includes('select') && sql.includes('join app.current_network_owners cno on cno.network_id = n.id') && sql.includes('join app.members m on m.id = $2')) {
+        return { rows: [{ network_id: 'network-9', current_owner_version_id: 'owner-1', current_version_no: 1 }], rowCount: 1 };
+      }
+      if (sql.includes('insert into app.network_owner_versions')) return { rows: [], rowCount: 1 };
+      if (sql.includes('update app.networks set owner_member_id = $2')) return { rows: [], rowCount: 1 };
+      if (sql.includes('from app.networks n') && sql.includes('where n.id = $1')) {
+        return {
+          rows: [{
+            network_id: 'network-9', slug: 'gamma', name: 'Gamma', summary: 'Third network', manifesto_markdown: null,
+            archived_at: null, owner_member_id: 'member-9', owner_public_name: 'Member Nine', owner_handle: 'member-nine',
+            owner_version_no: 2, owner_created_at: '2026-03-12T01:00:00Z', owner_created_by_member_id: 'member-1',
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const created = await repository.createNetwork({ actorMemberId: 'member-1', slug: 'gamma', name: 'Gamma', summary: 'Third network', manifestoMarkdown: null, ownerMemberId: 'member-9' });
+  const archived = await repository.archiveNetwork({ actorMemberId: 'member-1', networkId: 'network-9' });
+  const reassigned = await repository.assignNetworkOwner({ actorMemberId: 'member-1', networkId: 'network-9', ownerMemberId: 'member-9' });
+
+  assert.equal(created?.networkId, 'network-9');
+  assert.equal(archived?.networkId, 'network-9');
+  assert.equal(reassigned?.owner.memberId, 'member-9');
+  assert.equal(reassigned?.ownerVersion.versionNo, 2);
+});
+
 test('postgres repository lists active members with scoped membership context', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

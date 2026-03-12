@@ -79,6 +79,45 @@ export type TransitionMembershipInput = {
   accessibleNetworkIds: string[];
 };
 
+export type NetworkSummary = {
+  networkId: string;
+  slug: string;
+  name: string;
+  summary: string | null;
+  manifestoMarkdown: string | null;
+  archivedAt: string | null;
+  owner: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  };
+  ownerVersion: {
+    versionNo: number;
+    createdAt: string;
+    createdByMemberId: string | null;
+  };
+};
+
+export type CreateNetworkInput = {
+  actorMemberId: string;
+  slug: string;
+  name: string;
+  summary?: string | null;
+  manifestoMarkdown?: string | null;
+  ownerMemberId: string;
+};
+
+export type ArchiveNetworkInput = {
+  actorMemberId: string;
+  networkId: string;
+};
+
+export type AssignNetworkOwnerInput = {
+  actorMemberId: string;
+  networkId: string;
+  ownerMemberId: string;
+};
+
 export type ActorContext = {
   member: {
     id: string;
@@ -86,6 +125,7 @@ export type ActorContext = {
     publicName: string;
   };
   memberships: MembershipSummary[];
+  globalRoles: Array<'superadmin'>;
 };
 
 export type RequestScope = {
@@ -589,6 +629,10 @@ export type UpdateEntityInput = {
 
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
+  listNetworks?(input: { actorMemberId: string; includeArchived: boolean }): Promise<NetworkSummary[]>;
+  createNetwork?(input: CreateNetworkInput): Promise<NetworkSummary | null>;
+  archiveNetwork?(input: ArchiveNetworkInput): Promise<NetworkSummary | null>;
+  assignNetworkOwner?(input: AssignNetworkOwnerInput): Promise<NetworkSummary | null>;
   listMemberships(input: {
     actorMemberId: string;
     networkIds: string[];
@@ -825,6 +869,12 @@ function requireMembershipAdmin(actor: ActorContext, networkIdValue: unknown): M
   return membership;
 }
 
+function requireSuperadmin(actor: ActorContext): void {
+  if (!actor.globalRoles.includes('superadmin')) {
+    throw new AppError(403, 'forbidden', 'This action requires superadmin role');
+  }
+}
+
 function normalizeEntityPatch(payload: Record<string, unknown>): UpdateEntityInput['patch'] {
   const patch = {
     title: normalizeOptionalString(payload.title, 'title'),
@@ -1000,9 +1050,104 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
             sharedContext,
             data: {
               member: actor.member,
+              globalRoles: actor.globalRoles,
               accessibleNetworks: actor.memberships,
             },
           });
+
+        case 'networks.list': {
+          requireSuperadmin(actor);
+          const includeArchived = payload.includeArchived === true;
+          const networks = await repository.listNetworks?.({
+            actorMemberId: actor.member.id,
+            includeArchived,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: auth.requestScope,
+            sharedContext,
+            data: {
+              includeArchived,
+              networks: networks ?? [],
+            },
+          });
+        }
+
+        case 'networks.create': {
+          requireSuperadmin(actor);
+          const network = await repository.createNetwork?.({
+            actorMemberId: actor.member.id,
+            slug: requireNonEmptyString(payload.slug, 'slug'),
+            name: requireNonEmptyString(payload.name, 'name'),
+            summary: normalizeOptionalString(payload.summary, 'summary'),
+            manifestoMarkdown: normalizeOptionalString(payload.manifestoMarkdown, 'manifestoMarkdown'),
+            ownerMemberId: requireNonEmptyString(payload.ownerMemberId, 'ownerMemberId'),
+          });
+
+          if (!network) {
+            throw new AppError(404, 'not_found', 'Owner member not found for network create');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: network.networkId,
+              activeNetworkIds: [network.networkId],
+            },
+            sharedContext,
+            data: { network },
+          });
+        }
+
+        case 'networks.archive': {
+          requireSuperadmin(actor);
+          const network = await repository.archiveNetwork?.({
+            actorMemberId: actor.member.id,
+            networkId: requireNonEmptyString(payload.networkId, 'networkId'),
+          });
+
+          if (!network) {
+            throw new AppError(404, 'not_found', 'Network not found for archive');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: network.networkId,
+              activeNetworkIds: [network.networkId],
+            },
+            sharedContext,
+            data: { network },
+          });
+        }
+
+        case 'networks.assignOwner': {
+          requireSuperadmin(actor);
+          const network = await repository.assignNetworkOwner?.({
+            actorMemberId: actor.member.id,
+            networkId: requireNonEmptyString(payload.networkId, 'networkId'),
+            ownerMemberId: requireNonEmptyString(payload.ownerMemberId, 'ownerMemberId'),
+          });
+
+          if (!network) {
+            throw new AppError(404, 'not_found', 'Network or owner member not found for owner assignment');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: network.networkId,
+              activeNetworkIds: [network.networkId],
+            },
+            sharedContext,
+            data: { network },
+          });
+        }
 
         case 'memberships.list': {
           const limit = normalizeLimit(payload.limit);

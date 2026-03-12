@@ -1,11 +1,12 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreateMembershipInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipAdminSummary, type MembershipReviewSummary, type MembershipState, type MembershipSummary, type MembershipVouchSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type TransitionMembershipInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type ArchiveNetworkInput, type AssignNetworkOwnerInput, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreateMembershipInput, type CreateNetworkInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipAdminSummary, type MembershipReviewSummary, type MembershipState, type MembershipSummary, type MembershipVouchSummary, type NetworkMemberSummary, type NetworkSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type TransitionMembershipInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
   member_id: string;
   handle: string | null;
   public_name: string;
+  global_roles: Array<'superadmin'> | null;
   membership_id: string | null;
   network_id: string | null;
   slug: string | null;
@@ -16,6 +17,21 @@ type ActorRow = {
   status: MembershipSummary['status'] | null;
   sponsor_member_id: string | null;
   joined_at: string | null;
+};
+
+type NetworkRow = {
+  network_id: string;
+  slug: string;
+  name: string;
+  summary: string | null;
+  manifesto_markdown: string | null;
+  archived_at: string | null;
+  owner_member_id: string;
+  owner_public_name: string;
+  owner_handle: string | null;
+  owner_version_no: number;
+  owner_created_at: string;
+  owner_created_by_member_id: string | null;
 };
 
 type SearchRow = {
@@ -378,6 +394,7 @@ function mapActor(rows: ActorRow[]): ActorContext | null {
       handle: first.handle,
       publicName: first.public_name,
     },
+    globalRoles: first.global_roles ?? [],
     memberships: rows
       .filter((row) => row.network_id && row.membership_id && row.slug && row.network_name && row.role && row.status && row.joined_at)
       .map((row) => ({
@@ -392,6 +409,27 @@ function mapActor(rows: ActorRow[]): ActorContext | null {
         sponsorMemberId: row.sponsor_member_id,
         joinedAt: row.joined_at as string,
       })),
+  };
+}
+
+function mapNetworkRow(row: NetworkRow): NetworkSummary {
+  return {
+    networkId: row.network_id,
+    slug: row.slug,
+    name: row.name,
+    summary: row.summary,
+    manifestoMarkdown: row.manifesto_markdown,
+    archivedAt: row.archived_at,
+    owner: {
+      memberId: row.owner_member_id,
+      publicName: row.owner_public_name,
+      handle: row.owner_handle,
+    },
+    ownerVersion: {
+      versionNo: Number(row.owner_version_no),
+      createdAt: row.owner_created_at,
+      createdByMemberId: row.owner_created_by_member_id,
+    },
   };
 }
 
@@ -902,6 +940,7 @@ async function getActorByMemberId(pool: Pool, memberId: string): Promise<ActorCo
         m.id as member_id,
         m.handle,
         m.public_name,
+        coalesce(gr.global_roles, array[]::app.global_role[]) as global_roles,
         anm.id as membership_id,
         anm.network_id,
         n.slug,
@@ -913,6 +952,11 @@ async function getActorByMemberId(pool: Pool, memberId: string): Promise<ActorCo
         anm.sponsor_member_id,
         anm.joined_at::text as joined_at
       from app.members m
+      left join lateral (
+        select array_agg(cmgr.role order by cmgr.role) as global_roles
+        from app.current_member_global_roles cmgr
+        where cmgr.member_id = m.id
+      ) gr on true
       left join app.accessible_network_memberships anm
         on anm.member_id = m.id
       left join app.networks n
@@ -998,6 +1042,62 @@ function mapMemberListRow(row: MemberListRow): NetworkMemberSummary {
     websiteUrl: row.website_url,
     memberships: row.memberships ?? [],
   };
+}
+
+async function listNetworks(client: DbClient, includeArchived: boolean): Promise<NetworkSummary[]> {
+  const result = await client.query<NetworkRow>(
+    `
+      select
+        n.id as network_id,
+        n.slug,
+        n.name,
+        n.summary,
+        n.manifesto_markdown,
+        n.archived_at::text,
+        owner.member_id as owner_member_id,
+        m.public_name as owner_public_name,
+        m.handle as owner_handle,
+        owner.version_no as owner_version_no,
+        owner.created_at::text as owner_created_at,
+        owner.created_by_member_id as owner_created_by_member_id
+      from app.networks n
+      join app.current_network_owners owner on owner.network_id = n.id
+      join app.members m on m.id = owner.owner_member_id
+      where ($1::boolean = true or n.archived_at is null)
+      order by n.archived_at asc nulls first, n.name asc, n.id asc
+    `,
+    [includeArchived],
+  );
+
+  return result.rows.map(mapNetworkRow);
+}
+
+async function readNetworkSummary(client: DbClient, networkId: string): Promise<NetworkSummary | null> {
+  const result = await client.query<NetworkRow>(
+    `
+      select
+        n.id as network_id,
+        n.slug,
+        n.name,
+        n.summary,
+        n.manifesto_markdown,
+        n.archived_at::text,
+        owner.member_id as owner_member_id,
+        m.public_name as owner_public_name,
+        m.handle as owner_handle,
+        owner.version_no as owner_version_no,
+        owner.created_at::text as owner_created_at,
+        owner.created_by_member_id as owner_created_by_member_id
+      from app.networks n
+      join app.current_network_owners owner on owner.network_id = n.id
+      join app.members m on m.id = owner.owner_member_id
+      where n.id = $1
+      limit 1
+    `,
+    [networkId],
+  );
+
+  return result.rows[0] ? mapNetworkRow(result.rows[0]) : null;
 }
 
 async function readMembershipAdminSummary(client: DbClient, membershipId: string): Promise<MembershipAdminSummary | null> {
@@ -1608,6 +1708,153 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
           pendingDeliveries,
         },
       };
+    },
+
+    async listNetworks({ actorMemberId, includeArchived }) {
+      return withActorContext(pool, actorMemberId, [], (client) => listNetworks(client, includeArchived));
+    },
+
+    async createNetwork(input: CreateNetworkInput): Promise<NetworkSummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, []);
+
+        const networkResult = await client.query<{ network_id: string }>(
+          `
+            with owner_member as (
+              select m.id
+              from app.members m
+              where m.id = $4
+                and m.state = 'active'
+            ), inserted_network as (
+              insert into app.networks (
+                slug,
+                name,
+                summary,
+                owner_member_id,
+                manifesto_markdown
+              )
+              select $1, $2, $3, om.id, $5
+              from owner_member om
+              returning id as network_id
+            ), owner_version as (
+              insert into app.network_owner_versions (
+                network_id,
+                owner_member_id,
+                version_no,
+                created_by_member_id
+              )
+              select network_id, $4, 1, $6
+              from inserted_network
+            )
+            select network_id
+            from inserted_network
+          `,
+          [input.slug, input.name, input.summary ?? null, input.ownerMemberId, input.manifestoMarkdown ?? null, input.actorMemberId],
+        );
+
+        const networkId = networkResult.rows[0]?.network_id;
+        if (!networkId) {
+          await client.query('rollback');
+          return null;
+        }
+
+        await client.query('commit');
+        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readNetworkSummary(scopedClient, networkId));
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async archiveNetwork(input: ArchiveNetworkInput): Promise<NetworkSummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, []);
+        const result = await client.query<{ network_id: string }>(
+          `
+            update app.networks n
+            set archived_at = coalesce(n.archived_at, now())
+            where n.id = $1
+            returning n.id as network_id
+          `,
+          [input.networkId],
+        );
+
+        const networkId = result.rows[0]?.network_id;
+        if (!networkId) {
+          await client.query('rollback');
+          return null;
+        }
+
+        await client.query('commit');
+        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readNetworkSummary(scopedClient, networkId));
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async assignNetworkOwner(input: AssignNetworkOwnerInput): Promise<NetworkSummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, []);
+
+        const currentResult = await client.query<{ network_id: string; current_owner_version_id: string; current_version_no: number }>(
+          `
+            select
+              n.id as network_id,
+              cno.id as current_owner_version_id,
+              cno.version_no as current_version_no
+            from app.networks n
+            join app.current_network_owners cno on cno.network_id = n.id
+            join app.members m on m.id = $2 and m.state = 'active'
+            where n.id = $1
+            limit 1
+          `,
+          [input.networkId, input.ownerMemberId],
+        );
+
+        const current = currentResult.rows[0];
+        if (!current) {
+          await client.query('rollback');
+          return null;
+        }
+
+        await client.query(
+          `
+            insert into app.network_owner_versions (
+              network_id,
+              owner_member_id,
+              version_no,
+              supersedes_owner_version_id,
+              created_by_member_id
+            )
+            values ($1, $2, $3, $4, $5)
+          `,
+          [input.networkId, input.ownerMemberId, Number(current.current_version_no) + 1, current.current_owner_version_id, input.actorMemberId],
+        );
+
+        await client.query(
+          `update app.networks set owner_member_id = $2 where id = $1`,
+          [input.networkId, input.ownerMemberId],
+        );
+
+        await client.query('commit');
+        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readNetworkSummary(scopedClient, input.networkId));
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async listMemberships({ actorMemberId, networkIds, limit, status }) {

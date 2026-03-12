@@ -24,6 +24,7 @@ import {
   type MembershipReviewSummary,
   type MemberProfile,
   type NetworkMemberSummary,
+  type NetworkSummary,
   type RsvpEventInput,
   type UpdateEntityInput,
   type MemberSearchResult,
@@ -39,6 +40,7 @@ function makeActor(): ActorContext {
       handle: 'member-one',
       publicName: 'Member One',
     },
+    globalRoles: ['superadmin'],
     memberships: [
       {
         membershipId: 'membership-1',
@@ -262,6 +264,28 @@ function makeDirectMessageTranscriptEntry(
   };
 }
 
+function makeNetwork(overrides: Partial<NetworkSummary> = {}): NetworkSummary {
+  return {
+    networkId: 'network-1',
+    slug: 'alpha',
+    name: 'Alpha',
+    summary: 'First network',
+    manifestoMarkdown: null,
+    archivedAt: null,
+    owner: {
+      memberId: 'member-1',
+      publicName: 'Member One',
+      handle: 'member-one',
+    },
+    ownerVersion: {
+      versionNo: 1,
+      createdAt: '2026-03-12T00:00:00Z',
+      createdByMemberId: 'member-1',
+    },
+    ...overrides,
+  };
+}
+
 function makeMembershipAdmin(overrides: Partial<MembershipAdminSummary> = {}): MembershipAdminSummary {
   return {
     membershipId: 'membership-9',
@@ -434,6 +458,21 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
 
       return makeAuthResult();
     },
+    async listNetworks() {
+      return [makeNetwork()];
+    },
+    async createNetwork() {
+      return makeNetwork();
+    },
+    async archiveNetwork() {
+      return makeNetwork({ archivedAt: '2026-03-12T01:00:00Z' });
+    },
+    async assignNetworkOwner() {
+      return makeNetwork({
+        owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
+        ownerVersion: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
+      });
+    },
     async listMemberships() {
       return [makeMembershipAdmin()];
     },
@@ -534,6 +573,7 @@ test('session.describe returns the current member and accessible networks', asyn
   assert.equal(result.action, 'session.describe');
   assert.equal(result.actor.member.id, 'member-1');
   assert.equal(result.data.member.id, 'member-1');
+  assert.deepEqual(result.data.globalRoles, ['superadmin']);
   assert.equal(result.data.accessibleNetworks.length, 2);
   assert.deepEqual(
     result.data.accessibleNetworks.map((network) => network.networkId),
@@ -541,6 +581,105 @@ test('session.describe returns the current member and accessible networks', asyn
   );
   assert.equal(result.actor.sharedContext.pendingDeliveries.length, 1);
   assert.equal(result.actor.sharedContext.pendingDeliveries[0]?.deliveryId, 'delivery-1');
+});
+
+test('networks.list requires superadmin and returns archived flag filter', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async listNetworks(input) {
+      capturedInput = input as Record<string, unknown>;
+      return [makeNetwork({ archivedAt: '2026-03-12T01:00:00Z' })];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'networks.list',
+    payload: { includeArchived: true },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    includeArchived: true,
+  });
+  assert.equal(result.data.networks[0]?.archivedAt, '2026-03-12T01:00:00Z');
+});
+
+test('networks.create derives superadmin ownership assignment server-side', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createNetwork(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeNetwork({
+        networkId: 'network-9',
+        slug: 'gamma',
+        name: 'Gamma',
+        owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
+      });
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'networks.create',
+    payload: {
+      slug: 'gamma',
+      name: 'Gamma',
+      summary: 'Third network',
+      ownerMemberId: 'member-9',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    slug: 'gamma',
+    name: 'Gamma',
+    summary: 'Third network',
+    manifestoMarkdown: undefined,
+    ownerMemberId: 'member-9',
+  });
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-9');
+  assert.equal(result.data.network.owner.memberId, 'member-9');
+});
+
+test('networks.assignOwner appends a new owner version via the superadmin surface', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async assignNetworkOwner(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeNetwork({
+        networkId: 'network-2',
+        owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
+        ownerVersion: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
+      });
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'networks.assignOwner',
+    payload: {
+      networkId: 'network-2',
+      ownerMemberId: 'member-9',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkId: 'network-2',
+    ownerMemberId: 'member-9',
+  });
+  assert.equal(result.data.network.owner.memberId, 'member-9');
+  assert.equal(result.data.network.ownerVersion.versionNo, 2);
 });
 
 test('memberships.list stays inside admin network scope and can filter by status', async () => {
@@ -1723,6 +1862,37 @@ test('entities.list can span accessible networks and filter by kinds', async () 
   assert.equal(result.action, 'entities.list');
   assert.equal(result.data.results[0]?.kind, 'ask');
   assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-1', 'network-2']);
+});
+
+test('networks.create rejects non-superadmins', async () => {
+  const actor = makeActor();
+  actor.globalRoles = [];
+  const app = buildApp({
+    repository: {
+      ...makeRepository(),
+      async authenticateBearerToken() {
+        return {
+          actor,
+          requestScope: { requestedNetworkId: null, activeNetworkIds: actor.memberships.map((membership) => membership.networkId) },
+          sharedContext: { pendingDeliveries: [makePendingDelivery()] },
+        };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => app.handleAction({
+      bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+      action: 'networks.create',
+      payload: { slug: 'gamma', name: 'Gamma', ownerMemberId: 'member-9' },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 403);
+      assert.equal(error.code, 'forbidden');
+      return true;
+    },
+  );
 });
 
 test('members.search rejects a network outside the actor scope', async () => {
