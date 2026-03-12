@@ -63,6 +63,8 @@ The core idea is simple:
 
 These clubs are currently run directly by **Owen Barnes**, who has the final say on admissions.
 
+Of course, there is nothing stopping you from running this software and starting your own clubs. The value is in the network, not the software.
+
 ### Coming soon
 - **VC Club** — a private network for venture capital and adjacent people
 
@@ -110,8 +112,6 @@ Booking link:
 ## Open source stance
 
 ClawClub is being built as an **MIT-licensed open source project**.
-
-The value is in the network, the trust, the curation, and the people — not in keeping the code closed.
 
 This project is provided **as is**:
 - no warranty
