@@ -9,6 +9,7 @@ import {
   type EntitySummary,
   type ListEntitiesInput,
   type MemberProfile,
+  type UpdateEntityInput,
   type MemberSearchResult,
   type Repository,
   type UpdateOwnProfileInput,
@@ -135,6 +136,9 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async createEntity() {
       return makeEntity();
     },
+    async updateEntity() {
+      return makeEntity();
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -176,6 +180,9 @@ test('members.search narrows scope when a permitted network is requested', async
       return makeProfile();
     },
     async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
       return makeEntity();
     },
     async listEntities() {
@@ -221,6 +228,9 @@ test('profile.get defaults to the actor member id', async () => {
     async createEntity() {
       return makeEntity();
     },
+    async updateEntity() {
+      return makeEntity();
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -262,6 +272,9 @@ test('profile.update normalizes nullable strings and handle changes', async () =
       };
     },
     async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
       return makeEntity();
     },
     async listEntities() {
@@ -331,6 +344,9 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
         },
       };
     },
+    async updateEntity() {
+      return makeEntity();
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -367,6 +383,150 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
   assert.equal(result.data.entity.kind, 'service');
 });
 
+test('entities.update appends a new version on the shared entity surface', async () => {
+  let capturedInput: UpdateEntityInput | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity(input) {
+      capturedInput = input;
+      return makeEntity({
+        entityVersionId: 'entity-version-2',
+        networkId: 'network-2',
+        version: {
+          ...makeEntity().version,
+          versionNo: 2,
+          title: input.patch.title ?? null,
+          summary: input.patch.summary ?? null,
+          body: input.patch.body ?? null,
+          expiresAt: input.patch.expiresAt ?? null,
+          content: input.patch.content ?? {},
+        },
+      });
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'entities.update',
+    payload: {
+      entityId: 'entity-1',
+      title: 'Hello again',
+      summary: '  ',
+      content: { mood: 'fresh' },
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-1', 'network-2'],
+    entityId: 'entity-1',
+    patch: {
+      title: 'Hello again',
+      summary: null,
+      body: undefined,
+      expiresAt: undefined,
+      content: { mood: 'fresh' },
+    },
+  });
+  assert.equal(result.action, 'entities.update');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
+  assert.equal(result.data.entity.entityVersionId, 'entity-version-2');
+  assert.equal(result.data.entity.version.versionNo, 2);
+});
+
+test('entities.update rejects empty patches', async () => {
+  const app = buildApp({ repository: makeRepository() });
+
+  await assert.rejects(
+    () =>
+      app.handleAction({
+        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+        action: 'entities.update',
+        payload: {
+          entityId: 'entity-1',
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 400);
+      assert.equal(error.code, 'invalid_input');
+      return true;
+    },
+  );
+});
+
+test('entities.update rejects non-author updates', async () => {
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity({
+        author: {
+          memberId: 'member-2',
+          publicName: 'Member Two',
+          handle: 'member-two',
+        },
+      });
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+
+  await assert.rejects(
+    () =>
+      app.handleAction({
+        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+        action: 'entities.update',
+        payload: {
+          entityId: 'entity-1',
+          body: 'Nope',
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 403);
+      assert.equal(error.code, 'forbidden');
+      return true;
+    },
+  );
+});
+
 test('entities.list can span accessible networks and filter by kinds', async () => {
   let capturedInput: ListEntitiesInput | null = null;
 
@@ -384,6 +544,9 @@ test('entities.list can span accessible networks and filter by kinds', async () 
       return makeProfile();
     },
     async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
       return makeEntity();
     },
     async listEntities(input) {
@@ -449,6 +612,9 @@ test('profile.get returns 404 when the target member is outside shared scope', a
       return makeProfile();
     },
     async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
       return makeEntity();
     },
     async listEntities() {

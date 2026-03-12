@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { AppError, type ActorContext, type AuthResult, type CreateEntityInput, type EntitySummary, type MemberProfile, type MemberSearchResult, type MembershipSummary, type Repository, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type ActorContext, type AuthResult, type CreateEntityInput, type EntitySummary, type MemberProfile, type MemberSearchResult, type MembershipSummary, type Repository, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -236,6 +236,41 @@ async function readMemberProfile(pool: Pool, actorMemberId: string, targetMember
   return result.rows[0] ? mapProfileRow(result.rows[0]) : null;
 }
 
+async function readEntitySummary(pool: Pool, entityId: string, entityVersionId?: string): Promise<EntitySummary | null> {
+  const result = await pool.query<EntityRow>(
+    `
+      select
+        e.id as entity_id,
+        cev.id as entity_version_id,
+        e.network_id,
+        e.kind,
+        m.id as author_member_id,
+        m.public_name as author_public_name,
+        m.handle as author_handle,
+        cev.version_no,
+        cev.state,
+        cev.title,
+        cev.summary,
+        cev.body,
+        cev.effective_at::text as effective_at,
+        cev.expires_at::text as expires_at,
+        cev.created_at::text as version_created_at,
+        cev.content,
+        e.created_at::text as entity_created_at
+      from app.entities e
+      join app.current_entity_versions cev on cev.entity_id = e.id
+      join app.members m on m.id = e.author_member_id
+      where e.id = $1
+        and e.archived_at is null
+        and e.deleted_at is null
+        and ($2::app.short_id is null or cev.id = $2)
+    `,
+    [entityId, entityVersionId ?? null],
+  );
+
+  return result.rows[0] ? mapEntityRow(result.rows[0]) : null;
+}
+
 export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
   return {
     async authenticateBearerToken(bearerToken: string): Promise<AuthResult | null> {
@@ -467,35 +502,101 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         );
         await client.query('commit');
 
-        const summary = await pool.query<EntityRow>(
+        const summary = await readEntitySummary(pool, entity.id, versionResult.rows[0]!.id);
+        if (!summary) {
+          throw new Error('Created entity could not be reloaded');
+        }
+        return summary;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+
+        const currentResult = await client.query<{
+          entity_id: string;
+          network_id: string;
+          author_member_id: string;
+          version_id: string;
+          version_no: number;
+          title: string | null;
+          summary: string | null;
+          body: string | null;
+          expires_at: string | null;
+          content: Record<string, unknown> | null;
+        }>(
           `
             select
               e.id as entity_id,
-              cev.id as entity_version_id,
               e.network_id,
-              e.kind,
-              m.id as author_member_id,
-              m.public_name as author_public_name,
-              m.handle as author_handle,
+              e.author_member_id,
+              cev.id as version_id,
               cev.version_no,
-              cev.state,
               cev.title,
               cev.summary,
               cev.body,
-              cev.effective_at::text as effective_at,
               cev.expires_at::text as expires_at,
-              cev.created_at::text as version_created_at,
-              cev.content,
-              e.created_at::text as entity_created_at
+              cev.content
             from app.entities e
             join app.current_entity_versions cev on cev.entity_id = e.id
-            join app.members m on m.id = e.author_member_id
             where e.id = $1
-              and cev.id = $2
+              and e.network_id = any($2::app.short_id[])
+              and e.archived_at is null
+              and e.deleted_at is null
           `,
-          [entity.id, versionResult.rows[0]!.id],
+          [input.entityId, input.accessibleNetworkIds],
         );
-        return mapEntityRow(summary.rows[0]!);
+
+        const current = currentResult.rows[0];
+        if (!current) {
+          await client.query('rollback');
+          return null;
+        }
+
+        const nextVersionResult = await client.query<{ id: string }>(
+          `
+            insert into app.entity_versions (
+              entity_id,
+              version_no,
+              state,
+              title,
+              summary,
+              body,
+              expires_at,
+              content,
+              supersedes_version_id,
+              created_by_member_id
+            )
+            values ($1, $2, 'published', $3, $4, $5, $6, $7::jsonb, $8, $9)
+            returning id
+          `,
+          [
+            current.entity_id,
+            current.version_no + 1,
+            input.patch.title !== undefined ? input.patch.title : current.title,
+            input.patch.summary !== undefined ? input.patch.summary : current.summary,
+            input.patch.body !== undefined ? input.patch.body : current.body,
+            input.patch.expiresAt !== undefined ? input.patch.expiresAt : current.expires_at,
+            JSON.stringify(input.patch.content !== undefined ? input.patch.content : current.content ?? {}),
+            current.version_id,
+            input.actorMemberId,
+          ],
+        );
+
+        await client.query('commit');
+
+        const summary = await readEntitySummary(pool, current.entity_id, nextVersionResult.rows[0]!.id);
+        if (!summary) {
+          throw new Error('Updated entity could not be reloaded');
+        }
+        return summary;
       } catch (error) {
         await client.query('rollback');
         throw error;

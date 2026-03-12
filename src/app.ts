@@ -122,6 +122,19 @@ export type ListEntitiesInput = {
   limit: number;
 };
 
+export type UpdateEntityInput = {
+  actorMemberId: string;
+  accessibleNetworkIds: string[];
+  entityId: string;
+  patch: {
+    title?: string | null;
+    summary?: string | null;
+    body?: string | null;
+    expiresAt?: string | null;
+    content?: Record<string, unknown>;
+  };
+};
+
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
   searchMembers(input: {
@@ -132,6 +145,7 @@ export type Repository = {
   getMemberProfile(input: { actorMemberId: string; targetMemberId: string }): Promise<MemberProfile | null>;
   updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
+  updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
   listEntities(input: ListEntitiesInput): Promise<EntitySummary[]>;
 };
 
@@ -278,6 +292,22 @@ function normalizeEntityKinds(value: unknown): EntityKind[] {
 
   const kinds = value.map((item) => requireEntityKind(item, 'kinds[]'));
   return [...new Set(kinds)];
+}
+
+function normalizeEntityPatch(payload: Record<string, unknown>): UpdateEntityInput['patch'] {
+  const patch = {
+    title: normalizeOptionalString(payload.title, 'title'),
+    summary: normalizeOptionalString(payload.summary, 'summary'),
+    body: normalizeOptionalString(payload.body, 'body'),
+    expiresAt: normalizeOptionalString(payload.expiresAt, 'expiresAt'),
+    content: payload.content === undefined ? undefined : requireObject(payload.content, 'content'),
+  };
+
+  if (Object.values(patch).every((value) => value === undefined)) {
+    throw new AppError(400, 'invalid_input', 'entities.update requires at least one field to change');
+  }
+
+  return patch;
 }
 
 function buildSuccessResponse(input: {
@@ -427,6 +457,34 @@ export function buildApp({ repository }: { repository: Repository }) {
             requestScope: {
               requestedNetworkId: network.networkId,
               activeNetworkIds: [network.networkId],
+            },
+            data: { entity },
+          });
+        }
+
+        case 'entities.update': {
+          const entityId = requireNonEmptyString(payload.entityId, 'entityId');
+          const entity = await repository.updateEntity({
+            actorMemberId: actor.member.id,
+            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            entityId,
+            patch: normalizeEntityPatch(payload),
+          });
+
+          if (!entity) {
+            throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+          }
+
+          if (entity.author.memberId !== actor.member.id) {
+            throw new AppError(403, 'forbidden', 'Only the author may update this entity');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: entity.networkId,
+              activeNetworkIds: [entity.networkId],
             },
             data: { entity },
           });
