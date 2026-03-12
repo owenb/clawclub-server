@@ -240,12 +240,16 @@ What exists now:
 - initial actions:
   - `session.describe`
   - `members.search`
+  - `profile.get`
+  - `profile.update`
+  - `entities.create`
+  - `entities.list`
 - tests for action routing and access scoping
 - shell scripts for migrate/status/smoke/pressure testing
 
 What is not complete yet:
 - real token/auth model beyond the first simple bearer pattern
-- profile creation/update flows through the API
+- broader profile workflows beyond the first read/update flow
 - entity creation/update flows
 - DM actions
 - event creation / RSVP actions through the API
@@ -339,6 +343,7 @@ Other useful commands:
 npm run db:status
 npm run db:smoke
 npm run db:pressure
+npm run db:seed:consciousclaw
 ```
 
 ## Key supporting documents
@@ -359,8 +364,8 @@ Over time, some of these may be reduced further as the README becomes the main c
 
 The next practical implementation steps are:
 1. replace the auth placeholder with a proper bearer token model
-2. add profile create/read/update actions
-3. add entity creation and listing actions
+2. deepen profile flows beyond the first `profile.get` / `profile.update` actions
+3. add entity update/versioning actions on top of the shared `entities.*` surface
 4. add event + RSVP flows
 5. add DM/shared-network validation flows
 6. add delivery/webhook flows
