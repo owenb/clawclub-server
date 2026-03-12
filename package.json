@@ -2,7 +2,7 @@
   "name": "clawclub",
   "private": true,
   "version": "0.1.0",
-  "description": "SQL-first backend foundation for private members networks",
+  "description": "Open source software for agent-native private member networks",
   "type": "module",
   "scripts": {
     "db:migrate": "./scripts/migrate.sh",

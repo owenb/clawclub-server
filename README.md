@@ -1,14 +1,33 @@
 # ClawClub
 
-ClawClub is a private-members-network backend built for OpenClaw.
+**MIT-licensed open source software for agent-native private member networks.**
 
-It is the actual software product.
+ClawClub is the software layer.
+The value is in the network, the trust, the curation, and the people — not in keeping the code closed.
+
 Inside ClawClub, there can be many different private member networks, each with its own purpose, rules, and membership.
 **ConsciousClaw** is one example network inside ClawClub — the original spiritually oriented club that inspired the whole thing.
 
 This is **not** a public social network.
 It is **not** a dating app.
 It is a private, invitation-based system for helping aligned people find one another for friendship, collaboration, service, projects, opportunities, gatherings, and direct connection.
+
+## Why this exists
+
+Most community software assumes one of two models:
+- public audience building
+- generic workplace collaboration
+
+ClawClub is for neither.
+
+It is for curated, trust-based member networks where:
+- membership matters
+- introductions matter
+- context matters
+- private discovery matters
+- the interface can be conversational instead of form-heavy
+
+The design assumption is that an AI agent can be a better interface to a private network than a traditional dashboard full of tabs and filters.
 
 ## What ClawClub is for
 
@@ -32,6 +51,26 @@ The interface is primarily **agent-native**:
 - the agent talks to the ClawClub server
 - the server enforces hard permissions and network scope
 - there is no assumption of a public web UI
+
+## Open source stance
+
+ClawClub is being built as an **MIT-licensed open source project**.
+
+That means the code should be:
+- readable
+- self-hostable
+- inspectable
+- easy to extend
+- easy to eject from
+- useful even without a central hosted service
+
+The moat, if there is one, is not proprietary code.
+It is the quality of the network itself:
+- trust
+- taste
+- curation
+- relationships
+- culture
 
 ## Core product principles
 
@@ -76,6 +115,15 @@ ClawClub uses:
 - embeddings for semantic search and matching
 
 The goal is to avoid freezing the schema too early while still making reliable search, scoping, and policy enforcement possible.
+
+### 6. Keep the surface area small
+The product should use the fewest primitives and actions needed to express the real use cases.
+A smaller surface area makes the system:
+- easier to reason about
+- easier to test
+- easier to document
+- easier for agents to use well
+- easier to maintain in public
 
 ## Networks inside ClawClub
 
@@ -174,12 +222,25 @@ Important search behavior already agreed:
 - people/services should not be confused with opportunities
 - results should default to current/latest information, not raw historical dumps
 
-## Messaging and DMs
+## Messaging, alerts, and acknowledgement
 
 DMs are person-to-person.
 Two people may DM only when they share at least one network.
 
 When showing a DM, the system should reveal only the networks shared by both parties in that context — not unrelated memberships.
+
+Webhook delivery to each member’s OpenClaw is central to the design.
+
+Alerting should use a two-layer judgment model:
+1. central ClawClub agent/server decides whether something is relevant enough to send
+2. the member’s OpenClaw decides whether to surface it to the human
+
+ClawClub should track **agent acknowledgement**, not just reply state.
+A pending item remains unread/unacknowledged until the member’s agent either:
+- surfaces it to the human, or
+- suppresses it and records why
+
+That acknowledgement state should feed back into the shared response context for future requests.
 
 The system should store transcripts for:
 - debugging
@@ -202,16 +263,6 @@ Location should distinguish between:
 
 Presence updates and travel windows are expected to be important use cases.
 
-## Alerts and delivery
-
-Webhook delivery to each member’s OpenClaw is central to the design.
-
-Alerting should use a two-layer judgment model:
-1. central ClawClub agent/server decides whether something is relevant enough to send
-2. the member’s OpenClaw decides whether to surface it to the human
-
-Early bias: better to err slightly on the side of useful alerts than to suppress too much, while still avoiding spam.
-
 ## Architecture
 
 Current stack:
@@ -228,15 +279,15 @@ Likely security hardening later:
 
 ## Current code status
 
-The project is in **foundation stage**.
-It is real, but not yet end-to-end complete.
+ClawClub is **real but early**.
+It has moved beyond idea/spec stage and into actual implementation, but it is not yet a full product.
 
-What exists now:
+### What exists now
 - SQL migrations under `db/migrations/`
-- a schema covering members, profiles, networks, memberships, subscriptions, entities, entity versions, vouches/edges, transcripts, locations, media, embeddings, deliveries, and current/latest read views
-- a thin Node API skeleton
-- a single action endpoint: `POST /api`
-- bearer-scoped actor resolution
+- schema for members, profiles, networks, memberships, subscriptions, entities, entity versions, vouches/edges, transcripts, locations, media, embeddings, deliveries, and current/latest read views
+- thin Node API skeleton
+- single action endpoint: `POST /api`
+- hashed bearer-token auth with shared actor context returned on authenticated responses
 - initial actions:
   - `session.describe`
   - `members.search`
@@ -244,19 +295,82 @@ What exists now:
   - `profile.update`
   - `entities.create`
   - `entities.list`
+- token generation utility and CLI helper
+- ConsciousClaw seed script for the first real network/member bootstrap
 - tests for action routing and access scoping
 - shell scripts for migrate/status/smoke/pressure testing
 
-What is not complete yet:
-- real token/auth model beyond the first simple bearer pattern
-- broader profile workflows beyond the first read/update flow
-- entity creation/update flows
+### What is not complete yet
+- `entities.update` append-only versioning flow
+- event creation and RSVP actions
 - DM actions
-- event creation / RSVP actions through the API
+- delivery acknowledgement flow
 - webhook delivery end to end
 - embeddings generation/ranking pipeline
 - subscription/billing enforcement flows
 - full OpenClaw skill integration against the live server
+- polished first-user bootstrap walkthrough
+
+## If we announced this today
+
+The truthful framing would be:
+- the project is open source
+- the foundation is real
+- the product is under active construction
+- early adopters can inspect, follow, contribute, and self-host
+- it is not yet a finished public launch
+
+## Quickstart
+
+Requirements:
+- PostgreSQL 15+
+- `psql`
+- `DATABASE_URL`
+- Node.js 22+
+
+Setup:
+
+```bash
+cp .env.example .env
+npm install
+npm run db:migrate
+npm run db:seed:consciousclaw
+npm run api:test
+npm run api:start
+```
+
+Generate a bearer token for a member:
+
+```bash
+npm run api:token -- <member_id> [label]
+```
+
+Example request:
+
+```bash
+curl -s http://127.0.0.1:8787/api \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"session.describe","input":{}}'
+```
+
+## Demo path
+
+A minimal believable demo path today is:
+1. migrate the database
+2. seed ConsciousClaw
+3. mint a bearer token for the seeded member
+4. call `session.describe`
+5. call `profile.get`
+6. call `profile.update`
+7. call `entities.create`
+8. call `entities.list`
+
+That is enough to show:
+- real auth
+- real actor context
+- profile reads/writes
+- generic network content creation/listing
 
 ## Data model direction
 
@@ -274,7 +388,8 @@ The data model currently centers on these ideas:
 - **embeddings**: semantic matching layer
 
 Important design choices already made:
-- 12-character random IDs instead of UUIDs
+- Stripe-style compact IDs instead of UUIDs
+- one shared ID generation path
 - append-only versions where changes matter
 - soft-delete/archive rather than hard delete in normal flows
 - old versions hidden from ordinary users by default
@@ -307,44 +422,30 @@ Content-Type: application/json
 ## Repository layout
 
 ```text
-clawclub/
+.
 ├── db/
 │   └── migrations/
 ├── docs/
 ├── scripts/
 ├── src/
 ├── test/
+├── LICENSE
+├── README.md
+├── SKILL.md
 ├── covenant.md
 ├── notes.md
-├── use-cases.md
-└── SKILL.md
+└── use-cases.md
 ```
 
-## Running locally
+## Public repo hygiene
 
-Requirements:
-- PostgreSQL 15+
-- `psql`
-- `DATABASE_URL`
-
-Setup:
-
-```bash
-cp .env.example .env
-npm install
-npm run db:migrate
-npm run api:test
-npm run api:start
-```
-
-Other useful commands:
-
-```bash
-npm run db:status
-npm run db:smoke
-npm run db:pressure
-npm run db:seed:consciousclaw
-```
+This repository is intended to be public-facing.
+That means:
+- no workspace memory files
+- no private assistant state
+- no hidden local assumptions in docs
+- clear setup instructions
+- straightforward licensing
 
 ## Key supporting documents
 
@@ -360,18 +461,29 @@ The remaining documents are still useful for deeper detail:
 
 Over time, some of these may be reduced further as the README becomes the main canonical overview.
 
-## Short roadmap
+## Near-term roadmap
 
 The next practical implementation steps are:
-1. replace the auth placeholder with a proper bearer token model
-2. deepen profile flows beyond the first `profile.get` / `profile.update` actions
-3. add entity update/versioning actions on top of the shared `entities.*` surface
-4. add event + RSVP flows
-5. add DM/shared-network validation flows
-6. add delivery/webhook flows
-7. add embeddings-backed ranking and richer search
+1. add `entities.update` append-only versioning
+2. add event + RSVP flows
+3. add delivery acknowledgement and unread-context flow
+4. add DM/shared-network validation flows
+5. add webhook delivery flow end to end
+6. add embeddings-backed ranking and richer search
+7. tighten self-hosting/bootstrap docs
 8. connect the shared OpenClaw skill end to end
+
+## Contributing
+
+The code is open source because the project benefits from scrutiny, contribution, and self-hosting.
+If you want to contribute, the best early areas are likely to be:
+- API shape review
+- Postgres schema review
+- self-hosting/dev setup polish
+- event + RSVP flow
+- delivery acknowledgement design
+- documentation and examples
 
 ## Current status in one sentence
 
-ClawClub has a strong, real foundation and a clear spec; the remaining work is to turn that foundation into a fully usable private-network product.
+ClawClub has a real and growing implementation spine; the next phase is turning it from a strong foundation into a fully usable private-network product.
