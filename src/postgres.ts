@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { AppError, type ActorContext, type AuthResult, type CreateEntityInput, type CreateEventInput, type EntitySummary, type EventRsvpState, type EventSummary, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type Repository, type RsvpEventInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type CreateEntityInput, type CreateEventInput, type DeliveryAcknowledgement, type EntitySummary, type EventRsvpState, type EventSummary, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RsvpEventInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -112,6 +112,28 @@ type EventRow = {
   attendees: EventRsvpAttendeeRow[] | null;
 };
 
+type PendingDeliveryRow = {
+  id: string;
+  network_id: string;
+  entity_id: string | null;
+  entity_version_id: string | null;
+  transcript_message_id: string | null;
+  topic: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+  sent_at: string | null;
+};
+
+type DeliveryAcknowledgementRow = {
+  delivery_id: string;
+  network_id: string;
+  recipient_member_id: string;
+  state: DeliveryAcknowledgement['state'];
+  suppression_reason: string | null;
+  created_at: string;
+  created_by_member_id: string | null;
+};
+
 function mapActor(rows: ActorRow[]): ActorContext | null {
   if (rows.length === 0) {
     return null;
@@ -190,6 +212,60 @@ function mapEntityRow(row: EntityRow): EntitySummary {
     },
     createdAt: row.entity_created_at,
   };
+}
+
+function mapPendingDeliveryRow(row: PendingDeliveryRow): PendingDelivery {
+  return {
+    deliveryId: row.id,
+    networkId: row.network_id,
+    entityId: row.entity_id,
+    entityVersionId: row.entity_version_id,
+    transcriptMessageId: row.transcript_message_id,
+    topic: row.topic,
+    payload: row.payload ?? {},
+    createdAt: row.created_at,
+    sentAt: row.sent_at,
+  };
+}
+
+function mapDeliveryAcknowledgementRow(row: DeliveryAcknowledgementRow): DeliveryAcknowledgement {
+  return {
+    deliveryId: row.delivery_id,
+    networkId: row.network_id,
+    recipientMemberId: row.recipient_member_id,
+    state: row.state,
+    suppressionReason: row.suppression_reason,
+    createdAt: row.created_at,
+    createdByMemberId: row.created_by_member_id,
+  };
+}
+
+async function listPendingDeliveries(pool: Pool, actorMemberId: string, accessibleNetworkIds: string[]): Promise<PendingDelivery[]> {
+  if (accessibleNetworkIds.length === 0) {
+    return [];
+  }
+
+  const result = await pool.query<PendingDeliveryRow>(
+    `
+      select
+        pd.id,
+        pd.network_id,
+        pd.entity_id,
+        pd.entity_version_id,
+        pd.transcript_message_id,
+        pd.topic,
+        pd.payload,
+        pd.created_at::text as created_at,
+        pd.sent_at::text as sent_at
+      from app.pending_deliveries pd
+      where pd.recipient_member_id = $1
+        and pd.network_id = any($2::app.short_id[])
+      order by coalesce(pd.sent_at, pd.created_at) asc, pd.id asc
+    `,
+    [actorMemberId, accessibleNetworkIds],
+  );
+
+  return result.rows.map(mapPendingDeliveryRow);
 }
 
 function mapEventRow(row: EventRow): EventSummary {
@@ -483,11 +559,17 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         return null;
       }
 
+      const activeNetworkIds = actor.memberships.map((membership) => membership.networkId);
+      const pendingDeliveries = await listPendingDeliveries(pool, actor.member.id, activeNetworkIds);
+
       return {
         actor,
         requestScope: {
           requestedNetworkId: null,
-          activeNetworkIds: actor.memberships.map((membership) => membership.networkId),
+          activeNetworkIds,
+        },
+        sharedContext: {
+          pendingDeliveries,
         },
       };
     },
@@ -913,6 +995,68 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
         await client.query('commit');
         return await readEventSummary(pool, input.actorMemberId, input.eventEntityId);
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+
+    async acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+
+        const deliveryResult = await client.query<{ id: string; network_id: string; recipient_member_id: string }>(
+          `
+            select d.id, d.network_id, d.recipient_member_id
+            from app.pending_deliveries d
+            where d.id = $1
+              and d.recipient_member_id = $2
+              and d.network_id = any($3::app.short_id[])
+          `,
+          [input.deliveryId, input.actorMemberId, input.accessibleNetworkIds],
+        );
+
+        const delivery = deliveryResult.rows[0];
+        if (!delivery) {
+          await client.query('rollback');
+          return null;
+        }
+
+        const ackResult = await client.query<DeliveryAcknowledgementRow>(
+          `
+            insert into app.delivery_acknowledgements (
+              delivery_id,
+              recipient_member_id,
+              network_id,
+              state,
+              suppression_reason,
+              created_by_member_id
+            )
+            values ($1, $2, $3, $4, $5, $6)
+            on conflict (delivery_id, recipient_member_id) do update
+            set state = excluded.state,
+                suppression_reason = excluded.suppression_reason,
+                network_id = excluded.network_id,
+                created_at = now(),
+                created_by_member_id = excluded.created_by_member_id
+            returning delivery_id, network_id, recipient_member_id, state, suppression_reason, created_at::text, created_by_member_id
+          `,
+          [
+            delivery.id,
+            delivery.recipient_member_id,
+            delivery.network_id,
+            input.state,
+            input.state === 'suppressed' ? input.suppressionReason ?? null : null,
+            input.actorMemberId,
+          ],
+        );
+
+        await client.query('commit');
+        return ackResult.rows[0] ? mapDeliveryAcknowledgementRow(ackResult.rows[0]) : null;
       } catch (error) {
         await client.query('rollback');
         throw error;

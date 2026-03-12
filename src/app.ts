@@ -25,9 +25,26 @@ export type RequestScope = {
   activeNetworkIds: string[];
 };
 
+export type PendingDelivery = {
+  deliveryId: string;
+  networkId: string;
+  entityId: string | null;
+  entityVersionId: string | null;
+  transcriptMessageId: string | null;
+  topic: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  sentAt: string | null;
+};
+
+export type SharedResponseContext = {
+  pendingDeliveries: PendingDelivery[];
+};
+
 export type AuthResult = {
   actor: ActorContext;
   requestScope: RequestScope;
+  sharedContext: SharedResponseContext;
 };
 
 export type MemberSearchResult = {
@@ -197,6 +214,26 @@ export type ListEntitiesInput = {
   limit: number;
 };
 
+export type DeliveryAckState = 'shown' | 'suppressed';
+
+export type AcknowledgeDeliveryInput = {
+  actorMemberId: string;
+  accessibleNetworkIds: string[];
+  deliveryId: string;
+  state: DeliveryAckState;
+  suppressionReason?: string | null;
+};
+
+export type DeliveryAcknowledgement = {
+  deliveryId: string;
+  networkId: string;
+  recipientMemberId: string;
+  state: DeliveryAckState;
+  suppressionReason: string | null;
+  createdAt: string;
+  createdByMemberId: string | null;
+};
+
 export type UpdateEntityInput = {
   actorMemberId: string;
   accessibleNetworkIds: string[];
@@ -225,6 +262,7 @@ export type Repository = {
   createEvent(input: CreateEventInput): Promise<EventSummary>;
   listEvents(input: ListEventsInput): Promise<EventSummary[]>;
   rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null>;
+  acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null>;
 };
 
 export class AppError extends Error {
@@ -425,6 +463,7 @@ function buildSuccessResponse(input: {
   action: string;
   actor: ActorContext;
   requestScope: RequestScope;
+  sharedContext: SharedResponseContext;
   data: unknown;
 }) {
   return {
@@ -433,6 +472,7 @@ function buildSuccessResponse(input: {
       member: input.actor.member,
       activeMemberships: input.actor.memberships,
       requestScope: input.requestScope,
+      sharedContext: input.sharedContext,
     },
     data: input.data,
   };
@@ -456,6 +496,7 @@ export function buildApp({ repository }: { repository: Repository }) {
       }
 
       const actor = auth.actor;
+      const sharedContext = auth.sharedContext;
 
       switch (action) {
         case 'session.describe':
@@ -463,6 +504,7 @@ export function buildApp({ repository }: { repository: Repository }) {
             action,
             actor,
             requestScope: auth.requestScope,
+            sharedContext,
             data: {
               member: actor.member,
               accessibleNetworks: actor.memberships,
@@ -502,6 +544,7 @@ export function buildApp({ repository }: { repository: Repository }) {
             action,
             actor,
             requestScope,
+            sharedContext,
             data: {
               query,
               limit,
@@ -526,6 +569,7 @@ export function buildApp({ repository }: { repository: Repository }) {
             action,
             actor,
             requestScope: auth.requestScope,
+            sharedContext,
             data: profile,
           });
         }
@@ -545,6 +589,7 @@ export function buildApp({ repository }: { repository: Repository }) {
               memberships: actor.memberships,
             },
             requestScope: auth.requestScope,
+            sharedContext,
             data: updatedProfile,
           });
         }
@@ -569,6 +614,7 @@ export function buildApp({ repository }: { repository: Repository }) {
               requestedNetworkId: network.networkId,
               activeNetworkIds: [network.networkId],
             },
+            sharedContext,
             data: { entity },
           });
         }
@@ -597,6 +643,7 @@ export function buildApp({ repository }: { repository: Repository }) {
               requestedNetworkId: entity.networkId,
               activeNetworkIds: [entity.networkId],
             },
+            sharedContext,
             data: { entity },
           });
         }
@@ -625,6 +672,7 @@ export function buildApp({ repository }: { repository: Repository }) {
               requestedNetworkId: network.networkId,
               activeNetworkIds: [network.networkId],
             },
+            sharedContext,
             data: { event },
           });
         }
@@ -656,6 +704,7 @@ export function buildApp({ repository }: { repository: Repository }) {
                 typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
               activeNetworkIds: networkIds,
             },
+            sharedContext,
             data: {
               limit,
               networkScope,
@@ -688,7 +737,45 @@ export function buildApp({ repository }: { repository: Repository }) {
               requestedNetworkId: event.networkId,
               activeNetworkIds: [event.networkId],
             },
+            sharedContext,
             data: { event },
+          });
+        }
+
+
+        case 'deliveries.acknowledge': {
+          const deliveryId = requireNonEmptyString(payload.deliveryId, 'deliveryId');
+          const state = payload.state === 'shown' || payload.state === 'suppressed' ? payload.state : null;
+
+          if (!state) {
+            throw new AppError(400, 'invalid_input', 'state must be one of: shown, suppressed');
+          }
+
+          const acknowledgement = await repository.acknowledgeDelivery({
+            actorMemberId: actor.member.id,
+            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            deliveryId,
+            state,
+            suppressionReason: normalizeOptionalString(payload.suppressionReason, 'suppressionReason'),
+          });
+
+          if (!acknowledgement) {
+            throw new AppError(404, 'not_found', 'Delivery not found inside the actor scope');
+          }
+
+          const remainingPendingDeliveries = sharedContext.pendingDeliveries.filter((delivery) => delivery.deliveryId !== acknowledgement.deliveryId);
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: acknowledgement.networkId,
+              activeNetworkIds: [acknowledgement.networkId],
+            },
+            sharedContext: {
+              pendingDeliveries: remainingPendingDeliveries,
+            },
+            data: { acknowledgement },
           });
         }
 
@@ -720,6 +807,7 @@ export function buildApp({ repository }: { repository: Repository }) {
                 typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
               activeNetworkIds: networkIds,
             },
+            sharedContext,
             data: {
               kinds,
               limit,

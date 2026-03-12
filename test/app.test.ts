@@ -6,6 +6,7 @@ import {
   type ActorContext,
   type AuthResult,
   type CreateEntityInput,
+  type DeliveryAcknowledgement,
   type EntitySummary,
   type EventSummary,
   type ListEntitiesInput,
@@ -14,6 +15,7 @@ import {
   type RsvpEventInput,
   type UpdateEntityInput,
   type MemberSearchResult,
+  type PendingDelivery,
   type Repository,
   type UpdateOwnProfileInput,
 } from '../src/app.ts';
@@ -62,6 +64,37 @@ function makeAuthResult(): AuthResult {
       requestedNetworkId: null,
       activeNetworkIds: actor.memberships.map((membership) => membership.networkId),
     },
+    sharedContext: {
+      pendingDeliveries: [makePendingDelivery()],
+    },
+  };
+}
+
+function makePendingDelivery(overrides: Partial<PendingDelivery> = {}): PendingDelivery {
+  return {
+    deliveryId: 'delivery-1',
+    networkId: 'network-1',
+    entityId: 'entity-1',
+    entityVersionId: 'entity-version-1',
+    transcriptMessageId: null,
+    topic: 'entity.published',
+    payload: { hello: 'world' },
+    createdAt: '2026-03-12T00:00:00Z',
+    sentAt: '2026-03-12T00:01:00Z',
+    ...overrides,
+  };
+}
+
+function makeDeliveryAcknowledgement(overrides: Partial<DeliveryAcknowledgement> = {}): DeliveryAcknowledgement {
+  return {
+    deliveryId: 'delivery-1',
+    networkId: 'network-1',
+    recipientMemberId: 'member-1',
+    state: 'shown',
+    suppressionReason: null,
+    createdAt: '2026-03-12T00:02:00Z',
+    createdByMemberId: 'member-1',
+    ...overrides,
   };
 }
 
@@ -190,6 +223,9 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async rsvpEvent() {
       return makeEvent();
     },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -211,6 +247,8 @@ test('session.describe returns the current member and accessible networks', asyn
     result.data.accessibleNetworks.map((network) => network.networkId),
     ['network-1', 'network-2'],
   );
+  assert.equal(result.actor.sharedContext.pendingDeliveries.length, 1);
+  assert.equal(result.actor.sharedContext.pendingDeliveries[0]?.deliveryId, 'delivery-1');
 });
 
 test('members.search narrows scope when a permitted network is requested', async () => {
@@ -244,6 +282,9 @@ test('members.search narrows scope when a permitted network is requested', async
     },
     async rsvpEvent() {
       return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
     },
     async listEntities() {
       return [makeEntity()];
@@ -300,6 +341,9 @@ test('profile.get defaults to the actor member id', async () => {
     async rsvpEvent() {
       return makeEvent();
     },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -354,6 +398,9 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     },
     async rsvpEvent() {
       return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
     },
     async listEntities() {
       return [makeEntity()];
@@ -433,6 +480,9 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     },
     async rsvpEvent() {
       return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
     },
     async listEntities() {
       return [makeEntity()];
@@ -646,6 +696,9 @@ test('events.create writes the smallest sane event payload', async () => {
     async rsvpEvent() {
       return makeEvent();
     },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -715,6 +768,9 @@ test('events.list stays inside accessible scope', async () => {
     },
     async rsvpEvent() {
       return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
     },
     async listEntities() {
       return [makeEntity()];
@@ -919,6 +975,9 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     async rsvpEvent() {
       return makeEvent();
     },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -960,6 +1019,135 @@ test('profile.update rejects invalid handles', async () => {
       assert.ok(error instanceof AppError);
       assert.equal(error.statusCode, 400);
       assert.equal(error.code, 'invalid_input');
+      return true;
+    },
+  );
+});
+
+test('deliveries.acknowledge derives scope server-side and removes the item from shared context', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async acknowledgeDelivery(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeDeliveryAcknowledgement({
+        deliveryId: 'delivery-1',
+        networkId: 'network-2',
+        state: 'suppressed',
+        suppressionReason: 'too noisy right now',
+      });
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.acknowledge',
+    payload: {
+      deliveryId: 'delivery-1',
+      state: 'suppressed',
+      suppressionReason: 'too noisy right now',
+      networkId: 'network-999',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-1', 'network-2'],
+    deliveryId: 'delivery-1',
+    state: 'suppressed',
+    suppressionReason: 'too noisy right now',
+  });
+  assert.equal(result.action, 'deliveries.acknowledge');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.deepEqual(result.actor.sharedContext.pendingDeliveries, []);
+  assert.equal(result.data.acknowledgement.state, 'suppressed');
+  assert.equal(result.data.acknowledgement.suppressionReason, 'too noisy right now');
+});
+
+test('deliveries.acknowledge returns 404 when the delivery is outside actor scope', async () => {
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return null;
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+
+  await assert.rejects(
+    () =>
+      app.handleAction({
+        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+        action: 'deliveries.acknowledge',
+        payload: {
+          deliveryId: 'delivery-404',
+          state: 'shown',
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 404);
+      assert.equal(error.code, 'not_found');
       return true;
     },
   );
