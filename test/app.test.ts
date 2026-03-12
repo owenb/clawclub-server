@@ -2322,6 +2322,140 @@ test('tokens.revoke only revokes actor-owned tokens', async () => {
   assert.equal(result.data.token.revokedAt, '2026-03-12T01:00:00Z');
 });
 
+test('deliveries.attempts scopes operator inspection by network, endpoint, member, and status', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async listDeliveryAttempts(input) {
+      capturedInput = input as Record<string, unknown>;
+      return [
+        {
+          attempt: {
+            attemptId: 'attempt-9',
+            deliveryId: 'delivery-9',
+            networkId: 'network-2',
+            endpointId: 'endpoint-9',
+            workerKey: 'worker-b',
+            status: 'failed',
+            attemptNo: 3,
+            responseStatusCode: 503,
+            responseBody: 'upstream unavailable',
+            errorMessage: 'upstream unavailable',
+            startedAt: '2026-03-12T00:10:00Z',
+            finishedAt: '2026-03-12T00:10:03Z',
+            createdByMemberId: 'member-1',
+          },
+          delivery: {
+            deliveryId: 'delivery-9',
+            networkId: 'network-2',
+            recipientMemberId: 'member-9',
+            endpointId: 'endpoint-9',
+            topic: 'transcript.message.created',
+            status: 'failed',
+            attemptCount: 3,
+            scheduledAt: '2026-03-12T00:09:00Z',
+            sentAt: null,
+            failedAt: '2026-03-12T00:10:03Z',
+            lastError: 'upstream unavailable',
+            createdAt: '2026-03-12T00:09:00Z',
+            recipient: {
+              memberId: 'member-9',
+              publicName: 'Member Nine',
+              handle: 'member-nine',
+            },
+          },
+        },
+      ];
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async listDirectMessageInbox() {
+      return [makeDirectMessageInbox()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.attempts',
+    payload: {
+      networkId: 'network-2',
+      endpointId: 'endpoint-9',
+      recipientMemberId: 'member-9',
+      status: 'failed',
+      limit: 4,
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkIds: ['network-2'],
+    limit: 4,
+    endpointId: 'endpoint-9',
+    recipientMemberId: 'member-9',
+    status: 'failed',
+  });
+  assert.equal(result.action, 'deliveries.attempts');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.equal(result.data.filters.endpointId, 'endpoint-9');
+  assert.equal(result.data.filters.recipientMemberId, 'member-9');
+  assert.equal(result.data.filters.status, 'failed');
+  assert.equal(result.data.results[0]?.attempt.attemptId, 'attempt-9');
+  assert.equal(result.data.results[0]?.delivery.recipient.publicName, 'Member Nine');
+});
+
 test('deliveries.list stays inside accessible scope and can filter pending receipts', async () => {
   let capturedInput: ListDeliveriesInput | null = null;
 

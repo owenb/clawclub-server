@@ -358,6 +358,89 @@ test('postgres repository projects actor scope into the db session before inbox 
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
+test('postgres repository lists delivery attempts with operator filters inside actor scope', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('from app.delivery_attempts da')) {
+        return {
+          rows: [
+            {
+              attempt_id: 'attempt-1',
+              delivery_id: 'delivery-1',
+              network_id: 'network-2',
+              endpoint_id: 'endpoint-2',
+              worker_key: 'worker-a',
+              status: 'failed',
+              attempt_no: 2,
+              response_status_code: 503,
+              response_body: 'upstream unavailable',
+              error_message: 'upstream unavailable',
+              started_at: '2026-03-12T00:04:00Z',
+              finished_at: '2026-03-12T00:04:03Z',
+              created_by_member_id: 'member-1',
+              delivery_network_id: 'network-2',
+              delivery_recipient_member_id: 'member-2',
+              recipient_public_name: 'Member Two',
+              recipient_handle: 'member-two',
+              delivery_topic: 'transcript.message.created',
+              delivery_status: 'failed',
+              delivery_attempt_count: 2,
+              delivery_scheduled_at: '2026-03-12T00:03:00Z',
+              delivery_sent_at: null,
+              delivery_failed_at: '2026-03-12T00:04:03Z',
+              delivery_last_error: 'upstream unavailable',
+              delivery_created_at: '2026-03-12T00:03:00Z',
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const pool = {
+    async connect() {
+      return client;
+    },
+  };
+
+  const repository = createPostgresRepository({ pool: pool as any });
+  const results = await repository.listDeliveryAttempts({
+    actorMemberId: 'member-1',
+    networkIds: ['network-2'],
+    endpointId: 'endpoint-2',
+    recipientMemberId: 'member-2',
+    status: 'failed',
+    limit: 5,
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.attempt.attemptId, 'attempt-1');
+  assert.equal(results[0]?.delivery.recipient.publicName, 'Member Two');
+  assert.equal(results[0]?.delivery.topic, 'transcript.message.created');
+  assert.equal(calls[0]?.sql, 'begin');
+  assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
+  assert.deepEqual(calls[1]?.params, ['member-1', 'network-2']);
+  assert.match(calls[2]?.sql ?? '', /from app\.delivery_attempts da/);
+  assert.deepEqual(calls[2]?.params, [['network-2'], 'endpoint-2', 'member-2', 'failed', 5]);
+  assert.equal(calls.at(-1)?.sql, 'commit');
+});
+
 test('postgres repository projects actor scope into the db session before delivery reads', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

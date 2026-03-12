@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -200,6 +200,21 @@ type DeliveryAttemptRow = {
   started_at: string;
   finished_at: string | null;
   created_by_member_id: string | null;
+};
+
+type DeliveryAttemptInspectionRow = DeliveryAttemptRow & {
+  delivery_network_id: string;
+  delivery_recipient_member_id: string;
+  recipient_public_name: string;
+  recipient_handle: string | null;
+  delivery_topic: string;
+  delivery_status: DeliverySummary['status'];
+  delivery_attempt_count: number;
+  delivery_scheduled_at: string;
+  delivery_sent_at: string | null;
+  delivery_failed_at: string | null;
+  delivery_last_error: string | null;
+  delivery_created_at: string;
 };
 
 type DirectMessageRow = {
@@ -469,6 +484,31 @@ function mapDeliveryAttemptRow(row: DeliveryAttemptRow): DeliveryAttemptSummary 
   };
 }
 
+function mapDeliveryAttemptInspectionRow(row: DeliveryAttemptInspectionRow): DeliveryAttemptInspection {
+  return {
+    attempt: mapDeliveryAttemptRow(row),
+    delivery: {
+      deliveryId: row.delivery_id,
+      networkId: row.delivery_network_id,
+      recipientMemberId: row.delivery_recipient_member_id,
+      endpointId: row.endpoint_id,
+      topic: row.delivery_topic,
+      status: row.delivery_status,
+      attemptCount: Number(row.delivery_attempt_count),
+      scheduledAt: row.delivery_scheduled_at,
+      sentAt: row.delivery_sent_at,
+      failedAt: row.delivery_failed_at,
+      lastError: row.delivery_last_error,
+      createdAt: row.delivery_created_at,
+      recipient: {
+        memberId: row.delivery_recipient_member_id,
+        publicName: row.recipient_public_name,
+        handle: row.recipient_handle,
+      },
+    },
+  };
+}
+
 function mapDirectMessageRow(row: DirectMessageRow): DirectMessageSummary {
   return {
     threadId: row.thread_id,
@@ -668,6 +708,55 @@ async function listDeliveries(client: DbClient, input: ListDeliveriesInput): Pro
   );
 
   return result.rows.map(mapDeliverySummaryRow);
+}
+
+async function listDeliveryAttempts(client: DbClient, input: ListDeliveryAttemptsInput): Promise<DeliveryAttemptInspection[]> {
+  if (input.networkIds.length === 0) {
+    return [];
+  }
+
+  const result = await client.query<DeliveryAttemptInspectionRow>(
+    `
+      select
+        da.id as attempt_id,
+        da.delivery_id,
+        da.network_id,
+        da.endpoint_id,
+        da.worker_key,
+        da.status,
+        da.attempt_no,
+        da.response_status_code,
+        da.response_body,
+        da.error_message,
+        da.started_at::text as started_at,
+        da.finished_at::text as finished_at,
+        da.created_by_member_id,
+        d.network_id as delivery_network_id,
+        d.recipient_member_id as delivery_recipient_member_id,
+        m.public_name as recipient_public_name,
+        m.handle as recipient_handle,
+        d.topic as delivery_topic,
+        d.status as delivery_status,
+        d.attempt_count as delivery_attempt_count,
+        d.scheduled_at::text as delivery_scheduled_at,
+        d.sent_at::text as delivery_sent_at,
+        d.failed_at::text as delivery_failed_at,
+        d.last_error as delivery_last_error,
+        d.created_at::text as delivery_created_at
+      from app.delivery_attempts da
+      join app.deliveries d on d.id = da.delivery_id
+      join app.members m on m.id = d.recipient_member_id
+      where d.network_id = any($1::app.short_id[])
+        and ($2::app.short_id is null or da.endpoint_id = $2)
+        and ($3::app.short_id is null or d.recipient_member_id = $3)
+        and ($4::app.delivery_status is null or da.status = $4)
+      order by da.started_at desc, da.delivery_id desc, da.attempt_no desc
+      limit $5
+    `,
+    [input.networkIds, input.endpointId ?? null, input.recipientMemberId ?? null, input.status ?? null, input.limit],
+  );
+
+  return result.rows.map(mapDeliveryAttemptInspectionRow);
 }
 
 function mapEventRow(row: EventRow): EventSummary {
@@ -1790,6 +1879,10 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
     async listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]> {
       return withActorContext(pool, input.actorMemberId, input.networkIds, (client) => listDeliveries(client, input));
+    },
+
+    async listDeliveryAttempts(input: ListDeliveryAttemptsInput): Promise<DeliveryAttemptInspection[]> {
+      return withActorContext(pool, input.actorMemberId, input.networkIds, (client) => listDeliveryAttempts(client, input));
     },
 
     async retryDelivery(input: RetryDeliveryInput): Promise<DeliverySummary | null> {

@@ -311,6 +311,27 @@ export type ListDeliveriesInput = {
   pendingOnly: boolean;
 };
 
+export type ListDeliveryAttemptsInput = {
+  actorMemberId: string;
+  networkIds: string[];
+  limit: number;
+  endpointId?: string;
+  recipientMemberId?: string;
+  status?: DeliveryAttemptSummary['status'];
+};
+
+export type DeliveryAttemptInspection = {
+  attempt: DeliveryAttemptSummary;
+  delivery: Pick<DeliverySummary, 'networkId' | 'recipientMemberId' | 'endpointId' | 'topic' | 'status' | 'attemptCount' | 'scheduledAt' | 'sentAt' | 'failedAt' | 'lastError' | 'createdAt'> & {
+    deliveryId: string;
+    recipient: {
+      memberId: string;
+      publicName: string;
+      handle: string | null;
+    };
+  };
+};
+
 export type RetryDeliveryInput = {
   actorMemberId: string;
   accessibleNetworkIds: string[];
@@ -472,6 +493,7 @@ export type Repository = {
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
   acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null>;
   listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]>;
+  listDeliveryAttempts(input: ListDeliveryAttemptsInput): Promise<DeliveryAttemptInspection[]>;
   retryDelivery(input: RetryDeliveryInput): Promise<DeliverySummary | null>;
   claimNextDelivery(input: ClaimDeliveryInput): Promise<ClaimedDelivery | null>;
   completeDeliveryAttempt(input: CompleteDeliveryAttemptInput): Promise<ClaimedDelivery | null>;
@@ -659,6 +681,22 @@ function normalizeEntityPatch(payload: Record<string, unknown>): UpdateEntityInp
   }
 
   return patch;
+}
+
+function isDeliveryAttemptStatus(value: unknown): value is DeliveryAttemptSummary['status'] {
+  return value === 'processing' || value === 'sent' || value === 'failed' || value === 'canceled';
+}
+
+function normalizeOptionalDeliveryAttemptStatus(value: unknown): DeliveryAttemptSummary['status'] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!isDeliveryAttemptStatus(value)) {
+    throw new AppError(400, 'invalid_input', 'status must be one of: processing, sent, failed, canceled');
+  }
+
+  return value;
 }
 
 function normalizeOptionalInteger(value: unknown, field: string): number | null | undefined {
@@ -1104,6 +1142,54 @@ export function buildApp({ repository }: { repository: Repository }) {
             data: {
               limit,
               pendingOnly,
+              networkScope,
+              results,
+            },
+          });
+        }
+
+        case 'deliveries.attempts': {
+          const limit = normalizeLimit(payload.limit);
+          let networkScope = actor.memberships;
+
+          if (payload.networkId !== undefined) {
+            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
+          }
+
+          if (networkScope.length === 0) {
+            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
+          }
+
+          const networkIds = networkScope.map((network) => network.networkId);
+          const endpointId = payload.endpointId === undefined ? undefined : requireNonEmptyString(payload.endpointId, 'endpointId');
+          const recipientMemberId =
+            payload.recipientMemberId === undefined ? undefined : requireNonEmptyString(payload.recipientMemberId, 'recipientMemberId');
+          const status = normalizeOptionalDeliveryAttemptStatus(payload.status);
+          const results = await repository.listDeliveryAttempts({
+            actorMemberId: actor.member.id,
+            networkIds,
+            limit,
+            endpointId,
+            recipientMemberId,
+            status,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId:
+                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
+              activeNetworkIds: networkIds,
+            },
+            sharedContext,
+            data: {
+              limit,
+              filters: {
+                endpointId: endpointId ?? null,
+                recipientMemberId: recipientMemberId ?? null,
+                status: status ?? null,
+              },
               networkScope,
               results,
             },
