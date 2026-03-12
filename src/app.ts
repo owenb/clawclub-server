@@ -61,6 +61,20 @@ export type MemberSearchResult = {
   sharedNetworks: Array<{ id: string; slug: string; name: string }>;
 };
 
+export type NetworkMemberSummary = {
+  memberId: string;
+  publicName: string;
+  displayName: string;
+  handle: string | null;
+  tagline: string | null;
+  summary: string | null;
+  whatIDo: string | null;
+  knownFor: string | null;
+  servicesSummary: string | null;
+  websiteUrl: string | null;
+  memberships: MembershipSummary[];
+};
+
 export type MemberProfile = {
   memberId: string;
   publicName: string;
@@ -388,6 +402,10 @@ export type Repository = {
     query: string;
     limit: number;
   }): Promise<MemberSearchResult[]>;
+  listMembers(input: {
+    networkIds: string[];
+    limit: number;
+  }): Promise<NetworkMemberSummary[]>;
   getMemberProfile(input: { actorMemberId: string; targetMemberId: string }): Promise<MemberProfile | null>;
   updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
@@ -708,6 +726,41 @@ export function buildApp({ repository }: { repository: Repository }) {
               query,
               limit,
               networkScope: actor.memberships.filter((network) => networkIds.includes(network.networkId)),
+              results,
+            },
+          });
+        }
+
+        case 'members.list': {
+          const limit = normalizeLimit(payload.limit);
+          let networkScope = actor.memberships;
+
+          if (payload.networkId !== undefined) {
+            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
+          }
+
+          if (networkScope.length === 0) {
+            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
+          }
+
+          const networkIds = networkScope.map((network) => network.networkId);
+          const results = await repository.listMembers({
+            networkIds,
+            limit,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId:
+                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
+              activeNetworkIds: networkIds,
+            },
+            sharedContext,
+            data: {
+              limit,
+              networkScope,
               results,
             },
           });

@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -30,6 +30,20 @@ type SearchRow = {
   services_summary: string | null;
   website_url: string | null;
   shared_networks: Array<{ id: string; slug: string; name: string }> | null;
+};
+
+type MemberListRow = {
+  member_id: string;
+  public_name: string;
+  display_name: string;
+  handle: string | null;
+  tagline: string | null;
+  summary: string | null;
+  what_i_do: string | null;
+  known_for: string | null;
+  services_summary: string | null;
+  website_url: string | null;
+  memberships: MembershipSummary[] | null;
 };
 
 type ProfileRow = {
@@ -625,6 +639,22 @@ async function getActorByMemberId(pool: Pool, memberId: string): Promise<ActorCo
   return mapActor(result.rows);
 }
 
+function mapMemberListRow(row: MemberListRow): NetworkMemberSummary {
+  return {
+    memberId: row.member_id,
+    publicName: row.public_name,
+    displayName: row.display_name,
+    handle: row.handle,
+    tagline: row.tagline,
+    summary: row.summary,
+    whatIDo: row.what_i_do,
+    knownFor: row.known_for,
+    servicesSummary: row.services_summary,
+    websiteUrl: row.website_url,
+    memberships: row.memberships ?? [],
+  };
+}
+
 async function readMemberProfile(client: DbClient, actorMemberId: string, targetMemberId: string): Promise<MemberProfile | null> {
   const result = await client.query<ProfileRow>(
     `
@@ -1155,6 +1185,54 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         websiteUrl: row.website_url,
         sharedNetworks: row.shared_networks ?? [],
       }));
+    },
+
+    async listMembers({ networkIds, limit }) {
+      const result = await pool.query<MemberListRow>(
+        `
+          with scope as (
+            select unnest($1::text[])::app.short_id as network_id
+          )
+          select
+            m.id as member_id,
+            m.public_name,
+            coalesce(cmp.display_name, m.public_name) as display_name,
+            m.handle,
+            cmp.tagline,
+            cmp.summary,
+            cmp.what_i_do,
+            cmp.known_for,
+            cmp.services_summary,
+            cmp.website_url,
+            jsonb_agg(
+              distinct jsonb_build_object(
+                'membershipId', anm.id,
+                'networkId', anm.network_id,
+                'slug', n.slug,
+                'name', n.name,
+                'summary', n.summary,
+                'manifestoMarkdown', n.manifesto_markdown,
+                'role', anm.role,
+                'status', anm.status,
+                'sponsorMemberId', anm.sponsor_member_id,
+                'joinedAt', anm.joined_at::text
+              )
+            ) filter (where anm.id is not null) as memberships
+          from scope s
+          join app.accessible_network_memberships anm on anm.network_id = s.network_id
+          join app.members m on m.id = anm.member_id and m.state = 'active'
+          join app.networks n on n.id = anm.network_id and n.archived_at is null
+          left join app.current_member_profiles cmp on cmp.member_id = m.id
+          group by
+            m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline, cmp.summary,
+            cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
+          order by min(n.name) asc, display_name asc, m.id asc
+          limit $2
+        `,
+        [networkIds, limit],
+      );
+
+      return result.rows.map(mapMemberListRow);
     },
 
     async getMemberProfile({ actorMemberId, targetMemberId }) {

@@ -2,6 +2,64 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPostgresRepository } from '../src/postgres.ts';
 
+test('postgres repository lists active members with scoped membership context', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const pool = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql.includes('jsonb_agg(') && sql.includes('as memberships')) {
+        return {
+          rows: [
+            {
+              member_id: 'member-2',
+              public_name: 'Member Two',
+              display_name: 'Member Two',
+              handle: 'member-two',
+              tagline: 'Ships things',
+              summary: 'Helpful builder',
+              what_i_do: 'Backend systems',
+              known_for: 'Moving fast without chaos',
+              services_summary: 'Advisory',
+              website_url: 'https://example.test/two',
+              memberships: [
+                {
+                  membershipId: 'membership-2',
+                  networkId: 'network-2',
+                  slug: 'beta',
+                  name: 'Beta',
+                  summary: 'Second network',
+                  manifestoMarkdown: null,
+                  role: 'member',
+                  status: 'active',
+                  sponsorMemberId: 'member-1',
+                  joinedAt: '2026-03-12T00:00:00Z',
+                },
+              ],
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+
+  const repository = createPostgresRepository({ pool: pool as any });
+  const results = await repository.listMembers({
+    networkIds: ['network-2'],
+    limit: 5,
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.memberId, 'member-2');
+  assert.equal(results[0]?.memberships[0]?.networkId, 'network-2');
+  assert.match(calls[0]?.sql ?? '', /join app\.accessible_network_memberships anm/);
+  assert.deepEqual(calls[0]?.params, [['network-2'], 5]);
+});
+
 test('postgres repository projects actor scope into the db session before dm reads', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

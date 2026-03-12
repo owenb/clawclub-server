@@ -20,6 +20,7 @@ import {
   type ListEntitiesInput,
   type ListEventsInput,
   type MemberProfile,
+  type NetworkMemberSummary,
   type RsvpEventInput,
   type UpdateEntityInput,
   type MemberSearchResult,
@@ -214,6 +215,23 @@ function makeDirectMessageTranscriptEntry(
   };
 }
 
+function makeNetworkMember(overrides: Partial<NetworkMemberSummary> = {}): NetworkMemberSummary {
+  return {
+    memberId: 'member-1',
+    publicName: 'Member One',
+    displayName: 'Member One',
+    handle: 'member-one',
+    tagline: 'Building warm things',
+    summary: 'Short summary',
+    whatIDo: 'Engineering and facilitation',
+    knownFor: 'Bringing people together',
+    servicesSummary: 'Advisory and product strategy',
+    websiteUrl: 'https://example.test',
+    memberships: [makeActor().memberships[0]!],
+    ...overrides,
+  };
+}
+
 function makeProfile(memberId = 'member-1'): MemberProfile {
   return {
     memberId,
@@ -318,6 +336,9 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async searchMembers() {
       return results;
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile({ targetMemberId }) {
       return makeProfile(targetMemberId);
     },
@@ -405,6 +426,9 @@ test('members.search narrows scope when a permitted network is requested', async
       capturedNetworkIds = networkIds;
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -479,6 +503,105 @@ test('members.search narrows scope when a permitted network is requested', async
   assert.equal(result.data.networkScope[0]?.networkId, 'network-2');
 });
 
+test('members.list returns active members with scoped membership context', async () => {
+  let capturedInput: { networkIds: string[]; limit: number } | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async listMembers(input) {
+      capturedInput = input;
+      return [
+        makeNetworkMember({
+          memberId: 'member-2',
+          publicName: 'Member Two',
+          displayName: 'Member Two',
+          handle: 'member-two',
+          memberships: [makeActor().memberships[1]!],
+        }),
+      ];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async listDirectMessageInbox() {
+      return [makeDirectMessageInbox()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'members.list',
+    payload: {
+      networkId: 'network-2',
+      limit: 4,
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    networkIds: ['network-2'],
+    limit: 4,
+  });
+  assert.equal(result.action, 'members.list');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
+  assert.equal(result.data.results[0]?.memberId, 'member-2');
+  assert.equal(result.data.results[0]?.memberships[0]?.networkId, 'network-2');
+});
+
 test('profile.get defaults to the actor member id', async () => {
   let capturedTargetMemberId: string | null = null;
 
@@ -488,6 +611,9 @@ test('profile.get defaults to the actor member id', async () => {
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile({ targetMemberId }) {
       capturedTargetMemberId = targetMemberId;
@@ -566,6 +692,9 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -670,6 +799,9 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -781,6 +913,9 @@ test('entities.update appends a new version on the shared entity surface', async
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -886,6 +1021,9 @@ test('entities.update rejects non-author updates', async () => {
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -954,6 +1092,9 @@ test('events.create writes the smallest sane event payload', async () => {
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1055,6 +1196,9 @@ test('events.list stays inside accessible scope', async () => {
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -1136,6 +1280,9 @@ test('events.rsvp uses the actor membership in the event network', async () => {
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1227,6 +1374,9 @@ test('entities.list can span accessible networks and filter by kinds', async () 
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -1303,6 +1453,9 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile() {
       return null;
@@ -1411,6 +1564,9 @@ test('messages.send picks a shared network, appends the request scope, and retur
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -1503,6 +1659,9 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -1590,6 +1749,9 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -1671,6 +1833,9 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1769,6 +1934,9 @@ test('messages.read scopes thread access server-side and returns transcript entr
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1913,6 +2081,9 @@ test('tokens.create mints a new bearer token for the actor member', async () => 
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -2003,6 +2174,9 @@ test('tokens.revoke only revokes actor-owned tokens', async () => {
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -2087,6 +2261,9 @@ test('deliveries.list stays inside accessible scope and can filter pending recei
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2191,6 +2368,9 @@ test('deliveries.acknowledge derives scope server-side and removes the item from
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -2275,6 +2455,9 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
     async searchMembers() {
       return [];
     },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
     async getMemberProfile() {
       return makeProfile();
     },
@@ -2352,6 +2535,9 @@ test('deliveries.acknowledge returns 404 when the delivery is outside actor scop
     },
     async searchMembers() {
       return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
     },
     async getMemberProfile() {
       return makeProfile();
