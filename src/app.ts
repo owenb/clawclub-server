@@ -230,6 +230,50 @@ export type ListEntitiesInput = {
 
 export type DeliveryAckState = 'shown' | 'suppressed';
 
+export type DeliveryEndpointChannel = 'openclaw_webhook';
+export type DeliveryEndpointState = 'active' | 'disabled' | 'failing';
+
+export type DeliveryEndpointSummary = {
+  endpointId: string;
+  memberId: string;
+  channel: DeliveryEndpointChannel;
+  label: string | null;
+  endpointUrl: string;
+  sharedSecretRef: string | null;
+  state: DeliveryEndpointState;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  disabledAt: string | null;
+};
+
+export type CreateDeliveryEndpointInput = {
+  actorMemberId: string;
+  channel?: DeliveryEndpointChannel;
+  label?: string | null;
+  endpointUrl: string;
+  sharedSecretRef?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type UpdateDeliveryEndpointInput = {
+  actorMemberId: string;
+  endpointId: string;
+  patch: {
+    label?: string | null;
+    endpointUrl?: string;
+    sharedSecretRef?: string | null;
+    state?: DeliveryEndpointState;
+    metadata?: Record<string, unknown>;
+  };
+};
+
+export type RevokeDeliveryEndpointInput = {
+  actorMemberId: string;
+  endpointId: string;
+};
+
 export type BearerTokenSummary = {
   tokenId: string;
   memberId: string;
@@ -471,6 +515,10 @@ export type UpdateEntityInput = {
 
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
+  listDeliveryEndpoints(input: { actorMemberId: string }): Promise<DeliveryEndpointSummary[]>;
+  createDeliveryEndpoint(input: CreateDeliveryEndpointInput): Promise<DeliveryEndpointSummary>;
+  updateDeliveryEndpoint(input: UpdateDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null>;
+  revokeDeliveryEndpoint(input: RevokeDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null>;
   searchMembers(input: {
     networkIds: string[];
     query: string;
@@ -737,6 +785,49 @@ function normalizeTokenCreateInput(payload: Record<string, unknown>): { label: s
     label: normalizeOptionalString(payload.label, 'label') ?? null,
     metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
   };
+}
+
+function requireDeliveryEndpointChannel(value: unknown, field: string): DeliveryEndpointChannel {
+  if (value !== 'openclaw_webhook') {
+    throw new AppError(400, 'invalid_input', `${field} must be openclaw_webhook`);
+  }
+
+  return value;
+}
+
+function requireDeliveryEndpointState(value: unknown, field: string): DeliveryEndpointState {
+  if (value !== 'active' && value !== 'disabled' && value !== 'failing') {
+    throw new AppError(400, 'invalid_input', `${field} must be one of: active, disabled, failing`);
+  }
+
+  return value;
+}
+
+function normalizeCreateDeliveryEndpointInput(payload: Record<string, unknown>): Omit<CreateDeliveryEndpointInput, 'actorMemberId'> {
+  return {
+    channel: payload.channel === undefined ? 'openclaw_webhook' : requireDeliveryEndpointChannel(payload.channel, 'channel'),
+    label: normalizeOptionalString(payload.label, 'label') ?? null,
+    endpointUrl: requireNonEmptyString(payload.endpointUrl, 'endpointUrl'),
+    sharedSecretRef: normalizeOptionalString(payload.sharedSecretRef, 'sharedSecretRef') ?? null,
+    metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
+  };
+}
+
+function normalizeUpdateDeliveryEndpointPatch(payload: Record<string, unknown>): UpdateDeliveryEndpointInput['patch'] {
+  const endpointUrl = payload.endpointUrl === undefined ? undefined : requireNonEmptyString(payload.endpointUrl, 'endpointUrl');
+  const patch = {
+    label: normalizeOptionalString(payload.label, 'label'),
+    endpointUrl,
+    sharedSecretRef: normalizeOptionalString(payload.sharedSecretRef, 'sharedSecretRef'),
+    state: payload.state === undefined ? undefined : requireDeliveryEndpointState(payload.state, 'state'),
+    metadata: payload.metadata === undefined ? undefined : requireObject(payload.metadata, 'metadata'),
+  };
+
+  if (Object.values(patch).every((value) => value === undefined)) {
+    throw new AppError(400, 'invalid_input', 'deliveries.endpoints.update requires at least one field to change');
+  }
+
+  return patch;
 }
 
 function buildSuccessResponse(input: {
@@ -1057,6 +1148,76 @@ export function buildApp({ repository }: { repository: Repository }) {
           });
         }
 
+
+        case 'deliveries.endpoints.list': {
+          const endpoints = await repository.listDeliveryEndpoints({
+            actorMemberId: actor.member.id,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: auth.requestScope,
+            sharedContext,
+            data: { endpoints },
+          });
+        }
+
+        case 'deliveries.endpoints.create': {
+          const endpoint = await repository.createDeliveryEndpoint({
+            actorMemberId: actor.member.id,
+            ...normalizeCreateDeliveryEndpointInput(payload),
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: auth.requestScope,
+            sharedContext,
+            data: { endpoint },
+          });
+        }
+
+        case 'deliveries.endpoints.update': {
+          const endpointId = requireNonEmptyString(payload.endpointId, 'endpointId');
+          const endpoint = await repository.updateDeliveryEndpoint({
+            actorMemberId: actor.member.id,
+            endpointId,
+            patch: normalizeUpdateDeliveryEndpointPatch(payload),
+          });
+
+          if (!endpoint) {
+            throw new AppError(404, 'not_found', 'Endpoint not found inside the actor scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: auth.requestScope,
+            sharedContext,
+            data: { endpoint },
+          });
+        }
+
+        case 'deliveries.endpoints.revoke': {
+          const endpointId = requireNonEmptyString(payload.endpointId, 'endpointId');
+          const endpoint = await repository.revokeDeliveryEndpoint({
+            actorMemberId: actor.member.id,
+            endpointId,
+          });
+
+          if (!endpoint) {
+            throw new AppError(404, 'not_found', 'Endpoint not found inside the actor scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: auth.requestScope,
+            sharedContext,
+            data: { endpoint },
+          });
+        }
 
         case 'tokens.list': {
           const tokens = await repository.listBearerTokens({

@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -161,6 +161,21 @@ type PendingDeliveryRow = {
   payload: Record<string, unknown> | null;
   created_at: string;
   sent_at: string | null;
+};
+
+type DeliveryEndpointRow = {
+  endpoint_id: string;
+  member_id: string;
+  channel: 'openclaw_webhook';
+  label: string | null;
+  endpoint_url: string;
+  shared_secret_ref: string | null;
+  state: DeliveryEndpointState;
+  last_success_at: string | null;
+  last_failure_at: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  disabled_at: string | null;
 };
 
 type BearerTokenRow = {
@@ -436,6 +451,23 @@ function mapDeliverySummaryRow(row: DeliverySummaryRow): DeliverySummary {
             createdByMemberId: row.acknowledgement_created_by_member_id,
           }
         : null,
+  };
+}
+
+function mapDeliveryEndpointRow(row: DeliveryEndpointRow): DeliveryEndpointSummary {
+  return {
+    endpointId: row.endpoint_id,
+    memberId: row.member_id,
+    channel: row.channel,
+    label: row.label,
+    endpointUrl: row.endpoint_url,
+    sharedSecretRef: row.shared_secret_ref,
+    state: row.state,
+    lastSuccessAt: row.last_success_at,
+    lastFailureAt: row.last_failure_at,
+    metadata: row.metadata ?? {},
+    createdAt: row.created_at,
+    disabledAt: row.disabled_at,
   };
 }
 
@@ -1809,6 +1841,156 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       }
     },
 
+
+    async listDeliveryEndpoints({ actorMemberId }: { actorMemberId: string }): Promise<DeliveryEndpointSummary[]> {
+      const result = await pool.query<DeliveryEndpointRow>(
+        `
+          select
+            dep.id as endpoint_id,
+            dep.member_id,
+            dep.channel,
+            dep.label,
+            dep.endpoint_url,
+            dep.shared_secret_ref,
+            dep.state,
+            dep.last_success_at::text as last_success_at,
+            dep.last_failure_at::text as last_failure_at,
+            dep.metadata,
+            dep.created_at::text as created_at,
+            dep.disabled_at::text as disabled_at
+          from app.delivery_endpoints dep
+          where dep.member_id = $1
+          order by dep.created_at desc, dep.id desc
+        `,
+        [actorMemberId],
+      );
+
+      return result.rows.map(mapDeliveryEndpointRow);
+    },
+
+    async createDeliveryEndpoint(input: CreateDeliveryEndpointInput): Promise<DeliveryEndpointSummary> {
+      const result = await pool.query<DeliveryEndpointRow>(
+        `
+          insert into app.delivery_endpoints (
+            member_id,
+            channel,
+            label,
+            endpoint_url,
+            shared_secret_ref,
+            metadata
+          )
+          values ($1, $2, $3, $4, $5, $6::jsonb)
+          returning
+            id as endpoint_id,
+            member_id,
+            channel,
+            label,
+            endpoint_url,
+            shared_secret_ref,
+            state,
+            last_success_at::text as last_success_at,
+            last_failure_at::text as last_failure_at,
+            metadata,
+            created_at::text as created_at,
+            disabled_at::text as disabled_at
+        `,
+        [
+          input.actorMemberId,
+          input.channel ?? 'openclaw_webhook',
+          input.label ?? null,
+          input.endpointUrl,
+          input.sharedSecretRef ?? null,
+          JSON.stringify(input.metadata ?? {}),
+        ],
+      );
+
+      return mapDeliveryEndpointRow(result.rows[0]!);
+    },
+
+    async updateDeliveryEndpoint(input: UpdateDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null> {
+      const fields: string[] = [];
+      const params: unknown[] = [input.endpointId, input.actorMemberId];
+      let nextIndex = params.length + 1;
+
+      if (input.patch.label !== undefined) {
+        fields.push(`label = $${nextIndex++}`);
+        params.push(input.patch.label);
+      }
+
+      if (input.patch.endpointUrl !== undefined) {
+        fields.push(`endpoint_url = $${nextIndex++}`);
+        params.push(input.patch.endpointUrl);
+      }
+
+      if (input.patch.sharedSecretRef !== undefined) {
+        fields.push(`shared_secret_ref = $${nextIndex++}`);
+        params.push(input.patch.sharedSecretRef);
+      }
+
+      if (input.patch.state !== undefined) {
+        fields.push(`state = $${nextIndex++}`);
+        params.push(input.patch.state);
+        fields.push(`disabled_at = ${input.patch.state === 'disabled' ? 'coalesce(disabled_at, now())' : 'null'}`);
+      }
+
+      if (input.patch.metadata !== undefined) {
+        fields.push(`metadata = $${nextIndex++}::jsonb`);
+        params.push(JSON.stringify(input.patch.metadata));
+      }
+
+      const result = await pool.query<DeliveryEndpointRow>(
+        `
+          update app.delivery_endpoints dep
+          set ${fields.join(', ')}
+          where dep.id = $1
+            and dep.member_id = $2
+          returning
+            dep.id as endpoint_id,
+            dep.member_id,
+            dep.channel,
+            dep.label,
+            dep.endpoint_url,
+            dep.shared_secret_ref,
+            dep.state,
+            dep.last_success_at::text as last_success_at,
+            dep.last_failure_at::text as last_failure_at,
+            dep.metadata,
+            dep.created_at::text as created_at,
+            dep.disabled_at::text as disabled_at
+        `,
+        params,
+      );
+
+      return result.rows[0] ? mapDeliveryEndpointRow(result.rows[0]) : null;
+    },
+
+    async revokeDeliveryEndpoint(input: RevokeDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null> {
+      const result = await pool.query<DeliveryEndpointRow>(
+        `
+          update app.delivery_endpoints dep
+          set state = 'disabled',
+              disabled_at = coalesce(dep.disabled_at, now())
+          where dep.id = $1
+            and dep.member_id = $2
+          returning
+            dep.id as endpoint_id,
+            dep.member_id,
+            dep.channel,
+            dep.label,
+            dep.endpoint_url,
+            dep.shared_secret_ref,
+            dep.state,
+            dep.last_success_at::text as last_success_at,
+            dep.last_failure_at::text as last_failure_at,
+            dep.metadata,
+            dep.created_at::text as created_at,
+            dep.disabled_at::text as disabled_at
+        `,
+        [input.endpointId, input.actorMemberId],
+      );
+
+      return result.rows[0] ? mapDeliveryEndpointRow(result.rows[0]) : null;
+    },
 
     async listBearerTokens({ actorMemberId }: { actorMemberId: string }): Promise<BearerTokenSummary[]> {
       const result = await pool.query<BearerTokenRow>(

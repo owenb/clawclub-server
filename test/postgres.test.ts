@@ -626,6 +626,96 @@ test('postgres repository retries a failed delivery inside actor scope as a fres
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
+test('postgres repository lists, creates, updates, and revokes delivery endpoints for the actor member', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const pool = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql.includes('from app.delivery_endpoints dep') && sql.includes('order by dep.created_at desc')) {
+        return {
+          rows: [{
+            endpoint_id: 'endpoint-1', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Primary',
+            endpoint_url: 'https://example.test/webhook', shared_secret_ref: 'op://clawclub/primary', state: 'active',
+            last_success_at: null, last_failure_at: null, metadata: { device: 'mbp' }, created_at: '2026-03-12T00:00:00Z', disabled_at: null,
+          }],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('insert into app.delivery_endpoints')) {
+        return {
+          rows: [{
+            endpoint_id: 'endpoint-2', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Laptop',
+            endpoint_url: 'https://hooks.example.test/clawclub', shared_secret_ref: 'op://clawclub/laptop', state: 'active',
+            last_success_at: null, last_failure_at: null, metadata: { device: 'mbp' }, created_at: '2026-03-12T00:01:00Z', disabled_at: null,
+          }],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('update app.delivery_endpoints dep') && sql.includes('metadata = $7::jsonb')) {
+        return {
+          rows: [{
+            endpoint_id: 'endpoint-2', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Backup',
+            endpoint_url: 'https://backup.example.test/clawclub', shared_secret_ref: null, state: 'failing',
+            last_success_at: null, last_failure_at: '2026-03-12T00:02:00Z', metadata: { device: 'pi' }, created_at: '2026-03-12T00:01:00Z', disabled_at: null,
+          }],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes("set state = 'disabled'")) {
+        return {
+          rows: [{
+            endpoint_id: 'endpoint-2', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Backup',
+            endpoint_url: 'https://backup.example.test/clawclub', shared_secret_ref: null, state: 'disabled',
+            last_success_at: null, last_failure_at: '2026-03-12T00:02:00Z', metadata: { device: 'pi' }, created_at: '2026-03-12T00:01:00Z', disabled_at: '2026-03-12T00:03:00Z',
+          }],
+          rowCount: 1,
+        };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+
+  const repository = createPostgresRepository({ pool: pool as any });
+  const listed = await repository.listDeliveryEndpoints({ actorMemberId: 'member-1' });
+  const created = await repository.createDeliveryEndpoint({
+    actorMemberId: 'member-1',
+    channel: 'openclaw_webhook',
+    label: 'Laptop',
+    endpointUrl: 'https://hooks.example.test/clawclub',
+    sharedSecretRef: 'op://clawclub/laptop',
+    metadata: { device: 'mbp' },
+  });
+  const updated = await repository.updateDeliveryEndpoint({
+    actorMemberId: 'member-1',
+    endpointId: 'endpoint-2',
+    patch: {
+      label: 'Backup',
+      endpointUrl: 'https://backup.example.test/clawclub',
+      sharedSecretRef: null,
+      state: 'failing',
+      metadata: { device: 'pi' },
+    },
+  });
+  const revoked = await repository.revokeDeliveryEndpoint({ actorMemberId: 'member-1', endpointId: 'endpoint-2' });
+
+  assert.equal(listed[0]?.endpointId, 'endpoint-1');
+  assert.equal(created.endpointId, 'endpoint-2');
+  assert.equal(updated?.state, 'failing');
+  assert.equal(updated?.sharedSecretRef, null);
+  assert.equal(revoked?.state, 'disabled');
+  assert.equal(revoked?.disabledAt, '2026-03-12T00:03:00Z');
+  assert.deepEqual(calls[0]?.params, ['member-1']);
+  assert.deepEqual(calls[1]?.params, ['member-1', 'openclaw_webhook', 'Laptop', 'https://hooks.example.test/clawclub', 'op://clawclub/laptop', '{"device":"mbp"}']);
+  assert.deepEqual(calls[2]?.params, ['endpoint-2', 'member-1', 'Backup', 'https://backup.example.test/clawclub', null, 'failing', '{"device":"pi"}']);
+  assert.deepEqual(calls[3]?.params, ['endpoint-2', 'member-1']);
+});
+
 test('postgres repository creates and revokes hashed bearer tokens without returning the hash', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

@@ -95,6 +95,24 @@ function makePendingDelivery(overrides: Partial<PendingDelivery> = {}): PendingD
 }
 
 
+function makeDeliveryEndpoint(overrides: Record<string, unknown> = {}) {
+  return {
+    endpointId: 'endpoint-1',
+    memberId: 'member-1',
+    channel: 'openclaw_webhook',
+    label: 'Primary webhook',
+    endpointUrl: 'https://example.test/webhook',
+    sharedSecretRef: 'op://clawclub/primary',
+    state: 'active',
+    lastSuccessAt: null,
+    lastFailureAt: null,
+    metadata: { environment: 'test' },
+    createdAt: '2026-03-12T00:00:00Z',
+    disabledAt: null,
+    ...overrides,
+  };
+}
+
 function makeBearerTokenSummary(overrides: Partial<BearerTokenSummary> = {}): BearerTokenSummary {
   return {
     tokenId: 'token-1',
@@ -360,6 +378,18 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     },
     async searchMembers() {
       return results;
+    },
+    async listDeliveryEndpoints() {
+      return [makeDeliveryEndpoint()];
+    },
+    async createDeliveryEndpoint() {
+      return makeDeliveryEndpoint();
+    },
+    async updateDeliveryEndpoint() {
+      return makeDeliveryEndpoint();
+    },
+    async revokeDeliveryEndpoint() {
+      return makeDeliveryEndpoint({ state: 'disabled', disabledAt: '2026-03-12T00:10:00Z' });
     },
     async listMembers() {
       return [makeNetworkMember()];
@@ -2122,6 +2152,157 @@ test('messages.read scopes thread access server-side and returns transcript entr
   assert.equal(result.data.messages[1]?.deliveryReceipts[0]?.recipientMemberId, 'member-2');
 });
 
+
+test('deliveries.endpoints.list returns the actor endpoint inventory', async () => {
+  const app = buildApp({ repository: makeRepository() });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.endpoints.list',
+  });
+
+  assert.equal(result.action, 'deliveries.endpoints.list');
+  assert.equal(result.data.endpoints.length, 1);
+  assert.equal(result.data.endpoints[0]?.endpointId, 'endpoint-1');
+});
+
+test('deliveries.endpoints.create writes a new actor-owned webhook endpoint', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createDeliveryEndpoint(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeDeliveryEndpoint({
+        endpointId: 'endpoint-2',
+        label: input.label ?? null,
+        endpointUrl: input.endpointUrl,
+        sharedSecretRef: input.sharedSecretRef ?? null,
+        metadata: input.metadata ?? {},
+      });
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.endpoints.create',
+    payload: {
+      endpointUrl: 'https://hooks.example.test/clawclub',
+      label: 'Laptop',
+      sharedSecretRef: 'op://clawclub/laptop',
+      metadata: { device: 'mbp' },
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    channel: 'openclaw_webhook',
+    label: 'Laptop',
+    endpointUrl: 'https://hooks.example.test/clawclub',
+    sharedSecretRef: 'op://clawclub/laptop',
+    metadata: { device: 'mbp' },
+  });
+  assert.equal(result.action, 'deliveries.endpoints.create');
+  assert.equal(result.data.endpoint.endpointId, 'endpoint-2');
+  assert.equal(result.data.endpoint.endpointUrl, 'https://hooks.example.test/clawclub');
+});
+
+test('deliveries.endpoints.update patches endpoint fields for the actor only', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async updateDeliveryEndpoint(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeDeliveryEndpoint({
+        endpointId: 'endpoint-2',
+        label: input.patch.label ?? null,
+        endpointUrl: input.patch.endpointUrl ?? 'https://example.test/webhook',
+        sharedSecretRef: input.patch.sharedSecretRef ?? null,
+        state: input.patch.state ?? 'active',
+        metadata: input.patch.metadata ?? {},
+      });
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.endpoints.update',
+    payload: {
+      endpointId: 'endpoint-2',
+      label: 'Backup webhook',
+      endpointUrl: 'https://backup.example.test/clawclub',
+      sharedSecretRef: '  ',
+      state: 'failing',
+      metadata: { device: 'pi' },
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    endpointId: 'endpoint-2',
+    patch: {
+      label: 'Backup webhook',
+      endpointUrl: 'https://backup.example.test/clawclub',
+      sharedSecretRef: null,
+      state: 'failing',
+      metadata: { device: 'pi' },
+    },
+  });
+  assert.equal(result.action, 'deliveries.endpoints.update');
+  assert.equal(result.data.endpoint.state, 'failing');
+});
+
+test('deliveries.endpoints.revoke soft-disables the endpoint', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async revokeDeliveryEndpoint(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeDeliveryEndpoint({ endpointId: 'endpoint-2', state: 'disabled', disabledAt: '2026-03-12T00:10:00Z' });
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.endpoints.revoke',
+    payload: {
+      endpointId: 'endpoint-2',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    endpointId: 'endpoint-2',
+  });
+  assert.equal(result.action, 'deliveries.endpoints.revoke');
+  assert.equal(result.data.endpoint.state, 'disabled');
+  assert.equal(result.data.endpoint.disabledAt, '2026-03-12T00:10:00Z');
+});
+
+test('deliveries.endpoints.update rejects empty patches', async () => {
+  const app = buildApp({ repository: makeRepository() });
+
+  await assert.rejects(
+    () =>
+      app.handleAction({
+        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+        action: 'deliveries.endpoints.update',
+        payload: {
+          endpointId: 'endpoint-2',
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 400);
+      assert.equal(error.code, 'invalid_input');
+      return true;
+    },
+  );
+});
 
 test('tokens.list returns the actor token inventory', async () => {
   const app = buildApp({ repository: makeRepository() });
