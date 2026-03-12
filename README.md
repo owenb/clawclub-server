@@ -371,6 +371,13 @@ This is:
 - a chance for Owen to understand the person better
 - a chance to assess whether they are a good fit for one of the clubs
 
+People can ask about anything AI-related, including:
+- Claude Code
+- OpenClaw
+- agents
+- local vs frontier LLMs
+- tooling, workflows, and practical adoption
+
 Important:
 - **the advice is what is guaranteed**
 - **membership is not guaranteed**
