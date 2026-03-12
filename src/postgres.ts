@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type CreateEntityInput, type CreateEventInput, type DeliveryAcknowledgement, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { hashTokenSecret, parseBearerToken } from './token.ts';
 
@@ -173,6 +173,36 @@ type DirectMessageTranscriptRow = {
   in_reply_to_message_id: string | null;
 };
 
+type DbClient = Pool | PoolClient;
+
+async function applyActorContext(client: DbClient, actorMemberId: string, networkIds: string[]): Promise<void> {
+  await client.query(
+    `
+      select
+        set_config('app.actor_member_id', $1, true),
+        set_config('app.actor_network_ids', $2, true)
+    `,
+    [actorMemberId, networkIds.join(',')],
+  );
+}
+
+async function withActorContext<T>(pool: Pool, actorMemberId: string, networkIds: string[], fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+
+  try {
+    await client.query('begin');
+    await applyActorContext(client, actorMemberId, networkIds);
+    const result = await fn(client);
+    await client.query('commit');
+    return result;
+  } catch (error) {
+    await client.query('rollback');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 function mapActor(rows: ActorRow[]): ActorContext | null {
   if (rows.length === 0) {
     return null;
@@ -326,12 +356,12 @@ function mapDirectMessageTranscriptRow(row: DirectMessageTranscriptRow): DirectM
   };
 }
 
-async function listPendingDeliveries(pool: Pool, actorMemberId: string, accessibleNetworkIds: string[]): Promise<PendingDelivery[]> {
+async function listPendingDeliveries(client: DbClient, actorMemberId: string, accessibleNetworkIds: string[]): Promise<PendingDelivery[]> {
   if (accessibleNetworkIds.length === 0) {
     return [];
   }
 
-  const result = await pool.query<PendingDeliveryRow>(
+  const result = await client.query<PendingDeliveryRow>(
     `
       select
         pd.id,
@@ -427,8 +457,8 @@ async function getActorByMemberId(pool: Pool, memberId: string): Promise<ActorCo
   return mapActor(result.rows);
 }
 
-async function readMemberProfile(pool: Pool, actorMemberId: string, targetMemberId: string): Promise<MemberProfile | null> {
-  const result = await pool.query<ProfileRow>(
+async function readMemberProfile(client: DbClient, actorMemberId: string, targetMemberId: string): Promise<MemberProfile | null> {
+  const result = await client.query<ProfileRow>(
     `
       with actor_scope as (
         select distinct network_id
@@ -478,8 +508,8 @@ async function readMemberProfile(pool: Pool, actorMemberId: string, targetMember
   return result.rows[0] ? mapProfileRow(result.rows[0]) : null;
 }
 
-async function readEntitySummary(pool: Pool, entityId: string, entityVersionId?: string): Promise<EntitySummary | null> {
-  const result = await pool.query<EntityRow>(
+async function readEntitySummary(client: DbClient, entityId: string, entityVersionId?: string): Promise<EntitySummary | null> {
+  const result = await client.query<EntityRow>(
     `
       select
         e.id as entity_id,
@@ -513,8 +543,8 @@ async function readEntitySummary(pool: Pool, entityId: string, entityVersionId?:
   return result.rows[0] ? mapEntityRow(result.rows[0]) : null;
 }
 
-async function readEventSummary(pool: Pool, actorMemberId: string, entityId: string, entityVersionId?: string): Promise<EventSummary | null> {
-  const result = await pool.query<EventRow>(
+async function readEventSummary(client: DbClient, actorMemberId: string, entityId: string, entityVersionId?: string): Promise<EventSummary | null> {
+  const result = await client.query<EventRow>(
     `
       with actor_scope as (
         select distinct network_id
@@ -615,8 +645,8 @@ async function readEventSummary(pool: Pool, actorMemberId: string, entityId: str
   return result.rows[0] ? mapEventRow(result.rows[0]) : null;
 }
 
-async function listDirectMessageThreads(pool: Pool, actorMemberId: string, networkIds: string[], limit: number): Promise<DirectMessageThreadSummary[]> {
-  const result = await pool.query<DirectMessageThreadRow>(
+async function listDirectMessageThreads(client: DbClient, actorMemberId: string, networkIds: string[], limit: number): Promise<DirectMessageThreadSummary[]> {
+  const result = await client.query<DirectMessageThreadRow>(
     `
       with scope as (
         select unnest($2::text[])::app.short_id as network_id
@@ -675,13 +705,13 @@ async function listDirectMessageThreads(pool: Pool, actorMemberId: string, netwo
 }
 
 async function readDirectMessageThread(
-  pool: Pool,
+  client: DbClient,
   actorMemberId: string,
   accessibleNetworkIds: string[],
   threadId: string,
   limit: number,
 ): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null> {
-  const threadResult = await pool.query<DirectMessageThreadRow>(
+  const threadResult = await client.query<DirectMessageThreadRow>(
     `
       with thread_scope as (
         select
@@ -737,7 +767,7 @@ async function readDirectMessageThread(
     return null;
   }
 
-  const messagesResult = await pool.query<DirectMessageTranscriptRow>(
+  const messagesResult = await client.query<DirectMessageTranscriptRow>(
     `
       select
         tm.id as message_id,
@@ -793,7 +823,9 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       }
 
       const activeNetworkIds = actor.memberships.map((membership) => membership.networkId);
-      const pendingDeliveries = await listPendingDeliveries(pool, actor.member.id, activeNetworkIds);
+      const pendingDeliveries = await withActorContext(pool, actor.member.id, activeNetworkIds, (client) =>
+        listPendingDeliveries(client, actor.member.id, activeNetworkIds),
+      );
 
       return {
         actor,
@@ -881,7 +913,9 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
     },
 
     async getMemberProfile({ actorMemberId, targetMemberId }) {
-      return readMemberProfile(pool, actorMemberId, targetMemberId);
+      const actor = await getActorByMemberId(pool, actorMemberId);
+      const networkIds = actor?.memberships.map((membership) => membership.networkId) ?? [];
+      return withActorContext(pool, actorMemberId, networkIds, (client) => readMemberProfile(client, actorMemberId, targetMemberId));
     },
 
     async updateOwnProfile({ actor, patch }: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile> {
@@ -889,6 +923,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
       try {
         await client.query('begin');
+        await applyActorContext(client, actor.member.id, actor.memberships.map((membership) => membership.networkId));
 
         if (patch.handle !== undefined) {
           await client.query(`update app.members set handle = $2 where id = $1`, [actor.member.id, patch.handle]);
@@ -971,7 +1006,12 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         client.release();
       }
 
-      const updated = await readMemberProfile(pool, actor.member.id, actor.member.id);
+      const updated = await withActorContext(
+        pool,
+        actor.member.id,
+        actor.memberships.map((membership) => membership.networkId),
+        (scopedClient) => readMemberProfile(scopedClient, actor.member.id, actor.member.id),
+      );
       if (!updated) {
         throw new Error('Updated profile could not be reloaded');
       }
@@ -982,6 +1022,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       const client = await pool.connect();
       try {
         await client.query('begin');
+        await applyActorContext(client, input.authorMemberId, [input.networkId]);
         const entityResult = await client.query<{ id: string; created_at: string }>(
           `insert into app.entities (network_id, kind, author_member_id) values ($1, $2, $3) returning id, created_at::text`,
           [input.networkId, input.kind, input.authorMemberId],
@@ -999,7 +1040,9 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         );
         await client.query('commit');
 
-        const summary = await readEntitySummary(pool, entity.id, versionResult.rows[0]!.id);
+        const summary = await withActorContext(pool, input.authorMemberId, [input.networkId], (scopedClient) =>
+          readEntitySummary(scopedClient, entity.id, versionResult.rows[0]!.id),
+        );
         if (!summary) {
           throw new Error('Created entity could not be reloaded');
         }
@@ -1016,6 +1059,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       const client = await pool.connect();
       try {
         await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
 
         const currentResult = await client.query<{
           entity_id: string;
@@ -1089,7 +1133,9 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
         await client.query('commit');
 
-        const summary = await readEntitySummary(pool, current.entity_id, nextVersionResult.rows[0]!.id);
+        const summary = await withActorContext(pool, input.actorMemberId, input.accessibleNetworkIds, (scopedClient) =>
+          readEntitySummary(scopedClient, current.entity_id, nextVersionResult.rows[0]!.id),
+        );
         if (!summary) {
           throw new Error('Updated entity could not be reloaded');
         }
@@ -1106,6 +1152,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       const client = await pool.connect();
       try {
         await client.query('begin');
+        await applyActorContext(client, input.authorMemberId, [input.networkId]);
         const entityResult = await client.query<{ id: string }>(
           `insert into app.entities (network_id, kind, author_member_id) values ($1, 'event', $2) returning id`,
           [input.networkId, input.authorMemberId],
@@ -1137,7 +1184,9 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         );
         await client.query('commit');
 
-        const event = await readEventSummary(pool, input.authorMemberId, entityId, versionResult.rows[0]!.id);
+        const event = await withActorContext(pool, input.authorMemberId, [input.networkId], (scopedClient) =>
+          readEventSummary(scopedClient, input.authorMemberId, entityId, versionResult.rows[0]!.id),
+        );
         if (!event) {
           throw new Error('Created event could not be reloaded');
         }
@@ -1151,7 +1200,8 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
     },
 
     async listEvents({ actorMemberId, networkIds, limit }: ListEventsInput): Promise<EventSummary[]> {
-      const result = await pool.query<{ entity_id: string }>(
+      return withActorContext(pool, actorMemberId, networkIds, async (client) => {
+        const result = await client.query<{ entity_id: string }>(
         `
           with scope as (
             select unnest($1::text[])::app.short_id as network_id
@@ -1166,14 +1216,16 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         [networkIds, limit],
       );
 
-      const events = await Promise.all(result.rows.map((row) => readEventSummary(pool, actorMemberId, row.entity_id)));
-      return events.filter((event): event is EventSummary => event !== null);
+        const events = await Promise.all(result.rows.map((row) => readEventSummary(client, actorMemberId, row.entity_id)));
+        return events.filter((event): event is EventSummary => event !== null);
+      });
     },
 
     async rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null> {
       const client = await pool.connect();
       try {
         await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, input.accessibleMemberships.map((membership) => membership.networkId));
         const eventResult = await client.query<{ entity_id: string; network_id: string }>(
           `
             select e.id as entity_id, e.network_id
@@ -1227,7 +1279,12 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         );
 
         await client.query('commit');
-        return await readEventSummary(pool, input.actorMemberId, input.eventEntityId);
+        return await withActorContext(
+          pool,
+          input.actorMemberId,
+          input.accessibleMemberships.map((membership) => membership.networkId),
+          (scopedClient) => readEventSummary(scopedClient, input.actorMemberId, input.eventEntityId),
+        );
       } catch (error) {
         await client.query('rollback');
         throw error;
@@ -1241,6 +1298,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       const client = await pool.connect();
       try {
         await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
 
         const deliveryResult = await client.query<{ id: string; network_id: string; recipient_member_id: string }>(
           `
@@ -1321,6 +1379,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       const client = await pool.connect();
       try {
         await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
 
         const scopeResult = await client.query<{ network_id: string }>(
           `
@@ -1450,15 +1509,20 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
     },
 
     async listDirectMessageThreads({ actorMemberId, networkIds, limit }) {
-      return listDirectMessageThreads(pool, actorMemberId, networkIds, limit);
+      return withActorContext(pool, actorMemberId, networkIds, (client) =>
+        listDirectMessageThreads(client, actorMemberId, networkIds, limit),
+      );
     },
 
     async readDirectMessageThread({ actorMemberId, accessibleNetworkIds, threadId, limit }) {
-      return readDirectMessageThread(pool, actorMemberId, accessibleNetworkIds, threadId, limit);
+      return withActorContext(pool, actorMemberId, accessibleNetworkIds, (client) =>
+        readDirectMessageThread(client, actorMemberId, accessibleNetworkIds, threadId, limit),
+      );
     },
 
     async listEntities({ networkIds, kinds, limit }) {
-      const result = await pool.query<EntityRow>(
+      return withActorContext(pool, '', networkIds, async (client) => {
+        const result = await client.query<EntityRow>(
         `
           with scope as (
             select unnest($1::text[])::app.short_id as network_id
@@ -1490,7 +1554,8 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         `,
         [networkIds, kinds, limit],
       );
-      return result.rows.map(mapEntityRow);
+        return result.rows.map(mapEntityRow);
+      });
     },
   };
 }
