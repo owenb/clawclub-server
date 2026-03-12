@@ -7,6 +7,9 @@ import {
   type AuthResult,
   type CreateEntityInput,
   type DeliveryAcknowledgement,
+  type DirectMessageSummary,
+  type DirectMessageThreadSummary,
+  type DirectMessageTranscriptEntry,
   type EntitySummary,
   type EventSummary,
   type ListEntitiesInput,
@@ -87,13 +90,65 @@ function makePendingDelivery(overrides: Partial<PendingDelivery> = {}): PendingD
 
 function makeDeliveryAcknowledgement(overrides: Partial<DeliveryAcknowledgement> = {}): DeliveryAcknowledgement {
   return {
+    acknowledgementId: 'ack-1',
     deliveryId: 'delivery-1',
     networkId: 'network-1',
     recipientMemberId: 'member-1',
     state: 'shown',
     suppressionReason: null,
+    versionNo: 1,
+    supersedesAcknowledgementId: null,
     createdAt: '2026-03-12T00:02:00Z',
     createdByMemberId: 'member-1',
+    ...overrides,
+  };
+}
+
+function makeDirectMessage(overrides: Partial<DirectMessageSummary> = {}): DirectMessageSummary {
+  return {
+    threadId: 'thread-1',
+    networkId: 'network-1',
+    senderMemberId: 'member-1',
+    recipientMemberId: 'member-2',
+    messageId: 'message-1',
+    messageText: 'Hello there',
+    createdAt: '2026-03-12T00:03:00Z',
+    deliveryCount: 1,
+    ...overrides,
+  };
+}
+
+function makeDirectMessageThread(overrides: Partial<DirectMessageThreadSummary> = {}): DirectMessageThreadSummary {
+  return {
+    threadId: 'thread-1',
+    networkId: 'network-1',
+    counterpartMemberId: 'member-2',
+    counterpartPublicName: 'Member Two',
+    counterpartHandle: 'member-two',
+    latestMessage: {
+      messageId: 'message-1',
+      senderMemberId: 'member-2',
+      role: 'member',
+      messageText: 'Hello there',
+      createdAt: '2026-03-12T00:03:00Z',
+    },
+    messageCount: 2,
+    ...overrides,
+  };
+}
+
+function makeDirectMessageTranscriptEntry(
+  overrides: Partial<DirectMessageTranscriptEntry> = {},
+): DirectMessageTranscriptEntry {
+  return {
+    messageId: 'message-1',
+    threadId: 'thread-1',
+    senderMemberId: 'member-2',
+    role: 'member',
+    messageText: 'Hello there',
+    payload: {},
+    createdAt: '2026-03-12T00:03:00Z',
+    inReplyToMessageId: null,
     ...overrides,
   };
 }
@@ -226,6 +281,27 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -286,6 +362,18 @@ test('members.search narrows scope when a permitted network is requested', async
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -344,6 +432,18 @@ test('profile.get defaults to the actor member id', async () => {
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -401,6 +501,18 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
     },
     async listEntities() {
       return [makeEntity()];
@@ -484,6 +596,18 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -554,6 +678,18 @@ test('entities.update appends a new version on the shared entity surface', async
           content: input.patch.content ?? {},
         },
       });
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
     },
     async listEntities() {
       return [makeEntity()];
@@ -638,6 +774,18 @@ test('entities.update rejects non-author updates', async () => {
         },
       });
     },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -698,6 +846,18 @@ test('events.create writes the smallest sane event payload', async () => {
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
     },
     async listEntities() {
       return [makeEntity()];
@@ -772,6 +932,18 @@ test('events.list stays inside accessible scope', async () => {
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -840,6 +1012,18 @@ test('events.rsvp uses the actor membership in the event network', async () => {
           ],
         },
       });
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
     },
     async listEntities() {
       return [makeEntity()];
@@ -978,6 +1162,18 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -1024,6 +1220,313 @@ test('profile.update rejects invalid handles', async () => {
   );
 });
 
+test('messages.send picks a shared network, appends the request scope, and returns delivery metadata', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async sendDirectMessage(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeDirectMessage({
+        networkId: 'network-2',
+        recipientMemberId: 'member-9',
+        messageText: input.messageText,
+        deliveryCount: 2,
+      });
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'messages.send',
+    payload: {
+      recipientMemberId: 'member-9',
+      networkId: 'network-2',
+      messageText: 'Hello from the network edge',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-1', 'network-2'],
+    recipientMemberId: 'member-9',
+    networkId: 'network-2',
+    messageText: 'Hello from the network edge',
+  });
+  assert.equal(result.action, 'messages.send');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
+  assert.equal(result.data.message.deliveryCount, 2);
+  assert.equal(result.data.message.messageText, 'Hello from the network edge');
+});
+
+test('messages.send returns 404 when the recipient is outside shared scope', async () => {
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async sendDirectMessage() {
+      return null;
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+
+  await assert.rejects(
+    () =>
+      app.handleAction({
+        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+        action: 'messages.send',
+        payload: {
+          recipientMemberId: 'member-404',
+          messageText: 'hello',
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 404);
+      assert.equal(error.code, 'not_found');
+      return true;
+    },
+  );
+});
+
+test('messages.list stays inside accessible scope and returns dm thread summaries', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads(input) {
+      capturedInput = input as Record<string, unknown>;
+      return [makeDirectMessageThread({ networkId: 'network-2' })];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'messages.list',
+    payload: { networkId: 'network-2', limit: 4 },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkIds: ['network-2'],
+    limit: 4,
+  });
+  assert.equal(result.action, 'messages.list');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.equal(result.data.results[0]?.networkId, 'network-2');
+  assert.equal(result.data.results[0]?.counterpartMemberId, 'member-2');
+});
+
+test('messages.read scopes thread access server-side and returns transcript entries', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread(input) {
+      capturedInput = input as Record<string, unknown>;
+      return {
+        thread: makeDirectMessageThread({ networkId: 'network-2' }),
+        messages: [
+          makeDirectMessageTranscriptEntry({
+            messageId: 'message-1',
+            createdAt: '2026-03-12T00:01:00Z',
+            messageText: 'Earlier',
+          }),
+          makeDirectMessageTranscriptEntry({
+            messageId: 'message-2',
+            createdAt: '2026-03-12T00:02:00Z',
+            senderMemberId: 'member-1',
+            messageText: 'Later',
+            inReplyToMessageId: 'message-1',
+          }),
+        ],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'messages.read',
+    payload: { threadId: 'thread-1', limit: 2 },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-1', 'network-2'],
+    threadId: 'thread-1',
+    limit: 2,
+  });
+  assert.equal(result.action, 'messages.read');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.equal(result.data.thread.threadId, 'thread-1');
+  assert.equal(result.data.messages.length, 2);
+  assert.equal(result.data.messages[1]?.inReplyToMessageId, 'message-1');
+});
+
 test('deliveries.acknowledge derives scope server-side and removes the item from shared context', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
@@ -1064,6 +1567,18 @@ test('deliveries.acknowledge derives scope server-side and removes the item from
         suppressionReason: 'too noisy right now',
       });
     },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -1093,6 +1608,72 @@ test('deliveries.acknowledge derives scope server-side and removes the item from
   assert.deepEqual(result.actor.sharedContext.pendingDeliveries, []);
   assert.equal(result.data.acknowledgement.state, 'suppressed');
   assert.equal(result.data.acknowledgement.suppressionReason, 'too noisy right now');
+});
+
+test('messages.read returns 404 when the thread is outside actor scope', async () => {
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return null;
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+
+  await assert.rejects(
+    () =>
+      app.handleAction({
+        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+        action: 'messages.read',
+        payload: {
+          threadId: 'thread-404',
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 404);
+      assert.equal(error.code, 'not_found');
+      return true;
+    },
+  );
 });
 
 test('deliveries.acknowledge returns 404 when the delivery is outside actor scope', async () => {
@@ -1126,6 +1707,18 @@ test('deliveries.acknowledge returns 404 when the delivery is outside actor scop
     },
     async acknowledgeDelivery() {
       return null;
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
     },
     async listEntities() {
       return [makeEntity()];

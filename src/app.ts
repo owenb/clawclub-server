@@ -225,13 +225,62 @@ export type AcknowledgeDeliveryInput = {
 };
 
 export type DeliveryAcknowledgement = {
+  acknowledgementId: string;
   deliveryId: string;
   networkId: string;
   recipientMemberId: string;
   state: DeliveryAckState;
   suppressionReason: string | null;
+  versionNo: number;
+  supersedesAcknowledgementId: string | null;
   createdAt: string;
   createdByMemberId: string | null;
+};
+
+export type DirectMessageSummary = {
+  threadId: string;
+  networkId: string;
+  senderMemberId: string;
+  recipientMemberId: string;
+  messageId: string;
+  messageText: string;
+  createdAt: string;
+  deliveryCount: number;
+};
+
+export type DirectMessageThreadSummary = {
+  threadId: string;
+  networkId: string;
+  counterpartMemberId: string;
+  counterpartPublicName: string;
+  counterpartHandle: string | null;
+  latestMessage: {
+    messageId: string;
+    senderMemberId: string;
+    role: 'member' | 'agent' | 'system';
+    messageText: string | null;
+    createdAt: string;
+  };
+  messageCount: number;
+};
+
+export type DirectMessageTranscriptEntry = {
+  messageId: string;
+  threadId: string;
+  senderMemberId: string | null;
+  role: 'member' | 'agent' | 'system';
+  messageText: string | null;
+  payload: Record<string, unknown>;
+  createdAt: string;
+  inReplyToMessageId: string | null;
+};
+
+export type SendDirectMessageInput = {
+  actorMemberId: string;
+  accessibleNetworkIds: string[];
+  recipientMemberId: string;
+  networkId?: string;
+  messageText: string;
 };
 
 export type UpdateEntityInput = {
@@ -263,6 +312,14 @@ export type Repository = {
   listEvents(input: ListEventsInput): Promise<EventSummary[]>;
   rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null>;
   acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null>;
+  sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
+  listDirectMessageThreads(input: { actorMemberId: string; networkIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
+  readDirectMessageThread(input: {
+    actorMemberId: string;
+    accessibleNetworkIds: string[];
+    threadId: string;
+    limit: number;
+  }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null>;
 };
 
 export class AppError extends Error {
@@ -776,6 +833,93 @@ export function buildApp({ repository }: { repository: Repository }) {
               pendingDeliveries: remainingPendingDeliveries,
             },
             data: { acknowledgement },
+          });
+        }
+
+        case 'messages.send': {
+          const recipientMemberId = requireNonEmptyString(payload.recipientMemberId, 'recipientMemberId');
+          const message = await repository.sendDirectMessage({
+            actorMemberId: actor.member.id,
+            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            recipientMemberId,
+            networkId: payload.networkId === undefined ? undefined : requireAccessibleNetwork(actor, payload.networkId).networkId,
+            messageText: requireNonEmptyString(payload.messageText, 'messageText'),
+          });
+
+          if (!message) {
+            throw new AppError(404, 'not_found', 'Recipient not found inside the actor scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: message.networkId,
+              activeNetworkIds: [message.networkId],
+            },
+            sharedContext,
+            data: { message },
+          });
+        }
+
+        case 'messages.list': {
+          const limit = normalizeLimit(payload.limit);
+          let networkScope = actor.memberships;
+
+          if (payload.networkId !== undefined) {
+            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
+          }
+
+          if (networkScope.length === 0) {
+            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
+          }
+
+          const networkIds = networkScope.map((network) => network.networkId);
+          const results = await repository.listDirectMessageThreads({
+            actorMemberId: actor.member.id,
+            networkIds,
+            limit,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId:
+                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
+              activeNetworkIds: networkIds,
+            },
+            sharedContext,
+            data: {
+              limit,
+              networkScope,
+              results,
+            },
+          });
+        }
+
+        case 'messages.read': {
+          const threadId = requireNonEmptyString(payload.threadId, 'threadId');
+          const transcript = await repository.readDirectMessageThread({
+            actorMemberId: actor.member.id,
+            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            threadId,
+            limit: normalizeLimit(payload.limit),
+          });
+
+          if (!transcript) {
+            throw new AppError(404, 'not_found', 'Thread not found inside the actor scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: transcript.thread.networkId,
+              activeNetworkIds: [transcript.thread.networkId],
+            },
+            sharedContext,
+            data: transcript,
           });
         }
 

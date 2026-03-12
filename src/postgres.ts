@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type CreateEntityInput, type CreateEventInput, type DeliveryAcknowledgement, type EntitySummary, type EventRsvpState, type EventSummary, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RsvpEventInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type CreateEntityInput, type CreateEventInput, type DeliveryAcknowledgement, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -125,13 +125,52 @@ type PendingDeliveryRow = {
 };
 
 type DeliveryAcknowledgementRow = {
+  acknowledgement_id: string;
   delivery_id: string;
   network_id: string;
   recipient_member_id: string;
   state: DeliveryAcknowledgement['state'];
   suppression_reason: string | null;
+  version_no: number;
+  supersedes_acknowledgement_id: string | null;
   created_at: string;
   created_by_member_id: string | null;
+};
+
+type DirectMessageRow = {
+  thread_id: string;
+  network_id: string;
+  sender_member_id: string;
+  recipient_member_id: string;
+  message_id: string;
+  message_text: string;
+  created_at: string;
+  delivery_count: number;
+};
+
+type DirectMessageThreadRow = {
+  thread_id: string;
+  network_id: string;
+  counterpart_member_id: string;
+  counterpart_public_name: string;
+  counterpart_handle: string | null;
+  latest_message_id: string;
+  latest_sender_member_id: string;
+  latest_role: DirectMessageThreadSummary['latestMessage']['role'];
+  latest_message_text: string | null;
+  latest_created_at: string;
+  message_count: number;
+};
+
+type DirectMessageTranscriptRow = {
+  message_id: string;
+  thread_id: string;
+  sender_member_id: string | null;
+  role: DirectMessageTranscriptEntry['role'];
+  message_text: string | null;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+  in_reply_to_message_id: string | null;
 };
 
 function mapActor(rows: ActorRow[]): ActorContext | null {
@@ -230,13 +269,60 @@ function mapPendingDeliveryRow(row: PendingDeliveryRow): PendingDelivery {
 
 function mapDeliveryAcknowledgementRow(row: DeliveryAcknowledgementRow): DeliveryAcknowledgement {
   return {
+    acknowledgementId: row.acknowledgement_id,
     deliveryId: row.delivery_id,
     networkId: row.network_id,
     recipientMemberId: row.recipient_member_id,
     state: row.state,
     suppressionReason: row.suppression_reason,
+    versionNo: Number(row.version_no),
+    supersedesAcknowledgementId: row.supersedes_acknowledgement_id,
     createdAt: row.created_at,
     createdByMemberId: row.created_by_member_id,
+  };
+}
+
+function mapDirectMessageRow(row: DirectMessageRow): DirectMessageSummary {
+  return {
+    threadId: row.thread_id,
+    networkId: row.network_id,
+    senderMemberId: row.sender_member_id,
+    recipientMemberId: row.recipient_member_id,
+    messageId: row.message_id,
+    messageText: row.message_text,
+    createdAt: row.created_at,
+    deliveryCount: Number(row.delivery_count),
+  };
+}
+
+function mapDirectMessageThreadRow(row: DirectMessageThreadRow): DirectMessageThreadSummary {
+  return {
+    threadId: row.thread_id,
+    networkId: row.network_id,
+    counterpartMemberId: row.counterpart_member_id,
+    counterpartPublicName: row.counterpart_public_name,
+    counterpartHandle: row.counterpart_handle,
+    latestMessage: {
+      messageId: row.latest_message_id,
+      senderMemberId: row.latest_sender_member_id,
+      role: row.latest_role,
+      messageText: row.latest_message_text,
+      createdAt: row.latest_created_at,
+    },
+    messageCount: Number(row.message_count),
+  };
+}
+
+function mapDirectMessageTranscriptRow(row: DirectMessageTranscriptRow): DirectMessageTranscriptEntry {
+  return {
+    messageId: row.message_id,
+    threadId: row.thread_id,
+    senderMemberId: row.sender_member_id,
+    role: row.role,
+    messageText: row.message_text,
+    payload: row.payload ?? {},
+    createdAt: row.created_at,
+    inReplyToMessageId: row.in_reply_to_message_id,
   };
 }
 
@@ -527,6 +613,153 @@ async function readEventSummary(pool: Pool, actorMemberId: string, entityId: str
   );
 
   return result.rows[0] ? mapEventRow(result.rows[0]) : null;
+}
+
+async function listDirectMessageThreads(pool: Pool, actorMemberId: string, networkIds: string[], limit: number): Promise<DirectMessageThreadSummary[]> {
+  const result = await pool.query<DirectMessageThreadRow>(
+    `
+      with scope as (
+        select unnest($2::text[])::app.short_id as network_id
+      ),
+      thread_scope as (
+        select
+          tt.id as thread_id,
+          tt.network_id,
+          case
+            when tt.created_by_member_id = $1 then tt.counterpart_member_id
+            else tt.created_by_member_id
+          end as counterpart_member_id
+        from app.transcript_threads tt
+        join scope s on s.network_id = tt.network_id
+        where tt.kind = 'dm'
+          and tt.archived_at is null
+          and $1 in (tt.created_by_member_id, tt.counterpart_member_id)
+      ),
+      message_ranked as (
+        select
+          ts.thread_id,
+          ts.network_id,
+          ts.counterpart_member_id,
+          tm.id as latest_message_id,
+          tm.sender_member_id as latest_sender_member_id,
+          tm.role as latest_role,
+          tm.message_text as latest_message_text,
+          tm.created_at::text as latest_created_at,
+          count(*) over (partition by ts.thread_id)::int as message_count,
+          row_number() over (partition by ts.thread_id order by tm.created_at desc, tm.id desc) as row_no
+        from thread_scope ts
+        join app.transcript_messages tm on tm.thread_id = ts.thread_id
+      )
+      select
+        mr.thread_id,
+        mr.network_id,
+        mr.counterpart_member_id,
+        m.public_name as counterpart_public_name,
+        m.handle as counterpart_handle,
+        mr.latest_message_id,
+        mr.latest_sender_member_id,
+        mr.latest_role,
+        mr.latest_message_text,
+        mr.latest_created_at,
+        mr.message_count
+      from message_ranked mr
+      join app.members m on m.id = mr.counterpart_member_id and m.state = 'active'
+      where mr.row_no = 1
+      order by mr.latest_created_at desc, mr.thread_id desc
+      limit $3
+    `,
+    [actorMemberId, networkIds, limit],
+  );
+
+  return result.rows.map(mapDirectMessageThreadRow);
+}
+
+async function readDirectMessageThread(
+  pool: Pool,
+  actorMemberId: string,
+  accessibleNetworkIds: string[],
+  threadId: string,
+  limit: number,
+): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null> {
+  const threadResult = await pool.query<DirectMessageThreadRow>(
+    `
+      with thread_scope as (
+        select
+          tt.id as thread_id,
+          tt.network_id,
+          case
+            when tt.created_by_member_id = $1 then tt.counterpart_member_id
+            else tt.created_by_member_id
+          end as counterpart_member_id
+        from app.transcript_threads tt
+        where tt.id = $2
+          and tt.kind = 'dm'
+          and tt.archived_at is null
+          and tt.network_id = any($3::app.short_id[])
+          and $1 in (tt.created_by_member_id, tt.counterpart_member_id)
+      ),
+      message_ranked as (
+        select
+          ts.thread_id,
+          ts.network_id,
+          ts.counterpart_member_id,
+          tm.id as latest_message_id,
+          tm.sender_member_id as latest_sender_member_id,
+          tm.role as latest_role,
+          tm.message_text as latest_message_text,
+          tm.created_at::text as latest_created_at,
+          count(*) over (partition by ts.thread_id)::int as message_count,
+          row_number() over (partition by ts.thread_id order by tm.created_at desc, tm.id desc) as row_no
+        from thread_scope ts
+        join app.transcript_messages tm on tm.thread_id = ts.thread_id
+      )
+      select
+        mr.thread_id,
+        mr.network_id,
+        mr.counterpart_member_id,
+        m.public_name as counterpart_public_name,
+        m.handle as counterpart_handle,
+        mr.latest_message_id,
+        mr.latest_sender_member_id,
+        mr.latest_role,
+        mr.latest_message_text,
+        mr.latest_created_at,
+        mr.message_count
+      from message_ranked mr
+      join app.members m on m.id = mr.counterpart_member_id and m.state = 'active'
+      where mr.row_no = 1
+    `,
+    [actorMemberId, threadId, accessibleNetworkIds],
+  );
+
+  const thread = threadResult.rows[0];
+  if (!thread) {
+    return null;
+  }
+
+  const messagesResult = await pool.query<DirectMessageTranscriptRow>(
+    `
+      select
+        tm.id as message_id,
+        tm.thread_id,
+        tm.sender_member_id,
+        tm.role,
+        tm.message_text,
+        tm.payload,
+        tm.created_at::text as created_at,
+        tm.in_reply_to_message_id
+      from app.transcript_messages tm
+      where tm.thread_id = $1
+      order by tm.created_at desc, tm.id desc
+      limit $2
+    `,
+    [threadId, limit],
+  );
+
+  return {
+    thread: mapDirectMessageThreadRow(thread),
+    messages: messagesResult.rows.map(mapDirectMessageTranscriptRow).reverse(),
+  };
 }
 
 export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
@@ -1026,6 +1259,17 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
           return null;
         }
 
+        const currentAckResult = await client.query<{ acknowledgement_id: string; version_no: number }>(
+          `
+            select id as acknowledgement_id, version_no
+            from app.current_delivery_acknowledgements
+            where delivery_id = $1
+              and recipient_member_id = $2
+          `,
+          [delivery.id, delivery.recipient_member_id],
+        );
+
+        const currentAck = currentAckResult.rows[0];
         const ackResult = await client.query<DeliveryAcknowledgementRow>(
           `
             insert into app.delivery_acknowledgements (
@@ -1034,16 +1278,22 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
               network_id,
               state,
               suppression_reason,
+              version_no,
+              supersedes_acknowledgement_id,
               created_by_member_id
             )
-            values ($1, $2, $3, $4, $5, $6)
-            on conflict (delivery_id, recipient_member_id) do update
-            set state = excluded.state,
-                suppression_reason = excluded.suppression_reason,
-                network_id = excluded.network_id,
-                created_at = now(),
-                created_by_member_id = excluded.created_by_member_id
-            returning delivery_id, network_id, recipient_member_id, state, suppression_reason, created_at::text, created_by_member_id
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
+            returning
+              id as acknowledgement_id,
+              delivery_id,
+              network_id,
+              recipient_member_id,
+              state,
+              suppression_reason,
+              version_no,
+              supersedes_acknowledgement_id,
+              created_at::text,
+              created_by_member_id
           `,
           [
             delivery.id,
@@ -1051,6 +1301,8 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             delivery.network_id,
             input.state,
             input.state === 'suppressed' ? input.suppressionReason ?? null : null,
+            (currentAck?.version_no ?? 0) + 1,
+            currentAck?.acknowledgement_id ?? null,
             input.actorMemberId,
           ],
         );
@@ -1063,6 +1315,146 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       } finally {
         client.release();
       }
+    },
+
+    async sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+
+        const scopeResult = await client.query<{ network_id: string }>(
+          `
+            with actor_scope as (
+              select distinct network_id
+              from app.accessible_network_memberships
+              where member_id = $1
+                and network_id = any($2::app.short_id[])
+            ),
+            shared_scope as (
+              select actor_scope.network_id
+              from actor_scope
+              join app.accessible_network_memberships recipient_scope
+                on recipient_scope.network_id = actor_scope.network_id
+             where recipient_scope.member_id = $3
+            )
+            select network_id
+            from shared_scope
+            where ($4::app.short_id is null or network_id = $4)
+            order by network_id asc
+            limit 1
+          `,
+          [input.actorMemberId, input.accessibleNetworkIds, input.recipientMemberId, input.networkId ?? null],
+        );
+
+        const networkId = scopeResult.rows[0]?.network_id;
+        if (!networkId) {
+          await client.query('rollback');
+          return null;
+        }
+
+        const threadResult = await client.query<{ id: string }>(
+          `
+            select tt.id
+            from app.transcript_threads tt
+            where tt.kind = 'dm'
+              and tt.archived_at is null
+              and tt.network_id = $1
+              and (
+                (tt.created_by_member_id = $2 and tt.counterpart_member_id = $3)
+                or (tt.created_by_member_id = $3 and tt.counterpart_member_id = $2)
+              )
+            order by tt.created_at asc, tt.id asc
+            limit 1
+          `,
+          [networkId, input.actorMemberId, input.recipientMemberId],
+        );
+
+        let threadId = threadResult.rows[0]?.id;
+        if (!threadId) {
+          const insertedThread = await client.query<{ id: string }>(
+            `
+              insert into app.transcript_threads (network_id, kind, created_by_member_id, counterpart_member_id)
+              values ($1, 'dm', $2, $3)
+              returning id
+            `,
+            [networkId, input.actorMemberId, input.recipientMemberId],
+          );
+          threadId = insertedThread.rows[0]!.id;
+        }
+
+        const messageResult = await client.query<{ id: string; created_at: string }>(
+          `
+            insert into app.transcript_messages (thread_id, sender_member_id, role, message_text)
+            values ($1, $2, 'member', $3)
+            returning id, created_at::text
+          `,
+          [threadId, input.actorMemberId, input.messageText],
+        );
+        const message = messageResult.rows[0]!;
+
+        const deliveryResult = await client.query(
+          `
+            insert into app.deliveries (
+              network_id,
+              recipient_member_id,
+              endpoint_id,
+              transcript_message_id,
+              topic,
+              payload,
+              status,
+              scheduled_at,
+              sent_at
+            )
+            select
+              $1,
+              dep.member_id,
+              dep.id,
+              $2,
+              'transcript.message.created',
+              jsonb_build_object(
+                'threadId', $3,
+                'messageId', $2,
+                'senderMemberId', $4,
+                'recipientMemberId', $5,
+                'messageText', $6,
+                'kind', 'dm'
+              ),
+              'sent'::app.delivery_status,
+              now(),
+              now()
+            from app.delivery_endpoints dep
+            where dep.member_id = $5
+              and dep.state = 'active'
+              and dep.disabled_at is null
+          `,
+          [networkId, message.id, threadId, input.actorMemberId, input.recipientMemberId, input.messageText],
+        );
+
+        await client.query('commit');
+        return mapDirectMessageRow({
+          thread_id: threadId,
+          network_id: networkId,
+          sender_member_id: input.actorMemberId,
+          recipient_member_id: input.recipientMemberId,
+          message_id: message.id,
+          message_text: input.messageText,
+          created_at: message.created_at,
+          delivery_count: deliveryResult.rowCount ?? 0,
+        });
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async listDirectMessageThreads({ actorMemberId, networkIds, limit }) {
+      return listDirectMessageThreads(pool, actorMemberId, networkIds, limit);
+    },
+
+    async readDirectMessageThread({ actorMemberId, accessibleNetworkIds, threadId, limit }) {
+      return readDirectMessageThread(pool, actorMemberId, accessibleNetworkIds, threadId, limit);
     },
 
     async listEntities({ networkIds, kinds, limit }) {
