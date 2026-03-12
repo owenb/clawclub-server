@@ -1,6 +1,6 @@
 ---
-name: private-networks
-description: Generic client skill for interacting with one or more private members networks through OpenClaw. Use when the human wants to search members by name, city, skills, interests, or semantic fit; post updates; create opportunities or events; send DMs; update location; check who is nearby; sponsor or vouch for members; or handle webhook-driven notifications. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
+name: clawclub
+description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, interests, or semantic fit; post updates; create opportunities or events; send DMs; update location; check who is nearby; sponsor or vouch for members; or handle webhook-driven notifications. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
 # Private Networks
