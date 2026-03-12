@@ -209,6 +209,7 @@ function makeDirectMessageTranscriptEntry(
     payload: {},
     createdAt: '2026-03-12T00:03:00Z',
     inReplyToMessageId: null,
+    deliveryReceipts: [],
     ...overrides,
   };
 }
@@ -1820,6 +1821,25 @@ test('messages.read scopes thread access server-side and returns transcript entr
             messageId: 'message-1',
             createdAt: '2026-03-12T00:01:00Z',
             messageText: 'Earlier',
+            deliveryReceipts: [
+              {
+                deliveryId: 'delivery-1',
+                recipientMemberId: 'member-1',
+                status: 'sent',
+                scheduledAt: '2026-03-12T00:01:00Z',
+                sentAt: '2026-03-12T00:01:10Z',
+                failedAt: null,
+                createdAt: '2026-03-12T00:01:00Z',
+                acknowledgement: {
+                  acknowledgementId: 'ack-1',
+                  state: 'shown',
+                  suppressionReason: null,
+                  versionNo: 1,
+                  createdAt: '2026-03-12T00:01:20Z',
+                  createdByMemberId: 'member-1',
+                },
+              },
+            ],
           }),
           makeDirectMessageTranscriptEntry({
             messageId: 'message-2',
@@ -1827,6 +1847,18 @@ test('messages.read scopes thread access server-side and returns transcript entr
             senderMemberId: 'member-1',
             messageText: 'Later',
             inReplyToMessageId: 'message-1',
+            deliveryReceipts: [
+              {
+                deliveryId: 'delivery-2',
+                recipientMemberId: 'member-2',
+                status: 'sent',
+                scheduledAt: '2026-03-12T00:02:00Z',
+                sentAt: '2026-03-12T00:02:05Z',
+                failedAt: null,
+                createdAt: '2026-03-12T00:02:00Z',
+                acknowledgement: null,
+              },
+            ],
           }),
         ],
       };
@@ -1854,6 +1886,8 @@ test('messages.read scopes thread access server-side and returns transcript entr
   assert.equal(result.data.thread.threadId, 'thread-1');
   assert.equal(result.data.messages.length, 2);
   assert.equal(result.data.messages[1]?.inReplyToMessageId, 'message-1');
+  assert.equal(result.data.messages[0]?.deliveryReceipts[0]?.acknowledgement?.state, 'shown');
+  assert.equal(result.data.messages[1]?.deliveryReceipts[0]?.recipientMemberId, 'member-2');
 });
 
 

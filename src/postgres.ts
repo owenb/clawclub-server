@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -194,6 +194,17 @@ type DirectMessageThreadRow = {
   message_count: number;
 };
 
+type DirectMessageReceiptRow = {
+  deliveryId: string;
+  recipientMemberId: string;
+  status: DirectMessageReceipt['status'];
+  scheduledAt: string;
+  sentAt: string | null;
+  failedAt: string | null;
+  createdAt: string;
+  acknowledgement: DirectMessageReceipt['acknowledgement'];
+};
+
 type DirectMessageTranscriptRow = {
   message_id: string;
   thread_id: string;
@@ -203,6 +214,7 @@ type DirectMessageTranscriptRow = {
   payload: Record<string, unknown> | null;
   created_at: string;
   in_reply_to_message_id: string | null;
+  delivery_receipts: DirectMessageReceiptRow[] | null;
 };
 
 type DirectMessageInboxRow = {
@@ -444,6 +456,7 @@ function mapDirectMessageTranscriptRow(row: DirectMessageTranscriptRow): DirectM
     payload: row.payload ?? {},
     createdAt: row.created_at,
     inReplyToMessageId: row.in_reply_to_message_id,
+    deliveryReceipts: row.delivery_receipts ?? [],
   };
 }
 
@@ -980,8 +993,37 @@ async function readDirectMessageThread(
         tm.message_text,
         tm.payload,
         tm.created_at::text as created_at,
-        tm.in_reply_to_message_id
+        tm.in_reply_to_message_id,
+        coalesce(receipts.delivery_receipts, '[]'::jsonb) as delivery_receipts
       from app.transcript_messages tm
+      left join lateral (
+        select jsonb_agg(
+          jsonb_build_object(
+            'deliveryId', cdr.delivery_id,
+            'recipientMemberId', cdr.recipient_member_id,
+            'status', cdr.status,
+            'scheduledAt', cdr.scheduled_at::text,
+            'sentAt', cdr.sent_at::text,
+            'failedAt', cdr.failed_at::text,
+            'createdAt', cdr.created_at::text,
+            'acknowledgement',
+              case
+                when cdr.acknowledgement_id is null then null
+                else jsonb_build_object(
+                  'acknowledgementId', cdr.acknowledgement_id,
+                  'state', cdr.acknowledgement_state,
+                  'suppressionReason', cdr.acknowledgement_suppression_reason,
+                  'versionNo', cdr.acknowledgement_version_no,
+                  'createdAt', cdr.acknowledgement_created_at::text,
+                  'createdByMemberId', cdr.acknowledgement_created_by_member_id
+                )
+              end
+          )
+          order by cdr.created_at asc, cdr.delivery_id asc
+        ) as delivery_receipts
+        from app.current_delivery_receipts cdr
+        where cdr.transcript_message_id = tm.id
+      ) receipts on true
       where tm.thread_id = $1
       order by tm.created_at desc, tm.id desc
       limit $2

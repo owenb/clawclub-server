@@ -330,6 +330,24 @@ export type DirectMessageInboxSummary = DirectMessageThreadSummary & {
   };
 };
 
+export type DirectMessageReceipt = {
+  deliveryId: string;
+  recipientMemberId: string;
+  status: 'pending' | 'processing' | 'sent' | 'failed' | 'canceled';
+  scheduledAt: string;
+  sentAt: string | null;
+  failedAt: string | null;
+  createdAt: string;
+  acknowledgement: {
+    acknowledgementId: string;
+    state: DeliveryAckState;
+    suppressionReason: string | null;
+    versionNo: number;
+    createdAt: string;
+    createdByMemberId: string | null;
+  } | null;
+};
+
 export type DirectMessageTranscriptEntry = {
   messageId: string;
   threadId: string;
@@ -339,6 +357,7 @@ export type DirectMessageTranscriptEntry = {
   payload: Record<string, unknown>;
   createdAt: string;
   inReplyToMessageId: string | null;
+  deliveryReceipts: DirectMessageReceipt[];
 };
 
 export type SendDirectMessageInput = {
