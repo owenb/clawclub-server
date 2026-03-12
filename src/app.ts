@@ -295,6 +295,15 @@ export type DirectMessageThreadSummary = {
   messageCount: number;
 };
 
+export type DirectMessageInboxSummary = DirectMessageThreadSummary & {
+  unread: {
+    hasUnread: boolean;
+    unreadMessageCount: number;
+    unreadDeliveryCount: number;
+    latestUnreadMessageCreatedAt: string | null;
+  };
+};
+
 export type DirectMessageTranscriptEntry = {
   messageId: string;
   threadId: string;
@@ -346,6 +355,12 @@ export type Repository = {
   listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
   listDirectMessageThreads(input: { actorMemberId: string; networkIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
+  listDirectMessageInbox(input: {
+    actorMemberId: string;
+    networkIds: string[];
+    limit: number;
+    unreadOnly: boolean;
+  }): Promise<DirectMessageInboxSummary[]>;
   readDirectMessageThread(input: {
     actorMemberId: string;
     accessibleNetworkIds: string[];
@@ -991,6 +1006,45 @@ export function buildApp({ repository }: { repository: Repository }) {
             },
             sharedContext,
             data: transcript,
+          });
+        }
+
+        case 'messages.inbox': {
+          const limit = normalizeLimit(payload.limit);
+          let networkScope = actor.memberships;
+
+          if (payload.networkId !== undefined) {
+            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
+          }
+
+          if (networkScope.length === 0) {
+            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
+          }
+
+          const networkIds = networkScope.map((network) => network.networkId);
+          const unreadOnly = payload.unreadOnly === true;
+          const results = await repository.listDirectMessageInbox({
+            actorMemberId: actor.member.id,
+            networkIds,
+            limit,
+            unreadOnly,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId:
+                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
+              activeNetworkIds: networkIds,
+            },
+            sharedContext,
+            data: {
+              limit,
+              unreadOnly,
+              networkScope,
+              results,
+            },
           });
         }
 

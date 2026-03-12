@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type CreateEntityInput, type CreateEventInput, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type CreateEntityInput, type CreateEventInput, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type PendingDelivery, type Repository, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -193,6 +193,24 @@ type DirectMessageTranscriptRow = {
   payload: Record<string, unknown> | null;
   created_at: string;
   in_reply_to_message_id: string | null;
+};
+
+type DirectMessageInboxRow = {
+  thread_id: string;
+  network_id: string;
+  counterpart_member_id: string;
+  counterpart_public_name: string;
+  counterpart_handle: string | null;
+  latest_message_id: string;
+  latest_sender_member_id: string;
+  latest_role: DirectMessageThreadSummary['latestMessage']['role'];
+  latest_message_text: string | null;
+  latest_created_at: string;
+  message_count: number;
+  unread_message_count: number;
+  unread_delivery_count: number;
+  latest_unread_message_created_at: string | null;
+  has_unread: boolean;
 };
 
 type DbClient = Pool | PoolClient;
@@ -404,6 +422,30 @@ function mapDirectMessageTranscriptRow(row: DirectMessageTranscriptRow): DirectM
     payload: row.payload ?? {},
     createdAt: row.created_at,
     inReplyToMessageId: row.in_reply_to_message_id,
+  };
+}
+
+function mapDirectMessageInboxRow(row: DirectMessageInboxRow): DirectMessageInboxSummary {
+  return {
+    threadId: row.thread_id,
+    networkId: row.network_id,
+    counterpartMemberId: row.counterpart_member_id,
+    counterpartPublicName: row.counterpart_public_name,
+    counterpartHandle: row.counterpart_handle,
+    latestMessage: {
+      messageId: row.latest_message_id,
+      senderMemberId: row.latest_sender_member_id,
+      role: row.latest_role,
+      messageText: row.latest_message_text,
+      createdAt: row.latest_created_at,
+    },
+    messageCount: Number(row.message_count),
+    unread: {
+      hasUnread: row.has_unread,
+      unreadMessageCount: Number(row.unread_message_count),
+      unreadDeliveryCount: Number(row.unread_delivery_count),
+      latestUnreadMessageCreatedAt: row.latest_unread_message_created_at,
+    },
   };
 }
 
@@ -793,6 +835,54 @@ async function listDirectMessageThreads(client: DbClient, actorMemberId: string,
   );
 
   return result.rows.map(mapDirectMessageThreadRow);
+}
+
+async function listDirectMessageInbox(
+  client: DbClient,
+  actorMemberId: string,
+  networkIds: string[],
+  limit: number,
+  unreadOnly: boolean,
+): Promise<DirectMessageInboxSummary[]> {
+  const result = await client.query<DirectMessageInboxRow>(
+    `
+      with thread_message_counts as (
+        select tm.thread_id, count(*)::int as message_count
+        from app.transcript_messages tm
+        group by tm.thread_id
+      )
+      select
+        inbox.thread_id,
+        inbox.network_id,
+        inbox.counterpart_member_id,
+        m.public_name as counterpart_public_name,
+        m.handle as counterpart_handle,
+        inbox.latest_message_id,
+        inbox.latest_sender_member_id,
+        inbox.latest_role,
+        inbox.latest_message_text,
+        inbox.latest_created_at::text as latest_created_at,
+        coalesce(tmc.message_count, 0) as message_count,
+        inbox.unread_message_count,
+        inbox.unread_delivery_count,
+        inbox.latest_unread_message_created_at::text as latest_unread_message_created_at,
+        inbox.has_unread
+      from app.current_dm_inbox_threads inbox
+      join app.members m on m.id = inbox.counterpart_member_id and m.state = 'active'
+      left join thread_message_counts tmc on tmc.thread_id = inbox.thread_id
+      where inbox.recipient_member_id = $1
+        and inbox.network_id = any($2::app.short_id[])
+        and ($3::boolean = false or inbox.has_unread)
+      order by
+        inbox.has_unread desc,
+        coalesce(inbox.latest_unread_message_created_at, inbox.latest_created_at) desc,
+        inbox.thread_id desc
+      limit $4
+    `,
+    [actorMemberId, networkIds, unreadOnly, limit],
+  );
+
+  return result.rows.map(mapDirectMessageInboxRow);
 }
 
 async function readDirectMessageThread(
@@ -1606,6 +1696,12 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
     async listDirectMessageThreads({ actorMemberId, networkIds, limit }) {
       return withActorContext(pool, actorMemberId, networkIds, (client) =>
         listDirectMessageThreads(client, actorMemberId, networkIds, limit),
+      );
+    },
+
+    async listDirectMessageInbox({ actorMemberId, networkIds, limit, unreadOnly }) {
+      return withActorContext(pool, actorMemberId, networkIds, (client) =>
+        listDirectMessageInbox(client, actorMemberId, networkIds, limit, unreadOnly),
       );
     },
 

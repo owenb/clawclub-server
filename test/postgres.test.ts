@@ -66,6 +66,76 @@ test('postgres repository projects actor scope into the db session before dm rea
 });
 
 
+test('postgres repository projects actor scope into the db session before inbox reads', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('from app.current_dm_inbox_threads inbox')) {
+        return {
+          rows: [
+            {
+              thread_id: 'thread-1',
+              network_id: 'network-2',
+              counterpart_member_id: 'member-2',
+              counterpart_public_name: 'Member Two',
+              counterpart_handle: 'member-two',
+              latest_message_id: 'message-2',
+              latest_sender_member_id: 'member-2',
+              latest_role: 'member',
+              latest_message_text: 'still waiting on your reply',
+              latest_created_at: '2026-03-12T00:05:00Z',
+              message_count: 4,
+              unread_message_count: 2,
+              unread_delivery_count: 3,
+              latest_unread_message_created_at: '2026-03-12T00:05:00Z',
+              has_unread: true,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const pool = {
+    async connect() {
+      return client;
+    },
+  };
+
+  const repository = createPostgresRepository({ pool: pool as any });
+  const results = await repository.listDirectMessageInbox({
+    actorMemberId: 'member-1',
+    networkIds: ['network-2'],
+    limit: 5,
+    unreadOnly: true,
+  });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.threadId, 'thread-1');
+  assert.equal(results[0]?.unread.unreadMessageCount, 2);
+  assert.equal(calls[0]?.sql, 'begin');
+  assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
+  assert.deepEqual(calls[1]?.params, ['member-1', 'network-2']);
+  assert.match(calls[2]?.sql ?? '', /from app\.current_dm_inbox_threads inbox/);
+  assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], true, 5]);
+  assert.equal(calls.at(-1)?.sql, 'commit');
+});
+
 test('postgres repository projects actor scope into the db session before delivery reads', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
