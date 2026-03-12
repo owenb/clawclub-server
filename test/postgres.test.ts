@@ -996,6 +996,46 @@ test('postgres repository lists current membership projections for admin scope',
   assert.deepEqual(calls[2]?.params, [['network-2'], 'pending_review', 5]);
 });
 
+test('postgres repository lists admissions review context with sponsor load and vouches', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes("from app.current_network_memberships cnm") && sql.includes("e.kind = 'vouched_for'")) {
+        return {
+          rows: [{
+            membership_id: 'membership-9', network_id: 'network-2', member_id: 'member-9', public_name: 'Member Nine', handle: 'member-nine',
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', role: 'member', status: 'pending_review',
+            state_reason: 'Booked intro call', state_version_no: 2, state_created_at: '2026-03-12T00:04:00Z', state_created_by_member_id: 'member-1',
+            joined_at: '2026-03-12T00:00:00Z', accepted_covenant_at: null, metadata: { source: 'operator' },
+            sponsor_active_sponsored_count: 1, sponsor_sponsored_this_month_count: 2,
+            vouches: [{
+              edge_id: 'edge-1', from_member_id: 'member-2', from_public_name: 'Member Two', from_handle: 'member-two',
+              reason: 'I trust their presence and follow-through.', metadata: { strength: 'warm' },
+              created_at: '2026-03-12T00:03:00Z', created_by_member_id: 'member-2',
+            }],
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const results = await repository.listMembershipReviews({ actorMemberId: 'member-1', networkIds: ['network-2'], limit: 5, statuses: ['pending_review'] });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.sponsorStats.activeSponsoredCount, 1);
+  assert.equal(results[0]?.vouches[0]?.fromMember.publicName, 'Member Two');
+  assert.equal(results[0]?.vouches[0]?.reason, 'I trust their presence and follow-through.');
+  assert.match(calls[2]?.sql ?? '', /e\.kind = 'vouched_for'/);
+  assert.deepEqual(calls[2]?.params, [['network-2'], ['pending_review'], 5]);
+});
+
 test('postgres repository appends membership state transitions and reloads current projection', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

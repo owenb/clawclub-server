@@ -21,6 +21,7 @@ import {
   type ListEntitiesInput,
   type ListEventsInput,
   type MembershipAdminSummary,
+  type MembershipReviewSummary,
   type MemberProfile,
   type NetworkMemberSummary,
   type RsvpEventInput,
@@ -290,6 +291,31 @@ function makeMembershipAdmin(overrides: Partial<MembershipAdminSummary> = {}): M
   };
 }
 
+function makeMembershipReview(overrides: Partial<MembershipReviewSummary> = {}): MembershipReviewSummary {
+  return {
+    ...makeMembershipAdmin(),
+    sponsorStats: {
+      activeSponsoredCount: 1,
+      sponsoredThisMonthCount: 2,
+    },
+    vouches: [
+      {
+        edgeId: 'edge-1',
+        fromMember: {
+          memberId: 'member-2',
+          publicName: 'Member Two',
+          handle: 'member-two',
+        },
+        reason: 'I trust their presence and follow-through.',
+        metadata: { strength: 'warm' },
+        createdAt: '2026-03-12T00:02:00Z',
+        createdByMemberId: 'member-2',
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function makeNetworkMember(overrides: Partial<NetworkMemberSummary> = {}): NetworkMemberSummary {
   return {
     memberId: 'member-1',
@@ -417,6 +443,9 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async transitionMembershipState() {
       return makeMembershipAdmin({ state: { ...makeMembershipAdmin().state, status: 'active', versionNo: 2 } });
     },
+    async listMembershipReviews() {
+      return [makeMembershipReview()];
+    },
     async searchMembers() {
       return results;
     },
@@ -541,6 +570,38 @@ test('memberships.list stays inside admin network scope and can filter by status
   assert.equal(result.action, 'memberships.list');
   assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
   assert.equal(result.data.results[0]?.state.status, 'pending_review');
+});
+
+test('memberships.review defaults to admissions-focused statuses and returns sponsor/vouch context', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async listMembershipReviews(input) {
+      capturedInput = input as unknown as Record<string, unknown>;
+      return [makeMembershipReview()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'memberships.review',
+    payload: {
+      networkId: 'network-1',
+      limit: 3,
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkIds: ['network-1'],
+    limit: 3,
+    statuses: ['invited', 'pending_review'],
+  });
+  assert.equal(result.action, 'memberships.review');
+  assert.equal(result.data.results[0]?.sponsorStats.sponsoredThisMonthCount, 2);
+  assert.equal(result.data.results[0]?.vouches[0]?.fromMember.memberId, 'member-2');
 });
 
 test('memberships.create derives scope server-side and preserves sponsor semantics', async () => {

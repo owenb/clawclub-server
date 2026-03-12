@@ -13,6 +13,19 @@ export type MembershipSummary = {
   joinedAt: string;
 };
 
+export type MembershipVouchSummary = {
+  edgeId: string;
+  fromMember: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  };
+  reason: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  createdByMemberId: string | null;
+};
+
 export type MembershipAdminSummary = {
   membershipId: string;
   networkId: string;
@@ -48,6 +61,14 @@ export type CreateMembershipInput = {
   initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active'>;
   reason?: string | null;
   metadata: Record<string, unknown>;
+};
+
+export type MembershipReviewSummary = MembershipAdminSummary & {
+  sponsorStats: {
+    activeSponsoredCount: number;
+    sponsoredThisMonthCount: number;
+  };
+  vouches: MembershipVouchSummary[];
 };
 
 export type TransitionMembershipInput = {
@@ -576,6 +597,12 @@ export type Repository = {
   }): Promise<MembershipAdminSummary[]>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
+  listMembershipReviews(input: {
+    actorMemberId: string;
+    networkIds: string[];
+    limit: number;
+    statuses: MembershipState[];
+  }): Promise<MembershipReviewSummary[]>;
   listDeliveryEndpoints(input: { actorMemberId: string }): Promise<DeliveryEndpointSummary[]>;
   createDeliveryEndpoint(input: CreateDeliveryEndpointInput): Promise<DeliveryEndpointSummary>;
   updateDeliveryEndpoint(input: UpdateDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null>;
@@ -1010,6 +1037,54 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
             data: {
               limit,
               status: status ?? null,
+              networkScope,
+              results,
+            },
+          });
+        }
+
+        case 'memberships.review': {
+          const limit = normalizeLimit(payload.limit);
+          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner' || membership.role === 'admin');
+
+          if (payload.networkId !== undefined) {
+            networkScope = [requireMembershipAdmin(actor, payload.networkId)];
+          }
+
+          if (networkScope.length === 0) {
+            throw new AppError(403, 'forbidden', 'This member does not currently administer any networks');
+          }
+
+          const statuses = payload.statuses === undefined
+            ? ['invited', 'pending_review']
+            : (() => {
+                if (!Array.isArray(payload.statuses) || payload.statuses.length === 0) {
+                  throw new AppError(400, 'invalid_input', 'statuses must be a non-empty array when provided');
+                }
+
+                return [...new Set(payload.statuses.map((status) => requireMembershipState(status, 'statuses[]')))];
+              })();
+
+          const networkIds = networkScope.map((network) => network.networkId);
+          const results = await repository.listMembershipReviews({
+            actorMemberId: actor.member.id,
+            networkIds,
+            limit,
+            statuses,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId:
+                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
+              activeNetworkIds: networkIds,
+            },
+            sharedContext,
+            data: {
+              limit,
+              statuses,
               networkScope,
               results,
             },

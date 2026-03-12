@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreateMembershipInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipAdminSummary, type MembershipState, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type TransitionMembershipInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreateMembershipInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipAdminSummary, type MembershipReviewSummary, type MembershipState, type MembershipSummary, type MembershipVouchSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type TransitionMembershipInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -30,6 +30,23 @@ type SearchRow = {
   services_summary: string | null;
   website_url: string | null;
   shared_networks: Array<{ id: string; slug: string; name: string }> | null;
+};
+
+type MembershipVouchRow = {
+  edge_id: string;
+  from_member_id: string;
+  from_public_name: string;
+  from_handle: string | null;
+  reason: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  created_by_member_id: string | null;
+};
+
+type MembershipReviewRow = MembershipAdminRow & {
+  sponsor_active_sponsored_count: number;
+  sponsor_sponsored_this_month_count: number;
+  vouches: MembershipVouchRow[] | null;
 };
 
 type MembershipAdminRow = {
@@ -911,6 +928,32 @@ async function getActorByMemberId(pool: Pool, memberId: string): Promise<ActorCo
   return mapActor(result.rows);
 }
 
+function mapMembershipVouchRow(row: MembershipVouchRow): MembershipVouchSummary {
+  return {
+    edgeId: row.edge_id,
+    fromMember: {
+      memberId: row.from_member_id,
+      publicName: row.from_public_name,
+      handle: row.from_handle,
+    },
+    reason: row.reason,
+    metadata: row.metadata ?? {},
+    createdAt: row.created_at,
+    createdByMemberId: row.created_by_member_id,
+  };
+}
+
+function mapMembershipReviewRow(row: MembershipReviewRow): MembershipReviewSummary {
+  return {
+    ...mapMembershipAdminRow(row),
+    sponsorStats: {
+      activeSponsoredCount: Number(row.sponsor_active_sponsored_count ?? 0),
+      sponsoredThisMonthCount: Number(row.sponsor_sponsored_this_month_count ?? 0),
+    },
+    vouches: (row.vouches ?? []).map(mapMembershipVouchRow),
+  };
+}
+
 function mapMembershipAdminRow(row: MembershipAdminRow): MembershipAdminSummary {
   return {
     membershipId: row.membership_id,
@@ -1031,6 +1074,81 @@ async function listMemberships(client: DbClient, input: {
   );
 
   return result.rows.map(mapMembershipAdminRow);
+}
+
+async function listMembershipReviews(client: DbClient, input: {
+  networkIds: string[];
+  limit: number;
+  statuses: MembershipState[];
+}): Promise<MembershipReviewSummary[]> {
+  if (input.networkIds.length === 0 || input.statuses.length === 0) {
+    return [];
+  }
+
+  const result = await client.query<MembershipReviewRow>(
+    `
+      select
+        cnm.id as membership_id,
+        cnm.network_id,
+        cnm.member_id,
+        m.public_name,
+        m.handle,
+        cnm.sponsor_member_id,
+        sponsor.public_name as sponsor_public_name,
+        sponsor.handle as sponsor_handle,
+        cnm.role,
+        cnm.status,
+        cnm.state_reason,
+        cnm.state_version_no,
+        cnm.state_created_at::text as state_created_at,
+        cnm.state_created_by_member_id,
+        cnm.joined_at::text as joined_at,
+        cnm.accepted_covenant_at::text as accepted_covenant_at,
+        cnm.metadata,
+        coalesce(sponsor_stats.active_sponsored_count, 0) as sponsor_active_sponsored_count,
+        coalesce(sponsor_stats.sponsored_this_month_count, 0) as sponsor_sponsored_this_month_count,
+        coalesce(vouches.vouches, '[]'::jsonb) as vouches
+      from app.current_network_memberships cnm
+      join app.members m on m.id = cnm.member_id
+      left join app.members sponsor on sponsor.id = cnm.sponsor_member_id
+      left join lateral (
+        select
+          count(*) filter (where sponsored.status = 'active')::int as active_sponsored_count,
+          count(*) filter (where date_trunc('month', sponsored.joined_at) = date_trunc('month', now()))::int as sponsored_this_month_count
+        from app.current_network_memberships sponsored
+        where sponsored.network_id = cnm.network_id
+          and sponsored.sponsor_member_id = cnm.sponsor_member_id
+      ) sponsor_stats on cnm.sponsor_member_id is not null
+      left join lateral (
+        select jsonb_agg(
+          jsonb_build_object(
+            'edge_id', e.id,
+            'from_member_id', fm.id,
+            'from_public_name', fm.public_name,
+            'from_handle', fm.handle,
+            'reason', e.reason,
+            'metadata', e.metadata,
+            'created_at', e.created_at::text,
+            'created_by_member_id', e.created_by_member_id
+          )
+          order by e.created_at desc, e.id desc
+        ) as vouches
+        from app.edges e
+        join app.members fm on fm.id = e.from_member_id
+        where e.network_id = cnm.network_id
+          and e.kind = 'vouched_for'
+          and e.to_member_id = cnm.member_id
+          and e.archived_at is null
+      ) vouches on true
+      where cnm.network_id = any($1::app.short_id[])
+        and cnm.status = any($2::app.membership_state[])
+      order by cnm.network_id asc, cnm.state_created_at desc, cnm.id asc
+      limit $3
+    `,
+    [input.networkIds, input.statuses, input.limit],
+  );
+
+  return result.rows.map(mapMembershipReviewRow);
 }
 
 async function readMemberProfile(client: DbClient, actorMemberId: string, targetMemberId: string): Promise<MemberProfile | null> {
@@ -1494,6 +1612,10 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
     async listMemberships({ actorMemberId, networkIds, limit, status }) {
       return withActorContext(pool, actorMemberId, networkIds, (client) => listMemberships(client, { networkIds, limit, status }));
+    },
+
+    async listMembershipReviews({ actorMemberId, networkIds, limit, statuses }) {
+      return withActorContext(pool, actorMemberId, networkIds, (client) => listMembershipReviews(client, { networkIds, limit, statuses }));
     },
 
     async createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null> {
