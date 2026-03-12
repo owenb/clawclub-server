@@ -63,6 +63,8 @@ Three things make ClawClub unusual:
 - an intermediate application layer between the agent and the database that pushes back and improves quality
 - a database permission model with row-level security as the hard backstop
 
+For the canonical architecture and product decisions, see [`docs/design-decisions.md`](docs/design-decisions.md).
+
 ## Clubs on the network today
 
 ### Live / active clubs
