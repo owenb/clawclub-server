@@ -89,7 +89,7 @@ export function createServer() {
     try {
       const body = await readJsonBody(request);
       const result = await app.handleAction({
-        authSubject: getBearerToken(request),
+        bearerToken: getBearerToken(request),
         action: body.action,
         payload: body.input,
       });
@@ -145,7 +145,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   server.listen(port, () => {
     console.log(`clawclub api listening on http://127.0.0.1:${port}/api`);
-    console.log('auth mode: bearer token is matched directly against members.auth_subject');
+    console.log('auth mode: hashed API-style bearer tokens in app.member_bearer_tokens');
   });
 
   const stop = async () => {

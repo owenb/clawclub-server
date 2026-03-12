@@ -5,7 +5,7 @@ This is the first application layer on top of the SQL-first foundation.
 It is intentionally small:
 - one HTTP endpoint: `POST /api`
 - one bearer-scoped actor resolution step
-- two actions so far: `session.describe` and `members.search`
+- a small set of actor-scoped actions (`session.describe`, `members.search`, profile flows, and entity flows)
 - no ORM
 - no embeddings yet
 - no public/web UI assumptions
@@ -22,10 +22,21 @@ That makes a tiny action endpoint worthwhile before any broader CRUD surface exi
 
 ## Auth mode in this skeleton
 
-For now, the bearer token is matched directly against `members.auth_subject`.
+Bearer auth now uses `app.member_bearer_tokens`.
 
-That is deliberately simple for local development.
-A later pass should swap this for real token verification while keeping the same downstream shape.
+Each token has:
+- a compact short id (`app.short_id`)
+- a hashed secret (`sha256`) stored in the database
+- optional label / metadata
+- revocation and last-used timestamps
+
+The wire token format is:
+
+```text
+cc_live_<token_id>_<secret>
+```
+
+Only the token hash is persisted. The bearer token itself is shown once at creation time.
 
 ## Endpoint shape
 
@@ -33,7 +44,7 @@ A later pass should swap this for real token verification while keeping the same
 
 ```http
 POST /api
-Authorization: Bearer auth|smoke-member
+Authorization: Bearer cc_live_23456789abcd_23456789abcdefghjkmnpqrs
 Content-Type: application/json
 ```
 
@@ -50,10 +61,34 @@ Content-Type: application/json
 {
   "ok": true,
   "action": "session.describe",
+  "actor": {
+    "member": {
+      "id": "...",
+      "handle": "smoke-member",
+      "publicName": "Smoke Member"
+    },
+    "activeMemberships": [
+      {
+        "membershipId": "...",
+        "networkId": "...",
+        "slug": "smoke-network",
+        "name": "Smoke Network",
+        "summary": "Schema smoke test",
+        "manifestoMarkdown": null,
+        "role": "member",
+        "status": "active",
+        "sponsorMemberId": "...",
+        "joinedAt": "2026-03-12 01:00:00+00"
+      }
+    ],
+    "requestScope": {
+      "requestedNetworkId": null,
+      "activeNetworkIds": ["..."]
+    }
+  },
   "data": {
     "member": {
       "id": "...",
-      "authSubject": "auth|smoke-member",
       "handle": "smoke-member",
       "publicName": "Smoke Member"
     },
@@ -119,6 +154,29 @@ Search fields in this pass:
 - `known_for`
 - `services_summary`
 
+### `profile.get`
+Inputs:
+- `memberId` (optional; defaults to the actor)
+
+Behavior:
+- reads the latest version from `app.current_member_profiles`
+- only returns a profile when the actor shares at least one currently accessible network with the target member
+- uses stable `memberId` as the lookup key; handles remain optional mutable aliases returned in the payload, not canonical identifiers for writes
+
+### `profile.update`
+Inputs:
+- `displayName` (optional for updates; falls back to current value or `members.public_name`)
+- `handle` (optional, nullable)
+- `tagline`, `summary`, `whatIDo`, `knownFor`, `servicesSummary`, `websiteUrl` (optional, nullable)
+- `links` (optional array)
+- `profile` (optional object)
+
+Behavior:
+- updates only the authenticated member's own profile
+- appends a new row to `app.member_profile_versions` instead of overwriting the current row
+- may update `members.handle` in the same transaction
+- returns `409 handle_conflict` if the requested handle is already taken
+
 ## Running it
 
 ```bash
@@ -129,15 +187,23 @@ Then call it with curl:
 
 ```bash
 curl -s http://127.0.0.1:8787/api \
-  -H 'Authorization: Bearer auth|smoke-member' \
+  -H 'Authorization: Bearer cc_live_23456789abcd_23456789abcdefghjkmnpqrs' \
   -H 'Content-Type: application/json' \
   -d '{"action":"session.describe","input":{}}'
 ```
 
+Create a token with:
+
+```bash
+node --experimental-strip-types src/token-cli.ts <member_id> [label]
+```
+
+That prints the bearer token once plus an `insert` statement for `app.member_bearer_tokens`.
+
 ## Next likely actions
 
 Only after real use proves the need:
+- add entity creation/versioning actions on top of the schema's `entities` + `entity_versions` model
+- add event creation + RSVP actions as a separate but adjacent flow
 - add DM shared-network validation actions
-- add entity creation flows for post/opportunity/event
 - add embedding-backed ranking behind the same action envelope
-- replace auth-subject bearer mode with verified JWT/session tokens
