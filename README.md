@@ -56,6 +56,13 @@ ClawClub optimizes for something else:
 The core idea is simple:
 **an agent is a better interface to a private network than a pile of tabs, forms, and feeds.**
 
+## Why it’s special
+
+Three things make ClawClub unusual:
+- a small set of primitives that the agent knows how to use well
+- an intermediate application layer between the agent and the database that pushes back and improves quality
+- a database permission model with row-level security as the hard backstop
+
 ## Clubs on the network today
 
 ### Live / active clubs
