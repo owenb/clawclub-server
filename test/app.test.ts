@@ -6,6 +6,8 @@ import {
   type ActorContext,
   type AuthResult,
   type CreateEntityInput,
+  type BearerTokenSummary,
+  type CreatedBearerToken,
   type DeliveryAcknowledgement,
   type DeliverySummary,
   type ListDeliveriesInput,
@@ -87,6 +89,28 @@ function makePendingDelivery(overrides: Partial<PendingDelivery> = {}): PendingD
     payload: { hello: 'world' },
     createdAt: '2026-03-12T00:00:00Z',
     sentAt: '2026-03-12T00:01:00Z',
+    ...overrides,
+  };
+}
+
+
+function makeBearerTokenSummary(overrides: Partial<BearerTokenSummary> = {}): BearerTokenSummary {
+  return {
+    tokenId: 'token-1',
+    memberId: 'member-1',
+    label: 'default',
+    createdAt: '2026-03-12T00:00:00Z',
+    lastUsedAt: null,
+    revokedAt: null,
+    metadata: {},
+    ...overrides,
+  };
+}
+
+function makeCreatedBearerToken(overrides: Partial<CreatedBearerToken> = {}): CreatedBearerToken {
+  return {
+    token: makeBearerTokenSummary(),
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     ...overrides,
   };
 }
@@ -314,6 +338,15 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -392,6 +425,15 @@ test('members.search narrows scope when a permitted network is requested', async
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -468,6 +510,15 @@ test('profile.get defaults to the actor member id', async () => {
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -543,6 +594,15 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     },
     async rsvpEvent() {
       return makeEvent();
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
@@ -643,6 +703,15 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     },
     async rsvpEvent() {
       return makeEvent();
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
@@ -907,6 +976,15 @@ test('events.create writes the smallest sane event payload', async () => {
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -997,6 +1075,15 @@ test('events.list stays inside accessible scope', async () => {
     },
     async rsvpEvent() {
       return makeEvent();
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
@@ -1237,6 +1324,15 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -1335,6 +1431,15 @@ test('messages.send picks a shared network, appends the request scope, and retur
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -1418,6 +1523,15 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -1496,6 +1610,15 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -1568,6 +1691,15 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
     },
     async rsvpEvent() {
       return makeEvent();
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
@@ -1658,6 +1790,15 @@ test('messages.read scopes thread access server-side and returns transcript entr
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -1715,6 +1856,194 @@ test('messages.read scopes thread access server-side and returns transcript entr
   assert.equal(result.data.messages[1]?.inReplyToMessageId, 'message-1');
 });
 
+
+test('tokens.list returns the actor token inventory', async () => {
+  const app = buildApp({ repository: makeRepository() });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'tokens.list',
+  });
+
+  assert.equal(result.action, 'tokens.list');
+  assert.equal(result.data.tokens.length, 1);
+  assert.equal(result.data.tokens[0]?.tokenId, 'token-1');
+});
+
+test('tokens.create mints a new bearer token for the actor member', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeCreatedBearerToken({
+        token: makeBearerTokenSummary({ tokenId: 'token-2', label: 'laptop', metadata: { device: 'mbp' } }),
+        bearerToken: 'cc_live_3456789abcde_3456789abcdefghjkmnpqrst',
+      });
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async listDirectMessageInbox() {
+      return [makeDirectMessageInbox()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'tokens.create',
+    payload: {
+      label: 'laptop',
+      metadata: { device: 'mbp' },
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    label: 'laptop',
+    metadata: { device: 'mbp' },
+  });
+  assert.equal(result.action, 'tokens.create');
+  assert.equal(result.data.token.tokenId, 'token-2');
+  assert.equal(result.data.bearerToken, 'cc_live_3456789abcde_3456789abcdefghjkmnpqrst');
+});
+
+test('tokens.revoke only revokes actor-owned tokens', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeBearerTokenSummary({ tokenId: 'token-9', revokedAt: '2026-03-12T01:00:00Z' });
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async listDirectMessageInbox() {
+      return [makeDirectMessageInbox()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'tokens.revoke',
+    payload: {
+      tokenId: 'token-9',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    tokenId: 'token-9',
+  });
+  assert.equal(result.action, 'tokens.revoke');
+  assert.equal(result.data.token.tokenId, 'token-9');
+  assert.equal(result.data.token.revokedAt, '2026-03-12T01:00:00Z');
+});
+
 test('deliveries.list stays inside accessible scope and can filter pending receipts', async () => {
   let capturedInput: ListDeliveriesInput | null = null;
 
@@ -1761,6 +2090,15 @@ test('deliveries.list stays inside accessible scope and can filter pending recei
           },
         }),
       ];
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
     },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
@@ -1924,6 +2262,15 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
     async rsvpEvent() {
       return makeEvent();
     },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
@@ -1992,6 +2339,15 @@ test('deliveries.acknowledge returns 404 when the delivery is outside actor scop
     },
     async rsvpEvent() {
       return makeEvent();
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
     },
     async acknowledgeDelivery() {
       return null;

@@ -209,3 +209,78 @@ test('postgres repository projects actor scope into the db session before delive
   assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], true, 5]);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
+
+test('postgres repository creates and revokes hashed bearer tokens without returning the hash', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const pool = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql.includes('insert into app.member_bearer_tokens')) {
+        return {
+          rows: [
+            {
+              token_id: 'token-1',
+              member_id: 'member-1',
+              label: 'laptop',
+              created_at: '2026-03-12T00:00:00Z',
+              last_used_at: null,
+              revoked_at: null,
+              metadata: { device: 'mbp' },
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('update app.member_bearer_tokens mbt')) {
+        return {
+          rows: [
+            {
+              token_id: 'token-1',
+              member_id: 'member-1',
+              label: 'laptop',
+              created_at: '2026-03-12T00:00:00Z',
+              last_used_at: null,
+              revoked_at: '2026-03-12T00:05:00Z',
+              metadata: { device: 'mbp' },
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+
+  const repository = createPostgresRepository({ pool: pool as any });
+  const created = await repository.createBearerToken({
+    actorMemberId: 'member-1',
+    label: 'laptop',
+    metadata: { device: 'mbp' },
+  });
+
+  assert.equal(created.token.tokenId, 'token-1');
+  assert.equal(created.token.memberId, 'member-1');
+  assert.equal(created.token.label, 'laptop');
+  assert.equal(created.bearerToken.startsWith('cc_live_token-1_'), false);
+  assert.match(created.bearerToken, /^cc_live_[23456789abcdefghjkmnpqrstuvwxyz]{12}_[23456789abcdefghjkmnpqrstuvwxyz]{24}$/);
+  assert.match(calls[0]?.sql ?? '', /insert into app\.member_bearer_tokens/);
+  assert.equal((calls[0]?.params?.[0] as string).length, 12);
+  assert.equal(calls[0]?.params?.[1], 'member-1');
+  assert.equal(calls[0]?.params?.[2], 'laptop');
+  assert.equal(typeof calls[0]?.params?.[3], 'string');
+  assert.notEqual(calls[0]?.params?.[3], created.bearerToken);
+
+  const revoked = await repository.revokeBearerToken({
+    actorMemberId: 'member-1',
+    tokenId: 'token-1',
+  });
+
+  assert.equal(revoked?.tokenId, 'token-1');
+  assert.equal(revoked?.revokedAt, '2026-03-12T00:05:00Z');
+  assert.match(calls[1]?.sql ?? '', /update app\.member_bearer_tokens mbt/);
+  assert.deepEqual(calls[1]?.params, ['token-1', 'member-1']);
+});

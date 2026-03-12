@@ -216,6 +216,32 @@ export type ListEntitiesInput = {
 
 export type DeliveryAckState = 'shown' | 'suppressed';
 
+export type BearerTokenSummary = {
+  tokenId: string;
+  memberId: string;
+  label: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export type CreateBearerTokenInput = {
+  actorMemberId: string;
+  label?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type CreatedBearerToken = {
+  token: BearerTokenSummary;
+  bearerToken: string;
+};
+
+export type RevokeBearerTokenInput = {
+  actorMemberId: string;
+  tokenId: string;
+};
+
 export type AcknowledgeDeliveryInput = {
   actorMemberId: string;
   accessibleNetworkIds: string[];
@@ -351,6 +377,9 @@ export type Repository = {
   createEvent(input: CreateEventInput): Promise<EventSummary>;
   listEvents(input: ListEventsInput): Promise<EventSummary[]>;
   rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null>;
+  listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
+  createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
+  revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
   acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null>;
   listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
@@ -561,6 +590,13 @@ function requireEventRsvpState(value: unknown, field: string): EventRsvpState {
   }
 
   return value;
+}
+
+function normalizeTokenCreateInput(payload: Record<string, unknown>): { label: string | null; metadata: Record<string, unknown> } {
+  return {
+    label: normalizeOptionalString(payload.label, 'label') ?? null,
+    metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
+  };
 }
 
 function buildSuccessResponse(input: {
@@ -846,6 +882,57 @@ export function buildApp({ repository }: { repository: Repository }) {
           });
         }
 
+
+        case 'tokens.list': {
+          const tokens = await repository.listBearerTokens({
+            actorMemberId: actor.member.id,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: auth.requestScope,
+            sharedContext,
+            data: { tokens },
+          });
+        }
+
+        case 'tokens.create': {
+          const { label, metadata } = normalizeTokenCreateInput(payload);
+          const created = await repository.createBearerToken({
+            actorMemberId: actor.member.id,
+            label,
+            metadata,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: auth.requestScope,
+            sharedContext,
+            data: created,
+          });
+        }
+
+        case 'tokens.revoke': {
+          const tokenId = requireNonEmptyString(payload.tokenId, 'tokenId');
+          const token = await repository.revokeBearerToken({
+            actorMemberId: actor.member.id,
+            tokenId,
+          });
+
+          if (!token) {
+            throw new AppError(404, 'not_found', 'Token not found inside the actor scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: auth.requestScope,
+            sharedContext,
+            data: { token },
+          });
+        }
 
         case 'deliveries.list': {
           const limit = normalizeLimit(payload.limit);
