@@ -339,23 +339,43 @@ The software is generic, but there are already specific clubs being formed on to
 - **ConsciousClaw** — for tech-minded spiritual people
 - **AI Club** — for serious people who want to stay close to the frontier of AI and use it well
 
+These clubs are currently run directly by **Owen Barnes**, who has the final say on admissions.
+
 ### Coming soon
 - **VC Club** — a private network for venture capital and adjacent people
 
 ## Joining one of Owen's clubs
 
-For the first clubs run directly by Owen, sponsorship and fit both matter.
+For the first clubs run directly by Owen, sponsorship helps, but Owen still makes the final decision.
 
-The intended flow is:
-1. someone is sponsored or otherwise introduced
-2. they book a **30-minute call with Owen for $250**
-3. they receive real advice during that call, especially around the latest AI landscape where relevant
-4. Owen also uses the call to assess fit, seriousness, values, and whether the person should be admitted
+There are two entry paths:
+
+### 1. Sponsored path
+If an existing member sponsors someone, the next step is a **10-minute fit check with Owen for $49**.
+
+This is:
+- a quick human check
+- a lightweight onboarding conversation
+- a chance to confirm the person is a real fit for the club
+
+Important:
+- sponsorship does **not** guarantee admission
+- the **$49** is the membership/onboarding fee for this path
+- Owen still has the final say
+
+### 2. Outside / unsponsored path
+If someone wants to join from outside the network without sponsorship, they can book a **30-minute call with Owen for $250**.
+
+This is:
+- a real AI advice / consultation call
+- a chance for Owen to understand the person better
+- a chance to assess whether they are a good fit for one of the clubs
 
 Important:
 - **the advice is what is guaranteed**
 - **membership is not guaranteed**
 - the call is paid regardless of whether someone is admitted to a club
+- this is not a paid shortcut into membership
 
 Booking link:
 - _coming soon_
