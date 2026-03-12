@@ -8,6 +8,7 @@ import {
   type CreateEntityInput,
   type BearerTokenSummary,
   type CreatedBearerToken,
+  type ClaimedDelivery,
   type DeliveryAcknowledgement,
   type DeliverySummary,
   type ListDeliveriesInput,
@@ -191,6 +192,7 @@ function makeClaimedDelivery(overrides: Partial<ClaimedDelivery> = {}): ClaimedD
       finishedAt: null,
       createdByMemberId: 'member-1',
     },
+    endpoint: makeDeliveryEndpoint(),
     ...overrides,
   };
 }
@@ -3172,6 +3174,188 @@ test('deliveries.claim derives scope server-side and returns the claimed deliver
   assert.equal(result.data.claimed.attempt.workerKey, 'worker-a');
   assert.equal(result.data.claimed.delivery.status, 'processing');
 });
+
+
+test('deliveries.execute claims, posts, and completes a successful attempt', async () => {
+  const calls: string[] = [];
+
+  const repository: Repository = {
+    async authenticateBearerToken() { return makeAuthResult(); },
+    async searchMembers() { return []; },
+    async listMembers() { return [makeNetworkMember()]; },
+    async getMemberProfile() { return makeProfile(); },
+    async updateOwnProfile() { return makeProfile(); },
+    async createEntity() { return makeEntity(); },
+    async updateEntity() { return makeEntity(); },
+    async createEvent() { return makeEvent(); },
+    async listEvents() { return [makeEvent()]; },
+    async rsvpEvent() { return makeEvent(); },
+    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
+    async listDeliveries() { return [makeDeliverySummary()]; },
+    async retryDelivery() { return makeDeliverySummary(); },
+    async claimNextDelivery() {
+      calls.push('claim');
+      return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }), endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2' }) });
+    },
+    async completeDeliveryAttempt(input) {
+      calls.push(`complete:${String(input.responseStatusCode)}:${String(input.responseBody)}`);
+      return makeClaimedDelivery({
+        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'sent', sentAt: '2026-03-12T00:05:00Z' }),
+        attempt: { ...makeClaimedDelivery().attempt, status: 'sent', responseStatusCode: 202, responseBody: 'accepted', finishedAt: '2026-03-12T00:05:00Z' },
+        endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2' }),
+      });
+    },
+    async failDeliveryAttempt() { throw new Error('fail should not be called'); },
+    async sendDirectMessage() { return makeDirectMessage(); },
+    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
+    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
+    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
+    async listEntities() { return [makeEntity()]; },
+    async listBearerTokens() { return [makeBearerTokenSummary()]; },
+    async createBearerToken() { return makeCreatedBearerToken(); },
+    async revokeBearerToken() { return makeBearerTokenSummary(); },
+  };
+
+  let fetchRequest: Record<string, unknown> | null = null;
+  const app = buildApp({
+    repository,
+    fetchImpl: async (url, init) => {
+      fetchRequest = { url: String(url), method: init?.method, headers: init?.headers, body: init?.body };
+      return new Response('accepted', { status: 202 });
+    },
+  });
+
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.execute',
+    payload: { workerKey: 'worker-a' },
+  });
+
+  assert.deepEqual(calls, ['claim', 'complete:202:accepted']);
+  assert.equal(result.data.execution.outcome, 'sent');
+  assert.equal(result.data.execution.claimed.delivery.status, 'sent');
+  assert.equal(fetchRequest?.url, 'https://example.test/hooks/member-2');
+  assert.equal(fetchRequest?.method, 'POST');
+  assert.match(String(fetchRequest?.body), /"deliveryId":"delivery-1"/);
+});
+
+test('deliveries.execute fails the claimed attempt when the webhook responds non-2xx', async () => {
+  const calls: string[] = [];
+
+  const repository: Repository = {
+    async authenticateBearerToken() { return makeAuthResult(); },
+    async searchMembers() { return []; },
+    async listMembers() { return [makeNetworkMember()]; },
+    async getMemberProfile() { return makeProfile(); },
+    async updateOwnProfile() { return makeProfile(); },
+    async createEntity() { return makeEntity(); },
+    async updateEntity() { return makeEntity(); },
+    async createEvent() { return makeEvent(); },
+    async listEvents() { return [makeEvent()]; },
+    async rsvpEvent() { return makeEvent(); },
+    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
+    async listDeliveries() { return [makeDeliverySummary()]; },
+    async retryDelivery() { return makeDeliverySummary(); },
+    async claimNextDelivery() { calls.push('claim'); return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }) }); },
+    async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
+    async failDeliveryAttempt(input) {
+      calls.push(`fail:${String(input.errorMessage)}:${String(input.responseStatusCode)}:${String(input.responseBody)}`);
+      return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'failed', failedAt: '2026-03-12T00:05:00Z', lastError: 'HTTP 500' }), attempt: { ...makeClaimedDelivery().attempt, status: 'failed', responseStatusCode: 500, responseBody: 'boom', errorMessage: 'HTTP 500', finishedAt: '2026-03-12T00:05:00Z' } });
+    },
+    async sendDirectMessage() { return makeDirectMessage(); },
+    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
+    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
+    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
+    async listEntities() { return [makeEntity()]; },
+    async listBearerTokens() { return [makeBearerTokenSummary()]; },
+    async createBearerToken() { return makeCreatedBearerToken(); },
+    async revokeBearerToken() { return makeBearerTokenSummary(); },
+  };
+
+  const app = buildApp({ repository, fetchImpl: async () => new Response('boom', { status: 500 }) });
+  const result = await app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' });
+
+  assert.deepEqual(calls, ['claim', 'fail:HTTP 500:500:boom']);
+  assert.equal(result.data.execution.outcome, 'failed');
+  assert.equal(result.data.execution.claimed.delivery.status, 'failed');
+});
+
+test('deliveries.execute marks the claimed attempt failed when fetch throws', async () => {
+  const calls: string[] = [];
+
+  const repository: Repository = {
+    async authenticateBearerToken() { return makeAuthResult(); },
+    async searchMembers() { return []; },
+    async listMembers() { return [makeNetworkMember()]; },
+    async getMemberProfile() { return makeProfile(); },
+    async updateOwnProfile() { return makeProfile(); },
+    async createEntity() { return makeEntity(); },
+    async updateEntity() { return makeEntity(); },
+    async createEvent() { return makeEvent(); },
+    async listEvents() { return [makeEvent()]; },
+    async rsvpEvent() { return makeEvent(); },
+    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
+    async listDeliveries() { return [makeDeliverySummary()]; },
+    async retryDelivery() { return makeDeliverySummary(); },
+    async claimNextDelivery() { calls.push('claim'); return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }) }); },
+    async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
+    async failDeliveryAttempt(input) {
+      calls.push(`fail:${String(input.errorMessage)}`);
+      return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'failed', failedAt: '2026-03-12T00:05:00Z', lastError: 'network down' }), attempt: { ...makeClaimedDelivery().attempt, status: 'failed', errorMessage: 'network down', finishedAt: '2026-03-12T00:05:00Z' } });
+    },
+    async sendDirectMessage() { return makeDirectMessage(); },
+    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
+    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
+    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
+    async listEntities() { return [makeEntity()]; },
+    async listBearerTokens() { return [makeBearerTokenSummary()]; },
+    async createBearerToken() { return makeCreatedBearerToken(); },
+    async revokeBearerToken() { return makeBearerTokenSummary(); },
+  };
+
+  const app = buildApp({ repository, fetchImpl: async () => { throw new Error('network down'); } });
+  const result = await app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' });
+
+  assert.deepEqual(calls, ['claim', 'fail:network down']);
+  assert.equal(result.data.execution.outcome, 'failed');
+  assert.equal(result.data.execution.claimed.attempt.errorMessage, 'network down');
+});
+
+test('deliveries.execute returns idle when no pending delivery is claimable', async () => {
+  const repository: Repository = {
+    async authenticateBearerToken() { return makeAuthResult(); },
+    async searchMembers() { return []; },
+    async listMembers() { return [makeNetworkMember()]; },
+    async getMemberProfile() { return makeProfile(); },
+    async updateOwnProfile() { return makeProfile(); },
+    async createEntity() { return makeEntity(); },
+    async updateEntity() { return makeEntity(); },
+    async createEvent() { return makeEvent(); },
+    async listEvents() { return [makeEvent()]; },
+    async rsvpEvent() { return makeEvent(); },
+    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
+    async listDeliveries() { return [makeDeliverySummary()]; },
+    async retryDelivery() { return makeDeliverySummary(); },
+    async claimNextDelivery() { return null; },
+    async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
+    async failDeliveryAttempt() { throw new Error('fail should not be called'); },
+    async sendDirectMessage() { return makeDirectMessage(); },
+    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
+    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
+    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
+    async listEntities() { return [makeEntity()]; },
+    async listBearerTokens() { return [makeBearerTokenSummary()]; },
+    async createBearerToken() { return makeCreatedBearerToken(); },
+    async revokeBearerToken() { return makeBearerTokenSummary(); },
+  };
+
+  const app = buildApp({ repository, fetchImpl: async () => { throw new Error('fetch should not be called'); } });
+  const result = await app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' });
+
+  assert.equal(result.data.execution.outcome, 'idle');
+  assert.equal(result.data.execution.claimed, null);
+});
+
 
 test('deliveries.complete returns the finished attempt inside actor scope', async () => {
   let capturedInput: Record<string, unknown> | null = null;

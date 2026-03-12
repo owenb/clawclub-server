@@ -813,6 +813,15 @@ test('postgres repository claims the next pending delivery and appends a process
           }], rowCount: 1,
         };
       }
+      if (sql.includes('from app.delivery_endpoints de') && sql.includes('where de.id = $1')) {
+        return {
+          rows: [{
+            endpoint_id: 'endpoint-2', member_id: 'member-2', channel: 'openclaw_webhook', label: 'Primary webhook', endpoint_url: 'https://example.test/webhook',
+            shared_secret_ref: 'op://clawclub/primary', state: 'active', last_success_at: null, last_failure_at: null, metadata: { environment: 'test' },
+            created_at: '2026-03-12T00:00:00Z', disabled_at: null,
+          }], rowCount: 1,
+        };
+      }
       if (sql.includes('from app.current_delivery_attempts cda')) {
         return {
           rows: [{
@@ -835,6 +844,7 @@ test('postgres repository claims the next pending delivery and appends a process
   assert.equal(claimed?.delivery.status, 'processing');
   assert.equal(claimed?.attempt.attemptNo, 2);
   assert.equal(claimed?.attempt.workerKey, 'worker-a');
+  assert.equal(claimed?.endpoint.endpointUrl, 'https://example.test/webhook');
   assert.match(calls[2]?.sql ?? '', /with next_delivery as \(/);
   assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], 'worker-a']);
   assert.equal(calls.at(-1)?.sql, 'commit');
@@ -861,6 +871,15 @@ test('postgres repository completes a processing delivery attempt and touches en
           }], rowCount: 1,
         };
       }
+      if (sql.includes('from app.delivery_endpoints de') && sql.includes('where de.id = $1')) {
+        return {
+          rows: [{
+            endpoint_id: 'endpoint-2', member_id: 'member-2', channel: 'openclaw_webhook', label: 'Primary webhook', endpoint_url: 'https://example.test/webhook',
+            shared_secret_ref: 'op://clawclub/primary', state: 'active', last_success_at: null, last_failure_at: null, metadata: { environment: 'test' },
+            created_at: '2026-03-12T00:00:00Z', disabled_at: null,
+          }], rowCount: 1,
+        };
+      }
       if (sql.includes('from app.current_delivery_attempts cda')) {
         return {
           rows: [{
@@ -882,6 +901,7 @@ test('postgres repository completes a processing delivery attempt and touches en
   assert.equal(claimed?.delivery.status, 'sent');
   assert.equal(claimed?.attempt.status, 'sent');
   assert.equal(claimed?.attempt.responseStatusCode, 202);
+  assert.equal(claimed?.endpoint.endpointId, 'endpoint-2');
   assert.match(calls[2]?.sql ?? '', /with current_attempt as \(/);
   assert.deepEqual(calls[2]?.params, ['member-1', 'delivery-1', ['network-2'], 202, 'ok']);
   assert.equal(calls.at(-1)?.sql, 'commit');
@@ -908,6 +928,15 @@ test('postgres repository fails a processing delivery attempt and touches endpoi
           }], rowCount: 1,
         };
       }
+      if (sql.includes('from app.delivery_endpoints de') && sql.includes('where de.id = $1')) {
+        return {
+          rows: [{
+            endpoint_id: 'endpoint-2', member_id: 'member-2', channel: 'openclaw_webhook', label: 'Primary webhook', endpoint_url: 'https://example.test/webhook',
+            shared_secret_ref: 'op://clawclub/primary', state: 'active', last_success_at: null, last_failure_at: null, metadata: { environment: 'test' },
+            created_at: '2026-03-12T00:00:00Z', disabled_at: null,
+          }], rowCount: 1,
+        };
+      }
       if (sql.includes('from app.current_delivery_attempts cda')) {
         return {
           rows: [{
@@ -928,6 +957,7 @@ test('postgres repository fails a processing delivery attempt and touches endpoi
   assert.ok(claimed);
   assert.equal(claimed?.delivery.status, 'failed');
   assert.equal(claimed?.attempt.errorMessage, 'timeout');
+  assert.equal(claimed?.endpoint.state, 'active');
   assert.match(calls[2]?.sql ?? '', /with current_attempt as \(/);
   assert.deepEqual(calls[2]?.params, ['member-1', 'delivery-1', ['network-2'], 'timeout', 504, 'timeout']);
   assert.equal(calls.at(-1)?.sql, 'commit');

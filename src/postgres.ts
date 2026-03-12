@@ -638,6 +638,33 @@ async function listPendingDeliveries(client: DbClient, actorMemberId: string, ac
   return result.rows.map(mapPendingDeliveryRow);
 }
 
+async function loadDeliveryEndpoint(client: DbClient, endpointId: string): Promise<DeliveryEndpointSummary | null> {
+  const result = await client.query<DeliveryEndpointRow>(
+    `
+      select
+        de.id as endpoint_id,
+        de.member_id,
+        de.channel,
+        de.label,
+        de.endpoint_url,
+        de.shared_secret_ref,
+        de.state,
+        de.last_success_at::text,
+        de.last_failure_at::text,
+        de.metadata,
+        de.created_at::text,
+        de.disabled_at::text
+      from app.delivery_endpoints de
+      where de.id = $1
+      limit 1
+    `,
+    [endpointId],
+  );
+
+  const row = result.rows[0];
+  return row ? mapDeliveryEndpointRow(row) : null;
+}
+
 async function loadDeliverySummary(client: DbClient, deliveryId: string): Promise<DeliverySummary | null> {
   const result = await client.query<DeliverySummaryRow>(
     `
@@ -2287,11 +2314,14 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             with next_delivery as (
               select d.id
               from app.deliveries d
+              join app.delivery_endpoints de on de.id = d.endpoint_id
               where d.status = 'pending'
                 and d.network_id = any($2::app.short_id[])
                 and d.scheduled_at <= now()
+                and de.state = 'active'
+                and de.disabled_at is null
               order by d.scheduled_at asc, d.created_at asc, d.id asc
-              for update skip locked
+              for update of d skip locked
               limit 1
             ), updated as (
               update app.deliveries d
@@ -2337,9 +2367,10 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
         const delivery = await loadDeliverySummary(client, deliveryId);
         const attempt = await loadCurrentDeliveryAttempt(client, deliveryId);
+        const endpoint = delivery ? await loadDeliveryEndpoint(client, delivery.endpointId) : null;
         await client.query('commit');
 
-        return delivery && attempt ? { delivery, attempt } : null;
+        return delivery && attempt && endpoint ? { delivery, attempt, endpoint } : null;
       } catch (error) {
         await client.query('rollback');
         throw error;
@@ -2405,9 +2436,10 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
         const delivery = await loadDeliverySummary(client, deliveryId);
         const attempt = await loadCurrentDeliveryAttempt(client, deliveryId);
+        const endpoint = delivery ? await loadDeliveryEndpoint(client, delivery.endpointId) : null;
         await client.query('commit');
 
-        return delivery && attempt ? { delivery, attempt } : null;
+        return delivery && attempt && endpoint ? { delivery, attempt, endpoint } : null;
       } catch (error) {
         await client.query('rollback');
         throw error;
@@ -2472,9 +2504,10 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
         const delivery = await loadDeliverySummary(client, deliveryId);
         const attempt = await loadCurrentDeliveryAttempt(client, deliveryId);
+        const endpoint = delivery ? await loadDeliveryEndpoint(client, delivery.endpointId) : null;
         await client.query('commit');
 
-        return delivery && attempt ? { delivery, attempt } : null;
+        return delivery && attempt && endpoint ? { delivery, attempt, endpoint } : null;
       } catch (error) {
         await client.query('rollback');
         throw error;

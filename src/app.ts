@@ -424,6 +424,12 @@ export type DeliveryAttemptSummary = {
 export type ClaimedDelivery = {
   delivery: DeliverySummary;
   attempt: DeliveryAttemptSummary;
+  endpoint: DeliveryEndpointSummary;
+};
+
+export type DeliveryExecutionResult = {
+  outcome: 'idle' | 'sent' | 'failed';
+  claimed: ClaimedDelivery | null;
 };
 
 export type DirectMessageSummary = {
@@ -849,7 +855,19 @@ function buildSuccessResponse(input: {
   };
 }
 
-export function buildApp({ repository }: { repository: Repository }) {
+async function readExecutionResponseBody(response: Response): Promise<string | null> {
+  const body = await response.text();
+  if (body.length === 0) {
+    return null;
+  }
+
+  return body.length > 4000 ? `${body.slice(0, 4000)}…` : body;
+}
+
+export function buildApp({ repository, fetchImpl = globalThis.fetch }: { repository: Repository; fetchImpl?: typeof fetch }) {
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('fetch implementation is required');
+  }
   return {
     async handleAction(input: {
       bearerToken: string | null;
@@ -1489,6 +1507,112 @@ export function buildApp({ repository }: { repository: Repository }) {
             sharedContext,
             data: claimed,
           });
+        }
+
+        case 'deliveries.execute': {
+          const claimed = await repository.claimNextDelivery({
+            actorMemberId: actor.member.id,
+            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            workerKey: normalizeOptionalString(payload.workerKey, 'workerKey'),
+          });
+
+          if (!claimed) {
+            return buildSuccessResponse({
+              action,
+              actor,
+              requestScope: {
+                requestedNetworkId: null,
+                activeNetworkIds: actor.memberships.map((network) => network.networkId),
+              },
+              sharedContext,
+              data: { execution: { outcome: 'idle', claimed: null } satisfies DeliveryExecutionResult },
+            });
+          }
+
+          try {
+            const response = await fetchImpl(claimed.endpoint.endpointUrl, {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                'user-agent': 'clawclub-delivery-executor/0.1',
+                'x-clawclub-delivery-id': claimed.delivery.deliveryId,
+                'x-clawclub-attempt-id': claimed.attempt.attemptId,
+                'x-clawclub-topic': claimed.delivery.topic,
+              },
+              body: JSON.stringify({
+                deliveryId: claimed.delivery.deliveryId,
+                networkId: claimed.delivery.networkId,
+                recipientMemberId: claimed.delivery.recipientMemberId,
+                topic: claimed.delivery.topic,
+                payload: claimed.delivery.payload,
+                entityId: claimed.delivery.entityId,
+                entityVersionId: claimed.delivery.entityVersionId,
+                transcriptMessageId: claimed.delivery.transcriptMessageId,
+                attempt: {
+                  attemptId: claimed.attempt.attemptId,
+                  attemptNo: claimed.attempt.attemptNo,
+                  workerKey: claimed.attempt.workerKey,
+                  startedAt: claimed.attempt.startedAt,
+                },
+              }),
+            });
+
+            const responseBody = await readExecutionResponseBody(response);
+            const result = response.ok
+              ? await repository.completeDeliveryAttempt({
+                  actorMemberId: actor.member.id,
+                  accessibleNetworkIds: [claimed.delivery.networkId],
+                  deliveryId: claimed.delivery.deliveryId,
+                  responseStatusCode: response.status,
+                  responseBody,
+                })
+              : await repository.failDeliveryAttempt({
+                  actorMemberId: actor.member.id,
+                  accessibleNetworkIds: [claimed.delivery.networkId],
+                  deliveryId: claimed.delivery.deliveryId,
+                  errorMessage: `HTTP ${response.status}`,
+                  responseStatusCode: response.status,
+                  responseBody,
+                });
+
+            if (!result) {
+              throw new AppError(409, 'delivery_execution_conflict', 'Claimed delivery could not be finalized');
+            }
+
+            return buildSuccessResponse({
+              action,
+              actor,
+              requestScope: {
+                requestedNetworkId: result.delivery.networkId,
+                activeNetworkIds: [result.delivery.networkId],
+              },
+              sharedContext,
+              data: { execution: { outcome: response.ok ? 'sent' : 'failed', claimed: result } satisfies DeliveryExecutionResult },
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown delivery execution error';
+            const failed = await repository.failDeliveryAttempt({
+              actorMemberId: actor.member.id,
+              accessibleNetworkIds: [claimed.delivery.networkId],
+              deliveryId: claimed.delivery.deliveryId,
+              errorMessage: message,
+            });
+
+            if (!failed) {
+              throw error;
+            }
+
+            return buildSuccessResponse({
+              action,
+              actor,
+              requestScope: {
+                requestedNetworkId: failed.delivery.networkId,
+                activeNetworkIds: [failed.delivery.networkId],
+              },
+              sharedContext,
+              data: { execution: { outcome: 'failed', claimed: failed } satisfies DeliveryExecutionResult },
+            });
+          }
         }
 
         case 'messages.send': {
