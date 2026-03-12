@@ -317,6 +317,50 @@ export type RetryDeliveryInput = {
   deliveryId: string;
 };
 
+export type ClaimDeliveryInput = {
+  actorMemberId: string;
+  accessibleNetworkIds: string[];
+  workerKey?: string | null;
+};
+
+export type CompleteDeliveryAttemptInput = {
+  actorMemberId: string;
+  accessibleNetworkIds: string[];
+  deliveryId: string;
+  responseStatusCode?: number | null;
+  responseBody?: string | null;
+};
+
+export type FailDeliveryAttemptInput = {
+  actorMemberId: string;
+  accessibleNetworkIds: string[];
+  deliveryId: string;
+  errorMessage: string;
+  responseStatusCode?: number | null;
+  responseBody?: string | null;
+};
+
+export type DeliveryAttemptSummary = {
+  attemptId: string;
+  deliveryId: string;
+  networkId: string | null;
+  endpointId: string;
+  workerKey: string | null;
+  status: 'processing' | 'sent' | 'failed' | 'canceled';
+  attemptNo: number;
+  responseStatusCode: number | null;
+  responseBody: string | null;
+  errorMessage: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  createdByMemberId: string | null;
+};
+
+export type ClaimedDelivery = {
+  delivery: DeliverySummary;
+  attempt: DeliveryAttemptSummary;
+};
+
 export type DirectMessageSummary = {
   threadId: string;
   networkId: string;
@@ -429,6 +473,9 @@ export type Repository = {
   acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null>;
   listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]>;
   retryDelivery(input: RetryDeliveryInput): Promise<DeliverySummary | null>;
+  claimNextDelivery(input: ClaimDeliveryInput): Promise<ClaimedDelivery | null>;
+  completeDeliveryAttempt(input: CompleteDeliveryAttemptInput): Promise<ClaimedDelivery | null>;
+  failDeliveryAttempt(input: FailDeliveryAttemptInput): Promise<ClaimedDelivery | null>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
   listDirectMessageThreads(input: { actorMemberId: string; networkIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
   listDirectMessageInbox(input: {
@@ -474,6 +521,14 @@ function normalizeLimit(value: unknown): number {
   }
 
   return Math.min(Math.max(Number(value), 1), 20);
+}
+
+function requireInteger(value: unknown, field: string): number {
+  if (!Number.isInteger(value)) {
+    throw new AppError(400, 'invalid_input', `${field} must be an integer`);
+  }
+
+  return Number(value);
 }
 
 function normalizeOptionalString(value: unknown, field: string): string | null | undefined {
@@ -1112,6 +1167,80 @@ export function buildApp({ repository }: { repository: Repository }) {
             },
             sharedContext,
             data: { delivery },
+          });
+        }
+
+        case 'deliveries.claim': {
+          const claimed = await repository.claimNextDelivery({
+            actorMemberId: actor.member.id,
+            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            workerKey: normalizeOptionalString(payload.workerKey, 'workerKey'),
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: claimed?.delivery.networkId ?? null,
+              activeNetworkIds: claimed ? [claimed.delivery.networkId] : actor.memberships.map((network) => network.networkId),
+            },
+            sharedContext,
+            data: { claimed },
+          });
+        }
+
+        case 'deliveries.complete': {
+          const deliveryId = requireNonEmptyString(payload.deliveryId, 'deliveryId');
+          const responseStatusCode = payload.responseStatusCode === undefined || payload.responseStatusCode === null ? null : requireInteger(payload.responseStatusCode, 'responseStatusCode');
+          const claimed = await repository.completeDeliveryAttempt({
+            actorMemberId: actor.member.id,
+            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            deliveryId,
+            responseStatusCode,
+            responseBody: normalizeOptionalString(payload.responseBody, 'responseBody'),
+          });
+
+          if (!claimed) {
+            throw new AppError(404, 'not_found', 'Processing delivery not found inside the actor scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: claimed.delivery.networkId,
+              activeNetworkIds: [claimed.delivery.networkId],
+            },
+            sharedContext,
+            data: claimed,
+          });
+        }
+
+        case 'deliveries.fail': {
+          const deliveryId = requireNonEmptyString(payload.deliveryId, 'deliveryId');
+          const responseStatusCode = payload.responseStatusCode === undefined || payload.responseStatusCode === null ? null : requireInteger(payload.responseStatusCode, 'responseStatusCode');
+          const claimed = await repository.failDeliveryAttempt({
+            actorMemberId: actor.member.id,
+            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            deliveryId,
+            errorMessage: requireNonEmptyString(payload.errorMessage, 'errorMessage'),
+            responseStatusCode,
+            responseBody: normalizeOptionalString(payload.responseBody, 'responseBody'),
+          });
+
+          if (!claimed) {
+            throw new AppError(404, 'not_found', 'Processing delivery not found inside the actor scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: claimed.delivery.networkId,
+              activeNetworkIds: [claimed.delivery.networkId],
+            },
+            sharedContext,
+            data: claimed,
           });
         }
 

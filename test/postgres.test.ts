@@ -617,3 +617,145 @@ test('postgres repository creates and revokes hashed bearer tokens without retur
   assert.match(calls[1]?.sql ?? '', /update app\.member_bearer_tokens mbt/);
   assert.deepEqual(calls[1]?.params, ['token-1', 'member-1']);
 });
+
+test('postgres repository claims the next pending delivery and appends a processing attempt', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('with next_delivery as (')) return { rows: [{ delivery_id: 'delivery-1' }], rowCount: 1 };
+      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1')) {
+        return {
+          rows: [{
+            delivery_id: 'delivery-1', network_id: 'network-2', recipient_member_id: 'member-2', endpoint_id: 'endpoint-2',
+            topic: 'transcript.message.created', payload: { kind: 'dm' }, status: 'processing', attempt_count: 2,
+            entity_id: null, entity_version_id: null, transcript_message_id: 'message-1', scheduled_at: '2026-03-12T00:02:00Z',
+            sent_at: null, failed_at: null, last_error: null, created_at: '2026-03-12T00:00:00Z', acknowledgement_id: null,
+            acknowledgement_state: null, acknowledgement_suppression_reason: null, acknowledgement_version_no: null,
+            acknowledgement_created_at: null, acknowledgement_created_by_member_id: null,
+          }], rowCount: 1,
+        };
+      }
+      if (sql.includes('from app.current_delivery_attempts cda')) {
+        return {
+          rows: [{
+            attempt_id: 'attempt-1', delivery_id: 'delivery-1', network_id: 'network-2', endpoint_id: 'endpoint-2', worker_key: 'worker-a',
+            status: 'processing', attempt_no: 2, response_status_code: null, response_body: null, error_message: null,
+            started_at: '2026-03-12T00:04:00Z', finished_at: null, created_by_member_id: 'member-1',
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const claimed = await repository.claimNextDelivery({ actorMemberId: 'member-1', accessibleNetworkIds: ['network-2'], workerKey: 'worker-a' });
+
+  assert.ok(claimed);
+  assert.equal(claimed?.delivery.deliveryId, 'delivery-1');
+  assert.equal(claimed?.delivery.status, 'processing');
+  assert.equal(claimed?.attempt.attemptNo, 2);
+  assert.equal(claimed?.attempt.workerKey, 'worker-a');
+  assert.match(calls[2]?.sql ?? '', /with next_delivery as \(/);
+  assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], 'worker-a']);
+  assert.equal(calls.at(-1)?.sql, 'commit');
+});
+
+test('postgres repository completes a processing delivery attempt and touches endpoint success', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('with current_attempt as (')) return { rows: [{ delivery_id: 'delivery-1' }], rowCount: 1 };
+      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1')) {
+        return {
+          rows: [{
+            delivery_id: 'delivery-1', network_id: 'network-2', recipient_member_id: 'member-2', endpoint_id: 'endpoint-2',
+            topic: 'transcript.message.created', payload: { kind: 'dm' }, status: 'sent', attempt_count: 2,
+            entity_id: null, entity_version_id: null, transcript_message_id: 'message-1', scheduled_at: '2026-03-12T00:02:00Z',
+            sent_at: '2026-03-12T00:05:00Z', failed_at: null, last_error: null, created_at: '2026-03-12T00:00:00Z', acknowledgement_id: null,
+            acknowledgement_state: null, acknowledgement_suppression_reason: null, acknowledgement_version_no: null,
+            acknowledgement_created_at: null, acknowledgement_created_by_member_id: null,
+          }], rowCount: 1,
+        };
+      }
+      if (sql.includes('from app.current_delivery_attempts cda')) {
+        return {
+          rows: [{
+            attempt_id: 'attempt-1', delivery_id: 'delivery-1', network_id: 'network-2', endpoint_id: 'endpoint-2', worker_key: 'worker-a',
+            status: 'sent', attempt_no: 2, response_status_code: 202, response_body: 'ok', error_message: null,
+            started_at: '2026-03-12T00:04:00Z', finished_at: '2026-03-12T00:05:00Z', created_by_member_id: 'member-1',
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const claimed = await repository.completeDeliveryAttempt({ actorMemberId: 'member-1', accessibleNetworkIds: ['network-2'], deliveryId: 'delivery-1', responseStatusCode: 202, responseBody: 'ok' });
+
+  assert.ok(claimed);
+  assert.equal(claimed?.delivery.status, 'sent');
+  assert.equal(claimed?.attempt.status, 'sent');
+  assert.equal(claimed?.attempt.responseStatusCode, 202);
+  assert.match(calls[2]?.sql ?? '', /with current_attempt as \(/);
+  assert.deepEqual(calls[2]?.params, ['member-1', 'delivery-1', ['network-2'], 202, 'ok']);
+  assert.equal(calls.at(-1)?.sql, 'commit');
+});
+
+test('postgres repository fails a processing delivery attempt and touches endpoint failure', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('with current_attempt as (')) return { rows: [{ delivery_id: 'delivery-1' }], rowCount: 1 };
+      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1')) {
+        return {
+          rows: [{
+            delivery_id: 'delivery-1', network_id: 'network-2', recipient_member_id: 'member-2', endpoint_id: 'endpoint-2',
+            topic: 'transcript.message.created', payload: { kind: 'dm' }, status: 'failed', attempt_count: 2,
+            entity_id: null, entity_version_id: null, transcript_message_id: 'message-1', scheduled_at: '2026-03-12T00:02:00Z',
+            sent_at: null, failed_at: '2026-03-12T00:05:00Z', last_error: 'timeout', created_at: '2026-03-12T00:00:00Z', acknowledgement_id: null,
+            acknowledgement_state: null, acknowledgement_suppression_reason: null, acknowledgement_version_no: null,
+            acknowledgement_created_at: null, acknowledgement_created_by_member_id: null,
+          }], rowCount: 1,
+        };
+      }
+      if (sql.includes('from app.current_delivery_attempts cda')) {
+        return {
+          rows: [{
+            attempt_id: 'attempt-1', delivery_id: 'delivery-1', network_id: 'network-2', endpoint_id: 'endpoint-2', worker_key: 'worker-a',
+            status: 'failed', attempt_no: 2, response_status_code: 504, response_body: 'timeout', error_message: 'timeout',
+            started_at: '2026-03-12T00:04:00Z', finished_at: '2026-03-12T00:05:00Z', created_by_member_id: 'member-1',
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const claimed = await repository.failDeliveryAttempt({ actorMemberId: 'member-1', accessibleNetworkIds: ['network-2'], deliveryId: 'delivery-1', errorMessage: 'timeout', responseStatusCode: 504, responseBody: 'timeout' });
+
+  assert.ok(claimed);
+  assert.equal(claimed?.delivery.status, 'failed');
+  assert.equal(claimed?.attempt.errorMessage, 'timeout');
+  assert.match(calls[2]?.sql ?? '', /with current_attempt as \(/);
+  assert.deepEqual(calls[2]?.params, ['member-1', 'delivery-1', ['network-2'], 'timeout', 504, 'timeout']);
+  assert.equal(calls.at(-1)?.sql, 'commit');
+});

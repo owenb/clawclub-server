@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -183,6 +183,22 @@ type DeliveryAcknowledgementRow = {
   version_no: number;
   supersedes_acknowledgement_id: string | null;
   created_at: string;
+  created_by_member_id: string | null;
+};
+
+type DeliveryAttemptRow = {
+  attempt_id: string;
+  delivery_id: string;
+  network_id: string | null;
+  endpoint_id: string;
+  worker_key: string | null;
+  status: DeliveryAttemptSummary['status'];
+  attempt_no: number;
+  response_status_code: number | null;
+  response_body: string | null;
+  error_message: string | null;
+  started_at: string;
+  finished_at: string | null;
   created_by_member_id: string | null;
 };
 
@@ -435,6 +451,24 @@ function mapDeliveryAcknowledgementRow(row: DeliveryAcknowledgementRow): Deliver
   };
 }
 
+function mapDeliveryAttemptRow(row: DeliveryAttemptRow): DeliveryAttemptSummary {
+  return {
+    attemptId: row.attempt_id,
+    deliveryId: row.delivery_id,
+    networkId: row.network_id,
+    endpointId: row.endpoint_id,
+    workerKey: row.worker_key,
+    status: row.status,
+    attemptNo: Number(row.attempt_no),
+    responseStatusCode: row.response_status_code === null ? null : Number(row.response_status_code),
+    responseBody: row.response_body,
+    errorMessage: row.error_message,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at,
+    createdByMemberId: row.created_by_member_id,
+  };
+}
+
 function mapDirectMessageRow(row: DirectMessageRow): DirectMessageSummary {
   return {
     threadId: row.thread_id,
@@ -530,6 +564,67 @@ async function listPendingDeliveries(client: DbClient, actorMemberId: string, ac
   );
 
   return result.rows.map(mapPendingDeliveryRow);
+}
+
+async function loadDeliverySummary(client: DbClient, deliveryId: string): Promise<DeliverySummary | null> {
+  const result = await client.query<DeliverySummaryRow>(
+    `
+      select
+        cdr.delivery_id,
+        cdr.network_id,
+        cdr.recipient_member_id,
+        cdr.endpoint_id,
+        cdr.topic,
+        cdr.payload,
+        cdr.status,
+        cdr.attempt_count,
+        cdr.entity_id,
+        cdr.entity_version_id,
+        cdr.transcript_message_id,
+        cdr.scheduled_at::text as scheduled_at,
+        cdr.sent_at::text as sent_at,
+        cdr.failed_at::text as failed_at,
+        cdr.last_error,
+        cdr.created_at::text as created_at,
+        cdr.acknowledgement_id,
+        cdr.acknowledgement_state,
+        cdr.acknowledgement_suppression_reason,
+        cdr.acknowledgement_version_no,
+        cdr.acknowledgement_created_at::text as acknowledgement_created_at,
+        cdr.acknowledgement_created_by_member_id
+      from app.current_delivery_receipts cdr
+      where cdr.delivery_id = $1
+    `,
+    [deliveryId],
+  );
+
+  return result.rows[0] ? mapDeliverySummaryRow(result.rows[0]) : null;
+}
+
+async function loadCurrentDeliveryAttempt(client: DbClient, deliveryId: string): Promise<DeliveryAttemptSummary | null> {
+  const result = await client.query<DeliveryAttemptRow>(
+    `
+      select
+        cda.id as attempt_id,
+        cda.delivery_id,
+        cda.network_id,
+        cda.endpoint_id,
+        cda.worker_key,
+        cda.status,
+        cda.attempt_no,
+        cda.response_status_code,
+        cda.response_body,
+        cda.error_message,
+        cda.started_at::text as started_at,
+        cda.finished_at::text as finished_at,
+        cda.created_by_member_id
+      from app.current_delivery_attempts cda
+      where cda.delivery_id = $1
+    `,
+    [deliveryId],
+  );
+
+  return result.rows[0] ? mapDeliveryAttemptRow(result.rows[0]) : null;
 }
 
 async function listDeliveries(client: DbClient, input: ListDeliveriesInput): Promise<DeliverySummary[]> {
@@ -1898,6 +1993,213 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
         await client.query('commit');
         return ackResult.rows[0] ? mapDeliveryAcknowledgementRow(ackResult.rows[0]) : null;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async claimNextDelivery(input: ClaimDeliveryInput): Promise<ClaimedDelivery | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
+
+        const claimResult = await client.query<{ delivery_id: string }>(
+          `
+            with next_delivery as (
+              select d.id
+              from app.deliveries d
+              where d.status = 'pending'
+                and d.network_id = any($2::app.short_id[])
+                and d.scheduled_at <= now()
+              order by d.scheduled_at asc, d.created_at asc, d.id asc
+              for update skip locked
+              limit 1
+            ), updated as (
+              update app.deliveries d
+              set status = 'processing',
+                  attempt_count = d.attempt_count + 1,
+                  last_error = null,
+                  failed_at = null
+              from next_delivery nd
+              where d.id = nd.id
+              returning d.id, d.network_id, d.endpoint_id, d.attempt_count
+            ), inserted as (
+              insert into app.delivery_attempts (
+                delivery_id,
+                network_id,
+                endpoint_id,
+                worker_key,
+                status,
+                attempt_no,
+                created_by_member_id
+              )
+              select
+                u.id,
+                u.network_id,
+                u.endpoint_id,
+                $3,
+                'processing',
+                u.attempt_count,
+                $1
+              from updated u
+              returning delivery_id
+            )
+            select delivery_id
+            from inserted
+          `,
+          [input.actorMemberId, input.accessibleNetworkIds, input.workerKey ?? null],
+        );
+
+        const deliveryId = claimResult.rows[0]?.delivery_id;
+        if (!deliveryId) {
+          await client.query('commit');
+          return null;
+        }
+
+        const delivery = await loadDeliverySummary(client, deliveryId);
+        const attempt = await loadCurrentDeliveryAttempt(client, deliveryId);
+        await client.query('commit');
+
+        return delivery && attempt ? { delivery, attempt } : null;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async completeDeliveryAttempt(input: CompleteDeliveryAttemptInput): Promise<ClaimedDelivery | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
+
+        const updateResult = await client.query<{ delivery_id: string }>(
+          `
+            with current_attempt as (
+              select cda.id, cda.delivery_id, cda.endpoint_id
+              from app.current_delivery_attempts cda
+              join app.deliveries d on d.id = cda.delivery_id
+              where cda.delivery_id = $2
+                and cda.status = 'processing'
+                and d.status = 'processing'
+                and d.network_id = any($3::app.short_id[])
+              for update of d skip locked
+            ), finished_attempt as (
+              update app.delivery_attempts da
+              set status = 'sent',
+                  response_status_code = $4,
+                  response_body = $5,
+                  error_message = null,
+                  finished_at = now()
+              from current_attempt ca
+              where da.id = ca.id
+              returning da.delivery_id, da.endpoint_id
+            ), finished_delivery as (
+              update app.deliveries d
+              set status = 'sent',
+                  sent_at = now(),
+                  failed_at = null,
+                  last_error = null
+              from finished_attempt fa
+              where d.id = fa.delivery_id
+              returning d.id as delivery_id, fa.endpoint_id
+            ), endpoint_touch as (
+              update app.delivery_endpoints dep
+              set last_success_at = now()
+              from finished_delivery fd
+              where dep.id = fd.endpoint_id
+              returning fd.delivery_id
+            )
+            select delivery_id
+            from endpoint_touch
+          `,
+          [input.actorMemberId, input.deliveryId, input.accessibleNetworkIds, input.responseStatusCode ?? null, input.responseBody ?? null],
+        );
+
+        const deliveryId = updateResult.rows[0]?.delivery_id;
+        if (!deliveryId) {
+          await client.query('rollback');
+          return null;
+        }
+
+        const delivery = await loadDeliverySummary(client, deliveryId);
+        const attempt = await loadCurrentDeliveryAttempt(client, deliveryId);
+        await client.query('commit');
+
+        return delivery && attempt ? { delivery, attempt } : null;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async failDeliveryAttempt(input: FailDeliveryAttemptInput): Promise<ClaimedDelivery | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
+
+        const updateResult = await client.query<{ delivery_id: string }>(
+          `
+            with current_attempt as (
+              select cda.id, cda.delivery_id, cda.endpoint_id
+              from app.current_delivery_attempts cda
+              join app.deliveries d on d.id = cda.delivery_id
+              where cda.delivery_id = $2
+                and cda.status = 'processing'
+                and d.status = 'processing'
+                and d.network_id = any($3::app.short_id[])
+              for update of d skip locked
+            ), finished_attempt as (
+              update app.delivery_attempts da
+              set status = 'failed',
+                  response_status_code = $5,
+                  response_body = $6,
+                  error_message = $4,
+                  finished_at = now()
+              from current_attempt ca
+              where da.id = ca.id
+              returning da.delivery_id, da.endpoint_id
+            ), finished_delivery as (
+              update app.deliveries d
+              set status = 'failed',
+                  failed_at = now(),
+                  last_error = $4
+              from finished_attempt fa
+              where d.id = fa.delivery_id
+              returning d.id as delivery_id, fa.endpoint_id
+            ), endpoint_touch as (
+              update app.delivery_endpoints dep
+              set last_failure_at = now()
+              from finished_delivery fd
+              where dep.id = fd.endpoint_id
+              returning fd.delivery_id
+            )
+            select delivery_id
+            from endpoint_touch
+          `,
+          [input.actorMemberId, input.deliveryId, input.accessibleNetworkIds, input.errorMessage, input.responseStatusCode ?? null, input.responseBody ?? null],
+        );
+
+        const deliveryId = updateResult.rows[0]?.delivery_id;
+        if (!deliveryId) {
+          await client.query('rollback');
+          return null;
+        }
+
+        const delivery = await loadDeliverySummary(client, deliveryId);
+        const attempt = await loadCurrentDeliveryAttempt(client, deliveryId);
+        await client.query('commit');
+
+        return delivery && attempt ? { delivery, attempt } : null;
       } catch (error) {
         await client.query('rollback');
         throw error;
