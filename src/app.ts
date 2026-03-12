@@ -116,6 +116,81 @@ export type CreateEntityInput = {
   content: Record<string, unknown>;
 };
 
+export type EventRsvpState = 'yes' | 'maybe' | 'no' | 'waitlist';
+
+export type EventSummary = {
+  entityId: string;
+  entityVersionId: string;
+  networkId: string;
+  author: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  };
+  version: {
+    versionNo: number;
+    state: 'published';
+    title: string | null;
+    summary: string | null;
+    body: string | null;
+    startsAt: string | null;
+    endsAt: string | null;
+    timezone: string | null;
+    recurrenceRule: string | null;
+    capacity: number | null;
+    effectiveAt: string;
+    expiresAt: string | null;
+    createdAt: string;
+    content: Record<string, unknown>;
+  };
+  rsvps: {
+    viewerResponse: EventRsvpState | null;
+    counts: Record<EventRsvpState, number>;
+    attendees: Array<{
+      membershipId: string;
+      memberId: string;
+      publicName: string;
+      handle: string | null;
+      response: EventRsvpState;
+      note: string | null;
+      createdAt: string;
+    }>;
+  };
+  createdAt: string;
+};
+
+export type CreateEventInput = {
+  authorMemberId: string;
+  networkId: string;
+  title: string | null;
+  summary: string | null;
+  body: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  timezone: string | null;
+  recurrenceRule: string | null;
+  capacity: number | null;
+  expiresAt: string | null;
+  content: Record<string, unknown>;
+};
+
+export type ListEventsInput = {
+  actorMemberId: string;
+  networkIds: string[];
+  limit: number;
+};
+
+export type RsvpEventInput = {
+  actorMemberId: string;
+  eventEntityId: string;
+  response: EventRsvpState;
+  note?: string | null;
+  accessibleMemberships: Array<{
+    membershipId: string;
+    networkId: string;
+  }>;
+};
+
 export type ListEntitiesInput = {
   networkIds: string[];
   kinds: EntityKind[];
@@ -147,6 +222,9 @@ export type Repository = {
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
   listEntities(input: ListEntitiesInput): Promise<EntitySummary[]>;
+  createEvent(input: CreateEventInput): Promise<EventSummary>;
+  listEvents(input: ListEventsInput): Promise<EventSummary[]>;
+  rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null>;
 };
 
 export class AppError extends Error {
@@ -308,6 +386,39 @@ function normalizeEntityPatch(payload: Record<string, unknown>): UpdateEntityInp
   }
 
   return patch;
+}
+
+function normalizeOptionalInteger(value: unknown, field: string): number | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (!Number.isInteger(value)) {
+    throw new AppError(400, 'invalid_input', `${field} must be an integer or null`);
+  }
+
+  const number = Number(value);
+  if (number <= 0) {
+    throw new AppError(400, 'invalid_input', `${field} must be greater than zero when provided`);
+  }
+
+  return number;
+}
+
+function isEventRsvpState(value: unknown): value is EventRsvpState {
+  return value === 'yes' || value === 'maybe' || value === 'no' || value === 'waitlist';
+}
+
+function requireEventRsvpState(value: unknown, field: string): EventRsvpState {
+  if (!isEventRsvpState(value)) {
+    throw new AppError(400, 'invalid_input', `${field} must be one of: yes, maybe, no, waitlist`);
+  }
+
+  return value;
 }
 
 function buildSuccessResponse(input: {
@@ -487,6 +598,97 @@ export function buildApp({ repository }: { repository: Repository }) {
               activeNetworkIds: [entity.networkId],
             },
             data: { entity },
+          });
+        }
+
+        case 'events.create': {
+          const network = requireAccessibleNetwork(actor, payload.networkId);
+          const event = await repository.createEvent({
+            authorMemberId: actor.member.id,
+            networkId: network.networkId,
+            title: normalizeOptionalString(payload.title, 'title') ?? null,
+            summary: normalizeOptionalString(payload.summary, 'summary') ?? null,
+            body: normalizeOptionalString(payload.body, 'body') ?? null,
+            startsAt: normalizeOptionalString(payload.startsAt, 'startsAt') ?? null,
+            endsAt: normalizeOptionalString(payload.endsAt, 'endsAt') ?? null,
+            timezone: normalizeOptionalString(payload.timezone, 'timezone') ?? null,
+            recurrenceRule: normalizeOptionalString(payload.recurrenceRule, 'recurrenceRule') ?? null,
+            capacity: normalizeOptionalInteger(payload.capacity, 'capacity') ?? null,
+            expiresAt: normalizeOptionalString(payload.expiresAt, 'expiresAt') ?? null,
+            content: payload.content === undefined ? {} : requireObject(payload.content, 'content'),
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: network.networkId,
+              activeNetworkIds: [network.networkId],
+            },
+            data: { event },
+          });
+        }
+
+        case 'events.list': {
+          const limit = normalizeLimit(payload.limit);
+          let networkScope = actor.memberships;
+
+          if (payload.networkId !== undefined) {
+            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
+          }
+
+          if (networkScope.length === 0) {
+            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
+          }
+
+          const networkIds = networkScope.map((network) => network.networkId);
+          const results = await repository.listEvents({
+            actorMemberId: actor.member.id,
+            networkIds,
+            limit,
+          });
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId:
+                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
+              activeNetworkIds: networkIds,
+            },
+            data: {
+              limit,
+              networkScope,
+              results,
+            },
+          });
+        }
+
+        case 'events.rsvp': {
+          const eventEntityId = requireNonEmptyString(payload.eventEntityId, 'eventEntityId');
+          const event = await repository.rsvpEvent({
+            actorMemberId: actor.member.id,
+            eventEntityId,
+            response: requireEventRsvpState(payload.response, 'response'),
+            note: normalizeOptionalString(payload.note, 'note'),
+            accessibleMemberships: actor.memberships.map((membership) => ({
+              membershipId: membership.membershipId,
+              networkId: membership.networkId,
+            })),
+          });
+
+          if (!event) {
+            throw new AppError(404, 'not_found', 'Event not found inside the actor scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: event.networkId,
+              activeNetworkIds: [event.networkId],
+            },
+            data: { event },
           });
         }
 

@@ -7,8 +7,11 @@ import {
   type AuthResult,
   type CreateEntityInput,
   type EntitySummary,
+  type EventSummary,
   type ListEntitiesInput,
+  type ListEventsInput,
   type MemberProfile,
+  type RsvpEventInput,
   type UpdateEntityInput,
   type MemberSearchResult,
   type Repository,
@@ -115,6 +118,45 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
   };
 }
 
+function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
+  return {
+    entityId: 'event-1',
+    entityVersionId: 'event-version-1',
+    networkId: 'network-1',
+    author: {
+      memberId: 'member-1',
+      publicName: 'Member One',
+      handle: 'member-one',
+      ...(overrides.author ?? {}),
+    },
+    version: {
+      versionNo: 1,
+      state: 'published',
+      title: 'Dinner',
+      summary: 'Shared meal',
+      body: 'Let us gather.',
+      startsAt: '2026-03-20T19:00:00Z',
+      endsAt: '2026-03-20T21:00:00Z',
+      timezone: 'UTC',
+      recurrenceRule: null,
+      capacity: 8,
+      effectiveAt: '2026-03-12T00:00:00Z',
+      expiresAt: null,
+      createdAt: '2026-03-12T00:00:00Z',
+      content: {},
+      ...(overrides.version ?? {}),
+    },
+    rsvps: {
+      viewerResponse: null,
+      counts: { yes: 0, maybe: 0, no: 0, waitlist: 0 },
+      attendees: [],
+      ...(overrides.rsvps ?? {}),
+    },
+    createdAt: '2026-03-12T00:00:00Z',
+    ...overrides,
+  };
+}
+
 function makeRepository(results: MemberSearchResult[] = []): Repository {
   return {
     async authenticateBearerToken(bearerToken: string) {
@@ -138,6 +180,15 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     },
     async updateEntity() {
       return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
     },
     async listEntities() {
       return [makeEntity()];
@@ -185,6 +236,15 @@ test('members.search narrows scope when a permitted network is requested', async
     async updateEntity() {
       return makeEntity();
     },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -231,6 +291,15 @@ test('profile.get defaults to the actor member id', async () => {
     async updateEntity() {
       return makeEntity();
     },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
     async listEntities() {
       return [makeEntity()];
     },
@@ -276,6 +345,15 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     },
     async updateEntity() {
       return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
     },
     async listEntities() {
       return [makeEntity()];
@@ -346,6 +424,15 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     },
     async updateEntity() {
       return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
     },
     async listEntities() {
       return [makeEntity()];
@@ -527,6 +614,203 @@ test('entities.update rejects non-author updates', async () => {
   );
 });
 
+test('events.create writes the smallest sane event payload', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeEvent({ networkId: input.networkId, version: { ...makeEvent().version, title: input.title, capacity: input.capacity } });
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'events.create',
+    payload: {
+      networkId: 'network-2',
+      title: 'Supper club',
+      startsAt: '2026-03-20T19:00:00Z',
+      endsAt: '2026-03-20T21:00:00Z',
+      timezone: 'UTC',
+      capacity: 12,
+      content: { locationHint: 'Hackney' },
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    authorMemberId: 'member-1',
+    networkId: 'network-2',
+    title: 'Supper club',
+    summary: null,
+    body: null,
+    startsAt: '2026-03-20T19:00:00Z',
+    endsAt: '2026-03-20T21:00:00Z',
+    timezone: 'UTC',
+    recurrenceRule: null,
+    capacity: 12,
+    expiresAt: null,
+    content: { locationHint: 'Hackney' },
+  });
+  assert.equal(result.action, 'events.create');
+  assert.equal(result.data.event.networkId, 'network-2');
+});
+
+test('events.list stays inside accessible scope', async () => {
+  let capturedInput: ListEventsInput | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents(input) {
+      capturedInput = input;
+      return [makeEvent({ networkId: 'network-2' })];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'events.list',
+    payload: { networkId: 'network-2', limit: 4 },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkIds: ['network-2'],
+    limit: 4,
+  });
+  assert.equal(result.data.results[0]?.networkId, 'network-2');
+});
+
+test('events.rsvp uses the actor membership in the event network', async () => {
+  let capturedInput: RsvpEventInput | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent(input) {
+      capturedInput = input;
+      return makeEvent({
+        networkId: 'network-2',
+        rsvps: {
+          viewerResponse: 'yes',
+          counts: { yes: 1, maybe: 0, no: 0, waitlist: 0 },
+          attendees: [
+            {
+              membershipId: 'membership-2',
+              memberId: 'member-1',
+              publicName: 'Member One',
+              handle: 'member-one',
+              response: 'yes',
+              note: 'I am in',
+              createdAt: '2026-03-12T00:00:00Z',
+            },
+          ],
+        },
+      });
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'events.rsvp',
+    payload: { eventEntityId: 'event-1', response: 'yes', note: 'I am in' },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    eventEntityId: 'event-1',
+    response: 'yes',
+    note: 'I am in',
+    accessibleMemberships: [
+      { membershipId: 'membership-1', networkId: 'network-1' },
+      { membershipId: 'membership-2', networkId: 'network-2' },
+    ],
+  });
+  assert.equal(result.action, 'events.rsvp');
+  assert.equal(result.data.event.rsvps.viewerResponse, 'yes');
+});
+
 test('entities.list can span accessible networks and filter by kinds', async () => {
   let capturedInput: ListEntitiesInput | null = null;
 
@@ -548,6 +832,15 @@ test('entities.list can span accessible networks and filter by kinds', async () 
     },
     async updateEntity() {
       return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
     },
     async listEntities(input) {
       capturedInput = input;
@@ -616,6 +909,15 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     },
     async updateEntity() {
       return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
     },
     async listEntities() {
       return [makeEntity()];
