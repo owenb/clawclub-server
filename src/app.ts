@@ -281,15 +281,18 @@ export type DeliverySummary = {
   deliveryId: string;
   networkId: string;
   recipientMemberId: string;
+  endpointId: string;
   topic: string;
   payload: Record<string, unknown>;
   status: 'pending' | 'processing' | 'sent' | 'failed' | 'canceled';
+  attemptCount: number;
   entityId: string | null;
   entityVersionId: string | null;
   transcriptMessageId: string | null;
   scheduledAt: string;
   sentAt: string | null;
   failedAt: string | null;
+  lastError: string | null;
   createdAt: string;
   acknowledgement: {
     acknowledgementId: string;
@@ -306,6 +309,12 @@ export type ListDeliveriesInput = {
   networkIds: string[];
   limit: number;
   pendingOnly: boolean;
+};
+
+export type RetryDeliveryInput = {
+  actorMemberId: string;
+  accessibleNetworkIds: string[];
+  deliveryId: string;
 };
 
 export type DirectMessageSummary = {
@@ -419,6 +428,7 @@ export type Repository = {
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
   acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null>;
   listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]>;
+  retryDelivery(input: RetryDeliveryInput): Promise<DeliverySummary | null>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
   listDirectMessageThreads(input: { actorMemberId: string; networkIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
   listDirectMessageInbox(input: {
@@ -1078,6 +1088,30 @@ export function buildApp({ repository }: { repository: Repository }) {
               pendingDeliveries: remainingPendingDeliveries,
             },
             data: { acknowledgement },
+          });
+        }
+
+        case 'deliveries.retry': {
+          const deliveryId = requireNonEmptyString(payload.deliveryId, 'deliveryId');
+          const delivery = await repository.retryDelivery({
+            actorMemberId: actor.member.id,
+            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            deliveryId,
+          });
+
+          if (!delivery) {
+            throw new AppError(404, 'not_found', 'Delivery not found inside the actor scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: delivery.networkId,
+              activeNetworkIds: [delivery.networkId],
+            },
+            sharedContext,
+            data: { delivery },
           });
         }
 

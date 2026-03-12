@@ -200,9 +200,21 @@ node --experimental-strip-types src/token-cli.ts <member_id> [label]
 
 That prints the bearer token once plus an `insert` statement for `app.member_bearer_tokens`.
 
+## Delivery surface notes
+
+`deliveries.list` now returns a slightly more useful receipt view for humans/agents trying to debug notification flow:
+- `endpointId`
+- `attemptCount`
+- `lastError`
+
+`deliveries.retry` lets the recipient requeue a **failed** or **canceled** delivery as a fresh `pending` receipt against the same endpoint.
+It does not mutate the original row; the original receipt remains as history.
+The retry is still fully scope-checked server-side from bearer auth + network membership.
+
 ## Next likely actions
 
 Only after real use proves the need:
+- add delivery worker execution / webhook dispatch and richer retry/backoff policy
 - add entity creation/versioning actions on top of the schema's `entities` + `entity_versions` model
 - add event creation + RSVP actions as a separate but adjacent flow
 - add DM shared-network validation actions

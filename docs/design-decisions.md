@@ -157,6 +157,7 @@ Already landed in code:
 - `events.rsvp`
 - delivery acknowledgement context
 - `deliveries.acknowledge`
+- `deliveries.retry`
 - minimal DM send primitive (`messages.send`)
 - ConsciousClaw seed flow
 

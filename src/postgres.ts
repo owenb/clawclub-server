@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type AuthResult, type BearerTokenSummary, type CreateBearerTokenInput, type CreateEntityInput, type CreateEventInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type ListDeliveriesInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipSummary, type NetworkMemberSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RsvpEventInput, type SendDirectMessageInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -130,15 +130,18 @@ type DeliverySummaryRow = {
   delivery_id: string;
   network_id: string;
   recipient_member_id: string;
+  endpoint_id: string;
   topic: string;
   payload: Record<string, unknown> | null;
   status: 'pending' | 'processing' | 'sent' | 'failed' | 'canceled';
+  attempt_count: number;
   entity_id: string | null;
   entity_version_id: string | null;
   transcript_message_id: string | null;
   scheduled_at: string;
   sent_at: string | null;
   failed_at: string | null;
+  last_error: string | null;
   created_at: string;
   acknowledgement_id: string | null;
   acknowledgement_state: 'shown' | 'suppressed' | null;
@@ -378,15 +381,18 @@ function mapDeliverySummaryRow(row: DeliverySummaryRow): DeliverySummary {
     deliveryId: row.delivery_id,
     networkId: row.network_id,
     recipientMemberId: row.recipient_member_id,
+    endpointId: row.endpoint_id,
     topic: row.topic,
     payload: row.payload ?? {},
     status: row.status,
+    attemptCount: Number(row.attempt_count ?? 0),
     entityId: row.entity_id,
     entityVersionId: row.entity_version_id,
     transcriptMessageId: row.transcript_message_id,
     scheduledAt: row.scheduled_at,
     sentAt: row.sent_at,
     failedAt: row.failed_at,
+    lastError: row.last_error,
     createdAt: row.created_at,
     acknowledgement:
       row.acknowledgement_id && row.acknowledgement_state && row.acknowledgement_version_no && row.acknowledgement_created_at
@@ -537,15 +543,18 @@ async function listDeliveries(client: DbClient, input: ListDeliveriesInput): Pro
         cdr.delivery_id,
         cdr.network_id,
         cdr.recipient_member_id,
+        cdr.endpoint_id,
         cdr.topic,
         cdr.payload,
         cdr.status,
+        cdr.attempt_count,
         cdr.entity_id,
         cdr.entity_version_id,
         cdr.transcript_message_id,
         cdr.scheduled_at::text as scheduled_at,
         cdr.sent_at::text as sent_at,
         cdr.failed_at::text as failed_at,
+        cdr.last_error,
         cdr.created_at::text as created_at,
         cdr.acknowledgement_id,
         cdr.acknowledgement_state,
@@ -1686,6 +1695,134 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
     async listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]> {
       return withActorContext(pool, input.actorMemberId, input.networkIds, (client) => listDeliveries(client, input));
+    },
+
+    async retryDelivery(input: RetryDeliveryInput): Promise<DeliverySummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
+
+        const currentResult = await client.query<{
+          delivery_id: string;
+          network_id: string;
+          recipient_member_id: string;
+          endpoint_id: string;
+          entity_id: string | null;
+          entity_version_id: string | null;
+          transcript_message_id: string | null;
+          topic: string;
+          payload: Record<string, unknown> | null;
+          status: DeliverySummary['status'];
+        }>(
+          `
+            select
+              cdr.delivery_id,
+              cdr.network_id,
+              cdr.recipient_member_id,
+              cdr.endpoint_id,
+              cdr.entity_id,
+              cdr.entity_version_id,
+              cdr.transcript_message_id,
+              cdr.topic,
+              cdr.payload,
+              cdr.status
+            from app.current_delivery_receipts cdr
+            where cdr.delivery_id = $1
+              and cdr.recipient_member_id = $2
+              and cdr.network_id = any($3::app.short_id[])
+          `,
+          [input.deliveryId, input.actorMemberId, input.accessibleNetworkIds],
+        );
+
+        const current = currentResult.rows[0];
+        if (!current) {
+          await client.query('rollback');
+          return null;
+        }
+
+        if (current.status !== 'failed' && current.status !== 'canceled') {
+          throw new AppError(409, 'delivery_not_retryable', 'Only failed or canceled deliveries can be retried');
+        }
+
+        const insertedResult = await client.query<{ delivery_id: string }>(
+          `
+            insert into app.deliveries (
+              network_id,
+              recipient_member_id,
+              endpoint_id,
+              entity_id,
+              entity_version_id,
+              transcript_message_id,
+              topic,
+              payload,
+              status,
+              scheduled_at,
+              attempt_count,
+              last_error,
+              sent_at,
+              failed_at,
+              dedupe_key
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'pending', now(), 0, null, null, null, null)
+            returning id as delivery_id
+          `,
+          [
+            current.network_id,
+            current.recipient_member_id,
+            current.endpoint_id,
+            current.entity_id,
+            current.entity_version_id,
+            current.transcript_message_id,
+            current.topic,
+            JSON.stringify(current.payload ?? {}),
+          ],
+        );
+
+        const retriedDeliveryId = insertedResult.rows[0]?.delivery_id;
+        if (!retriedDeliveryId) {
+          throw new Error('Retried delivery id missing after insert');
+        }
+
+        const reloadedResult = await client.query<DeliverySummaryRow>(
+          `
+            select
+              cdr.delivery_id,
+              cdr.network_id,
+              cdr.recipient_member_id,
+              cdr.endpoint_id,
+              cdr.topic,
+              cdr.payload,
+              cdr.status,
+              cdr.attempt_count,
+              cdr.entity_id,
+              cdr.entity_version_id,
+              cdr.transcript_message_id,
+              cdr.scheduled_at::text as scheduled_at,
+              cdr.sent_at::text as sent_at,
+              cdr.failed_at::text as failed_at,
+              cdr.last_error,
+              cdr.created_at::text as created_at,
+              cdr.acknowledgement_id,
+              cdr.acknowledgement_state,
+              cdr.acknowledgement_suppression_reason,
+              cdr.acknowledgement_version_no,
+              cdr.acknowledgement_created_at::text as acknowledgement_created_at,
+              cdr.acknowledgement_created_by_member_id
+            from app.current_delivery_receipts cdr
+            where cdr.delivery_id = $1
+          `,
+          [retriedDeliveryId],
+        );
+
+        await client.query('commit');
+        return reloadedResult.rows[0] ? mapDeliverySummaryRow(reloadedResult.rows[0]) : null;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null> {

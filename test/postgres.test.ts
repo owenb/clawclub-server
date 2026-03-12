@@ -432,6 +432,117 @@ test('postgres repository projects actor scope into the db session before delive
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
+test('postgres repository retries a failed delivery inside actor scope as a fresh pending receipt', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1') && sql.includes('and cdr.recipient_member_id = $2')) {
+        return {
+          rows: [
+            {
+              delivery_id: 'delivery-1',
+              network_id: 'network-2',
+              recipient_member_id: 'member-1',
+              endpoint_id: 'endpoint-2',
+              entity_id: null,
+              entity_version_id: null,
+              transcript_message_id: 'message-1',
+              topic: 'transcript.message.created',
+              payload: { kind: 'dm', threadId: 'thread-1' },
+              status: 'failed',
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('insert into app.deliveries (')) {
+        return {
+          rows: [{ delivery_id: 'delivery-2' }],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1') && !sql.includes('and cdr.recipient_member_id = $2')) {
+        return {
+          rows: [
+            {
+              delivery_id: 'delivery-2',
+              network_id: 'network-2',
+              recipient_member_id: 'member-1',
+              endpoint_id: 'endpoint-2',
+              topic: 'transcript.message.created',
+              payload: { kind: 'dm', threadId: 'thread-1' },
+              status: 'pending',
+              attempt_count: 0,
+              entity_id: null,
+              entity_version_id: null,
+              transcript_message_id: 'message-1',
+              scheduled_at: '2026-03-12T00:06:00Z',
+              sent_at: null,
+              failed_at: null,
+              last_error: null,
+              created_at: '2026-03-12T00:06:00Z',
+              acknowledgement_id: null,
+              acknowledgement_state: null,
+              acknowledgement_suppression_reason: null,
+              acknowledgement_version_no: null,
+              acknowledgement_created_at: null,
+              acknowledgement_created_by_member_id: null,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const pool = {
+    async connect() {
+      return client;
+    },
+  };
+
+  const repository = createPostgresRepository({ pool: pool as any });
+  const delivery = await repository.retryDelivery({
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-2'],
+    deliveryId: 'delivery-1',
+  });
+
+  assert.ok(delivery);
+  assert.equal(delivery?.deliveryId, 'delivery-2');
+  assert.equal(delivery?.status, 'pending');
+  assert.equal(delivery?.endpointId, 'endpoint-2');
+  assert.equal(delivery?.attemptCount, 0);
+  assert.equal(delivery?.lastError, null);
+  assert.equal(calls[0]?.sql, 'begin');
+  assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
+  assert.deepEqual(calls[1]?.params, ['member-1', 'network-2']);
+  assert.match(calls[2]?.sql ?? '', /from app\.current_delivery_receipts cdr/);
+  assert.deepEqual(calls[2]?.params, ['delivery-1', 'member-1', ['network-2']]);
+  assert.match(calls[3]?.sql ?? '', /insert into app\.deliveries/);
+  assert.equal(calls[3]?.params?.[0], 'network-2');
+  assert.equal(calls[3]?.params?.[1], 'member-1');
+  assert.equal(calls[3]?.params?.[2], 'endpoint-2');
+  assert.equal(calls[3]?.params?.[5], 'message-1');
+  assert.equal(calls.at(-1)?.sql, 'commit');
+});
+
 test('postgres repository creates and revokes hashed bearer tokens without returning the hash', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

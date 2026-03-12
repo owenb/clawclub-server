@@ -137,15 +137,18 @@ function makeDeliverySummary(overrides: Partial<DeliverySummary> = {}): Delivery
     deliveryId: 'delivery-1',
     networkId: 'network-1',
     recipientMemberId: 'member-1',
+    endpointId: 'endpoint-1',
     topic: 'transcript.message.created',
     payload: { kind: 'dm', threadId: 'thread-1' },
     status: 'sent',
+    attemptCount: 1,
     entityId: null,
     entityVersionId: null,
     transcriptMessageId: 'message-1',
     scheduledAt: '2026-03-12T00:02:00Z',
     sentAt: '2026-03-12T00:03:00Z',
     failedAt: null,
+    lastError: null,
     createdAt: '2026-03-12T00:02:00Z',
     acknowledgement: null,
     ...overrides,
@@ -375,6 +378,9 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async listDeliveries() {
       return [makeDeliverySummary()];
     },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -464,6 +470,9 @@ test('members.search narrows scope when a permitted network is requested', async
     },
     async listDeliveries() {
       return [makeDeliverySummary()];
+    },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -561,6 +570,9 @@ test('members.list returns active members with scoped membership context', async
     async listDeliveries() {
       return [makeDeliverySummary()];
     },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -652,6 +664,9 @@ test('profile.get defaults to the actor member id', async () => {
     async listDeliveries() {
       return [makeDeliverySummary()];
     },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -739,6 +754,9 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     },
     async listDeliveries() {
       return [makeDeliverySummary()];
+    },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -851,6 +869,9 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     },
     async listDeliveries() {
       return [makeDeliverySummary()];
+    },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -1133,6 +1154,9 @@ test('events.create writes the smallest sane event payload', async () => {
     async listDeliveries() {
       return [makeDeliverySummary()];
     },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -1235,6 +1259,9 @@ test('events.list stays inside accessible scope', async () => {
     },
     async listDeliveries() {
       return [makeDeliverySummary()];
+    },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -1493,6 +1520,9 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     async listDeliveries() {
       return [makeDeliverySummary()];
     },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -1698,6 +1728,9 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
     async listDeliveries() {
       return [makeDeliverySummary()];
     },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
+    },
     async sendDirectMessage() {
       return null;
     },
@@ -1788,6 +1821,9 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
     async listDeliveries() {
       return [makeDeliverySummary()];
     },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -1872,6 +1908,9 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
     },
     async listDeliveries() {
       return [makeDeliverySummary()];
+    },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -1973,6 +2012,9 @@ test('messages.read scopes thread access server-side and returns transcript entr
     },
     async listDeliveries() {
       return [makeDeliverySummary()];
+    },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -2124,6 +2166,9 @@ test('tokens.create mints a new bearer token for the actor member', async () => 
     async listDeliveries() {
       return [makeDeliverySummary()];
     },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
+    },
     async sendDirectMessage() {
       return makeDirectMessage();
     },
@@ -2213,6 +2258,9 @@ test('tokens.revoke only revokes actor-owned tokens', async () => {
     },
     async listDeliveries() {
       return [makeDeliverySummary()];
+    },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -2447,6 +2495,109 @@ test('deliveries.acknowledge derives scope server-side and removes the item from
   assert.equal(result.data.acknowledgement.suppressionReason, 'too noisy right now');
 });
 
+test('deliveries.retry requeues a failed delivery inside actor scope', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async createEvent() {
+      return makeEvent();
+    },
+    async listEvents() {
+      return [makeEvent()];
+    },
+    async rsvpEvent() {
+      return makeEvent();
+    },
+    async listBearerTokens() {
+      return [makeBearerTokenSummary()];
+    },
+    async createBearerToken() {
+      return makeCreatedBearerToken();
+    },
+    async revokeBearerToken() {
+      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
+    },
+    async acknowledgeDelivery() {
+      return makeDeliveryAcknowledgement();
+    },
+    async listDeliveries() {
+      return [makeDeliverySummary()];
+    },
+    async retryDelivery(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeDeliverySummary({
+        deliveryId: 'delivery-2',
+        networkId: 'network-2',
+        status: 'pending',
+        attemptCount: 0,
+        sentAt: null,
+        failedAt: null,
+        lastError: null,
+      });
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async listDirectMessageInbox() {
+      return [makeDirectMessageInbox()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.retry',
+    payload: {
+      deliveryId: 'delivery-1',
+      networkId: 'network-999',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-1', 'network-2'],
+    deliveryId: 'delivery-1',
+  });
+  assert.equal(result.action, 'deliveries.retry');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.equal(result.data.delivery.deliveryId, 'delivery-2');
+  assert.equal(result.data.delivery.status, 'pending');
+  assert.equal(result.data.delivery.lastError, null);
+});
+
 test('messages.read returns 404 when the thread is outside actor scope', async () => {
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -2493,6 +2644,9 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
     },
     async listDeliveries() {
       return [makeDeliverySummary()];
+    },
+    async retryDelivery() {
+      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
     },
     async sendDirectMessage() {
       return makeDirectMessage();
