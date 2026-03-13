@@ -132,6 +132,77 @@ test('postgres repository lists active members with scoped membership context', 
   assert.deepEqual(calls[0]?.params, [['network-2'], 5]);
 });
 
+test('postgres repository searchMembers requires every query token across searchable fields and ranks deterministically', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const pool = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql.includes('with scope as (') && sql.includes('from tokens t') && sql.includes('cmp.tagline')) {
+        return {
+          rows: [
+            {
+              member_id: 'member-3',
+              public_name: 'Zara Stone',
+              display_name: 'Zara Stone',
+              handle: 'zara-stone',
+              tagline: 'Designer',
+              summary: 'Helps communities feel coherent',
+              what_i_do: 'Design systems',
+              known_for: 'Community rituals',
+              services_summary: 'Advisory',
+              website_url: null,
+              shared_networks: [{ id: 'network-2', slug: 'beta', name: 'Beta' }],
+            },
+            {
+              member_id: 'member-2',
+              public_name: 'Chris Stone',
+              display_name: 'Chris Stone',
+              handle: 'chris-stone',
+              tagline: 'Builder',
+              summary: 'Backend and AI builder for small trusted networks',
+              what_i_do: 'Backend AI builder',
+              known_for: 'Shipping fast',
+              services_summary: 'Architecture help',
+              website_url: 'https://example.test/chris',
+              shared_networks: [{ id: 'network-2', slug: 'beta', name: 'Beta' }],
+            },
+            {
+              member_id: 'member-4',
+              public_name: 'Stone Chris',
+              display_name: 'Stone Chris',
+              handle: 'stone-chris',
+              tagline: 'Generalist',
+              summary: 'Builder who works across product and ops',
+              what_i_do: 'Operations',
+              known_for: 'Calm execution',
+              services_summary: 'Fractional ops',
+              website_url: null,
+              shared_networks: [{ id: 'network-2', slug: 'beta', name: 'Beta' }],
+            },
+          ],
+          rowCount: 3,
+        };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+
+  const repository = createPostgresRepository({ pool: pool as any });
+  const results = await repository.searchMembers({
+    networkIds: ['network-2'],
+    query: 'Chris builder',
+    limit: 2,
+  });
+
+  assert.deepEqual(results.map((result) => result.memberId), ['member-2', 'member-4']);
+  assert.match(calls[0]?.sql ?? '', /from tokens t/);
+  assert.match(calls[0]?.sql ?? '', /cmp\.summary/);
+  assert.deepEqual(calls[0]?.params, [['network-2'], '%Chris builder%', ['chris', 'builder'], 25]);
+});
+
 test('postgres repository projects actor scope into the db session before dm reads', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

@@ -48,6 +48,67 @@ type SearchRow = {
   shared_networks: Array<{ id: string; slug: string; name: string }> | null;
 };
 
+function normalizeSearchText(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function tokenizeSearchQuery(query: string): string[] {
+  return [...new Set(
+    normalizeSearchText(query)
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length > 0),
+  )];
+}
+
+function scoreMemberSearchRow(row: SearchRow, query: string, tokens: string[]): number {
+  const normalizedQuery = normalizeSearchText(query);
+  const publicName = normalizeSearchText(row.public_name);
+  const displayName = normalizeSearchText(row.display_name);
+  const handle = normalizeSearchText(row.handle);
+  const tagline = normalizeSearchText(row.tagline);
+  const summary = normalizeSearchText(row.summary);
+  const whatIDo = normalizeSearchText(row.what_i_do);
+  const knownFor = normalizeSearchText(row.known_for);
+  const servicesSummary = normalizeSearchText(row.services_summary);
+
+  const primaryFields = [displayName, publicName, handle];
+  const secondaryFields = [tagline, whatIDo, knownFor, servicesSummary, summary];
+
+  let score = 0;
+
+  for (const field of primaryFields) {
+    if (!field) continue;
+    if (field === normalizedQuery) score += 120;
+    else if (field.startsWith(normalizedQuery)) score += 80;
+    else if (field.includes(normalizedQuery)) score += 40;
+  }
+
+  for (const field of secondaryFields) {
+    if (!field) continue;
+    if (field === normalizedQuery) score += 40;
+    else if (field.startsWith(normalizedQuery)) score += 24;
+    else if (field.includes(normalizedQuery)) score += 12;
+  }
+
+  for (const token of tokens) {
+    for (const field of primaryFields) {
+      if (!field) continue;
+      if (field === token) score += 36;
+      else if (field.startsWith(token)) score += 20;
+      else if (field.includes(token)) score += 10;
+    }
+
+    for (const field of secondaryFields) {
+      if (!field) continue;
+      if (field === token) score += 12;
+      else if (field.startsWith(token)) score += 8;
+      else if (field.includes(token)) score += 4;
+    }
+  }
+
+  return score;
+}
+
 type MembershipVouchRow = {
   edge_id: string;
   from_member_id: string;
@@ -2555,13 +2616,17 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
     async searchMembers({ networkIds, query, limit }): Promise<MemberSearchResult[]> {
       const trimmedQuery = query.trim();
+      const tokens = tokenizeSearchQuery(trimmedQuery);
       const likePattern = `%${trimmedQuery}%`;
-      const prefixPattern = `${trimmedQuery}%`;
+      const candidateLimit = Math.min(Math.max(limit * 5, 25), 100);
 
       const result = await pool.query<SearchRow>(
         `
           with scope as (
             select unnest($1::text[])::app.short_id as network_id
+          ),
+          tokens as (
+            select unnest($3::text[]) as token
           )
           select
             m.id as member_id,
@@ -2585,45 +2650,63 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             m.public_name ilike $2
             or coalesce(cmp.display_name, '') ilike $2
             or coalesce(m.handle, '') ilike $2
+            or coalesce(cmp.tagline, '') ilike $2
+            or coalesce(cmp.summary, '') ilike $2
             or coalesce(cmp.what_i_do, '') ilike $2
             or coalesce(cmp.known_for, '') ilike $2
             or coalesce(cmp.services_summary, '') ilike $2
           )
+            and not exists (
+              select 1
+              from tokens t
+              where not (
+                m.public_name ilike '%' || t.token || '%'
+                or coalesce(cmp.display_name, '') ilike '%' || t.token || '%'
+                or coalesce(m.handle, '') ilike '%' || t.token || '%'
+                or coalesce(cmp.tagline, '') ilike '%' || t.token || '%'
+                or coalesce(cmp.summary, '') ilike '%' || t.token || '%'
+                or coalesce(cmp.what_i_do, '') ilike '%' || t.token || '%'
+                or coalesce(cmp.known_for, '') ilike '%' || t.token || '%'
+                or coalesce(cmp.services_summary, '') ilike '%' || t.token || '%'
+              )
+            )
           group by
             m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline, cmp.summary,
             cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
-          order by
-            min(
-              case
-                when lower(coalesce(cmp.display_name, m.public_name)) = lower($3)
-                  or lower(m.public_name) = lower($3)
-                  or lower(coalesce(m.handle, '')) = lower($3) then 0
-                when lower(coalesce(cmp.display_name, m.public_name)) like lower($4)
-                  or lower(m.public_name) like lower($4)
-                  or lower(coalesce(m.handle, '')) like lower($4) then 1
-                else 2
-              end
-            ) asc,
-            display_name asc,
-            m.id asc
-          limit $5
+          order by display_name asc, m.id asc
+          limit $4
         `,
-        [networkIds, likePattern, trimmedQuery, prefixPattern, limit],
+        [networkIds, likePattern, tokens, candidateLimit],
       );
 
-      return result.rows.map((row) => ({
-        memberId: row.member_id,
-        publicName: row.public_name,
-        displayName: row.display_name,
-        handle: row.handle,
-        tagline: row.tagline,
-        summary: row.summary,
-        whatIDo: row.what_i_do,
-        knownFor: row.known_for,
-        servicesSummary: row.services_summary,
-        websiteUrl: row.website_url,
-        sharedNetworks: row.shared_networks ?? [],
-      }));
+      return result.rows
+        .map((row) => ({ row, score: scoreMemberSearchRow(row, trimmedQuery, tokens) }))
+        .sort((left, right) => {
+          if (right.score !== left.score) {
+            return right.score - left.score;
+          }
+
+          const displayNameComparison = left.row.display_name.localeCompare(right.row.display_name, 'en', { sensitivity: 'base' });
+          if (displayNameComparison !== 0) {
+            return displayNameComparison;
+          }
+
+          return left.row.member_id.localeCompare(right.row.member_id, 'en', { sensitivity: 'base' });
+        })
+        .slice(0, limit)
+        .map(({ row }) => ({
+          memberId: row.member_id,
+          publicName: row.public_name,
+          displayName: row.display_name,
+          handle: row.handle,
+          tagline: row.tagline,
+          summary: row.summary,
+          whatIDo: row.what_i_do,
+          knownFor: row.known_for,
+          servicesSummary: row.services_summary,
+          websiteUrl: row.website_url,
+          sharedNetworks: row.shared_networks ?? [],
+        }));
     },
 
     async listMembers({ networkIds, limit }) {
