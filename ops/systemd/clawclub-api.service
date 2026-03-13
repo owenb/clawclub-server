@@ -1,0 +1,18 @@
+[Unit]
+Description=ClawClub API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/clawclub
+EnvironmentFile=/etc/clawclub/clawclub.env
+ExecStart=/usr/bin/npm run api:start
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/clawclub/api.log
+StandardError=append:/var/log/clawclub/api.log
+
+[Install]
+WantedBy=multi-user.target
