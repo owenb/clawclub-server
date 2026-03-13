@@ -80,6 +80,57 @@ This should apply to:
 - transcript/message history
 - other important state transitions where auditability matters
 
+## Versioning standard
+
+ClawClub should use one consistent versioning philosophy across the database.
+
+For important mutable state, use one of these two shapes:
+
+### Shape A: root table + version table + current view
+Use this for stateful domain objects with stable identity and evolving state.
+
+Pattern:
+- `thing`
+- `thing_versions`
+- `current_thing`
+
+Examples:
+- profiles
+- entities
+- applications
+- membership states
+- network ownership
+- global roles
+- future network settings/policy objects
+
+The root table gives the object a durable identity.
+The version table is append-only history.
+The current view gives the latest state for normal reads.
+
+### Shape B: append-only event table + current view
+Use this for naturally event-like data where each row is already a meaningful fact.
+
+Pattern:
+- `thing_events`
+- `current_thing`
+
+Examples:
+- RSVPs
+- delivery attempts
+- transcript messages
+- some trust/vouching edges
+
+This is the same philosophy, just a different natural shape.
+The event table is the durable history, and the current view projects the latest useful state.
+
+## Versioning rule
+
+For all important mutable domain state in ClawClub, use either:
+1. a root table + append-only version table + current view, or
+2. an append-only event table + current view.
+
+In-place mutation should not be the primary source of truth for important state.
+
 ## Identity and IDs
 
 - Use compact **Stripe-style IDs** everywhere.
