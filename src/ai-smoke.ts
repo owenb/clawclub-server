@@ -328,12 +328,39 @@ function makeRepository(callLog: string[]): Repository {
     },
     async transitionApplication(input) {
       callLog.push(`transitionApplication:${JSON.stringify(input)}`);
+      if (input.activateMembership) {
+        return makeApplication({
+          membershipId: input.membershipId ?? 'membership-1',
+          activation: {
+            linkedMembershipId: input.membershipId ?? 'membership-1',
+            membershipStatus: 'active',
+            acceptedCovenantAt: null,
+            readyForActivation: false,
+          },
+          state: {
+            ...makeApplication().state,
+            status: 'accepted',
+            versionNo: 3,
+            notes: input.notes ?? 'Interview complete and accepted',
+          },
+          intake: {
+            ...makeApplication().intake,
+            completedAt: input.intake?.completedAt ?? '2026-03-14T10:30:00Z',
+          },
+        });
+      }
+
       return makeApplication({
         state: {
           ...makeApplication().state,
           status: 'interview_scheduled',
           versionNo: 2,
           notes: input.notes ?? 'Interview booked',
+        },
+        intake: {
+          ...makeApplication().intake,
+          bookingUrl: input.intake?.bookingUrl ?? makeApplication().intake.bookingUrl,
+          bookedAt: input.intake?.bookedAt ?? makeApplication().intake.bookedAt,
         },
       });
     },
@@ -463,18 +490,20 @@ const smokeScenarios: SmokeScenario[] = [
   },
   {
     name: 'admissions operator flow',
-    prompt: 'Review pending admissions, check submitted applications, then move Lina to interview scheduled.',
+    prompt: 'Review pending admissions, check submitted applications, book Lina for interview, then accept and activate her membership once the interview is complete.',
     steps: [
       { type: 'tool', toolName: 'memberships_review', args: { networkId: 'network-conscious', limit: 5 } },
       { type: 'tool', toolName: 'applications_list', args: { networkId: 'network-conscious', statuses: ['submitted'], limit: 5 } },
       { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'interview_scheduled', notes: 'Booked fit check', intake: { bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' } } },
-      { type: 'text', text: 'Lina looks clean to advance. I reviewed the pending membership, checked the submitted application, and moved it to interview scheduled.' },
+      { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'accepted', notes: 'Interview complete and accepted', membershipId: 'membership-1', activateMembership: true, activationReason: 'Interview passed and owner approved', intake: { completedAt: '2026-03-14T10:30:00Z' } } },
+      { type: 'text', text: 'Lina looks clean all the way through. I reviewed the queue, scheduled the interview, then accepted the application and activated the linked membership.' },
     ],
     assert: ({ text, callLog }) => {
-      assert.match(text, /interview scheduled/);
+      assert.match(text, /activated the linked membership/);
       assert.equal(callLog.some((entry) => entry.startsWith('listMembershipReviews:')), true);
       assert.equal(callLog.some((entry) => entry.startsWith('listApplications:')), true);
-      assert.equal(callLog.some((entry) => entry.startsWith('transitionApplication:')), true);
+      assert.equal(callLog.filter((entry) => entry.startsWith('transitionApplication:')).length, 2);
+      assert.equal(callLog.some((entry) => entry.includes('"activateMembership":true')), true);
     },
   },
   {
@@ -521,16 +550,17 @@ const smokeScenarios: SmokeScenario[] = [
     },
   },
   {
-    name: 'event list + create',
-    prompt: 'Check events, then create a short Hetzner operator session for Saturday at 15:00 UTC.',
+    name: 'event retrieval + create',
+    prompt: 'Check whether we already have a Hetzner operator event, then create one for Saturday at 15:00 UTC if needed.',
     steps: [
-      { type: 'tool', toolName: 'events_list', args: { limit: 5 } },
+      { type: 'tool', toolName: 'events_list', args: { query: 'Hetzner operator', limit: 5 } },
       { type: 'tool', toolName: 'events_create', args: { networkId: 'network-conscious', title: 'Hetzner operator session', summary: 'Review rollout plan', body: 'Short sync for infra assumptions and next steps', startsAt: '2026-03-14T15:00:00Z', endsAt: '2026-03-14T15:30:00Z', timezone: 'UTC', capacity: 6 } },
-      { type: 'text', text: 'Event created for Saturday at 15:00 UTC.' },
+      { type: 'text', text: 'Checked the existing Hetzner operator events and created the next session for Saturday at 15:00 UTC.' },
     ],
     assert: ({ text, callLog }) => {
-      assert.match(text, /Event created/);
+      assert.match(text, /created the next session/);
       assert.equal(callLog.some((entry) => entry.startsWith('listEvents:')), true);
+      assert.equal(callLog.some((entry) => entry.includes('"query":"Hetzner operator"')), true);
       assert.equal(callLog.some((entry) => entry.startsWith('createEvent:')), true);
     },
   },

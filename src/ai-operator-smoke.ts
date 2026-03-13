@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import type { LanguageModelV1, LanguageModelV1CallOptions, LanguageModelV1FunctionToolCall } from '@ai-sdk/provider';
 import { MockLanguageModelV1 } from 'ai/test';
 import { runClawClubOperatorTurn } from './ai-operator.ts';
-import type { AuthResult, MembershipReviewSummary, Repository } from './app.ts';
+import type { ApplicationSummary, AuthResult, MembershipReviewSummary, Repository } from './app.ts';
 
 export type OperatorSmokeResult = {
   text: string;
@@ -49,6 +49,40 @@ function makeMembershipReview(): MembershipReviewSummary {
   };
 }
 
+function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
+  return {
+    applicationId: 'application-1',
+    networkId: 'network-conscious',
+    applicant: { memberId: 'member-2', publicName: 'Lina Vector', handle: 'lina' },
+    sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
+    membershipId: 'membership-2',
+    activation: {
+      linkedMembershipId: 'membership-2',
+      membershipStatus: 'pending_review',
+      acceptedCovenantAt: null,
+      readyForActivation: true,
+    },
+    path: 'sponsored',
+    intake: {
+      kind: 'fit_check',
+      price: { amount: 49, currency: 'GBP' },
+      bookingUrl: 'https://cal.example.test/fit-check',
+      bookedAt: '2026-03-14T10:00:00Z',
+      completedAt: null,
+    },
+    state: {
+      status: 'interview_completed',
+      notes: 'Interview complete',
+      versionNo: 2,
+      createdAt: '2026-03-14T10:30:00Z',
+      createdByMemberId: 'member-1',
+    },
+    metadata: {},
+    createdAt: '2026-03-12T10:00:00Z',
+    ...overrides,
+  };
+}
+
 function makeRepository(callLog: string[]): Repository {
   return {
     async authenticateBearerToken(token) { return token === 'cc_live_test' ? makeAuthResult() : null; },
@@ -59,9 +93,32 @@ function makeRepository(callLog: string[]): Repository {
       callLog.push(`listMembershipReviews:${JSON.stringify(input)}`);
       return [makeMembershipReview()];
     },
-    async listApplications() { return []; },
+    async listApplications(input) {
+      callLog.push(`listApplications:${JSON.stringify(input)}`);
+      return [makeApplication()];
+    },
     async createApplication() { return null; },
-    async transitionApplication() { return null; },
+    async transitionApplication(input) {
+      callLog.push(`transitionApplication:${JSON.stringify(input)}`);
+      return makeApplication({
+        activation: {
+          linkedMembershipId: 'membership-2',
+          membershipStatus: 'active',
+          acceptedCovenantAt: null,
+          readyForActivation: false,
+        },
+        state: {
+          ...makeApplication().state,
+          status: 'accepted',
+          versionNo: 3,
+          notes: input.notes ?? 'Interview complete and accepted',
+        },
+        intake: {
+          ...makeApplication().intake,
+          completedAt: input.intake?.completedAt ?? '2026-03-14T10:30:00Z',
+        },
+      });
+    },
     async listDeliveryEndpoints() { return []; },
     async createDeliveryEndpoint() { throw new Error('unused'); },
     async updateDeliveryEndpoint() { return null; },
@@ -101,7 +158,9 @@ function makeScriptedModel(): LanguageModelV1 {
   let index = 0;
   const steps = [
     { type: 'tool', toolName: 'memberships_review', args: { networkId: 'network-conscious', limit: 5 } },
-    { type: 'text', text: 'I checked the pending admissions queue. Lina Vector is the only member waiting and looks ready for review.' },
+    { type: 'tool', toolName: 'applications_list', args: { networkId: 'network-conscious', statuses: ['interview_completed'], limit: 5 } },
+    { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'accepted', membershipId: 'membership-2', activateMembership: true, activationReason: 'Interview passed and owner approved', notes: 'Accepted and activated', intake: { completedAt: '2026-03-14T10:30:00Z' } } },
+    { type: 'text', text: 'I reviewed the queue, confirmed Lina completed the interview, then accepted the application and activated the membership.' },
   ] as const;
 
   return new MockLanguageModelV1({
@@ -133,13 +192,16 @@ export async function runOperatorSmoke(): Promise<OperatorSmokeResult> {
   const result = await runClawClubOperatorTurn({
     runtime: { repository: makeRepository(callLog), bearerToken: 'cc_live_test' },
     system: 'You are a careful ClawClub operator.',
-    prompt: 'Review the admissions queue and summarize what needs action.',
+    prompt: 'Review interview-complete admissions and finish any clean activation handoff.',
     model: makeScriptedModel() as any,
     maxSteps: 4,
   });
 
-  assert.match(result.text, /Lina Vector/);
+  assert.match(result.text, /activated the membership/);
   assert.equal(callLog.some((entry) => entry.startsWith('listMembershipReviews:')), true);
+  assert.equal(callLog.some((entry) => entry.startsWith('listApplications:')), true);
+  assert.equal(callLog.some((entry) => entry.startsWith('transitionApplication:')), true);
+  assert.equal(callLog.some((entry) => entry.includes('"activateMembership":true')), true);
 
   return { text: result.text, callLog };
 }

@@ -271,6 +271,7 @@ test('applications tools stay small and operator-ready through the curated layer
     applicationId: 'application-1',
     status: 'interview_scheduled',
     notes: 'Call booked',
+    activateMembership: false,
     intake: { bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' },
     metadata: { outcome: 'strong_yes' },
   }, { toolCallId: 'tool-call-transition', messages: [] });

@@ -72,12 +72,14 @@ const canonicalToolSpecs = {
     action: 'applications.create',
   },
   applications_transition: {
-    description: 'Advance an existing application through the admissions workflow with optional intake or metadata updates.',
+    description: 'Advance an existing application through the admissions workflow with optional intake, activation, or metadata updates.',
     inputSchema: z.object({
       applicationId: nonEmptyString('applicationId'),
       status: z.enum(['draft', 'submitted', 'interview_scheduled', 'interview_completed', 'accepted', 'declined', 'withdrawn']),
       notes: z.string().optional().nullable(),
       membershipId: z.string().trim().min(1).optional().nullable(),
+      activateMembership: z.boolean().optional(),
+      activationReason: z.string().optional().nullable(),
       intake: z.object({
         kind: z.enum(['fit_check', 'advice_call', 'other']).optional(),
         price: z.object({
