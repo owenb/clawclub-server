@@ -365,6 +365,12 @@ function makeApplication(overrides: Partial<ApplicationSummary> = {}): Applicati
       handle: 'member-one',
     },
     membershipId: 'membership-9',
+    activation: {
+      linkedMembershipId: 'membership-9',
+      membershipStatus: 'pending_review',
+      acceptedCovenantAt: null,
+      readyForActivation: false,
+    },
     path: 'sponsored',
     intake: {
       kind: 'fit_check',
@@ -1058,6 +1064,12 @@ test('applications.transition appends interview workflow state with optional mem
           createdByMemberId: 'member-1',
         },
         membershipId: 'membership-10',
+        activation: {
+          linkedMembershipId: 'membership-10',
+          membershipStatus: 'pending_review',
+          acceptedCovenantAt: null,
+          readyForActivation: true,
+        },
         intake: {
           kind: 'fit_check',
           price: { amount: 49, currency: 'GBP' },
@@ -1103,6 +1115,12 @@ test('applications.transition appends interview workflow state with optional mem
   assert.equal(result.action, 'applications.transition');
   assert.equal(result.data.application.state.versionNo, 3);
   assert.equal(result.data.application.membershipId, 'membership-10');
+  assert.deepEqual(result.data.application.activation, {
+    linkedMembershipId: 'membership-10',
+    membershipStatus: 'pending_review',
+    acceptedCovenantAt: null,
+    readyForActivation: true,
+  });
 });
 
 test('members.search narrows scope when a permitted network is requested', async () => {

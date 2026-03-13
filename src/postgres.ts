@@ -156,6 +156,8 @@ type ApplicationRow = {
   sponsor_public_name: string | null;
   sponsor_handle: string | null;
   membership_id: string | null;
+  linked_membership_status: MembershipState | null;
+  linked_membership_accepted_covenant_at: string | null;
   path: 'sponsored' | 'outside';
   intake_kind: 'fit_check' | 'advice_call' | 'other';
   intake_price_amount: string | number | null;
@@ -1182,6 +1184,12 @@ function mapApplicationRow(row: ApplicationRow): ApplicationSummary {
         }
       : null,
     membershipId: row.membership_id,
+    activation: {
+      linkedMembershipId: row.membership_id,
+      membershipStatus: row.linked_membership_status,
+      acceptedCovenantAt: row.linked_membership_accepted_covenant_at,
+      readyForActivation: row.status === 'accepted' && row.membership_id !== null && row.linked_membership_status === 'pending_review',
+    },
     path: row.path,
     intake: {
       kind: row.intake_kind,
@@ -1449,6 +1457,8 @@ async function listApplications(client: DbClient, input: {
         sponsor.public_name as sponsor_public_name,
         sponsor.handle as sponsor_handle,
         ca.membership_id,
+        cnm.status as linked_membership_status,
+        cnm.accepted_covenant_at::text as linked_membership_accepted_covenant_at,
         ca.path,
         ca.intake_kind,
         ca.intake_price_amount,
@@ -1466,6 +1476,7 @@ async function listApplications(client: DbClient, input: {
       from app.current_applications ca
       join app.members applicant on applicant.id = ca.applicant_member_id
       left join app.members sponsor on sponsor.id = ca.sponsor_member_id
+      left join app.current_network_memberships cnm on cnm.id = ca.membership_id
       where ca.network_id = any($1::app.short_id[])
         and ($2::app.application_status[] is null or ca.status = any($2::app.application_status[]))
       order by ca.version_created_at desc, ca.id asc
@@ -1490,6 +1501,8 @@ async function readApplicationSummary(client: DbClient, applicationId: string): 
         sponsor.public_name as sponsor_public_name,
         sponsor.handle as sponsor_handle,
         ca.membership_id,
+        cnm.status as linked_membership_status,
+        cnm.accepted_covenant_at::text as linked_membership_accepted_covenant_at,
         ca.path,
         ca.intake_kind,
         ca.intake_price_amount,
@@ -1507,6 +1520,7 @@ async function readApplicationSummary(client: DbClient, applicationId: string): 
       from app.current_applications ca
       join app.members applicant on applicant.id = ca.applicant_member_id
       left join app.members sponsor on sponsor.id = ca.sponsor_member_id
+      left join app.current_network_memberships cnm on cnm.id = ca.membership_id
       where ca.id = $1
       limit 1
     `,

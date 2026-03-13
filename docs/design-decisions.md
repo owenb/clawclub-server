@@ -157,6 +157,7 @@ In-place mutation should not be the primary source of truth for important state.
 - Current/latest information should be shown by default; older versions are for audit/debug/admin.
 - Until embeddings-backed search exists, text retrieval should stay explicit and deterministic: exact/prefix/title hits outrank broad body matches, and time remains the tie-breaker.
 - Embeddings should remain append-only facts with latest-per-version projection views. For now, the minimal foundation is just current profile/entity embedding metadata on reads, not a full indexing queue or ranking engine.
+- Owner admissions views should expose the handoff to activation directly on the current application projection: linked membership, its current status, and whether the accepted application is ready for activation.
 
 ## Events and RSVP
 

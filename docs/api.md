@@ -264,6 +264,12 @@ The retry is still fully scope-checked server-side from bearer auth + network me
 
 This is intentionally not semantic search yet.
 
+Applications now include a small derived `activation` block so owners can see the interview-to-membership handoff without extra joins:
+- `linkedMembershipId`
+- `membershipStatus`
+- `acceptedCovenantAt`
+- `readyForActivation`
+
 ## Next likely actions
 
 Only after real use proves the need:

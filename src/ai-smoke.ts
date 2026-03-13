@@ -135,6 +135,12 @@ function makeApplication(overrides: Partial<ApplicationSummary> = {}): Applicati
     applicant: { memberId: 'member-7', publicName: 'Lina Vector', handle: 'lina' },
     sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
     membershipId: null,
+    activation: {
+      linkedMembershipId: null,
+      membershipStatus: null,
+      acceptedCovenantAt: null,
+      readyForActivation: false,
+    },
     path: 'sponsored',
     intake: {
       kind: 'fit_check',

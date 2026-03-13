@@ -96,6 +96,12 @@ export type ApplicationSummary = {
     handle: string | null;
   } | null;
   membershipId: string | null;
+  activation: {
+    linkedMembershipId: string | null;
+    membershipStatus: MembershipState | null;
+    acceptedCovenantAt: string | null;
+    readyForActivation: boolean;
+  };
   path: 'sponsored' | 'outside';
   intake: {
     kind: 'fit_check' | 'advice_call' | 'other';

@@ -1322,7 +1322,8 @@ test('postgres repository appends application state transitions and reloads curr
         return {
           rows: [{
             application_id: 'application-9', network_id: 'network-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
-            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-10', path: 'sponsored',
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-10',
+            linked_membership_status: 'pending_review', linked_membership_accepted_covenant_at: null, path: 'sponsored',
             intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
             intake_booked_at: '2026-03-14T10:00:00Z', intake_completed_at: '2026-03-14T10:30:00Z',
             status: 'accepted', notes: 'Strong yes', version_no: 3, version_created_at: '2026-03-14T10:30:00Z', version_created_by_member_id: 'member-1',
@@ -1349,6 +1350,12 @@ test('postgres repository appends application state transitions and reloads curr
 
   assert.ok(application);
   assert.equal(application?.state.status, 'accepted');
+  assert.deepEqual(application?.activation, {
+    linkedMembershipId: 'membership-10',
+    membershipStatus: 'pending_review',
+    acceptedCovenantAt: null,
+    readyForActivation: true,
+  });
   assert.deepEqual(calls[3]?.params, ['membership-10', 'network-2', 'member-9']);
   assert.deepEqual(calls[4]?.params, ['application-9', 'membership-10', '{"source":"operator","outcome":"strong_yes"}']);
   assert.deepEqual(calls[5]?.params, ['application-9', 'accepted', 'Strong yes', 'fit_check', '49.00', 'GBP', 'https://cal.example.test/fit-check', '2026-03-14T10:00:00Z', '2026-03-14T10:30:00Z', 3, 'appver-2', 'member-1']);
