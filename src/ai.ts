@@ -1,4 +1,4 @@
-import { tool, generateText, streamText, type CoreMessage, type ToolSet } from 'ai';
+import { tool, generateText, streamText, type CoreMessage, type LanguageModel, type ToolSet } from 'ai';
 import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { buildApp, type Repository } from './app.ts';
@@ -15,6 +15,7 @@ export type ClawClubChatOptions = {
   system?: string;
   messages: CoreMessage[];
   provider?: OpenAIProvider;
+  model?: LanguageModel;
   maxSteps?: number;
 };
 
@@ -162,7 +163,7 @@ export function buildClawClubAiTools(runtime: ClawClubAiRuntime): ToolSet {
       name,
       tool({
         description: spec.description,
-        inputSchema: spec.inputSchema,
+        parameters: spec.inputSchema,
         execute: async (input) => {
           const result = await app.handleAction({
             bearerToken: runtime.bearerToken,
@@ -186,9 +187,9 @@ export function createClawClubOpenAIProvider(apiKey = process.env.OPENAI_API_KEY
 }
 
 export async function generateClawClubChatText(options: ClawClubChatOptions) {
-  const provider = options.provider ?? createClawClubOpenAIProvider();
+  const model = options.model ?? (options.provider ?? createClawClubOpenAIProvider())(CLAWCLUB_OPENAI_MODEL);
   return generateText({
-    model: provider(CLAWCLUB_OPENAI_MODEL),
+    model,
     system: options.system,
     messages: options.messages,
     tools: buildClawClubAiTools(options.runtime),
@@ -197,9 +198,9 @@ export async function generateClawClubChatText(options: ClawClubChatOptions) {
 }
 
 export function streamClawClubChatText(options: ClawClubChatOptions) {
-  const provider = options.provider ?? createClawClubOpenAIProvider();
+  const model = options.model ?? (options.provider ?? createClawClubOpenAIProvider())(CLAWCLUB_OPENAI_MODEL);
   return streamText({
-    model: provider(CLAWCLUB_OPENAI_MODEL),
+    model,
     system: options.system,
     messages: options.messages,
     tools: buildClawClubAiTools(options.runtime),
