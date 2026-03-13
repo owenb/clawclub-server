@@ -284,6 +284,11 @@ Applications now include a small derived `activation` block so owners can see th
 - `acceptedCovenantAt`
 - `readyForActivation`
 
+`applications.transition` can now also finalize the linked membership activation in the same append-only owner flow when:
+- application status is moving to `accepted`
+- a linked membership is present
+- interview completion metadata exists
+
 ## Next likely actions
 
 Only after real use proves the need:

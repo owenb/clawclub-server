@@ -307,6 +307,8 @@ test('applications tools stay small and operator-ready through the curated layer
     accessibleNetworkIds: ['network-1'],
     intake: { kind: undefined, price: undefined, bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z', completedAt: undefined },
     membershipId: undefined,
+    activateMembership: false,
+    activationReason: undefined,
     metadataPatch: { outcome: 'strong_yes' },
   });
   assert.equal(reviewResult?.action, 'memberships.review');

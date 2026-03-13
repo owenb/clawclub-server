@@ -1048,7 +1048,7 @@ test('applications.create captures a sponsored fit-check intake and owner scope 
   assert.equal(result.data.application.applicationId, 'application-9');
 });
 
-test('applications.transition appends interview workflow state with optional membership link', async () => {
+test('applications.transition can append accepted interview state and activate the linked membership', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -1066,9 +1066,9 @@ test('applications.transition appends interview workflow state with optional mem
         membershipId: 'membership-10',
         activation: {
           linkedMembershipId: 'membership-10',
-          membershipStatus: 'pending_review',
+          membershipStatus: 'active',
           acceptedCovenantAt: null,
-          readyForActivation: true,
+          readyForActivation: false,
         },
         intake: {
           kind: 'fit_check',
@@ -1091,6 +1091,8 @@ test('applications.transition appends interview workflow state with optional mem
       status: 'accepted',
       notes: 'Interview complete and accepted',
       membershipId: 'membership-10',
+      activateMembership: true,
+      activationReason: 'Interview passed and owner approved',
       intake: { completedAt: '2026-03-14T10:30:00Z' },
       metadata: { outcome: 'strong_yes' },
     },
@@ -1110,6 +1112,8 @@ test('applications.transition appends interview workflow state with optional mem
       completedAt: '2026-03-14T10:30:00Z',
     },
     membershipId: 'membership-10',
+    activateMembership: true,
+    activationReason: 'Interview passed and owner approved',
     metadataPatch: { outcome: 'strong_yes' },
   });
   assert.equal(result.action, 'applications.transition');
@@ -1117,9 +1121,9 @@ test('applications.transition appends interview workflow state with optional mem
   assert.equal(result.data.application.membershipId, 'membership-10');
   assert.deepEqual(result.data.application.activation, {
     linkedMembershipId: 'membership-10',
-    membershipStatus: 'pending_review',
+    membershipStatus: 'active',
     acceptedCovenantAt: null,
-    readyForActivation: true,
+    readyForActivation: false,
   });
 });
 

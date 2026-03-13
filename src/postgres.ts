@@ -2633,6 +2633,23 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
           ...(input.metadataPatch ?? {}),
         };
 
+        const resolvedMembershipId = input.membershipId === undefined ? application.current_membership_id : input.membershipId;
+        const resolvedCompletedAt = input.intake?.completedAt === undefined ? application.current_intake_completed_at : input.intake.completedAt;
+
+        if (input.activateMembership) {
+          if (input.nextStatus !== 'accepted') {
+            throw new AppError(409, 'activation_requires_accepted_application', 'Membership activation requires the application status to be accepted');
+          }
+
+          if (!resolvedMembershipId) {
+            throw new AppError(409, 'activation_requires_membership', 'Membership activation requires a linked membership');
+          }
+
+          if (!resolvedCompletedAt) {
+            throw new AppError(409, 'activation_requires_completed_interview', 'Membership activation requires interview completion metadata');
+          }
+        }
+
         await client.query(
           `
             update app.applications a
@@ -2640,7 +2657,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
                 metadata = $3::jsonb
             where a.id = $1
           `,
-          [application.application_id, input.membershipId === undefined ? application.current_membership_id : input.membershipId, JSON.stringify(mergedMetadata)],
+          [application.application_id, resolvedMembershipId, JSON.stringify(mergedMetadata)],
         );
 
         await client.query(
@@ -2670,12 +2687,69 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             input.intake?.price?.currency === undefined ? application.current_intake_price_currency : input.intake.price.currency,
             input.intake?.bookingUrl === undefined ? application.current_intake_booking_url : input.intake.bookingUrl,
             input.intake?.bookedAt === undefined ? application.current_intake_booked_at : input.intake.bookedAt,
-            input.intake?.completedAt === undefined ? application.current_intake_completed_at : input.intake.completedAt,
+            resolvedCompletedAt,
             Number(application.current_version_no) + 1,
             application.current_version_id,
             input.actorMemberId,
           ],
         );
+
+        if (input.activateMembership) {
+          const membershipResult = await client.query<{
+            membership_id: string;
+            current_status: MembershipState;
+            current_version_no: number;
+            current_state_version_id: string;
+          }>(
+            `
+              select
+                cnm.id as membership_id,
+                cnm.status as current_status,
+                cnm.state_version_no as current_version_no,
+                cnm.state_version_id as current_state_version_id
+              from app.current_network_memberships cnm
+              join app.accessible_network_memberships owner_scope
+                on owner_scope.network_id = cnm.network_id
+               and owner_scope.member_id = $1
+               and owner_scope.role = 'owner'
+              where cnm.id = $2
+                and cnm.network_id = any($3::app.short_id[])
+              limit 1
+            `,
+            [input.actorMemberId, resolvedMembershipId, input.accessibleNetworkIds],
+          );
+
+          const membership = membershipResult.rows[0];
+          if (!membership) {
+            await client.query('rollback');
+            return null;
+          }
+
+          if (membership.current_status !== 'pending_review') {
+            throw new AppError(409, 'membership_not_ready_for_activation', 'Only pending-review memberships can be activated through this flow');
+          }
+
+          await client.query(
+            `
+              insert into app.network_membership_state_versions (
+                membership_id,
+                status,
+                reason,
+                version_no,
+                supersedes_state_version_id,
+                created_by_member_id
+              )
+              values ($1, 'active', $2, $3, $4, $5)
+            `,
+            [
+              membership.membership_id,
+              input.activationReason ?? input.notes ?? 'Activated from accepted application',
+              Number(membership.current_version_no) + 1,
+              membership.current_state_version_id,
+              input.actorMemberId,
+            ],
+          );
+        }
 
         await client.query('commit');
         return await withActorContext(pool, input.actorMemberId, input.accessibleNetworkIds, (scopedClient) => readApplicationSummary(scopedClient, application.application_id));

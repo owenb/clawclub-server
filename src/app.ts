@@ -163,6 +163,8 @@ export type TransitionApplicationInput = {
     completedAt?: string | null;
   };
   membershipId?: string | null;
+  activateMembership?: boolean;
+  activationReason?: string | null;
   metadataPatch?: Record<string, unknown>;
 };
 
@@ -1671,6 +1673,8 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
             accessibleNetworkIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.networkId),
             intake: payload.intake === undefined ? undefined : normalizeApplicationIntake(payload.intake, 'intake'),
             membershipId: payload.membershipId === undefined ? undefined : normalizeOptionalString(payload.membershipId, 'membershipId'),
+            activateMembership: payload.activateMembership === true,
+            activationReason: normalizeOptionalString(payload.activationReason, 'activationReason'),
             metadataPatch: normalizeApplicationMetadataPatch(payload.metadata, 'metadata'),
           });
 
