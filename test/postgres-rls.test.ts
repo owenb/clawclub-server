@@ -36,14 +36,10 @@ async function withIsolatedClient(fn: (client: PoolClient, roleName: string) => 
   }
 }
 
-async function setActorContext(client: PoolClient, actorMemberId: string, networkIds: string[]) {
+async function setActorContext(client: PoolClient, actorMemberId: string) {
   await client.query(
-    `
-      select
-        set_config('app.actor_member_id', $1, true),
-        set_config('app.actor_network_ids', $2, true)
-    `,
-    [actorMemberId, networkIds.join(',')],
+    `select set_config('app.actor_member_id', $1, true)`,
+    [actorMemberId],
   );
 }
 
@@ -88,7 +84,7 @@ async function seedRlsFixture(client: PoolClient) {
     [ownerId],
   );
 
-  await setActorContext(client, ownerId, []);
+  await setActorContext(client, ownerId);
 
   const network1Id = (await client.query<{ id: string }>(
     `insert into app.networks (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
@@ -210,7 +206,7 @@ async function seedRlsFixture(client: PoolClient) {
     [outsiderId, `Outsider ${suffix}`, 'Outside applicant profile'],
   );
 
-  await setActorContext(client, memberAId, [network1Id]);
+  await setActorContext(client, memberAId);
 
   const network1EntityId = (await client.query<{ id: string }>(
     `insert into app.entities (network_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
@@ -270,7 +266,7 @@ async function seedRlsFixture(client: PoolClient) {
     [network1Id, memberBId, endpointId, network1EntityId, network1EntityVersionId, `delivery-${suffix}`, network1EntityId],
   )).rows[0]!.id;
 
-  await setActorContext(client, outsiderId, [network2Id]);
+  await setActorContext(client, outsiderId);
 
   const network2EntityId = (await client.query<{ id: string }>(
     `insert into app.entities (network_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
@@ -285,7 +281,7 @@ async function seedRlsFixture(client: PoolClient) {
     [network2EntityId, `Entity Two ${suffix}`, 'Hidden from network one', outsiderId],
   );
 
-  await setActorContext(client, ownerId, [network1Id]);
+  await setActorContext(client, ownerId);
 
   const applicationId = (await client.query<{ id: string }>(
     `
@@ -338,7 +334,7 @@ test('RLS only exposes entities inside the actor network scope', async () => {
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
-    await setActorContext(client, fixture.memberAId, [fixture.network1Id]);
+    await setActorContext(client, fixture.memberAId);
     const visible = await client.query<{ id: string }>(
       `
         select id
@@ -354,11 +350,12 @@ test('RLS only exposes entities inside the actor network scope', async () => {
   });
 });
 
-test('RLS ignores spoofed actor_network_ids and still derives access from memberships', async () => {
+test('RLS ignores spoofed legacy actor_network_ids and still derives access from memberships', async () => {
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
-    await setActorContext(client, fixture.memberAId, [fixture.network2Id]);
+    await setActorContext(client, fixture.memberAId);
+    await client.query(`select set_config('app.actor_network_ids', $1, true)`, [fixture.network2Id]);
     const leaked = await client.query<{ visible_count: string }>(
       `
         select count(*)::text as visible_count
@@ -376,7 +373,7 @@ test('RLS blocks transcript reads for same-network members who are not participa
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
-    await setActorContext(client, fixture.memberCId, [fixture.network1Id]);
+    await setActorContext(client, fixture.memberCId);
     const blocked = await client.query<{ visible_count: string }>(
       `
         select count(*)::text as visible_count
@@ -386,7 +383,7 @@ test('RLS blocks transcript reads for same-network members who are not participa
       [fixture.threadId],
     );
 
-    await setActorContext(client, fixture.memberAId, [fixture.network1Id]);
+    await setActorContext(client, fixture.memberAId);
     const allowed = await client.query<{ visible_count: string }>(
       `
         select count(*)::text as visible_count
@@ -406,7 +403,7 @@ test('RLS only exposes application-linked outsider member data to owners and rel
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
 
-    await setActorContext(client, fixture.memberAId, [fixture.network1Id]);
+    await setActorContext(client, fixture.memberAId);
     const memberBlocked = await client.query<{ visible_count: string }>(
       `
         select count(*)::text as visible_count
@@ -432,7 +429,7 @@ test('RLS only exposes application-linked outsider member data to owners and rel
       [fixture.applicationId],
     );
 
-    await setActorContext(client, fixture.ownerId, [fixture.network1Id]);
+    await setActorContext(client, fixture.ownerId);
     const memberVisible = await client.query<{ id: string }>(
       `
         select id
@@ -475,7 +472,7 @@ test('RLS blocks delivery acknowledgements from non-recipient actors', async () 
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
-    await setActorContext(client, fixture.memberAId, [fixture.network1Id]);
+    await setActorContext(client, fixture.memberAId);
     await client.query('savepoint bad_ack');
     await assert.rejects(
       () => client.query(
@@ -496,7 +493,7 @@ test('RLS blocks delivery acknowledgements from non-recipient actors', async () 
     );
     await client.query('rollback to savepoint bad_ack');
 
-    await setActorContext(client, fixture.memberBId, [fixture.network1Id]);
+    await setActorContext(client, fixture.memberBId);
     const inserted = await client.query<{ id: string }>(
       `
         insert into app.delivery_acknowledgements (

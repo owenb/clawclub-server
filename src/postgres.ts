@@ -493,14 +493,13 @@ type DirectMessageInboxRow = {
 
 type DbClient = Pool | PoolClient;
 
-async function applyActorContext(client: DbClient, actorMemberId: string, networkIds: string[]): Promise<void> {
+// RLS now derives network access from membership state in the database.
+async function applyActorContext(client: DbClient, actorMemberId: string, _networkIds: string[]): Promise<void> {
   await client.query(
     `
-      select
-        set_config('app.actor_member_id', $1, true),
-        set_config('app.actor_network_ids', $2, true)
+      select set_config('app.actor_member_id', $1, true)
     `,
-    [actorMemberId, networkIds.join(',')],
+    [actorMemberId],
   );
 }
 
@@ -2372,11 +2371,6 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             values ($1, $2, $3, $4, $5)
           `,
           [input.networkId, input.ownerMemberId, Number(current.current_version_no) + 1, current.current_owner_version_id, input.actorMemberId],
-        );
-
-        await client.query(
-          `update app.networks set owner_member_id = $2 where id = $1`,
-          [input.networkId, input.ownerMemberId],
         );
 
         await client.query('commit');

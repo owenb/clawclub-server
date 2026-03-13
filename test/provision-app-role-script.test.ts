@@ -74,11 +74,7 @@ test('provision-app-role script creates a safe runtime role with app grants', as
     );
 
     await client.query(
-      `
-        select
-          set_config('app.actor_member_id', $1, true),
-          set_config('app.actor_network_ids', '', true)
-      `,
+      `select set_config('app.actor_member_id', $1, true)`,
       [ownerId],
     );
 
@@ -111,11 +107,7 @@ test('provision-app-role script creates a safe runtime role with app grants', as
 
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
     await client.query(
-      `
-        select
-          set_config('app.actor_member_id', $1, true),
-          set_config('app.actor_network_ids', '', true)
-      `,
+      `select set_config('app.actor_member_id', $1, true)`,
       [ownerId],
     );
 

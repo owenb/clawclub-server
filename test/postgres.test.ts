@@ -30,7 +30,7 @@ test('postgres repository lists networks for superadmin scope including archived
   assert.equal(results[0]?.networkId, 'network-1');
   assert.equal(results[0]?.archivedAt, '2026-03-12T01:00:00Z');
   assert.equal(results[0]?.ownerVersion.versionNo, 2);
-  assert.deepEqual(calls[1]?.params, ['member-1', '']);
+  assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.deepEqual(calls[2]?.params, [true]);
 });
 
@@ -48,7 +48,6 @@ test('postgres repository creates, archives, and reassigns network owners throug
         return { rows: [{ network_id: 'network-9', current_owner_version_id: 'owner-1', current_version_no: 1 }], rowCount: 1 };
       }
       if (sql.includes('insert into app.network_owner_versions')) return { rows: [], rowCount: 1 };
-      if (sql.includes('update app.networks set owner_member_id = $2')) return { rows: [], rowCount: 1 };
       if (sql.includes('from app.networks n') && sql.includes('where n.id = $1')) {
         return {
           rows: [{
@@ -318,7 +317,7 @@ test('postgres repository projects actor scope into the db session before dm rea
   assert.equal(results[0]?.threadId, 'thread-1');
   assert.equal(calls[0]?.sql, 'begin');
   assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
-  assert.deepEqual(calls[1]?.params, ['member-1', 'network-1,network-2']);
+  assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.match(calls[2]?.sql ?? '', /with scope as \(/);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
@@ -445,7 +444,7 @@ test('postgres repository stitches current delivery receipt state into dm transc
   assert.equal(transcript?.messages.find((message) => message.messageId === 'message-2')?.deliveryReceipts[0]?.recipientMemberId, 'member-2');
   assert.equal(calls[0]?.sql, 'begin');
   assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
-  assert.deepEqual(calls[1]?.params, ['member-1', 'network-2']);
+  assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.match(calls[2]?.sql ?? '', /with thread_scope as \(/);
   assert.match(calls[3]?.sql ?? '', /coalesce\(receipts\.delivery_receipts/);
   assert.equal(calls.at(-1)?.sql, 'commit');
@@ -515,7 +514,7 @@ test('postgres repository projects actor scope into the db session before inbox 
   assert.equal(results[0]?.unread.unreadMessageCount, 2);
   assert.equal(calls[0]?.sql, 'begin');
   assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
-  assert.deepEqual(calls[1]?.params, ['member-1', 'network-2']);
+  assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.match(calls[2]?.sql ?? '', /from app\.current_dm_inbox_threads inbox/);
   assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], true, 5]);
   assert.equal(calls.at(-1)?.sql, 'commit');
@@ -598,7 +597,7 @@ test('postgres repository lists delivery attempts with operator filters inside a
   assert.equal(results[0]?.delivery.topic, 'transcript.message.created');
   assert.equal(calls[0]?.sql, 'begin');
   assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
-  assert.deepEqual(calls[1]?.params, ['member-1', 'network-2']);
+  assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.match(calls[2]?.sql ?? '', /from app\.delivery_attempts da/);
   assert.deepEqual(calls[2]?.params, [['network-2'], 'endpoint-2', 'member-2', 'failed', 5]);
   assert.equal(calls.at(-1)?.sql, 'commit');
@@ -672,7 +671,7 @@ test('postgres repository projects actor scope into the db session before delive
   assert.equal(results[0]?.acknowledgement?.acknowledgementId, 'ack-1');
   assert.equal(calls[0]?.sql, 'begin');
   assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
-  assert.deepEqual(calls[1]?.params, ['member-1', 'network-2']);
+  assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.match(calls[2]?.sql ?? '', /from app\.current_delivery_receipts cdr/);
   assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], true, 5]);
   assert.equal(calls.at(-1)?.sql, 'commit');
@@ -778,7 +777,7 @@ test('postgres repository retries a failed delivery inside actor scope as a fres
   assert.equal(delivery?.lastError, null);
   assert.equal(calls[0]?.sql, 'begin');
   assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
-  assert.deepEqual(calls[1]?.params, ['member-1', 'network-2']);
+  assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.match(calls[2]?.sql ?? '', /from app\.current_delivery_receipts cdr/);
   assert.deepEqual(calls[2]?.params, ['delivery-1', 'member-1', ['network-2']]);
   assert.match(calls[3]?.sql ?? '', /insert into app\.deliveries/);

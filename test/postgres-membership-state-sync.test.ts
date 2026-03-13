@@ -38,11 +38,7 @@ test('network membership root status and left_at mirror the latest state version
     );
 
     await client.query(
-      `
-        select
-          set_config('app.actor_member_id', $1, true),
-          set_config('app.actor_network_ids', '', true)
-      `,
+      `select set_config('app.actor_member_id', $1, true)`,
       [ownerId],
     );
 
