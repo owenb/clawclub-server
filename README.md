@@ -192,11 +192,22 @@ Rules:
 - every task needs a unique `id`
 - use exactly one of `command` or `prompt`
 
-Safe dry-run:
+Useful commands:
 
 ```bash
+npm run foreman:seed
 npm run foreman:dry-run
+npm run foreman:test
+npm run foreman:prove
 ```
+
+What those do:
+- `foreman:seed` resets the queue to a small ordered set of real next roadmap tasks
+- `foreman:dry-run` exercises the next launch without starting real work
+- `foreman:test` validates queue rules plus duplicate-id rejection
+- `foreman:prove` runs a safe equivalent of a full launch -> complete -> advance cycle
+
+The foreman now refuses malformed queues, including duplicate task IDs, missing launch payloads, and running-task / `activeTaskId` mismatches.
 
 ## Near-term roadmap
 

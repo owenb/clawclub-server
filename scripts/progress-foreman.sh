@@ -48,6 +48,45 @@ task_field() {
   jq -r --arg id "$task_id" ".tasks[] | select(.id == \$id) | $field" "$QUEUE_FILE"
 }
 
+validate_queue() {
+  local validation_output
+  validation_output="$(jq -r '
+    . as $queue
+    | def has_command: (.command? // "") != "";
+      def has_prompt: (.prompt? // "") != "";
+      def valid_status: (.status == "queued" or .status == "running" or .status == "done" or .status == "failed");
+
+      if $queue.version != 1 then
+        "queue version must be 1"
+      elif ($queue.tasks | type) != "array" then
+        ".tasks must be an array"
+      elif (($queue.tasks | map(.id) | unique | length) != ($queue.tasks | length)) then
+        "task ids must be unique"
+      elif any($queue.tasks[]?; (.id // "") == "") then
+        "every task needs a non-empty id"
+      elif any($queue.tasks[]?; (valid_status | not)) then
+        "every task needs a valid status"
+      elif any($queue.tasks[]?; (has_command and has_prompt) or ((has_command or has_prompt) | not)) then
+        "every task must define exactly one of command or prompt"
+      elif (($queue.tasks | map(select(.status == "running")) | length) > 1) then
+        "queue cannot contain more than one running task"
+      elif ($queue.activeTaskId != null and ([$queue.tasks[] | select(.id == $queue.activeTaskId)] | length) != 1) then
+        "activeTaskId must point to exactly one task"
+      elif ($queue.activeTaskId == null and (($queue.tasks | map(select(.status == "running")) | length) != 0)) then
+        "running task requires activeTaskId"
+      elif ($queue.activeTaskId != null and ([$queue.tasks[] | select(.id == $queue.activeTaskId and .status == "running")] | length) != 1) then
+        "activeTaskId must point to the running task"
+      else
+        "ok"
+      end
+  ' "$QUEUE_FILE")"
+
+  if [ "$validation_output" != "ok" ]; then
+    log "queue validation failed: $validation_output"
+    return 1
+  fi
+}
+
 mark_finished_if_complete() {
   local active_task_id pid exit_code_file exit_code status finished_now
   active_task_id="$(queue_get '.activeTaskId // empty')"
@@ -56,7 +95,7 @@ mark_finished_if_complete() {
   pid="$(task_field "$active_task_id" '.launch.pid // empty')"
   exit_code_file="$(task_field "$active_task_id" '.launch.exitCodeFile // empty')"
 
-  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+  if [ -n "$pid" ] && [ "$pid" != "dry-run" ] && kill -0 "$pid" 2>/dev/null; then
     log "active task still running: $active_task_id (pid $pid)"
     return 0
   fi
@@ -102,17 +141,6 @@ launch_next_task() {
   next_title="$(task_field "$next_task_id" '.title // .id')"
   next_command="$(task_field "$next_task_id" '.command // empty')"
   next_prompt="$(task_field "$next_task_id" '.prompt // empty')"
-
-  if [ -z "$next_command" ] && [ -z "$next_prompt" ]; then
-    with_queue "(.updatedAt = \"$NOW\")
-      | (.tasks |= map(if .id == \"$next_task_id\" then . + {
-          status: \"failed\",
-          finishedAt: \"$NOW\",
-          lastExitCode: \"invalid-task\"
-        } else . end))"
-    log "task $next_task_id has neither command nor prompt; marked failed"
-    return 0
-  fi
 
   run_dir="$RUNS_DIR/$next_task_id"
   mkdir -p "$run_dir"
@@ -202,5 +230,10 @@ if ! flock -n 9; then
   exit 0
 fi
 
+if ! validate_queue; then
+  exit 1
+fi
+
 mark_finished_if_complete
+validate_queue
 launch_next_task
