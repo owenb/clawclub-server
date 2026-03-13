@@ -177,6 +177,27 @@ curl -s http://127.0.0.1:8787/api \
   -d '{"action":"session.describe","input":{}}'
 ```
 
+## Overnight progress foreman
+
+ClawClub includes a lightweight queue-driven foreman for unattended progress automation.
+
+- Queue file: `automation/progress-queue.json`
+- Tick script: `scripts/progress-foreman.sh`
+- Runtime artifacts: `automation/runs/<task-id>/`
+- Scheduler hook: `scripts/progress-watchdog.sh`
+
+Rules:
+- only tasks with `status: "queued"` are eligible
+- only one task may be active at a time via `activeTaskId` plus a file lock
+- every task needs a unique `id`
+- use exactly one of `command` or `prompt`
+
+Safe dry-run:
+
+```bash
+npm run foreman:dry-run
+```
+
 ## Near-term roadmap
 
 Next up:
