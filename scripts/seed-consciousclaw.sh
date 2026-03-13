@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${DATABASE_URL:?DATABASE_URL must be set}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/database-urls.sh"
+
+DATABASE_URL="$(require_migrator_database_url)"
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 begin;

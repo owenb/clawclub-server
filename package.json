@@ -12,6 +12,7 @@
     "db:health": "./scripts/healthcheck.sh",
     "db:seed:consciousclaw": "./scripts/seed-consciousclaw.sh",
     "db:bootstrap:consciousclaw": "./scripts/bootstrap-consciousclaw.sh",
+    "db:provision:app-role": "./scripts/provision-app-role.sh",
     "api:start": "node --experimental-strip-types src/server.ts",
     "api:token": "node --experimental-strip-types src/token-cli.ts",
     "api:worker-token": "node --experimental-strip-types src/worker-token-cli.ts",

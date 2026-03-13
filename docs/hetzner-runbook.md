@@ -13,7 +13,8 @@ It assumes:
 Create `/etc/clawclub/clawclub.env`:
 
 ```bash
-DATABASE_URL=postgres://clawclub:...@127.0.0.1:5432/clawclub
+DATABASE_URL=postgres://clawclub_app:...@127.0.0.1:5432/clawclub
+# keep DATABASE_MIGRATOR_URL out of the steady-state runtime env if possible
 OPENAI_API_KEY=...
 PORT=8787
 CLAWCLUB_WORKER_BEARER_TOKEN=cc_live_...
@@ -24,6 +25,16 @@ Notes:
 - use a **dedicated worker token**, not an ordinary member bearer token
 - if webhook signing uses env secrets, add them here too
 - the Postgres role in `DATABASE_URL` should be a dedicated app role, not a superuser and not `BYPASSRLS`
+
+Create the runtime role once from a more privileged connection:
+
+```bash
+cd /opt/clawclub
+export DATABASE_MIGRATOR_URL=postgres://postgres:...@127.0.0.1:5432/clawclub
+export CLAWCLUB_DB_APP_ROLE=clawclub_app
+export CLAWCLUB_DB_APP_PASSWORD=...
+npm run db:provision:app-role
+```
 
 ## 2) App checkout + install
 
@@ -40,6 +51,7 @@ npm ci
 ```bash
 cd /opt/clawclub
 export $(grep -v '^#' /etc/clawclub/clawclub.env | xargs)
+export DATABASE_MIGRATOR_URL=postgres://postgres:...@127.0.0.1:5432/clawclub
 npm run db:migrate
 npm run db:status
 ```
@@ -57,6 +69,7 @@ Use a member id that should own the worker audit trail, and explicitly scope it 
 ```bash
 cd /opt/clawclub
 export $(grep -v '^#' /etc/clawclub/clawclub.env | xargs)
+export DATABASE_MIGRATOR_URL=postgres://postgres:...@127.0.0.1:5432/clawclub
 npm run api:worker-token -- create --member <member_id> --networks <network_id[,network_id...]> --label hetzner-main-worker
 ```
 
@@ -82,6 +95,7 @@ cd /opt/clawclub
 git pull
 npm ci
 export $(grep -v '^#' /etc/clawclub/clawclub.env | xargs)
+export DATABASE_MIGRATOR_URL=postgres://postgres:...@127.0.0.1:5432/clawclub
 npm run db:migrate
 sudo systemctl restart clawclub-api.service clawclub-worker.service
 sudo systemctl status --no-pager clawclub-api.service clawclub-worker.service
@@ -99,6 +113,7 @@ export $(grep -v '^#' /etc/clawclub/clawclub.env | xargs)
 
 That checks:
 - migrations are in a sane state
+- runtime `DATABASE_URL` is not a superuser / `BYPASSRLS` role
 - the API can answer `session.describe` if `CLAWCLUB_HEALTH_TOKEN` is set
 - the worker token env is present if you expect delivery execution to run
 

@@ -167,6 +167,7 @@ Requirements:
 Security note:
 - use a dedicated Postgres role for `DATABASE_URL`
 - do **not** run ClawClub as a superuser or a role with `BYPASSRLS`
+- use `DATABASE_MIGRATOR_URL` for migrations, seeds, and bootstrap if those need a more privileged connection than runtime
 - `npm run db:health` now reports the current role safety so you can catch this before production
 
 Setup:
@@ -178,6 +179,15 @@ npm run db:migrate
 npm run db:seed:consciousclaw
 npm run api:test
 npm run api:start
+```
+
+Provision a least-privilege runtime role from a more privileged migrator/admin connection:
+
+```bash
+export DATABASE_MIGRATOR_URL=postgresql://postgres:...@localhost/clawclub
+export CLAWCLUB_DB_APP_ROLE=clawclub_app
+export CLAWCLUB_DB_APP_PASSWORD=...
+npm run db:provision:app-role
 ```
 
 For a real Hetzner-hosted server runbook (env, migrate, systemd, worker, backups, health), see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).

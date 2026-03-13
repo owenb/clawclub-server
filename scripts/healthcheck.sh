@@ -3,11 +3,19 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-: "${DATABASE_URL:?DATABASE_URL must be set}"
+source "./scripts/lib/database-urls.sh"
+
+DATABASE_URL="$(require_runtime_database_url)"
+MIGRATOR_DATABASE_URL="$(require_migrator_database_url)"
 APP_URL="${CLAWCLUB_APP_URL:-http://127.0.0.1:${PORT:-8787}}"
+STRICT_SAFE_DB_ROLE="${CLAWCLUB_REQUIRE_SAFE_DB_ROLE:-0}"
+healthcheck_failed=0
 
 printf '== migration status ==\n'
-./scripts/migration-status.sh
+if [[ "${DATABASE_MIGRATOR_URL:-}" != "" ]]; then
+  echo 'using DATABASE_MIGRATOR_URL'
+fi
+DATABASE_MIGRATOR_URL="$MIGRATOR_DATABASE_URL" DATABASE_URL="$DATABASE_URL" ./scripts/migration-status.sh
 
 printf '\n== database role safety ==\n'
 role_safety="$(
@@ -22,6 +30,9 @@ if [[ -z "${db_role:-}" || -z "${db_superuser:-}" || -z "${db_bypassrls:-}" ]]; 
   echo 'unknown (could not parse role safety check)'
 elif [[ "$db_superuser" = "t" || "$db_bypassrls" = "t" ]]; then
   echo "unsafe: role=$db_role superuser=$db_superuser bypassrls=$db_bypassrls"
+  if [[ "$STRICT_SAFE_DB_ROLE" = "1" ]]; then
+    healthcheck_failed=1
+  fi
 else
   echo "ok: role=$db_role superuser=$db_superuser bypassrls=$db_bypassrls"
 fi
@@ -46,3 +57,5 @@ else
   printf '\n== api session.describe ==\n'
   echo 'skipped (set CLAWCLUB_HEALTH_TOKEN to enable)'
 fi
+
+exit "$healthcheck_failed"
