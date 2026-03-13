@@ -27,22 +27,5 @@ fi
   fi
   echo
 } >> "$OUT"
-MESSAGE="10-minute update ($NOW)
-
-Recent commits:
-$COMMITS
-
-ClawClub tests: $TEST_STATUS"
-if [ -n "$TEST_SNIPPET" ]; then
-  MESSAGE="$MESSAGE
-
-Recent test output:
-$TEST_SNIPPET"
-fi
-"$OPENCLAW_BIN" message send --channel telegram --target "$CHAT_ID" --message "$MESSAGE" >/tmp/clawclub-watchdog-send.log 2>&1 || {
-  {
-    echo "send failed:"
-    tail -n 20 /tmp/clawclub-watchdog-send.log
-    echo
-  } >> "$OUT"
-}
+# Telegram reporting disabled by request.
+# The watchdog now logs state and lets the foreman keep work moving quietly.
