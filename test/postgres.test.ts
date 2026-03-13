@@ -781,7 +781,9 @@ test('postgres repository lists, creates, updates, and revokes delivery endpoint
           rows: [{
             endpoint_id: 'endpoint-1', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Primary',
             endpoint_url: 'https://example.test/webhook', shared_secret_ref: 'op://clawclub/primary', state: 'active',
-            last_success_at: null, last_failure_at: null, metadata: { device: 'mbp' }, created_at: '2026-03-12T00:00:00Z', disabled_at: null,
+            last_success_at: null, last_failure_at: null,
+            pending_count: 2, processing_count: 1, sent_count: 5, failed_count: 1, canceled_count: 0, last_delivery_at: '2026-03-12T00:05:00Z',
+            metadata: { device: 'mbp' }, created_at: '2026-03-12T00:00:00Z', disabled_at: null,
           }],
           rowCount: 1,
         };
@@ -792,7 +794,9 @@ test('postgres repository lists, creates, updates, and revokes delivery endpoint
           rows: [{
             endpoint_id: 'endpoint-2', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Laptop',
             endpoint_url: 'https://hooks.example.test/clawclub', shared_secret_ref: 'op://clawclub/laptop', state: 'active',
-            last_success_at: null, last_failure_at: null, metadata: { device: 'mbp' }, created_at: '2026-03-12T00:01:00Z', disabled_at: null,
+            last_success_at: null, last_failure_at: null,
+            pending_count: 0, processing_count: 0, sent_count: 0, failed_count: 0, canceled_count: 0, last_delivery_at: null,
+            metadata: { device: 'mbp' }, created_at: '2026-03-12T00:01:00Z', disabled_at: null,
           }],
           rowCount: 1,
         };
@@ -803,7 +807,9 @@ test('postgres repository lists, creates, updates, and revokes delivery endpoint
           rows: [{
             endpoint_id: 'endpoint-2', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Backup',
             endpoint_url: 'https://backup.example.test/clawclub', shared_secret_ref: null, state: 'failing',
-            last_success_at: null, last_failure_at: '2026-03-12T00:02:00Z', metadata: { device: 'pi' }, created_at: '2026-03-12T00:01:00Z', disabled_at: null,
+            last_success_at: null, last_failure_at: '2026-03-12T00:02:00Z',
+            pending_count: 0, processing_count: 0, sent_count: 0, failed_count: 0, canceled_count: 0, last_delivery_at: null,
+            metadata: { device: 'pi' }, created_at: '2026-03-12T00:01:00Z', disabled_at: null,
           }],
           rowCount: 1,
         };
@@ -814,7 +820,9 @@ test('postgres repository lists, creates, updates, and revokes delivery endpoint
           rows: [{
             endpoint_id: 'endpoint-2', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Backup',
             endpoint_url: 'https://backup.example.test/clawclub', shared_secret_ref: null, state: 'disabled',
-            last_success_at: null, last_failure_at: '2026-03-12T00:02:00Z', metadata: { device: 'pi' }, created_at: '2026-03-12T00:01:00Z', disabled_at: '2026-03-12T00:03:00Z',
+            last_success_at: null, last_failure_at: '2026-03-12T00:02:00Z',
+            pending_count: 0, processing_count: 0, sent_count: 0, failed_count: 0, canceled_count: 0, last_delivery_at: null,
+            metadata: { device: 'pi' }, created_at: '2026-03-12T00:01:00Z', disabled_at: '2026-03-12T00:03:00Z',
           }],
           rowCount: 1,
         };
@@ -848,12 +856,21 @@ test('postgres repository lists, creates, updates, and revokes delivery endpoint
   const revoked = await repository.revokeDeliveryEndpoint({ actorMemberId: 'member-1', endpointId: 'endpoint-2' });
 
   assert.equal(listed[0]?.endpointId, 'endpoint-1');
+  assert.deepEqual(listed[0]?.health, {
+    pendingCount: 2,
+    processingCount: 1,
+    sentCount: 5,
+    failedCount: 1,
+    canceledCount: 0,
+    lastDeliveryAt: '2026-03-12T00:05:00Z',
+  });
   assert.equal(created.endpointId, 'endpoint-2');
   assert.equal(updated?.state, 'failing');
   assert.equal(updated?.sharedSecretRef, null);
   assert.equal(revoked?.state, 'disabled');
   assert.equal(revoked?.disabledAt, '2026-03-12T00:03:00Z');
   assert.deepEqual(calls[0]?.params, ['member-1']);
+  assert.match(calls[0]?.sql ?? '', /left join app\.deliveries d on d\.endpoint_id = dep\.id/);
   assert.deepEqual(calls[1]?.params, ['member-1', 'openclaw_webhook', 'Laptop', 'https://hooks.example.test/clawclub', 'op://clawclub/laptop', '{"device":"mbp"}']);
   assert.deepEqual(calls[2]?.params, ['endpoint-2', 'member-1', 'Backup', 'https://backup.example.test/clawclub', null, 'failing', '{"device":"pi"}']);
   assert.deepEqual(calls[3]?.params, ['endpoint-2', 'member-1']);

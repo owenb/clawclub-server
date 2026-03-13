@@ -113,6 +113,14 @@ function makeDeliveryEndpoint(overrides: Record<string, unknown> = {}) {
     state: 'active',
     lastSuccessAt: null,
     lastFailureAt: null,
+    health: {
+      pendingCount: 0,
+      processingCount: 0,
+      sentCount: 0,
+      failedCount: 0,
+      canceledCount: 0,
+      lastDeliveryAt: null,
+    },
     metadata: { environment: 'test' },
     createdAt: '2026-03-12T00:00:00Z',
     disabledAt: null,
@@ -2808,7 +2816,7 @@ test('messages.read scopes thread access server-side and returns transcript entr
 });
 
 
-test('deliveries.endpoints.list returns the actor endpoint inventory', async () => {
+test('deliveries.endpoints.list returns the actor endpoint inventory with health counters', async () => {
   const app = buildApp({ repository: makeRepository() });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
@@ -2818,6 +2826,14 @@ test('deliveries.endpoints.list returns the actor endpoint inventory', async () 
   assert.equal(result.action, 'deliveries.endpoints.list');
   assert.equal(result.data.endpoints.length, 1);
   assert.equal(result.data.endpoints[0]?.endpointId, 'endpoint-1');
+  assert.deepEqual(result.data.endpoints[0]?.health, {
+    pendingCount: 0,
+    processingCount: 0,
+    sentCount: 0,
+    failedCount: 0,
+    canceledCount: 0,
+    lastDeliveryAt: null,
+  });
 });
 
 test('deliveries.endpoints.create writes a new actor-owned webhook endpoint', async () => {

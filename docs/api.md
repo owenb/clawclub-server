@@ -239,6 +239,14 @@ if (!result.ok) {
 }
 ```
 
+`deliveries.endpoints.list` now includes a small health block per endpoint for quick operator checks:
+- `pendingCount`
+- `processingCount`
+- `sentCount`
+- `failedCount`
+- `canceledCount`
+- `lastDeliveryAt`
+
 `deliveries.list` now returns a slightly more useful receipt view for humans/agents trying to debug notification flow:
 - `endpointId`
 - `attemptCount`

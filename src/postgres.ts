@@ -325,6 +325,12 @@ type DeliveryEndpointRow = {
   state: DeliveryEndpointState;
   last_success_at: string | null;
   last_failure_at: string | null;
+  pending_count: number | string | null;
+  processing_count: number | string | null;
+  sent_count: number | string | null;
+  failed_count: number | string | null;
+  canceled_count: number | string | null;
+  last_delivery_at: string | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
   disabled_at: string | null;
@@ -663,6 +669,14 @@ function mapDeliveryEndpointRow(row: DeliveryEndpointRow): DeliveryEndpointSumma
     state: row.state,
     lastSuccessAt: row.last_success_at,
     lastFailureAt: row.last_failure_at,
+    health: {
+      pendingCount: Number(row.pending_count ?? 0),
+      processingCount: Number(row.processing_count ?? 0),
+      sentCount: Number(row.sent_count ?? 0),
+      failedCount: Number(row.failed_count ?? 0),
+      canceledCount: Number(row.canceled_count ?? 0),
+      lastDeliveryAt: row.last_delivery_at,
+    },
     metadata: row.metadata ?? {},
     createdAt: row.created_at,
     disabledAt: row.disabled_at,
@@ -3152,11 +3166,31 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             dep.state,
             dep.last_success_at::text as last_success_at,
             dep.last_failure_at::text as last_failure_at,
+            coalesce(count(*) filter (where d.status = 'pending'), 0) as pending_count,
+            coalesce(count(*) filter (where d.status = 'processing'), 0) as processing_count,
+            coalesce(count(*) filter (where d.status = 'sent'), 0) as sent_count,
+            coalesce(count(*) filter (where d.status = 'failed'), 0) as failed_count,
+            coalesce(count(*) filter (where d.status = 'canceled'), 0) as canceled_count,
+            max(d.created_at)::text as last_delivery_at,
             dep.metadata,
             dep.created_at::text as created_at,
             dep.disabled_at::text as disabled_at
           from app.delivery_endpoints dep
+          left join app.deliveries d on d.endpoint_id = dep.id
           where dep.member_id = $1
+          group by
+            dep.id,
+            dep.member_id,
+            dep.channel,
+            dep.label,
+            dep.endpoint_url,
+            dep.shared_secret_ref,
+            dep.state,
+            dep.last_success_at,
+            dep.last_failure_at,
+            dep.metadata,
+            dep.created_at,
+            dep.disabled_at
           order by dep.created_at desc, dep.id desc
         `,
         [actorMemberId],
@@ -3187,6 +3221,12 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             state,
             last_success_at::text as last_success_at,
             last_failure_at::text as last_failure_at,
+            0 as pending_count,
+            0 as processing_count,
+            0 as sent_count,
+            0 as failed_count,
+            0 as canceled_count,
+            null::text as last_delivery_at,
             metadata,
             created_at::text as created_at,
             disabled_at::text as disabled_at
@@ -3251,6 +3291,12 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             dep.state,
             dep.last_success_at::text as last_success_at,
             dep.last_failure_at::text as last_failure_at,
+            0 as pending_count,
+            0 as processing_count,
+            0 as sent_count,
+            0 as failed_count,
+            0 as canceled_count,
+            null::text as last_delivery_at,
             dep.metadata,
             dep.created_at::text as created_at,
             dep.disabled_at::text as disabled_at
@@ -3279,6 +3325,12 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             dep.state,
             dep.last_success_at::text as last_success_at,
             dep.last_failure_at::text as last_failure_at,
+            0 as pending_count,
+            0 as processing_count,
+            0 as sent_count,
+            0 as failed_count,
+            0 as canceled_count,
+            null::text as last_delivery_at,
             dep.metadata,
             dep.created_at::text as created_at,
             dep.disabled_at::text as disabled_at

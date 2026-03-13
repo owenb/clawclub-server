@@ -451,6 +451,14 @@ export type DeliveryEndpointSummary = {
   state: DeliveryEndpointState;
   lastSuccessAt: string | null;
   lastFailureAt: string | null;
+  health: {
+    pendingCount: number;
+    processingCount: number;
+    sentCount: number;
+    failedCount: number;
+    canceledCount: number;
+    lastDeliveryAt: string | null;
+  };
   metadata: Record<string, unknown>;
   createdAt: string;
   disabledAt: string | null;
