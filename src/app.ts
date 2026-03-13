@@ -250,6 +250,14 @@ export type AuthResult = {
   sharedContext: SharedResponseContext;
 };
 
+export type DeliveryWorkerAuthResult = {
+  tokenId: string;
+  label: string | null;
+  actorMemberId: string;
+  allowedNetworkIds: string[];
+  metadata: Record<string, unknown>;
+};
+
 export type MemberSearchResult = {
   memberId: string;
   publicName: string;
@@ -656,6 +664,8 @@ export type DeliveryExecutionResult = {
   claimed: ClaimedDelivery | null;
 };
 
+const DELIVERY_WORKER_ACTIONS = new Set(['deliveries.claim', 'deliveries.execute', 'deliveries.complete', 'deliveries.fail']);
+
 export type DeliverySecretResolver = (input: {
   sharedSecretRef: string;
   endpoint: DeliveryEndpointSummary;
@@ -752,6 +762,7 @@ export type UpdateEntityInput = {
 
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
+  authenticateDeliveryWorkerToken?(bearerToken: string): Promise<DeliveryWorkerAuthResult | null>;
   listNetworks?(input: { actorMemberId: string; includeArchived: boolean }): Promise<NetworkSummary[]>;
   createNetwork?(input: CreateNetworkInput): Promise<NetworkSummary | null>;
   archiveNetwork?(input: ArchiveNetworkInput): Promise<NetworkSummary | null>;
@@ -1280,14 +1291,26 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
       const action = requireNonEmptyString(input.action, 'action');
       const payload = (input.payload ?? {}) as Record<string, unknown>;
 
-      const auth = await repository.authenticateBearerToken(bearerToken);
+      const requiresWorkerAuth = DELIVERY_WORKER_ACTIONS.has(action);
+      const workerAuth = requiresWorkerAuth
+        ? await repository.authenticateDeliveryWorkerToken?.(bearerToken) ?? null
+        : null;
+      const auth = requiresWorkerAuth ? null : await repository.authenticateBearerToken(bearerToken);
 
-      if (!auth) {
+      if (!auth && !workerAuth) {
         throw new AppError(401, 'unauthorized', 'Unknown bearer token');
       }
 
-      const actor = auth.actor;
-      const sharedContext = auth.sharedContext;
+      const actor = auth?.actor ?? {
+        member: {
+          id: workerAuth!.actorMemberId,
+          handle: null,
+          publicName: workerAuth!.label ?? 'Delivery worker',
+        },
+        memberships: [],
+        globalRoles: [],
+      };
+      const sharedContext = auth?.sharedContext ?? { pendingDeliveries: [] };
 
       switch (action) {
         case 'session.describe':
@@ -2210,9 +2233,10 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
         }
 
         case 'deliveries.claim': {
+          const accessibleNetworkIds = workerAuth?.allowedNetworkIds ?? actor.memberships.map((network) => network.networkId);
           const claimed = await repository.claimNextDelivery({
             actorMemberId: actor.member.id,
-            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            accessibleNetworkIds,
             workerKey: normalizeOptionalString(payload.workerKey, 'workerKey'),
           });
 
@@ -2221,7 +2245,7 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
             actor,
             requestScope: {
               requestedNetworkId: claimed?.delivery.networkId ?? null,
-              activeNetworkIds: claimed ? [claimed.delivery.networkId] : actor.memberships.map((network) => network.networkId),
+              activeNetworkIds: claimed ? [claimed.delivery.networkId] : accessibleNetworkIds,
             },
             sharedContext,
             data: { claimed },
@@ -2229,11 +2253,12 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
         }
 
         case 'deliveries.complete': {
+          const accessibleNetworkIds = workerAuth?.allowedNetworkIds ?? actor.memberships.map((network) => network.networkId);
           const deliveryId = requireNonEmptyString(payload.deliveryId, 'deliveryId');
           const responseStatusCode = payload.responseStatusCode === undefined || payload.responseStatusCode === null ? null : requireInteger(payload.responseStatusCode, 'responseStatusCode');
           const claimed = await repository.completeDeliveryAttempt({
             actorMemberId: actor.member.id,
-            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            accessibleNetworkIds,
             deliveryId,
             responseStatusCode,
             responseBody: normalizeOptionalString(payload.responseBody, 'responseBody'),
@@ -2256,11 +2281,12 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
         }
 
         case 'deliveries.fail': {
+          const accessibleNetworkIds = workerAuth?.allowedNetworkIds ?? actor.memberships.map((network) => network.networkId);
           const deliveryId = requireNonEmptyString(payload.deliveryId, 'deliveryId');
           const responseStatusCode = payload.responseStatusCode === undefined || payload.responseStatusCode === null ? null : requireInteger(payload.responseStatusCode, 'responseStatusCode');
           const claimed = await repository.failDeliveryAttempt({
             actorMemberId: actor.member.id,
-            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            accessibleNetworkIds,
             deliveryId,
             errorMessage: requireNonEmptyString(payload.errorMessage, 'errorMessage'),
             responseStatusCode,
@@ -2284,9 +2310,10 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
         }
 
         case 'deliveries.execute': {
+          const accessibleNetworkIds = workerAuth?.allowedNetworkIds ?? actor.memberships.map((network) => network.networkId);
           const claimed = await repository.claimNextDelivery({
             actorMemberId: actor.member.id,
-            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+            accessibleNetworkIds,
             workerKey: normalizeOptionalString(payload.workerKey, 'workerKey'),
           });
 
@@ -2296,7 +2323,7 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
               actor,
               requestScope: {
                 requestedNetworkId: null,
-                activeNetworkIds: actor.memberships.map((network) => network.networkId),
+                activeNetworkIds: accessibleNetworkIds,
               },
               sharedContext,
               data: { execution: { outcome: 'idle', claimed: null } satisfies DeliveryExecutionResult },

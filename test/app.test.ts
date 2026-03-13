@@ -3816,11 +3816,20 @@ test('session.describe rejects unknown bearer tokens', async () => {
   );
 });
 
-test('deliveries.claim derives scope server-side and returns the claimed delivery attempt', async () => {
+test('deliveries.claim derives scope from a delivery worker token and ignores ordinary member scope', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
-    async authenticateBearerToken() { return makeAuthResult(); },
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() {
+      return {
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-2'],
+        metadata: {},
+      };
+    },
     async searchMembers() { return []; },
     async listMembers() { return [makeNetworkMember()]; },
     async getMemberProfile() { return makeProfile(); },
@@ -3858,21 +3867,31 @@ test('deliveries.claim derives scope server-side and returns the claimed deliver
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-1', 'network-2'],
+    accessibleNetworkIds: ['network-2'],
     workerKey: 'worker-a',
   });
   assert.equal(result.action, 'deliveries.claim');
+  assert.equal(result.actor.member.publicName, 'delivery worker');
   assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
   assert.equal(result.data.claimed.attempt.workerKey, 'worker-a');
   assert.equal(result.data.claimed.delivery.status, 'processing');
 });
 
 
-test('deliveries.execute claims, posts, and completes a successful attempt', async () => {
+test('deliveries.execute claims, posts, and completes a successful attempt with a dedicated worker token', async () => {
   const calls: string[] = [];
 
   const repository: Repository = {
-    async authenticateBearerToken() { return makeAuthResult(); },
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() {
+      return {
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-2'],
+        metadata: {},
+      };
+    },
     async searchMembers() { return []; },
     async listMembers() { return [makeNetworkMember()]; },
     async getMemberProfile() { return makeProfile(); },
@@ -3924,6 +3943,7 @@ test('deliveries.execute claims, posts, and completes a successful attempt', asy
   });
 
   assert.deepEqual(calls, ['claim', 'complete:202:accepted']);
+  assert.equal(result.actor.member.publicName, 'delivery worker');
   assert.equal(result.data.execution.outcome, 'sent');
   assert.equal(result.data.execution.claimed.delivery.status, 'sent');
   assert.equal(fetchRequest?.url, 'https://example.test/hooks/member-2');
@@ -3937,6 +3957,16 @@ test('deliveries.execute claims, posts, and completes a successful attempt', asy
 test('deliveries.execute signs webhook requests when the endpoint has a shared secret ref', async () => {
   const repository: Repository = {
     ...makeRepository(),
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() {
+      return {
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-2'],
+        metadata: {},
+      };
+    },
     async claimNextDelivery() {
       return makeClaimedDelivery({
         delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }),
@@ -3990,6 +4020,16 @@ test('deliveries.execute fails closed when a signed endpoint secret cannot be re
 
   const repository: Repository = {
     ...makeRepository(),
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() {
+      return {
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-2'],
+        metadata: {},
+      };
+    },
     async claimNextDelivery() {
       calls.push('claim');
       return makeClaimedDelivery({
@@ -4030,7 +4070,16 @@ test('deliveries.execute fails the claimed attempt when the webhook responds non
   const calls: string[] = [];
 
   const repository: Repository = {
-    async authenticateBearerToken() { return makeAuthResult(); },
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() {
+      return {
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-2'],
+        metadata: {},
+      };
+    },
     async searchMembers() { return []; },
     async listMembers() { return [makeNetworkMember()]; },
     async getMemberProfile() { return makeProfile(); },
@@ -4071,7 +4120,16 @@ test('deliveries.execute marks the claimed attempt failed when fetch throws', as
   const calls: string[] = [];
 
   const repository: Repository = {
-    async authenticateBearerToken() { return makeAuthResult(); },
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() {
+      return {
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-2'],
+        metadata: {},
+      };
+    },
     async searchMembers() { return []; },
     async listMembers() { return [makeNetworkMember()]; },
     async getMemberProfile() { return makeProfile(); },
@@ -4108,9 +4166,32 @@ test('deliveries.execute marks the claimed attempt failed when fetch throws', as
   assert.equal(result.data.execution.claimed.attempt.errorMessage, 'network down');
 });
 
+test('deliveries.execute rejects ordinary member bearer tokens once worker auth is separated', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() { return makeAuthResult(); },
+    async authenticateDeliveryWorkerToken() { return null; },
+  };
+
+  const app = buildApp({ repository });
+  await assert.rejects(
+    () => app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' }),
+    /Unknown bearer token/,
+  );
+});
+
 test('deliveries.execute returns idle when no pending delivery is claimable', async () => {
   const repository: Repository = {
-    async authenticateBearerToken() { return makeAuthResult(); },
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() {
+      return {
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-2'],
+        metadata: {},
+      };
+    },
     async searchMembers() { return []; },
     async listMembers() { return [makeNetworkMember()]; },
     async getMemberProfile() { return makeProfile(); },
@@ -4144,11 +4225,20 @@ test('deliveries.execute returns idle when no pending delivery is claimable', as
 });
 
 
-test('deliveries.complete returns the finished attempt inside actor scope', async () => {
+test('deliveries.complete returns the finished attempt inside worker scope', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
-    async authenticateBearerToken() { return makeAuthResult(); },
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() {
+      return {
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-2'],
+        metadata: {},
+      };
+    },
     async searchMembers() { return []; },
     async listMembers() { return [makeNetworkMember()]; },
     async getMemberProfile() { return makeProfile(); },
@@ -4189,7 +4279,7 @@ test('deliveries.complete returns the finished attempt inside actor scope', asyn
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-1', 'network-2'],
+    accessibleNetworkIds: ['network-2'],
     deliveryId: 'delivery-1',
     responseStatusCode: 202,
     responseBody: 'ok',
@@ -4200,11 +4290,20 @@ test('deliveries.complete returns the finished attempt inside actor scope', asyn
   assert.equal(result.data.attempt.responseStatusCode, 202);
 });
 
-test('deliveries.fail returns the failed attempt inside actor scope', async () => {
+test('deliveries.fail returns the failed attempt inside worker scope', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
-    async authenticateBearerToken() { return makeAuthResult(); },
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() {
+      return {
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-2'],
+        metadata: {},
+      };
+    },
     async searchMembers() { return []; },
     async listMembers() { return [makeNetworkMember()]; },
     async getMemberProfile() { return makeProfile(); },
@@ -4245,7 +4344,7 @@ test('deliveries.fail returns the failed attempt inside actor scope', async () =
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-1', 'network-2'],
+    accessibleNetworkIds: ['network-2'],
     deliveryId: 'delivery-1',
     errorMessage: 'timeout',
     responseStatusCode: 504,

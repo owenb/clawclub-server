@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type ApplicationStatus, type ApplicationSummary, type ArchiveNetworkInput, type AssignNetworkOwnerInput, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateApplicationInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreateMembershipInput, type CreateNetworkInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EmbeddingProjectionSummary, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipAdminSummary, type MembershipReviewSummary, type MembershipState, type MembershipSummary, type MembershipVouchSummary, type NetworkMemberSummary, type NetworkSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type TransitionApplicationInput, type TransitionMembershipInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type ApplicationStatus, type ApplicationSummary, type ArchiveNetworkInput, type AssignNetworkOwnerInput, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateApplicationInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreateMembershipInput, type CreateNetworkInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DeliveryWorkerAuthResult, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EmbeddingProjectionSummary, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipAdminSummary, type MembershipReviewSummary, type MembershipState, type MembershipSummary, type MembershipVouchSummary, type NetworkMemberSummary, type NetworkSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type TransitionApplicationInput, type TransitionMembershipInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -345,6 +345,14 @@ type BearerTokenRow = {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+type DeliveryWorkerTokenRow = {
+  token_id: string;
+  actor_member_id: string;
+  label: string | null;
+  allowed_network_ids: string[];
   metadata: Record<string, unknown> | null;
 };
 
@@ -2001,6 +2009,43 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         sharedContext: {
           pendingDeliveries,
         },
+      };
+    },
+
+    async authenticateDeliveryWorkerToken(bearerToken: string): Promise<DeliveryWorkerAuthResult | null> {
+      const parsed = parseBearerToken(bearerToken);
+      if (!parsed) {
+        return null;
+      }
+
+      const tokenResult = await pool.query<DeliveryWorkerTokenRow>(
+        `
+          update app.delivery_worker_tokens dwt
+          set last_used_at = now()
+          where dwt.id = $1
+            and dwt.token_hash = $2
+            and dwt.revoked_at is null
+          returning
+            dwt.id as token_id,
+            dwt.actor_member_id,
+            dwt.label,
+            dwt.allowed_network_ids,
+            dwt.metadata
+        `,
+        [parsed.tokenId, hashTokenSecret(parsed.secret)],
+      );
+
+      const tokenRow = tokenResult.rows[0];
+      if (!tokenRow) {
+        return null;
+      }
+
+      return {
+        tokenId: tokenRow.token_id,
+        actorMemberId: tokenRow.actor_member_id,
+        label: tokenRow.label,
+        allowedNetworkIds: tokenRow.allowed_network_ids ?? [],
+        metadata: tokenRow.metadata ?? {},
       };
     },
 

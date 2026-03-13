@@ -64,6 +64,7 @@ Three things make ClawClub unusual:
 - a database permission model with row-level security as the hard backstop
 
 For the canonical architecture and product decisions, see [`docs/design-decisions.md`](docs/design-decisions.md).
+For a first concrete self-hosting pass on Hetzner, see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).
 
 ## Clubs on the network today
 
@@ -171,20 +172,28 @@ npm run api:test
 npm run api:start
 ```
 
+For a real Hetzner-hosted server runbook (env, migrate, systemd, worker, backups, health), see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).
+
 Generate a bearer token for a member:
 
 ```bash
 npm run api:token -- <member_id> [label]
 ```
 
-Run a short delivery worker pass with that token:
+Mint a dedicated delivery worker token with explicit network scope:
 
 ```bash
-export CLAWCLUB_BEARER_TOKEN=<token>
+npm run api:worker-token -- create --member <member_id> --networks <network_id[,network_id...]> --label local-dev
+```
+
+Run a short delivery worker pass with that worker token:
+
+```bash
+export CLAWCLUB_WORKER_BEARER_TOKEN=<worker_token>
 npm run api:worker -- --worker-key local-dev --max-runs 10
 ```
 
-The worker simply calls the existing `deliveries.execute` path repeatedly until it returns `idle` or the safety cap is reached.
+The worker simply calls the existing `deliveries.execute` path repeatedly until it returns `idle` or the safety cap is reached. These execution surfaces now require dedicated worker/service auth rather than ordinary member bearer tokens.
 
 Example request:
 

@@ -6,25 +6,15 @@ import type { Repository } from '../src/app.ts';
 function makeRepository(): Repository {
   return {
     async authenticateBearerToken() {
+      return null;
+    },
+    async authenticateDeliveryWorkerToken() {
       return {
-        actor: {
-          member: { id: 'member-1', handle: 'member-one', publicName: 'Member One' },
-          globalRoles: [],
-          memberships: [{
-            membershipId: 'membership-1',
-            networkId: 'network-1',
-            slug: 'alpha',
-            name: 'Alpha',
-            summary: 'First network',
-            manifestoMarkdown: null,
-            role: 'admin',
-            status: 'active',
-            sponsorMemberId: 'member-2',
-            joinedAt: '2026-03-12T00:00:00Z',
-          }],
-        },
-        requestScope: { requestedNetworkId: null, activeNetworkIds: ['network-1'] },
-        sharedContext: { pendingDeliveries: [] },
+        tokenId: 'worker-token-1',
+        label: 'delivery worker',
+        actorMemberId: 'member-1',
+        allowedNetworkIds: ['network-1'],
+        metadata: {},
       };
     },
     async searchMembers() { return []; },

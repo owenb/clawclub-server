@@ -180,6 +180,7 @@ In-place mutation should not be the primary source of truth for important state.
 - Suppression reason is optional **free text**, not an enum.
 - The goal is to analyze real reasons later rather than over-structuring them now.
 - Webhook delivery signing should be practical, not ceremonial: resolve sender secrets server-side, sign the exact raw body, and ship a tiny receiver verification helper so the path is usable end-to-end.
+- Delivery execution auth should be separate from ordinary member bearer auth. Worker/service tokens should be explicit, Postgres-backed, and scoped to allowed network ids so background executors do not inherit full member session authority.
 
 ## Media and UI assumptions
 

@@ -36,7 +36,7 @@ flags:
   --max-runs     Safety cap for one worker pass (default: ${DEFAULT_MAX_RUNS})
 
 env fallback:
-  CLAWCLUB_BEARER_TOKEN can be used instead of --token`);
+  CLAWCLUB_WORKER_BEARER_TOKEN can be used instead of --token`);
   process.exit(1);
 }
 
@@ -84,9 +84,9 @@ function requireDatabaseUrl(): string {
 }
 
 function requireBearerToken(flags: WorkerFlags): string {
-  const bearerToken = flags.bearerToken ?? process.env.CLAWCLUB_BEARER_TOKEN;
+  const bearerToken = flags.bearerToken ?? process.env.CLAWCLUB_WORKER_BEARER_TOKEN;
   if (!bearerToken) {
-    console.error('A bearer token is required via --token or CLAWCLUB_BEARER_TOKEN');
+    console.error('A worker bearer token is required via --token or CLAWCLUB_WORKER_BEARER_TOKEN');
     process.exit(1);
   }
   return bearerToken;

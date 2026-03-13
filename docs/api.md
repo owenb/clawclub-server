@@ -199,14 +199,28 @@ Create a token with:
 node --experimental-strip-types src/token-cli.ts <member_id> [label]
 ```
 
+Mint a dedicated delivery worker token:
+
+```bash
+node --experimental-strip-types src/worker-token-cli.ts create --member <member_id> --networks <network_id[,network_id...]> --label local-dev
+```
+
 Drain pending deliveries with the tiny worker CLI:
 
 ```bash
-export CLAWCLUB_BEARER_TOKEN=<token>
+export CLAWCLUB_WORKER_BEARER_TOKEN=<worker_token>
 node --experimental-strip-types src/delivery-worker.ts --worker-key local-dev --max-runs 10
 ```
 
 It just loops over the existing `deliveries.execute` action until the executor reports `idle` or the per-run safety cap is reached.
+
+Hardening note:
+- `deliveries.claim`
+- `deliveries.execute`
+- `deliveries.complete`
+- `deliveries.fail`
+
+now accept dedicated delivery worker tokens only. Ordinary member bearer tokens continue to work for normal member/operator actions, but not for worker execution surfaces.
 
 That prints the bearer token once plus an `insert` statement for `app.member_bearer_tokens`.
 
