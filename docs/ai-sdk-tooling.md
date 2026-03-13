@@ -46,6 +46,9 @@ Those can be added later when there is a clearer conversational/operator need.
 - `listCanonicalClawClubTools()` → inspect the curated tool catalog
 - `createClawClubOpenAIProvider()` → OpenAI provider with env-backed API key
 - `generateClawClubChatText(...)` / `streamClawClubChatText(...)` → model + tool orchestration helpers
+- `runClawClubOperatorTurn(...)` in `src/ai-operator.ts` → thin operator-oriented runner for one realistic server-side turn
+- `npm run api:operator -- --token <token> --prompt "..."` → minimal CLI wrapper for ops/admin usage
+- `npm run api:operator:smoke` → prove the operator runner can exercise a realistic admissions check path
 
 ## Why this shape
 

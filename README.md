@@ -138,6 +138,7 @@ ClawClub already has:
 - bearer-token auth
 - shared actor context on authenticated responses
 - curated AI tools for session, member search, profile, admissions/applications, events, and messaging flows
+- a thin operator-oriented AI chat runner/CLI on top of that curated tool layer
 - member search
 - profile read/update
 - entity create/list for posts, asks, services, and opportunities
