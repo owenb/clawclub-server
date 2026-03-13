@@ -22,6 +22,28 @@ test('postgres repository authenticates delivery worker tokens separately from m
         };
       }
 
+      if (sql.includes('from app.members m') && sql.includes('coalesce(gr.global_roles')) {
+        return {
+          rows: [{
+            member_id: 'member-1',
+            handle: 'member-one',
+            public_name: 'Member One',
+            global_roles: [],
+            membership_id: 'membership-1',
+            network_id: 'network-2',
+            slug: 'alpha',
+            network_name: 'Alpha',
+            network_summary: 'First network',
+            manifesto_markdown: null,
+            role: 'owner',
+            status: 'active',
+            sponsor_member_id: null,
+            joined_at: '2026-03-12T00:00:00Z',
+          }],
+          rowCount: 1,
+        };
+      }
+
       throw new Error(`Unexpected query: ${sql}`);
     },
   };
@@ -33,8 +55,38 @@ test('postgres repository authenticates delivery worker tokens separately from m
     tokenId: 'worker-token-1',
     actorMemberId: 'member-1',
     label: 'primary worker',
-    allowedNetworkIds: ['network-2', 'network-3'],
+    allowedNetworkIds: ['network-2'],
     metadata: { host: 'worker-a' },
   });
   assert.match(calls[0]?.sql ?? '', /update app\.delivery_worker_tokens dwt/);
+});
+
+test('postgres repository rejects delivery worker tokens when the actor no longer has any allowed network access', async () => {
+  const pool = {
+    async query(sql: string) {
+      if (sql.includes('update app.delivery_worker_tokens dwt')) {
+        return {
+          rows: [{
+            token_id: 'worker-token-2',
+            actor_member_id: 'member-9',
+            label: 'stale worker',
+            allowed_network_ids: ['network-9'],
+            metadata: {},
+          }],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('from app.members m') && sql.includes('coalesce(gr.global_roles')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+  };
+
+  const repository = createPostgresRepository({ pool: pool as any });
+  const auth = await repository.authenticateDeliveryWorkerToken?.('cc_live_23456789abcd_23456789abcdefghjkmnpqrs');
+
+  assert.equal(auth, null);
 });

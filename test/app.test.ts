@@ -4184,6 +4184,20 @@ test('deliveries.execute rejects ordinary member bearer tokens once worker auth 
   );
 });
 
+test('deliveries.execute rejects worker tokens that no longer resolve to current network access', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() { return null; },
+    async authenticateDeliveryWorkerToken() { return null; },
+  };
+
+  const app = buildApp({ repository });
+  await assert.rejects(
+    () => app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' }),
+    /Unknown bearer token/,
+  );
+});
+
 test('deliveries.execute returns idle when no pending delivery is claimable', async () => {
   const repository: Repository = {
     async authenticateBearerToken() { return null; },

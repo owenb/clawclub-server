@@ -222,6 +222,10 @@ Hardening note:
 
 now accept dedicated delivery worker tokens only. Ordinary member bearer tokens continue to work for normal member/operator actions, but not for worker execution surfaces.
 
+Worker hardening note:
+- worker-token scope is intersected with the actor member's **current** memberships at auth time
+- if the actor loses access to all allowed networks, the worker token stops authenticating execution requests
+
 That prints the bearer token once plus an `insert` statement for `app.member_bearer_tokens`.
 
 ## Delivery surface notes

@@ -2040,11 +2040,22 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         return null;
       }
 
+      const actor = await getActorByMemberId(pool, tokenRow.actor_member_id);
+      if (!actor) {
+        return null;
+      }
+
+      const currentNetworkIds = new Set(actor.memberships.map((membership) => membership.networkId));
+      const allowedNetworkIds = (tokenRow.allowed_network_ids ?? []).filter((networkId) => currentNetworkIds.has(networkId));
+      if (allowedNetworkIds.length === 0) {
+        return null;
+      }
+
       return {
         tokenId: tokenRow.token_id,
         actorMemberId: tokenRow.actor_member_id,
         label: tokenRow.label,
-        allowedNetworkIds: tokenRow.allowed_network_ids ?? [],
+        allowedNetworkIds,
         metadata: tokenRow.metadata ?? {},
       };
     },
