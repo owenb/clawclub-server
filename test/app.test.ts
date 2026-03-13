@@ -5,6 +5,7 @@ import {
   AppError,
   buildApp,
   type ActorContext,
+  type ApplicationSummary,
   type AuthResult,
   type CreateEntityInput,
   type BearerTokenSummary,
@@ -341,6 +342,42 @@ function makeMembershipReview(overrides: Partial<MembershipReviewSummary> = {}):
   };
 }
 
+function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
+  return {
+    applicationId: 'application-1',
+    networkId: 'network-2',
+    applicant: {
+      memberId: 'member-9',
+      publicName: 'Member Nine',
+      handle: 'member-nine',
+    },
+    sponsor: {
+      memberId: 'member-1',
+      publicName: 'Member One',
+      handle: 'member-one',
+    },
+    membershipId: 'membership-9',
+    path: 'sponsored',
+    intake: {
+      kind: 'fit_check',
+      price: { amount: 49, currency: 'GBP' },
+      bookingUrl: 'https://cal.example.test/fit-check',
+      bookedAt: '2026-03-14T10:00:00Z',
+      completedAt: null,
+    },
+    state: {
+      status: 'submitted',
+      notes: 'Warm intro via sponsor',
+      versionNo: 1,
+      createdAt: '2026-03-12T00:00:00Z',
+      createdByMemberId: 'member-1',
+    },
+    metadata: { source: 'operator' },
+    createdAt: '2026-03-12T00:00:00Z',
+    ...overrides,
+  };
+}
+
 function makeNetworkMember(overrides: Partial<NetworkMemberSummary> = {}): NetworkMemberSummary {
   return {
     memberId: 'member-1',
@@ -476,6 +513,15 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     },
     async listMemberships() {
       return [makeMembershipAdmin()];
+    },
+    async listApplications() {
+      return [makeApplication()];
+    },
+    async createApplication() {
+      return makeApplication();
+    },
+    async transitionApplication() {
+      return makeApplication({ state: { ...makeApplication().state, status: 'interview_scheduled', versionNo: 2 } });
     },
     async createMembership() {
       return makeMembershipAdmin();
@@ -896,6 +942,157 @@ test('memberships.transition rejects admin-only network scope', async () => {
       return true;
     },
   );
+});
+
+test('applications.list stays inside owner scope and can filter interview workflow statuses', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async listApplications(input) {
+      capturedInput = input as Record<string, unknown>;
+      return [makeApplication({ state: { ...makeApplication().state, status: 'interview_scheduled', versionNo: 2 } })];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'applications.list',
+    payload: { networkId: 'network-2', statuses: ['submitted', 'interview_scheduled'], limit: 4 },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkIds: ['network-2'],
+    limit: 4,
+    statuses: ['submitted', 'interview_scheduled'],
+  });
+  assert.equal(result.action, 'applications.list');
+  assert.equal(result.data.results[0]?.state.status, 'interview_scheduled');
+});
+
+test('applications.create captures a sponsored fit-check intake and owner scope server-side', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createApplication(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeApplication({
+        applicationId: 'application-9',
+        applicant: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
+        sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
+        state: { ...makeApplication().state, status: 'submitted' },
+      });
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'applications.create',
+    payload: {
+      networkId: 'network-2',
+      applicantMemberId: 'member-9',
+      sponsorMemberId: 'member-1',
+      membershipId: 'membership-9',
+      path: 'sponsored',
+      initialStatus: 'submitted',
+      notes: 'Warm intro via sponsor',
+      intake: {
+        kind: 'fit_check',
+        price: { amount: 49, currency: 'gbp' },
+        bookingUrl: 'https://cal.example.test/fit-check',
+        bookedAt: '2026-03-14T10:00:00Z',
+      },
+      metadata: { source: 'operator' },
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    networkId: 'network-2',
+    applicantMemberId: 'member-9',
+    sponsorMemberId: 'member-1',
+    membershipId: 'membership-9',
+    path: 'sponsored',
+    initialStatus: 'submitted',
+    notes: 'Warm intro via sponsor',
+    intake: {
+      kind: 'fit_check',
+      price: { amount: 49, currency: 'GBP' },
+      bookingUrl: 'https://cal.example.test/fit-check',
+      bookedAt: '2026-03-14T10:00:00Z',
+      completedAt: undefined,
+    },
+    metadata: { source: 'operator' },
+  });
+  assert.equal(result.action, 'applications.create');
+  assert.equal(result.data.application.applicationId, 'application-9');
+});
+
+test('applications.transition appends interview workflow state with optional membership link', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async transitionApplication(input) {
+      capturedInput = input as Record<string, unknown>;
+      return makeApplication({
+        state: {
+          status: 'accepted',
+          notes: 'Interview complete and accepted',
+          versionNo: 3,
+          createdAt: '2026-03-12T00:05:00Z',
+          createdByMemberId: 'member-1',
+        },
+        membershipId: 'membership-10',
+        intake: {
+          kind: 'fit_check',
+          price: { amount: 49, currency: 'GBP' },
+          bookingUrl: 'https://cal.example.test/fit-check',
+          bookedAt: '2026-03-14T10:00:00Z',
+          completedAt: '2026-03-14T10:30:00Z',
+        },
+        metadata: { source: 'operator', outcome: 'strong_yes' },
+      });
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'applications.transition',
+    payload: {
+      applicationId: 'application-9',
+      status: 'accepted',
+      notes: 'Interview complete and accepted',
+      membershipId: 'membership-10',
+      intake: { completedAt: '2026-03-14T10:30:00Z' },
+      metadata: { outcome: 'strong_yes' },
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    applicationId: 'application-9',
+    nextStatus: 'accepted',
+    notes: 'Interview complete and accepted',
+    accessibleNetworkIds: ['network-2'],
+    intake: {
+      kind: undefined,
+      price: undefined,
+      bookingUrl: undefined,
+      bookedAt: undefined,
+      completedAt: '2026-03-14T10:30:00Z',
+    },
+    membershipId: 'membership-10',
+    metadataPatch: { outcome: 'strong_yes' },
+  });
+  assert.equal(result.action, 'applications.transition');
+  assert.equal(result.data.application.state.versionNo, 3);
+  assert.equal(result.data.application.membershipId, 'membership-10');
 });
 
 test('members.search narrows scope when a permitted network is requested', async () => {

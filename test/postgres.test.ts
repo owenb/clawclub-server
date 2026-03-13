@@ -1068,6 +1068,41 @@ test('postgres repository lists current membership projections for owner scope',
   assert.deepEqual(calls[2]?.params, [['network-2'], 'pending_review', 5]);
 });
 
+test('postgres repository lists applications with interview metadata inside owner scope', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('from app.current_applications ca')) {
+        return {
+          rows: [{
+            application_id: 'application-9', network_id: 'network-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-9', path: 'sponsored',
+            intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
+            intake_booked_at: '2026-03-14T10:00:00Z', intake_completed_at: null,
+            status: 'submitted', notes: 'Warm intro via sponsor', version_no: 1, version_created_at: '2026-03-12T00:00:00Z', version_created_by_member_id: 'member-1',
+            metadata: { source: 'operator' }, created_at: '2026-03-12T00:00:00Z',
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const results = await repository.listApplications({ actorMemberId: 'member-1', networkIds: ['network-2'], limit: 5, statuses: ['submitted'] });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.applicationId, 'application-9');
+  assert.equal(results[0]?.intake.kind, 'fit_check');
+  assert.equal(results[0]?.intake.price.amount, 49);
+  assert.deepEqual(calls[2]?.params, [['network-2'], ['submitted'], 5]);
+});
+
 test('postgres repository lists admissions review context with sponsor load and vouches', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
@@ -1106,6 +1141,129 @@ test('postgres repository lists admissions review context with sponsor load and 
   assert.equal(results[0]?.vouches[0]?.reason, 'I trust their presence and follow-through.');
   assert.match(calls[2]?.sql ?? '', /e\.kind = 'vouched_for'/);
   assert.deepEqual(calls[2]?.params, [['network-2'], ['pending_review'], 5]);
+});
+
+test('postgres repository creates an application with interview intake details and reloads current projection', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('from app.accessible_network_memberships anm') && sql.includes("and anm.role = 'owner'")) return { rows: [{ membership_id: 'membership-owner' }], rowCount: 1 };
+      if (sql.includes('from app.current_network_memberships cnm') && sql.includes('and cnm.member_id = $2') && sql.includes("and cnm.status = 'active'")) return { rows: [{ member_id: 'member-1' }], rowCount: 1 };
+      if (sql.includes('select cnm.id as membership_id') && sql.includes('where cnm.id = $1')) return { rows: [{ membership_id: 'membership-9' }], rowCount: 1 };
+      if (sql.includes('with applicant as (') && sql.includes('insert into app.applications')) return { rows: [{ application_id: 'application-9' }], rowCount: 1 };
+      if (sql.includes('from app.current_applications ca') && sql.includes('where ca.id = $1')) {
+        return {
+          rows: [{
+            application_id: 'application-9', network_id: 'network-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-9', path: 'sponsored',
+            intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
+            intake_booked_at: '2026-03-14T10:00:00Z', intake_completed_at: null,
+            status: 'submitted', notes: 'Warm intro via sponsor', version_no: 1, version_created_at: '2026-03-12T00:00:00Z', version_created_by_member_id: 'member-1',
+            metadata: { source: 'operator' }, created_at: '2026-03-12T00:00:00Z',
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const application = await repository.createApplication({
+    actorMemberId: 'member-1',
+    networkId: 'network-2',
+    applicantMemberId: 'member-9',
+    sponsorMemberId: 'member-1',
+    membershipId: 'membership-9',
+    path: 'sponsored',
+    initialStatus: 'submitted',
+    notes: 'Warm intro via sponsor',
+    intake: { kind: 'fit_check', price: { amount: 49, currency: 'GBP' }, bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' },
+    metadata: { source: 'operator' },
+  });
+
+  assert.ok(application);
+  assert.equal(application?.applicationId, 'application-9');
+  assert.match(calls[5]?.sql ?? '', /insert into app\.applications/);
+  assert.deepEqual(calls[5]?.params, [
+    'network-2',
+    'member-9',
+    'member-1',
+    'membership-9',
+    'sponsored',
+    '{"source":"operator"}',
+    'submitted',
+    'Warm intro via sponsor',
+    'fit_check',
+    49,
+    'GBP',
+    'https://cal.example.test/fit-check',
+    '2026-03-14T10:00:00Z',
+    null,
+    'member-1',
+  ]);
+  assert.equal(calls.at(-1)?.sql, 'commit');
+});
+
+test('postgres repository appends application state transitions and reloads current projection', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
+      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes('from app.current_applications ca') && sql.includes('join app.accessible_network_memberships owner_scope')) {
+        return {
+          rows: [{
+            application_id: 'application-9', network_id: 'network-2', applicant_member_id: 'member-9', current_status: 'interview_scheduled', current_version_no: 2,
+            current_version_id: 'appver-2', current_metadata: { source: 'operator' }, current_intake_kind: 'fit_check', current_intake_price_amount: '49.00',
+            current_intake_price_currency: 'GBP', current_intake_booking_url: 'https://cal.example.test/fit-check', current_intake_booked_at: '2026-03-14T10:00:00Z',
+            current_intake_completed_at: null, current_membership_id: 'membership-9',
+          }], rowCount: 1,
+        };
+      }
+      if (sql.includes('select cnm.id as membership_id') && sql.includes('where cnm.id = $1')) return { rows: [{ membership_id: 'membership-10' }], rowCount: 1 };
+      if (sql.includes('update app.applications a')) return { rows: [], rowCount: 1 };
+      if (sql.includes('insert into app.application_versions')) return { rows: [], rowCount: 1 };
+      if (sql.includes('from app.current_applications ca') && sql.includes('where ca.id = $1')) {
+        return {
+          rows: [{
+            application_id: 'application-9', network_id: 'network-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-10', path: 'sponsored',
+            intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
+            intake_booked_at: '2026-03-14T10:00:00Z', intake_completed_at: '2026-03-14T10:30:00Z',
+            status: 'accepted', notes: 'Strong yes', version_no: 3, version_created_at: '2026-03-14T10:30:00Z', version_created_by_member_id: 'member-1',
+            metadata: { source: 'operator', outcome: 'strong_yes' }, created_at: '2026-03-12T00:00:00Z',
+          }], rowCount: 1,
+        };
+      }
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const application = await repository.transitionApplication({
+    actorMemberId: 'member-1',
+    applicationId: 'application-9',
+    nextStatus: 'accepted',
+    notes: 'Strong yes',
+    accessibleNetworkIds: ['network-2'],
+    intake: { completedAt: '2026-03-14T10:30:00Z' },
+    membershipId: 'membership-10',
+    metadataPatch: { outcome: 'strong_yes' },
+  });
+
+  assert.ok(application);
+  assert.equal(application?.state.status, 'accepted');
+  assert.deepEqual(calls[3]?.params, ['membership-10', 'network-2', 'member-9']);
+  assert.deepEqual(calls[4]?.params, ['application-9', 'membership-10', '{"source":"operator","outcome":"strong_yes"}']);
+  assert.deepEqual(calls[5]?.params, ['application-9', 'accepted', 'Strong yes', 'fit_check', '49.00', 'GBP', 'https://cal.example.test/fit-check', '2026-03-14T10:00:00Z', '2026-03-14T10:30:00Z', 3, 'appver-2', 'member-1']);
 });
 
 test('postgres repository appends membership state transitions and reloads current projection', async () => {

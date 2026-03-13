@@ -48,6 +48,9 @@ function makeRepository(overrides: Partial<Repository> = {}): Repository {
       return token === 'cc_live_test' ? makeAuthResult() : null;
     },
     async listMemberships() { return []; },
+    async listApplications() { return []; },
+    async createApplication() { return null; },
+    async transitionApplication() { return null; },
     async createMembership() { return null; },
     async transitionMembershipState() { return null; },
     async listMembershipReviews() { return []; },

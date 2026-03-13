@@ -73,6 +73,93 @@ export type MembershipReviewSummary = MembershipAdminSummary & {
   vouches: MembershipVouchSummary[];
 };
 
+export type ApplicationStatus =
+  | 'draft'
+  | 'submitted'
+  | 'interview_scheduled'
+  | 'interview_completed'
+  | 'accepted'
+  | 'declined'
+  | 'withdrawn';
+
+export type ApplicationSummary = {
+  applicationId: string;
+  networkId: string;
+  applicant: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  };
+  sponsor: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  } | null;
+  membershipId: string | null;
+  path: 'sponsored' | 'outside';
+  intake: {
+    kind: 'fit_check' | 'advice_call' | 'other';
+    price: {
+      amount: number | null;
+      currency: string | null;
+    };
+    bookingUrl: string | null;
+    bookedAt: string | null;
+    completedAt: string | null;
+  };
+  state: {
+    status: ApplicationStatus;
+    notes: string | null;
+    versionNo: number;
+    createdAt: string;
+    createdByMemberId: string | null;
+  };
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type CreateApplicationInput = {
+  actorMemberId: string;
+  networkId: string;
+  applicantMemberId: string;
+  sponsorMemberId?: string | null;
+  membershipId?: string | null;
+  path: 'sponsored' | 'outside';
+  initialStatus: Extract<ApplicationStatus, 'draft' | 'submitted' | 'interview_scheduled'>;
+  notes?: string | null;
+  intake: {
+    kind?: 'fit_check' | 'advice_call' | 'other';
+    price?: {
+      amount?: number | null;
+      currency?: string | null;
+    };
+    bookingUrl?: string | null;
+    bookedAt?: string | null;
+    completedAt?: string | null;
+  };
+  metadata: Record<string, unknown>;
+};
+
+export type TransitionApplicationInput = {
+  actorMemberId: string;
+  applicationId: string;
+  nextStatus: ApplicationStatus;
+  notes?: string | null;
+  accessibleNetworkIds: string[];
+  intake?: {
+    kind?: 'fit_check' | 'advice_call' | 'other';
+    price?: {
+      amount?: number | null;
+      currency?: string | null;
+    };
+    bookingUrl?: string | null;
+    bookedAt?: string | null;
+    completedAt?: string | null;
+  };
+  membershipId?: string | null;
+  metadataPatch?: Record<string, unknown>;
+};
+
 export type TransitionMembershipInput = {
   actorMemberId: string;
   membershipId: string;
@@ -648,6 +735,14 @@ export type Repository = {
     limit: number;
     status?: MembershipState;
   }): Promise<MembershipAdminSummary[]>;
+  listApplications?(input: {
+    actorMemberId: string;
+    networkIds: string[];
+    limit: number;
+    statuses?: ApplicationStatus[];
+  }): Promise<ApplicationSummary[]>;
+  createApplication?(input: CreateApplicationInput): Promise<ApplicationSummary | null>;
+  transitionApplication?(input: TransitionApplicationInput): Promise<ApplicationSummary | null>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: {
@@ -868,6 +963,24 @@ function requireMembershipState(value: unknown, field: string): MembershipState 
   return value;
 }
 
+function isApplicationStatus(value: unknown): value is ApplicationStatus {
+  return value === 'draft'
+    || value === 'submitted'
+    || value === 'interview_scheduled'
+    || value === 'interview_completed'
+    || value === 'accepted'
+    || value === 'declined'
+    || value === 'withdrawn';
+}
+
+function requireApplicationStatus(value: unknown, field: string): ApplicationStatus {
+  if (!isApplicationStatus(value)) {
+    throw new AppError(400, 'invalid_input', `${field} must be one of: draft, submitted, interview_scheduled, interview_completed, accepted, declined, withdrawn`);
+  }
+
+  return value;
+}
+
 function requireMembershipOwner(actor: ActorContext, networkIdValue: unknown): MembershipSummary {
   const membership = requireAccessibleNetwork(actor, networkIdValue);
 
@@ -954,6 +1067,74 @@ function normalizeTokenCreateInput(payload: Record<string, unknown>): { label: s
     label: normalizeOptionalString(payload.label, 'label') ?? null,
     metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
   };
+}
+
+function requireApplicationPath(value: unknown, field: string): 'sponsored' | 'outside' {
+  if (value !== 'sponsored' && value !== 'outside') {
+    throw new AppError(400, 'invalid_input', `${field} must be one of: sponsored, outside`);
+  }
+
+  return value;
+}
+
+function requireApplicationIntakeKind(value: unknown, field: string): 'fit_check' | 'advice_call' | 'other' {
+  if (value !== 'fit_check' && value !== 'advice_call' && value !== 'other') {
+    throw new AppError(400, 'invalid_input', `${field} must be one of: fit_check, advice_call, other`);
+  }
+
+  return value;
+}
+
+function normalizeOptionalCurrencyCode(value: unknown, field: string): string | null | undefined {
+  const normalized = normalizeOptionalString(value, field);
+  if (normalized === undefined || normalized === null) {
+    return normalized;
+  }
+
+  const upper = normalized.toUpperCase();
+  if (!/^[A-Z]{3}$/.test(upper)) {
+    throw new AppError(400, 'invalid_input', `${field} must be a 3-letter ISO currency code`);
+  }
+
+  return upper;
+}
+
+function normalizeOptionalMoneyAmount(value: unknown, field: string): number | null | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new AppError(400, 'invalid_input', `${field} must be a non-negative number or null`);
+  }
+
+  return Number(value);
+}
+
+function normalizeApplicationIntake(value: unknown, field: string): CreateApplicationInput['intake'] {
+  const payload = value === undefined ? {} : requireObject(value, field);
+  const priceValue = payload.price === undefined ? undefined : requireObject(payload.price, `${field}.price`);
+
+  return {
+    kind: payload.kind === undefined ? undefined : requireApplicationIntakeKind(payload.kind, `${field}.kind`),
+    price: priceValue === undefined
+      ? undefined
+      : {
+          amount: normalizeOptionalMoneyAmount(priceValue.amount, `${field}.price.amount`),
+          currency: normalizeOptionalCurrencyCode(priceValue.currency, `${field}.price.currency`),
+        },
+    bookingUrl: normalizeOptionalString(payload.bookingUrl, `${field}.bookingUrl`),
+    bookedAt: normalizeOptionalString(payload.bookedAt, `${field}.bookedAt`),
+    completedAt: normalizeOptionalString(payload.completedAt, `${field}.completedAt`),
+  };
+}
+
+function normalizeApplicationMetadataPatch(value: unknown, field: string): Record<string, unknown> | undefined {
+  return value === undefined ? undefined : requireObject(value, field);
 }
 
 function requireDeliveryEndpointChannel(value: unknown, field: string): DeliveryEndpointChannel {
@@ -1338,6 +1519,134 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
             },
             sharedContext,
             data: { membership },
+          });
+        }
+
+        case 'applications.list': {
+          const limit = normalizeLimit(payload.limit);
+          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner');
+
+          if (payload.networkId !== undefined) {
+            networkScope = [requireMembershipOwner(actor, payload.networkId)];
+          }
+
+          if (networkScope.length === 0) {
+            throw new AppError(403, 'forbidden', 'This member does not currently own any networks');
+          }
+
+          const statuses = payload.statuses === undefined
+            ? undefined
+            : (() => {
+                if (!Array.isArray(payload.statuses) || payload.statuses.length === 0) {
+                  throw new AppError(400, 'invalid_input', 'statuses must be a non-empty array when provided');
+                }
+
+                return [...new Set(payload.statuses.map((status) => requireApplicationStatus(status, 'statuses[]')))];
+              })();
+
+          const networkIds = networkScope.map((network) => network.networkId);
+          const results = await repository.listApplications?.({
+            actorMemberId: actor.member.id,
+            networkIds,
+            limit,
+            statuses,
+          });
+
+          if (!results) {
+            throw new AppError(501, 'not_implemented', 'applications.list is not implemented');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId:
+                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
+              activeNetworkIds: networkIds,
+            },
+            sharedContext,
+            data: {
+              limit,
+              statuses: statuses ?? null,
+              networkScope,
+              results,
+            },
+          });
+        }
+
+        case 'applications.create': {
+          const network = requireMembershipOwner(actor, payload.networkId);
+          const application = await repository.createApplication?.({
+            actorMemberId: actor.member.id,
+            networkId: network.networkId,
+            applicantMemberId: requireNonEmptyString(payload.applicantMemberId, 'applicantMemberId'),
+            sponsorMemberId: normalizeOptionalString(payload.sponsorMemberId, 'sponsorMemberId'),
+            membershipId: normalizeOptionalString(payload.membershipId, 'membershipId'),
+            path: requireApplicationPath(payload.path, 'path'),
+            initialStatus: payload.initialStatus === undefined
+              ? 'submitted'
+              : (() => {
+                  const status = requireApplicationStatus(payload.initialStatus, 'initialStatus');
+                  if (status !== 'draft' && status !== 'submitted' && status !== 'interview_scheduled') {
+                    throw new AppError(400, 'invalid_input', 'initialStatus must be one of: draft, submitted, interview_scheduled');
+                  }
+                  return status;
+                })(),
+            notes: normalizeOptionalString(payload.notes, 'notes'),
+            intake: normalizeApplicationIntake(payload.intake, 'intake'),
+            metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
+          });
+
+          if (application === undefined) {
+            throw new AppError(501, 'not_implemented', 'applications.create is not implemented');
+          }
+
+          if (!application) {
+            throw new AppError(404, 'not_found', 'Applicant, sponsor, or membership not found inside the owner scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: application.networkId,
+              activeNetworkIds: [application.networkId],
+            },
+            sharedContext,
+            data: { application },
+          });
+        }
+
+        case 'applications.transition': {
+          const applicationId = requireNonEmptyString(payload.applicationId, 'applicationId');
+          const application = await repository.transitionApplication?.({
+            actorMemberId: actor.member.id,
+            applicationId,
+            nextStatus: requireApplicationStatus(payload.status, 'status'),
+            notes: normalizeOptionalString(payload.notes, 'notes'),
+            accessibleNetworkIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.networkId),
+            intake: payload.intake === undefined ? undefined : normalizeApplicationIntake(payload.intake, 'intake'),
+            membershipId: payload.membershipId === undefined ? undefined : normalizeOptionalString(payload.membershipId, 'membershipId'),
+            metadataPatch: normalizeApplicationMetadataPatch(payload.metadata, 'metadata'),
+          });
+
+          if (application === undefined) {
+            throw new AppError(501, 'not_implemented', 'applications.transition is not implemented');
+          }
+
+          if (!application) {
+            throw new AppError(404, 'not_found', 'Application not found inside the owner scope');
+          }
+
+          return buildSuccessResponse({
+            action,
+            actor,
+            requestScope: {
+              requestedNetworkId: application.networkId,
+              activeNetworkIds: [application.networkId],
+            },
+            sharedContext,
+            data: { application },
           });
         }
 
