@@ -48,7 +48,7 @@ test('postgres repository authenticates delivery worker tokens separately from m
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
 
-      if (sql.includes('update app.delivery_worker_tokens dwt')) {
+      if (sql.includes('from app.authenticate_delivery_worker_token(')) {
         return {
           rows: [{
             token_id: 'worker-token-1',
@@ -78,7 +78,7 @@ test('postgres repository authenticates delivery worker tokens separately from m
     allowedNetworkIds: ['network-2'],
     metadata: { host: 'worker-a' },
   });
-  assert.match(calls[0]?.sql ?? '', /update app\.delivery_worker_tokens dwt/);
+  assert.match(calls[0]?.sql ?? '', /from app\.authenticate_delivery_worker_token\(/);
 });
 
 test('postgres repository rejects delivery worker tokens when the actor no longer has any allowed network access', async () => {
@@ -103,7 +103,7 @@ test('postgres repository rejects delivery worker tokens when the actor no longe
 
   const pool = {
     async query(sql: string) {
-      if (sql.includes('update app.delivery_worker_tokens dwt')) {
+      if (sql.includes('from app.authenticate_delivery_worker_token(')) {
         return {
           rows: [{
             token_id: 'worker-token-2',
@@ -179,7 +179,7 @@ test('postgres repository parses postgres auth array strings for bearer-token ac
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
 
-      if (sql.includes('update app.member_bearer_tokens mbt')) {
+      if (sql.includes('from app.authenticate_member_bearer_token(')) {
         return {
           rows: [{ member_id: 'member-1' }],
           rowCount: 1,
@@ -198,5 +198,5 @@ test('postgres repository parses postgres auth array strings for bearer-token ac
 
   assert.deepEqual(auth?.actor.globalRoles, ['superadmin']);
   assert.deepEqual(auth?.requestScope.activeNetworkIds, ['network-2']);
-  assert.match(calls[0]?.sql ?? '', /update app\.member_bearer_tokens mbt/);
+  assert.match(calls[0]?.sql ?? '', /from app\.authenticate_member_bearer_token\(/);
 });

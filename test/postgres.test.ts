@@ -791,9 +791,17 @@ test('postgres repository retries a failed delivery inside actor scope as a fres
 test('postgres repository lists, creates, updates, and revokes delivery endpoints for the actor member', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
-  const pool = {
+  const client = {
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
 
       if (sql.includes('from app.delivery_endpoints dep') && sql.includes('order by dep.created_at desc')) {
         return {
@@ -849,6 +857,13 @@ test('postgres repository lists, creates, updates, and revokes delivery endpoint
 
       throw new Error(`Unexpected query: ${sql}`);
     },
+    release() {},
+  };
+
+  const pool = {
+    async connect() {
+      return client;
+    },
   };
 
   const repository = createPostgresRepository({ pool: pool as any });
@@ -888,19 +903,33 @@ test('postgres repository lists, creates, updates, and revokes delivery endpoint
   assert.equal(updated?.sharedSecretRef, null);
   assert.equal(revoked?.state, 'disabled');
   assert.equal(revoked?.disabledAt, '2026-03-12T00:03:00Z');
-  assert.deepEqual(calls[0]?.params, ['member-1']);
-  assert.match(calls[0]?.sql ?? '', /left join app\.deliveries d on d\.endpoint_id = dep\.id/);
-  assert.deepEqual(calls[1]?.params, ['member-1', 'openclaw_webhook', 'Laptop', 'https://hooks.example.test/clawclub', 'op://clawclub/laptop', '{"device":"mbp"}']);
-  assert.deepEqual(calls[2]?.params, ['endpoint-2', 'member-1', 'Backup', 'https://backup.example.test/clawclub', null, 'failing', '{"device":"pi"}']);
-  assert.deepEqual(calls[3]?.params, ['endpoint-2', 'member-1']);
+  assert.equal(calls.filter((call) => call.sql === 'begin').length, 4);
+  assert.equal(calls.filter((call) => call.sql === 'commit').length, 4);
+  assert.deepEqual(calls[1]?.params, ['member-1']);
+  assert.match(calls[2]?.sql ?? '', /left join app\.deliveries d on d\.endpoint_id = dep\.id/);
+  assert.deepEqual(calls[2]?.params, ['member-1']);
+  assert.deepEqual(calls[5]?.params, ['member-1']);
+  assert.deepEqual(calls[6]?.params, ['member-1', 'openclaw_webhook', 'Laptop', 'https://hooks.example.test/clawclub', 'op://clawclub/laptop', '{"device":"mbp"}']);
+  assert.deepEqual(calls[9]?.params, ['member-1']);
+  assert.deepEqual(calls[10]?.params, ['endpoint-2', 'member-1', 'Backup', 'https://backup.example.test/clawclub', null, 'failing', '{"device":"pi"}']);
+  assert.deepEqual(calls[13]?.params, ['member-1']);
+  assert.deepEqual(calls[14]?.params, ['endpoint-2', 'member-1']);
 });
 
 test('postgres repository creates and revokes hashed bearer tokens without returning the hash', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
-  const pool = {
+  const client = {
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
 
       if (sql.includes('insert into app.member_bearer_tokens')) {
         return {
@@ -938,6 +967,13 @@ test('postgres repository creates and revokes hashed bearer tokens without retur
 
       throw new Error(`Unexpected query: ${sql}`);
     },
+    release() {},
+  };
+
+  const pool = {
+    async connect() {
+      return client;
+    },
   };
 
   const repository = createPostgresRepository({ pool: pool as any });
@@ -952,12 +988,14 @@ test('postgres repository creates and revokes hashed bearer tokens without retur
   assert.equal(created.token.label, 'laptop');
   assert.equal(created.bearerToken.startsWith('cc_live_token-1_'), false);
   assert.match(created.bearerToken, /^cc_live_[23456789abcdefghjkmnpqrstuvwxyz]{12}_[23456789abcdefghjkmnpqrstuvwxyz]{24}$/);
-  assert.match(calls[0]?.sql ?? '', /insert into app\.member_bearer_tokens/);
-  assert.equal((calls[0]?.params?.[0] as string).length, 12);
-  assert.equal(calls[0]?.params?.[1], 'member-1');
-  assert.equal(calls[0]?.params?.[2], 'laptop');
-  assert.equal(typeof calls[0]?.params?.[3], 'string');
-  assert.notEqual(calls[0]?.params?.[3], created.bearerToken);
+  assert.equal(calls.filter((call) => call.sql === 'begin').length, 1);
+  assert.equal(calls.filter((call) => call.sql === 'commit').length, 1);
+  assert.match(calls[2]?.sql ?? '', /insert into app\.member_bearer_tokens/);
+  assert.equal((calls[2]?.params?.[0] as string).length, 12);
+  assert.equal(calls[2]?.params?.[1], 'member-1');
+  assert.equal(calls[2]?.params?.[2], 'laptop');
+  assert.equal(typeof calls[2]?.params?.[3], 'string');
+  assert.notEqual(calls[2]?.params?.[3], created.bearerToken);
 
   const revoked = await repository.revokeBearerToken({
     actorMemberId: 'member-1',
@@ -966,8 +1004,11 @@ test('postgres repository creates and revokes hashed bearer tokens without retur
 
   assert.equal(revoked?.tokenId, 'token-1');
   assert.equal(revoked?.revokedAt, '2026-03-12T00:05:00Z');
-  assert.match(calls[1]?.sql ?? '', /update app\.member_bearer_tokens mbt/);
-  assert.deepEqual(calls[1]?.params, ['token-1', 'member-1']);
+  assert.equal(calls.filter((call) => call.sql === 'begin').length, 2);
+  assert.equal(calls.filter((call) => call.sql === 'commit').length, 2);
+  const revokeCall = [...calls].reverse().find((call) => /update app\.member_bearer_tokens mbt/.test(call.sql));
+  assert.match(revokeCall?.sql ?? '', /update app\.member_bearer_tokens mbt/);
+  assert.deepEqual(revokeCall?.params, ['token-1', 'member-1']);
 });
 
 test('postgres repository claims the next pending delivery and appends a processing attempt', async () => {
@@ -979,6 +1020,7 @@ test('postgres repository claims the next pending delivery and appends a process
 
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes("set_config('app.delivery_worker_scope'")) return { rows: [{ set_config: '1' }], rowCount: 1 };
       if (sql.includes('with next_delivery as (')) return { rows: [{ delivery_id: 'delivery-1' }], rowCount: 1 };
       if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1')) {
         return {
@@ -1024,8 +1066,11 @@ test('postgres repository claims the next pending delivery and appends a process
   assert.equal(claimed?.attempt.attemptNo, 2);
   assert.equal(claimed?.attempt.workerKey, 'worker-a');
   assert.equal(claimed?.endpoint.endpointUrl, 'https://example.test/webhook');
-  assert.match(calls[2]?.sql ?? '', /with next_delivery as \(/);
-  assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], 'worker-a']);
+  const workerScopeCall = calls.find((call) => call.sql.includes("set_config('app.delivery_worker_scope'"));
+  assert.ok(workerScopeCall);
+  const claimCall = calls.find((call) => /with next_delivery as \(/.test(call.sql));
+  assert.match(claimCall?.sql ?? '', /with next_delivery as \(/);
+  assert.deepEqual(claimCall?.params, ['member-1', ['network-2'], 'worker-a']);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
@@ -1037,6 +1082,7 @@ test('postgres repository completes a processing delivery attempt and touches en
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes("set_config('app.delivery_worker_scope'")) return { rows: [{ set_config: '1' }], rowCount: 1 };
       if (sql.includes('with current_attempt as (')) return { rows: [{ delivery_id: 'delivery-1' }], rowCount: 1 };
       if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1')) {
         return {
@@ -1081,8 +1127,11 @@ test('postgres repository completes a processing delivery attempt and touches en
   assert.equal(claimed?.attempt.status, 'sent');
   assert.equal(claimed?.attempt.responseStatusCode, 202);
   assert.equal(claimed?.endpoint.endpointId, 'endpoint-2');
-  assert.match(calls[2]?.sql ?? '', /with current_attempt as \(/);
-  assert.deepEqual(calls[2]?.params, ['member-1', 'delivery-1', ['network-2'], 202, 'ok']);
+  const workerScopeCall = calls.find((call) => call.sql.includes("set_config('app.delivery_worker_scope'"));
+  assert.ok(workerScopeCall);
+  const completeCall = calls.find((call) => /with current_attempt as \(/.test(call.sql));
+  assert.match(completeCall?.sql ?? '', /with current_attempt as \(/);
+  assert.deepEqual(completeCall?.params, ['member-1', 'delivery-1', ['network-2'], 202, 'ok']);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
@@ -1094,6 +1143,7 @@ test('postgres repository fails a processing delivery attempt and touches endpoi
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      if (sql.includes("set_config('app.delivery_worker_scope'")) return { rows: [{ set_config: '1' }], rowCount: 1 };
       if (sql.includes('with current_attempt as (')) return { rows: [{ delivery_id: 'delivery-1' }], rowCount: 1 };
       if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1')) {
         return {
@@ -1137,8 +1187,11 @@ test('postgres repository fails a processing delivery attempt and touches endpoi
   assert.equal(claimed?.delivery.status, 'failed');
   assert.equal(claimed?.attempt.errorMessage, 'timeout');
   assert.equal(claimed?.endpoint.state, 'active');
-  assert.match(calls[2]?.sql ?? '', /with current_attempt as \(/);
-  assert.deepEqual(calls[2]?.params, ['member-1', 'delivery-1', ['network-2'], 'timeout', 504, 'timeout']);
+  const workerScopeCall = calls.find((call) => call.sql.includes("set_config('app.delivery_worker_scope'"));
+  assert.ok(workerScopeCall);
+  const failCall = calls.find((call) => /with current_attempt as \(/.test(call.sql));
+  assert.match(failCall?.sql ?? '', /with current_attempt as \(/);
+  assert.deepEqual(failCall?.params, ['member-1', 'delivery-1', ['network-2'], 'timeout', 504, 'timeout']);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 

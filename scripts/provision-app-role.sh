@@ -22,12 +22,13 @@ if [[ -z "$DATABASE_NAME" ]]; then
   )"
 fi
 
-psql "$DATABASE_MIGRATOR_URL" \
-  -v ON_ERROR_STOP=1 \
-  --set app_role="$APP_ROLE" \
-  --set app_password="$APP_PASSWORD" \
-  --set database_name="$DATABASE_NAME" \
-  --set schema_name="$SCHEMA_NAME" <<'SQL'
+run_provision_sql() {
+  psql "$DATABASE_MIGRATOR_URL" \
+    -v ON_ERROR_STOP=1 \
+    --set app_role="$APP_ROLE" \
+    --set app_password="$APP_PASSWORD" \
+    --set database_name="$DATABASE_NAME" \
+    --set schema_name="$SCHEMA_NAME" <<'SQL'
 select exists(select 1 from pg_roles where rolname = :'app_role') as app_role_exists \gset
 
 select format(
@@ -63,6 +64,36 @@ select case
   when :'schema_migrations_exists' = 't' then format('grant select on table public.schema_migrations to %I', :'app_role')
 end \gexec
 SQL
+}
+
+attempt=1
+while true; do
+  stdout_file="$(mktemp)"
+  stderr_file="$(mktemp)"
+
+  if run_provision_sql >"$stdout_file" 2>"$stderr_file"; then
+    cat "$stdout_file"
+    rm -f "$stdout_file" "$stderr_file"
+    break
+  fi
+
+  status=$?
+  stderr_contents="$(cat "$stderr_file")"
+  stdout_contents="$(cat "$stdout_file")"
+  rm -f "$stdout_file" "$stderr_file"
+
+  if [[ $status -eq 3 && "$stderr_contents" == *"tuple concurrently updated"* && $attempt -lt 3 ]]; then
+    attempt=$((attempt + 1))
+    sleep 0.2
+    continue
+  fi
+
+  if [[ -n "$stdout_contents" ]]; then
+    printf '%s\n' "$stdout_contents"
+  fi
+  printf '%s\n' "$stderr_contents" >&2
+  exit "$status"
+done
 
 printf 'Provisioned runtime Postgres role %s on database %s.\n' "$APP_ROLE" "$DATABASE_NAME"
 printf 'Use DATABASE_URL for this runtime role and reserve DATABASE_MIGRATOR_URL for migrations, seeds, and bootstrap work.\n'

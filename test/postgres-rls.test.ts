@@ -43,6 +43,10 @@ async function setActorContext(client: PoolClient, actorMemberId: string) {
   );
 }
 
+async function setDeliveryWorkerScope(client: PoolClient) {
+  await client.query(`select set_config('app.delivery_worker_scope', '1', true)`);
+}
+
 async function seedRlsFixture(client: PoolClient) {
   const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -95,6 +99,21 @@ async function seedRlsFixture(client: PoolClient) {
     `insert into app.networks (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
     [`network-two-${suffix}`, `Network Two ${suffix}`, outsiderId, 'RLS test network two'],
   )).rows[0]!.id;
+
+  await client.query(
+    `
+      insert into app.network_owner_versions (
+        network_id,
+        owner_member_id,
+        version_no,
+        created_by_member_id
+      )
+      values
+        ($1, $2, 1, $2),
+        ($3, $4, 1, $4)
+    `,
+    [network1Id, ownerId, network2Id, outsiderId],
+  );
 
   const ownerMembershipId = (await client.query<{ id: string }>(
     `
@@ -322,9 +341,11 @@ async function seedRlsFixture(client: PoolClient) {
     outsiderId,
     network1Id,
     network2Id,
+    memberBMembershipId,
     network1EntityId,
     network2EntityId,
     threadId,
+    endpointId,
     deliveryId,
     applicationId,
   };
@@ -511,5 +532,183 @@ test('RLS blocks delivery acknowledgements from non-recipient actors', async () 
     );
 
     assert.equal(typeof inserted.rows[0]?.id, 'string');
+  });
+});
+
+test('RLS limits delivery endpoint and attempt access to owners or worker-scoped execution', async () => {
+  await withIsolatedClient(async (client, roleName) => {
+    const fixture = await seedRlsFixture(client);
+    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
+
+    await setActorContext(client, fixture.memberAId);
+    const hiddenEndpoint = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.delivery_endpoints
+        where id = $1
+      `,
+      [fixture.endpointId],
+    );
+    assert.equal(hiddenEndpoint.rows[0]?.visible_count, '0');
+
+    await client.query('savepoint bad_attempt');
+    await assert.rejects(
+      () => client.query(
+        `
+          insert into app.delivery_attempts (
+            delivery_id,
+            network_id,
+            endpoint_id,
+            status,
+            attempt_no,
+            created_by_member_id
+          )
+          values ($1, $2, $3, 'processing', 1, $4)
+        `,
+        [fixture.deliveryId, fixture.network1Id, fixture.endpointId, fixture.memberAId],
+      ),
+      /row-level security|violates row-level security policy/i,
+    );
+    await client.query('rollback to savepoint bad_attempt');
+
+    await setDeliveryWorkerScope(client);
+    const visibleEndpoint = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.delivery_endpoints
+        where id = $1
+      `,
+      [fixture.endpointId],
+    );
+    assert.equal(visibleEndpoint.rows[0]?.visible_count, '1');
+
+    const insertedAttempt = await client.query<{ id: string }>(
+      `
+        insert into app.delivery_attempts (
+          delivery_id,
+          network_id,
+          endpoint_id,
+          worker_key,
+          status,
+          attempt_no,
+          created_by_member_id
+        )
+        values ($1, $2, $3, 'rls-worker', 'processing', 1, $4)
+        returning id
+      `,
+      [fixture.deliveryId, fixture.network1Id, fixture.endpointId, fixture.memberAId],
+    );
+    assert.equal(typeof insertedAttempt.rows[0]?.id, 'string');
+
+    const updatedEndpoint = await client.query<{ id: string }>(
+      `
+        update app.delivery_endpoints
+        set last_success_at = now()
+        where id = $1
+        returning id
+      `,
+      [fixture.endpointId],
+    );
+    assert.equal(updatedEndpoint.rows[0]?.id, fixture.endpointId);
+  });
+});
+
+test('RLS limits token and history tables to actor or owner scope', async () => {
+  await withIsolatedClient(async (client, roleName) => {
+    const fixture = await seedRlsFixture(client);
+    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
+
+    await setActorContext(client, fixture.memberAId);
+    const ownToken = await client.query<{ member_id: string }>(
+      `
+        insert into app.member_bearer_tokens (member_id, label, token_hash, metadata)
+        values ($1, 'member-a', $2, '{}'::jsonb)
+        returning member_id
+      `,
+      [fixture.memberAId, `hash-member-a-${Date.now()}`],
+    );
+    assert.equal(ownToken.rows[0]?.member_id, fixture.memberAId);
+
+    await client.query('savepoint bad_token');
+    await assert.rejects(
+      () => client.query(
+        `
+          insert into app.member_bearer_tokens (member_id, label, token_hash, metadata)
+          values ($1, 'member-b', $2, '{}'::jsonb)
+        `,
+        [fixture.memberBId, `hash-member-b-${Date.now()}`],
+      ),
+      /row-level security|violates row-level security policy/i,
+    );
+    await client.query('rollback to savepoint bad_token');
+
+    const hiddenRoles = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.member_global_role_versions
+        where member_id = $1
+      `,
+      [fixture.ownerId],
+    );
+    assert.equal(hiddenRoles.rows[0]?.visible_count, '0');
+
+    const visibleOwnerHistory = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.network_owner_versions
+        where network_id in ($1, $2)
+      `,
+      [fixture.network1Id, fixture.network2Id],
+    );
+    assert.equal(visibleOwnerHistory.rows[0]?.visible_count, '1');
+
+    await client.query('savepoint bad_state');
+    await assert.rejects(
+      () => client.query(
+        `
+          insert into app.network_membership_state_versions (
+            membership_id,
+            status,
+            version_no,
+            created_by_member_id
+          )
+          select $1::app.short_id, 'paused', cnms.version_no + 1, $2::app.short_id
+          from app.current_network_membership_states cnms
+          where cnms.membership_id = $1::app.short_id
+        `,
+        [fixture.memberBMembershipId, fixture.memberAId],
+      ),
+      /row-level security|violates row-level security policy/i,
+    );
+    await client.query('rollback to savepoint bad_state');
+
+    await setActorContext(client, fixture.ownerId);
+    const visibleRoles = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.member_global_role_versions
+        where member_id = $1
+      `,
+      [fixture.ownerId],
+    );
+    assert.equal(visibleRoles.rows[0]?.visible_count, '1');
+
+    const insertedState = await client.query<{ id: string }>(
+      `
+        insert into app.network_membership_state_versions (
+          membership_id,
+          status,
+          version_no,
+          supersedes_state_version_id,
+          created_by_member_id
+        )
+        select $1::app.short_id, 'paused', cnms.version_no + 1, cnms.id, $2::app.short_id
+        from app.current_network_membership_states cnms
+        where cnms.membership_id = $1::app.short_id
+        returning id
+      `,
+      [fixture.memberBMembershipId, fixture.ownerId],
+    );
+    assert.equal(typeof insertedState.rows[0]?.id, 'string');
   });
 });

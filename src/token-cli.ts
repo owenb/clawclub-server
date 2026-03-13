@@ -87,9 +87,9 @@ function parseFlags(argv: string[]): { command: string; flags: Flags } {
 }
 
 function requireDatabaseUrl(): string {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env.DATABASE_MIGRATOR_URL ?? process.env.DATABASE_URL;
   if (!databaseUrl) {
-    console.error('DATABASE_URL must be set for this command');
+    console.error('DATABASE_URL or DATABASE_MIGRATOR_URL must be set for this command');
     process.exit(1);
   }
   return databaseUrl;
