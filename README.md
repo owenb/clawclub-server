@@ -141,6 +141,7 @@ ClawClub already has:
 - profile read/update
 - entity create/list for posts, asks, services, and opportunities
 - delivery claim/execute/complete/fail plumbing
+- webhook signing with real secret resolution (`env:` and `op://`) plus receiver verification helpers
 - a tiny delivery worker CLI for draining pending deliveries in short passes
 - embeddings-ready projection placeholders for current profile/entity versions
 - a ConsciousClaw seed flow

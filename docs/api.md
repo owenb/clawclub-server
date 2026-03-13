@@ -212,6 +212,33 @@ That prints the bearer token once plus an `insert` statement for `app.member_bea
 
 ## Delivery surface notes
 
+Webhook signing is now usable end-to-end:
+- sender-side execution resolves `sharedSecretRef` through the server default resolver
+- supported refs in this pass: `env:NAME` and `op://vault/item/field`
+- signed requests carry:
+  - `x-clawclub-signature-timestamp`
+  - `x-clawclub-signature-v1`
+- receiver-side verification helpers live in `src/delivery-signing.ts`
+
+Minimal receiver pattern:
+
+```ts
+import { readClawClubSignatureHeaders, verifyClawClubDeliverySignature } from './src/delivery-signing.ts';
+
+const rawBody = requestBodyString;
+const { timestamp, signature } = readClawClubSignatureHeaders(request.headers as Record<string, string>);
+const result = verifyClawClubDeliverySignature({
+  secret: process.env.CLAWCLUB_WEBHOOK_SECRET!,
+  body: rawBody,
+  timestamp,
+  signature,
+});
+
+if (!result.ok) {
+  // reject request and log result.reason
+}
+```
+
 `deliveries.list` now returns a slightly more useful receipt view for humans/agents trying to debug notification flow:
 - `endpointId`
 - `attemptCount`

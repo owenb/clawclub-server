@@ -1,7 +1,8 @@
 import http from 'node:http';
 import { URL } from 'node:url';
 import { Pool } from 'pg';
-import { AppError, buildApp } from './app.ts';
+import { AppError, buildApp, type DeliverySecretResolver, type Repository } from './app.ts';
+import { createDeliverySecretResolver } from './delivery-signing.ts';
 import { createPostgresRepository } from './postgres.ts';
 
 function readJsonBody(request: http.IncomingMessage): Promise<Record<string, unknown>> {
@@ -61,16 +62,11 @@ function writeJson(response: http.ServerResponse, statusCode: number, payload: u
   response.end(JSON.stringify(payload, null, 2));
 }
 
-export function createServer() {
+export function createServer(options: { resolveDeliverySecret?: DeliverySecretResolver; repository?: Repository } = {}) {
   const databaseUrl = process.env.DATABASE_URL;
-
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL must be set');
-  }
-
-  const pool = new Pool({ connectionString: databaseUrl });
-  const repository = createPostgresRepository({ pool });
-  const app = buildApp({ repository });
+  const pool = options.repository ? null : new Pool({ connectionString: databaseUrl ?? (() => { throw new Error('DATABASE_URL must be set'); })() });
+  const repository = options.repository ?? createPostgresRepository({ pool: pool! });
+  const app = buildApp({ repository, resolveDeliverySecret: options.resolveDeliverySecret ?? createDeliverySecretResolver() });
 
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
@@ -133,7 +129,9 @@ export function createServer() {
       });
     });
 
-    await pool.end();
+    if (pool) {
+      await pool.end();
+    }
   };
 
   return { server, shutdown };

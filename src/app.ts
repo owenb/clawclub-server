@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { signClawClubDelivery } from './delivery-signing.ts';
 
 export type MembershipState = 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected';
 
@@ -1247,13 +1247,7 @@ async function buildSignedDeliveryHeaders(input: {
     throw new Error(`Delivery endpoint ${input.endpoint.endpointId} secret could not be resolved`);
   }
 
-  const timestamp = new Date().toISOString();
-  const signature = createHmac('sha256', secret).update(`${timestamp}.${input.body}`).digest('hex');
-
-  return {
-    'x-clawclub-signature-timestamp': timestamp,
-    'x-clawclub-signature-v1': `sha256=${signature}`,
-  };
+  return signClawClubDelivery({ secret, body: input.body });
 }
 
 export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeliverySecret }: { repository: Repository; fetchImpl?: typeof fetch; resolveDeliverySecret?: DeliverySecretResolver }) {
