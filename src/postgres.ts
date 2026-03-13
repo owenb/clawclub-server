@@ -3058,8 +3058,12 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       }
     },
 
-    async listEvents({ actorMemberId, networkIds, limit }: ListEventsInput): Promise<EventSummary[]> {
+    async listEvents({ actorMemberId, networkIds, limit, query }: ListEventsInput): Promise<EventSummary[]> {
       return withActorContext(pool, actorMemberId, networkIds, async (client) => {
+        const trimmedQuery = query?.trim();
+        const likePattern = trimmedQuery ? `%${trimmedQuery}%` : null;
+        const prefixPattern = trimmedQuery ? `${trimmedQuery}%` : null;
+
         const result = await client.query<{ entity_id: string }>(
         `
           with scope as (
@@ -3069,10 +3073,29 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
           from scope s
           join app.live_entities le on le.network_id = s.network_id
           where le.kind = 'event'
-          order by coalesce(le.starts_at, le.effective_at) asc, le.entity_id asc
-          limit $2
+            and (
+              $3::text is null
+              or coalesce(le.title, '') ilike $3
+              or coalesce(le.summary, '') ilike $3
+              or coalesce(le.body, '') ilike $3
+            )
+          order by
+            case
+              when $2::text is null then 0
+              when lower(coalesce(le.title, '')) = lower($2::text) then 400
+              when lower(coalesce(le.title, '')) like lower($4::text) then 250
+              when lower(coalesce(le.summary, '')) like lower($4::text) then 175
+              when lower(coalesce(le.body, '')) like lower($4::text) then 120
+              when coalesce(le.title, '') ilike $3 then 90
+              when coalesce(le.summary, '') ilike $3 then 60
+              when coalesce(le.body, '') ilike $3 then 30
+              else 0
+            end desc,
+            coalesce(le.starts_at, le.effective_at) asc,
+            le.entity_id asc
+          limit $5
         `,
-        [networkIds, limit],
+        [networkIds, trimmedQuery ?? null, likePattern, prefixPattern, limit],
       );
 
         const events = await Promise.all(result.rows.map((row) => readEventSummary(client, actorMemberId, row.entity_id)));
@@ -3989,8 +4012,12 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       );
     },
 
-    async listEntities({ networkIds, kinds, limit }) {
+    async listEntities({ networkIds, kinds, limit, query }) {
       return withActorContext(pool, '', networkIds, async (client) => {
+        const trimmedQuery = query?.trim();
+        const likePattern = trimmedQuery ? `%${trimmedQuery}%` : null;
+        const prefixPattern = trimmedQuery ? `${trimmedQuery}%` : null;
+
         const result = await client.query<EntityRow>(
         `
           with scope as (
@@ -4025,10 +4052,29 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
           left join app.current_entity_version_embeddings ceve on ceve.entity_version_id = le.entity_version_id
           join app.members m on m.id = le.author_member_id
           where le.kind = any($2::app.entity_kind[])
-          order by le.effective_at desc, le.entity_id desc
-          limit $3
+            and (
+              $4::text is null
+              or coalesce(le.title, '') ilike $4
+              or coalesce(le.summary, '') ilike $4
+              or coalesce(le.body, '') ilike $4
+            )
+          order by
+            case
+              when $3::text is null then 0
+              when lower(coalesce(le.title, '')) = lower($3::text) then 400
+              when lower(coalesce(le.title, '')) like lower($5::text) then 250
+              when lower(coalesce(le.summary, '')) like lower($5::text) then 175
+              when lower(coalesce(le.body, '')) like lower($5::text) then 120
+              when coalesce(le.title, '') ilike $4 then 90
+              when coalesce(le.summary, '') ilike $4 then 60
+              when coalesce(le.body, '') ilike $4 then 30
+              else 0
+            end desc,
+            le.effective_at desc,
+            le.entity_id desc
+          limit $6
         `,
-        [networkIds, kinds, limit],
+        [networkIds, kinds, trimmedQuery ?? null, likePattern, prefixPattern, limit],
       );
         return result.rows.map(mapEntityRow);
       });

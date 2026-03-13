@@ -1894,7 +1894,7 @@ test('events.create writes the smallest sane event payload', async () => {
   assert.equal(result.data.event.networkId, 'network-2');
 });
 
-test('events.list stays inside accessible scope', async () => {
+test('events.list stays inside accessible scope and forwards optional query', async () => {
   let capturedInput: ListEventsInput | null = null;
 
   const repository: Repository = {
@@ -1971,14 +1971,16 @@ test('events.list stays inside accessible scope', async () => {
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'events.list',
-    payload: { networkId: 'network-2', limit: 4 },
+    payload: { networkId: 'network-2', query: 'hetzner', limit: 4 },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
     networkIds: ['network-2'],
     limit: 4,
+    query: 'hetzner',
   });
+  assert.equal(result.data.query, 'hetzner');
   assert.equal(result.data.results[0]?.networkId, 'network-2');
 });
 
@@ -2075,7 +2077,7 @@ test('events.rsvp uses the actor membership in the event network', async () => {
   assert.equal(result.data.event.rsvps.viewerResponse, 'yes');
 });
 
-test('entities.list can span accessible networks and filter by kinds', async () => {
+test('entities.list can span accessible networks and filter by kinds with optional query', async () => {
   let capturedInput: ListEntitiesInput | null = null;
 
   const repository: Repository = {
@@ -2120,6 +2122,7 @@ test('entities.list can span accessible networks and filter by kinds', async () 
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'entities.list',
     payload: {
+      query: 'backend',
       kinds: ['ask', 'service'],
       limit: 5,
     },
@@ -2129,8 +2132,10 @@ test('entities.list can span accessible networks and filter by kinds', async () 
     networkIds: ['network-1', 'network-2'],
     kinds: ['ask', 'service'],
     limit: 5,
+    query: 'backend',
   });
   assert.equal(result.action, 'entities.list');
+  assert.equal(result.data.query, 'backend');
   assert.equal(result.data.results[0]?.kind, 'ask');
   assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-1', 'network-2']);
 });

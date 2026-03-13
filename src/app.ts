@@ -417,6 +417,7 @@ export type ListEventsInput = {
   actorMemberId: string;
   networkIds: string[];
   limit: number;
+  query?: string;
 };
 
 export type RsvpEventInput = {
@@ -434,6 +435,7 @@ export type ListEntitiesInput = {
   networkIds: string[];
   kinds: EntityKind[];
   limit: number;
+  query?: string;
 };
 
 export type DeliveryAckState = 'shown' | 'suppressed';
@@ -1877,10 +1879,12 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
           }
 
           const networkIds = networkScope.map((network) => network.networkId);
+          const query = normalizeOptionalString(payload.query, 'query') ?? undefined;
           const results = await repository.listEvents({
             actorMemberId: actor.member.id,
             networkIds,
             limit,
+            query,
           });
 
           return buildSuccessResponse({
@@ -1893,6 +1897,7 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
             },
             sharedContext,
             data: {
+              query: query ?? null,
               limit,
               networkScope,
               results,
@@ -2527,10 +2532,12 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
           }
 
           const networkIds = networkScope.map((network) => network.networkId);
+          const query = normalizeOptionalString(payload.query, 'query') ?? undefined;
           const results = await repository.listEntities({
             networkIds,
             kinds,
             limit,
+            query,
           });
 
           return buildSuccessResponse({
@@ -2543,6 +2550,7 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
             },
             sharedContext,
             data: {
+              query: query ?? null,
               kinds,
               limit,
               networkScope,

@@ -141,6 +141,7 @@ ClawClub already has:
 - a thin operator-oriented AI chat runner/CLI on top of that curated tool layer
 - member search
 - profile read/update
+- deterministic plain-text retrieval for entities and events
 - entity create/list for posts, asks, services, and opportunities
 - delivery claim/execute/complete/fail plumbing
 - webhook signing with real secret resolution (`env:` and `op://`) plus receiver verification helpers

@@ -256,6 +256,14 @@ if (!result.ok) {
 It does not mutate the original row; the original receipt remains as history.
 The retry is still fully scope-checked server-side from bearer auth + network membership.
 
+`entities.list` and `events.list` now accept an optional plain-text `query` and use deterministic ranking only:
+- exact title matches first
+- then title/summary/body prefix matches
+- then broader substring matches
+- final tie-breaker stays time-based (`effective_at` for entities, `starts_at`/`effective_at` for events)
+
+This is intentionally not semantic search yet.
+
 ## Next likely actions
 
 Only after real use proves the need:

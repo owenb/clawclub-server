@@ -125,9 +125,10 @@ const canonicalToolSpecs = {
     action: 'profile.update',
   },
   entities_list: {
-    description: 'List recent posts, asks, opportunities, or services within accessible network scope.',
+    description: 'List recent posts, asks, opportunities, or services within accessible network scope, optionally narrowed by a plain-text query.',
     inputSchema: z.object({
       networkId: z.string().trim().min(1).optional(),
+      query: z.string().trim().min(1).optional(),
       kinds: z.array(z.enum(['post', 'opportunity', 'service', 'ask'])).min(1).optional(),
       limit: z.number().int().min(1).max(20).optional(),
     }),
@@ -147,9 +148,10 @@ const canonicalToolSpecs = {
     action: 'entities.create',
   },
   events_list: {
-    description: 'List upcoming events in accessible networks.',
+    description: 'List upcoming events in accessible networks, optionally narrowed by a plain-text query.',
     inputSchema: z.object({
       networkId: z.string().trim().min(1).optional(),
+      query: z.string().trim().min(1).optional(),
       limit: z.number().int().min(1).max(20).optional(),
     }),
     action: 'events.list',
