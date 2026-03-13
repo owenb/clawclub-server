@@ -77,9 +77,17 @@ test('postgres repository creates, archives, and reassigns network owners throug
 test('postgres repository lists active members with scoped membership context', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
-  const pool = {
+  const client = {
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
 
       if (sql.includes('jsonb_agg(') && sql.includes('as memberships')) {
         return {
@@ -117,10 +125,12 @@ test('postgres repository lists active members with scoped membership context', 
 
       throw new Error(`Unexpected query: ${sql}`);
     },
+    release() {},
   };
 
-  const repository = createPostgresRepository({ pool: pool as any });
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const results = await repository.listMembers({
+    actorMemberId: 'member-1',
     networkIds: ['network-2'],
     limit: 5,
   });
@@ -128,16 +138,24 @@ test('postgres repository lists active members with scoped membership context', 
   assert.equal(results.length, 1);
   assert.equal(results[0]?.memberId, 'member-2');
   assert.equal(results[0]?.memberships[0]?.networkId, 'network-2');
-  assert.match(calls[0]?.sql ?? '', /join app\.accessible_network_memberships anm/);
-  assert.deepEqual(calls[0]?.params, [['network-2'], 5]);
+  assert.match(calls[2]?.sql ?? '', /join app\.accessible_network_memberships anm/);
+  assert.deepEqual(calls[2]?.params, [['network-2'], 5]);
 });
 
 test('postgres repository searchMembers requires every query token across searchable fields and ranks deterministically', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
-  const pool = {
+  const client = {
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
 
       if (sql.includes('with scope as (') && sql.includes('from tokens t') && sql.includes('cmp.tagline')) {
         return {
@@ -188,19 +206,21 @@ test('postgres repository searchMembers requires every query token across search
 
       throw new Error(`Unexpected query: ${sql}`);
     },
+    release() {},
   };
 
-  const repository = createPostgresRepository({ pool: pool as any });
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const results = await repository.searchMembers({
+    actorMemberId: 'member-1',
     networkIds: ['network-2'],
     query: 'Chris builder',
     limit: 2,
   });
 
   assert.deepEqual(results.map((result) => result.memberId), ['member-2', 'member-4']);
-  assert.match(calls[0]?.sql ?? '', /from tokens t/);
-  assert.match(calls[0]?.sql ?? '', /cmp\.summary/);
-  assert.deepEqual(calls[0]?.params, [['network-2'], '%Chris builder%', ['chris', 'builder'], 25]);
+  assert.match(calls[2]?.sql ?? '', /from tokens t/);
+  assert.match(calls[2]?.sql ?? '', /cmp\.summary/);
+  assert.deepEqual(calls[2]?.params, [['network-2'], '%Chris builder%', ['chris', 'builder'], 25]);
 });
 
 test('postgres repository projects actor scope into the db session before dm reads', async () => {
@@ -1242,7 +1262,9 @@ test('postgres repository creates an application with interview intake details a
       if (sql.includes('from app.accessible_network_memberships anm') && sql.includes("and anm.role = 'owner'")) return { rows: [{ membership_id: 'membership-owner' }], rowCount: 1 };
       if (sql.includes('from app.current_network_memberships cnm') && sql.includes('and cnm.member_id = $2') && sql.includes("and cnm.status = 'active'")) return { rows: [{ member_id: 'member-1' }], rowCount: 1 };
       if (sql.includes('select cnm.id as membership_id') && sql.includes('where cnm.id = $1')) return { rows: [{ membership_id: 'membership-9' }], rowCount: 1 };
-      if (sql.includes('with applicant as (') && sql.includes('insert into app.applications')) return { rows: [{ application_id: 'application-9' }], rowCount: 1 };
+      if (sql.includes('insert into app.applications') && sql.includes('where app.member_is_active($2)')) {
+        return { rows: [{ application_id: 'application-9' }], rowCount: 1 };
+      }
       if (sql.includes('from app.current_applications ca') && sql.includes('where ca.id = $1')) {
         return {
           rows: [{

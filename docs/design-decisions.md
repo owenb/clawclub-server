@@ -38,7 +38,7 @@ Approved tool/action namespaces:
 - `profile.*`
 - `entities.*`
 - `events.*`
-- `dm.*`
+- `messages.*`
 - `deliveries.*`
 - `applications.*`
 - `tokens.*`

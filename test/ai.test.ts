@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildClawClubAiTools,
   CLAWCLUB_OPENAI_MODEL,
+  createClawClubOpenAIModel,
   createClawClubOpenAIProvider,
   listCanonicalClawClubTools,
 } from '../src/ai.ts';
@@ -215,6 +216,7 @@ test('buildClawClubAiTools forwards tool execution through the existing app/auth
   });
 
   assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
     networkIds: ['network-1'],
     query: 'builder',
     limit: 3,
@@ -383,4 +385,19 @@ test('createClawClubOpenAIProvider keeps OpenAI pinned to the approved model', (
 
   assert.equal(CLAWCLUB_OPENAI_MODEL, 'gpt-5.4');
   assert.equal(model.modelId, 'gpt-5.4');
+});
+
+test('createClawClubOpenAIModel disables structured outputs for optional tool schemas', () => {
+  let capturedModelId: string | null = null;
+  let capturedSettings: Record<string, unknown> | null = null;
+
+  const model = createClawClubOpenAIModel(((modelId: string, settings?: Record<string, unknown>) => {
+    capturedModelId = modelId;
+    capturedSettings = settings ?? null;
+    return { modelId } as { modelId: string };
+  }) as any);
+
+  assert.equal(capturedModelId, CLAWCLUB_OPENAI_MODEL);
+  assert.deepEqual(capturedSettings, { structuredOutputs: false });
+  assert.equal(model.modelId, CLAWCLUB_OPENAI_MODEL);
 });

@@ -6,7 +6,7 @@ type ActorRow = {
   member_id: string;
   handle: string | null;
   public_name: string;
-  global_roles: Array<'superadmin'> | null;
+  global_roles: Array<'superadmin'> | string | null;
   membership_id: string | null;
   network_id: string | null;
   slug: string | null;
@@ -50,6 +50,31 @@ type SearchRow = {
 
 function normalizeSearchText(value: string | null | undefined): string {
   return (value ?? '').trim().toLowerCase();
+}
+
+function parsePostgresTextArray(value: string[] | string | null | undefined): string[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed === '{}') {
+    return [];
+  }
+
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+    return [trimmed];
+  }
+
+  return trimmed
+    .slice(1, -1)
+    .split(',')
+    .filter((entry) => entry.length > 0)
+    .map((entry) => entry.replace(/^"(.*)"$/, '$1').replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
 }
 
 function tokenizeSearchQuery(query: string): string[] {
@@ -352,7 +377,7 @@ type DeliveryWorkerTokenRow = {
   token_id: string;
   actor_member_id: string;
   label: string | null;
-  allowed_network_ids: string[];
+  allowed_network_ids: string[] | string | null;
   metadata: Record<string, unknown> | null;
 };
 
@@ -509,7 +534,7 @@ function mapActor(rows: ActorRow[]): ActorContext | null {
       handle: first.handle,
       publicName: first.public_name,
     },
-    globalRoles: first.global_roles ?? [],
+    globalRoles: parsePostgresTextArray(first.global_roles) as Array<'superadmin'>,
     memberships: rows
       .filter((row) => row.network_id && row.membership_id && row.slug && row.network_name && row.role && row.status && row.joined_at)
       .map((row) => ({
@@ -1080,8 +1105,8 @@ function mapEventRow(row: EventRow): EventSummary {
   };
 }
 
-async function getActorByMemberId(pool: Pool, memberId: string): Promise<ActorContext | null> {
-  const result = await pool.query<ActorRow>(
+async function readActorByMemberId(client: DbClient, memberId: string): Promise<ActorContext | null> {
+  const result = await client.query<ActorRow>(
     `
       select
         m.id as member_id,
@@ -1117,6 +1142,10 @@ async function getActorByMemberId(pool: Pool, memberId: string): Promise<ActorCo
   );
 
   return mapActor(result.rows);
+}
+
+async function getActorByMemberId(pool: Pool, memberId: string): Promise<ActorContext | null> {
+  return withActorContext(pool, memberId, [], (client) => readActorByMemberId(client, memberId));
 }
 
 function mapMembershipVouchRow(row: MembershipVouchRow): MembershipVouchSummary {
@@ -1538,19 +1567,172 @@ async function readApplicationSummary(client: DbClient, applicationId: string): 
   return result.rows[0] ? mapApplicationRow(result.rows[0]) : null;
 }
 
-async function readMemberProfile(client: DbClient, actorMemberId: string, targetMemberId: string): Promise<MemberProfile | null> {
+async function searchMembers(client: DbClient, input: {
+  networkIds: string[];
+  query: string;
+  limit: number;
+}): Promise<MemberSearchResult[]> {
+  if (input.networkIds.length === 0) {
+    return [];
+  }
+
+  const trimmedQuery = input.query.trim();
+  const tokens = tokenizeSearchQuery(trimmedQuery);
+  const likePattern = `%${trimmedQuery}%`;
+  const candidateLimit = Math.min(Math.max(input.limit * 5, 25), 100);
+
+  const result = await client.query<SearchRow>(
+    `
+      with scope as (
+        select unnest($1::text[])::app.short_id as network_id
+      ),
+      tokens as (
+        select unnest($3::text[]) as token
+      )
+      select
+        m.id as member_id,
+        m.public_name,
+        coalesce(cmp.display_name, m.public_name) as display_name,
+        m.handle,
+        cmp.tagline,
+        cmp.summary,
+        cmp.what_i_do,
+        cmp.known_for,
+        cmp.services_summary,
+        cmp.website_url,
+        jsonb_agg(distinct jsonb_build_object('id', n.id, 'slug', n.slug, 'name', n.name))
+          filter (where n.id is not null) as shared_networks
+      from scope s
+      join app.accessible_network_memberships anm on anm.network_id = s.network_id
+      join app.members m on m.id = anm.member_id and m.state = 'active'
+      left join app.current_member_profiles cmp on cmp.member_id = m.id
+      join app.networks n on n.id = anm.network_id and n.archived_at is null
+      where (
+        m.public_name ilike $2
+        or coalesce(cmp.display_name, '') ilike $2
+        or coalesce(m.handle, '') ilike $2
+        or coalesce(cmp.tagline, '') ilike $2
+        or coalesce(cmp.summary, '') ilike $2
+        or coalesce(cmp.what_i_do, '') ilike $2
+        or coalesce(cmp.known_for, '') ilike $2
+        or coalesce(cmp.services_summary, '') ilike $2
+      )
+        and not exists (
+          select 1
+          from tokens t
+          where not (
+            m.public_name ilike '%' || t.token || '%'
+            or coalesce(cmp.display_name, '') ilike '%' || t.token || '%'
+            or coalesce(m.handle, '') ilike '%' || t.token || '%'
+            or coalesce(cmp.tagline, '') ilike '%' || t.token || '%'
+            or coalesce(cmp.summary, '') ilike '%' || t.token || '%'
+            or coalesce(cmp.what_i_do, '') ilike '%' || t.token || '%'
+            or coalesce(cmp.known_for, '') ilike '%' || t.token || '%'
+            or coalesce(cmp.services_summary, '') ilike '%' || t.token || '%'
+          )
+        )
+      group by
+        m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline, cmp.summary,
+        cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
+      order by display_name asc, m.id asc
+      limit $4
+    `,
+    [input.networkIds, likePattern, tokens, candidateLimit],
+  );
+
+  return result.rows
+    .map((row) => ({ row, score: scoreMemberSearchRow(row, trimmedQuery, tokens) }))
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+
+      const displayNameComparison = left.row.display_name.localeCompare(right.row.display_name, 'en', { sensitivity: 'base' });
+      if (displayNameComparison !== 0) {
+        return displayNameComparison;
+      }
+
+      return left.row.member_id.localeCompare(right.row.member_id, 'en', { sensitivity: 'base' });
+    })
+    .slice(0, input.limit)
+    .map(({ row }) => ({
+      memberId: row.member_id,
+      publicName: row.public_name,
+      displayName: row.display_name,
+      handle: row.handle,
+      tagline: row.tagline,
+      summary: row.summary,
+      whatIDo: row.what_i_do,
+      knownFor: row.known_for,
+      servicesSummary: row.services_summary,
+      websiteUrl: row.website_url,
+      sharedNetworks: row.shared_networks ?? [],
+    }));
+}
+
+async function listMembers(client: DbClient, input: {
+  networkIds: string[];
+  limit: number;
+}): Promise<NetworkMemberSummary[]> {
+  if (input.networkIds.length === 0) {
+    return [];
+  }
+
+  const result = await client.query<MemberListRow>(
+    `
+      with scope as (
+        select unnest($1::text[])::app.short_id as network_id
+      )
+      select
+        m.id as member_id,
+        m.public_name,
+        coalesce(cmp.display_name, m.public_name) as display_name,
+        m.handle,
+        cmp.tagline,
+        cmp.summary,
+        cmp.what_i_do,
+        cmp.known_for,
+        cmp.services_summary,
+        cmp.website_url,
+        jsonb_agg(
+          distinct jsonb_build_object(
+            'membershipId', anm.id,
+            'networkId', anm.network_id,
+            'slug', n.slug,
+            'name', n.name,
+            'summary', n.summary,
+            'manifestoMarkdown', n.manifesto_markdown,
+            'role', anm.role,
+            'status', anm.status,
+            'sponsorMemberId', anm.sponsor_member_id,
+            'joinedAt', anm.joined_at::text
+          )
+        ) filter (where anm.id is not null) as memberships
+      from scope s
+      join app.accessible_network_memberships anm on anm.network_id = s.network_id
+      join app.members m on m.id = anm.member_id and m.state = 'active'
+      join app.networks n on n.id = anm.network_id and n.archived_at is null
+      left join app.current_member_profiles cmp on cmp.member_id = m.id
+      group by
+        m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline, cmp.summary,
+        cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
+      order by min(n.name) asc, display_name asc, m.id asc
+      limit $2
+    `,
+    [input.networkIds, input.limit],
+  );
+
+  return result.rows.map(mapMemberListRow);
+}
+
+async function readMemberProfile(client: DbClient, targetMemberId: string): Promise<MemberProfile | null> {
   const result = await client.query<ProfileRow>(
     `
-      with actor_scope as (
-        select distinct network_id
-        from app.accessible_network_memberships
-        where member_id = $1
-      ),
-      target_scope as (
+      with target_scope as (
         select distinct anm.network_id
         from app.accessible_network_memberships anm
-        join actor_scope ac on ac.network_id = anm.network_id
-        where anm.member_id = $2
+        where anm.member_id = $1
+          and app.actor_has_network_access(anm.network_id)
       )
       select
         m.id as member_id,
@@ -1580,9 +1762,9 @@ async function readMemberProfile(client: DbClient, actorMemberId: string, target
       from app.members m
       left join app.current_member_profiles cmp on cmp.member_id = m.id
       left join app.current_profile_version_embeddings cpve on cpve.member_profile_version_id = cmp.id
-      join target_scope ts on true
-      join app.networks n on n.id = ts.network_id and n.archived_at is null
-      where m.id = $2
+      left join target_scope ts on true
+      left join app.networks n on n.id = ts.network_id and n.archived_at is null
+      where m.id = $1
         and m.state = 'active'
       group by
         m.id, m.public_name, m.handle,
@@ -1591,7 +1773,7 @@ async function readMemberProfile(client: DbClient, actorMemberId: string, target
         cmp.id, cmp.version_no, cmp.created_at, cmp.created_by_member_id,
         cpve.id, cpve.model, cpve.dimensions, cpve.source_text, cpve.metadata, cpve.created_at
     `,
-    [actorMemberId, targetMemberId],
+    [targetMemberId],
   );
 
   return result.rows[0] ? mapProfileRow(result.rows[0]) : null;
@@ -2046,7 +2228,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       }
 
       const currentNetworkIds = new Set(actor.memberships.map((membership) => membership.networkId));
-      const allowedNetworkIds = (tokenRow.allowed_network_ids ?? []).filter((networkId) => currentNetworkIds.has(networkId));
+      const allowedNetworkIds = parsePostgresTextArray(tokenRow.allowed_network_ids).filter((networkId) => currentNetworkIds.has(networkId));
       if (allowedNetworkIds.length === 0) {
         return null;
       }
@@ -2287,12 +2469,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
 
         const applicationResult = await client.query<{ application_id: string }>(
           `
-            with applicant as (
-              select m.id
-              from app.members m
-              where m.id = $2
-                and m.state = 'active'
-            ), inserted as (
+            with inserted as (
               insert into app.applications (
                 network_id,
                 applicant_member_id,
@@ -2301,8 +2478,8 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
                 path,
                 metadata
               )
-              select $1, applicant.id, $3, $4, $5, $6::jsonb
-              from applicant
+              select $1, $2, $3, $4, $5, $6::jsonb
+              where app.member_is_active($2)
               returning id as application_id
             ), version_insert as (
               insert into app.application_versions (
@@ -2437,10 +2614,8 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
               joined_at,
               metadata
             )
-            select $1, m.id, $2, $3, $4, now(), $5::jsonb
-            from app.members m
-            where m.id = $6
-              and m.state = 'active'
+            select $1, $6, $2, $3, $4, now(), $5::jsonb
+            where app.member_is_active($6)
             returning id
           `,
           [
@@ -2772,153 +2947,16 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       }
     },
 
-    async searchMembers({ networkIds, query, limit }): Promise<MemberSearchResult[]> {
-      const trimmedQuery = query.trim();
-      const tokens = tokenizeSearchQuery(trimmedQuery);
-      const likePattern = `%${trimmedQuery}%`;
-      const candidateLimit = Math.min(Math.max(limit * 5, 25), 100);
-
-      const result = await pool.query<SearchRow>(
-        `
-          with scope as (
-            select unnest($1::text[])::app.short_id as network_id
-          ),
-          tokens as (
-            select unnest($3::text[]) as token
-          )
-          select
-            m.id as member_id,
-            m.public_name,
-            coalesce(cmp.display_name, m.public_name) as display_name,
-            m.handle,
-            cmp.tagline,
-            cmp.summary,
-            cmp.what_i_do,
-            cmp.known_for,
-            cmp.services_summary,
-            cmp.website_url,
-            jsonb_agg(distinct jsonb_build_object('id', n.id, 'slug', n.slug, 'name', n.name))
-              filter (where n.id is not null) as shared_networks
-          from scope s
-          join app.accessible_network_memberships anm on anm.network_id = s.network_id
-          join app.members m on m.id = anm.member_id and m.state = 'active'
-          left join app.current_member_profiles cmp on cmp.member_id = m.id
-          join app.networks n on n.id = anm.network_id and n.archived_at is null
-          where (
-            m.public_name ilike $2
-            or coalesce(cmp.display_name, '') ilike $2
-            or coalesce(m.handle, '') ilike $2
-            or coalesce(cmp.tagline, '') ilike $2
-            or coalesce(cmp.summary, '') ilike $2
-            or coalesce(cmp.what_i_do, '') ilike $2
-            or coalesce(cmp.known_for, '') ilike $2
-            or coalesce(cmp.services_summary, '') ilike $2
-          )
-            and not exists (
-              select 1
-              from tokens t
-              where not (
-                m.public_name ilike '%' || t.token || '%'
-                or coalesce(cmp.display_name, '') ilike '%' || t.token || '%'
-                or coalesce(m.handle, '') ilike '%' || t.token || '%'
-                or coalesce(cmp.tagline, '') ilike '%' || t.token || '%'
-                or coalesce(cmp.summary, '') ilike '%' || t.token || '%'
-                or coalesce(cmp.what_i_do, '') ilike '%' || t.token || '%'
-                or coalesce(cmp.known_for, '') ilike '%' || t.token || '%'
-                or coalesce(cmp.services_summary, '') ilike '%' || t.token || '%'
-              )
-            )
-          group by
-            m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline, cmp.summary,
-            cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
-          order by display_name asc, m.id asc
-          limit $4
-        `,
-        [networkIds, likePattern, tokens, candidateLimit],
-      );
-
-      return result.rows
-        .map((row) => ({ row, score: scoreMemberSearchRow(row, trimmedQuery, tokens) }))
-        .sort((left, right) => {
-          if (right.score !== left.score) {
-            return right.score - left.score;
-          }
-
-          const displayNameComparison = left.row.display_name.localeCompare(right.row.display_name, 'en', { sensitivity: 'base' });
-          if (displayNameComparison !== 0) {
-            return displayNameComparison;
-          }
-
-          return left.row.member_id.localeCompare(right.row.member_id, 'en', { sensitivity: 'base' });
-        })
-        .slice(0, limit)
-        .map(({ row }) => ({
-          memberId: row.member_id,
-          publicName: row.public_name,
-          displayName: row.display_name,
-          handle: row.handle,
-          tagline: row.tagline,
-          summary: row.summary,
-          whatIDo: row.what_i_do,
-          knownFor: row.known_for,
-          servicesSummary: row.services_summary,
-          websiteUrl: row.website_url,
-          sharedNetworks: row.shared_networks ?? [],
-        }));
+    async searchMembers({ actorMemberId, networkIds, query, limit }): Promise<MemberSearchResult[]> {
+      return withActorContext(pool, actorMemberId, networkIds, (client) => searchMembers(client, { networkIds, query, limit }));
     },
 
-    async listMembers({ networkIds, limit }) {
-      const result = await pool.query<MemberListRow>(
-        `
-          with scope as (
-            select unnest($1::text[])::app.short_id as network_id
-          )
-          select
-            m.id as member_id,
-            m.public_name,
-            coalesce(cmp.display_name, m.public_name) as display_name,
-            m.handle,
-            cmp.tagline,
-            cmp.summary,
-            cmp.what_i_do,
-            cmp.known_for,
-            cmp.services_summary,
-            cmp.website_url,
-            jsonb_agg(
-              distinct jsonb_build_object(
-                'membershipId', anm.id,
-                'networkId', anm.network_id,
-                'slug', n.slug,
-                'name', n.name,
-                'summary', n.summary,
-                'manifestoMarkdown', n.manifesto_markdown,
-                'role', anm.role,
-                'status', anm.status,
-                'sponsorMemberId', anm.sponsor_member_id,
-                'joinedAt', anm.joined_at::text
-              )
-            ) filter (where anm.id is not null) as memberships
-          from scope s
-          join app.accessible_network_memberships anm on anm.network_id = s.network_id
-          join app.members m on m.id = anm.member_id and m.state = 'active'
-          join app.networks n on n.id = anm.network_id and n.archived_at is null
-          left join app.current_member_profiles cmp on cmp.member_id = m.id
-          group by
-            m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline, cmp.summary,
-            cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
-          order by min(n.name) asc, display_name asc, m.id asc
-          limit $2
-        `,
-        [networkIds, limit],
-      );
-
-      return result.rows.map(mapMemberListRow);
+    async listMembers({ actorMemberId, networkIds, limit }) {
+      return withActorContext(pool, actorMemberId, networkIds, (client) => listMembers(client, { networkIds, limit }));
     },
 
     async getMemberProfile({ actorMemberId, targetMemberId }) {
-      const actor = await getActorByMemberId(pool, actorMemberId);
-      const networkIds = actor?.memberships.map((membership) => membership.networkId) ?? [];
-      return withActorContext(pool, actorMemberId, networkIds, (client) => readMemberProfile(client, actorMemberId, targetMemberId));
+      return withActorContext(pool, actorMemberId, [], (client) => readMemberProfile(client, targetMemberId));
     },
 
     async updateOwnProfile({ actor, patch }: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile> {

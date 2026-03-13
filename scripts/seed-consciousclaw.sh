@@ -54,8 +54,42 @@ on conflict (network_id, member_id) do update
 set
   role = excluded.role,
   status = 'active',
+  left_at = null,
   accepted_covenant_at = coalesce(app.network_memberships.accepted_covenant_at, excluded.accepted_covenant_at),
   metadata = app.network_memberships.metadata || excluded.metadata;
+
+select id as owner_membership_id
+from app.network_memberships
+where network_id = :'network_id'
+  and member_id = :'owner_member_id' \gset
+
+with latest_state as (
+  select id, status
+  from app.current_network_membership_states
+  where membership_id = :'owner_membership_id'
+), next_version as (
+  select coalesce(max(version_no), 0) + 1 as version_no
+  from app.network_membership_state_versions
+  where membership_id = :'owner_membership_id'
+)
+insert into app.network_membership_state_versions (
+  membership_id,
+  status,
+  reason,
+  version_no,
+  supersedes_state_version_id,
+  created_by_member_id
+)
+select
+  :'owner_membership_id',
+  'active',
+  'Seeded ConsciousClaw owner membership',
+  next_version.version_no,
+  latest_state.id,
+  :'owner_member_id'
+from next_version
+left join latest_state on true
+where latest_state.status is distinct from 'active'::app.membership_state;
 
 with current_version as (
   select coalesce(max(version_no), 0) as version_no

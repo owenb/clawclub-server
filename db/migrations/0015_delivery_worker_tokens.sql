@@ -1,7 +1,7 @@
 begin;
 
 create table if not exists app.delivery_worker_tokens (
-  id app.short_id primary key default app.generate_short_id(),
+  id app.short_id primary key default app.new_id(),
   actor_member_id app.short_id not null references app.members(id),
   label text,
   token_hash text not null,

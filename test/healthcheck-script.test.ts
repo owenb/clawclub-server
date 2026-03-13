@@ -4,8 +4,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
 test('healthcheck script reports migration status, worker token presence, and skipped api check without a health token', async () => {
   const tmpDir = '/tmp/clawclub-healthcheck-test';
@@ -16,7 +18,7 @@ test('healthcheck script reports migration status, worker token presence, and sk
   await writeFile(join(stubDir, 'psql'), '#!/usr/bin/env bash\necho applied:0015_delivery_worker_tokens\n', { mode: 0o755 });
 
   const { stdout } = await execFileAsync('./scripts/healthcheck.sh', {
-    cwd: '/home/ubuntu/.openclaw/workspace/clawclub',
+    cwd: repoRoot,
     env: {
       ...process.env,
       PATH: `${stubDir}:${process.env.PATH}`,

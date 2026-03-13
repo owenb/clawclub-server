@@ -105,7 +105,7 @@ async function resolveMemberId(pool: Pool, flags: Flags): Promise<string> {
   }
 
   const result = await pool.query<{ id: string }>(
-    `select id from app.members where handle = $1 and state = 'active'`,
+    `select app.resolve_active_member_id_by_handle($1) as id`,
     [flags.handle],
   );
 

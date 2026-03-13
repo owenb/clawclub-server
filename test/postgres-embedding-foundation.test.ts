@@ -5,27 +5,44 @@ import { createPostgresRepository } from '../src/postgres.ts';
 test('postgres repository exposes current profile embedding projection metadata', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
-  const pool = {
+  const client = {
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
 
-      if (sql.includes('from app.members m') && sql.includes('coalesce(gr.global_roles')) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('left join app.current_profile_version_embeddings cpve')) {
         return {
           rows: [{
-            member_id: 'member-1',
-            handle: 'member-one',
-            public_name: 'Member One',
-            global_roles: ['superadmin'],
-            membership_id: 'membership-1',
-            network_id: 'network-1',
-            slug: 'alpha',
-            network_name: 'Alpha',
-            network_summary: 'First network',
-            manifesto_markdown: null,
-            role: 'admin',
-            status: 'active',
-            sponsor_member_id: 'member-2',
-            joined_at: '2026-03-12T00:00:00Z',
+            member_id: 'member-2',
+            public_name: 'Member Two',
+            handle: 'member-two',
+            display_name: 'Member Two',
+            tagline: 'Builder',
+            summary: 'Short summary',
+            what_i_do: 'Systems',
+            known_for: 'Taste',
+            services_summary: 'Advisory',
+            website_url: 'https://example.test/two',
+            links: [],
+            profile: {},
+            version_id: 'profile-version-2',
+            version_no: 2,
+            version_created_at: '2026-03-12T00:10:00Z',
+            version_created_by_member_id: 'member-2',
+            embedding_id: 'embedding-1',
+            embedding_model: 'text-embedding-3-large',
+            embedding_dimensions: 3072,
+            embedding_source_text: 'Member Two profile summary',
+            embedding_metadata: { subject: 'profile' },
+            embedding_created_at: '2026-03-12T00:11:00Z',
+            shared_networks: [{ id: 'network-1', slug: 'alpha', name: 'Alpha' }],
           }],
           rowCount: 1,
         };
@@ -33,54 +50,12 @@ test('postgres repository exposes current profile embedding projection metadata'
 
       throw new Error(`Unexpected query: ${sql}`);
     },
+    release() {},
+  };
+
+  const pool = {
     async connect() {
-      return {
-        async query(sql: string, params?: unknown[]) {
-          calls.push({ sql, params });
-
-          if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
-            return { rows: [], rowCount: 0 };
-          }
-
-          if (sql.includes("set_config('app.actor_member_id'")) {
-            return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-          }
-
-          if (sql.includes('left join app.current_profile_version_embeddings cpve')) {
-            return {
-              rows: [{
-                member_id: 'member-2',
-                public_name: 'Member Two',
-                handle: 'member-two',
-                display_name: 'Member Two',
-                tagline: 'Builder',
-                summary: 'Short summary',
-                what_i_do: 'Systems',
-                known_for: 'Taste',
-                services_summary: 'Advisory',
-                website_url: 'https://example.test/two',
-                links: [],
-                profile: {},
-                version_id: 'profile-version-2',
-                version_no: 2,
-                version_created_at: '2026-03-12T00:10:00Z',
-                version_created_by_member_id: 'member-2',
-                embedding_id: 'embedding-1',
-                embedding_model: 'text-embedding-3-large',
-                embedding_dimensions: 3072,
-                embedding_source_text: 'Member Two profile summary',
-                embedding_metadata: { subject: 'profile' },
-                embedding_created_at: '2026-03-12T00:11:00Z',
-                shared_networks: [{ id: 'network-1', slug: 'alpha', name: 'Alpha' }],
-              }],
-              rowCount: 1,
-            };
-          }
-
-          throw new Error(`Unexpected query: ${sql}`);
-        },
-        release() {},
-      };
+      return client;
     },
   };
 
@@ -93,6 +68,7 @@ test('postgres repository exposes current profile embedding projection metadata'
   assert.equal(profile?.version.embedding?.sourceText, 'Member Two profile summary');
   assert.deepEqual(profile?.version.embedding?.metadata, { subject: 'profile' });
   assert.match(calls.map((call) => call.sql).join('\n'), /current_profile_version_embeddings/);
+  assert.match(calls.map((call) => call.sql).join('\n'), /with target_scope as \(/i);
 });
 
 test('postgres repository exposes current entity embedding projection metadata during listEntities', async () => {

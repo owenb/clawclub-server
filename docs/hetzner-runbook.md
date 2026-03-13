@@ -23,6 +23,7 @@ Notes:
 - keep this file root-readable only: `chmod 600 /etc/clawclub/clawclub.env`
 - use a **dedicated worker token**, not an ordinary member bearer token
 - if webhook signing uses env secrets, add them here too
+- the Postgres role in `DATABASE_URL` should be a dedicated app role, not a superuser and not `BYPASSRLS`
 
 ## 2) App checkout + install
 

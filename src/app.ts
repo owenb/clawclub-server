@@ -796,11 +796,13 @@ export type Repository = {
   updateDeliveryEndpoint(input: UpdateDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null>;
   revokeDeliveryEndpoint(input: RevokeDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null>;
   searchMembers(input: {
+    actorMemberId: string;
     networkIds: string[];
     query: string;
     limit: number;
   }): Promise<MemberSearchResult[]>;
   listMembers(input: {
+    actorMemberId: string;
     networkIds: string[];
     limit: number;
   }): Promise<NetworkMemberSummary[]>;
@@ -1722,6 +1724,7 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
           };
 
           const results = await repository.searchMembers({
+            actorMemberId: actor.member.id,
             networkIds,
             query,
             limit,
@@ -1755,6 +1758,7 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
 
           const networkIds = networkScope.map((network) => network.networkId);
           const results = await repository.listMembers({
+            actorMemberId: actor.member.id,
             networkIds,
             limit,
           });

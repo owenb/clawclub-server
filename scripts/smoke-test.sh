@@ -26,6 +26,11 @@ insert into app.network_memberships (network_id, member_id, sponsor_member_id, a
 values (:'network_id', :'member_id', :'owner_id', now())
 returning id as member_membership_id \gset
 
+insert into app.network_membership_state_versions (membership_id, status, version_no, created_by_member_id)
+values
+  (:'owner_membership_id', 'active', 1, :'owner_id'),
+  (:'member_membership_id', 'active', 1, :'owner_id');
+
 insert into app.subscriptions (membership_id, payer_member_id, amount, currency)
 values (:'member_membership_id', :'owner_id', 25, 'GBP');
 

@@ -1219,7 +1219,7 @@ test('members.search narrows scope when a permitted network is requested', async
 });
 
 test('members.list returns active members with scoped membership context', async () => {
-  let capturedInput: { networkIds: string[]; limit: number } | null = null;
+  let capturedInput: { actorMemberId: string; networkIds: string[]; limit: number } | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1310,6 +1310,7 @@ test('members.list returns active members with scoped membership context', async
   });
 
   assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
     networkIds: ['network-2'],
     limit: 4,
   });

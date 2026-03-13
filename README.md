@@ -163,6 +163,11 @@ Requirements:
 - `DATABASE_URL`
 - Node.js 22+
 
+Security note:
+- use a dedicated Postgres role for `DATABASE_URL`
+- do **not** run ClawClub as a superuser or a role with `BYPASSRLS`
+- `npm run db:health` now reports the current role safety so you can catch this before production
+
 Setup:
 
 ```bash

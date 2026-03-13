@@ -1,6 +1,27 @@
 import { Pool } from 'pg';
 import { buildBearerToken } from './token.ts';
 
+function parsePostgresTextArray(value: string[] | string | null | undefined): string[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return [];
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === '' || trimmed === '{}') {
+    return [];
+  }
+
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
+    return [trimmed];
+  }
+
+  return trimmed.slice(1, -1).split(',').filter(Boolean);
+}
+
 function usage(): never {
   console.error(`usage:
   node --experimental-strip-types src/worker-token-cli.ts create --member <member_id> --networks <network_id[,network_id...]> [--label <label>] [--metadata '{"key":"value"}']
@@ -64,12 +85,13 @@ async function main(argv = process.argv.slice(2)) {
       `,
       [token.tokenId, flags.member, flags.label ?? null, token.tokenHash, allowedNetworkIds, JSON.stringify(metadata)],
     );
+    const returnedNetworkIds = parsePostgresTextArray(result.rows[0]?.allowed_network_ids);
 
     console.log(JSON.stringify({
       tokenId: result.rows[0]?.id,
       actorMemberId: result.rows[0]?.actor_member_id,
       label: result.rows[0]?.label ?? null,
-      allowedNetworkIds: result.rows[0]?.allowed_network_ids ?? allowedNetworkIds,
+      allowedNetworkIds: returnedNetworkIds.length > 0 ? returnedNetworkIds : allowedNetworkIds,
       createdAt: result.rows[0]?.created_at,
       metadata: result.rows[0]?.metadata ?? metadata,
       bearerToken: token.bearerToken,

@@ -1,8 +1,8 @@
-begin;
-
 alter type app.membership_state add value if not exists 'pending_review';
 alter type app.membership_state add value if not exists 'revoked';
 alter type app.membership_state add value if not exists 'rejected';
+
+begin;
 
 create table if not exists app.network_membership_state_versions (
   id app.short_id primary key default app.new_id(),

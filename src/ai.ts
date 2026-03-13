@@ -253,8 +253,12 @@ export function createClawClubOpenAIProvider(apiKey = process.env.OPENAI_API_KEY
   return createOpenAI({ apiKey });
 }
 
+export function createClawClubOpenAIModel(provider = createClawClubOpenAIProvider()) {
+  return provider(CLAWCLUB_OPENAI_MODEL, { structuredOutputs: false });
+}
+
 export async function generateClawClubChatText(options: ClawClubChatOptions) {
-  const model = options.model ?? (options.provider ?? createClawClubOpenAIProvider())(CLAWCLUB_OPENAI_MODEL);
+  const model = options.model ?? createClawClubOpenAIModel(options.provider ?? createClawClubOpenAIProvider());
   return generateText({
     model,
     system: options.system,
@@ -265,7 +269,7 @@ export async function generateClawClubChatText(options: ClawClubChatOptions) {
 }
 
 export function streamClawClubChatText(options: ClawClubChatOptions) {
-  const model = options.model ?? (options.provider ?? createClawClubOpenAIProvider())(CLAWCLUB_OPENAI_MODEL);
+  const model = options.model ?? createClawClubOpenAIModel(options.provider ?? createClawClubOpenAIProvider());
   return streamText({
     model,
     system: options.system,

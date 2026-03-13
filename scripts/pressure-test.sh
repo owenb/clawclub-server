@@ -40,6 +40,11 @@ select id from app.network_memberships where network_id = :'network_id' and memb
 select id from app.network_memberships where network_id = :'network_id' and member_id = :'lapsed_id' \gset
 \set lapsed_membership_id :id
 
+insert into app.network_membership_state_versions (membership_id, status, version_no, created_by_member_id)
+select id, 'active', 1, member_id
+from app.network_memberships
+where network_id = :'network_id';
+
 insert into app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
 values
   (:'member_membership_id', :'sponsor_id', 'active', 0, now() + interval '14 days'),
