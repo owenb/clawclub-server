@@ -198,6 +198,15 @@ Create a token with:
 node --experimental-strip-types src/token-cli.ts <member_id> [label]
 ```
 
+Drain pending deliveries with the tiny worker CLI:
+
+```bash
+export CLAWCLUB_BEARER_TOKEN=<token>
+node --experimental-strip-types src/delivery-worker.ts --worker-key local-dev --max-runs 10
+```
+
+It just loops over the existing `deliveries.execute` action until the executor reports `idle` or the per-run safety cap is reached.
+
 That prints the bearer token once plus an `insert` statement for `app.member_bearer_tokens`.
 
 ## Delivery surface notes

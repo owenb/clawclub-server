@@ -13,6 +13,7 @@
     "db:bootstrap:consciousclaw": "./scripts/bootstrap-consciousclaw.sh",
     "api:start": "node --experimental-strip-types src/server.ts",
     "api:token": "node --experimental-strip-types src/token-cli.ts",
+    "api:worker": "node --experimental-strip-types src/delivery-worker.ts",
     "api:smoke": "node --experimental-strip-types src/ai-smoke.ts",
     "api:test": "node --experimental-strip-types --test test/*.test.ts",
     "foreman:tick": "./scripts/progress-foreman.sh",

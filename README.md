@@ -140,6 +140,8 @@ ClawClub already has:
 - member search
 - profile read/update
 - entity create/list for posts, asks, services, and opportunities
+- delivery claim/execute/complete/fail plumbing
+- a tiny delivery worker CLI for draining pending deliveries in short passes
 - a ConsciousClaw seed flow
 - tests
 
@@ -167,6 +169,15 @@ Generate a bearer token for a member:
 ```bash
 npm run api:token -- <member_id> [label]
 ```
+
+Run a short delivery worker pass with that token:
+
+```bash
+export CLAWCLUB_BEARER_TOKEN=<token>
+npm run api:worker -- --worker-key local-dev --max-runs 10
+```
+
+The worker simply calls the existing `deliveries.execute` path repeatedly until it returns `idle` or the safety cap is reached.
 
 Example request:
 
