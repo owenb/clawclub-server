@@ -1,3 +1,5 @@
+import { createHmac } from 'node:crypto';
+
 export type MembershipState = 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected';
 
 export type MembershipSummary = {
@@ -540,6 +542,13 @@ export type DeliveryExecutionResult = {
   claimed: ClaimedDelivery | null;
 };
 
+export type DeliverySecretResolver = (input: {
+  sharedSecretRef: string;
+  endpoint: DeliveryEndpointSummary;
+  delivery: DeliverySummary;
+  attempt: DeliveryAttemptSummary;
+}) => Promise<string | null> | string | null;
+
 export type DirectMessageSummary = {
   threadId: string;
   networkId: string;
@@ -1018,7 +1027,44 @@ async function readExecutionResponseBody(response: Response): Promise<string | n
   return body.length > 4000 ? `${body.slice(0, 4000)}…` : body;
 }
 
-export function buildApp({ repository, fetchImpl = globalThis.fetch }: { repository: Repository; fetchImpl?: typeof fetch }) {
+async function buildSignedDeliveryHeaders(input: {
+  endpoint: DeliveryEndpointSummary;
+  delivery: DeliverySummary;
+  attempt: DeliveryAttemptSummary;
+  body: string;
+  resolveDeliverySecret?: DeliverySecretResolver;
+}): Promise<Record<string, string>> {
+  const sharedSecretRef = input.endpoint.sharedSecretRef?.trim() ?? null;
+
+  if (!sharedSecretRef) {
+    return {};
+  }
+
+  if (!input.resolveDeliverySecret) {
+    throw new Error(`Delivery endpoint ${input.endpoint.endpointId} requires secret resolution before execution`);
+  }
+
+  const secret = await input.resolveDeliverySecret({
+    sharedSecretRef,
+    endpoint: input.endpoint,
+    delivery: input.delivery,
+    attempt: input.attempt,
+  });
+
+  if (typeof secret !== 'string' || secret.length === 0) {
+    throw new Error(`Delivery endpoint ${input.endpoint.endpointId} secret could not be resolved`);
+  }
+
+  const timestamp = new Date().toISOString();
+  const signature = createHmac('sha256', secret).update(`${timestamp}.${input.body}`).digest('hex');
+
+  return {
+    'x-clawclub-signature-timestamp': timestamp,
+    'x-clawclub-signature-v1': `sha256=${signature}`,
+  };
+}
+
+export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeliverySecret }: { repository: Repository; fetchImpl?: typeof fetch; resolveDeliverySecret?: DeliverySecretResolver }) {
   if (typeof fetchImpl !== 'function') {
     throw new Error('fetch implementation is required');
   }
@@ -1925,6 +1971,29 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
           }
 
           try {
+            const requestBody = JSON.stringify({
+              deliveryId: claimed.delivery.deliveryId,
+              networkId: claimed.delivery.networkId,
+              recipientMemberId: claimed.delivery.recipientMemberId,
+              topic: claimed.delivery.topic,
+              payload: claimed.delivery.payload,
+              entityId: claimed.delivery.entityId,
+              entityVersionId: claimed.delivery.entityVersionId,
+              transcriptMessageId: claimed.delivery.transcriptMessageId,
+              attempt: {
+                attemptId: claimed.attempt.attemptId,
+                attemptNo: claimed.attempt.attemptNo,
+                workerKey: claimed.attempt.workerKey,
+                startedAt: claimed.attempt.startedAt,
+              },
+            });
+            const signedHeaders = await buildSignedDeliveryHeaders({
+              endpoint: claimed.endpoint,
+              delivery: claimed.delivery,
+              attempt: claimed.attempt,
+              body: requestBody,
+              resolveDeliverySecret,
+            });
             const response = await fetchImpl(claimed.endpoint.endpointUrl, {
               method: 'POST',
               headers: {
@@ -1933,23 +2002,9 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch }: { reposit
                 'x-clawclub-delivery-id': claimed.delivery.deliveryId,
                 'x-clawclub-attempt-id': claimed.attempt.attemptId,
                 'x-clawclub-topic': claimed.delivery.topic,
+                ...signedHeaders,
               },
-              body: JSON.stringify({
-                deliveryId: claimed.delivery.deliveryId,
-                networkId: claimed.delivery.networkId,
-                recipientMemberId: claimed.delivery.recipientMemberId,
-                topic: claimed.delivery.topic,
-                payload: claimed.delivery.payload,
-                entityId: claimed.delivery.entityId,
-                entityVersionId: claimed.delivery.entityVersionId,
-                transcriptMessageId: claimed.delivery.transcriptMessageId,
-                attempt: {
-                  attemptId: claimed.attempt.attemptId,
-                  attemptNo: claimed.attempt.attemptNo,
-                  workerKey: claimed.attempt.workerKey,
-                  startedAt: claimed.attempt.startedAt,
-                },
-              }),
+              body: requestBody,
             });
 
             const responseBody = await readExecutionResponseBody(response);

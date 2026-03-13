@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import {
   AppError,
   buildApp,
@@ -3648,14 +3649,14 @@ test('deliveries.execute claims, posts, and completes a successful attempt', asy
     async retryDelivery() { return makeDeliverySummary(); },
     async claimNextDelivery() {
       calls.push('claim');
-      return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }), endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2' }) });
+      return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }), endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2', sharedSecretRef: null }) });
     },
     async completeDeliveryAttempt(input) {
       calls.push(`complete:${String(input.responseStatusCode)}:${String(input.responseBody)}`);
       return makeClaimedDelivery({
         delivery: makeDeliverySummary({ networkId: 'network-2', status: 'sent', sentAt: '2026-03-12T00:05:00Z' }),
         attempt: { ...makeClaimedDelivery().attempt, status: 'sent', responseStatusCode: 202, responseBody: 'accepted', finishedAt: '2026-03-12T00:05:00Z' },
-        endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2' }),
+        endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2', sharedSecretRef: null }),
       });
     },
     async failDeliveryAttempt() { throw new Error('fail should not be called'); },
@@ -3690,6 +3691,101 @@ test('deliveries.execute claims, posts, and completes a successful attempt', asy
   assert.equal(fetchRequest?.url, 'https://example.test/hooks/member-2');
   assert.equal(fetchRequest?.method, 'POST');
   assert.match(String(fetchRequest?.body), /"deliveryId":"delivery-1"/);
+  const headers = fetchRequest?.headers as Record<string, string>;
+  assert.equal(headers['x-clawclub-signature-v1'], undefined);
+  assert.equal(headers['x-clawclub-signature-timestamp'], undefined);
+});
+
+test('deliveries.execute signs webhook requests when the endpoint has a shared secret ref', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async claimNextDelivery() {
+      return makeClaimedDelivery({
+        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }),
+        endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2', sharedSecretRef: 'op://clawclub/member-2' }),
+      });
+    },
+    async completeDeliveryAttempt() {
+      return makeClaimedDelivery({
+        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'sent', sentAt: '2026-03-12T00:05:00Z' }),
+        attempt: { ...makeClaimedDelivery().attempt, status: 'sent', responseStatusCode: 202, responseBody: 'accepted', finishedAt: '2026-03-12T00:05:00Z' },
+        endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2', sharedSecretRef: 'op://clawclub/member-2' }),
+      });
+    },
+    async failDeliveryAttempt() { throw new Error('fail should not be called'); },
+  };
+
+  let resolvedSecretRef: string | null = null;
+  let fetchRequest: Record<string, unknown> | null = null;
+  const app = buildApp({
+    repository,
+    resolveDeliverySecret: async ({ sharedSecretRef }) => {
+      resolvedSecretRef = sharedSecretRef;
+      return 'super-secret-value';
+    },
+    fetchImpl: async (url, init) => {
+      fetchRequest = { url: String(url), method: init?.method, headers: init?.headers, body: init?.body };
+      return new Response('accepted', { status: 202 });
+    },
+  });
+
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.execute',
+    payload: { workerKey: 'worker-a' },
+  });
+
+  assert.equal(result.data.execution.outcome, 'sent');
+  assert.equal(resolvedSecretRef, 'op://clawclub/member-2');
+  const headers = fetchRequest?.headers as Record<string, string>;
+  const body = String(fetchRequest?.body);
+  const timestamp = headers['x-clawclub-signature-timestamp'];
+  assert.match(timestamp, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(
+    headers['x-clawclub-signature-v1'],
+    `sha256=${createHmac('sha256', 'super-secret-value').update(`${timestamp}.${body}`).digest('hex')}`,
+  );
+});
+
+test('deliveries.execute fails closed when a signed endpoint secret cannot be resolved', async () => {
+  const calls: string[] = [];
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async claimNextDelivery() {
+      calls.push('claim');
+      return makeClaimedDelivery({
+        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }),
+        endpoint: makeDeliveryEndpoint({ sharedSecretRef: 'op://clawclub/member-2' }),
+      });
+    },
+    async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
+    async failDeliveryAttempt(input) {
+      calls.push(`fail:${String(input.errorMessage)}`);
+      return makeClaimedDelivery({
+        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'failed', failedAt: '2026-03-12T00:05:00Z', lastError: String(input.errorMessage) }),
+        attempt: { ...makeClaimedDelivery().attempt, status: 'failed', errorMessage: String(input.errorMessage), finishedAt: '2026-03-12T00:05:00Z' },
+        endpoint: makeDeliveryEndpoint({ sharedSecretRef: 'op://clawclub/member-2' }),
+      });
+    },
+  };
+
+  const app = buildApp({
+    repository,
+    resolveDeliverySecret: async () => null,
+    fetchImpl: async () => {
+      throw new Error('fetch should not be called');
+    },
+  });
+
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'deliveries.execute',
+  });
+
+  assert.deepEqual(calls, ['claim', 'fail:Delivery endpoint endpoint-1 secret could not be resolved']);
+  assert.equal(result.data.execution.outcome, 'failed');
+  assert.equal(result.data.execution.claimed.attempt.errorMessage, 'Delivery endpoint endpoint-1 secret could not be resolved');
 });
 
 test('deliveries.execute fails the claimed attempt when the webhook responds non-2xx', async () => {
@@ -3709,7 +3805,7 @@ test('deliveries.execute fails the claimed attempt when the webhook responds non
     async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
     async listDeliveries() { return [makeDeliverySummary()]; },
     async retryDelivery() { return makeDeliverySummary(); },
-    async claimNextDelivery() { calls.push('claim'); return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }) }); },
+    async claimNextDelivery() { calls.push('claim'); return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }), endpoint: makeDeliveryEndpoint({ sharedSecretRef: null }) }); },
     async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
     async failDeliveryAttempt(input) {
       calls.push(`fail:${String(input.errorMessage)}:${String(input.responseStatusCode)}:${String(input.responseBody)}`);
@@ -3750,7 +3846,7 @@ test('deliveries.execute marks the claimed attempt failed when fetch throws', as
     async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
     async listDeliveries() { return [makeDeliverySummary()]; },
     async retryDelivery() { return makeDeliverySummary(); },
-    async claimNextDelivery() { calls.push('claim'); return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }) }); },
+    async claimNextDelivery() { calls.push('claim'); return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }), endpoint: makeDeliveryEndpoint({ sharedSecretRef: null }) }); },
     async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
     async failDeliveryAttempt(input) {
       calls.push(`fail:${String(input.errorMessage)}`);
