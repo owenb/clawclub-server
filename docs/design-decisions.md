@@ -155,6 +155,7 @@ In-place mutation should not be the primary source of truth for important state.
 - Search should push back on ambiguous terms before searching.
 - For example, "find me a builder" should search profiles/services, not opportunities.
 - Current/latest information should be shown by default; older versions are for audit/debug/admin.
+- Embeddings should remain append-only facts with latest-per-version projection views. For now, the minimal foundation is just current profile/entity embedding metadata on reads, not a full indexing queue or ranking engine.
 
 ## Events and RSVP
 

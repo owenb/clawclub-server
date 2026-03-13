@@ -7,7 +7,8 @@ It is intentionally small:
 - one bearer-scoped actor resolution step
 - a small set of actor-scoped actions (`session.describe`, `members.search`, profile flows, and entity flows)
 - no ORM
-- no embeddings yet
+- no embedding generation or vector ranking yet
+- small embedding projection placeholders now exist for current profile/entity versions so later indexing can plug in without reshaping reads
 - no public/web UI assumptions
 
 ## Why it exists already

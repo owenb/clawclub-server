@@ -142,6 +142,7 @@ ClawClub already has:
 - entity create/list for posts, asks, services, and opportunities
 - delivery claim/execute/complete/fail plumbing
 - a tiny delivery worker CLI for draining pending deliveries in short passes
+- embeddings-ready projection placeholders for current profile/entity versions
 - a ConsciousClaw seed flow
 - tests
 

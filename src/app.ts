@@ -272,6 +272,15 @@ export type NetworkMemberSummary = {
   memberships: MembershipSummary[];
 };
 
+export type EmbeddingProjectionSummary = {
+  embeddingId: string;
+  model: string;
+  dimensions: number;
+  sourceText: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
 export type MemberProfile = {
   memberId: string;
   publicName: string;
@@ -290,6 +299,7 @@ export type MemberProfile = {
     versionNo: number | null;
     createdAt: string | null;
     createdByMemberId: string | null;
+    embedding: EmbeddingProjectionSummary | null;
   };
   sharedNetworks: Array<{ id: string; slug: string; name: string }>;
 };
@@ -329,6 +339,7 @@ export type EntitySummary = {
     expiresAt: string | null;
     createdAt: string;
     content: Record<string, unknown>;
+    embedding: EmbeddingProjectionSummary | null;
   };
   createdAt: string;
 };

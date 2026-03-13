@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type ApplicationStatus, type ApplicationSummary, type ArchiveNetworkInput, type AssignNetworkOwnerInput, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateApplicationInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreateMembershipInput, type CreateNetworkInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipAdminSummary, type MembershipReviewSummary, type MembershipState, type MembershipSummary, type MembershipVouchSummary, type NetworkMemberSummary, type NetworkSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type TransitionApplicationInput, type TransitionMembershipInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type ApplicationStatus, type ApplicationSummary, type ArchiveNetworkInput, type AssignNetworkOwnerInput, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateApplicationInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreateMembershipInput, type CreateNetworkInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EmbeddingProjectionSummary, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipAdminSummary, type MembershipReviewSummary, type MembershipState, type MembershipSummary, type MembershipVouchSummary, type NetworkMemberSummary, type NetworkSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type TransitionApplicationInput, type TransitionMembershipInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
 import { buildBearerToken, hashTokenSecret, parseBearerToken } from './token.ts';
 
 type ActorRow = {
@@ -142,6 +142,12 @@ type ProfileRow = {
   version_no: number | null;
   version_created_at: string | null;
   version_created_by_member_id: string | null;
+  embedding_id: string | null;
+  embedding_model: string | null;
+  embedding_dimensions: number | null;
+  embedding_source_text: string | null;
+  embedding_metadata: Record<string, unknown> | null;
+  embedding_created_at: string | null;
   shared_networks: Array<{ id: string; slug: string; name: string }> | null;
 };
 
@@ -162,6 +168,12 @@ type EntityRow = {
   expires_at: string | null;
   version_created_at: string;
   content: Record<string, unknown> | null;
+  embedding_id: string | null;
+  embedding_model: string | null;
+  embedding_dimensions: number | null;
+  embedding_source_text: string | null;
+  embedding_metadata: Record<string, unknown> | null;
+  embedding_created_at: string | null;
   entity_created_at: string;
 };
 
@@ -459,6 +471,28 @@ function mapNetworkRow(row: NetworkRow): NetworkSummary {
   };
 }
 
+function mapEmbeddingProjectionRow(row: {
+  embedding_id: string | null;
+  embedding_model: string | null;
+  embedding_dimensions: number | null;
+  embedding_source_text: string | null;
+  embedding_metadata: Record<string, unknown> | null;
+  embedding_created_at: string | null;
+}): EmbeddingProjectionSummary | null {
+  if (!row.embedding_id || !row.embedding_model || row.embedding_dimensions === null || !row.embedding_source_text || !row.embedding_created_at) {
+    return null;
+  }
+
+  return {
+    embeddingId: row.embedding_id,
+    model: row.embedding_model,
+    dimensions: Number(row.embedding_dimensions),
+    sourceText: row.embedding_source_text,
+    metadata: row.embedding_metadata ?? {},
+    createdAt: row.embedding_created_at,
+  };
+}
+
 function mapProfileRow(row: ProfileRow): MemberProfile {
   return {
     memberId: row.member_id,
@@ -478,6 +512,7 @@ function mapProfileRow(row: ProfileRow): MemberProfile {
       versionNo: row.version_no,
       createdAt: row.version_created_at,
       createdByMemberId: row.version_created_by_member_id,
+      embedding: mapEmbeddingProjectionRow(row),
     },
     sharedNetworks: row.shared_networks ?? [],
   };
@@ -504,6 +539,7 @@ function mapEntityRow(row: EntityRow): EntitySummary {
       expiresAt: row.expires_at,
       createdAt: row.version_created_at,
       content: row.content ?? {},
+      embedding: mapEmbeddingProjectionRow(row),
     },
     createdAt: row.entity_created_at,
   };
@@ -1436,10 +1472,17 @@ async function readMemberProfile(client: DbClient, actorMemberId: string, target
         cmp.version_no,
         cmp.created_at::text as version_created_at,
         cmp.created_by_member_id as version_created_by_member_id,
+        cpve.id as embedding_id,
+        cpve.model as embedding_model,
+        cpve.dimensions as embedding_dimensions,
+        cpve.source_text as embedding_source_text,
+        cpve.metadata as embedding_metadata,
+        cpve.created_at::text as embedding_created_at,
         jsonb_agg(distinct jsonb_build_object('id', n.id, 'slug', n.slug, 'name', n.name))
           filter (where n.id is not null) as shared_networks
       from app.members m
       left join app.current_member_profiles cmp on cmp.member_id = m.id
+      left join app.current_profile_version_embeddings cpve on cpve.member_profile_version_id = cmp.id
       join target_scope ts on true
       join app.networks n on n.id = ts.network_id and n.archived_at is null
       where m.id = $2
@@ -1448,7 +1491,8 @@ async function readMemberProfile(client: DbClient, actorMemberId: string, target
         m.id, m.public_name, m.handle,
         cmp.display_name, cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
         cmp.services_summary, cmp.website_url, cmp.links, cmp.profile,
-        cmp.id, cmp.version_no, cmp.created_at, cmp.created_by_member_id
+        cmp.id, cmp.version_no, cmp.created_at, cmp.created_by_member_id,
+        cpve.id, cpve.model, cpve.dimensions, cpve.source_text, cpve.metadata, cpve.created_at
     `,
     [actorMemberId, targetMemberId],
   );
@@ -1476,9 +1520,16 @@ async function readEntitySummary(client: DbClient, entityId: string, entityVersi
         cev.expires_at::text as expires_at,
         cev.created_at::text as version_created_at,
         cev.content,
+        ceve.id as embedding_id,
+        ceve.model as embedding_model,
+        ceve.dimensions as embedding_dimensions,
+        ceve.source_text as embedding_source_text,
+        ceve.metadata as embedding_metadata,
+        ceve.created_at::text as embedding_created_at,
         e.created_at::text as entity_created_at
       from app.entities e
       join app.current_entity_versions cev on cev.entity_id = e.id
+      left join app.current_entity_version_embeddings ceve on ceve.entity_version_id = cev.id
       join app.members m on m.id = e.author_member_id
       where e.id = $1
         and e.archived_at is null
@@ -3827,9 +3878,16 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
             le.expires_at::text as expires_at,
             le.version_created_at::text as version_created_at,
             le.content,
+            ceve.id as embedding_id,
+            ceve.model as embedding_model,
+            ceve.dimensions as embedding_dimensions,
+            ceve.source_text as embedding_source_text,
+            ceve.metadata as embedding_metadata,
+            ceve.created_at::text as embedding_created_at,
             le.entity_created_at::text as entity_created_at
           from scope s
           join app.live_entities le on le.network_id = s.network_id
+          left join app.current_entity_version_embeddings ceve on ceve.entity_version_id = le.entity_version_id
           join app.members m on m.id = le.author_member_id
           where le.kind = any($2::app.entity_kind[])
           order by le.effective_at desc, le.entity_id desc

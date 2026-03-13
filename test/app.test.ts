@@ -414,6 +414,7 @@ function makeProfile(memberId = 'member-1'): MemberProfile {
       versionNo: 1,
       createdAt: '2026-03-12T00:00:00Z',
       createdByMemberId: memberId,
+      embedding: null,
     },
     sharedNetworks: [{ id: 'network-1', slug: 'alpha', name: 'Alpha' }],
   };
@@ -441,6 +442,7 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
       expiresAt: null,
       createdAt: '2026-03-12T00:00:00Z',
       content: {},
+      embedding: null,
       ...(overrides.version ?? {}),
     },
     createdAt: '2026-03-12T00:00:00Z',
