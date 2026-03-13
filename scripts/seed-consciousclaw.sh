@@ -53,8 +53,6 @@ values (
 on conflict (network_id, member_id) do update
 set
   role = excluded.role,
-  status = 'active',
-  left_at = null,
   accepted_covenant_at = coalesce(app.network_memberships.accepted_covenant_at, excluded.accepted_covenant_at),
   metadata = app.network_memberships.metadata || excluded.metadata;
 

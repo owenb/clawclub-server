@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="${ROOT:-/home/ubuntu/.openclaw/workspace}"
-PROJECT_ROOT="${PROJECT_ROOT:-$ROOT/clawclub}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+ROOT="${ROOT:-$(cd "$PROJECT_ROOT/.." && pwd)}"
 AUTOMATION_DIR="${AUTOMATION_DIR:-$PROJECT_ROOT/automation}"
 QUEUE_FILE="${QUEUE_FILE:-$AUTOMATION_DIR/progress-queue.json}"
 RUNS_DIR="${RUNS_DIR:-$AUTOMATION_DIR/runs}"
 LOCK_FILE="${LOCK_FILE:-$AUTOMATION_DIR/progress-foreman.lock}"
 OUT="${OUT:-$ROOT/memory/progress-watchdog.log}"
 CHAT_ID="${CHAT_ID:-16535088}"
-OPENCLAW_BIN="${OPENCLAW_BIN:-/home/ubuntu/.npm-global/bin/openclaw}"
+OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
 DRY_RUN="${FOREMAN_DRY_RUN:-0}"
 NOW="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
@@ -28,6 +29,46 @@ fi
 
 log() {
   printf '[%s] foreman: %s\n' "$NOW" "$1" >> "$OUT"
+}
+
+LOCK_DIR=""
+
+release_lock() {
+  if [ -n "$LOCK_DIR" ]; then
+    rm -f "$LOCK_DIR/pid"
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
+}
+
+acquire_lock() {
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCK_FILE"
+    if ! flock -n 9; then
+      log 'another foreman tick holds the lock; exiting'
+      exit 0
+    fi
+    return 0
+  fi
+
+  LOCK_DIR="${LOCK_FILE}.d"
+  if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    if [ -f "$LOCK_DIR/pid" ]; then
+      local existing_pid
+      existing_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+      if [ -n "$existing_pid" ] && ! kill -0 "$existing_pid" 2>/dev/null; then
+        rm -f "$LOCK_DIR/pid"
+        rmdir "$LOCK_DIR" 2>/dev/null || true
+      fi
+    fi
+
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+      log 'another foreman tick holds the lock; exiting'
+      exit 0
+    fi
+  fi
+
+  printf '%s' "$$" > "$LOCK_DIR/pid"
+  trap release_lock EXIT
 }
 
 with_queue() {
@@ -224,11 +265,7 @@ launch_next_task() {
   }
 }
 
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-  log 'another foreman tick holds the lock; exiting'
-  exit 0
-fi
+acquire_lock
 
 if ! validate_queue; then
   exit 1

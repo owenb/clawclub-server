@@ -143,6 +143,7 @@ ClawClub already has:
 - curated AI tools for session, member search, profile, admissions/applications, events, and messaging flows
 - owner admissions reads now expose a small activation handoff summary on applications
 - a thin operator-oriented AI chat runner/CLI on top of that curated tool layer
+- membership state history as the canonical source of truth, with root membership state kept as a DB-maintained compatibility mirror
 - member search
 - profile read/update
 - deterministic plain-text retrieval for entities and events
@@ -184,7 +185,7 @@ For a real Hetzner-hosted server runbook (env, migrate, systemd, worker, backups
 Generate a bearer token for a member:
 
 ```bash
-npm run api:token -- <member_id> [label]
+npm run api:token -- create --handle owen-barnes --label local-dev
 ```
 
 Mint a dedicated delivery worker token with explicit network scope:
@@ -242,6 +243,7 @@ What those do:
 - `foreman:prove` runs a safe equivalent of a full launch -> complete -> advance cycle
 
 The foreman now refuses malformed queues, including duplicate task IDs, missing launch payloads, and running-task / `activeTaskId` mismatches.
+By default the foreman scripts now derive `PROJECT_ROOT` from the repo location and `ROOT` from its parent directory; override `PROJECT_ROOT`, `ROOT`, `OUT`, or `OPENCLAW_BIN` only when you need a different layout.
 
 ## Near-term roadmap
 

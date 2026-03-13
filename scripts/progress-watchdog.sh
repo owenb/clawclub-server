@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="/home/ubuntu/.openclaw/workspace"
-OUT="$ROOT/memory/progress-watchdog.log"
-CHAT_ID="16535088"
-OPENCLAW_BIN="/home/ubuntu/.npm-global/bin/openclaw"
-FOREMAN_SCRIPT="$ROOT/clawclub/scripts/progress-foreman.sh"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+ROOT="${ROOT:-$(cd "$PROJECT_ROOT/.." && pwd)}"
+OUT="${OUT:-$ROOT/memory/progress-watchdog.log}"
+CHAT_ID="${CHAT_ID:-16535088}"
+OPENCLAW_BIN="${OPENCLAW_BIN:-openclaw}"
+FOREMAN_SCRIPT="${FOREMAN_SCRIPT:-$PROJECT_ROOT/scripts/progress-foreman.sh}"
 NOW="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
-COMMITS="$(git -C "$ROOT" log --oneline --decorate -3 | sed 's/^/  - /')"
+COMMITS="$(git -C "$PROJECT_ROOT" log --oneline --decorate -3 | sed 's/^/  - /')"
 TEST_STATUS="PASS"
 TEST_SNIPPET=""
-if ! (cd "$ROOT/clawclub" && npm run api:test >/tmp/clawclub-watchdog-test.log 2>&1); then
+if ! (cd "$PROJECT_ROOT" && npm run api:test >/tmp/clawclub-watchdog-test.log 2>&1); then
   TEST_STATUS="FAIL"
   TEST_SNIPPET="$(tail -n 20 /tmp/clawclub-watchdog-test.log | sed 's/^/    /')"
 fi

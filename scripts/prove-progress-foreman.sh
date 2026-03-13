@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -10,7 +11,7 @@ RUNS_DIR="$AUTOMATION_DIR/runs"
 QUEUE_FILE="$AUTOMATION_DIR/progress-queue.json"
 OUT="$TMP_ROOT/progress-watchdog.log"
 OPENCLAW_BIN="$TMP_ROOT/openclaw-stub.sh"
-FOREMAN_SCRIPT="/home/ubuntu/.openclaw/workspace/clawclub/scripts/progress-foreman.sh"
+FOREMAN_SCRIPT="$SCRIPT_DIR/progress-foreman.sh"
 ARTIFACT_DIR="$PROJECT_ROOT/artifacts"
 
 mkdir -p "$RUNS_DIR" "$PROJECT_ROOT" "$ARTIFACT_DIR"
