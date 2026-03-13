@@ -296,7 +296,7 @@ Applications now include a small derived `activation` block so owners can see th
 ## Next likely actions
 
 Only after real use proves the need:
-- add delivery worker execution / webhook dispatch and richer retry/backoff policy
+- harden WebHugs/webhook execution before re-enabling it: endpoint validation, SSRF blocking, timeout/redirect limits, and retry/backoff policy
 - add entity creation/versioning actions on top of the schema's `entities` + `entity_versions` model
 - add event creation + RSVP actions as a separate but adjacent flow
 - add DM shared-network validation actions

@@ -1,4 +1,5 @@
 import { signClawClubDelivery } from './delivery-signing.ts';
+import { handleAdmissionsAction } from './app-admissions.ts';
 import { handleDeliveryAction } from './app-deliveries.ts';
 
 export type MembershipState = 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected';
@@ -1343,6 +1344,30 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
         return deliveryResponse;
       }
 
+      const admissionsResponse = await handleAdmissionsAction({
+        action,
+        payload,
+        actor,
+        sharedContext,
+        repository,
+        buildSuccessResponse,
+        createAppError: (status, code, message) => new AppError(status, code, message),
+        normalizeLimit,
+        normalizeOptionalString,
+        requireAccessibleNetwork,
+        requireMembershipOwner,
+        requireMembershipState,
+        requireApplicationStatus,
+        requireApplicationPath,
+        normalizeApplicationIntake,
+        normalizeApplicationMetadataPatch,
+        requireNonEmptyString,
+        requireObject,
+      });
+      if (admissionsResponse) {
+        return admissionsResponse;
+      }
+
       switch (action) {
         case 'session.describe':
           return buildSuccessResponse({
@@ -1448,362 +1473,6 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
             },
             sharedContext,
             data: { network },
-          });
-        }
-
-        case 'memberships.list': {
-          const limit = normalizeLimit(payload.limit);
-          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner');
-
-          if (payload.networkId !== undefined) {
-            networkScope = [requireMembershipOwner(actor, payload.networkId)];
-          }
-
-          if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently own any networks');
-          }
-
-          const status = payload.status === undefined ? undefined : requireMembershipState(payload.status, 'status');
-          const networkIds = networkScope.map((network) => network.networkId);
-          const results = await repository.listMemberships({
-            actorMemberId: actor.member.id,
-            networkIds,
-            limit,
-            status,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId:
-                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-              activeNetworkIds: networkIds,
-            },
-            sharedContext,
-            data: {
-              limit,
-              status: status ?? null,
-              networkScope,
-              results,
-            },
-          });
-        }
-
-        case 'memberships.review': {
-          const limit = normalizeLimit(payload.limit);
-          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner');
-
-          if (payload.networkId !== undefined) {
-            networkScope = [requireMembershipOwner(actor, payload.networkId)];
-          }
-
-          if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently own any networks');
-          }
-
-          const statuses = payload.statuses === undefined
-            ? ['invited', 'pending_review']
-            : (() => {
-                if (!Array.isArray(payload.statuses) || payload.statuses.length === 0) {
-                  throw new AppError(400, 'invalid_input', 'statuses must be a non-empty array when provided');
-                }
-
-                return [...new Set(payload.statuses.map((status) => requireMembershipState(status, 'statuses[]')))];
-              })();
-
-          const networkIds = networkScope.map((network) => network.networkId);
-          const results = await repository.listMembershipReviews({
-            actorMemberId: actor.member.id,
-            networkIds,
-            limit,
-            statuses,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId:
-                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-              activeNetworkIds: networkIds,
-            },
-            sharedContext,
-            data: {
-              limit,
-              statuses,
-              networkScope,
-              results,
-            },
-          });
-        }
-
-        case 'memberships.create': {
-          const network = requireMembershipOwner(actor, payload.networkId);
-          const membership = await repository.createMembership({
-            actorMemberId: actor.member.id,
-            networkId: network.networkId,
-            memberId: requireNonEmptyString(payload.memberId, 'memberId'),
-            sponsorMemberId: requireNonEmptyString(payload.sponsorMemberId, 'sponsorMemberId'),
-            role: payload.role === undefined ? 'member' : payload.role === 'member' || payload.role === 'admin' ? payload.role : (() => { throw new AppError(400, 'invalid_input', 'role must be member or admin'); })(),
-            initialStatus: payload.initialStatus === undefined
-              ? 'invited'
-              : payload.initialStatus === 'invited' || payload.initialStatus === 'pending_review' || payload.initialStatus === 'active'
-                ? payload.initialStatus
-                : (() => { throw new AppError(400, 'invalid_input', 'initialStatus must be one of: invited, pending_review, active'); })(),
-            reason: normalizeOptionalString(payload.reason, 'reason'),
-            metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
-          });
-
-          if (!membership) {
-            throw new AppError(404, 'not_found', 'Member or sponsor not found inside the owner scope');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: membership.networkId,
-              activeNetworkIds: [membership.networkId],
-            },
-            sharedContext,
-            data: { membership },
-          });
-        }
-
-        case 'memberships.transition': {
-          const membershipId = requireNonEmptyString(payload.membershipId, 'membershipId');
-          const membership = await repository.transitionMembershipState({
-            actorMemberId: actor.member.id,
-            membershipId,
-            nextStatus: requireMembershipState(payload.status, 'status'),
-            reason: normalizeOptionalString(payload.reason, 'reason'),
-            accessibleNetworkIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.networkId),
-          });
-
-          if (!membership) {
-            throw new AppError(404, 'not_found', 'Membership not found inside the owner scope');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: membership.networkId,
-              activeNetworkIds: [membership.networkId],
-            },
-            sharedContext,
-            data: { membership },
-          });
-        }
-
-        case 'applications.list': {
-          const limit = normalizeLimit(payload.limit);
-          let networkScope = actor.memberships.filter((membership) => membership.role === 'owner');
-
-          if (payload.networkId !== undefined) {
-            networkScope = [requireMembershipOwner(actor, payload.networkId)];
-          }
-
-          if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently own any networks');
-          }
-
-          const statuses = payload.statuses === undefined
-            ? undefined
-            : (() => {
-                if (!Array.isArray(payload.statuses) || payload.statuses.length === 0) {
-                  throw new AppError(400, 'invalid_input', 'statuses must be a non-empty array when provided');
-                }
-
-                return [...new Set(payload.statuses.map((status) => requireApplicationStatus(status, 'statuses[]')))];
-              })();
-
-          const networkIds = networkScope.map((network) => network.networkId);
-          const results = await repository.listApplications?.({
-            actorMemberId: actor.member.id,
-            networkIds,
-            limit,
-            statuses,
-          });
-
-          if (!results) {
-            throw new AppError(501, 'not_implemented', 'applications.list is not implemented');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId:
-                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-              activeNetworkIds: networkIds,
-            },
-            sharedContext,
-            data: {
-              limit,
-              statuses: statuses ?? null,
-              networkScope,
-              results,
-            },
-          });
-        }
-
-        case 'applications.create': {
-          const network = requireMembershipOwner(actor, payload.networkId);
-          const application = await repository.createApplication?.({
-            actorMemberId: actor.member.id,
-            networkId: network.networkId,
-            applicantMemberId: requireNonEmptyString(payload.applicantMemberId, 'applicantMemberId'),
-            sponsorMemberId: normalizeOptionalString(payload.sponsorMemberId, 'sponsorMemberId'),
-            membershipId: normalizeOptionalString(payload.membershipId, 'membershipId'),
-            path: requireApplicationPath(payload.path, 'path'),
-            initialStatus: payload.initialStatus === undefined
-              ? 'submitted'
-              : (() => {
-                  const status = requireApplicationStatus(payload.initialStatus, 'initialStatus');
-                  if (status !== 'draft' && status !== 'submitted' && status !== 'interview_scheduled') {
-                    throw new AppError(400, 'invalid_input', 'initialStatus must be one of: draft, submitted, interview_scheduled');
-                  }
-                  return status;
-                })(),
-            notes: normalizeOptionalString(payload.notes, 'notes'),
-            intake: normalizeApplicationIntake(payload.intake, 'intake'),
-            metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
-          });
-
-          if (application === undefined) {
-            throw new AppError(501, 'not_implemented', 'applications.create is not implemented');
-          }
-
-          if (!application) {
-            throw new AppError(404, 'not_found', 'Applicant, sponsor, or membership not found inside the owner scope');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: application.networkId,
-              activeNetworkIds: [application.networkId],
-            },
-            sharedContext,
-            data: { application },
-          });
-        }
-
-        case 'applications.transition': {
-          const applicationId = requireNonEmptyString(payload.applicationId, 'applicationId');
-          const application = await repository.transitionApplication?.({
-            actorMemberId: actor.member.id,
-            applicationId,
-            nextStatus: requireApplicationStatus(payload.status, 'status'),
-            notes: normalizeOptionalString(payload.notes, 'notes'),
-            accessibleNetworkIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.networkId),
-            intake: payload.intake === undefined ? undefined : normalizeApplicationIntake(payload.intake, 'intake'),
-            membershipId: payload.membershipId === undefined ? undefined : normalizeOptionalString(payload.membershipId, 'membershipId'),
-            activateMembership: payload.activateMembership === true,
-            activationReason: normalizeOptionalString(payload.activationReason, 'activationReason'),
-            metadataPatch: normalizeApplicationMetadataPatch(payload.metadata, 'metadata'),
-          });
-
-          if (application === undefined) {
-            throw new AppError(501, 'not_implemented', 'applications.transition is not implemented');
-          }
-
-          if (!application) {
-            throw new AppError(404, 'not_found', 'Application not found inside the owner scope');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: application.networkId,
-              activeNetworkIds: [application.networkId],
-            },
-            sharedContext,
-            data: { application },
-          });
-        }
-
-        case 'members.search': {
-          const query = requireNonEmptyString(payload.query, 'query');
-          const limit = normalizeLimit(payload.limit);
-          const requestedNetworkId = payload.networkId;
-
-          let networkIds = actor.memberships.map((network) => network.networkId);
-
-          if (requestedNetworkId !== undefined) {
-            networkIds = [requireAccessibleNetwork(actor, requestedNetworkId).networkId];
-          }
-
-          if (networkIds.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
-          }
-
-          const requestScope: RequestScope = {
-            requestedNetworkId:
-              typeof requestedNetworkId === 'string' && requestedNetworkId.trim().length > 0
-                ? requestedNetworkId.trim()
-                : null,
-            activeNetworkIds: networkIds,
-          };
-
-          const results = await repository.searchMembers({
-            actorMemberId: actor.member.id,
-            networkIds,
-            query,
-            limit,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope,
-            sharedContext,
-            data: {
-              query,
-              limit,
-              networkScope: actor.memberships.filter((network) => networkIds.includes(network.networkId)),
-              results,
-            },
-          });
-        }
-
-        case 'members.list': {
-          const limit = normalizeLimit(payload.limit);
-          let networkScope = actor.memberships;
-
-          if (payload.networkId !== undefined) {
-            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
-          }
-
-          if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
-          }
-
-          const networkIds = networkScope.map((network) => network.networkId);
-          const results = await repository.listMembers({
-            actorMemberId: actor.member.id,
-            networkIds,
-            limit,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId:
-                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-              activeNetworkIds: networkIds,
-            },
-            sharedContext,
-            data: {
-              limit,
-              networkScope,
-              results,
-            },
           });
         }
 
