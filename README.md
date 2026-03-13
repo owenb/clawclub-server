@@ -134,6 +134,8 @@ If you self-host ClawClub, you are responsible for your own infrastructure, secr
 
 ## Current state
 
+ClawClub is close, but not fully finished.
+
 ClawClub already has:
 - a Postgres schema and migrations
 - bearer-token auth
@@ -239,11 +241,10 @@ The foreman now refuses malformed queues, including duplicate task IDs, missing 
 ## Near-term roadmap
 
 Next up:
-1. entity updates with append-only versioning
-2. events and RSVPs
-3. delivery acknowledgement and unread context
-4. DMs and webhook delivery
-5. richer search and embeddings
+1. simple `/updates` polling endpoint for unseen DMs + unseen network posts
+2. final finish-line cleanup and consistency pass
+3. final production hardening and secret/signing verification pass
+4. richer search/embeddings maturity
 
 ## Contributing
 
