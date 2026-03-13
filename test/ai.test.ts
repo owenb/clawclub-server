@@ -6,7 +6,7 @@ import {
   createClawClubOpenAIProvider,
   listCanonicalClawClubTools,
 } from '../src/ai.ts';
-import type { AuthResult, Repository } from '../src/app.ts';
+import type { ApplicationSummary, AuthResult, MembershipReviewSummary, Repository } from '../src/app.ts';
 
 function makeAuthResult(): AuthResult {
   return {
@@ -25,7 +25,7 @@ function makeAuthResult(): AuthResult {
           name: 'Alpha',
           summary: 'First network',
           manifestoMarkdown: null,
-          role: 'member',
+          role: 'owner',
           status: 'active',
           sponsorMemberId: null,
           joinedAt: '2026-03-12T00:00:00Z',
@@ -39,6 +39,68 @@ function makeAuthResult(): AuthResult {
     sharedContext: {
       pendingDeliveries: [],
     },
+  };
+}
+
+function makeMembershipReview(): MembershipReviewSummary {
+  return {
+    membershipId: 'membership-2',
+    networkId: 'network-1',
+    member: { memberId: 'member-2', publicName: 'Member Two', handle: 'member-two' },
+    sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
+    role: 'member',
+    state: {
+      status: 'pending_review',
+      reason: 'Strong intro',
+      versionNo: 1,
+      createdAt: '2026-03-12T00:00:00Z',
+      createdByMemberId: 'member-1',
+    },
+    joinedAt: '2026-03-12T00:00:00Z',
+    acceptedCovenantAt: null,
+    metadata: {},
+    sponsorStats: {
+      activeSponsoredCount: 1,
+      sponsoredThisMonthCount: 1,
+    },
+    vouches: [{
+      edgeId: 'edge-1',
+      fromMemberId: 'member-3',
+      fromPublicName: 'Member Three',
+      fromHandle: 'member-three',
+      reason: 'Worked together well',
+      metadata: {},
+      createdAt: '2026-03-12T00:00:00Z',
+      createdByMemberId: 'member-3',
+    }],
+  };
+}
+
+function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
+  return {
+    applicationId: 'application-1',
+    networkId: 'network-1',
+    applicant: { memberId: 'member-2', publicName: 'Member Two', handle: 'member-two' },
+    sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
+    membershipId: null,
+    path: 'sponsored',
+    intake: {
+      kind: 'fit_check',
+      price: { amount: 49, currency: 'GBP' },
+      bookingUrl: 'https://cal.example.test/fit-check',
+      bookedAt: '2026-03-14T10:00:00Z',
+      completedAt: null,
+    },
+    state: {
+      status: 'submitted',
+      notes: 'Warm intro',
+      versionNo: 1,
+      createdAt: '2026-03-12T00:00:00Z',
+      createdByMemberId: 'member-1',
+    },
+    metadata: {},
+    createdAt: '2026-03-12T00:00:00Z',
+    ...overrides,
   };
 }
 
@@ -93,6 +155,10 @@ test('listCanonicalClawClubTools exposes the curated chat-facing tool set only',
     tools.map((tool) => tool.name),
     [
       'session_describe',
+      'memberships_review',
+      'applications_list',
+      'applications_create',
+      'applications_transition',
       'members_search',
       'profile_get',
       'profile_update',
@@ -109,6 +175,7 @@ test('listCanonicalClawClubTools exposes the curated chat-facing tool set only',
   assert.equal(tools.some((tool) => tool.action === 'tokens.create'), false);
   assert.equal(tools.some((tool) => tool.action === 'deliveries.execute'), false);
   assert.equal(tools.some((tool) => tool.action === 'memberships.transition'), false);
+  assert.equal(tools.some((tool) => tool.action === 'memberships.create'), false);
 });
 
 test('buildClawClubAiTools forwards tool execution through the existing app/auth layer', async () => {
@@ -152,6 +219,97 @@ test('buildClawClubAiTools forwards tool execution through the existing app/auth
   assert.equal(result?.data.results[0]?.memberId, 'member-2');
 });
 
+test('applications tools stay small and operator-ready through the curated layer', async () => {
+  let reviewInput: Record<string, unknown> | null = null;
+  let listInput: Record<string, unknown> | null = null;
+  let createInput: Record<string, unknown> | null = null;
+  let transitionInput: Record<string, unknown> | null = null;
+
+  const repository = makeRepository({
+    async listMembershipReviews(input) {
+      reviewInput = input as Record<string, unknown>;
+      return [makeMembershipReview()];
+    },
+    async listApplications(input) {
+      listInput = input as Record<string, unknown>;
+      return [makeApplication()];
+    },
+    async createApplication(input) {
+      createInput = input as Record<string, unknown>;
+      return makeApplication();
+    },
+    async transitionApplication(input) {
+      transitionInput = input as Record<string, unknown>;
+      return makeApplication({
+        state: {
+          ...makeApplication().state,
+          status: 'interview_scheduled',
+          versionNo: 2,
+        },
+      });
+    },
+  });
+
+  const tools = buildClawClubAiTools({ repository, bearerToken: 'cc_live_test' });
+  const reviewResult = await tools.memberships_review.execute?.({ networkId: 'network-1', limit: 5 }, { toolCallId: 'tool-call-review', messages: [] });
+  const listResult = await tools.applications_list.execute?.({ networkId: 'network-1', statuses: ['submitted'], limit: 5 }, { toolCallId: 'tool-call-list', messages: [] });
+  const createResult = await tools.applications_create.execute?.({
+    networkId: 'network-1',
+    applicantMemberId: 'member-2',
+    sponsorMemberId: 'member-1',
+    path: 'sponsored',
+    notes: 'Warm intro',
+    intake: { kind: 'fit_check', price: { amount: 49, currency: 'gbp' } },
+  }, { toolCallId: 'tool-call-create', messages: [] });
+  const transitionResult = await tools.applications_transition.execute?.({
+    applicationId: 'application-1',
+    status: 'interview_scheduled',
+    notes: 'Call booked',
+    intake: { bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' },
+    metadata: { outcome: 'strong_yes' },
+  }, { toolCallId: 'tool-call-transition', messages: [] });
+
+  assert.deepEqual(reviewInput, {
+    actorMemberId: 'member-1',
+    networkIds: ['network-1'],
+    limit: 5,
+    statuses: ['invited', 'pending_review'],
+  });
+  assert.deepEqual(listInput, {
+    actorMemberId: 'member-1',
+    networkIds: ['network-1'],
+    limit: 5,
+    statuses: ['submitted'],
+  });
+  assert.deepEqual(createInput, {
+    actorMemberId: 'member-1',
+    networkId: 'network-1',
+    applicantMemberId: 'member-2',
+    sponsorMemberId: 'member-1',
+    membershipId: undefined,
+    path: 'sponsored',
+    initialStatus: 'submitted',
+    notes: 'Warm intro',
+    intake: { kind: 'fit_check', price: { amount: 49, currency: 'GBP' }, bookingUrl: undefined, bookedAt: undefined, completedAt: undefined },
+    metadata: {},
+  });
+  assert.deepEqual(transitionInput, {
+    actorMemberId: 'member-1',
+    applicationId: 'application-1',
+    nextStatus: 'interview_scheduled',
+    notes: 'Call booked',
+    accessibleNetworkIds: ['network-1'],
+    intake: { kind: undefined, price: undefined, bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z', completedAt: undefined },
+    membershipId: undefined,
+    metadataPatch: { outcome: 'strong_yes' },
+  });
+  assert.equal(reviewResult?.action, 'memberships.review');
+  assert.equal(listResult?.action, 'applications.list');
+  assert.equal(createResult?.action, 'applications.create');
+  assert.equal(transitionResult?.action, 'applications.transition');
+  assert.equal(transitionResult?.data.application.state.versionNo, 2);
+});
+
 test('profile_update tool preserves targeted patch semantics instead of exposing raw CRUD', async () => {
   let capturedPatch: Record<string, unknown> | null = null;
 
@@ -176,6 +334,7 @@ test('profile_update tool preserves targeted patch semantics instead of exposing
           versionNo: 2,
           createdAt: '2026-03-12T00:10:00Z',
           createdByMemberId: 'member-1',
+          embedding: null,
         },
         sharedNetworks: [{ id: 'network-1', slug: 'alpha', name: 'Alpha' }],
       };

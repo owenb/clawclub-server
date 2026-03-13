@@ -4,6 +4,7 @@ import type { LanguageModelV1, LanguageModelV1CallOptions, LanguageModelV1Functi
 import { MockLanguageModelV1 } from 'ai/test';
 import { generateClawClubChatText, type CanonicalClawClubToolName } from './ai.ts';
 import type {
+  ApplicationSummary,
   AuthResult,
   DirectMessageInboxSummary,
   DirectMessageSummary,
@@ -13,6 +14,7 @@ import type {
   EventSummary,
   MemberProfile,
   MemberSearchResult,
+  MembershipReviewSummary,
   Repository,
 } from './app.ts';
 
@@ -47,7 +49,7 @@ function makeAuthResult(): AuthResult {
           name: 'Conscious Engineers',
           summary: 'Private member network',
           manifestoMarkdown: null,
-          role: 'member',
+          role: 'owner',
           status: 'active',
           sponsorMemberId: 'member-9',
           joinedAt: '2026-03-12T00:00:00Z',
@@ -92,6 +94,68 @@ function makeMemberSearchResult(): MemberSearchResult {
   };
 }
 
+function makeMembershipReview(): MembershipReviewSummary {
+  return {
+    membershipId: 'membership-review-1',
+    networkId: 'network-conscious',
+    member: { memberId: 'member-7', publicName: 'Lina Vector', handle: 'lina' },
+    sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
+    role: 'member',
+    state: {
+      status: 'pending_review',
+      reason: 'Strong fit and clean intro',
+      versionNo: 1,
+      createdAt: '2026-03-12T10:00:00Z',
+      createdByMemberId: 'member-1',
+    },
+    joinedAt: '2026-03-12T10:00:00Z',
+    acceptedCovenantAt: null,
+    metadata: {},
+    sponsorStats: {
+      activeSponsoredCount: 1,
+      sponsoredThisMonthCount: 1,
+    },
+    vouches: [{
+      edgeId: 'edge-2',
+      fromMemberId: 'member-2',
+      fromPublicName: 'Ava Builder',
+      fromHandle: 'ava',
+      reason: 'Careful operator, good taste',
+      metadata: {},
+      createdAt: '2026-03-12T10:01:00Z',
+      createdByMemberId: 'member-2',
+    }],
+  };
+}
+
+function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
+  return {
+    applicationId: 'application-1',
+    networkId: 'network-conscious',
+    applicant: { memberId: 'member-7', publicName: 'Lina Vector', handle: 'lina' },
+    sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
+    membershipId: null,
+    path: 'sponsored',
+    intake: {
+      kind: 'fit_check',
+      price: { amount: 49, currency: 'GBP' },
+      bookingUrl: 'https://cal.example.test/fit-check',
+      bookedAt: '2026-03-14T10:00:00Z',
+      completedAt: null,
+    },
+    state: {
+      status: 'submitted',
+      notes: 'Warm intro from Ava',
+      versionNo: 1,
+      createdAt: '2026-03-12T10:00:00Z',
+      createdByMemberId: 'member-1',
+    },
+    metadata: {},
+    createdAt: '2026-03-12T10:00:00Z',
+    ...overrides,
+  };
+}
+
 function makeProfile(): MemberProfile {
   return {
     memberId: 'member-1',
@@ -111,6 +175,7 @@ function makeProfile(): MemberProfile {
       versionNo: 1,
       createdAt: '2026-03-12T00:00:00Z',
       createdByMemberId: 'member-1',
+      embedding: null,
     },
     sharedNetworks: [{ id: 'network-conscious', slug: 'conscious-engineers', name: 'Conscious Engineers' }],
   };
@@ -222,6 +287,7 @@ function makeEvent(): EventSummary {
       expiresAt: null,
       createdAt: '2026-03-12T09:10:00Z',
       content: {},
+      embedding: null,
     },
     rsvps: {
       viewerResponse: null,
@@ -242,7 +308,29 @@ function makeRepository(callLog: string[]): Repository {
     async listMemberships() { return []; },
     async createMembership() { return null; },
     async transitionMembershipState() { return null; },
-    async listMembershipReviews() { return []; },
+    async listMembershipReviews(input) {
+      callLog.push(`listMembershipReviews:${JSON.stringify(input)}`);
+      return [makeMembershipReview()];
+    },
+    async listApplications(input) {
+      callLog.push(`listApplications:${JSON.stringify(input)}`);
+      return [makeApplication()];
+    },
+    async createApplication(input) {
+      callLog.push(`createApplication:${JSON.stringify(input)}`);
+      return makeApplication();
+    },
+    async transitionApplication(input) {
+      callLog.push(`transitionApplication:${JSON.stringify(input)}`);
+      return makeApplication({
+        state: {
+          ...makeApplication().state,
+          status: 'interview_scheduled',
+          versionNo: 2,
+          notes: input.notes ?? 'Interview booked',
+        },
+      });
+    },
     async listDeliveryEndpoints() { return []; },
     async createDeliveryEndpoint() { throw new Error('unused'); },
     async updateDeliveryEndpoint() { return null; },
@@ -365,6 +453,22 @@ const smokeScenarios: SmokeScenario[] = [
     assert: ({ text, callLog }) => {
       assert.match(text, /Owen/);
       assert.equal(callLog.length, 0);
+    },
+  },
+  {
+    name: 'admissions operator flow',
+    prompt: 'Review pending admissions, check submitted applications, then move Lina to interview scheduled.',
+    steps: [
+      { type: 'tool', toolName: 'memberships_review', args: { networkId: 'network-conscious', limit: 5 } },
+      { type: 'tool', toolName: 'applications_list', args: { networkId: 'network-conscious', statuses: ['submitted'], limit: 5 } },
+      { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'interview_scheduled', notes: 'Booked fit check', intake: { bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' } } },
+      { type: 'text', text: 'Lina looks clean to advance. I reviewed the pending membership, checked the submitted application, and moved it to interview scheduled.' },
+    ],
+    assert: ({ text, callLog }) => {
+      assert.match(text, /interview scheduled/);
+      assert.equal(callLog.some((entry) => entry.startsWith('listMembershipReviews:')), true);
+      assert.equal(callLog.some((entry) => entry.startsWith('listApplications:')), true);
+      assert.equal(callLog.some((entry) => entry.startsWith('transitionApplication:')), true);
     },
   },
   {

@@ -29,6 +29,69 @@ const canonicalToolSpecs = {
     inputSchema: z.object({}),
     action: 'session.describe',
   },
+  memberships_review: {
+    description: 'Review owner-scope memberships that are still in admissions flow, including sponsor stats and vouches.',
+    inputSchema: z.object({
+      networkId: z.string().trim().min(1).optional(),
+      statuses: z.array(z.enum(['invited', 'pending_review'])).min(1).optional(),
+      limit: z.number().int().min(1).max(20).optional(),
+    }),
+    action: 'memberships.review',
+  },
+  applications_list: {
+    description: 'List applications in owner scope for admissions and interview operations.',
+    inputSchema: z.object({
+      networkId: z.string().trim().min(1).optional(),
+      statuses: z.array(z.enum(['draft', 'submitted', 'interview_scheduled', 'interview_completed', 'accepted', 'declined', 'withdrawn'])).min(1).optional(),
+      limit: z.number().int().min(1).max(20).optional(),
+    }),
+    action: 'applications.list',
+  },
+  applications_create: {
+    description: 'Create a new admissions application in an owner-managed network once the operator has enough details.',
+    inputSchema: z.object({
+      networkId: nonEmptyString('networkId'),
+      applicantMemberId: nonEmptyString('applicantMemberId'),
+      sponsorMemberId: z.string().trim().min(1).optional().nullable(),
+      membershipId: z.string().trim().min(1).optional().nullable(),
+      path: z.enum(['sponsored', 'outside']),
+      initialStatus: z.enum(['draft', 'submitted', 'interview_scheduled']).optional(),
+      notes: z.string().optional().nullable(),
+      intake: z.object({
+        kind: z.enum(['fit_check', 'advice_call', 'other']).optional(),
+        price: z.object({
+          amount: z.number().finite().optional().nullable(),
+          currency: z.string().trim().min(1).optional().nullable(),
+        }).optional(),
+        bookingUrl: z.string().optional().nullable(),
+        bookedAt: z.string().optional().nullable(),
+        completedAt: z.string().optional().nullable(),
+      }).optional().default({}),
+      metadata: z.record(z.string(), z.unknown()).optional(),
+    }),
+    action: 'applications.create',
+  },
+  applications_transition: {
+    description: 'Advance an existing application through the admissions workflow with optional intake or metadata updates.',
+    inputSchema: z.object({
+      applicationId: nonEmptyString('applicationId'),
+      status: z.enum(['draft', 'submitted', 'interview_scheduled', 'interview_completed', 'accepted', 'declined', 'withdrawn']),
+      notes: z.string().optional().nullable(),
+      membershipId: z.string().trim().min(1).optional().nullable(),
+      intake: z.object({
+        kind: z.enum(['fit_check', 'advice_call', 'other']).optional(),
+        price: z.object({
+          amount: z.number().finite().optional().nullable(),
+          currency: z.string().trim().min(1).optional().nullable(),
+        }).optional(),
+        bookingUrl: z.string().optional().nullable(),
+        bookedAt: z.string().optional().nullable(),
+        completedAt: z.string().optional().nullable(),
+      }).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional().nullable(),
+    }),
+    action: 'applications.transition',
+  },
   members_search: {
     description: 'Search for relevant members by name, skill, city, interests, or semantic fit inside the current accessible network scope.',
     inputSchema: z.object({

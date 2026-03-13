@@ -15,6 +15,10 @@ ClawClub now has a first thin AI SDK integration in `src/ai.ts`.
 The first curated tools are:
 
 - `session_describe`
+- `memberships_review`
+- `applications_list`
+- `applications_create`
+- `applications_transition`
 - `members_search`
 - `profile_get`
 - `profile_update`

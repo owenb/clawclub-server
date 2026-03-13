@@ -137,6 +137,7 @@ ClawClub already has:
 - a Postgres schema and migrations
 - bearer-token auth
 - shared actor context on authenticated responses
+- curated AI tools for session, member search, profile, admissions/applications, events, and messaging flows
 - member search
 - profile read/update
 - entity create/list for posts, asks, services, and opportunities
