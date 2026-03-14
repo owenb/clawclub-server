@@ -55,7 +55,7 @@ Those can be added later when there is a clearer conversational/operator need.
 
 This keeps the AI layer thin:
 
-- app logic lives in `src/app.ts` plus the domain handlers in `src/app-admissions.ts`, `src/app-content.ts`, `src/app-deliveries.ts`, `src/app-messages.ts`, and `src/app-profile.ts`
+- app logic lives in `src/app.ts` plus the domain handlers in `src/app-admissions.ts`, `src/app-content.ts`, `src/app-deliveries.ts`, `src/app-messages.ts`, `src/app-profile.ts`, and `src/app-system.ts`
 - repository/auth rules live in `src/postgres.ts` plus the domain modules under `src/postgres/`
 - the AI layer mainly translates curated conversational tools into existing actions
 

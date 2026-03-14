@@ -4,6 +4,7 @@ import { handleContentAction } from './app-content.ts';
 import { handleDeliveryAction } from './app-deliveries.ts';
 import { handleMessageAction } from './app-messages.ts';
 import { handleProfileAction } from './app-profile.ts';
+import { handleSystemAction } from './app-system.ts';
 
 export type MembershipState = 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected';
 
@@ -1428,164 +1429,25 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
         return messageResponse;
       }
 
-      switch (action) {
-        case 'session.describe':
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: auth.requestScope,
-            sharedContext,
-            data: {},
-          });
-
-        case 'networks.list': {
-          requireSuperadmin(actor);
-          const includeArchived = payload.includeArchived === true;
-          const networks = await repository.listNetworks?.({
-            actorMemberId: actor.member.id,
-            includeArchived,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: auth.requestScope,
-            sharedContext,
-            data: {
-              includeArchived,
-              networks: networks ?? [],
-            },
-          });
-        }
-
-        case 'networks.create': {
-          requireSuperadmin(actor);
-          const network = await repository.createNetwork?.({
-            actorMemberId: actor.member.id,
-            slug: requireNonEmptyString(payload.slug, 'slug'),
-            name: requireNonEmptyString(payload.name, 'name'),
-            summary: normalizeOptionalString(payload.summary, 'summary'),
-            manifestoMarkdown: normalizeOptionalString(payload.manifestoMarkdown, 'manifestoMarkdown'),
-            ownerMemberId: requireNonEmptyString(payload.ownerMemberId, 'ownerMemberId'),
-          });
-
-          if (!network) {
-            throw new AppError(404, 'not_found', 'Owner member not found for network create');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: network.networkId,
-              activeNetworkIds: [network.networkId],
-            },
-            sharedContext,
-            data: { network },
-          });
-        }
-
-        case 'networks.archive': {
-          requireSuperadmin(actor);
-          const network = await repository.archiveNetwork?.({
-            actorMemberId: actor.member.id,
-            networkId: requireNonEmptyString(payload.networkId, 'networkId'),
-          });
-
-          if (!network) {
-            throw new AppError(404, 'not_found', 'Network not found for archive');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: network.networkId,
-              activeNetworkIds: [network.networkId],
-            },
-            sharedContext,
-            data: { network },
-          });
-        }
-
-        case 'networks.assignOwner': {
-          requireSuperadmin(actor);
-          const network = await repository.assignNetworkOwner?.({
-            actorMemberId: actor.member.id,
-            networkId: requireNonEmptyString(payload.networkId, 'networkId'),
-            ownerMemberId: requireNonEmptyString(payload.ownerMemberId, 'ownerMemberId'),
-          });
-
-          if (!network) {
-            throw new AppError(404, 'not_found', 'Network or owner member not found for owner assignment');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: network.networkId,
-              activeNetworkIds: [network.networkId],
-            },
-            sharedContext,
-            data: { network },
-          });
-        }
-
-        case 'tokens.list': {
-          const tokens = await repository.listBearerTokens({
-            actorMemberId: actor.member.id,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: auth.requestScope,
-            sharedContext,
-            data: { tokens },
-          });
-        }
-
-        case 'tokens.create': {
-          const { label, metadata } = normalizeTokenCreateInput(payload);
-          const created = await repository.createBearerToken({
-            actorMemberId: actor.member.id,
-            label,
-            metadata,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: auth.requestScope,
-            sharedContext,
-            data: created,
-          });
-        }
-
-        case 'tokens.revoke': {
-          const tokenId = requireNonEmptyString(payload.tokenId, 'tokenId');
-          const token = await repository.revokeBearerToken({
-            actorMemberId: actor.member.id,
-            tokenId,
-          });
-
-          if (!token) {
-            throw new AppError(404, 'not_found', 'Token not found inside the actor scope');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: auth.requestScope,
-            sharedContext,
-            data: { token },
-          });
-        }
-
-        default:
-          throw new AppError(400, 'unknown_action', `Unsupported action: ${action}`);
+      const systemResponse = await handleSystemAction({
+        action,
+        payload,
+        actor,
+        requestScope: auth.requestScope,
+        sharedContext,
+        repository,
+        buildSuccessResponse,
+        createAppError: (status, code, message) => new AppError(status, code, message),
+        normalizeOptionalString,
+        normalizeTokenCreateInput,
+        requireNonEmptyString,
+        requireSuperadmin,
+      });
+      if (systemResponse) {
+        return systemResponse;
       }
+
+      throw new AppError(400, 'unknown_action', `Unsupported action: ${action}`);
     },
   };
 }
