@@ -144,6 +144,38 @@ export async function handleContentAction(input: {
       });
     }
 
+    case 'entities.archive': {
+      const entityId = requireNonEmptyString(payload.entityId, 'entityId');
+      if (!repository.archiveEntity) {
+        throw createAppError(501, 'not_implemented', 'entities.archive is not implemented');
+      }
+
+      const entity = await repository.archiveEntity({
+        actorMemberId: actor.member.id,
+        accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+        entityId,
+      });
+
+      if (!entity) {
+        throw createAppError(404, 'not_found', 'Entity not found inside the actor scope');
+      }
+
+      if (entity.author.memberId !== actor.member.id) {
+        throw createAppError(403, 'forbidden', 'Only the author may archive this entity');
+      }
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope: {
+          requestedNetworkId: entity.networkId,
+          activeNetworkIds: [entity.networkId],
+        },
+        sharedContext,
+        data: { entity },
+      });
+    }
+
     case 'entities.list': {
       const limit = normalizeLimit(payload.limit);
       const kinds = normalizeEntityKinds(payload.kinds);

@@ -163,6 +163,14 @@ Use this first. It resolves:
 - owner/admin flows are enforced server-side and by RLS
 - accepted applications expose a small activation handoff summary directly on the current application payload
 
+### `entities.create` / `entities.update` / `entities.archive`
+
+- create and edit append new `entity_versions` rows rather than mutating old content
+- `entities.archive` appends an `archived` version; archive visibility is derived from the latest entity version state
+- archived entities disappear from `live_entities` and normal `entities.list` reads immediately
+- `entities.archived_at` is now a legacy compatibility column and is not the runtime source of truth
+- archive currently applies to posts, asks, opportunities, and services
+
 ### `messages.*`
 
 - DMs require shared network scope

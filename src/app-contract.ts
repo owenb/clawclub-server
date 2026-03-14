@@ -338,6 +338,7 @@ export type UpdateOwnProfileInput = {
 };
 
 export type EntityKind = 'post' | 'opportunity' | 'service' | 'ask';
+export type EntityState = 'draft' | 'published' | 'archived';
 
 export type EntitySummary = {
   entityId: string;
@@ -351,7 +352,7 @@ export type EntitySummary = {
   };
   version: {
     versionNo: number;
-    state: 'published';
+    state: EntityState;
     title: string | null;
     summary: string | null;
     body: string | null;
@@ -373,6 +374,12 @@ export type CreateEntityInput = {
   body: string | null;
   expiresAt: string | null;
   content: Record<string, unknown>;
+};
+
+export type ArchiveEntityInput = {
+  actorMemberId: string;
+  accessibleNetworkIds: string[];
+  entityId: string;
 };
 
 export type EventRsvpState = 'yes' | 'maybe' | 'no' | 'waitlist';
@@ -816,6 +823,7 @@ export type Repository = {
   updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
+  archiveEntity?(input: ArchiveEntityInput): Promise<EntitySummary | null>;
   listEntities(input: ListEntitiesInput): Promise<EntitySummary[]>;
   createEvent(input: CreateEventInput): Promise<EventSummary>;
   listEvents(input: ListEventsInput): Promise<EventSummary[]>;

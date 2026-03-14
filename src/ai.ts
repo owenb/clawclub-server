@@ -149,6 +149,13 @@ const canonicalToolSpecs = {
     }),
     action: 'entities.create',
   },
+  entities_archive: {
+    description: 'Archive one of your existing posts, asks, opportunities, or services so it drops out of live network reads.',
+    inputSchema: z.object({
+      entityId: nonEmptyString('entityId'),
+    }),
+    action: 'entities.archive',
+  },
   events_list: {
     description: 'List upcoming events in accessible networks, optionally narrowed by a plain-text query.',
     inputSchema: z.object({

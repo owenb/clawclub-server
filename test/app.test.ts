@@ -1720,6 +1720,88 @@ test('entities.update appends a new version on the shared entity surface', async
   assert.equal(result.data.entity.version.versionNo, 2);
 });
 
+test('entities.archive appends an archived version on the shared entity surface', async () => {
+  let capturedInput: { actorMemberId: string; accessibleNetworkIds: string[]; entityId: string } | null = null;
+
+  const repository: Repository = {
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async searchMembers() {
+      return [];
+    },
+    async listMembers() {
+      return [makeNetworkMember()];
+    },
+    async getMemberProfile() {
+      return makeProfile();
+    },
+    async updateOwnProfile() {
+      return makeProfile();
+    },
+    async createEntity() {
+      return makeEntity();
+    },
+    async updateEntity() {
+      return makeEntity();
+    },
+    async archiveEntity(input) {
+      capturedInput = input;
+      return makeEntity({
+        entityVersionId: 'entity-version-3',
+        networkId: 'network-2',
+        version: {
+          ...makeEntity().version,
+          versionNo: 3,
+          state: 'archived',
+          effectiveAt: '2026-03-12T01:00:00Z',
+          expiresAt: '2026-03-12T01:00:00Z',
+          createdAt: '2026-03-12T01:00:00Z',
+        },
+      });
+    },
+    async sendDirectMessage() {
+      return makeDirectMessage();
+    },
+    async listDirectMessageThreads() {
+      return [makeDirectMessageThread()];
+    },
+    async listDirectMessageInbox() {
+      return [makeDirectMessageInbox()];
+    },
+    async readDirectMessageThread() {
+      return {
+        thread: makeDirectMessageThread(),
+        messages: [makeDirectMessageTranscriptEntry()],
+      };
+    },
+    async listEntities() {
+      return [makeEntity()];
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'entities.archive',
+    payload: {
+      entityId: 'entity-1',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-1', 'network-2'],
+    entityId: 'entity-1',
+  });
+  assert.equal(result.action, 'entities.archive');
+  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
+  assert.equal(result.data.entity.entityVersionId, 'entity-version-3');
+  assert.equal(result.data.entity.version.versionNo, 3);
+  assert.equal(result.data.entity.version.state, 'archived');
+});
+
 test('entities.update rejects empty patches', async () => {
   const app = buildApp({ repository: makeRepository() });
 

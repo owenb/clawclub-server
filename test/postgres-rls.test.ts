@@ -419,6 +419,120 @@ test('RLS ignores spoofed legacy actor_network_ids and still derives access from
   });
 });
 
+test('RLS only lets authors archive accessible entities', async () => {
+  await withIsolatedClient(async (client, roleName) => {
+    const fixture = await seedRlsFixture(client);
+    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
+
+    await setActorContext(client, fixture.memberBId);
+    await client.query('savepoint bad_entity_archive');
+    await assert.rejects(
+      () => client.query(
+        `
+          insert into app.entity_versions (
+            entity_id,
+            version_no,
+            state,
+            title,
+            summary,
+            body,
+            effective_at,
+            expires_at,
+            content,
+            supersedes_version_id,
+            created_by_member_id
+          )
+          select
+            cev.entity_id,
+            cev.version_no + 1,
+            'archived',
+            cev.title,
+            cev.summary,
+            cev.body,
+            now(),
+            now(),
+            cev.content,
+            cev.id,
+            $2::app.short_id
+          from app.current_entity_versions cev
+          where cev.entity_id = $1::app.short_id
+        `,
+        [fixture.network1EntityId, fixture.memberBId],
+      ),
+      /row-level security|violates row-level security policy/i,
+    );
+    await client.query('rollback to savepoint bad_entity_archive');
+
+    await setActorContext(client, fixture.memberAId);
+    const archivedVersion = await client.query<{ id: string }>(
+      `
+        insert into app.entity_versions (
+          entity_id,
+          version_no,
+          state,
+          title,
+          summary,
+          body,
+          effective_at,
+          expires_at,
+          content,
+          supersedes_version_id,
+          created_by_member_id
+        )
+        select
+          cev.entity_id,
+          cev.version_no + 1,
+          'archived',
+          cev.title,
+          cev.summary,
+          cev.body,
+          now(),
+          now(),
+          cev.content,
+          cev.id,
+          $2::app.short_id
+        from app.current_entity_versions cev
+        where cev.entity_id = $1::app.short_id
+        returning id
+      `,
+      [fixture.network1EntityId, fixture.memberAId],
+    );
+    const hidden = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.live_entities
+        where entity_id = $1
+      `,
+      [fixture.network1EntityId],
+    );
+
+    await client.query('reset session authorization');
+    const archived = await client.query<{ archived_version_count: string; current_state: string | null }>(
+      `
+        select
+          (
+            select count(*)::text
+            from app.entity_versions
+            where entity_id = $1
+              and state = 'archived'
+          ) as archived_version_count,
+          (
+            select state::text
+            from app.current_entity_versions
+            where entity_id = $1
+            limit 1
+          ) as current_state
+      `,
+      [fixture.network1EntityId],
+    );
+
+    assert.equal(typeof archivedVersion.rows[0]?.id, 'string');
+    assert.equal(hidden.rows[0]?.visible_count, '0');
+    assert.equal(archived.rows[0]?.archived_version_count, '1');
+    assert.equal(archived.rows[0]?.current_state, 'archived');
+  });
+});
+
 test('RLS blocks transcript reads for same-network members who are not participants', async () => {
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);

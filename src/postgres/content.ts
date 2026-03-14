@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from 'pg';
 import type {
+  ArchiveEntityInput,
   CreateEntityInput,
   CreateEventInput,
   EntitySummary,
@@ -53,6 +54,23 @@ type EntityRow = {
   embedding_metadata: Record<string, unknown> | null;
   embedding_created_at: string | null;
   entity_created_at: string;
+};
+
+type CurrentEntityRow = {
+  entity_id: string;
+  network_id: string;
+  kind: EntitySummary['kind'];
+  author_member_id: string;
+  author_public_name: string;
+  author_handle: string | null;
+  entity_created_at: string;
+  version_id: string;
+  version_no: number;
+  title: string | null;
+  summary: string | null;
+  body: string | null;
+  expires_at: string | null;
+  content: Record<string, unknown> | null;
 };
 
 type EventRsvpAttendeeRow = {
@@ -194,8 +212,8 @@ async function readEntitySummary(client: DbClient, entityId: string, entityVersi
       left join app.current_entity_version_embeddings ceve on ceve.entity_version_id = cev.id
       join app.members m on m.id = e.author_member_id
       where e.id = $1
-        and e.archived_at is null
         and e.deleted_at is null
+        and cev.state = 'published'
         and ($2::app.short_id is null or cev.id = $2)
     `,
     [entityId, entityVersionId ?? null],
@@ -316,7 +334,7 @@ export function buildContentRepository({
   withActorContext: WithActorContext;
 }): Pick<
   Repository,
-  'createEntity' | 'updateEntity' | 'listEntities' | 'createEvent' | 'listEvents' | 'rsvpEvent'
+  'createEntity' | 'updateEntity' | 'archiveEntity' | 'listEntities' | 'createEvent' | 'listEvents' | 'rsvpEvent'
 > {
   return {
     async createEntity(input: CreateEntityInput): Promise<EntitySummary> {
@@ -390,8 +408,8 @@ export function buildContentRepository({
             join app.current_entity_versions cev on cev.entity_id = e.id
             where e.id = $1
               and e.network_id = any($2::app.short_id[])
-              and e.archived_at is null
               and e.deleted_at is null
+              and cev.state = 'published'
           `,
           [input.entityId, input.accessibleNetworkIds],
         );
@@ -441,6 +459,120 @@ export function buildContentRepository({
           throw new Error('Updated entity could not be reloaded');
         }
         return summary;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async archiveEntity(input: ArchiveEntityInput): Promise<EntitySummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
+
+        const currentResult = await client.query<CurrentEntityRow>(
+          `
+            select
+              e.id as entity_id,
+              e.network_id,
+              e.kind,
+              e.author_member_id,
+              m.public_name as author_public_name,
+              m.handle as author_handle,
+              e.created_at::text as entity_created_at,
+              cev.id as version_id,
+              cev.version_no,
+              cev.title,
+              cev.summary,
+              cev.body,
+              cev.expires_at::text as expires_at,
+              cev.content
+            from app.entities e
+            join app.current_entity_versions cev on cev.entity_id = e.id
+            join app.members m on m.id = e.author_member_id
+            where e.id = $1
+              and e.network_id = any($2::app.short_id[])
+              and e.author_member_id = $3
+              and e.kind = any(array['post', 'opportunity', 'service', 'ask']::app.entity_kind[])
+              and e.deleted_at is null
+              and cev.state = 'published'
+            limit 1
+          `,
+          [input.entityId, input.accessibleNetworkIds, input.actorMemberId],
+        );
+
+        const current = currentResult.rows[0];
+        if (!current) {
+          await client.query('rollback');
+          return null;
+        }
+
+        const archiveClockResult = await client.query<{ archived_at: string }>(`select now()::text as archived_at`);
+        const archivedAt = archiveClockResult.rows[0]?.archived_at;
+        if (!archivedAt) {
+          throw new Error('Archive timestamp could not be resolved');
+        }
+
+        const archivedVersionResult = await client.query<{ id: string }>(
+          `
+            insert into app.entity_versions (
+              entity_id,
+              version_no,
+              state,
+              title,
+              summary,
+              body,
+              effective_at,
+              expires_at,
+              content,
+              supersedes_version_id,
+              created_by_member_id
+            )
+            values ($1, $2, 'archived', $3, $4, $5, $6, $6, $7::jsonb, $8, $9)
+            returning id
+          `,
+          [
+            current.entity_id,
+            current.version_no + 1,
+            current.title,
+            current.summary,
+            current.body,
+            archivedAt,
+            JSON.stringify(current.content ?? {}),
+            current.version_id,
+            input.actorMemberId,
+          ],
+        );
+
+        await client.query('commit');
+
+        return {
+          entityId: current.entity_id,
+          entityVersionId: archivedVersionResult.rows[0]!.id,
+          networkId: current.network_id,
+          kind: current.kind,
+          author: {
+            memberId: current.author_member_id,
+            publicName: current.author_public_name,
+            handle: current.author_handle,
+          },
+          version: {
+            versionNo: current.version_no + 1,
+            state: 'archived',
+            title: current.title,
+            summary: current.summary,
+            body: current.body,
+            effectiveAt: archivedAt,
+            expiresAt: archivedAt,
+            createdAt: archivedAt,
+            content: current.content ?? {},
+            embedding: null,
+          },
+          createdAt: current.entity_created_at,
+        };
       } catch (error) {
         await client.query('rollback');
         throw error;

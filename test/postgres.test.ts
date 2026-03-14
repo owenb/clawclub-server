@@ -73,6 +73,74 @@ test('postgres repository creates, archives, and reassigns network owners throug
   assert.equal(reassigned?.ownerVersion.versionNo, 2);
 });
 
+test('postgres repository archives an entity by appending an archived version without mutating root rows directly', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql === `select now()::text as archived_at`) {
+        return { rows: [{ archived_at: '2026-03-14T12:00:00Z' }], rowCount: 1 };
+      }
+
+      if (sql.includes('join app.current_entity_versions cev on cev.entity_id = e.id') && sql.includes("e.kind = any(array['post', 'opportunity', 'service', 'ask']::app.entity_kind[])")) {
+        return {
+          rows: [{
+            entity_id: 'entity-1',
+            network_id: 'network-2',
+            kind: 'post',
+            author_member_id: 'member-1',
+            author_public_name: 'Member One',
+            author_handle: 'member-one',
+            entity_created_at: '2026-03-12T00:00:00Z',
+            version_id: 'entity-version-2',
+            version_no: 2,
+            title: 'Hello',
+            summary: 'Summary',
+            body: 'Body',
+            expires_at: null,
+            content: { mood: 'steady' },
+          }],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('insert into app.entity_versions') && sql.includes(`'archived'`)) {
+        return { rows: [{ id: 'entity-version-3' }], rowCount: 1 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const archived = await repository.archiveEntity?.({
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-2'],
+    entityId: 'entity-1',
+  });
+
+  assert.equal(archived?.entityId, 'entity-1');
+  assert.equal(archived?.entityVersionId, 'entity-version-3');
+  assert.equal(archived?.version.versionNo, 3);
+  assert.equal(archived?.version.state, 'archived');
+  assert.equal(archived?.version.effectiveAt, '2026-03-14T12:00:00Z');
+  assert.equal(archived?.version.expiresAt, '2026-03-14T12:00:00Z');
+  assert.deepEqual(calls[1]?.params, ['member-1']);
+  assert.deepEqual(calls[2]?.params, ['entity-1', ['network-2'], 'member-1']);
+  assert.equal(calls.some((call) => call.sql.includes('update app.entities')), false);
+});
+
 test('postgres repository lists active members with scoped membership context', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

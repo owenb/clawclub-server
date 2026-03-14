@@ -13,7 +13,7 @@ A realistic summary:
 - the remaining work is mostly docs/deployment polish, WebHugs hardening before re-enable, and search/runtime polish
 
 Latest known test state at handoff:
-- `125/125` passing
+- `128/128` passing
 
 ## What already exists
 
@@ -37,7 +37,9 @@ Latest known test state at handoff:
 ### Entities / posts / opportunities / asks / services
 - `entities.create`
 - `entities.update`
+- `entities.archive`
 - `entities.list`
+- archive visibility now derives from the latest entity version state, not a root-row archive mutation
 - deterministic entity/event retrieval improvements
 
 ### Events

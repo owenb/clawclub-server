@@ -25,6 +25,7 @@ The first curated tools are:
 - `profile_update`
 - `entities_list`
 - `entities_create`
+- `entities_archive`
 - `events_list`
 - `events_create`
 - `events_rsvp`
@@ -40,6 +41,8 @@ Notably excluded for now:
 - superadmin network management
 
 Those can be added later when there is a clearer conversational/operator need.
+
+`entities_archive` follows the same append-only entity lifecycle as the HTTP/API surface: it appends an archived version, and live visibility is derived from the latest entity version state.
 
 ## Entry points
 

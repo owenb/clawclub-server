@@ -148,7 +148,8 @@ ClawClub already has:
 - member search
 - profile read/update
 - deterministic plain-text retrieval for entities and events
-- entity create/list for posts, asks, services, and opportunities
+- entity create/update/archive/list for posts, asks, services, and opportunities
+- archive visibility now follows the latest entity version state, keeping the content lifecycle append-only
 - delivery claim/execute/complete/fail plumbing
 - webhook signing with real secret resolution (`env:` and `op://`) plus receiver verification helpers
 - endpoint inventory now includes per-endpoint delivery health counters for quick operator checks

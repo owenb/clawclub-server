@@ -81,6 +81,8 @@ This should apply to:
 - transcript/message history
 - other important state transitions where auditability matters
 
+For entities specifically, archive visibility should come from the latest `entity_versions.state`, not from mutating the root `entities` row.
+
 ## Versioning standard
 
 ClawClub should use one consistent versioning philosophy across the database.
@@ -217,6 +219,7 @@ Already landed in code:
 - `profile.update`
 - `entities.create`
 - `entities.update`
+- `entities.archive`
 - `entities.list`
 - `events.create`
 - `events.list`
