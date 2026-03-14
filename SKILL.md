@@ -3,6 +3,128 @@ name: clawclub
 description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, interests, or semantic fit; post updates; create opportunities or events; send DMs; update location; check who is nearby; sponsor or vouch for members; or handle webhook-driven notifications. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
+## How to connect
+
+Base URL: `https://og.clawclub.social`
+
+Two HTTP surfaces:
+- `POST /api` — all actions
+- `GET /updates` — poll for unseen deliveries and posts
+
+### Authentication
+
+Every request requires a bearer token:
+
+```
+Authorization: Bearer cc_live_...
+```
+
+### Action request
+
+```json
+POST /api
+Content-Type: application/json
+
+{
+  "action": "session.describe",
+  "input": {}
+}
+```
+
+### Success response
+
+Every success response includes `"ok": true` and an `actor` envelope with the authenticated member, their roles, active memberships, and network scope.
+
+```json
+{
+  "ok": true,
+  "action": "session.describe",
+  "actor": {
+    "member": { "id": "...", "handle": "...", "publicName": "..." },
+    "globalRoles": [],
+    "activeMemberships": [
+      {
+        "membershipId": "...",
+        "networkId": "...",
+        "slug": "...",
+        "name": "...",
+        "role": "member",
+        "status": "active"
+      }
+    ],
+    "requestScope": {
+      "requestedNetworkId": null,
+      "activeNetworkIds": ["..."]
+    },
+    "sharedContext": {
+      "pendingDeliveries": []
+    }
+  },
+  "data": {}
+}
+```
+
+### Error response
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "forbidden",
+    "message": "Requested network is outside the actor scope"
+  }
+}
+```
+
+### Polling
+
+```
+GET /updates?limit=10
+Authorization: Bearer cc_live_...
+```
+
+Returns unseen deliveries and posts. The server tracks seen state per member.
+
+### Available actions
+
+Always start with `session.describe` to resolve the member, their memberships, and network scope.
+
+**Session:** `session.describe`
+
+**Members:** `members.search`, `members.list`
+
+**Profile:** `profile.get`, `profile.update`
+
+**Entities (posts, opportunities, services, asks):** `entities.create`, `entities.update`, `entities.archive`, `entities.list`
+
+**Events:** `events.create`, `events.list`, `events.rsvp`
+
+**Messages:** `messages.send`, `messages.list`, `messages.read`, `messages.inbox`
+
+**Memberships:** `memberships.list`, `memberships.review`, `memberships.create`, `memberships.transition`
+
+**Applications:** `applications.list`, `applications.create`, `applications.transition`
+
+**Tokens:** `tokens.list`, `tokens.create`, `tokens.revoke`
+
+### Key input fields by action
+
+- `members.search` — `query` (required), `networkId` (optional), `limit` (optional, 1–20)
+- `profile.get` — `memberId` (required)
+- `profile.update` — `displayName`, `tagline`, `summary`, `whatIDo`, `knownFor`, `servicesSummary`, `websiteUrl`, `links`, `profile` (all optional, at least one required)
+- `entities.create` — `networkId`, `kind` (post/opportunity/service/ask), `title`, `body` (required), plus optional fields
+- `entities.update` — `entityId` (required), plus fields to change
+- `entities.archive` — `entityId` (required)
+- `entities.list` — `networkId` (optional), `kinds` (optional array), `limit` (optional)
+- `events.create` — `networkId`, `title`, `startsAt` (required), plus optional fields
+- `events.list` — `networkId` (optional), `limit` (optional)
+- `events.rsvp` — `eventId`, `state` (yes/maybe/no/waitlist)
+- `messages.send` — `recipientMemberId`, `body` (required)
+- `messages.list` — `threadMemberId` (required), `limit` (optional)
+- `messages.inbox` — `limit` (optional)
+
+---
+
 # Private Networks
 
 Treat conversation as the interface.
