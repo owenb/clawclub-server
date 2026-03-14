@@ -3,6 +3,38 @@ import assert from 'node:assert/strict';
 import { createServer, DEFAULT_SERVER_LIMITS } from '../src/server.ts';
 import type { Repository } from '../src/app.ts';
 
+function makeAuthResult() {
+  return {
+    actor: {
+      member: {
+        id: 'member-1',
+        handle: 'member-one',
+        publicName: 'Member One',
+      },
+      memberships: [{
+        membershipId: 'membership-1',
+        networkId: 'network-1',
+        slug: 'alpha',
+        name: 'Alpha',
+        summary: 'First network',
+        manifestoMarkdown: null,
+        role: 'member' as const,
+        status: 'active' as const,
+        sponsorMemberId: null,
+        joinedAt: '2026-03-14T10:00:00Z',
+      }],
+      globalRoles: [],
+    },
+    requestScope: {
+      requestedNetworkId: null,
+      activeNetworkIds: ['network-1'],
+    },
+    sharedContext: {
+      pendingDeliveries: [],
+    },
+  };
+}
+
 function makeRepository(): Repository {
   return {
     async authenticateBearerToken() {
@@ -180,6 +212,92 @@ test('createServer applies hardened HTTP server limits', async () => {
     assert.equal(server.keepAliveTimeout, DEFAULT_SERVER_LIMITS.keepAliveTimeoutMs);
     assert.equal(server.maxRequestsPerSocket, DEFAULT_SERVER_LIMITS.maxRequestsPerSocket);
     assert.equal(server.maxHeadersCount, DEFAULT_SERVER_LIMITS.maxHeadersCount);
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer serves GET /updates through repository-backed polling', async () => {
+  const requestFetch = globalThis.fetch;
+  let capturedInput: { actorMemberId: string; accessibleNetworkIds: string[]; limit: number } | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_test' ? makeAuthResult() : null;
+    },
+    async pollUpdates(input) {
+      capturedInput = input;
+      return {
+        deliveries: [{
+          deliveryId: 'delivery-1',
+          networkId: 'network-1',
+          entityId: null,
+          entityVersionId: null,
+          transcriptMessageId: 'message-1',
+          topic: 'transcript.message.created',
+          payload: { kind: 'dm', threadId: 'thread-1' },
+          createdAt: '2026-03-14T11:00:00Z',
+          sentAt: '2026-03-14T11:00:01Z',
+        }],
+        posts: [],
+        polledAt: '2026-03-14T11:05:00Z',
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({ repository });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const response = await requestFetch(`http://127.0.0.1:${port}/updates?limit=3`, {
+      headers: {
+        authorization: 'Bearer cc_live_test',
+      },
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(capturedInput, {
+      actorMemberId: 'member-1',
+      accessibleNetworkIds: ['network-1'],
+      limit: 3,
+    });
+
+    const body = await response.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.member.id, 'member-1');
+    assert.equal(body.updates.deliveries[0]?.deliveryId, 'delivery-1');
+    assert.equal(body.updates.polledAt, '2026-03-14T11:05:00Z');
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer rejects GET /updates without a valid bearer token', async () => {
+  const requestFetch = globalThis.fetch;
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() {
+      return null;
+    },
+  };
+
+  const { server, shutdown } = createServer({ repository });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const response = await requestFetch(`http://127.0.0.1:${port}/updates`);
+    const body = await response.json();
+
+    assert.equal(response.status, 401);
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, 'unauthorized');
   } finally {
     await shutdown();
   }

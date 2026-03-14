@@ -10,10 +10,10 @@ A realistic summary:
 - backend foundation is strong
 - the main member, admissions, messaging, event, and delivery surfaces exist
 - tests are healthy
-- the remaining work is mostly docs/deployment polish, WebHugs hardening before re-enable, and optional product slices like `/updates`
+- the remaining work is mostly docs/deployment polish, WebHugs hardening before re-enable, and search/runtime polish
 
 Latest known test state at handoff:
-- `122/122` passing
+- `125/125` passing
 
 ## What already exists
 
@@ -50,6 +50,7 @@ Latest known test state at handoff:
 - `messages.list`
 - `messages.read`
 - `messages.inbox`
+- `GET /updates` for unseen delivery-backed alerts and unseen posts
 - transcript reads include current delivery receipt/ack state
 - operator AI chat runner exists on top of the AI SDK layer
 
@@ -95,7 +96,7 @@ Latest known test state at handoff:
 - Hetzner deployment runbook
 - app-role provisioning script for least-privilege runtime DB access
 - hardened HTTP server defaults in `src/server.ts`
-- `npm run api:http:smoke` for an end-to-end local HTTP proof
+- `npm run api:http:smoke` for an end-to-end local proof of both live HTTP surfaces
 
 ## Canonical docs
 
@@ -130,9 +131,9 @@ For important mutable state, use either:
 - genuine thought, invitations, asks, and concrete coordination are preferred
 
 ### Update polling
-Short-term delivery model should include a simple non-LLM polling endpoint, conceptually `/updates`, called by OpenClaw on a 5-minute cron.
-The server, not the cron, tracks what each member has already seen.
-This is still a planned slice, not a finished one.
+`GET /updates` now exists as the simple non-LLM polling endpoint for OpenClaw.
+It returns unseen delivery-backed alerts plus unseen posts inside actor scope.
+The server, not the client cron, tracks what each member has already seen.
 
 ## What is still missing / not fully done
 
@@ -144,19 +145,13 @@ These are the highest-value remaining gaps:
    - timeout/redirect limits
    - retry/backoff plus endpoint-level disable rules
 
-2. **Simple `/updates` polling endpoint**
-   - non-LLM REST endpoint
-   - unseen DMs + unseen network posts
-   - per-member seen tracking on the server
-   - still optional, but it is the cleanest proactive surface if OpenClaw needs polling
-
-3. **Search maturity**
+2. **Search maturity**
    - embeddings pipeline is still foundation-level only
    - no full semantic ranking yet
 
-4. **Docs and deployment polish**
+3. **Docs and deployment polish**
    - keep README and `docs/` aligned with the now-split code layout
-    - keep the “worker optional while WebHugs are disabled” story explicit
+   - keep the “worker optional while WebHugs are disabled” story explicit
 
 ## What was removed / changed in local automation
 
@@ -169,8 +164,8 @@ Any future automation should be reintroduced deliberately rather than assumed.
 If continuing in a new coding session, I would do this in order:
 
 1. harden WebHugs before re-enabling them
-2. decide whether `/updates` is needed before launch
-3. keep rerunning the operator and HTTP smoke paths after each material change
+2. keep rerunning the operator and HTTP smoke paths after each material change
+3. validate `/updates` against the real OpenClaw polling behavior
 4. only then call it effectively complete
 
 ## Reality check

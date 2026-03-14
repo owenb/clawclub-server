@@ -18,7 +18,7 @@ That split still drives the schema: global tables such as `members`, `member_pro
 
 ## Current foundation
 
-- one HTTP endpoint, `POST /api`, with bearer-token actor resolution
+- two HTTP surfaces: `POST /api` for action calls and `GET /updates` for simple polling, both with bearer-token actor resolution
 - append-only version/event tables plus `current_*` views for normal reads
 - Postgres auth and RLS as the hard permission boundary
 - app-layer orchestration in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-deliveries.ts`, `src/app-messages.ts`, `src/app-profile.ts`, and `src/app-system.ts`
@@ -32,6 +32,7 @@ Important mutable state should still follow one of two shapes:
 - append-only event table + current view
 
 That now covers member profiles, entities, applications, membership state, network ownership, RSVP state, delivery attempts, and direct-message history.
+Polling-specific seen state for posts is tracked as member/entity-version receipts rather than a mutable cursor.
 
 ## Where flexibility lives
 

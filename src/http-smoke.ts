@@ -20,6 +20,21 @@ type SessionDescribeResponse = {
   data: Record<string, never>;
 };
 
+type UpdatesResponse = {
+  ok: true;
+  member: {
+    id: string;
+  };
+  requestScope: {
+    activeNetworkIds: string[];
+  };
+  updates: {
+    deliveries: unknown[];
+    posts: unknown[];
+    polledAt: string;
+  };
+};
+
 function requireRuntimeDatabaseUrl(): string {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -117,6 +132,30 @@ async function postAction(baseUrl: string, bearerToken: string, action: string, 
   return body;
 }
 
+async function getUpdates(baseUrl: string, bearerToken: string, limit: number): Promise<UpdatesResponse> {
+  const response = await fetch(`${baseUrl}/updates?limit=${limit}`, {
+    headers: {
+      authorization: `Bearer ${bearerToken}`,
+    },
+  });
+
+  const bodyText = await response.text();
+  let body: Record<string, any>;
+
+  try {
+    body = bodyText.length === 0 ? {} : JSON.parse(bodyText);
+  } catch {
+    throw new Error(`HTTP smoke GET /updates returned non-JSON response: ${bodyText}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`HTTP smoke GET /updates failed with ${response.status}: ${JSON.stringify(body)}`);
+  }
+
+  assert.equal(body.ok, true, 'HTTP smoke GET /updates should return ok=true');
+  return body as UpdatesResponse;
+}
+
 export async function runHttpSmoke(): Promise<{
   memberId: string;
   networkId: string;
@@ -125,7 +164,7 @@ export async function runHttpSmoke(): Promise<{
   const runtimeDatabaseUrl = requireRuntimeDatabaseUrl();
   const setupPool = new Pool({ connectionString: getSetupDatabaseUrl(runtimeDatabaseUrl) });
   const memberHandle = readSmokeHandle();
-  const actions = ['session.describe', 'members.search', 'profile.get', 'messages.inbox', 'entities.list', 'events.list'];
+  const actions = ['GET /updates', 'session.describe', 'members.search', 'profile.get', 'messages.inbox', 'entities.list', 'events.list'];
   let tokenId: string | null = null;
   let shutdown: (() => Promise<void>) | null = null;
 
@@ -144,6 +183,13 @@ export async function runHttpSmoke(): Promise<{
     assert.ok(session.actor.activeMemberships.length > 0, 'HTTP smoke member must have at least one active membership');
 
     const networkId = session.actor.activeMemberships[0]!.networkId;
+    const updates = await getUpdates(baseUrl, token.bearerToken, 5);
+    assert.equal(updates.member.id, memberId);
+    assert.ok(Array.isArray(updates.updates.deliveries), 'GET /updates should return a deliveries array');
+    assert.ok(Array.isArray(updates.updates.posts), 'GET /updates should return a posts array');
+    assert.equal(typeof updates.updates.polledAt, 'string');
+    assert.ok(updates.requestScope.activeNetworkIds.includes(networkId), 'GET /updates should reflect actor network scope');
+
     const memberQuery = session.actor.member.handle ?? session.actor.member.publicName.split(/\s+/)[0] ?? memberHandle;
 
     const members = await postAction(baseUrl, token.bearerToken, 'members.search', {

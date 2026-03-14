@@ -184,9 +184,10 @@ In-place mutation should not be the primary source of truth for important state.
 - Webhook delivery signing should be practical, not ceremonial: resolve sender secrets server-side, sign the exact raw body, and ship a tiny receiver verification helper so the path is usable end-to-end.
 - Delivery execution auth should be separate from ordinary member bearer auth. Worker/service tokens should be explicit, Postgres-backed, and scoped to allowed network ids so background executors do not inherit full member session authority.
 - Worker/service tokens should also decay with real membership access: their stored scope is only a ceiling, and runtime auth should intersect it with the actor's current memberships so stale tokens lose authority automatically.
-- Short-term proactive notification delivery should also support a simple non-LLM polling endpoint, conceptually `/updates`, called by OpenClaw every 5 minutes.
-- `/updates` should return unseen DMs and unseen network posts the member is allowed to see.
-- The server, not the cron job, should track what each member has already seen for this polling surface so the same updates are not re-notified repeatedly.
+- Short-term proactive notification delivery also has a simple non-LLM polling endpoint, `GET /updates`, intended for periodic OpenClaw polling.
+- `/updates` returns unseen delivery-backed alerts and unseen network posts the member is allowed to see.
+- The server, not the cron job, tracks what each member has already seen for this polling surface so the same updates are not re-notified repeatedly.
+- Delivery-backed seen state reuses delivery acknowledgements; post seen state is tracked as member/entity-version receipts.
 - Even if something has already been surfaced through `/updates`, the conversational/LLM layer may still resurface it later if it is relevant in context.
 
 ## Media and UI assumptions

@@ -67,6 +67,19 @@ function getBearerToken(request: http.IncomingMessage): string | null {
   return match ? match[1].trim() : null;
 }
 
+function normalizeUpdatesLimit(value: string | null): number {
+  if (value === null || value.trim().length === 0) {
+    return 10;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed)) {
+    throw new AppError(400, 'invalid_input', 'limit must be an integer');
+  }
+
+  return Math.min(Math.max(parsed, 1), 20);
+}
+
 function writeJson(response: http.ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
@@ -83,12 +96,64 @@ export function createServer(options: { resolveDeliverySecret?: DeliverySecretRe
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
 
+    if (request.method === 'GET' && url.pathname === '/updates') {
+      try {
+        const bearerToken = getBearerToken(request);
+        if (!bearerToken) {
+          throw new AppError(401, 'unauthorized', 'Unknown bearer token');
+        }
+
+        const auth = await repository.authenticateBearerToken(bearerToken);
+        if (!auth) {
+          throw new AppError(401, 'unauthorized', 'Unknown bearer token');
+        }
+
+        if (!repository.pollUpdates) {
+          throw new Error('Repository does not implement pollUpdates');
+        }
+
+        const updates = await repository.pollUpdates({
+          actorMemberId: auth.actor.member.id,
+          accessibleNetworkIds: auth.requestScope.activeNetworkIds,
+          limit: normalizeUpdatesLimit(url.searchParams.get('limit')),
+        });
+
+        writeJson(response, 200, {
+          ok: true,
+          member: auth.actor.member,
+          requestScope: auth.requestScope,
+          updates,
+        });
+      } catch (error) {
+        if (error instanceof AppError) {
+          writeJson(response, error.statusCode, {
+            ok: false,
+            error: {
+              code: error.code,
+              message: error.message,
+            },
+          });
+          return;
+        }
+
+        console.error(error);
+        writeJson(response, 500, {
+          ok: false,
+          error: {
+            code: 'internal_error',
+            message: 'Unexpected server error',
+          },
+        });
+      }
+      return;
+    }
+
     if (request.method !== 'POST' || url.pathname !== '/api') {
       writeJson(response, 404, {
         ok: false,
         error: {
           code: 'not_found',
-          message: 'Only POST /api is supported',
+          message: 'Only GET /updates and POST /api are supported',
         },
       });
       return;

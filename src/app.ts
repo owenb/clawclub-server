@@ -252,6 +252,12 @@ export type SharedResponseContext = {
   pendingDeliveries: PendingDelivery[];
 };
 
+export type MemberUpdates = {
+  deliveries: PendingDelivery[];
+  posts: EntitySummary[];
+  polledAt: string;
+};
+
 export type AuthResult = {
   actor: ActorContext;
   requestScope: RequestScope;
@@ -824,6 +830,11 @@ export type Repository = {
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
+  pollUpdates?(input: {
+    actorMemberId: string;
+    accessibleNetworkIds: string[];
+    limit: number;
+  }): Promise<MemberUpdates>;
   acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null>;
   listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]>;
   listDeliveryAttempts(input: ListDeliveryAttemptsInput): Promise<DeliveryAttemptInspection[]>;

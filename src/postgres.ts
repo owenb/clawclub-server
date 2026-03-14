@@ -7,6 +7,7 @@ import { buildDeliveryRepository, listPendingDeliveries } from './postgres/deliv
 import { buildMessagesRepository } from './postgres/messages.ts';
 import { buildProfileRepository } from './postgres/profile.ts';
 import { buildSystemRepository } from './postgres/system.ts';
+import { buildUpdatesRepository } from './postgres/updates.ts';
 
 type ActorRow = {
   member_id: string;
@@ -263,6 +264,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
     ...buildDeliveryRepository({ pool, applyActorContext, withActorContext }),
     ...buildMessagesRepository({ pool, applyActorContext, withActorContext }),
     ...buildSystemRepository({ pool, applyActorContext, withActorContext }),
+    ...buildUpdatesRepository({ pool, applyActorContext }),
 
   };
 }

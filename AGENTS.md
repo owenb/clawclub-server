@@ -8,7 +8,7 @@ There is no separate build step; Node 22 runs `.ts` files directly with `--exper
 
 - `npm run api:start` starts the local API on `127.0.0.1:8787`.
 - `npm run api:test` runs the full `node:test` suite in `test/`.
-- `npm run api:http:smoke` boots the real server on a random local port and exercises core HTTP read paths.
+- `npm run api:http:smoke` boots the real server on a random local port and exercises both live HTTP surfaces, including `GET /updates`.
 - `npm run db:migrate` applies SQL migrations using `DATABASE_URL`.
 - `npm run db:status` shows applied versus pending migrations.
 - `npm run db:health` checks migration status and optionally hits `session.describe`.

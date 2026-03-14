@@ -710,5 +710,51 @@ test('RLS limits token and history tables to actor or owner scope', async () => 
       [fixture.memberBMembershipId, fixture.ownerId],
     );
     assert.equal(typeof insertedState.rows[0]?.id, 'string');
+
+    await setActorContext(client, fixture.memberAId);
+    const entityVersion = await client.query<{ id: string }>(
+      `
+        select id
+        from app.current_entity_versions
+        where entity_id = $1
+        limit 1
+      `,
+      [fixture.network1EntityId],
+    );
+
+    const ownReceipt = await client.query<{ member_id: string }>(
+      `
+        insert into app.member_entity_update_receipts (
+          member_id,
+          network_id,
+          entity_id,
+          entity_version_id,
+          created_by_member_id
+        )
+        values ($1, $2, $3, $4, $5)
+        returning member_id
+      `,
+      [fixture.memberAId, fixture.network1Id, fixture.network1EntityId, entityVersion.rows[0]?.id, fixture.memberAId],
+    );
+    assert.equal(ownReceipt.rows[0]?.member_id, fixture.memberAId);
+
+    await client.query('savepoint bad_update_receipt');
+    await assert.rejects(
+      () => client.query(
+        `
+          insert into app.member_entity_update_receipts (
+            member_id,
+            network_id,
+            entity_id,
+            entity_version_id,
+            created_by_member_id
+          )
+          values ($1, $2, $3, $4, $5)
+        `,
+        [fixture.memberBId, fixture.network1Id, fixture.network1EntityId, entityVersion.rows[0]?.id, fixture.memberAId],
+      ),
+      /row-level security|violates row-level security policy/i,
+    );
+    await client.query('rollback to savepoint bad_update_receipt');
   });
 });

@@ -278,7 +278,7 @@ By default the foreman scripts now derive `PROJECT_ROOT` from the repo location 
 
 Next up:
 1. harden WebHugs/webhook execution before re-enabling it
-2. add the optional `/updates` polling endpoint for unseen DMs + unseen network posts if OpenClaw needs proactive polling
+2. validate `/updates` polling against real OpenClaw client behavior and tune relevance/seen semantics if needed
 3. richer search/embeddings maturity
 4. keep docs and deployment runbooks aligned with the hardened server/runtime shape
 
