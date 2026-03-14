@@ -201,6 +201,12 @@ npm run db:provision:app-role
 
 For a real Hetzner-hosted server runbook (env, migrate, systemd, worker, backups, health), see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).
 
+Add a new member to a network:
+
+```bash
+CLAWCLUB_OWNER_TOKEN=cc_live_... npm run add-member -- jane-doe 'Jane Doe' consciousclaw
+```
+
 Generate a bearer token for a member:
 
 ```bash
