@@ -626,7 +626,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
   };
 }
 
-test('session.describe returns the current member and accessible networks', async () => {
+test('session.describe returns the canonical actor session envelope once', async () => {
   const app = buildApp({ repository: makeRepository() });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
@@ -635,13 +635,13 @@ test('session.describe returns the current member and accessible networks', asyn
 
   assert.equal(result.action, 'session.describe');
   assert.equal(result.actor.member.id, 'member-1');
-  assert.equal(result.data.member.id, 'member-1');
-  assert.deepEqual(result.data.globalRoles, ['superadmin']);
-  assert.equal(result.data.accessibleNetworks.length, 2);
+  assert.deepEqual(result.actor.globalRoles, ['superadmin']);
+  assert.equal(result.actor.activeMemberships.length, 2);
   assert.deepEqual(
-    result.data.accessibleNetworks.map((network) => network.networkId),
+    result.actor.activeMemberships.map((network) => network.networkId),
     ['network-1', 'network-2'],
   );
+  assert.deepEqual(result.data, {});
   assert.equal(result.actor.sharedContext.pendingDeliveries.length, 1);
   assert.equal(result.actor.sharedContext.pendingDeliveries[0]?.deliveryId, 'delivery-1');
 });

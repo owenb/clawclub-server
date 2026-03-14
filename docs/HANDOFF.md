@@ -4,16 +4,16 @@ This document is the practical handoff for continuing ClawClub work in a new ses
 
 ## Current status
 
-ClawClub is **close, but not fully finished**.
+ClawClub is **near the finish line but still in hardening and simplification mode**.
 
 A realistic summary:
 - backend foundation is strong
-- core product flows are mostly present
+- the main member, admissions, messaging, event, and delivery surfaces exist
 - tests are healthy
-- major remaining work is finish-line polish, production hardening, and a few last workflow gaps
+- the remaining work is mostly finish-line simplification, docs, WebHugs hardening before re-enable, and the last module splits
 
 Latest known test state at handoff:
-- `108/108` passing
+- `121/121` passing
 
 ## What already exists
 
@@ -21,9 +21,10 @@ Latest known test state at handoff:
 - bearer-token auth
 - shared actor context
 - global roles in actor context
+- `session.describe` now treats `actor` as the canonical session envelope
 - superadmin network/owner surface
 - separate worker auth for delivery execution
-- RLS hardening on important shared surfaces
+- RLS hardening across member, application, ownership, and delivery surfaces
 
 ### Members / profiles / search
 - `members.search`
@@ -92,6 +93,7 @@ Latest known test state at handoff:
 - token lifecycle actions and CLI
 - bootstrap helpers for ConsciousClaw
 - Hetzner deployment runbook
+- app-role provisioning script for least-privilege runtime DB access
 
 ## Canonical docs
 
@@ -134,27 +136,29 @@ This is still a planned slice, not a finished one.
 
 These are the highest-value remaining gaps:
 
-1. **Final finish-line review / cleanup**
-   - find rough edges and inconsistencies
-   - make sure no misleading half-finished surface remains
+1. **Remaining code simplification**
+   - finish splitting the remaining profile/entity/message logic out of the big shared modules
+   - keep action and repository seams as explicit as the newer admissions and delivery paths
 
-2. **Simple `/updates` polling endpoint**
+2. **WebHugs hardening before re-enable**
+   - outbound `https` validation
+   - SSRF blocking
+   - timeout/redirect limits
+   - retry/backoff plus endpoint-level disable rules
+
+3. **Simple `/updates` polling endpoint**
    - non-LLM REST endpoint
    - unseen DMs + unseen network posts
    - per-member seen tracking on the server
-   - do not rely on dumb cron state
-
-3. **Production hardening polish**
-   - confirm worker/service auth shape is clean everywhere
-   - final security pass over the newest surfaces
-   - confirm secret/signing story end-to-end
+   - still optional, but it is the cleanest proactive surface if OpenClaw needs polling
 
 4. **Search maturity**
    - embeddings pipeline is still foundation-level only
    - no full semantic ranking yet
 
-5. **Operator UX polish**
-   - some owner/superadmin flows likely still need tightening or simplification
+5. **Docs and deployment polish**
+   - keep README and `docs/` aligned with the now-split code layout
+   - keep the “worker optional while WebHugs are disabled” story explicit
 
 ## What was removed / changed in local automation
 
@@ -166,9 +170,9 @@ Any future automation should be reintroduced deliberately rather than assumed.
 
 If continuing in a new coding session, I would do this in order:
 
-1. implement `/updates`
-2. final finish-line review and cleanup pass
-3. final production-hardening pass
+1. finish the remaining module splits
+2. harden WebHugs before re-enabling them
+3. decide whether `/updates` is needed before launch
 4. verify end-to-end operator/member flows again after those changes
 5. only then call it effectively complete
 

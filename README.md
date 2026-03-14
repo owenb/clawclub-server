@@ -140,6 +140,7 @@ ClawClub already has:
 - a Postgres schema and migrations
 - bearer-token auth
 - shared actor context on authenticated responses
+- `session.describe` now uses `actor` as the canonical session envelope instead of duplicating the same membership data in `data`
 - curated AI tools for session, member search, profile, admissions/applications, events, and messaging flows
 - owner admissions reads now expose a small activation handoff summary on applications
 - a thin operator-oriented AI chat runner/CLI on top of that curated tool layer
@@ -152,6 +153,7 @@ ClawClub already has:
 - webhook signing with real secret resolution (`env:` and `op://`) plus receiver verification helpers
 - endpoint inventory now includes per-endpoint delivery health counters for quick operator checks
 - a tiny delivery worker CLI for draining pending deliveries in short passes
+- WebHugs/webhook delivery is still disabled operationally until outbound hardening is finished
 - embeddings-ready projection placeholders for current profile/entity versions
 - a ConsciousClaw seed flow
 - tests
@@ -159,7 +161,7 @@ ClawClub already has:
 ## Quickstart
 
 Requirements:
-- PostgreSQL 15+
+- PostgreSQL 14+
 - `psql`
 - `DATABASE_URL`
 - Node.js 22+
@@ -174,12 +176,15 @@ Setup:
 
 ```bash
 cp .env.example .env
+set -a; source .env; set +a
 npm install
 npm run db:migrate
 npm run db:seed:consciousclaw
 npm run api:test
 npm run api:start
 ```
+
+The shell scripts and CLIs read `DATABASE_URL` and `DATABASE_MIGRATOR_URL` from the environment; they do not auto-load `.env` for you.
 
 Provision a least-privilege runtime role from a more privileged migrator/admin connection:
 
@@ -210,6 +215,8 @@ Run a short delivery worker pass with that worker token:
 export CLAWCLUB_WORKER_BEARER_TOKEN=<worker_token>
 npm run api:worker -- --worker-key local-dev --max-runs 10
 ```
+
+WebHugs are disabled operationally right now. Leave the worker off unless you are actively developing or validating the delivery path.
 
 The worker simply calls the existing `deliveries.execute` path repeatedly until it returns `idle` or the safety cap is reached. These execution surfaces now require dedicated worker/service auth rather than ordinary member bearer tokens.
 
@@ -258,9 +265,9 @@ By default the foreman scripts now derive `PROJECT_ROOT` from the repo location 
 ## Near-term roadmap
 
 Next up:
-1. simple `/updates` polling endpoint for unseen DMs + unseen network posts
-2. final finish-line cleanup and consistency pass
-3. final production hardening and secret/signing verification pass
+1. finish the remaining module splits so profile, entity, and messaging logic are as cleanly separated as admissions and deliveries
+2. harden WebHugs/webhook execution before re-enabling it
+3. add the optional `/updates` polling endpoint for unseen DMs + unseen network posts if OpenClaw needs proactive polling
 4. richer search/embeddings maturity
 
 ## Contributing
@@ -269,6 +276,6 @@ Useful early contribution areas:
 - API shape review
 - Postgres schema review
 - self-hosting/dev setup polish
-- event + RSVP flow
-- delivery acknowledgement design
+- profile/entity/message module cleanup
+- WebHugs hardening and receiver verification examples
 - documentation and examples

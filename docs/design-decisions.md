@@ -29,6 +29,7 @@ The README should stay short and public-facing. Memory files should point back t
 - The human should never need to think in CRUD or database terms.
 - The important interface is the **tool/action contract for agents**.
 - Shared actor/network context should come back on every authenticated response so the calling agent stays grounded without extra calls.
+- The `actor` envelope is canonical session state; actions should not duplicate the same member/network context again inside `data` unless the payload is genuinely different.
 
 ## Tool naming
 
@@ -208,7 +209,9 @@ Already landed in code:
 - bearer-token auth
 - shared actor context
 - `session.describe`
+- superadmin network lifecycle actions
 - `members.search`
+- `members.list`
 - `profile.get`
 - `profile.update`
 - `entities.create`
@@ -217,11 +220,25 @@ Already landed in code:
 - `events.create`
 - `events.list`
 - `events.rsvp`
+- `messages.inbox`
+- `messages.list`
+- `messages.read`
 - delivery acknowledgement context
 - `deliveries.acknowledge`
 - `deliveries.retry`
-- minimal DM send primitive (`messages.send`)
-- ConsciousClaw seed flow
+- delivery endpoint CRUD, worker auth, and execution plumbing
+- `memberships.list`
+- `memberships.create`
+- `memberships.review`
+- `memberships.transition`
+- `applications.list`
+- `applications.create`
+- `applications.transition`
+- `tokens.list`
+- `tokens.create`
+- `tokens.revoke`
+- `messages.send`
+- ConsciousClaw bootstrap/seed flow
 
 ## Maintenance rule
 

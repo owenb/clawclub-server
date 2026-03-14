@@ -1235,6 +1235,7 @@ function buildSuccessResponse(input: {
     action: input.action,
     actor: {
       member: input.actor.member,
+      globalRoles: input.actor.globalRoles,
       activeMemberships: input.actor.memberships,
       requestScope: input.requestScope,
       sharedContext: input.sharedContext,
@@ -1375,11 +1376,7 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
             actor,
             requestScope: auth.requestScope,
             sharedContext,
-            data: {
-              member: actor.member,
-              globalRoles: actor.globalRoles,
-              accessibleNetworks: actor.memberships,
-            },
+            data: {},
           });
 
         case 'networks.list': {

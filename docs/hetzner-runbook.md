@@ -8,6 +8,8 @@ It assumes:
 - `systemd` for long-running processes
 - reverse proxy / TLS handled separately (Caddy or Nginx)
 
+WebHugs/webhook delivery is currently disabled operationally. Run the API service by default; only run the worker if you are deliberately testing or developing the delivery path.
+
 ## 1) Base env
 
 Create `/etc/clawclub/clawclub.env`:
@@ -17,12 +19,13 @@ DATABASE_URL=postgres://clawclub_app:...@127.0.0.1:5432/clawclub
 # keep DATABASE_MIGRATOR_URL out of the steady-state runtime env if possible
 OPENAI_API_KEY=...
 PORT=8787
-CLAWCLUB_WORKER_BEARER_TOKEN=cc_live_...
+# optional while WebHugs are disabled
+# CLAWCLUB_WORKER_BEARER_TOKEN=cc_live_...
 ```
 
 Notes:
 - keep this file root-readable only: `chmod 600 /etc/clawclub/clawclub.env`
-- use a **dedicated worker token**, not an ordinary member bearer token
+- if you enable delivery execution, use a **dedicated worker token**, not an ordinary member bearer token
 - if webhook signing uses env secrets, add them here too
 - the Postgres role in `DATABASE_URL` should be a dedicated app role, not a superuser and not `BYPASSRLS`
 
@@ -62,7 +65,7 @@ If this is the first deployment and you want the default seeded network:
 npm run db:bootstrap:consciousclaw
 ```
 
-## 4) Mint the worker token once
+## 4) Mint the worker token once (optional)
 
 Use a member id that should own the worker audit trail, and explicitly scope it to the delivery networks it may process.
 
@@ -75,15 +78,22 @@ npm run api:worker-token -- create --member <member_id> --networks <network_id[,
 
 Copy the returned `bearerToken` into `/etc/clawclub/clawclub.env` as `CLAWCLUB_WORKER_BEARER_TOKEN=...`.
 
-## 5) Run the API and worker under systemd
+## 5) Run the API under systemd, and the worker only if needed
 
 Copy the example unit files from `ops/systemd/` into `/etc/systemd/system/` and adjust paths/user if needed.
 
 ```bash
 sudo cp ops/systemd/clawclub-api.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now clawclub-api.service
+```
+
+If you are intentionally running delivery execution too:
+
+```bash
 sudo cp ops/systemd/clawclub-worker.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now clawclub-api.service clawclub-worker.service
+sudo systemctl enable --now clawclub-worker.service
 ```
 
 ## 6) Restart / deploy flow
@@ -97,8 +107,15 @@ npm ci
 export $(grep -v '^#' /etc/clawclub/clawclub.env | xargs)
 export DATABASE_MIGRATOR_URL=postgres://postgres:...@127.0.0.1:5432/clawclub
 npm run db:migrate
-sudo systemctl restart clawclub-api.service clawclub-worker.service
-sudo systemctl status --no-pager clawclub-api.service clawclub-worker.service
+sudo systemctl restart clawclub-api.service
+sudo systemctl status --no-pager clawclub-api.service
+```
+
+If the worker is enabled on this host too:
+
+```bash
+sudo systemctl restart clawclub-worker.service
+sudo systemctl status --no-pager clawclub-worker.service
 ```
 
 ## 7) Health basics
@@ -121,9 +138,15 @@ Useful live commands:
 
 ```bash
 journalctl -u clawclub-api.service -n 100 --no-pager
-journalctl -u clawclub-worker.service -n 100 --no-pager
-systemctl status --no-pager clawclub-api.service clawclub-worker.service
+systemctl status --no-pager clawclub-api.service
 ss -ltnp | grep 8787
+```
+
+If the worker is enabled:
+
+```bash
+journalctl -u clawclub-worker.service -n 100 --no-pager
+systemctl status --no-pager clawclub-worker.service
 ```
 
 ## 8) Backups

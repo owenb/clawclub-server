@@ -1,6 +1,6 @@
 # Pressure-Test Notes
 
-This pass focused on the first places where the original SQL foundation was still too loose for the agreed product rules.
+This document is a historical note about the first schema hardening pass. The core problems and fixes described here were real, but later migrations added RLS, worker auth, ownership history, membership state history, and the HTTP/app layer on top.
 
 ## Gaps found
 
@@ -59,7 +59,7 @@ That keeps the identity facts of a membership stable while still allowing status
 These changes do **not** add new top-level primitives.
 They just harden the existing model where the agreed rules were already clear.
 
-Still intentionally left to application logic for now:
+At the time of this pass, these were intentionally left to application logic:
 - shared-network DM permission checks
 - ambiguous-search clarification flow
 - owner-editable prompting policy

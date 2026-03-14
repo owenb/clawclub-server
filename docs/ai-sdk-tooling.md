@@ -1,12 +1,13 @@
 # AI SDK tooling layer
 
-ClawClub now has a first thin AI SDK integration in `src/ai.ts`.
+ClawClub has a thin AI SDK integration in `src/ai.ts` plus an operator-oriented runner in `src/ai-operator.ts`.
 
 ## What it does
 
 - keeps the human experience chat-first
 - routes tool calls through the existing `buildApp(...).handleAction(...)` surface
 - preserves current bearer-token auth and actor/request scope behavior
+- treats the `actor` envelope from `session.describe` as the canonical session context
 - exposes a deliberately small canonical tool set instead of the full operator surface
 - pins OpenAI usage to `gpt-5.4`
 
@@ -54,8 +55,8 @@ Those can be added later when there is a clearer conversational/operator need.
 
 This keeps the AI layer thin:
 
-- app logic still lives in `src/app.ts`
-- repository/auth rules still live below that
+- app logic lives in `src/app.ts`, `src/app-admissions.ts`, and `src/app-deliveries.ts`
+- repository/auth rules live in `src/postgres.ts` plus `src/postgres/admissions.ts` and `src/postgres/deliveries.ts`
 - the AI layer mainly translates curated conversational tools into existing actions
 
 That makes it suitable for the current Hetzner-style deployment while staying portable to a later serverless wrapper if needed.

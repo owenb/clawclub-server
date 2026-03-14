@@ -2,88 +2,59 @@
 
 ## Why this shape
 
-The network has two strong axes:
+The system still revolves around two strong axes:
 
 1. **Global personhood**
    - one member identity across all networks
    - one profile history
-   - one set of delivery endpoints
+   - one set of bearer tokens and delivery endpoints
 
 2. **Network-local trust and activity**
    - membership is scoped per network
-   - sponsor is fixed per membership
-   - content lives inside a network
-   - subscriptions, vouches, complaints, alerts, and search scope are network-bound
+   - sponsor and owner history are append-only
+   - content, deliveries, events, and messages live inside network boundaries
 
-That leads to a split between global tables (`members`, `member_profile_versions`, `delivery_endpoints`) and network tables (`networks`, `network_memberships`, `entities`, `deliveries`, etc.).
+That split still drives the schema: global tables such as `members`, `member_profile_versions`, and `delivery_endpoints`, plus network tables such as `networks`, `network_memberships`, `entities`, `events`, and `deliveries`.
 
-The first hardening pass adds two especially important read surfaces:
-- `app.accessible_network_memberships` for deterministic permission scope
-- `app.current_event_rsvps` for current reads over append-only RSVP history
+## Current foundation
+
+- one HTTP endpoint, `POST /api`, with bearer-token actor resolution
+- append-only version/event tables plus `current_*` views for normal reads
+- Postgres auth and RLS as the hard permission boundary
+- app-layer orchestration in `src/app.ts`, `src/app-admissions.ts`, and `src/app-deliveries.ts`
+- repository/auth seams in `src/postgres.ts`, `src/postgres/admissions.ts`, and `src/postgres/deliveries.ts`
 
 ## Versioning stance
 
-Content is modeled as:
+Important mutable state should still follow one of two shapes:
 
-- a stable row (`members`, `entities`)
-- append-only versions (`member_profile_versions`, `entity_versions`)
+- root table + append-only version table + current view
+- append-only event table + current view
 
-The system should normally read through the “current/latest” views.
-Older versions remain available for admin/debug/audit.
-
-## Intentional non-goals in this first pass
-
-- no ORM
-- no HTTP server yet
-- no RLS policies yet
-- no trigger-heavy business logic unless the database is clearly the right place
-- no premature project/job/service subtype tables
+That now covers member profiles, entities, applications, membership state, network ownership, RSVP state, delivery attempts, and direct-message history.
 
 ## Where flexibility lives
 
-Structured columns exist only where they clearly improve correctness or filtering:
+Structured columns are used where correctness or filtering matters:
 
-- membership status/role
-- subscription periods/status
+- membership role/state
+- application status and intake fields
 - entity kind/state/time windows
-- event fields like recurrence and capacity
-- delivery state
-- transcript roles
-- location links
+- event scheduling and RSVP state
+- delivery state and worker scope
 
-Everything else can evolve inside JSONB fields.
+Everything else can evolve inside JSONB metadata or content payloads.
 
-## Expected read patterns
+## Intentional non-goals
 
-- latest profile for a member
-- accessible memberships for a member across networks
-- latest live entities in a network by kind
-- current RSVP list for an event, with history available underneath
-- expiring asks/opportunities/events
-- pending deliveries per endpoint
-- transcript provenance for entity versions
-- profile/entity embeddings for ranking
+These are still intentionally not part of the current core:
 
-## Expected write patterns
+- no ORM
+- no public web UI
+- no automatic embedding generation/ranking pipeline yet
+- no owner-editable policy engine inside the database
+- no operationally enabled WebHugs outbound delivery until outbound hardening is complete
 
-- append a new profile version
-- create a new entity and first version
-- append a new entity version on edit
-- append a new RSVP version when someone changes their response
-- create transcript rows during a guided interaction
-- link created content back to the source transcript message
-- queue deliveries after publish/update
-- record vouches and complaints as network-scoped facts
+## Expected read/write patterns
 
-## Policy kept out of SQL for now
-
-These are important, but not worth freezing into the first migration:
-
-- sponsor monthly quota limits
-- notification judgment rules
-- owner-editable prompting/collection policies
-- semantic search clarification flow
-- shared-network DM permission checks
-- export/eject tooling
-
-The schema is designed so those can be enforced cleanly later without reshaping the core tables.
+Normal reads should prefer current projections such as accessible memberships, current profiles, current entities/events, current ownership, and current membership state. Normal writes should append a new fact or version row, then let views project the latest state back out.

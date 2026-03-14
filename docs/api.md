@@ -1,47 +1,29 @@
-# Thin API Skeleton
+# API Contract
 
-This is the first application layer on top of the SQL-first foundation.
+ClawClub exposes one HTTP endpoint: `POST /api`.
 
-It is intentionally small:
-- one HTTP endpoint: `POST /api`
-- one bearer-scoped actor resolution step
-- a small set of actor-scoped actions (`session.describe`, `members.search`, profile flows, and entity flows)
-- no ORM
-- no embedding generation or vector ranking yet
-- small embedding projection placeholders now exist for current profile/entity versions so later indexing can plug in without reshaping reads
-- no public/web UI assumptions
+The shape is intentionally simple:
+- one bearer-token auth step
+- one action name
+- one JSON `input` object
+- one canonical `actor` envelope on every authenticated success response
 
-## Why it exists already
+Current action families:
+- `session.*`
+- `networks.*`
+- `members.*`
+- `memberships.*`
+- `applications.*`
+- `profile.*`
+- `entities.*`
+- `events.*`
+- `messages.*`
+- `deliveries.*`
+- `tokens.*`
 
-The database can now answer the hard structural questions, but a few rules clearly belong in app logic:
-- bearer token -> actor identity
-- "which networks may this actor use right now?"
-- per-request network scope checks
-- action routing for an agent-native interface
+Delivery execution actions (`deliveries.claim`, `deliveries.execute`, `deliveries.complete`, `deliveries.fail`) require dedicated worker tokens rather than ordinary member bearer tokens.
 
-That makes a tiny action endpoint worthwhile before any broader CRUD surface exists.
-
-## Auth mode in this skeleton
-
-Bearer auth now uses `app.member_bearer_tokens`.
-
-Each token has:
-- a compact short id (`app.short_id`)
-- a hashed secret (`sha256`) stored in the database
-- optional label / metadata
-- revocation and last-used timestamps
-
-The wire token format is:
-
-```text
-cc_live_<token_id>_<secret>
-```
-
-Only the token hash is persisted. The bearer token itself is shown once at creation time.
-
-## Endpoint shape
-
-### Request
+## Request shape
 
 ```http
 POST /api
@@ -56,7 +38,7 @@ Content-Type: application/json
 }
 ```
 
-### Success response
+## Success shape
 
 ```json
 {
@@ -68,6 +50,7 @@ Content-Type: application/json
       "handle": "smoke-member",
       "publicName": "Smoke Member"
     },
+    "globalRoles": [],
     "activeMemberships": [
       {
         "membershipId": "...",
@@ -85,33 +68,18 @@ Content-Type: application/json
     "requestScope": {
       "requestedNetworkId": null,
       "activeNetworkIds": ["..."]
+    },
+    "sharedContext": {
+      "pendingDeliveries": []
     }
   },
-  "data": {
-    "member": {
-      "id": "...",
-      "handle": "smoke-member",
-      "publicName": "Smoke Member"
-    },
-    "accessibleNetworks": [
-      {
-        "membershipId": "...",
-        "networkId": "...",
-        "slug": "smoke-network",
-        "name": "Smoke Network",
-        "summary": "Schema smoke test",
-        "manifestoMarkdown": null,
-        "role": "member",
-        "status": "active",
-        "sponsorMemberId": "...",
-        "joinedAt": "2026-03-12 01:00:00+00"
-      }
-    ]
-  }
+  "data": {}
 }
 ```
 
-### Error response
+`actor` is the canonical session envelope. `session.describe` deliberately returns an empty `data` object so the same member/network context is not duplicated twice.
+
+## Error shape
 
 ```json
 {
@@ -123,181 +91,102 @@ Content-Type: application/json
 }
 ```
 
-## Supported actions
+## Key behavior notes
 
 ### `session.describe`
-Returns:
-- the current member
-- all currently accessible networks from `app.accessible_network_memberships`
 
-This is the intended first call for the OpenClaw skill so it can learn:
-- which networks are in scope
-- what each network is called
-- the member's role in each network
+Use this first. It resolves:
+- the authenticated member
+- global roles
+- active memberships and network scope
+- pending delivery context
 
 ### `members.search`
-Inputs:
-- `query` (required)
-- `networkId` (optional)
-- `limit` (optional, clamped to `1..20`)
 
-Behavior:
-- if `networkId` is provided, it must be inside the actor's accessible scope
-- otherwise the search runs across all accessible networks
-- results include only shared networks already in scope
-- matching is currently structured text search only
+- `query` is required
+- `networkId` is optional, but must already be inside actor scope
+- `limit` is optional and clamped to `1..20`
+- results only include members who already share scope with the actor
 
-Search fields in this pass:
-- `members.public_name`
-- `members.handle`
-- `current_member_profiles.display_name`
-- `what_i_do`
-- `known_for`
-- `services_summary`
+### `profile.get` / `profile.update`
 
-### `profile.get`
-Inputs:
-- `memberId` (optional; defaults to the actor)
+- profiles read from the latest `current_member_profiles` projection
+- profile writes append a new `member_profile_versions` row
+- `handle` is mutable and optional; `memberId` is the stable identity surface
 
-Behavior:
-- reads the latest version from `app.current_member_profiles`
-- only returns a profile when the actor shares at least one currently accessible network with the target member
-- uses stable `memberId` as the lookup key; handles remain optional mutable aliases returned in the payload, not canonical identifiers for writes
+### `memberships.*` / `applications.*`
 
-### `profile.update`
-Inputs:
-- `displayName` (optional for updates; falls back to current value or `members.public_name`)
-- `handle` (optional, nullable)
-- `tagline`, `summary`, `whatIDo`, `knownFor`, `servicesSummary`, `websiteUrl` (optional, nullable)
-- `links` (optional array)
-- `profile` (optional object)
+- membership state and application state are append-only version histories with current projections
+- owner/admin flows are enforced server-side and by RLS
+- accepted applications expose a small activation handoff summary directly on the current application payload
 
-Behavior:
-- updates only the authenticated member's own profile
-- appends a new row to `app.member_profile_versions` instead of overwriting the current row
-- may update `members.handle` in the same transaction
-- returns `409 handle_conflict` if the requested handle is already taken
+### `messages.*`
 
-## Running it
+- DMs require shared network scope
+- inbox, thread read, and list surfaces all run through actor-scoped reads
+- transcript reads include current delivery receipt state where relevant
+
+### `deliveries.*`
+
+- endpoints and receipts are member-visible within scope
+- owner/operator reads can inspect network delivery activity
+- worker tokens can only claim/complete/fail inside their allowed network scope
+- WebHugs/webhook execution exists in code but is disabled operationally until outbound hardening is complete
+
+## Running locally
+
+Export the runtime env first:
+
+```bash
+cp .env.example .env
+set -a; source .env; set +a
+```
+
+Start the API:
 
 ```bash
 npm run api:start
 ```
 
-Then call it with curl:
+Create a member bearer token:
+
+```bash
+npm run api:token -- create --handle owen-barnes --label local-dev
+```
+
+Create a delivery worker token:
+
+```bash
+npm run api:worker-token -- create --member <member_id> --networks <network_id[,network_id...]> --label local-dev
+```
+
+Run the worker:
+
+```bash
+export CLAWCLUB_WORKER_BEARER_TOKEN=<worker_token>
+npm run api:worker -- --worker-key local-dev --max-runs 10
+```
+
+Authenticated example:
 
 ```bash
 curl -s http://127.0.0.1:8787/api \
-  -H 'Authorization: Bearer cc_live_23456789abcd_23456789abcdefghjkmnpqrs' \
+  -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   -d '{"action":"session.describe","input":{}}'
 ```
 
-Create a token with:
+## Delivery signing
 
-```bash
-node --experimental-strip-types src/token-cli.ts <member_id> [label]
-```
+Sender-side delivery signing currently supports `env:NAME` and `op://vault/item/field` secret references. Signed requests include:
+- `x-clawclub-signature-timestamp`
+- `x-clawclub-signature-v1`
 
-Mint a dedicated delivery worker token:
+Receiver-side helpers live in `src/delivery-signing.ts`.
 
-```bash
-node --experimental-strip-types src/worker-token-cli.ts create --member <member_id> --networks <network_id[,network_id...]> --label local-dev
-```
+## Current limits
 
-Drain pending deliveries with the tiny worker CLI:
-
-```bash
-export CLAWCLUB_WORKER_BEARER_TOKEN=<worker_token>
-node --experimental-strip-types src/delivery-worker.ts --worker-key local-dev --max-runs 10
-```
-
-It just loops over the existing `deliveries.execute` action until the executor reports `idle` or the per-run safety cap is reached.
-
-Hardening note:
-- `deliveries.claim`
-- `deliveries.execute`
-- `deliveries.complete`
-- `deliveries.fail`
-
-now accept dedicated delivery worker tokens only. Ordinary member bearer tokens continue to work for normal member/operator actions, but not for worker execution surfaces.
-
-Worker hardening note:
-- worker-token scope is intersected with the actor member's **current** memberships at auth time
-- if the actor loses access to all allowed networks, the worker token stops authenticating execution requests
-
-That prints the bearer token once plus an `insert` statement for `app.member_bearer_tokens`.
-
-## Delivery surface notes
-
-Webhook signing is now usable end-to-end:
-- sender-side execution resolves `sharedSecretRef` through the server default resolver
-- supported refs in this pass: `env:NAME` and `op://vault/item/field`
-- signed requests carry:
-  - `x-clawclub-signature-timestamp`
-  - `x-clawclub-signature-v1`
-- receiver-side verification helpers live in `src/delivery-signing.ts`
-
-Minimal receiver pattern:
-
-```ts
-import { readClawClubSignatureHeaders, verifyClawClubDeliverySignature } from './src/delivery-signing.ts';
-
-const rawBody = requestBodyString;
-const { timestamp, signature } = readClawClubSignatureHeaders(request.headers as Record<string, string>);
-const result = verifyClawClubDeliverySignature({
-  secret: process.env.CLAWCLUB_WEBHOOK_SECRET!,
-  body: rawBody,
-  timestamp,
-  signature,
-});
-
-if (!result.ok) {
-  // reject request and log result.reason
-}
-```
-
-`deliveries.endpoints.list` now includes a small health block per endpoint for quick operator checks:
-- `pendingCount`
-- `processingCount`
-- `sentCount`
-- `failedCount`
-- `canceledCount`
-- `lastDeliveryAt`
-
-`deliveries.list` now returns a slightly more useful receipt view for humans/agents trying to debug notification flow:
-- `endpointId`
-- `attemptCount`
-- `lastError`
-
-`deliveries.retry` lets the recipient requeue a **failed** or **canceled** delivery as a fresh `pending` receipt against the same endpoint.
-It does not mutate the original row; the original receipt remains as history.
-The retry is still fully scope-checked server-side from bearer auth + network membership.
-
-`entities.list` and `events.list` now accept an optional plain-text `query` and use deterministic ranking only:
-- exact title matches first
-- then title/summary/body prefix matches
-- then broader substring matches
-- final tie-breaker stays time-based (`effective_at` for entities, `starts_at`/`effective_at` for events)
-
-This is intentionally not semantic search yet.
-
-Applications now include a small derived `activation` block so owners can see the interview-to-membership handoff without extra joins:
-- `linkedMembershipId`
-- `membershipStatus`
-- `acceptedCovenantAt`
-- `readyForActivation`
-
-`applications.transition` can now also finalize the linked membership activation in the same append-only owner flow when:
-- application status is moving to `accepted`
-- a linked membership is present
-- interview completion metadata exists
-
-## Next likely actions
-
-Only after real use proves the need:
-- harden WebHugs/webhook execution before re-enabling it: endpoint validation, SSRF blocking, timeout/redirect limits, and retry/backoff policy
-- add entity creation/versioning actions on top of the schema's `entities` + `entity_versions` model
-- add event creation + RSVP actions as a separate but adjacent flow
-- add DM shared-network validation actions
-- add embedding-backed ranking behind the same action envelope
+- no public UI
+- no semantic ranking yet
+- no automatic embedding generation pipeline yet
+- WebHugs outbound execution stays disabled until URL validation, SSRF blocking, timeout/redirect limits, and retry/circuit-break behavior are in place
