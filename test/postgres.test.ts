@@ -73,6 +73,100 @@ test('postgres repository creates, archives, and reassigns network owners throug
   assert.equal(reassigned?.ownerVersion.versionNo, 2);
 });
 
+test('postgres repository updates an entity only when the actor is the author inside scope', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('join app.current_entity_versions cev on cev.entity_id = e.id') && sql.includes('and e.author_member_id = $3')) {
+        return {
+          rows: [{
+            entity_id: 'entity-1',
+            network_id: 'network-2',
+            author_member_id: 'member-1',
+            version_id: 'entity-version-1',
+            version_no: 1,
+            title: 'Hello',
+            summary: 'Summary',
+            body: 'Body',
+            expires_at: null,
+            content: { mood: 'steady' },
+          }],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('insert into app.entity_versions') && sql.includes(`'published'`)) {
+        return { rows: [{ id: 'entity-version-2' }], rowCount: 1 };
+      }
+
+      if (sql.includes('from app.entities e') && sql.includes('and ($2::app.short_id is null or cev.id = $2)')) {
+        return {
+          rows: [{
+            entity_id: 'entity-1',
+            entity_version_id: 'entity-version-2',
+            network_id: 'network-2',
+            kind: 'post',
+            author_member_id: 'member-1',
+            author_public_name: 'Member One',
+            author_handle: 'member-one',
+            version_no: 2,
+            state: 'published',
+            title: 'Hello',
+            summary: 'Updated summary',
+            body: 'Updated body',
+            effective_at: '2026-03-14T12:00:00Z',
+            expires_at: null,
+            version_created_at: '2026-03-14T12:00:00Z',
+            content: { mood: 'fresher' },
+            embedding_id: null,
+            embedding_model: null,
+            embedding_dimensions: null,
+            embedding_source_text: null,
+            embedding_metadata: null,
+            embedding_created_at: null,
+            entity_created_at: '2026-03-12T00:00:00Z',
+          }],
+          rowCount: 1,
+        };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const updated = await repository.updateEntity?.({
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-2'],
+    entityId: 'entity-1',
+    patch: {
+      title: undefined,
+      summary: 'Updated summary',
+      body: 'Updated body',
+      expiresAt: undefined,
+      content: { mood: 'fresher' },
+    },
+  });
+
+  assert.equal(updated?.entityId, 'entity-1');
+  assert.equal(updated?.entityVersionId, 'entity-version-2');
+  assert.equal(updated?.version.versionNo, 2);
+  assert.deepEqual(calls[1]?.params, ['member-1']);
+  assert.deepEqual(calls[2]?.params, ['entity-1', ['network-2'], 'member-1']);
+});
+
 test('postgres repository archives an entity by appending an archived version without mutating root rows directly', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

@@ -21,6 +21,7 @@ That split still drives the schema: global tables such as `members`, `member_pro
 - two HTTP surfaces: `POST /api` for action calls and `GET /updates` for simple polling, both with bearer-token actor resolution
 - append-only version/event tables plus `current_*` views for normal reads
 - Postgres auth and RLS as the hard permission boundary
+- membership identity and paid-access source rows (`network_memberships`, `subscriptions`) are protected by forced RLS before any higher-level helper or view consumes them
 - app-layer orchestration in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-deliveries.ts`, `src/app-messages.ts`, `src/app-profile.ts`, and `src/app-system.ts`
 - repository/auth seams in `src/postgres.ts` plus the domain modules under `src/postgres/`
 
@@ -58,4 +59,4 @@ These are still intentionally not part of the current core:
 
 ## Expected read/write patterns
 
-Normal reads should prefer current projections such as accessible memberships, current profiles, current entities/events, current ownership, and current membership state. Normal writes should append a new fact or version row, then let views project the latest state back out.
+Normal reads should prefer current projections such as accessible memberships, current profiles, current entities/events, current ownership, and current membership state. Access helpers should derive from protected source rows rather than bypassing them. Normal writes should append a new fact or version row, then let views project the latest state back out.

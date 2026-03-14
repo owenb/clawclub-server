@@ -13,7 +13,7 @@ A realistic summary:
 - the remaining work is mostly docs/deployment polish, WebHugs hardening before re-enable, and search/runtime polish
 
 Latest known test state at handoff:
-- `128/128` passing
+- `131/131` passing
 
 ## What already exists
 
@@ -25,6 +25,7 @@ Latest known test state at handoff:
 - superadmin network/owner surface
 - separate worker auth for delivery execution
 - RLS hardening across member, application, ownership, and delivery surfaces
+- `network_memberships` and `subscriptions` are now forced-RLS source tables, so `accessible_network_memberships` no longer rests on unprotected base rows
 
 ### Members / profiles / search
 - `members.search`

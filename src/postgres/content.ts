@@ -408,10 +408,11 @@ export function buildContentRepository({
             join app.current_entity_versions cev on cev.entity_id = e.id
             where e.id = $1
               and e.network_id = any($2::app.short_id[])
+              and e.author_member_id = $3
               and e.deleted_at is null
               and cev.state = 'published'
           `,
-          [input.entityId, input.accessibleNetworkIds],
+          [input.entityId, input.accessibleNetworkIds, input.actorMemberId],
         );
 
         const current = currentResult.rows[0];

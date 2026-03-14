@@ -145,6 +145,7 @@ ClawClub already has:
 - owner admissions reads now expose a small activation handoff summary on applications
 - a thin operator-oriented AI chat runner/CLI on top of that curated tool layer
 - membership state history as the canonical source of truth, with root membership state kept as a DB-maintained compatibility mirror
+- membership identity and subscription entitlement source tables now sit behind forced RLS, so downstream access helpers derive from protected source data rather than unguarded base rows
 - member search
 - profile read/update
 - deterministic plain-text retrieval for entities and events
@@ -174,6 +175,7 @@ Security note:
 - do **not** run ClawClub as a superuser or a role with `BYPASSRLS`
 - use `DATABASE_MIGRATOR_URL` for migrations, seeds, and bootstrap if those need a more privileged connection than runtime
 - `npm run db:health` now reports the current role safety so you can catch this before production
+- keep production current on numbered migrations; recent RLS hardening for `network_memberships` and `subscriptions` is shipped through normal migration files, not ad hoc SQL
 
 Setup:
 

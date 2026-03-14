@@ -161,11 +161,13 @@ Use this first. It resolves:
 
 - membership state and application state are append-only version histories with current projections
 - owner/admin flows are enforced server-side and by RLS
+- `accessible_network_memberships` is derived from RLS-protected membership and subscription source rows; production should apply all numbered migrations before trusting scope decisions
 - accepted applications expose a small activation handoff summary directly on the current application payload
 
 ### `entities.create` / `entities.update` / `entities.archive`
 
 - create and edit append new `entity_versions` rows rather than mutating old content
+- `entities.update` author scope is enforced in the write-selection SQL before the new version insert, with RLS as the backstop
 - `entities.archive` appends an `archived` version; archive visibility is derived from the latest entity version state
 - archived entities disappear from `live_entities` and normal `entities.list` reads immediately
 - `entities.archived_at` is now a legacy compatibility column and is not the runtime source of truth

@@ -99,6 +99,11 @@ async function seedRlsFixture(client: PoolClient) {
     [`Member C ${suffix}`, `auth|member-c-${suffix}`, `member-c-${suffix}`],
   )).rows[0]!.id;
 
+  const unpaidMemberId = (await client.query<{ id: string }>(
+    `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
+    [`Unpaid Member ${suffix}`, `auth|unpaid-${suffix}`, `unpaid-${suffix}`],
+  )).rows[0]!.id;
+
   const pendingCandidateId = (await client.query<{ id: string }>(
     `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
     [`Pending Candidate ${suffix}`, `auth|pending-${suffix}`, `pending-${suffix}`],
@@ -180,6 +185,15 @@ async function seedRlsFixture(client: PoolClient) {
     [network1Id, memberCId, ownerId],
   )).rows[0]!.id;
 
+  const unpaidMembershipId = (await client.query<{ id: string }>(
+    `
+      insert into app.network_memberships (network_id, member_id, sponsor_member_id, accepted_covenant_at)
+      values ($1, $2, $3, now())
+      returning id
+    `,
+    [network1Id, unpaidMemberId, ownerId],
+  )).rows[0]!.id;
+
   const pendingCandidateMembershipId = (await client.query<{ id: string }>(
     `
       insert into app.network_memberships (network_id, member_id, sponsor_member_id, status)
@@ -206,8 +220,9 @@ async function seedRlsFixture(client: PoolClient) {
         ($3, 'active', 1, $2),
         ($4, 'active', 1, $2),
         ($5, 'active', 1, $2),
-        ($6, 'pending_review', 1, $2),
-        ($7, 'active', 1, $8)
+        ($6, 'active', 1, $2),
+        ($7, 'pending_review', 1, $2),
+        ($8, 'active', 1, $9)
     `,
     [
       ownerMembershipId,
@@ -215,6 +230,7 @@ async function seedRlsFixture(client: PoolClient) {
       memberAMembershipId,
       memberBMembershipId,
       memberCMembershipId,
+      unpaidMembershipId,
       pendingCandidateMembershipId,
       outsiderMembershipId,
       outsiderId,
@@ -366,11 +382,16 @@ async function seedRlsFixture(client: PoolClient) {
     memberAId,
     memberBId,
     memberCId,
+    unpaidMemberId,
     pendingCandidateId,
     outsiderId,
     network1Id,
     network2Id,
+    ownerMembershipId,
+    memberAMembershipId,
     memberBMembershipId,
+    unpaidMembershipId,
+    pendingCandidateMembershipId,
     network1EntityId,
     network2EntityId,
     threadId,
@@ -416,6 +437,160 @@ test('RLS ignores spoofed legacy actor_network_ids and still derives access from
     );
 
     assert.equal(leaked.rows[0]?.visible_count, '0');
+  });
+});
+
+test('RLS only lets owners or superadmins insert network memberships, and blocks direct membership updates', async () => {
+  await withIsolatedClient(async (client, roleName) => {
+    const fixture = await seedRlsFixture(client);
+    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
+
+    await setActorContext(client, fixture.memberAId);
+    await client.query('savepoint bad_membership_insert');
+    await assert.rejects(
+      () => client.query(
+        `
+          insert into app.network_memberships (
+            network_id,
+            member_id,
+            sponsor_member_id,
+            role,
+            accepted_covenant_at
+          )
+          values ($1, $2, $3, 'member', now())
+        `,
+        [fixture.network1Id, fixture.outsiderId, fixture.ownerId],
+      ),
+      /row-level security|violates row-level security policy/i,
+    );
+    await client.query('rollback to savepoint bad_membership_insert');
+
+    await setActorContext(client, fixture.ownerId);
+    const inserted = await client.query<{ id: string }>(
+      `
+        insert into app.network_memberships (
+          network_id,
+          member_id,
+          sponsor_member_id,
+          role,
+          accepted_covenant_at
+        )
+        values ($1, $2, $3, 'member', now())
+        returning id
+      `,
+      [fixture.network1Id, fixture.outsiderId, fixture.ownerId],
+    );
+
+    const blockedUpdate = await client.query<{ id: string }>(
+      `
+        update app.network_memberships
+        set role = 'owner'
+        where id = $1
+        returning id
+      `,
+      [inserted.rows[0]?.id],
+    );
+
+    assert.equal(typeof inserted.rows[0]?.id, 'string');
+    assert.equal(blockedUpdate.rowCount, 0);
+  });
+});
+
+test('RLS restricts subscription writes to superadmin scope and blocks ordinary updates', async () => {
+  await withIsolatedClient(async (client, roleName) => {
+    const fixture = await seedRlsFixture(client);
+    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
+
+    await setActorContext(client, fixture.memberAId);
+    const beforeBlockedInsert = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.accessible_network_memberships
+        where id = $1
+      `,
+      [fixture.unpaidMembershipId],
+    );
+    await client.query('savepoint bad_subscription_insert');
+    await assert.rejects(
+      () => client.query(
+        `
+          insert into app.subscriptions (
+            membership_id,
+            payer_member_id,
+            status,
+            amount,
+            currency,
+            current_period_start,
+            current_period_end
+          )
+          values ($1, $2, 'active', 25, 'GBP', now(), now() + interval '30 days')
+        `,
+        [fixture.unpaidMembershipId, fixture.unpaidMemberId],
+      ),
+      /row-level security|violates row-level security policy/i,
+    );
+    await client.query('rollback to savepoint bad_subscription_insert');
+    const afterBlockedInsert = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.accessible_network_memberships
+        where id = $1
+      `,
+      [fixture.unpaidMembershipId],
+    );
+
+    const blockedUpdate = await client.query<{ id: string }>(
+      `
+        update app.subscriptions
+        set ended_at = now()
+        where membership_id = $1
+        returning id
+      `,
+      [fixture.memberAMembershipId],
+    );
+
+    await setActorContext(client, fixture.ownerId);
+    const inserted = await client.query<{ id: string }>(
+      `
+        insert into app.subscriptions (
+          membership_id,
+          payer_member_id,
+          status,
+          amount,
+          currency,
+          current_period_start,
+          current_period_end
+        )
+        values ($1, $2, 'active', 25, 'GBP', now(), now() + interval '30 days')
+        returning id
+      `,
+      [fixture.unpaidMembershipId, fixture.unpaidMemberId],
+    );
+    const afterAllowedInsert = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.accessible_network_memberships
+        where id = $1
+      `,
+      [fixture.unpaidMembershipId],
+    );
+
+    const allowedUpdate = await client.query<{ id: string }>(
+      `
+        update app.subscriptions
+        set ended_at = now()
+        where id = $1
+        returning id
+      `,
+      [inserted.rows[0]?.id],
+    );
+
+    assert.equal(beforeBlockedInsert.rows[0]?.visible_count, '0');
+    assert.equal(afterBlockedInsert.rows[0]?.visible_count, '0');
+    assert.equal(blockedUpdate.rowCount, 0);
+    assert.equal(typeof inserted.rows[0]?.id, 'string');
+    assert.equal(afterAllowedInsert.rows[0]?.visible_count, '1');
+    assert.equal(allowedUpdate.rows[0]?.id, inserted.rows[0]?.id);
   });
 });
 

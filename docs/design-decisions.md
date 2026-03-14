@@ -52,6 +52,7 @@ Approved tool/action namespaces:
 - The app layer enforces agent/human behavior rules.
 - **Postgres auth / RLS is the hard boundary** that prevents members from seeing or mutating content outside groups they do not belong to.
 - Network scope should be derived from memberships, not simply requested by the client.
+- The membership and subscription source tables that feed network-access helpers must themselves stay RLS-protected; downstream views such as `accessible_network_memberships` should never depend on unguarded base rows.
 
 ## Database architecture
 
@@ -82,6 +83,7 @@ This should apply to:
 - other important state transitions where auditability matters
 
 For entities specifically, archive visibility should come from the latest `entity_versions.state`, not from mutating the root `entities` row.
+Entity edits should also authorize in the write-selection SQL before a new version row is appended, with RLS acting as the backstop instead of the only guard.
 
 ## Versioning standard
 
