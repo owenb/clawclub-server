@@ -5,7 +5,19 @@ import { AppError, buildApp, type DeliverySecretResolver, type Repository } from
 import { createDeliverySecretResolver } from './delivery-signing.ts';
 import { createPostgresRepository } from './postgres.ts';
 
-function readJsonBody(request: http.IncomingMessage): Promise<Record<string, unknown>> {
+export const DEFAULT_SERVER_LIMITS = {
+  maxBodyBytes: 1024 * 1024,
+  requestTimeoutMs: 20_000,
+  headersTimeoutMs: 15_000,
+  keepAliveTimeoutMs: 5_000,
+  maxRequestsPerSocket: 100,
+  maxHeadersCount: 100,
+} as const;
+
+function readJsonBody(
+  request: http.IncomingMessage,
+  maxBodyBytes = DEFAULT_SERVER_LIMITS.maxBodyBytes,
+): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     let body = '';
 
@@ -14,7 +26,7 @@ function readJsonBody(request: http.IncomingMessage): Promise<Record<string, unk
     request.on('data', (chunk) => {
       body += chunk;
 
-      if (body.length > 1024 * 1024) {
+      if (body.length > maxBodyBytes) {
         reject(new AppError(413, 'payload_too_large', 'Request body exceeded 1MB'));
         request.destroy();
       }
@@ -115,6 +127,19 @@ export function createServer(options: { resolveDeliverySecret?: DeliverySecretRe
         },
       });
     }
+  });
+  server.requestTimeout = DEFAULT_SERVER_LIMITS.requestTimeoutMs;
+  server.headersTimeout = DEFAULT_SERVER_LIMITS.headersTimeoutMs;
+  server.keepAliveTimeout = DEFAULT_SERVER_LIMITS.keepAliveTimeoutMs;
+  server.maxRequestsPerSocket = DEFAULT_SERVER_LIMITS.maxRequestsPerSocket;
+  server.maxHeadersCount = DEFAULT_SERVER_LIMITS.maxHeadersCount;
+  server.on('clientError', (_error, socket) => {
+    if (!socket.writable) {
+      socket.destroy();
+      return;
+    }
+
+    socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
   });
 
   const shutdown = async () => {

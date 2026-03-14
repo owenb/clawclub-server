@@ -55,8 +55,8 @@ Those can be added later when there is a clearer conversational/operator need.
 
 This keeps the AI layer thin:
 
-- app logic lives in `src/app.ts`, `src/app-admissions.ts`, and `src/app-deliveries.ts`
-- repository/auth rules live in `src/postgres.ts` plus `src/postgres/admissions.ts` and `src/postgres/deliveries.ts`
+- app logic lives in `src/app.ts` plus the domain handlers in `src/app-admissions.ts`, `src/app-content.ts`, `src/app-deliveries.ts`, `src/app-messages.ts`, and `src/app-profile.ts`
+- repository/auth rules live in `src/postgres.ts` plus the domain modules under `src/postgres/`
 - the AI layer mainly translates curated conversational tools into existing actions
 
 That makes it suitable for the current Hetzner-style deployment while staying portable to a later serverless wrapper if needed.

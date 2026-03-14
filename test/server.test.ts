@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from '../src/server.ts';
+import { createServer, DEFAULT_SERVER_LIMITS } from '../src/server.ts';
 import type { Repository } from '../src/app.ts';
 
 function makeRepository(): Repository {
@@ -163,6 +163,24 @@ test('createServer wires the delivery secret resolver into deliveries.execute si
     assert.match(fetchCalls[0]?.headers['x-clawclub-signature-timestamp'] ?? '', /^202/);
   } finally {
     globalThis.fetch = originalFetch;
+    await shutdown();
+  }
+});
+
+test('createServer applies hardened HTTP server limits', async () => {
+  const { server, shutdown } = createServer({
+    repository: makeRepository(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+
+    assert.equal(server.requestTimeout, DEFAULT_SERVER_LIMITS.requestTimeoutMs);
+    assert.equal(server.headersTimeout, DEFAULT_SERVER_LIMITS.headersTimeoutMs);
+    assert.equal(server.keepAliveTimeout, DEFAULT_SERVER_LIMITS.keepAliveTimeoutMs);
+    assert.equal(server.maxRequestsPerSocket, DEFAULT_SERVER_LIMITS.maxRequestsPerSocket);
+    assert.equal(server.maxHeadersCount, DEFAULT_SERVER_LIMITS.maxHeadersCount);
+  } finally {
     await shutdown();
   }
 });

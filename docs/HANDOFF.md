@@ -10,10 +10,10 @@ A realistic summary:
 - backend foundation is strong
 - the main member, admissions, messaging, event, and delivery surfaces exist
 - tests are healthy
-- the remaining work is mostly finish-line simplification, docs, WebHugs hardening before re-enable, and the last module splits
+- the remaining work is mostly docs/deployment polish, WebHugs hardening before re-enable, and optional product slices like `/updates`
 
 Latest known test state at handoff:
-- `121/121` passing
+- `122/122` passing
 
 ## What already exists
 
@@ -94,6 +94,8 @@ Latest known test state at handoff:
 - bootstrap helpers for ConsciousClaw
 - Hetzner deployment runbook
 - app-role provisioning script for least-privilege runtime DB access
+- hardened HTTP server defaults in `src/server.ts`
+- `npm run api:http:smoke` for an end-to-end local HTTP proof
 
 ## Canonical docs
 
@@ -136,29 +138,25 @@ This is still a planned slice, not a finished one.
 
 These are the highest-value remaining gaps:
 
-1. **Remaining code simplification**
-   - finish splitting the remaining profile/entity/message logic out of the big shared modules
-   - keep action and repository seams as explicit as the newer admissions and delivery paths
-
-2. **WebHugs hardening before re-enable**
+1. **WebHugs hardening before re-enable**
    - outbound `https` validation
    - SSRF blocking
    - timeout/redirect limits
    - retry/backoff plus endpoint-level disable rules
 
-3. **Simple `/updates` polling endpoint**
+2. **Simple `/updates` polling endpoint**
    - non-LLM REST endpoint
    - unseen DMs + unseen network posts
    - per-member seen tracking on the server
    - still optional, but it is the cleanest proactive surface if OpenClaw needs polling
 
-4. **Search maturity**
+3. **Search maturity**
    - embeddings pipeline is still foundation-level only
    - no full semantic ranking yet
 
-5. **Docs and deployment polish**
+4. **Docs and deployment polish**
    - keep README and `docs/` aligned with the now-split code layout
-   - keep the “worker optional while WebHugs are disabled” story explicit
+    - keep the “worker optional while WebHugs are disabled” story explicit
 
 ## What was removed / changed in local automation
 
@@ -170,11 +168,10 @@ Any future automation should be reintroduced deliberately rather than assumed.
 
 If continuing in a new coding session, I would do this in order:
 
-1. finish the remaining module splits
-2. harden WebHugs before re-enabling them
-3. decide whether `/updates` is needed before launch
-4. verify end-to-end operator/member flows again after those changes
-5. only then call it effectively complete
+1. harden WebHugs before re-enabling them
+2. decide whether `/updates` is needed before launch
+3. keep rerunning the operator and HTTP smoke paths after each material change
+4. only then call it effectively complete
 
 ## Reality check
 

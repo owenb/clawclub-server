@@ -123,7 +123,7 @@ test('postgres repository exposes current entity embedding projection metadata d
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const entities = await repository.listEntities({ networkIds: ['network-1'], kinds: ['post'], limit: 5 });
+  const entities = await repository.listEntities({ actorMemberId: 'member-1', networkIds: ['network-1'], kinds: ['post'], limit: 5 });
 
   assert.equal(entities[0]?.version.embedding?.embeddingId, 'embedding-9');
   assert.equal(entities[0]?.version.embedding?.sourceText, 'Hello Summary Body');

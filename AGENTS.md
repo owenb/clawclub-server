@@ -1,13 +1,14 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`src/` contains the TypeScript runtime. `server.ts` is the HTTP entrypoint, `app.ts` holds shared action plumbing, `app-admissions.ts` and `app-deliveries.ts` own domain action handlers, and `postgres.ts` plus `src/postgres/*.ts` implement auth and repository access. The other `*-cli.ts` files and `delivery-worker.ts` are operational entrypoints. `test/` mirrors runtime behavior with `*.test.ts` files. SQL migrations live in `db/migrations/` and use ordered numeric prefixes such as `0015_delivery_worker_tokens.sql`. Supporting material lives in `docs/`, shell automation in `scripts/`, queue state in `automation/progress-queue.json`, and deployment units in `ops/systemd/`.
+`src/` contains the TypeScript runtime. `server.ts` is the HTTP entrypoint, `app.ts` holds shared action plumbing, and domain handlers are split across `app-admissions.ts`, `app-content.ts`, `app-deliveries.ts`, `app-messages.ts`, and `app-profile.ts`. `postgres.ts` handles auth/runtime wiring, while `src/postgres/*.ts` holds repository modules by domain. The other `*-cli.ts` files, `http-smoke.ts`, and `delivery-worker.ts` are operational entrypoints. `test/` mirrors runtime behavior with `*.test.ts` files. SQL migrations live in `db/migrations/` and use ordered numeric prefixes such as `0015_delivery_worker_tokens.sql`. Supporting material lives in `docs/`, shell automation in `scripts/`, queue state in `automation/progress-queue.json`, and deployment units in `ops/systemd/`.
 
 ## Build, Test, and Development Commands
 There is no separate build step; Node 22 runs `.ts` files directly with `--experimental-strip-types`.
 
 - `npm run api:start` starts the local API on `127.0.0.1:8787`.
 - `npm run api:test` runs the full `node:test` suite in `test/`.
+- `npm run api:http:smoke` boots the real server on a random local port and exercises core HTTP read paths.
 - `npm run db:migrate` applies SQL migrations using `DATABASE_URL`.
 - `npm run db:status` shows applied versus pending migrations.
 - `npm run db:health` checks migration status and optionally hits `session.describe`.

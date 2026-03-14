@@ -1,6 +1,9 @@
 import { signClawClubDelivery } from './delivery-signing.ts';
 import { handleAdmissionsAction } from './app-admissions.ts';
+import { handleContentAction } from './app-content.ts';
 import { handleDeliveryAction } from './app-deliveries.ts';
+import { handleMessageAction } from './app-messages.ts';
+import { handleProfileAction } from './app-profile.ts';
 
 export type MembershipState = 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected';
 
@@ -450,6 +453,7 @@ export type RsvpEventInput = {
 };
 
 export type ListEntitiesInput = {
+  actorMemberId: string;
   networkIds: string[];
   kinds: EntityKind[];
   limit: number;
@@ -1369,6 +1373,61 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
         return admissionsResponse;
       }
 
+      const profileResponse = await handleProfileAction({
+        action,
+        payload,
+        actor,
+        requestScope: auth.requestScope,
+        sharedContext,
+        repository,
+        buildSuccessResponse,
+        createAppError: (status, code, message) => new AppError(status, code, message),
+        normalizeProfilePatch,
+        requireNonEmptyString,
+      });
+      if (profileResponse) {
+        return profileResponse;
+      }
+
+      const contentResponse = await handleContentAction({
+        action,
+        payload,
+        actor,
+        sharedContext,
+        repository,
+        buildSuccessResponse,
+        createAppError: (status, code, message) => new AppError(status, code, message),
+        normalizeLimit,
+        normalizeOptionalInteger,
+        normalizeOptionalString,
+        normalizeEntityKinds,
+        normalizeEntityPatch,
+        requireAccessibleNetwork,
+        requireEntityKind,
+        requireEventRsvpState,
+        requireNonEmptyString,
+        requireObject,
+      });
+      if (contentResponse) {
+        return contentResponse;
+      }
+
+      const messageResponse = await handleMessageAction({
+        action,
+        payload,
+        actor,
+        sharedContext,
+        repository,
+        buildSuccessResponse,
+        createAppError: (status, code, message) => new AppError(status, code, message),
+        normalizeLimit,
+        requireAccessibleNetwork,
+        requireNonEmptyString,
+      });
+      if (messageResponse) {
+        return messageResponse;
+      }
+
       switch (action) {
         case 'session.describe':
           return buildSuccessResponse({
@@ -1473,196 +1532,6 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
           });
         }
 
-        case 'profile.get': {
-          const targetMemberId = payload.memberId === undefined ? actor.member.id : requireNonEmptyString(payload.memberId, 'memberId');
-          const profile = await repository.getMemberProfile({
-            actorMemberId: actor.member.id,
-            targetMemberId,
-          });
-
-          if (!profile) {
-            throw new AppError(404, 'not_found', 'Member profile not found inside the actor scope');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: auth.requestScope,
-            sharedContext,
-            data: profile,
-          });
-        }
-
-        case 'profile.update': {
-          const patch = normalizeProfilePatch(payload);
-          const updatedProfile = await repository.updateOwnProfile({ actor, patch });
-
-          return buildSuccessResponse({
-            action,
-            actor: {
-              member: {
-                id: updatedProfile.memberId,
-                handle: updatedProfile.handle,
-                publicName: updatedProfile.publicName,
-              },
-              memberships: actor.memberships,
-            },
-            requestScope: auth.requestScope,
-            sharedContext,
-            data: updatedProfile,
-          });
-        }
-
-        case 'entities.create': {
-          const network = requireAccessibleNetwork(actor, payload.networkId);
-          const entity = await repository.createEntity({
-            authorMemberId: actor.member.id,
-            networkId: network.networkId,
-            kind: requireEntityKind(payload.kind, 'kind'),
-            title: normalizeOptionalString(payload.title, 'title') ?? null,
-            summary: normalizeOptionalString(payload.summary, 'summary') ?? null,
-            body: normalizeOptionalString(payload.body, 'body') ?? null,
-            expiresAt: normalizeOptionalString(payload.expiresAt, 'expiresAt') ?? null,
-            content: payload.content === undefined ? {} : requireObject(payload.content, 'content'),
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: network.networkId,
-              activeNetworkIds: [network.networkId],
-            },
-            sharedContext,
-            data: { entity },
-          });
-        }
-
-        case 'entities.update': {
-          const entityId = requireNonEmptyString(payload.entityId, 'entityId');
-          const entity = await repository.updateEntity({
-            actorMemberId: actor.member.id,
-            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
-            entityId,
-            patch: normalizeEntityPatch(payload),
-          });
-
-          if (!entity) {
-            throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
-          }
-
-          if (entity.author.memberId !== actor.member.id) {
-            throw new AppError(403, 'forbidden', 'Only the author may update this entity');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: entity.networkId,
-              activeNetworkIds: [entity.networkId],
-            },
-            sharedContext,
-            data: { entity },
-          });
-        }
-
-        case 'events.create': {
-          const network = requireAccessibleNetwork(actor, payload.networkId);
-          const event = await repository.createEvent({
-            authorMemberId: actor.member.id,
-            networkId: network.networkId,
-            title: normalizeOptionalString(payload.title, 'title') ?? null,
-            summary: normalizeOptionalString(payload.summary, 'summary') ?? null,
-            body: normalizeOptionalString(payload.body, 'body') ?? null,
-            startsAt: normalizeOptionalString(payload.startsAt, 'startsAt') ?? null,
-            endsAt: normalizeOptionalString(payload.endsAt, 'endsAt') ?? null,
-            timezone: normalizeOptionalString(payload.timezone, 'timezone') ?? null,
-            recurrenceRule: normalizeOptionalString(payload.recurrenceRule, 'recurrenceRule') ?? null,
-            capacity: normalizeOptionalInteger(payload.capacity, 'capacity') ?? null,
-            expiresAt: normalizeOptionalString(payload.expiresAt, 'expiresAt') ?? null,
-            content: payload.content === undefined ? {} : requireObject(payload.content, 'content'),
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: network.networkId,
-              activeNetworkIds: [network.networkId],
-            },
-            sharedContext,
-            data: { event },
-          });
-        }
-
-        case 'events.list': {
-          const limit = normalizeLimit(payload.limit);
-          let networkScope = actor.memberships;
-
-          if (payload.networkId !== undefined) {
-            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
-          }
-
-          if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
-          }
-
-          const networkIds = networkScope.map((network) => network.networkId);
-          const query = normalizeOptionalString(payload.query, 'query') ?? undefined;
-          const results = await repository.listEvents({
-            actorMemberId: actor.member.id,
-            networkIds,
-            limit,
-            query,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId:
-                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-              activeNetworkIds: networkIds,
-            },
-            sharedContext,
-            data: {
-              query: query ?? null,
-              limit,
-              networkScope,
-              results,
-            },
-          });
-        }
-
-        case 'events.rsvp': {
-          const eventEntityId = requireNonEmptyString(payload.eventEntityId, 'eventEntityId');
-          const event = await repository.rsvpEvent({
-            actorMemberId: actor.member.id,
-            eventEntityId,
-            response: requireEventRsvpState(payload.response, 'response'),
-            note: normalizeOptionalString(payload.note, 'note'),
-            accessibleMemberships: actor.memberships.map((membership) => ({
-              membershipId: membership.membershipId,
-              networkId: membership.networkId,
-            })),
-          });
-
-          if (!event) {
-            throw new AppError(404, 'not_found', 'Event not found inside the actor scope');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: event.networkId,
-              activeNetworkIds: [event.networkId],
-            },
-            sharedContext,
-            data: { event },
-          });
-        }
         case 'tokens.list': {
           const tokens = await repository.listBearerTokens({
             actorMemberId: actor.member.id,
@@ -1711,173 +1580,6 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
             requestScope: auth.requestScope,
             sharedContext,
             data: { token },
-          });
-        }
-
-        case 'messages.send': {
-          const recipientMemberId = requireNonEmptyString(payload.recipientMemberId, 'recipientMemberId');
-          const message = await repository.sendDirectMessage({
-            actorMemberId: actor.member.id,
-            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
-            recipientMemberId,
-            networkId: payload.networkId === undefined ? undefined : requireAccessibleNetwork(actor, payload.networkId).networkId,
-            messageText: requireNonEmptyString(payload.messageText, 'messageText'),
-          });
-
-          if (!message) {
-            throw new AppError(404, 'not_found', 'Recipient not found inside the actor scope');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: message.networkId,
-              activeNetworkIds: [message.networkId],
-            },
-            sharedContext,
-            data: { message },
-          });
-        }
-
-        case 'messages.list': {
-          const limit = normalizeLimit(payload.limit);
-          let networkScope = actor.memberships;
-
-          if (payload.networkId !== undefined) {
-            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
-          }
-
-          if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
-          }
-
-          const networkIds = networkScope.map((network) => network.networkId);
-          const results = await repository.listDirectMessageThreads({
-            actorMemberId: actor.member.id,
-            networkIds,
-            limit,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId:
-                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-              activeNetworkIds: networkIds,
-            },
-            sharedContext,
-            data: {
-              limit,
-              networkScope,
-              results,
-            },
-          });
-        }
-
-        case 'messages.read': {
-          const threadId = requireNonEmptyString(payload.threadId, 'threadId');
-          const transcript = await repository.readDirectMessageThread({
-            actorMemberId: actor.member.id,
-            accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
-            threadId,
-            limit: normalizeLimit(payload.limit),
-          });
-
-          if (!transcript) {
-            throw new AppError(404, 'not_found', 'Thread not found inside the actor scope');
-          }
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId: transcript.thread.networkId,
-              activeNetworkIds: [transcript.thread.networkId],
-            },
-            sharedContext,
-            data: transcript,
-          });
-        }
-
-        case 'messages.inbox': {
-          const limit = normalizeLimit(payload.limit);
-          let networkScope = actor.memberships;
-
-          if (payload.networkId !== undefined) {
-            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
-          }
-
-          if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
-          }
-
-          const networkIds = networkScope.map((network) => network.networkId);
-          const unreadOnly = payload.unreadOnly === true;
-          const results = await repository.listDirectMessageInbox({
-            actorMemberId: actor.member.id,
-            networkIds,
-            limit,
-            unreadOnly,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId:
-                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-              activeNetworkIds: networkIds,
-            },
-            sharedContext,
-            data: {
-              limit,
-              unreadOnly,
-              networkScope,
-              results,
-            },
-          });
-        }
-
-        case 'entities.list': {
-          const limit = normalizeLimit(payload.limit);
-          const kinds = normalizeEntityKinds(payload.kinds);
-          let networkScope = actor.memberships;
-
-          if (payload.networkId !== undefined) {
-            networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
-          }
-
-          if (networkScope.length === 0) {
-            throw new AppError(403, 'forbidden', 'This member does not currently have access to any networks');
-          }
-
-          const networkIds = networkScope.map((network) => network.networkId);
-          const query = normalizeOptionalString(payload.query, 'query') ?? undefined;
-          const results = await repository.listEntities({
-            networkIds,
-            kinds,
-            limit,
-            query,
-          });
-
-          return buildSuccessResponse({
-            action,
-            actor,
-            requestScope: {
-              requestedNetworkId:
-                typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-              activeNetworkIds: networkIds,
-            },
-            sharedContext,
-            data: {
-              query: query ?? null,
-              kinds,
-              limit,
-              networkScope,
-              results,
-            },
           });
         }
 

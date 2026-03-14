@@ -2152,6 +2152,7 @@ test('entities.list can span accessible networks and filter by kinds with option
   });
 
   assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
     networkIds: ['network-1', 'network-2'],
     kinds: ['ask', 'service'],
     limit: 5,

@@ -55,6 +55,7 @@ test('postgres repository forwards entity query terms into deterministic retriev
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const results = await repository.listEntities({
+    actorMemberId: 'member-1',
     networkIds: ['network-1'],
     kinds: ['service'],
     limit: 5,

@@ -153,6 +153,8 @@ ClawClub already has:
 - webhook signing with real secret resolution (`env:` and `op://`) plus receiver verification helpers
 - endpoint inventory now includes per-endpoint delivery health counters for quick operator checks
 - a tiny delivery worker CLI for draining pending deliveries in short passes
+- hardened HTTP server defaults for request size, header timeout, request timeout, keep-alive, and per-socket reuse
+- a real over-HTTP smoke command that mints a temporary token, boots the server, exercises core read surfaces, and revokes the token
 - WebHugs/webhook delivery is still disabled operationally until outbound hardening is finished
 - embeddings-ready projection placeholders for current profile/entity versions
 - a ConsciousClaw seed flow
@@ -181,6 +183,7 @@ npm install
 npm run db:migrate
 npm run db:seed:consciousclaw
 npm run api:test
+npm run api:http:smoke
 npm run api:start
 ```
 
@@ -217,6 +220,15 @@ npm run api:worker -- --worker-key local-dev --max-runs 10
 ```
 
 WebHugs are disabled operationally right now. Leave the worker off unless you are actively developing or validating the delivery path.
+
+The HTTP edge now enforces:
+- 1MB JSON request bodies
+- 15s header timeout
+- 20s full request timeout
+- 5s keep-alive timeout
+- 100 requests per socket
+
+If you deploy behind a reverse proxy, keep the proxy at least this strict.
 
 The worker simply calls the existing `deliveries.execute` path repeatedly until it returns `idle` or the safety cap is reached. These execution surfaces now require dedicated worker/service auth rather than ordinary member bearer tokens.
 
@@ -265,10 +277,10 @@ By default the foreman scripts now derive `PROJECT_ROOT` from the repo location 
 ## Near-term roadmap
 
 Next up:
-1. finish the remaining module splits so profile, entity, and messaging logic are as cleanly separated as admissions and deliveries
-2. harden WebHugs/webhook execution before re-enabling it
-3. add the optional `/updates` polling endpoint for unseen DMs + unseen network posts if OpenClaw needs proactive polling
-4. richer search/embeddings maturity
+1. harden WebHugs/webhook execution before re-enabling it
+2. add the optional `/updates` polling endpoint for unseen DMs + unseen network posts if OpenClaw needs proactive polling
+3. richer search/embeddings maturity
+4. keep docs and deployment runbooks aligned with the hardened server/runtime shape
 
 ## Contributing
 
@@ -276,6 +288,6 @@ Useful early contribution areas:
 - API shape review
 - Postgres schema review
 - self-hosting/dev setup polish
-- profile/entity/message module cleanup
+- HTTP smoke and deployment validation
 - WebHugs hardening and receiver verification examples
 - documentation and examples

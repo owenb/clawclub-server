@@ -21,8 +21,8 @@ That split still drives the schema: global tables such as `members`, `member_pro
 - one HTTP endpoint, `POST /api`, with bearer-token actor resolution
 - append-only version/event tables plus `current_*` views for normal reads
 - Postgres auth and RLS as the hard permission boundary
-- app-layer orchestration in `src/app.ts`, `src/app-admissions.ts`, and `src/app-deliveries.ts`
-- repository/auth seams in `src/postgres.ts`, `src/postgres/admissions.ts`, and `src/postgres/deliveries.ts`
+- app-layer orchestration in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-deliveries.ts`, `src/app-messages.ts`, and `src/app-profile.ts`
+- repository/auth seams in `src/postgres.ts` plus the domain modules under `src/postgres/`
 
 ## Versioning stance
 

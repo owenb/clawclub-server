@@ -23,6 +23,8 @@ Current action families:
 
 Delivery execution actions (`deliveries.claim`, `deliveries.execute`, `deliveries.complete`, `deliveries.fail`) require dedicated worker tokens rather than ordinary member bearer tokens.
 
+The HTTP server currently enforces a 1MB JSON body cap, a 15s header timeout, a 20s request timeout, a 5s keep-alive timeout, and a 100-request per-socket reuse cap.
+
 ## Request shape
 
 ```http
@@ -147,6 +149,14 @@ Start the API:
 ```bash
 npm run api:start
 ```
+
+Run the over-HTTP smoke path:
+
+```bash
+npm run api:http:smoke
+```
+
+That command uses `DATABASE_MIGRATOR_URL` when available to mint and revoke a temporary bearer token, then exercises `session.describe`, `members.search`, `profile.get`, `messages.inbox`, `entities.list`, and `events.list` against the real HTTP server.
 
 Create a member bearer token:
 
