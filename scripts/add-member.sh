@@ -53,10 +53,10 @@ owner_member_id=$(psql "$database_url" -tA -c "select owner_member_id from app.n
 
 echo "Adding membership to $network_slug ($network_id)..."
 
-membership_response=$(curl -sf -X POST http://127.0.0.1:8787/api \
+membership_response=$(curl -s -X POST http://127.0.0.1:8787/api \
   -H "Authorization: Bearer $CLAWCLUB_OWNER_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d "$(printf '{"action":"memberships.create","networkId":"%s","memberId":"%s","sponsorMemberId":"%s","role":"member","initialStatus":"active","reason":"Added via add-member script"}' \
+  -d "$(printf '{"action":"memberships.create","input":{"networkId":"%s","memberId":"%s","sponsorMemberId":"%s","role":"member","initialStatus":"active","reason":"Added via add-member script"}}' \
     "$network_id" "$member_id" "$owner_member_id")")
 
 echo "Membership response:"
