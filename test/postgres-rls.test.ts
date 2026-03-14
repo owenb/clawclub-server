@@ -15,22 +15,51 @@ function quoteIdentifier(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
+function isRetriableCatalogError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && 'message' in error
+    && error.code === 'XX000'
+    && typeof error.message === 'string'
+    && error.message.includes('tuple concurrently updated');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function queryWithCatalogRetry(client: PoolClient, sql: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await client.query(sql);
+      return;
+    } catch (error) {
+      if (!isRetriableCatalogError(error) || attempt === 4) {
+        throw error;
+      }
+
+      await sleep(25 * (attempt + 1));
+    }
+  }
+}
+
 async function withIsolatedClient(fn: (client: PoolClient, roleName: string) => Promise<void>) {
   const pool = new Pool({ connectionString: requireDatabaseUrl() });
   const client = await pool.connect();
   const roleName = `clawclub_rls_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
   try {
-    await client.query(`create role ${quoteIdentifier(roleName)} nologin`);
-    await client.query(`grant usage on schema app to ${quoteIdentifier(roleName)}`);
-    await client.query(`grant execute on all functions in schema app to ${quoteIdentifier(roleName)}`);
-    await client.query(`grant select, insert, update, delete on all tables in schema app to ${quoteIdentifier(roleName)}`);
+    await queryWithCatalogRetry(client, `create role ${quoteIdentifier(roleName)} nologin`);
+    await queryWithCatalogRetry(client, `grant usage on schema app to ${quoteIdentifier(roleName)}`);
+    await queryWithCatalogRetry(client, `grant execute on all functions in schema app to ${quoteIdentifier(roleName)}`);
+    await queryWithCatalogRetry(client, `grant select, insert, update, delete on all tables in schema app to ${quoteIdentifier(roleName)}`);
     await client.query('begin');
     await fn(client, roleName);
   } finally {
     await client.query('rollback').catch(() => {});
     await client.query('reset session authorization').catch(() => {});
-    await client.query(`drop role if exists ${quoteIdentifier(roleName)}`).catch(() => {});
+    await queryWithCatalogRetry(client, `drop role if exists ${quoteIdentifier(roleName)}`).catch(() => {});
     client.release();
     await pool.end();
   }

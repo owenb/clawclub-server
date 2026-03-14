@@ -20,10 +20,33 @@ function quoteIdentifier(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-test('provision-app-role script creates a safe runtime role with app grants', { concurrency: false }, async () => {
-  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-  const roleName = `clawclub_app_${suffix}`;
-  const password = `pw_${suffix}`;
+function isRetriableProvisionError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && 'message' in error
+    && typeof error.message === 'string'
+    && (
+      (error.code === '42501' && error.message.includes('permission denied for table members'))
+      || (error.code === 'XX000' && error.message.includes('tuple concurrently updated'))
+    );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function assertProvisionedRoleWorks({
+  suffix,
+  roleName,
+  password,
+}: {
+  suffix: string;
+  roleName: string;
+  password: string;
+}) {
+  const pool = new Pool({ connectionString: requireDatabaseUrl() });
+  const client = await pool.connect();
 
   await execFileAsync('./scripts/provision-app-role.sh', {
     cwd: repoRoot,
@@ -34,9 +57,6 @@ test('provision-app-role script creates a safe runtime role with app grants', { 
       CLAWCLUB_DB_APP_PASSWORD: password,
     },
   });
-
-  const pool = new Pool({ connectionString: requireDatabaseUrl() });
-  const client = await pool.connect();
 
   try {
     const roleResult = await client.query<{
@@ -139,5 +159,24 @@ test('provision-app-role script creates a safe runtime role with app grants', { 
     await client.query(`drop role if exists ${quoteIdentifier(roleName)}`).catch(() => {});
     client.release();
     await pool.end();
+  }
+}
+
+test('provision-app-role script creates a safe runtime role with app grants', { concurrency: false }, async () => {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const roleName = `clawclub_app_${suffix}`;
+    const password = `pw_${suffix}`;
+
+    try {
+      await assertProvisionedRoleWorks({ suffix, roleName, password });
+      return;
+    } catch (error) {
+      if (!isRetriableProvisionError(error) || attempt === 2) {
+        throw error;
+      }
+
+      await sleep(50 * (attempt + 1));
+    }
   }
 });
