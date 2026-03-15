@@ -158,7 +158,12 @@ ClawClub already has:
 - hardened HTTP server defaults for request size, header timeout, request timeout, keep-alive, and per-socket reuse
 - API responses now ship with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`
 - a real over-HTTP smoke command that mints a temporary token, boots the server, exercises core read surfaces, and revokes the token
-- WebHugs/webhook delivery is still disabled operationally until outbound hardening is finished
+- WebHugs/webhook delivery is still disabled operationally until outbound hardening is finished:
+  - `https://`-only endpoint validation
+  - SSRF blocking for localhost, private ranges, and metadata/internal targets after DNS resolution
+  - fetch timeout and redirect denial/limits
+  - restrict `env:` signing-secret resolution to an explicit allowlist or dedicated namespace
+  - retry/backoff plus endpoint disable/circuit-break rules
 - embeddings-ready projection placeholders for current profile/entity versions
 - a ConsciousClaw seed flow
 - tests
@@ -230,6 +235,7 @@ npm run api:worker -- --worker-key local-dev --max-runs 10
 ```
 
 WebHugs are disabled operationally right now. Leave the worker off unless you are actively developing or validating the delivery path.
+Before re-enabling it in production, finish the outbound hardening checklist above.
 
 The HTTP edge now enforces:
 - 1MB JSON request bodies
