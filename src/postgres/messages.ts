@@ -1,13 +1,14 @@
 import { Pool, type PoolClient } from 'pg';
 import type {
   DirectMessageInboxSummary,
-  DirectMessageReceipt,
   DirectMessageSummary,
   DirectMessageThreadSummary,
   DirectMessageTranscriptEntry,
+  DirectMessageUpdateReceipt,
   Repository,
   SendDirectMessageInput,
 } from '../app.ts';
+import { appendDirectMessageUpdate } from './updates.ts';
 
 type DbClient = Pool | PoolClient;
 
@@ -15,7 +16,7 @@ type ApplyActorContext = (
   client: DbClient,
   actorMemberId: string,
   networkIds: string[],
-  options?: { deliveryWorkerScope?: boolean },
+  options?: Record<string, never>,
 ) => Promise<void>;
 
 type WithActorContext = <T>(
@@ -33,7 +34,7 @@ type DirectMessageRow = {
   message_id: string;
   message_text: string;
   created_at: string;
-  delivery_count: number;
+  update_count: number;
 };
 
 type DirectMessageThreadRow = {
@@ -50,15 +51,12 @@ type DirectMessageThreadRow = {
   message_count: number;
 };
 
-type DirectMessageReceiptRow = {
-  deliveryId: string;
+type DirectMessageUpdateReceiptRow = {
+  updateId: string;
   recipientMemberId: string;
-  status: DirectMessageReceipt['status'];
-  scheduledAt: string;
-  sentAt: string | null;
-  failedAt: string | null;
+  topic: string;
   createdAt: string;
-  acknowledgement: DirectMessageReceipt['acknowledgement'];
+  receipt: DirectMessageUpdateReceipt['receipt'];
 };
 
 type DirectMessageTranscriptRow = {
@@ -70,7 +68,7 @@ type DirectMessageTranscriptRow = {
   payload: Record<string, unknown> | null;
   created_at: string;
   in_reply_to_message_id: string | null;
-  delivery_receipts: DirectMessageReceiptRow[] | null;
+  update_receipts: DirectMessageUpdateReceiptRow[] | null;
 };
 
 type DirectMessageInboxRow = {
@@ -86,7 +84,7 @@ type DirectMessageInboxRow = {
   latest_created_at: string;
   message_count: number;
   unread_message_count: number;
-  unread_delivery_count: number;
+  unread_update_count: number;
   latest_unread_message_created_at: string | null;
   has_unread: boolean;
 };
@@ -100,7 +98,7 @@ function mapDirectMessageRow(row: DirectMessageRow): DirectMessageSummary {
     messageId: row.message_id,
     messageText: row.message_text,
     createdAt: row.created_at,
-    deliveryCount: Number(row.delivery_count),
+    updateCount: Number(row.update_count),
   };
 }
 
@@ -132,7 +130,7 @@ function mapDirectMessageTranscriptRow(row: DirectMessageTranscriptRow): DirectM
     payload: row.payload ?? {},
     createdAt: row.created_at,
     inReplyToMessageId: row.in_reply_to_message_id,
-    deliveryReceipts: row.delivery_receipts ?? [],
+    updateReceipts: row.update_receipts ?? [],
   };
 }
 
@@ -154,7 +152,7 @@ function mapDirectMessageInboxRow(row: DirectMessageInboxRow): DirectMessageInbo
     unread: {
       hasUnread: row.has_unread,
       unreadMessageCount: Number(row.unread_message_count),
-      unreadDeliveryCount: Number(row.unread_delivery_count),
+      unreadUpdateCount: Number(row.unread_update_count),
       latestUnreadMessageCreatedAt: row.latest_unread_message_created_at,
     },
   };
@@ -246,7 +244,7 @@ async function listDirectMessageInbox(
         inbox.latest_created_at::text as latest_created_at,
         coalesce(tmc.message_count, 0) as message_count,
         inbox.unread_message_count,
-        inbox.unread_delivery_count,
+        inbox.unread_update_count,
         inbox.latest_unread_message_created_at::text as latest_unread_message_created_at,
         inbox.has_unread
       from app.current_dm_inbox_threads inbox
@@ -341,35 +339,35 @@ async function readDirectMessageThread(
         tm.payload,
         tm.created_at::text as created_at,
         tm.in_reply_to_message_id,
-        coalesce(receipts.delivery_receipts, '[]'::jsonb) as delivery_receipts
+        coalesce(receipts.update_receipts, '[]'::jsonb) as update_receipts
       from app.transcript_messages tm
       left join lateral (
         select jsonb_agg(
           jsonb_build_object(
-            'deliveryId', cdr.delivery_id,
-            'recipientMemberId', cdr.recipient_member_id,
-            'status', cdr.status,
-            'scheduledAt', cdr.scheduled_at::text,
-            'sentAt', cdr.sent_at::text,
-            'failedAt', cdr.failed_at::text,
-            'createdAt', cdr.created_at::text,
-            'acknowledgement',
+            'updateId', mu.id,
+            'recipientMemberId', mu.recipient_member_id,
+            'topic', mu.topic,
+            'createdAt', mu.created_at::text,
+            'receipt',
               case
-                when cdr.acknowledgement_id is null then null
+                when cmur.id is null then null
                 else jsonb_build_object(
-                  'acknowledgementId', cdr.acknowledgement_id,
-                  'state', cdr.acknowledgement_state,
-                  'suppressionReason', cdr.acknowledgement_suppression_reason,
-                  'versionNo', cdr.acknowledgement_version_no,
-                  'createdAt', cdr.acknowledgement_created_at::text,
-                  'createdByMemberId', cdr.acknowledgement_created_by_member_id
+                  'receiptId', cmur.id,
+                  'state', cmur.state,
+                  'suppressionReason', cmur.suppression_reason,
+                  'versionNo', cmur.version_no,
+                  'createdAt', cmur.created_at::text,
+                  'createdByMemberId', cmur.created_by_member_id
                 )
               end
           )
-          order by cdr.created_at asc, cdr.delivery_id asc
-        ) as delivery_receipts
-        from app.current_delivery_receipts cdr
-        where cdr.transcript_message_id = tm.id
+          order by mu.created_at asc, mu.id asc
+        ) as update_receipts
+        from app.member_updates mu
+        left join app.current_member_update_receipts cmur
+          on cmur.member_update_id = mu.id
+         and cmur.recipient_member_id = mu.recipient_member_id
+        where mu.transcript_message_id = tm.id
       ) receipts on true
       where tm.thread_id = $1
       order by tm.created_at desc, tm.id desc
@@ -473,43 +471,37 @@ export function buildMessagesRepository({
         );
         const message = messageResult.rows[0]!;
 
-        const deliveryResult = await client.query(
+        const senderResult = await client.query<{ public_name: string; handle: string | null }>(
           `
-            insert into app.deliveries (
-              network_id,
-              recipient_member_id,
-              endpoint_id,
-              transcript_message_id,
-              topic,
-              payload,
-              status,
-              scheduled_at,
-              sent_at
-            )
-            select
-              $1,
-              dep.member_id,
-              dep.id,
-              $2,
-              'transcript.message.created',
-              jsonb_build_object(
-                'threadId', $3,
-                'messageId', $2,
-                'senderMemberId', $4,
-                'recipientMemberId', $5,
-                'messageText', $6,
-                'kind', 'dm'
-              ),
-              'sent'::app.delivery_status,
-              now(),
-              now()
-            from app.delivery_endpoints dep
-            where dep.member_id = $5
-              and dep.state = 'active'
-              and dep.disabled_at is null
+            select public_name, handle
+            from app.members
+            where id = $1
+              and state = 'active'
+            limit 1
           `,
-          [networkId, message.id, threadId, input.actorMemberId, input.recipientMemberId, input.messageText],
+          [input.actorMemberId],
         );
+        const sender = senderResult.rows[0];
+        if (!sender) {
+          throw new Error('Sender profile could not be loaded for DM update fanout');
+        }
+
+        const updateCount = await appendDirectMessageUpdate(client, {
+          recipientMemberId: input.recipientMemberId,
+          networkId,
+          transcriptMessageId: message.id,
+          createdByMemberId: input.actorMemberId,
+          payload: {
+            kind: 'dm',
+            threadId,
+            messageId: message.id,
+            senderMemberId: input.actorMemberId,
+            senderPublicName: sender.public_name,
+            senderHandle: sender.handle,
+            recipientMemberId: input.recipientMemberId,
+            messageText: input.messageText,
+          },
+        });
 
         await client.query('commit');
         return mapDirectMessageRow({
@@ -520,7 +512,7 @@ export function buildMessagesRepository({
           message_id: message.id,
           message_text: input.messageText,
           created_at: message.created_at,
-          delivery_count: deliveryResult.rowCount ?? 0,
+          update_count: updateCount,
         });
       } catch (error) {
         await client.query('rollback');

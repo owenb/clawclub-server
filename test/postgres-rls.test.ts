@@ -72,10 +72,6 @@ async function setActorContext(client: PoolClient, actorMemberId: string) {
   );
 }
 
-async function setDeliveryWorkerScope(client: PoolClient) {
-  await client.query(`select set_config('app.delivery_worker_scope', '1', true)`);
-}
-
 async function seedRlsFixture(client: PoolClient) {
   const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
@@ -303,33 +299,6 @@ async function seedRlsFixture(client: PoolClient) {
     [threadId, memberAId, 'Private DM'],
   );
 
-  const endpointId = (await client.query<{ id: string }>(
-    `
-      insert into app.delivery_endpoints (member_id, endpoint_url, label)
-      values ($1, $2, $3)
-      returning id
-    `,
-    [memberBId, `https://example.test/${suffix}`, 'RLS endpoint'],
-  )).rows[0]!.id;
-
-  const deliveryId = (await client.query<{ id: string }>(
-    `
-      insert into app.deliveries (
-        network_id,
-        recipient_member_id,
-        endpoint_id,
-        entity_id,
-        entity_version_id,
-        topic,
-        payload,
-        dedupe_key
-      )
-      values ($1, $2, $3, $4, $5, 'entity.published', jsonb_build_object('entityId', $7::text), $6)
-      returning id
-    `,
-    [network1Id, memberBId, endpointId, network1EntityId, network1EntityVersionId, `delivery-${suffix}`, network1EntityId],
-  )).rows[0]!.id;
-
   await setActorContext(client, outsiderId);
 
   const network2EntityId = (await client.query<{ id: string }>(
@@ -395,8 +364,6 @@ async function seedRlsFixture(client: PoolClient) {
     network1EntityId,
     network2EntityId,
     threadId,
-    endpointId,
-    deliveryId,
     applicationId,
   };
 }
@@ -807,130 +774,6 @@ test('RLS only exposes application-linked outsider member data to owners and rel
   });
 });
 
-test('RLS blocks delivery acknowledgements from non-recipient actors', async () => {
-  await withIsolatedClient(async (client, roleName) => {
-    const fixture = await seedRlsFixture(client);
-    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
-    await setActorContext(client, fixture.memberAId);
-    await client.query('savepoint bad_ack');
-    await assert.rejects(
-      () => client.query(
-        `
-          insert into app.delivery_acknowledgements (
-            delivery_id,
-            network_id,
-            recipient_member_id,
-            state,
-            version_no,
-            created_by_member_id
-          )
-          values ($1, $2, $3, 'shown', 1, $4)
-        `,
-        [fixture.deliveryId, fixture.network1Id, fixture.memberBId, fixture.memberAId],
-      ),
-      /row-level security|violates row-level security policy/i,
-    );
-    await client.query('rollback to savepoint bad_ack');
-
-    await setActorContext(client, fixture.memberBId);
-    const inserted = await client.query<{ id: string }>(
-      `
-        insert into app.delivery_acknowledgements (
-          delivery_id,
-          network_id,
-          recipient_member_id,
-          state,
-          version_no,
-          created_by_member_id
-        )
-        values ($1, $2, $3, 'shown', 1, $4)
-        returning id
-      `,
-      [fixture.deliveryId, fixture.network1Id, fixture.memberBId, fixture.memberBId],
-    );
-
-    assert.equal(typeof inserted.rows[0]?.id, 'string');
-  });
-});
-
-test('RLS limits delivery endpoint and attempt access to owners or worker-scoped execution', async () => {
-  await withIsolatedClient(async (client, roleName) => {
-    const fixture = await seedRlsFixture(client);
-    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
-
-    await setActorContext(client, fixture.memberAId);
-    const hiddenEndpoint = await client.query<{ visible_count: string }>(
-      `
-        select count(*)::text as visible_count
-        from app.delivery_endpoints
-        where id = $1
-      `,
-      [fixture.endpointId],
-    );
-    assert.equal(hiddenEndpoint.rows[0]?.visible_count, '0');
-
-    await client.query('savepoint bad_attempt');
-    await assert.rejects(
-      () => client.query(
-        `
-          insert into app.delivery_attempts (
-            delivery_id,
-            network_id,
-            endpoint_id,
-            status,
-            attempt_no,
-            created_by_member_id
-          )
-          values ($1, $2, $3, 'processing', 1, $4)
-        `,
-        [fixture.deliveryId, fixture.network1Id, fixture.endpointId, fixture.memberAId],
-      ),
-      /row-level security|violates row-level security policy/i,
-    );
-    await client.query('rollback to savepoint bad_attempt');
-
-    await setDeliveryWorkerScope(client);
-    const visibleEndpoint = await client.query<{ visible_count: string }>(
-      `
-        select count(*)::text as visible_count
-        from app.delivery_endpoints
-        where id = $1
-      `,
-      [fixture.endpointId],
-    );
-    assert.equal(visibleEndpoint.rows[0]?.visible_count, '1');
-
-    const insertedAttempt = await client.query<{ id: string }>(
-      `
-        insert into app.delivery_attempts (
-          delivery_id,
-          network_id,
-          endpoint_id,
-          worker_key,
-          status,
-          attempt_no,
-          created_by_member_id
-        )
-        values ($1, $2, $3, 'rls-worker', 'processing', 1, $4)
-        returning id
-      `,
-      [fixture.deliveryId, fixture.network1Id, fixture.endpointId, fixture.memberAId],
-    );
-    assert.equal(typeof insertedAttempt.rows[0]?.id, 'string');
-
-    const updatedEndpoint = await client.query<{ id: string }>(
-      `
-        update app.delivery_endpoints
-        set last_success_at = now()
-        where id = $1
-        returning id
-      `,
-      [fixture.endpointId],
-    );
-    assert.equal(updatedEndpoint.rows[0]?.id, fixture.endpointId);
-  });
-});
-
 test('RLS limits token and history tables to actor or owner scope', async () => {
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
@@ -1040,36 +883,56 @@ test('RLS limits token and history tables to actor or owner scope', async () => 
       [fixture.network1EntityId],
     );
 
-    const ownReceipt = await client.query<{ member_id: string }>(
+    const memberUpdate = await client.query<{ id: string; recipient_member_id: string }>(
       `
-        insert into app.member_entity_update_receipts (
-          member_id,
+        insert into app.member_updates (
+          recipient_member_id,
           network_id,
+          topic,
+          payload,
           entity_id,
           entity_version_id,
           created_by_member_id
         )
-        values ($1, $2, $3, $4, $5)
-        returning member_id
+        values ($1, $2, 'entity.version.published', '{"kind":"post"}'::jsonb, $3, $4, $5)
+        returning id, recipient_member_id
       `,
       [fixture.memberAId, fixture.network1Id, fixture.network1EntityId, entityVersion.rows[0]?.id, fixture.memberAId],
     );
-    assert.equal(ownReceipt.rows[0]?.member_id, fixture.memberAId);
+    assert.equal(memberUpdate.rows[0]?.recipient_member_id, fixture.memberAId);
+
+    const ownReceipt = await client.query<{ recipient_member_id: string }>(
+      `
+        insert into app.member_update_receipts (
+          member_update_id,
+          recipient_member_id,
+          network_id,
+          state,
+          version_no,
+          created_by_member_id
+        )
+        values ($1, $2, $3, 'processed', 1, $2)
+        returning recipient_member_id
+      `,
+      [memberUpdate.rows[0]?.id, fixture.memberAId, fixture.network1Id],
+    );
+    assert.equal(ownReceipt.rows[0]?.recipient_member_id, fixture.memberAId);
 
     await client.query('savepoint bad_update_receipt');
     await assert.rejects(
       () => client.query(
         `
-          insert into app.member_entity_update_receipts (
-            member_id,
+          insert into app.member_update_receipts (
+            member_update_id,
+            recipient_member_id,
             network_id,
-            entity_id,
-            entity_version_id,
+            state,
+            version_no,
             created_by_member_id
           )
-          values ($1, $2, $3, $4, $5)
+          values ($1, $2, $3, 'processed', 1, $4)
         `,
-        [fixture.memberBId, fixture.network1Id, fixture.network1EntityId, entityVersion.rows[0]?.id, fixture.memberAId],
+        [memberUpdate.rows[0]?.id, fixture.memberBId, fixture.network1Id, fixture.memberAId],
       ),
       /row-level security|violates row-level security policy/i,
     );

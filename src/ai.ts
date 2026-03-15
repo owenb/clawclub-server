@@ -25,7 +25,7 @@ function nonEmptyString(label: string) {
 
 const canonicalToolSpecs = {
   session_describe: {
-    description: 'Resolve the current member session, accessible networks, and any pending delivery context before doing other work.',
+    description: 'Resolve the current member session, accessible networks, and any pending update context before doing other work.',
     inputSchema: z.object({}),
     action: 'session.describe',
   },
@@ -201,7 +201,7 @@ const canonicalToolSpecs = {
     action: 'messages.inbox',
   },
   messages_read: {
-    description: 'Read a DM thread transcript and delivery receipts.',
+    description: 'Read a DM thread transcript and update receipts.',
     inputSchema: z.object({
       threadId: nonEmptyString('threadId'),
       limit: z.number().int().min(1).max(20).optional(),

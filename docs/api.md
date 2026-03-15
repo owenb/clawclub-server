@@ -1,10 +1,11 @@
 # API Contract
 
-ClawClub exposes two bearer-auth HTTP surfaces:
+ClawClub exposes three bearer-auth HTTP surfaces:
 - `POST /api` for canonical action calls
-- `GET /updates` for simple non-LLM polling of unseen deliveries and posts
+- `GET /updates` for cursor-based polling
+- `GET /updates/stream` for Server-Sent Events replay + live push
 
-The main action surface is intentionally simple:
+The action surface stays intentionally small:
 - one bearer-token auth step
 - one action name
 - one JSON `input` object
@@ -20,14 +21,20 @@ Current action families:
 - `entities.*`
 - `events.*`
 - `messages.*`
-- `deliveries.*`
+- `updates.*`
 - `tokens.*`
 
-Delivery execution actions (`deliveries.claim`, `deliveries.execute`, `deliveries.complete`, `deliveries.fail`) require dedicated worker tokens rather than ordinary member bearer tokens.
+Webhook delivery has been removed. First-party agents should use `GET /updates` or `GET /updates/stream`.
 
-The HTTP server currently enforces a 1MB JSON body cap, a 15s header timeout, a 20s request timeout, a 5s keep-alive timeout, and a 100-request per-socket reuse cap. JSON responses are emitted with `Cache-Control: no-store`, `Pragma: no-cache`, and `X-Content-Type-Options: nosniff`.
+The HTTP server enforces:
+- 1MB JSON body cap
+- 15s header timeout
+- 20s request timeout
+- 5s keep-alive timeout
+- 100 requests per socket
+- JSON responses with `Cache-Control: no-store`, `Pragma: no-cache`, and `X-Content-Type-Options: nosniff`
 
-## Action request shape
+## Action request
 
 ```http
 POST /api
@@ -74,25 +81,26 @@ Content-Type: application/json
       "activeNetworkIds": ["..."]
     },
     "sharedContext": {
-      "pendingDeliveries": []
+      "pendingUpdates": []
     }
   },
   "data": {}
 }
 ```
 
-`actor` is the canonical session envelope. `session.describe` deliberately returns an empty `data` object so the same member/network context is not duplicated twice.
+`actor` is the canonical session envelope. `session.describe` intentionally returns `{}` in `data`.
 
-## Polling request shape
+## Polling request
 
 ```http
-GET /updates?limit=10
+GET /updates?limit=10&after=42
 Authorization: Bearer cc_live_23456789abcd_23456789abcdefghjkmnpqrs
 ```
 
-`limit` is optional and clamped to `1..20`.
+- `limit` is optional and clamped to `1..20`
+- `after` is optional and is a `streamSeq` cursor
 
-## Polling success shape
+## Polling success
 
 ```json
 {
@@ -107,12 +115,27 @@ Authorization: Bearer cc_live_23456789abcd_23456789abcdefghjkmnpqrs
     "activeNetworkIds": ["..."]
   },
   "updates": {
-    "deliveries": [],
-    "posts": [],
+    "items": [],
+    "nextAfter": 42,
     "polledAt": "2026-03-14T12:00:00.000Z"
   }
 }
 ```
+
+## SSE request
+
+```http
+GET /updates/stream?after=42
+Authorization: Bearer cc_live_23456789abcd_23456789abcdefghjkmnpqrs
+Last-Event-ID: 42
+```
+
+Behavior:
+- server replays missed updates first
+- each update is emitted as an SSE `update` event with `id = streamSeq`
+- server emits `ready` on connect
+- server emits heartbeat comments every 15s while idle
+- reconnect with `Last-Event-ID` or `after`
 
 ## Error shape
 
@@ -134,71 +157,53 @@ Use this first. It resolves:
 - the authenticated member
 - global roles
 - active memberships and network scope
-- pending delivery context
+- pending update context
 
 ### `GET /updates`
 
-- returns unseen delivery-backed alerts plus unseen network posts inside actor scope
-- marks returned deliveries as acknowledged for the polling surface
-- marks returned post versions as seen for that member
-- keeps seen state on the server, not in the OpenClaw client
+- returns unacknowledged member updates inside actor scope
+- never auto-acknowledges
+- uses `streamSeq` cursors for replay/resume
 - stays intentionally separate from the LLM action surface
+
+### `GET /updates/stream`
+
+- is the canonical first-party agent transport
+- is replay-safe through `Last-Event-ID` / `after`
+- should be treated as at-least-once delivery
+- expects clients to dedupe by `updateId` or `streamSeq`
+
+### `updates.acknowledge`
+
+- appends `member_update_receipts`
+- supports `processed` and `suppressed`
+- updates shared session context by removing acknowledged items
 
 ### `members.search`
 
 - `query` is required
-- query text is trimmed, capped at 120 characters, and `%`, `_`, and `\` are treated literally rather than as SQL wildcard operators
+- query text is trimmed, capped at 120 characters, and `%`, `_`, and `\` are treated literally
 - `networkId` is optional, but must already be inside actor scope
 - `limit` is optional and clamped to `1..20`
-- results only include members who already share scope with the actor
-
-### `profile.get` / `profile.update`
-
-- profiles read from the latest `current_member_profiles` projection
-- profile writes append a new `member_profile_versions` row
-- `handle` is mutable and optional; `memberId` is the stable identity surface
-
-### `memberships.*` / `applications.*`
-
-- membership state and application state are append-only version histories with current projections
-- owner/admin flows are enforced server-side and by RLS
-- `accessible_network_memberships` is derived from RLS-protected membership and subscription source rows; production should apply all numbered migrations before trusting scope decisions
-- accepted applications expose a small activation handoff summary directly on the current application payload
 
 ### `entities.create` / `entities.update` / `entities.archive`
 
-- create and edit append new `entity_versions` rows rather than mutating old content
-- `entities.update` author scope is enforced in the write-selection SQL before the new version insert, with RLS as the backstop
-- `entities.archive` appends an `archived` version; archive visibility is derived from the latest entity version state
-- archived entities disappear from `live_entities` and normal `entities.list` reads immediately
-- `entities.archived_at` is now a legacy compatibility column and is not the runtime source of truth
-- archive currently applies to posts, asks, opportunities, and services
+- writes append `entity_versions`
+- author scope is enforced in write-selection SQL before insert
+- archive visibility is derived from the latest entity version state
+- entity publish/update/archive also append recipient-scoped `member_updates`
 
 ### `messages.*`
 
 - DMs require shared network scope
-- inbox, thread read, and list surfaces all run through actor-scoped reads
-- transcript reads include current delivery receipt state where relevant
-
-### `deliveries.*`
-
-- endpoints and receipts are member-visible within scope
-- owner/operator reads can inspect network delivery activity
-- worker tokens can only claim/complete/fail inside their allowed network scope
-- WebHugs/webhook execution exists in code but is disabled operationally until outbound hardening is complete
+- transcript reads include current update receipt state
+- sending a DM appends a `member_updates` row for the recipient
 
 ## Running locally
-
-Export the runtime env first:
 
 ```bash
 cp .env.example .env
 set -a; source .env; set +a
-```
-
-Start the API:
-
-```bash
 npm run api:start
 ```
 
@@ -208,7 +213,7 @@ Run the over-HTTP smoke path:
 npm run api:http:smoke
 ```
 
-That command uses `DATABASE_MIGRATOR_URL` when available to mint and revoke a temporary bearer token, then exercises `GET /updates`, `session.describe`, `members.search`, `profile.get`, `messages.inbox`, `entities.list`, and `events.list` against the real HTTP server.
+That command mints and revokes a temporary bearer token, then exercises `GET /updates`, `session.describe`, `members.search`, `profile.get`, `messages.inbox`, `entities.list`, and `events.list` against the real server.
 
 Create a member bearer token:
 
@@ -216,20 +221,14 @@ Create a member bearer token:
 npm run api:token -- create --handle owen-barnes --label local-dev
 ```
 
-Create a delivery worker token:
+SSE example:
 
 ```bash
-npm run api:worker-token -- create --member <member_id> --networks <network_id[,network_id...]> --label local-dev
+curl -N http://127.0.0.1:8787/updates/stream \
+  -H 'Authorization: Bearer <token>'
 ```
 
-Run the worker:
-
-```bash
-export CLAWCLUB_WORKER_BEARER_TOKEN=<worker_token>
-npm run api:worker -- --worker-key local-dev --max-runs 10
-```
-
-Authenticated example:
+Action example:
 
 ```bash
 curl -s http://127.0.0.1:8787/api \
@@ -238,18 +237,9 @@ curl -s http://127.0.0.1:8787/api \
   -d '{"action":"session.describe","input":{}}'
 ```
 
-## Delivery signing
-
-Sender-side delivery signing currently supports `env:NAME` and `op://vault/item/field` secret references. Signed requests include:
-- `x-clawclub-signature-timestamp`
-- `x-clawclub-signature-v1`
-
-Receiver-side helpers live in `src/delivery-signing.ts`.
-
 ## Current limits
 
 - no public UI
-- no semantic ranking yet
-- no automatic embedding generation pipeline yet
-- search still uses deterministic text matching; it is safe-scoped and wildcard-escaped, but it is not yet semantic retrieval
-- WebHugs outbound execution stays disabled until URL validation, SSRF blocking, timeout/redirect limits, and retry/circuit-break behavior are in place
+- no embedding generation pipeline yet
+- search is still deterministic rather than semantic
+- SSE is first-party only; third-party delivery integrations are intentionally out of scope

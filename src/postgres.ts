@@ -1,13 +1,13 @@
 import { Pool, type PoolClient } from 'pg';
-import { AppError, type AcknowledgeDeliveryInput, type ActorContext, type ApplicationStatus, type ApplicationSummary, type ArchiveNetworkInput, type AssignNetworkOwnerInput, type AuthResult, type BearerTokenSummary, type ClaimDeliveryInput, type ClaimedDelivery, type CompleteDeliveryAttemptInput, type CreateApplicationInput, type CreateBearerTokenInput, type CreateDeliveryEndpointInput, type CreateEntityInput, type CreateEventInput, type CreateMembershipInput, type CreateNetworkInput, type CreatedBearerToken, type DeliveryAcknowledgement, type DeliveryAttemptInspection, type DeliveryAttemptSummary, type DeliveryEndpointState, type DeliveryEndpointSummary, type DeliverySummary, type DeliveryWorkerAuthResult, type DirectMessageInboxSummary, type DirectMessageReceipt, type DirectMessageSummary, type DirectMessageThreadSummary, type DirectMessageTranscriptEntry, type EmbeddingProjectionSummary, type EntitySummary, type EventRsvpState, type EventSummary, type FailDeliveryAttemptInput, type ListDeliveriesInput, type ListDeliveryAttemptsInput, type ListEventsInput, type MemberProfile, type MemberSearchResult, type MembershipAdminSummary, type MembershipReviewSummary, type MembershipState, type MembershipSummary, type MembershipVouchSummary, type NetworkMemberSummary, type NetworkSummary, type PendingDelivery, type Repository, type RetryDeliveryInput, type RevokeBearerTokenInput, type RevokeDeliveryEndpointInput, type RsvpEventInput, type SendDirectMessageInput, type TransitionApplicationInput, type TransitionMembershipInput, type UpdateDeliveryEndpointInput, type UpdateEntityInput, type UpdateOwnProfileInput } from './app.ts';
+import { type ActorContext, type AuthResult, type MembershipSummary, type Repository } from './app.ts';
 import { hashTokenSecret, parseBearerToken } from './token.ts';
 import { buildAdmissionsRepository } from './postgres/admissions.ts';
 import { buildContentRepository } from './postgres/content.ts';
-import { buildDeliveryRepository, listPendingDeliveries } from './postgres/deliveries.ts';
 import { buildMessagesRepository } from './postgres/messages.ts';
 import { buildProfileRepository } from './postgres/profile.ts';
 import { buildSystemRepository } from './postgres/system.ts';
-import { buildUpdatesRepository } from './postgres/updates.ts';
+import { buildTokenRepository } from './postgres/tokens.ts';
+import { buildUpdatesRepository, listPendingUpdates } from './postgres/updates.ts';
 
 type ActorRow = {
   member_id: string;
@@ -51,14 +51,6 @@ function parsePostgresTextArray(value: string[] | string | null | undefined): st
     .map((entry) => entry.replace(/^"(.*)"$/, '$1').replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
 }
 
-type DeliveryWorkerTokenRow = {
-  token_id: string;
-  actor_member_id: string;
-  label: string | null;
-  allowed_network_ids: string[] | string | null;
-  metadata: Record<string, unknown> | null;
-};
-
 type DbClient = Pool | PoolClient;
 
 // RLS now derives network access from membership state in the database.
@@ -66,7 +58,7 @@ async function applyActorContext(
   client: DbClient,
   actorMemberId: string,
   _networkIds: string[],
-  options: { deliveryWorkerScope?: boolean } = {},
+  _options: Record<string, never> = {},
 ): Promise<void> {
   await client.query(
     `
@@ -74,10 +66,6 @@ async function applyActorContext(
     `,
     [actorMemberId],
   );
-
-  if (options.deliveryWorkerScope) {
-    await client.query(`select set_config('app.delivery_worker_scope', '1', true)`);
-  }
 }
 
 async function withActorContext<T>(pool: Pool, actorMemberId: string, networkIds: string[], fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -198,8 +186,8 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       }
 
       const activeNetworkIds = actor.memberships.map((membership) => membership.networkId);
-      const pendingDeliveries = await withActorContext(pool, actor.member.id, activeNetworkIds, (client) =>
-        listPendingDeliveries(client, actor.member.id, activeNetworkIds),
+      const pendingUpdates = await withActorContext(pool, actor.member.id, activeNetworkIds, (client) =>
+        listPendingUpdates(client, actor.member.id, 5, null).then((updates) => updates.items),
       );
 
       return {
@@ -209,59 +197,15 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
           activeNetworkIds,
         },
         sharedContext: {
-          pendingDeliveries,
+          pendingUpdates,
         },
-      };
-    },
-
-    async authenticateDeliveryWorkerToken(bearerToken: string): Promise<DeliveryWorkerAuthResult | null> {
-      const parsed = parseBearerToken(bearerToken);
-      if (!parsed) {
-        return null;
-      }
-
-      const tokenResult = await pool.query<DeliveryWorkerTokenRow>(
-        `
-          select
-            token_id,
-            actor_member_id,
-            label,
-            allowed_network_ids,
-            metadata
-          from app.authenticate_delivery_worker_token($1, $2)
-        `,
-        [parsed.tokenId, hashTokenSecret(parsed.secret)],
-      );
-
-      const tokenRow = tokenResult.rows[0];
-      if (!tokenRow) {
-        return null;
-      }
-
-      const actor = await getActorByMemberId(pool, tokenRow.actor_member_id);
-      if (!actor) {
-        return null;
-      }
-
-      const currentNetworkIds = new Set(actor.memberships.map((membership) => membership.networkId));
-      const allowedNetworkIds = parsePostgresTextArray(tokenRow.allowed_network_ids).filter((networkId) => currentNetworkIds.has(networkId));
-      if (allowedNetworkIds.length === 0) {
-        return null;
-      }
-
-      return {
-        tokenId: tokenRow.token_id,
-        actorMemberId: tokenRow.actor_member_id,
-        label: tokenRow.label,
-        allowedNetworkIds,
-        metadata: tokenRow.metadata ?? {},
       };
     },
 
     ...buildAdmissionsRepository({ pool, applyActorContext, withActorContext }),
     ...buildProfileRepository({ pool, applyActorContext, withActorContext }),
     ...buildContentRepository({ pool, applyActorContext, withActorContext }),
-    ...buildDeliveryRepository({ pool, applyActorContext, withActorContext }),
+    ...buildTokenRepository({ pool, withActorContext }),
     ...buildMessagesRepository({ pool, applyActorContext, withActorContext }),
     ...buildSystemRepository({ pool, applyActorContext, withActorContext }),
     ...buildUpdatesRepository({ pool, applyActorContext }),

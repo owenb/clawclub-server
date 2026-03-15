@@ -29,11 +29,49 @@ type UpdatesResponse = {
     activeNetworkIds: string[];
   };
   updates: {
-    deliveries: unknown[];
-    posts: unknown[];
+    items: unknown[];
+    nextAfter: number | null;
     polledAt: string;
   };
 };
+
+async function assertUpdatesStreamReady(baseUrl: string, bearerToken: string): Promise<void> {
+  const abortController = new AbortController();
+
+  try {
+    const response = await fetch(`${baseUrl}/updates/stream`, {
+      headers: {
+        authorization: `Bearer ${bearerToken}`,
+      },
+      signal: abortController.signal,
+    });
+
+    assert.equal(response.status, 200, 'GET /updates/stream should return 200');
+    assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+
+    const reader = response.body?.getReader();
+    assert.ok(reader, 'GET /updates/stream should expose a readable body');
+
+    const decoder = new TextDecoder();
+    let transcript = '';
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+
+      transcript += decoder.decode(chunk.value, { stream: true });
+      if (/event: ready/.test(transcript)) {
+        break;
+      }
+    }
+
+    assert.match(transcript, /event: ready/, 'GET /updates/stream should emit a ready event');
+    await reader.cancel().catch(() => {});
+  } finally {
+    abortController.abort();
+  }
+}
 
 function requireRuntimeDatabaseUrl(): string {
   const databaseUrl = process.env.DATABASE_URL;
@@ -164,7 +202,7 @@ export async function runHttpSmoke(): Promise<{
   const runtimeDatabaseUrl = requireRuntimeDatabaseUrl();
   const setupPool = new Pool({ connectionString: getSetupDatabaseUrl(runtimeDatabaseUrl) });
   const memberHandle = readSmokeHandle();
-  const actions = ['GET /updates', 'session.describe', 'members.search', 'profile.get', 'messages.inbox', 'entities.list', 'events.list'];
+  const actions = ['GET /updates', 'GET /updates/stream', 'session.describe', 'members.search', 'profile.get', 'messages.inbox', 'entities.list', 'events.list'];
   let tokenId: string | null = null;
   let shutdown: (() => Promise<void>) | null = null;
 
@@ -185,10 +223,12 @@ export async function runHttpSmoke(): Promise<{
     const networkId = session.actor.activeMemberships[0]!.networkId;
     const updates = await getUpdates(baseUrl, token.bearerToken, 5);
     assert.equal(updates.member.id, memberId);
-    assert.ok(Array.isArray(updates.updates.deliveries), 'GET /updates should return a deliveries array');
-    assert.ok(Array.isArray(updates.updates.posts), 'GET /updates should return a posts array');
+    assert.ok(Array.isArray(updates.updates.items), 'GET /updates should return an items array');
+    assert.ok(updates.updates.nextAfter === null || Number.isInteger(updates.updates.nextAfter), 'GET /updates should return a numeric nextAfter cursor when present');
     assert.equal(typeof updates.updates.polledAt, 'string');
     assert.ok(updates.requestScope.activeNetworkIds.includes(networkId), 'GET /updates should reflect actor network scope');
+
+    await assertUpdatesStreamReady(baseUrl, token.bearerToken);
 
     const memberQuery = session.actor.member.handle ?? session.actor.member.publicName.split(/\s+/)[0] ?? memberHandle;
 

@@ -110,6 +110,10 @@ test('postgres repository updates an entity only when the actor is the author in
         return { rows: [{ id: 'entity-version-2' }], rowCount: 1 };
       }
 
+      if (sql.includes('insert into app.member_updates (')) {
+        return { rows: [], rowCount: 2 };
+      }
+
       if (sql.includes('from app.entities e') && sql.includes('and ($2::app.short_id is null or cev.id = $2)')) {
         return {
           rows: [{
@@ -210,6 +214,10 @@ test('postgres repository archives an entity by appending an archived version wi
 
       if (sql.includes('insert into app.entity_versions') && sql.includes(`'archived'`)) {
         return { rows: [{ id: 'entity-version-3' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.member_updates (')) {
+        return { rows: [], rowCount: 2 };
       }
 
       throw new Error(`Unexpected query: ${sql}`);
@@ -457,7 +465,7 @@ test('postgres repository projects actor scope into the db session before dm rea
         };
       }
 
-      if (sql.includes('coalesce(receipts.delivery_receipts')) {
+      if (sql.includes('coalesce(receipts.update_receipts')) {
         return {
           rows: [
             {
@@ -469,18 +477,15 @@ test('postgres repository projects actor scope into the db session before dm rea
               payload: {},
               created_at: '2026-03-12T00:00:00Z',
               in_reply_to_message_id: null,
-              delivery_receipts: [
+              update_receipts: [
                 {
-                  deliveryId: 'delivery-1',
+                  updateId: 'update-1',
                   recipientMemberId: 'member-1',
-                  status: 'sent',
-                  scheduledAt: '2026-03-12T00:00:00Z',
-                  sentAt: '2026-03-12T00:00:05Z',
-                  failedAt: null,
+                  topic: 'transcript.message.created',
                   createdAt: '2026-03-12T00:00:00Z',
-                  acknowledgement: {
-                    acknowledgementId: 'ack-1',
-                    state: 'shown',
+                  receipt: {
+                    receiptId: 'receipt-1',
+                    state: 'processed',
                     suppressionReason: null,
                     versionNo: 1,
                     createdAt: '2026-03-12T00:00:06Z',
@@ -522,7 +527,7 @@ test('postgres repository projects actor scope into the db session before dm rea
 });
 
 
-test('postgres repository stitches current delivery receipt state into dm transcript reads', async () => {
+test('postgres repository stitches current update receipt state into dm transcript reads', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
   const client = {
@@ -558,7 +563,7 @@ test('postgres repository stitches current delivery receipt state into dm transc
         };
       }
 
-      if (sql.includes('coalesce(receipts.delivery_receipts')) {
+      if (sql.includes('coalesce(receipts.update_receipts')) {
         return {
           rows: [
             {
@@ -570,18 +575,15 @@ test('postgres repository stitches current delivery receipt state into dm transc
               payload: {},
               created_at: '2026-03-12T00:01:00Z',
               in_reply_to_message_id: null,
-              delivery_receipts: [
+              update_receipts: [
                 {
-                  deliveryId: 'delivery-1',
+                  updateId: 'update-1',
                   recipientMemberId: 'member-1',
-                  status: 'sent',
-                  scheduledAt: '2026-03-12T00:01:00Z',
-                  sentAt: '2026-03-12T00:01:05Z',
-                  failedAt: null,
+                  topic: 'transcript.message.created',
                   createdAt: '2026-03-12T00:01:00Z',
-                  acknowledgement: {
-                    acknowledgementId: 'ack-1',
-                    state: 'shown',
+                  receipt: {
+                    receiptId: 'receipt-1',
+                    state: 'processed',
                     suppressionReason: null,
                     versionNo: 1,
                     createdAt: '2026-03-12T00:01:06Z',
@@ -599,16 +601,13 @@ test('postgres repository stitches current delivery receipt state into dm transc
               payload: {},
               created_at: '2026-03-12T00:02:00Z',
               in_reply_to_message_id: 'message-1',
-              delivery_receipts: [
+              update_receipts: [
                 {
-                  deliveryId: 'delivery-2',
+                  updateId: 'update-2',
                   recipientMemberId: 'member-2',
-                  status: 'sent',
-                  scheduledAt: '2026-03-12T00:02:00Z',
-                  sentAt: '2026-03-12T00:02:05Z',
-                  failedAt: null,
+                  topic: 'transcript.message.created',
                   createdAt: '2026-03-12T00:02:00Z',
-                  acknowledgement: null,
+                  receipt: null,
                 },
               ],
             },
@@ -639,13 +638,13 @@ test('postgres repository stitches current delivery receipt state into dm transc
   assert.ok(transcript);
   assert.equal(transcript?.thread.threadId, 'thread-1');
   assert.equal(transcript?.messages.length, 2);
-  assert.equal(transcript?.messages.find((message) => message.messageId === 'message-1')?.deliveryReceipts[0]?.acknowledgement?.state, 'shown');
-  assert.equal(transcript?.messages.find((message) => message.messageId === 'message-2')?.deliveryReceipts[0]?.recipientMemberId, 'member-2');
+  assert.equal(transcript?.messages.find((message) => message.messageId === 'message-1')?.updateReceipts[0]?.receipt?.state, 'processed');
+  assert.equal(transcript?.messages.find((message) => message.messageId === 'message-2')?.updateReceipts[0]?.recipientMemberId, 'member-2');
   assert.equal(calls[0]?.sql, 'begin');
   assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
   assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.match(calls[2]?.sql ?? '', /with thread_scope as \(/);
-  assert.match(calls[3]?.sql ?? '', /coalesce\(receipts\.delivery_receipts/);
+  assert.match(calls[3]?.sql ?? '', /coalesce\(receipts\.update_receipts/);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
@@ -680,7 +679,7 @@ test('postgres repository projects actor scope into the db session before inbox 
               latest_created_at: '2026-03-12T00:05:00Z',
               message_count: 4,
               unread_message_count: 2,
-              unread_delivery_count: 3,
+              unread_update_count: 3,
               latest_unread_message_created_at: '2026-03-12T00:05:00Z',
               has_unread: true,
             },
@@ -717,402 +716,6 @@ test('postgres repository projects actor scope into the db session before inbox 
   assert.match(calls[2]?.sql ?? '', /from app\.current_dm_inbox_threads inbox/);
   assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], true, 5]);
   assert.equal(calls.at(-1)?.sql, 'commit');
-});
-
-test('postgres repository lists delivery attempts with operator filters inside actor scope', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
-  const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
-        return { rows: [], rowCount: 0 };
-      }
-
-      if (sql.includes("set_config('app.actor_member_id'")) {
-        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      }
-
-      if (sql.includes('from app.delivery_attempts da')) {
-        return {
-          rows: [
-            {
-              attempt_id: 'attempt-1',
-              delivery_id: 'delivery-1',
-              network_id: 'network-2',
-              endpoint_id: 'endpoint-2',
-              worker_key: 'worker-a',
-              status: 'failed',
-              attempt_no: 2,
-              response_status_code: 503,
-              response_body: 'upstream unavailable',
-              error_message: 'upstream unavailable',
-              started_at: '2026-03-12T00:04:00Z',
-              finished_at: '2026-03-12T00:04:03Z',
-              created_by_member_id: 'member-1',
-              delivery_network_id: 'network-2',
-              delivery_recipient_member_id: 'member-2',
-              recipient_public_name: 'Member Two',
-              recipient_handle: 'member-two',
-              delivery_topic: 'transcript.message.created',
-              delivery_status: 'failed',
-              delivery_attempt_count: 2,
-              delivery_scheduled_at: '2026-03-12T00:03:00Z',
-              delivery_sent_at: null,
-              delivery_failed_at: '2026-03-12T00:04:03Z',
-              delivery_last_error: 'upstream unavailable',
-              delivery_created_at: '2026-03-12T00:03:00Z',
-            },
-          ],
-          rowCount: 1,
-        };
-      }
-
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const pool = {
-    async connect() {
-      return client;
-    },
-  };
-
-  const repository = createPostgresRepository({ pool: pool as any });
-  const results = await repository.listDeliveryAttempts({
-    actorMemberId: 'member-1',
-    networkIds: ['network-2'],
-    endpointId: 'endpoint-2',
-    recipientMemberId: 'member-2',
-    status: 'failed',
-    limit: 5,
-  });
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0]?.attempt.attemptId, 'attempt-1');
-  assert.equal(results[0]?.delivery.recipient.publicName, 'Member Two');
-  assert.equal(results[0]?.delivery.topic, 'transcript.message.created');
-  assert.equal(calls[0]?.sql, 'begin');
-  assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
-  assert.deepEqual(calls[1]?.params, ['member-1']);
-  assert.match(calls[2]?.sql ?? '', /from app\.delivery_attempts da/);
-  assert.deepEqual(calls[2]?.params, [['network-2'], 'endpoint-2', 'member-2', 'failed', 5]);
-  assert.equal(calls.at(-1)?.sql, 'commit');
-});
-
-test('postgres repository projects actor scope into the db session before delivery reads', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
-  const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
-        return { rows: [], rowCount: 0 };
-      }
-
-      if (sql.includes("set_config('app.actor_member_id'")) {
-        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      }
-
-      if (sql.includes('from app.current_delivery_receipts cdr')) {
-        return {
-          rows: [
-            {
-              delivery_id: 'delivery-1',
-              network_id: 'network-2',
-              recipient_member_id: 'member-1',
-              topic: 'transcript.message.created',
-              payload: { kind: 'dm' },
-              status: 'sent',
-              entity_id: null,
-              entity_version_id: null,
-              transcript_message_id: 'message-1',
-              scheduled_at: '2026-03-12T00:02:00Z',
-              sent_at: '2026-03-12T00:03:00Z',
-              failed_at: null,
-              created_at: '2026-03-12T00:02:00Z',
-              acknowledgement_id: 'ack-1',
-              acknowledgement_state: 'shown',
-              acknowledgement_suppression_reason: null,
-              acknowledgement_version_no: 1,
-              acknowledgement_created_at: '2026-03-12T00:04:00Z',
-              acknowledgement_created_by_member_id: 'member-1',
-            },
-          ],
-          rowCount: 1,
-        };
-      }
-
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const pool = {
-    async connect() {
-      return client;
-    },
-  };
-
-  const repository = createPostgresRepository({ pool: pool as any });
-  const results = await repository.listDeliveries({
-    actorMemberId: 'member-1',
-    networkIds: ['network-2'],
-    limit: 5,
-    pendingOnly: true,
-  });
-
-  assert.equal(results.length, 1);
-  assert.equal(results[0]?.deliveryId, 'delivery-1');
-  assert.equal(results[0]?.acknowledgement?.acknowledgementId, 'ack-1');
-  assert.equal(calls[0]?.sql, 'begin');
-  assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
-  assert.deepEqual(calls[1]?.params, ['member-1']);
-  assert.match(calls[2]?.sql ?? '', /from app\.current_delivery_receipts cdr/);
-  assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], true, 5]);
-  assert.equal(calls.at(-1)?.sql, 'commit');
-});
-
-test('postgres repository retries a failed delivery inside actor scope as a fresh pending receipt', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
-  const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
-        return { rows: [], rowCount: 0 };
-      }
-
-      if (sql.includes("set_config('app.actor_member_id'")) {
-        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      }
-
-      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1') && sql.includes('and cdr.recipient_member_id = $2')) {
-        return {
-          rows: [
-            {
-              delivery_id: 'delivery-1',
-              network_id: 'network-2',
-              recipient_member_id: 'member-1',
-              endpoint_id: 'endpoint-2',
-              entity_id: null,
-              entity_version_id: null,
-              transcript_message_id: 'message-1',
-              topic: 'transcript.message.created',
-              payload: { kind: 'dm', threadId: 'thread-1' },
-              status: 'failed',
-            },
-          ],
-          rowCount: 1,
-        };
-      }
-
-      if (sql.includes('insert into app.deliveries (')) {
-        return {
-          rows: [{ delivery_id: 'delivery-2' }],
-          rowCount: 1,
-        };
-      }
-
-      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1') && !sql.includes('and cdr.recipient_member_id = $2')) {
-        return {
-          rows: [
-            {
-              delivery_id: 'delivery-2',
-              network_id: 'network-2',
-              recipient_member_id: 'member-1',
-              endpoint_id: 'endpoint-2',
-              topic: 'transcript.message.created',
-              payload: { kind: 'dm', threadId: 'thread-1' },
-              status: 'pending',
-              attempt_count: 0,
-              entity_id: null,
-              entity_version_id: null,
-              transcript_message_id: 'message-1',
-              scheduled_at: '2026-03-12T00:06:00Z',
-              sent_at: null,
-              failed_at: null,
-              last_error: null,
-              created_at: '2026-03-12T00:06:00Z',
-              acknowledgement_id: null,
-              acknowledgement_state: null,
-              acknowledgement_suppression_reason: null,
-              acknowledgement_version_no: null,
-              acknowledgement_created_at: null,
-              acknowledgement_created_by_member_id: null,
-            },
-          ],
-          rowCount: 1,
-        };
-      }
-
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const pool = {
-    async connect() {
-      return client;
-    },
-  };
-
-  const repository = createPostgresRepository({ pool: pool as any });
-  const delivery = await repository.retryDelivery({
-    actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-2'],
-    deliveryId: 'delivery-1',
-  });
-
-  assert.ok(delivery);
-  assert.equal(delivery?.deliveryId, 'delivery-2');
-  assert.equal(delivery?.status, 'pending');
-  assert.equal(delivery?.endpointId, 'endpoint-2');
-  assert.equal(delivery?.attemptCount, 0);
-  assert.equal(delivery?.lastError, null);
-  assert.equal(calls[0]?.sql, 'begin');
-  assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
-  assert.deepEqual(calls[1]?.params, ['member-1']);
-  assert.match(calls[2]?.sql ?? '', /from app\.current_delivery_receipts cdr/);
-  assert.deepEqual(calls[2]?.params, ['delivery-1', 'member-1', ['network-2']]);
-  assert.match(calls[3]?.sql ?? '', /insert into app\.deliveries/);
-  assert.equal(calls[3]?.params?.[0], 'network-2');
-  assert.equal(calls[3]?.params?.[1], 'member-1');
-  assert.equal(calls[3]?.params?.[2], 'endpoint-2');
-  assert.equal(calls[3]?.params?.[5], 'message-1');
-  assert.equal(calls.at(-1)?.sql, 'commit');
-});
-
-test('postgres repository lists, creates, updates, and revokes delivery endpoints for the actor member', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
-  const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
-        return { rows: [], rowCount: 0 };
-      }
-
-      if (sql.includes("set_config('app.actor_member_id'")) {
-        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      }
-
-      if (sql.includes('from app.delivery_endpoints dep') && sql.includes('order by dep.created_at desc')) {
-        return {
-          rows: [{
-            endpoint_id: 'endpoint-1', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Primary',
-            endpoint_url: 'https://example.test/webhook', shared_secret_ref: 'op://clawclub/primary', state: 'active',
-            last_success_at: null, last_failure_at: null,
-            pending_count: 2, processing_count: 1, sent_count: 5, failed_count: 1, canceled_count: 0, last_delivery_at: '2026-03-12T00:05:00Z',
-            metadata: { device: 'mbp' }, created_at: '2026-03-12T00:00:00Z', disabled_at: null,
-          }],
-          rowCount: 1,
-        };
-      }
-
-      if (sql.includes('insert into app.delivery_endpoints')) {
-        return {
-          rows: [{
-            endpoint_id: 'endpoint-2', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Laptop',
-            endpoint_url: 'https://hooks.example.test/clawclub', shared_secret_ref: 'op://clawclub/laptop', state: 'active',
-            last_success_at: null, last_failure_at: null,
-            pending_count: 0, processing_count: 0, sent_count: 0, failed_count: 0, canceled_count: 0, last_delivery_at: null,
-            metadata: { device: 'mbp' }, created_at: '2026-03-12T00:01:00Z', disabled_at: null,
-          }],
-          rowCount: 1,
-        };
-      }
-
-      if (sql.includes('update app.delivery_endpoints dep') && sql.includes('metadata = $7::jsonb')) {
-        return {
-          rows: [{
-            endpoint_id: 'endpoint-2', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Backup',
-            endpoint_url: 'https://backup.example.test/clawclub', shared_secret_ref: null, state: 'failing',
-            last_success_at: null, last_failure_at: '2026-03-12T00:02:00Z',
-            pending_count: 0, processing_count: 0, sent_count: 0, failed_count: 0, canceled_count: 0, last_delivery_at: null,
-            metadata: { device: 'pi' }, created_at: '2026-03-12T00:01:00Z', disabled_at: null,
-          }],
-          rowCount: 1,
-        };
-      }
-
-      if (sql.includes("set state = 'disabled'")) {
-        return {
-          rows: [{
-            endpoint_id: 'endpoint-2', member_id: 'member-1', channel: 'openclaw_webhook', label: 'Backup',
-            endpoint_url: 'https://backup.example.test/clawclub', shared_secret_ref: null, state: 'disabled',
-            last_success_at: null, last_failure_at: '2026-03-12T00:02:00Z',
-            pending_count: 0, processing_count: 0, sent_count: 0, failed_count: 0, canceled_count: 0, last_delivery_at: null,
-            metadata: { device: 'pi' }, created_at: '2026-03-12T00:01:00Z', disabled_at: '2026-03-12T00:03:00Z',
-          }],
-          rowCount: 1,
-        };
-      }
-
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const pool = {
-    async connect() {
-      return client;
-    },
-  };
-
-  const repository = createPostgresRepository({ pool: pool as any });
-  const listed = await repository.listDeliveryEndpoints({ actorMemberId: 'member-1' });
-  const created = await repository.createDeliveryEndpoint({
-    actorMemberId: 'member-1',
-    channel: 'openclaw_webhook',
-    label: 'Laptop',
-    endpointUrl: 'https://hooks.example.test/clawclub',
-    sharedSecretRef: 'op://clawclub/laptop',
-    metadata: { device: 'mbp' },
-  });
-  const updated = await repository.updateDeliveryEndpoint({
-    actorMemberId: 'member-1',
-    endpointId: 'endpoint-2',
-    patch: {
-      label: 'Backup',
-      endpointUrl: 'https://backup.example.test/clawclub',
-      sharedSecretRef: null,
-      state: 'failing',
-      metadata: { device: 'pi' },
-    },
-  });
-  const revoked = await repository.revokeDeliveryEndpoint({ actorMemberId: 'member-1', endpointId: 'endpoint-2' });
-
-  assert.equal(listed[0]?.endpointId, 'endpoint-1');
-  assert.deepEqual(listed[0]?.health, {
-    pendingCount: 2,
-    processingCount: 1,
-    sentCount: 5,
-    failedCount: 1,
-    canceledCount: 0,
-    lastDeliveryAt: '2026-03-12T00:05:00Z',
-  });
-  assert.equal(created.endpointId, 'endpoint-2');
-  assert.equal(updated?.state, 'failing');
-  assert.equal(updated?.sharedSecretRef, null);
-  assert.equal(revoked?.state, 'disabled');
-  assert.equal(revoked?.disabledAt, '2026-03-12T00:03:00Z');
-  assert.equal(calls.filter((call) => call.sql === 'begin').length, 4);
-  assert.equal(calls.filter((call) => call.sql === 'commit').length, 4);
-  assert.deepEqual(calls[1]?.params, ['member-1']);
-  assert.match(calls[2]?.sql ?? '', /left join app\.deliveries d on d\.endpoint_id = dep\.id/);
-  assert.deepEqual(calls[2]?.params, ['member-1']);
-  assert.deepEqual(calls[5]?.params, ['member-1']);
-  assert.deepEqual(calls[6]?.params, ['member-1', 'openclaw_webhook', 'Laptop', 'https://hooks.example.test/clawclub', 'op://clawclub/laptop', '{"device":"mbp"}']);
-  assert.deepEqual(calls[9]?.params, ['member-1']);
-  assert.deepEqual(calls[10]?.params, ['endpoint-2', 'member-1', 'Backup', 'https://backup.example.test/clawclub', null, 'failing', '{"device":"pi"}']);
-  assert.deepEqual(calls[13]?.params, ['member-1']);
-  assert.deepEqual(calls[14]?.params, ['endpoint-2', 'member-1']);
 });
 
 test('postgres repository creates and revokes hashed bearer tokens without returning the hash', async () => {
@@ -1208,190 +811,6 @@ test('postgres repository creates and revokes hashed bearer tokens without retur
   const revokeCall = [...calls].reverse().find((call) => /update app\.member_bearer_tokens mbt/.test(call.sql));
   assert.match(revokeCall?.sql ?? '', /update app\.member_bearer_tokens mbt/);
   assert.deepEqual(revokeCall?.params, ['token-1', 'member-1']);
-});
-
-test('postgres repository claims the next pending delivery and appends a processing attempt', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
-  const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
-      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes("set_config('app.delivery_worker_scope'")) return { rows: [{ set_config: '1' }], rowCount: 1 };
-      if (sql.includes('with next_delivery as (')) return { rows: [{ delivery_id: 'delivery-1' }], rowCount: 1 };
-      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1')) {
-        return {
-          rows: [{
-            delivery_id: 'delivery-1', network_id: 'network-2', recipient_member_id: 'member-2', endpoint_id: 'endpoint-2',
-            topic: 'transcript.message.created', payload: { kind: 'dm' }, status: 'processing', attempt_count: 2,
-            entity_id: null, entity_version_id: null, transcript_message_id: 'message-1', scheduled_at: '2026-03-12T00:02:00Z',
-            sent_at: null, failed_at: null, last_error: null, created_at: '2026-03-12T00:00:00Z', acknowledgement_id: null,
-            acknowledgement_state: null, acknowledgement_suppression_reason: null, acknowledgement_version_no: null,
-            acknowledgement_created_at: null, acknowledgement_created_by_member_id: null,
-          }], rowCount: 1,
-        };
-      }
-      if (sql.includes('from app.delivery_endpoints de') && sql.includes('where de.id = $1')) {
-        return {
-          rows: [{
-            endpoint_id: 'endpoint-2', member_id: 'member-2', channel: 'openclaw_webhook', label: 'Primary webhook', endpoint_url: 'https://example.test/webhook',
-            shared_secret_ref: 'op://clawclub/primary', state: 'active', last_success_at: null, last_failure_at: null, metadata: { environment: 'test' },
-            created_at: '2026-03-12T00:00:00Z', disabled_at: null,
-          }], rowCount: 1,
-        };
-      }
-      if (sql.includes('from app.current_delivery_attempts cda')) {
-        return {
-          rows: [{
-            attempt_id: 'attempt-1', delivery_id: 'delivery-1', network_id: 'network-2', endpoint_id: 'endpoint-2', worker_key: 'worker-a',
-            status: 'processing', attempt_no: 2, response_status_code: null, response_body: null, error_message: null,
-            started_at: '2026-03-12T00:04:00Z', finished_at: null, created_by_member_id: 'member-1',
-          }], rowCount: 1,
-        };
-      }
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const claimed = await repository.claimNextDelivery({ actorMemberId: 'member-1', accessibleNetworkIds: ['network-2'], workerKey: 'worker-a' });
-
-  assert.ok(claimed);
-  assert.equal(claimed?.delivery.deliveryId, 'delivery-1');
-  assert.equal(claimed?.delivery.status, 'processing');
-  assert.equal(claimed?.attempt.attemptNo, 2);
-  assert.equal(claimed?.attempt.workerKey, 'worker-a');
-  assert.equal(claimed?.endpoint.endpointUrl, 'https://example.test/webhook');
-  const workerScopeCall = calls.find((call) => call.sql.includes("set_config('app.delivery_worker_scope'"));
-  assert.ok(workerScopeCall);
-  const claimCall = calls.find((call) => /with next_delivery as \(/.test(call.sql));
-  assert.match(claimCall?.sql ?? '', /with next_delivery as \(/);
-  assert.deepEqual(claimCall?.params, ['member-1', ['network-2'], 'worker-a']);
-  assert.equal(calls.at(-1)?.sql, 'commit');
-});
-
-test('postgres repository completes a processing delivery attempt and touches endpoint success', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
-  const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
-      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes("set_config('app.delivery_worker_scope'")) return { rows: [{ set_config: '1' }], rowCount: 1 };
-      if (sql.includes('with current_attempt as (')) return { rows: [{ delivery_id: 'delivery-1' }], rowCount: 1 };
-      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1')) {
-        return {
-          rows: [{
-            delivery_id: 'delivery-1', network_id: 'network-2', recipient_member_id: 'member-2', endpoint_id: 'endpoint-2',
-            topic: 'transcript.message.created', payload: { kind: 'dm' }, status: 'sent', attempt_count: 2,
-            entity_id: null, entity_version_id: null, transcript_message_id: 'message-1', scheduled_at: '2026-03-12T00:02:00Z',
-            sent_at: '2026-03-12T00:05:00Z', failed_at: null, last_error: null, created_at: '2026-03-12T00:00:00Z', acknowledgement_id: null,
-            acknowledgement_state: null, acknowledgement_suppression_reason: null, acknowledgement_version_no: null,
-            acknowledgement_created_at: null, acknowledgement_created_by_member_id: null,
-          }], rowCount: 1,
-        };
-      }
-      if (sql.includes('from app.delivery_endpoints de') && sql.includes('where de.id = $1')) {
-        return {
-          rows: [{
-            endpoint_id: 'endpoint-2', member_id: 'member-2', channel: 'openclaw_webhook', label: 'Primary webhook', endpoint_url: 'https://example.test/webhook',
-            shared_secret_ref: 'op://clawclub/primary', state: 'active', last_success_at: null, last_failure_at: null, metadata: { environment: 'test' },
-            created_at: '2026-03-12T00:00:00Z', disabled_at: null,
-          }], rowCount: 1,
-        };
-      }
-      if (sql.includes('from app.current_delivery_attempts cda')) {
-        return {
-          rows: [{
-            attempt_id: 'attempt-1', delivery_id: 'delivery-1', network_id: 'network-2', endpoint_id: 'endpoint-2', worker_key: 'worker-a',
-            status: 'sent', attempt_no: 2, response_status_code: 202, response_body: 'ok', error_message: null,
-            started_at: '2026-03-12T00:04:00Z', finished_at: '2026-03-12T00:05:00Z', created_by_member_id: 'member-1',
-          }], rowCount: 1,
-        };
-      }
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const claimed = await repository.completeDeliveryAttempt({ actorMemberId: 'member-1', accessibleNetworkIds: ['network-2'], deliveryId: 'delivery-1', responseStatusCode: 202, responseBody: 'ok' });
-
-  assert.ok(claimed);
-  assert.equal(claimed?.delivery.status, 'sent');
-  assert.equal(claimed?.attempt.status, 'sent');
-  assert.equal(claimed?.attempt.responseStatusCode, 202);
-  assert.equal(claimed?.endpoint.endpointId, 'endpoint-2');
-  const workerScopeCall = calls.find((call) => call.sql.includes("set_config('app.delivery_worker_scope'"));
-  assert.ok(workerScopeCall);
-  const completeCall = calls.find((call) => /with current_attempt as \(/.test(call.sql));
-  assert.match(completeCall?.sql ?? '', /with current_attempt as \(/);
-  assert.deepEqual(completeCall?.params, ['member-1', 'delivery-1', ['network-2'], 202, 'ok']);
-  assert.equal(calls.at(-1)?.sql, 'commit');
-});
-
-test('postgres repository fails a processing delivery attempt and touches endpoint failure', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
-  const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
-      if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes("set_config('app.delivery_worker_scope'")) return { rows: [{ set_config: '1' }], rowCount: 1 };
-      if (sql.includes('with current_attempt as (')) return { rows: [{ delivery_id: 'delivery-1' }], rowCount: 1 };
-      if (sql.includes('from app.current_delivery_receipts cdr') && sql.includes('where cdr.delivery_id = $1')) {
-        return {
-          rows: [{
-            delivery_id: 'delivery-1', network_id: 'network-2', recipient_member_id: 'member-2', endpoint_id: 'endpoint-2',
-            topic: 'transcript.message.created', payload: { kind: 'dm' }, status: 'failed', attempt_count: 2,
-            entity_id: null, entity_version_id: null, transcript_message_id: 'message-1', scheduled_at: '2026-03-12T00:02:00Z',
-            sent_at: null, failed_at: '2026-03-12T00:05:00Z', last_error: 'timeout', created_at: '2026-03-12T00:00:00Z', acknowledgement_id: null,
-            acknowledgement_state: null, acknowledgement_suppression_reason: null, acknowledgement_version_no: null,
-            acknowledgement_created_at: null, acknowledgement_created_by_member_id: null,
-          }], rowCount: 1,
-        };
-      }
-      if (sql.includes('from app.delivery_endpoints de') && sql.includes('where de.id = $1')) {
-        return {
-          rows: [{
-            endpoint_id: 'endpoint-2', member_id: 'member-2', channel: 'openclaw_webhook', label: 'Primary webhook', endpoint_url: 'https://example.test/webhook',
-            shared_secret_ref: 'op://clawclub/primary', state: 'active', last_success_at: null, last_failure_at: null, metadata: { environment: 'test' },
-            created_at: '2026-03-12T00:00:00Z', disabled_at: null,
-          }], rowCount: 1,
-        };
-      }
-      if (sql.includes('from app.current_delivery_attempts cda')) {
-        return {
-          rows: [{
-            attempt_id: 'attempt-1', delivery_id: 'delivery-1', network_id: 'network-2', endpoint_id: 'endpoint-2', worker_key: 'worker-a',
-            status: 'failed', attempt_no: 2, response_status_code: 504, response_body: 'timeout', error_message: 'timeout',
-            started_at: '2026-03-12T00:04:00Z', finished_at: '2026-03-12T00:05:00Z', created_by_member_id: 'member-1',
-          }], rowCount: 1,
-        };
-      }
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const claimed = await repository.failDeliveryAttempt({ actorMemberId: 'member-1', accessibleNetworkIds: ['network-2'], deliveryId: 'delivery-1', errorMessage: 'timeout', responseStatusCode: 504, responseBody: 'timeout' });
-
-  assert.ok(claimed);
-  assert.equal(claimed?.delivery.status, 'failed');
-  assert.equal(claimed?.attempt.errorMessage, 'timeout');
-  assert.equal(claimed?.endpoint.state, 'active');
-  const workerScopeCall = calls.find((call) => call.sql.includes("set_config('app.delivery_worker_scope'"));
-  assert.ok(workerScopeCall);
-  const failCall = calls.find((call) => /with current_attempt as \(/.test(call.sql));
-  assert.match(failCall?.sql ?? '', /with current_attempt as \(/);
-  assert.deepEqual(failCall?.params, ['member-1', 'delivery-1', ['network-2'], 'timeout', 504, 'timeout']);
-  assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
 test('postgres repository lists current membership projections for owner scope', async () => {

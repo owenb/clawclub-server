@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, DEFAULT_SERVER_LIMITS } from '../src/server.ts';
-import type { Repository } from '../src/app.ts';
+import type { PendingUpdate, Repository } from '../src/app.ts';
 
 function makeAuthResult() {
   return {
@@ -30,8 +30,25 @@ function makeAuthResult() {
       activeNetworkIds: ['network-1'],
     },
     sharedContext: {
-      pendingDeliveries: [],
+      pendingUpdates: [],
     },
+  };
+}
+
+function makePendingUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdate {
+  return {
+    updateId: 'update-1',
+    streamSeq: 1,
+    recipientMemberId: 'member-1',
+    networkId: 'network-1',
+    entityId: null,
+    entityVersionId: null,
+    transcriptMessageId: 'message-1',
+    topic: 'transcript.message.created',
+    payload: { kind: 'dm', threadId: 'thread-1' },
+    createdAt: '2026-03-14T11:00:00Z',
+    createdByMemberId: 'member-2',
+    ...overrides,
   };
 }
 
@@ -40,164 +57,29 @@ function makeRepository(): Repository {
     async authenticateBearerToken() {
       return null;
     },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-1'],
-        metadata: {},
-      };
-    },
+    async listMemberships() { return []; },
+    async createMembership() { throw new Error('not used'); },
+    async transitionMembershipState() { throw new Error('not used'); },
+    async listMembershipReviews() { return []; },
     async searchMembers() { return []; },
     async listMembers() { return []; },
     async getMemberProfile() { return null; },
     async updateOwnProfile() { throw new Error('not used'); },
     async createEntity() { throw new Error('not used'); },
     async updateEntity() { throw new Error('not used'); },
+    async listEntities() { return []; },
     async createEvent() { throw new Error('not used'); },
     async listEvents() { return []; },
     async rsvpEvent() { throw new Error('not used'); },
-    async acknowledgeDelivery() { throw new Error('not used'); },
-    async listDeliveries() { return []; },
-    async retryDelivery() { throw new Error('not used'); },
-    async claimNextDelivery() {
-      return {
-        delivery: {
-          deliveryId: 'delivery-1',
-          networkId: 'network-1',
-          recipientMemberId: 'member-1',
-          endpointId: 'endpoint-1',
-          topic: 'transcript.message.created',
-          payload: { hello: 'world' },
-          status: 'processing',
-          attemptCount: 1,
-          entityId: null,
-          entityVersionId: null,
-          transcriptMessageId: 'message-1',
-          scheduledAt: '2026-03-13T09:30:00Z',
-          sentAt: null,
-          failedAt: null,
-          lastError: null,
-          createdAt: '2026-03-13T09:29:00Z',
-          acknowledgement: null,
-        },
-        attempt: {
-          attemptId: 'attempt-1',
-          deliveryId: 'delivery-1',
-          networkId: 'network-1',
-          endpointId: 'endpoint-1',
-          workerKey: null,
-          status: 'processing',
-          attemptNo: 1,
-          responseStatusCode: null,
-          responseBody: null,
-          errorMessage: null,
-          startedAt: '2026-03-13T09:30:00Z',
-          finishedAt: null,
-          createdByMemberId: 'member-1',
-        },
-        endpoint: {
-          endpointId: 'endpoint-1',
-          memberId: 'member-1',
-          channel: 'openclaw_webhook',
-          label: 'Primary',
-          endpointUrl: 'https://example.test/webhook',
-          sharedSecretRef: 'env:CLAWCLUB_WEBHOOK_SECRET',
-          state: 'active',
-          lastSuccessAt: null,
-          lastFailureAt: null,
-          metadata: {},
-          createdAt: '2026-03-13T09:29:00Z',
-          disabledAt: null,
-        },
-      };
-    },
-    async completeDeliveryAttempt() {
-      return {
-        delivery: {
-          deliveryId: 'delivery-1',
-          networkId: 'network-1',
-          recipientMemberId: 'member-1',
-          endpointId: 'endpoint-1',
-          topic: 'transcript.message.created',
-          payload: { hello: 'world' },
-          status: 'sent',
-          attemptCount: 1,
-          entityId: null,
-          entityVersionId: null,
-          transcriptMessageId: 'message-1',
-          scheduledAt: '2026-03-13T09:30:00Z',
-          sentAt: '2026-03-13T09:30:05Z',
-          failedAt: null,
-          lastError: null,
-          createdAt: '2026-03-13T09:29:00Z',
-          acknowledgement: null,
-        },
-        attempt: {
-          attemptId: 'attempt-1', deliveryId: 'delivery-1', networkId: 'network-1', endpointId: 'endpoint-1', workerKey: null,
-          status: 'sent', attemptNo: 1, responseStatusCode: 202, responseBody: 'accepted', errorMessage: null,
-          startedAt: '2026-03-13T09:30:00Z', finishedAt: '2026-03-13T09:30:05Z', createdByMemberId: 'member-1',
-        },
-        endpoint: {
-          endpointId: 'endpoint-1', memberId: 'member-1', channel: 'openclaw_webhook', label: 'Primary', endpointUrl: 'https://example.test/webhook',
-          sharedSecretRef: 'env:CLAWCLUB_WEBHOOK_SECRET', state: 'active', lastSuccessAt: '2026-03-13T09:30:05Z', lastFailureAt: null, metadata: {}, createdAt: '2026-03-13T09:29:00Z', disabledAt: null,
-        },
-      };
-    },
-    async failDeliveryAttempt() { throw new Error('not used'); },
-    async sendDirectMessage() { throw new Error('not used'); },
-    async listDirectMessageThreads() { return []; },
-    async listDirectMessageInbox() { return []; },
-    async readDirectMessageThread() { throw new Error('not used'); },
-    async listEntities() { return []; },
     async listBearerTokens() { return []; },
     async createBearerToken() { throw new Error('not used'); },
     async revokeBearerToken() { throw new Error('not used'); },
+    async sendDirectMessage() { throw new Error('not used'); },
+    async listDirectMessageThreads() { return []; },
+    async listDirectMessageInbox() { return []; },
+    async readDirectMessageThread() { return null; },
   };
 }
-
-test('createServer wires the delivery secret resolver into deliveries.execute signing', async () => {
-  const originalFetch = globalThis.fetch;
-  const requestFetch = originalFetch;
-  const fetchCalls: Array<{ url: string; headers: Record<string, string> }> = [];
-  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    fetchCalls.push({ url: String(url), headers: init?.headers as Record<string, string> });
-    return new Response('accepted', { status: 202 });
-  }) as typeof fetch;
-
-  const { server, shutdown } = createServer({
-    repository: makeRepository(),
-    resolveDeliverySecret: async ({ sharedSecretRef }) => {
-      assert.equal(sharedSecretRef, 'env:CLAWCLUB_WEBHOOK_SECRET');
-      return 'super-secret';
-    },
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
-      method: 'POST',
-      headers: {
-        authorization: 'Bearer cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ action: 'deliveries.execute', input: {} }),
-    });
-
-    assert.equal(response.status, 200);
-    assert.equal(fetchCalls.length, 1);
-    assert.equal(fetchCalls[0]?.url, 'https://example.test/webhook');
-    assert.match(fetchCalls[0]?.headers['x-clawclub-signature-v1'] ?? '', /^sha256=/);
-    assert.match(fetchCalls[0]?.headers['x-clawclub-signature-timestamp'] ?? '', /^202/);
-  } finally {
-    globalThis.fetch = originalFetch;
-    await shutdown();
-  }
-});
 
 test('createServer applies hardened HTTP server limits', async () => {
   const { server, shutdown } = createServer({
@@ -217,30 +99,20 @@ test('createServer applies hardened HTTP server limits', async () => {
   }
 });
 
-test('createServer serves GET /updates through repository-backed polling', async () => {
+test('createServer serves GET /updates through repository-backed update listing', async () => {
   const requestFetch = globalThis.fetch;
-  let capturedInput: { actorMemberId: string; accessibleNetworkIds: string[]; limit: number } | null = null;
+  let capturedInput: { actorMemberId: string; limit: number; after?: number | null } | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
       return token === 'cc_live_test' ? makeAuthResult() : null;
     },
-    async pollUpdates(input) {
+    async listMemberUpdates(input) {
       capturedInput = input;
       return {
-        deliveries: [{
-          deliveryId: 'delivery-1',
-          networkId: 'network-1',
-          entityId: null,
-          entityVersionId: null,
-          transcriptMessageId: 'message-1',
-          topic: 'transcript.message.created',
-          payload: { kind: 'dm', threadId: 'thread-1' },
-          createdAt: '2026-03-14T11:00:00Z',
-          sentAt: '2026-03-14T11:00:01Z',
-        }],
-        posts: [],
+        items: [makePendingUpdate()],
+        nextAfter: 1,
         polledAt: '2026-03-14T11:05:00Z',
       };
     },
@@ -253,7 +125,7 @@ test('createServer serves GET /updates through repository-backed polling', async
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const response = await requestFetch(`http://127.0.0.1:${port}/updates?limit=3`, {
+    const response = await requestFetch(`http://127.0.0.1:${port}/updates?limit=3&after=0`, {
       headers: {
         authorization: 'Bearer cc_live_test',
       },
@@ -265,14 +137,15 @@ test('createServer serves GET /updates through repository-backed polling', async
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     assert.deepEqual(capturedInput, {
       actorMemberId: 'member-1',
-      accessibleNetworkIds: ['network-1'],
       limit: 3,
+      after: 0,
     });
 
     const body = await response.json();
     assert.equal(body.ok, true);
     assert.equal(body.member.id, 'member-1');
-    assert.equal(body.updates.deliveries[0]?.deliveryId, 'delivery-1');
+    assert.equal(body.updates.items[0]?.updateId, 'update-1');
+    assert.equal(body.updates.nextAfter, 1);
     assert.equal(body.updates.polledAt, '2026-03-14T11:05:00Z');
   } finally {
     await shutdown();
@@ -302,6 +175,133 @@ test('createServer rejects GET /updates without a valid bearer token', async () 
     assert.equal(body.ok, false);
     assert.equal(body.error.code, 'unauthorized');
   } finally {
+    await shutdown();
+  }
+});
+
+test('createServer streams updates over SSE and emits heartbeats', async () => {
+  const requestFetch = globalThis.fetch;
+  let listCallCount = 0;
+  const requestAbort = new AbortController();
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_test' ? makeAuthResult() : null;
+    },
+    async listMemberUpdates(input) {
+      listCallCount += 1;
+
+      if ((input.after ?? null) !== null) {
+        return {
+          items: [],
+          nextAfter: input.after ?? null,
+          polledAt: '2026-03-14T11:05:02Z',
+        };
+      }
+
+      if (listCallCount === 1) {
+        return {
+          items: [],
+          nextAfter: null,
+          polledAt: '2026-03-14T11:05:00Z',
+        };
+      }
+
+      return {
+        items: [makePendingUpdate({ updateId: 'update-2', streamSeq: 2 })],
+        nextAfter: 2,
+        polledAt: '2026-03-14T11:05:01Z',
+      };
+    },
+  };
+
+  let waitCallCount = 0;
+  const updatesNotifier = {
+    async waitForUpdate({ signal }: { signal?: AbortSignal }) {
+      waitCallCount += 1;
+
+      if (waitCallCount === 1) {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(resolve, 5);
+          const onAbort = () => {
+            clearTimeout(timeout);
+            reject(new Error('Update wait aborted'));
+          };
+
+          if (signal?.aborted) {
+            onAbort();
+            return;
+          }
+
+          signal?.addEventListener('abort', onAbort, { once: true });
+        });
+
+        return 'timed_out' as const;
+      }
+
+      await new Promise<void>((_resolve, reject) => {
+        const onAbort = () => {
+          signal?.removeEventListener('abort', onAbort);
+          reject(new Error('Update wait aborted'));
+        };
+
+        if (signal?.aborted) {
+          onAbort();
+          return;
+        }
+
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+
+      return 'timed_out' as const;
+    },
+    async close() {},
+  };
+
+  const { server, shutdown } = createServer({ repository, updatesNotifier });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const response = await requestFetch(`http://127.0.0.1:${port}/updates/stream`, {
+      headers: {
+        authorization: 'Bearer cc_live_test',
+      },
+      signal: requestAbort.signal,
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+
+    const reader = response.body?.getReader();
+    assert.ok(reader, 'SSE response should expose a readable body');
+
+    const decoder = new TextDecoder();
+    let transcript = '';
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+
+      transcript += decoder.decode(chunk.value, { stream: true });
+      if (/event: ready/.test(transcript) && /: keepalive/.test(transcript) && /"updateId":"update-2"/.test(transcript)) {
+        break;
+      }
+    }
+
+    assert.match(transcript, /event: ready/);
+    assert.match(transcript, /: keepalive/);
+    assert.match(transcript, /event: update/);
+    assert.match(transcript, /"updateId":"update-2"/);
+
+    requestAbort.abort();
+    await reader.cancel().catch(() => {});
+  } finally {
+    requestAbort.abort();
     await shutdown();
   }
 });

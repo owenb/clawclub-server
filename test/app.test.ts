@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
 import {
   AppError,
   buildApp,
@@ -30,8 +29,9 @@ import {
   type RsvpEventInput,
   type UpdateEntityInput,
   type MemberSearchResult,
-  type PendingDelivery,
+  type PendingUpdate,
   type Repository,
+  type UpdateReceipt,
   type UpdateOwnProfileInput,
 } from '../src/app.ts';
 
@@ -81,22 +81,40 @@ function makeAuthResult(): AuthResult {
       activeNetworkIds: actor.memberships.map((membership) => membership.networkId),
     },
     sharedContext: {
-      pendingDeliveries: [makePendingDelivery()],
+      pendingUpdates: [makePendingUpdate()],
     },
   };
 }
 
-function makePendingDelivery(overrides: Partial<PendingDelivery> = {}): PendingDelivery {
+function makePendingUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdate {
   return {
-    deliveryId: 'delivery-1',
+    updateId: 'update-1',
+    streamSeq: 1,
+    recipientMemberId: 'member-1',
     networkId: 'network-1',
     entityId: 'entity-1',
     entityVersionId: 'entity-version-1',
     transcriptMessageId: null,
-    topic: 'entity.published',
+    topic: 'entity.version.published',
     payload: { hello: 'world' },
     createdAt: '2026-03-12T00:00:00Z',
-    sentAt: '2026-03-12T00:01:00Z',
+    createdByMemberId: 'member-2',
+    ...overrides,
+  };
+}
+
+function makeUpdateReceipt(overrides: Partial<UpdateReceipt> = {}): UpdateReceipt {
+  return {
+    receiptId: 'receipt-1',
+    updateId: 'update-1',
+    recipientMemberId: 'member-1',
+    networkId: 'network-1',
+    state: 'processed',
+    suppressionReason: null,
+    versionNo: 1,
+    supersedesReceiptId: null,
+    createdAt: '2026-03-12T00:02:00Z',
+    createdByMemberId: 'member-1',
     ...overrides,
   };
 }
@@ -220,7 +238,7 @@ function makeDirectMessage(overrides: Partial<DirectMessageSummary> = {}): Direc
     messageId: 'message-1',
     messageText: 'Hello there',
     createdAt: '2026-03-12T00:03:00Z',
-    deliveryCount: 1,
+    updateCount: 1,
     ...overrides,
   };
 }
@@ -250,7 +268,7 @@ function makeDirectMessageInbox(overrides: Partial<DirectMessageInboxSummary> = 
     unread: {
       hasUnread: true,
       unreadMessageCount: 1,
-      unreadDeliveryCount: 1,
+      unreadUpdateCount: 1,
       latestUnreadMessageCreatedAt: '2026-03-12T00:03:00Z',
     },
     ...overrides,
@@ -269,7 +287,7 @@ function makeDirectMessageTranscriptEntry(
     payload: {},
     createdAt: '2026-03-12T00:03:00Z',
     inReplyToMessageId: null,
-    deliveryReceipts: [],
+    updateReceipts: [],
     ...overrides,
   };
 }
@@ -551,18 +569,6 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async searchMembers() {
       return results;
     },
-    async listDeliveryEndpoints() {
-      return [makeDeliveryEndpoint()];
-    },
-    async createDeliveryEndpoint() {
-      return makeDeliveryEndpoint();
-    },
-    async updateDeliveryEndpoint() {
-      return makeDeliveryEndpoint();
-    },
-    async revokeDeliveryEndpoint() {
-      return makeDeliveryEndpoint({ state: 'disabled', disabledAt: '2026-03-12T00:10:00Z' });
-    },
     async listMembers() {
       return [makeNetworkMember()];
     },
@@ -595,15 +601,6 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     },
     async revokeBearerToken() {
       return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
-    },
-    async acknowledgeDelivery() {
-      return makeDeliveryAcknowledgement();
-    },
-    async listDeliveries() {
-      return [makeDeliverySummary()];
-    },
-    async retryDelivery() {
-      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -642,8 +639,8 @@ test('session.describe returns the canonical actor session envelope once', async
     ['network-1', 'network-2'],
   );
   assert.deepEqual(result.data, {});
-  assert.equal(result.actor.sharedContext.pendingDeliveries.length, 1);
-  assert.equal(result.actor.sharedContext.pendingDeliveries[0]?.deliveryId, 'delivery-1');
+  assert.equal(result.actor.sharedContext.pendingUpdates.length, 1);
+  assert.equal(result.actor.sharedContext.pendingUpdates[0]?.updateId, 'update-1');
 });
 
 test('networks.list requires superadmin and returns archived flag filter', async () => {
@@ -930,7 +927,7 @@ test('memberships.transition rejects admin-only network scope', async () => {
             requestedNetworkId: null,
             activeNetworkIds: actor.memberships.map((membership) => membership.networkId),
           },
-          sharedContext: { pendingDeliveries: [makePendingDelivery()] },
+          sharedContext: { pendingUpdates: [makePendingUpdate()] },
         };
       },
       async transitionMembershipState(input) {
@@ -2256,7 +2253,7 @@ test('networks.create rejects non-superadmins', async () => {
         return {
           actor,
           requestScope: { requestedNetworkId: null, activeNetworkIds: actor.memberships.map((membership) => membership.networkId) },
-          sharedContext: { pendingDeliveries: [makePendingDelivery()] },
+          sharedContext: { pendingUpdates: [makePendingUpdate()] },
         };
       },
     },
@@ -2410,7 +2407,7 @@ test('profile.update rejects invalid handles', async () => {
   );
 });
 
-test('messages.send picks a shared network, appends the request scope, and returns delivery metadata', async () => {
+test('messages.send picks a shared network, appends the request scope, and returns update metadata', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -2462,7 +2459,7 @@ test('messages.send picks a shared network, appends the request scope, and retur
         networkId: 'network-2',
         recipientMemberId: 'member-9',
         messageText: input.messageText,
-        deliveryCount: 2,
+        updateCount: 2,
       });
     },
     async listDirectMessageThreads() {
@@ -2503,7 +2500,7 @@ test('messages.send picks a shared network, appends the request scope, and retur
   assert.equal(result.action, 'messages.send');
   assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
   assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
-  assert.equal(result.data.message.deliveryCount, 2);
+  assert.equal(result.data.message.updateCount, 2);
   assert.equal(result.data.message.messageText, 'Hello from the network edge');
 });
 
@@ -2752,7 +2749,7 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
           unread: {
             hasUnread: true,
             unreadMessageCount: 2,
-            unreadDeliveryCount: 3,
+            unreadUpdateCount: 3,
             latestUnreadMessageCreatedAt: '2026-03-12T00:04:00Z',
           },
         }),
@@ -2787,7 +2784,7 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
   assert.equal(result.data.unreadOnly, true);
   assert.equal(result.data.results[0]?.networkId, 'network-2');
   assert.equal(result.data.results[0]?.unread.unreadMessageCount, 2);
-  assert.equal(result.data.results[0]?.unread.unreadDeliveryCount, 3);
+  assert.equal(result.data.results[0]?.unread.unreadUpdateCount, 3);
 });
 
 test('messages.read scopes thread access server-side and returns transcript entries', async () => {
@@ -2857,18 +2854,15 @@ test('messages.read scopes thread access server-side and returns transcript entr
             messageId: 'message-1',
             createdAt: '2026-03-12T00:01:00Z',
             messageText: 'Earlier',
-            deliveryReceipts: [
+            updateReceipts: [
               {
-                deliveryId: 'delivery-1',
+                updateId: 'update-1',
                 recipientMemberId: 'member-1',
-                status: 'sent',
-                scheduledAt: '2026-03-12T00:01:00Z',
-                sentAt: '2026-03-12T00:01:10Z',
-                failedAt: null,
+                topic: 'transcript.message.created',
                 createdAt: '2026-03-12T00:01:00Z',
-                acknowledgement: {
-                  acknowledgementId: 'ack-1',
-                  state: 'shown',
+                receipt: {
+                  receiptId: 'receipt-1',
+                  state: 'processed',
                   suppressionReason: null,
                   versionNo: 1,
                   createdAt: '2026-03-12T00:01:20Z',
@@ -2883,16 +2877,13 @@ test('messages.read scopes thread access server-side and returns transcript entr
             senderMemberId: 'member-1',
             messageText: 'Later',
             inReplyToMessageId: 'message-1',
-            deliveryReceipts: [
+            updateReceipts: [
               {
-                deliveryId: 'delivery-2',
+                updateId: 'update-2',
                 recipientMemberId: 'member-2',
-                status: 'sent',
-                scheduledAt: '2026-03-12T00:02:00Z',
-                sentAt: '2026-03-12T00:02:05Z',
-                failedAt: null,
+                topic: 'transcript.message.created',
                 createdAt: '2026-03-12T00:02:00Z',
-                acknowledgement: null,
+                receipt: null,
               },
             ],
           }),
@@ -2922,168 +2913,8 @@ test('messages.read scopes thread access server-side and returns transcript entr
   assert.equal(result.data.thread.threadId, 'thread-1');
   assert.equal(result.data.messages.length, 2);
   assert.equal(result.data.messages[1]?.inReplyToMessageId, 'message-1');
-  assert.equal(result.data.messages[0]?.deliveryReceipts[0]?.acknowledgement?.state, 'shown');
-  assert.equal(result.data.messages[1]?.deliveryReceipts[0]?.recipientMemberId, 'member-2');
-});
-
-
-test('deliveries.endpoints.list returns the actor endpoint inventory with health counters', async () => {
-  const app = buildApp({ repository: makeRepository() });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.endpoints.list',
-  });
-
-  assert.equal(result.action, 'deliveries.endpoints.list');
-  assert.equal(result.data.endpoints.length, 1);
-  assert.equal(result.data.endpoints[0]?.endpointId, 'endpoint-1');
-  assert.deepEqual(result.data.endpoints[0]?.health, {
-    pendingCount: 0,
-    processingCount: 0,
-    sentCount: 0,
-    failedCount: 0,
-    canceledCount: 0,
-    lastDeliveryAt: null,
-  });
-});
-
-test('deliveries.endpoints.create writes a new actor-owned webhook endpoint', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
-  const repository: Repository = {
-    ...makeRepository(),
-    async createDeliveryEndpoint(input) {
-      capturedInput = input as Record<string, unknown>;
-      return makeDeliveryEndpoint({
-        endpointId: 'endpoint-2',
-        label: input.label ?? null,
-        endpointUrl: input.endpointUrl,
-        sharedSecretRef: input.sharedSecretRef ?? null,
-        metadata: input.metadata ?? {},
-      });
-    },
-  };
-
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.endpoints.create',
-    payload: {
-      endpointUrl: 'https://hooks.example.test/clawclub',
-      label: 'Laptop',
-      sharedSecretRef: 'op://clawclub/laptop',
-      metadata: { device: 'mbp' },
-    },
-  });
-
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    channel: 'openclaw_webhook',
-    label: 'Laptop',
-    endpointUrl: 'https://hooks.example.test/clawclub',
-    sharedSecretRef: 'op://clawclub/laptop',
-    metadata: { device: 'mbp' },
-  });
-  assert.equal(result.action, 'deliveries.endpoints.create');
-  assert.equal(result.data.endpoint.endpointId, 'endpoint-2');
-  assert.equal(result.data.endpoint.endpointUrl, 'https://hooks.example.test/clawclub');
-});
-
-test('deliveries.endpoints.update patches endpoint fields for the actor only', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
-  const repository: Repository = {
-    ...makeRepository(),
-    async updateDeliveryEndpoint(input) {
-      capturedInput = input as Record<string, unknown>;
-      return makeDeliveryEndpoint({
-        endpointId: 'endpoint-2',
-        label: input.patch.label ?? null,
-        endpointUrl: input.patch.endpointUrl ?? 'https://example.test/webhook',
-        sharedSecretRef: input.patch.sharedSecretRef ?? null,
-        state: input.patch.state ?? 'active',
-        metadata: input.patch.metadata ?? {},
-      });
-    },
-  };
-
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.endpoints.update',
-    payload: {
-      endpointId: 'endpoint-2',
-      label: 'Backup webhook',
-      endpointUrl: 'https://backup.example.test/clawclub',
-      sharedSecretRef: '  ',
-      state: 'failing',
-      metadata: { device: 'pi' },
-    },
-  });
-
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    endpointId: 'endpoint-2',
-    patch: {
-      label: 'Backup webhook',
-      endpointUrl: 'https://backup.example.test/clawclub',
-      sharedSecretRef: null,
-      state: 'failing',
-      metadata: { device: 'pi' },
-    },
-  });
-  assert.equal(result.action, 'deliveries.endpoints.update');
-  assert.equal(result.data.endpoint.state, 'failing');
-});
-
-test('deliveries.endpoints.revoke soft-disables the endpoint', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
-  const repository: Repository = {
-    ...makeRepository(),
-    async revokeDeliveryEndpoint(input) {
-      capturedInput = input as Record<string, unknown>;
-      return makeDeliveryEndpoint({ endpointId: 'endpoint-2', state: 'disabled', disabledAt: '2026-03-12T00:10:00Z' });
-    },
-  };
-
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.endpoints.revoke',
-    payload: {
-      endpointId: 'endpoint-2',
-    },
-  });
-
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    endpointId: 'endpoint-2',
-  });
-  assert.equal(result.action, 'deliveries.endpoints.revoke');
-  assert.equal(result.data.endpoint.state, 'disabled');
-  assert.equal(result.data.endpoint.disabledAt, '2026-03-12T00:10:00Z');
-});
-
-test('deliveries.endpoints.update rejects empty patches', async () => {
-  const app = buildApp({ repository: makeRepository() });
-
-  await assert.rejects(
-    () =>
-      app.handleAction({
-        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        action: 'deliveries.endpoints.update',
-        payload: {
-          endpointId: 'endpoint-2',
-        },
-      }),
-    (error: unknown) => {
-      assert.ok(error instanceof AppError);
-      assert.equal(error.statusCode, 400);
-      assert.equal(error.code, 'invalid_input');
-      return true;
-    },
-  );
+  assert.equal(result.data.messages[0]?.updateReceipts[0]?.receipt?.state, 'processed');
+  assert.equal(result.data.messages[1]?.updateReceipts[0]?.recipientMemberId, 'member-2');
 });
 
 test('tokens.list returns the actor token inventory', async () => {
@@ -3285,436 +3116,110 @@ test('tokens.revoke only revokes actor-owned tokens', async () => {
   assert.equal(result.data.token.revokedAt, '2026-03-12T01:00:00Z');
 });
 
-test('deliveries.attempts scopes operator inspection by network, endpoint, member, and status', async () => {
+test('updates.list returns the pending update feed with cursor semantics', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
-    async authenticateBearerToken() {
-      return makeAuthResult();
-    },
-    async searchMembers() {
-      return [];
-    },
-    async listMembers() {
-      return [makeNetworkMember()];
-    },
-    async getMemberProfile() {
-      return makeProfile();
-    },
-    async updateOwnProfile() {
-      return makeProfile();
-    },
-    async createEntity() {
-      return makeEntity();
-    },
-    async updateEntity() {
-      return makeEntity();
-    },
-    async createEvent() {
-      return makeEvent();
-    },
-    async listEvents() {
-      return [makeEvent()];
-    },
-    async rsvpEvent() {
-      return makeEvent();
-    },
-    async listDeliveryAttempts(input) {
+    ...makeRepository(),
+    async listMemberUpdates(input) {
       capturedInput = input as Record<string, unknown>;
-      return [
-        {
-          attempt: {
-            attemptId: 'attempt-9',
-            deliveryId: 'delivery-9',
-            networkId: 'network-2',
-            endpointId: 'endpoint-9',
-            workerKey: 'worker-b',
-            status: 'failed',
-            attemptNo: 3,
-            responseStatusCode: 503,
-            responseBody: 'upstream unavailable',
-            errorMessage: 'upstream unavailable',
-            startedAt: '2026-03-12T00:10:00Z',
-            finishedAt: '2026-03-12T00:10:03Z',
-            createdByMemberId: 'member-1',
-          },
-          delivery: {
-            deliveryId: 'delivery-9',
-            networkId: 'network-2',
-            recipientMemberId: 'member-9',
-            endpointId: 'endpoint-9',
-            topic: 'transcript.message.created',
-            status: 'failed',
-            attemptCount: 3,
-            scheduledAt: '2026-03-12T00:09:00Z',
-            sentAt: null,
-            failedAt: '2026-03-12T00:10:03Z',
-            lastError: 'upstream unavailable',
-            createdAt: '2026-03-12T00:09:00Z',
-            recipient: {
-              memberId: 'member-9',
-              publicName: 'Member Nine',
-              handle: 'member-nine',
-            },
-          },
-        },
-      ];
-    },
-    async acknowledgeDelivery() {
-      return makeDeliveryAcknowledgement();
-    },
-    async listDeliveries() {
-      return [makeDeliverySummary()];
-    },
-    async retryDelivery() {
-      return makeDeliverySummary({ deliveryId: 'delivery-2', status: 'pending', attemptCount: 0, sentAt: null, failedAt: null, lastError: null });
-    },
-    async sendDirectMessage() {
-      return makeDirectMessage();
-    },
-    async listDirectMessageThreads() {
-      return [makeDirectMessageThread()];
-    },
-    async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
-    },
-    async readDirectMessageThread() {
       return {
-        thread: makeDirectMessageThread(),
-        messages: [makeDirectMessageTranscriptEntry()],
+        items: [
+          makePendingUpdate({
+            updateId: 'update-9',
+            streamSeq: 9,
+            networkId: 'network-2',
+          }),
+        ],
+        nextAfter: 9,
+        polledAt: '2026-03-12T00:05:00Z',
       };
-    },
-    async listEntities() {
-      return [makeEntity()];
     },
   };
 
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.attempts',
-    payload: {
-      networkId: 'network-2',
-      endpointId: 'endpoint-9',
-      recipientMemberId: 'member-9',
-      status: 'failed',
-      limit: 4,
-    },
+    action: 'updates.list',
+    payload: { after: 4, limit: 3 },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
-    limit: 4,
-    endpointId: 'endpoint-9',
-    recipientMemberId: 'member-9',
-    status: 'failed',
+    after: 4,
+    limit: 3,
   });
-  assert.equal(result.action, 'deliveries.attempts');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.equal(result.data.filters.endpointId, 'endpoint-9');
-  assert.equal(result.data.filters.recipientMemberId, 'member-9');
-  assert.equal(result.data.filters.status, 'failed');
-  assert.equal(result.data.results[0]?.attempt.attemptId, 'attempt-9');
-  assert.equal(result.data.results[0]?.delivery.recipient.publicName, 'Member Nine');
+  assert.equal(result.action, 'updates.list');
+  assert.equal(result.data.updates.items[0]?.updateId, 'update-9');
+  assert.equal(result.data.updates.nextAfter, 9);
 });
 
-test('deliveries.list stays inside accessible scope and can filter pending receipts', async () => {
-  let capturedInput: ListDeliveriesInput | null = null;
+test('updates.acknowledge appends receipts and removes items from shared context', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
-    async authenticateBearerToken() {
-      return makeAuthResult();
-    },
-    async searchMembers() {
-      return [];
-    },
-    async listMembers() {
-      return [makeNetworkMember()];
-    },
-    async getMemberProfile() {
-      return makeProfile();
-    },
-    async updateOwnProfile() {
-      return makeProfile();
-    },
-    async createEntity() {
-      return makeEntity();
-    },
-    async updateEntity() {
-      return makeEntity();
-    },
-    async createEvent() {
-      return makeEvent();
-    },
-    async listEvents() {
-      return [makeEvent()];
-    },
-    async rsvpEvent() {
-      return makeEvent();
-    },
-    async listDeliveries(input) {
-      capturedInput = input;
+    ...makeRepository(),
+    async acknowledgeUpdates(input) {
+      capturedInput = input as Record<string, unknown>;
       return [
-        makeDeliverySummary({
-          networkId: 'network-2',
-          acknowledgement: {
-            acknowledgementId: 'ack-9',
-            state: 'shown',
-            suppressionReason: null,
-            versionNo: 1,
-            createdAt: '2026-03-12T00:04:00Z',
-            createdByMemberId: 'member-1',
-          },
+        makeUpdateReceipt({
+          updateId: 'update-1',
+          state: 'suppressed',
+          suppressionReason: 'already handled elsewhere',
         }),
       ];
     },
-    async listBearerTokens() {
-      return [makeBearerTokenSummary()];
-    },
-    async createBearerToken() {
-      return makeCreatedBearerToken();
-    },
-    async revokeBearerToken() {
-      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
-    },
-    async acknowledgeDelivery() {
-      return makeDeliveryAcknowledgement();
-    },
-    async sendDirectMessage() {
-      return makeDirectMessage();
-    },
-    async listDirectMessageThreads() {
-      return [makeDirectMessageThread()];
-    },
-    async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
-    },
-    async readDirectMessageThread() {
-      return {
-        thread: makeDirectMessageThread(),
-        messages: [makeDirectMessageTranscriptEntry()],
-      };
-    },
-    async listEntities() {
-      return [makeEntity()];
-    },
   };
 
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.list',
+    action: 'updates.acknowledge',
     payload: {
-      networkId: 'network-2',
-      limit: 4,
-      pendingOnly: true,
-    },
-  });
-
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    networkIds: ['network-2'],
-    limit: 4,
-    pendingOnly: true,
-  });
-  assert.equal(result.action, 'deliveries.list');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.equal(result.data.pendingOnly, true);
-  assert.equal(result.data.results[0]?.networkId, 'network-2');
-  assert.equal(result.data.results[0]?.acknowledgement?.acknowledgementId, 'ack-9');
-});
-
-test('deliveries.acknowledge derives scope server-side and removes the item from shared context', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
-  const repository: Repository = {
-    async authenticateBearerToken() {
-      return makeAuthResult();
-    },
-    async searchMembers() {
-      return [];
-    },
-    async listMembers() {
-      return [makeNetworkMember()];
-    },
-    async getMemberProfile() {
-      return makeProfile();
-    },
-    async updateOwnProfile() {
-      return makeProfile();
-    },
-    async createEntity() {
-      return makeEntity();
-    },
-    async updateEntity() {
-      return makeEntity();
-    },
-    async createEvent() {
-      return makeEvent();
-    },
-    async listEvents() {
-      return [makeEvent()];
-    },
-    async rsvpEvent() {
-      return makeEvent();
-    },
-    async acknowledgeDelivery(input) {
-      capturedInput = input as Record<string, unknown>;
-      return makeDeliveryAcknowledgement({
-        deliveryId: 'delivery-1',
-        networkId: 'network-2',
-        state: 'suppressed',
-        suppressionReason: 'too noisy right now',
-      });
-    },
-    async sendDirectMessage() {
-      return makeDirectMessage();
-    },
-    async listDirectMessageThreads() {
-      return [makeDirectMessageThread()];
-    },
-    async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
-    },
-    async readDirectMessageThread() {
-      return {
-        thread: makeDirectMessageThread(),
-        messages: [makeDirectMessageTranscriptEntry()],
-      };
-    },
-    async listEntities() {
-      return [makeEntity()];
-    },
-  };
-
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.acknowledge',
-    payload: {
-      deliveryId: 'delivery-1',
+      updateIds: ['update-1'],
       state: 'suppressed',
-      suppressionReason: 'too noisy right now',
-      networkId: 'network-999',
+      suppressionReason: 'already handled elsewhere',
     },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-1', 'network-2'],
-    deliveryId: 'delivery-1',
+    updateIds: ['update-1'],
     state: 'suppressed',
-    suppressionReason: 'too noisy right now',
+    suppressionReason: 'already handled elsewhere',
   });
-  assert.equal(result.action, 'deliveries.acknowledge');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.deepEqual(result.actor.sharedContext.pendingDeliveries, []);
-  assert.equal(result.data.acknowledgement.state, 'suppressed');
-  assert.equal(result.data.acknowledgement.suppressionReason, 'too noisy right now');
+  assert.equal(result.action, 'updates.acknowledge');
+  assert.deepEqual(result.actor.sharedContext.pendingUpdates, []);
+  assert.equal(result.data.receipts[0]?.updateId, 'update-1');
+  assert.equal(result.data.receipts[0]?.state, 'suppressed');
 });
 
-test('deliveries.retry requeues a failed delivery inside actor scope', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
+test('updates.acknowledge returns 404 when an update is outside actor scope', async () => {
   const repository: Repository = {
-    async authenticateBearerToken() {
-      return makeAuthResult();
-    },
-    async searchMembers() {
+    ...makeRepository(),
+    async acknowledgeUpdates() {
       return [];
-    },
-    async listMembers() {
-      return [makeNetworkMember()];
-    },
-    async getMemberProfile() {
-      return makeProfile();
-    },
-    async updateOwnProfile() {
-      return makeProfile();
-    },
-    async createEntity() {
-      return makeEntity();
-    },
-    async updateEntity() {
-      return makeEntity();
-    },
-    async createEvent() {
-      return makeEvent();
-    },
-    async listEvents() {
-      return [makeEvent()];
-    },
-    async rsvpEvent() {
-      return makeEvent();
-    },
-    async listBearerTokens() {
-      return [makeBearerTokenSummary()];
-    },
-    async createBearerToken() {
-      return makeCreatedBearerToken();
-    },
-    async revokeBearerToken() {
-      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
-    },
-    async acknowledgeDelivery() {
-      return makeDeliveryAcknowledgement();
-    },
-    async listDeliveries() {
-      return [makeDeliverySummary()];
-    },
-    async retryDelivery(input) {
-      capturedInput = input as Record<string, unknown>;
-      return makeDeliverySummary({
-        deliveryId: 'delivery-2',
-        networkId: 'network-2',
-        status: 'pending',
-        attemptCount: 0,
-        sentAt: null,
-        failedAt: null,
-        lastError: null,
-      });
-    },
-    async sendDirectMessage() {
-      return makeDirectMessage();
-    },
-    async listDirectMessageThreads() {
-      return [makeDirectMessageThread()];
-    },
-    async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
-    },
-    async readDirectMessageThread() {
-      return {
-        thread: makeDirectMessageThread(),
-        messages: [makeDirectMessageTranscriptEntry()],
-      };
-    },
-    async listEntities() {
-      return [makeEntity()];
     },
   };
 
   const app = buildApp({ repository });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.retry',
-    payload: {
-      deliveryId: 'delivery-1',
-      networkId: 'network-999',
-    },
-  });
 
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-1', 'network-2'],
-    deliveryId: 'delivery-1',
-  });
-  assert.equal(result.action, 'deliveries.retry');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.equal(result.data.delivery.deliveryId, 'delivery-2');
-  assert.equal(result.data.delivery.status, 'pending');
-  assert.equal(result.data.delivery.lastError, null);
+  await assert.rejects(
+    () =>
+      app.handleAction({
+        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+        action: 'updates.acknowledge',
+        payload: {
+          updateIds: ['update-404'],
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 404);
+      assert.equal(error.code, 'not_found');
+      return true;
+    },
+  );
 });
 
 test('messages.read returns 404 when the thread is outside actor scope', async () => {
@@ -3801,91 +3306,6 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
   );
 });
 
-test('deliveries.acknowledge returns 404 when the delivery is outside actor scope', async () => {
-  const repository: Repository = {
-    async authenticateBearerToken() {
-      return makeAuthResult();
-    },
-    async searchMembers() {
-      return [];
-    },
-    async listMembers() {
-      return [makeNetworkMember()];
-    },
-    async getMemberProfile() {
-      return makeProfile();
-    },
-    async updateOwnProfile() {
-      return makeProfile();
-    },
-    async createEntity() {
-      return makeEntity();
-    },
-    async updateEntity() {
-      return makeEntity();
-    },
-    async createEvent() {
-      return makeEvent();
-    },
-    async listEvents() {
-      return [makeEvent()];
-    },
-    async rsvpEvent() {
-      return makeEvent();
-    },
-    async listBearerTokens() {
-      return [makeBearerTokenSummary()];
-    },
-    async createBearerToken() {
-      return makeCreatedBearerToken();
-    },
-    async revokeBearerToken() {
-      return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
-    },
-    async acknowledgeDelivery() {
-      return null;
-    },
-    async sendDirectMessage() {
-      return makeDirectMessage();
-    },
-    async listDirectMessageThreads() {
-      return [makeDirectMessageThread()];
-    },
-    async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
-    },
-    async readDirectMessageThread() {
-      return {
-        thread: makeDirectMessageThread(),
-        messages: [makeDirectMessageTranscriptEntry()],
-      };
-    },
-    async listEntities() {
-      return [makeEntity()];
-    },
-  };
-
-  const app = buildApp({ repository });
-
-  await assert.rejects(
-    () =>
-      app.handleAction({
-        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        action: 'deliveries.acknowledge',
-        payload: {
-          deliveryId: 'delivery-404',
-          state: 'shown',
-        },
-      }),
-    (error: unknown) => {
-      assert.ok(error instanceof AppError);
-      assert.equal(error.statusCode, 404);
-      assert.equal(error.code, 'not_found');
-      return true;
-    },
-  );
-});
-
 test('session.describe rejects unknown bearer tokens', async () => {
   const app = buildApp({ repository: makeRepository() });
 
@@ -3902,557 +3322,4 @@ test('session.describe rejects unknown bearer tokens', async () => {
       return true;
     },
   );
-});
-
-test('deliveries.claim derives scope from a delivery worker token and ignores ordinary member scope', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
-  const repository: Repository = {
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-2'],
-        metadata: {},
-      };
-    },
-    async searchMembers() { return []; },
-    async listMembers() { return [makeNetworkMember()]; },
-    async getMemberProfile() { return makeProfile(); },
-    async updateOwnProfile() { return makeProfile(); },
-    async createEntity() { return makeEntity(); },
-    async updateEntity() { return makeEntity(); },
-    async createEvent() { return makeEvent(); },
-    async listEvents() { return [makeEvent()]; },
-    async rsvpEvent() { return makeEvent(); },
-    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
-    async listDeliveries() { return [makeDeliverySummary()]; },
-    async retryDelivery() { return makeDeliverySummary(); },
-    async claimNextDelivery(input) {
-      capturedInput = input as Record<string, unknown>;
-      return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing', attemptCount: 2, sentAt: null }) });
-    },
-    async completeDeliveryAttempt() { return makeClaimedDelivery(); },
-    async failDeliveryAttempt() { return makeClaimedDelivery(); },
-    async sendDirectMessage() { return makeDirectMessage(); },
-    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
-    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
-    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
-    async listEntities() { return [makeEntity()]; },
-    async listBearerTokens() { return [makeBearerTokenSummary()]; },
-    async createBearerToken() { return makeCreatedBearerToken(); },
-    async revokeBearerToken() { return makeBearerTokenSummary(); },
-  };
-
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.claim',
-    payload: { workerKey: 'worker-a', networkId: 'network-999' },
-  });
-
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-2'],
-    workerKey: 'worker-a',
-  });
-  assert.equal(result.action, 'deliveries.claim');
-  assert.equal(result.actor.member.publicName, 'delivery worker');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.equal(result.data.claimed.attempt.workerKey, 'worker-a');
-  assert.equal(result.data.claimed.delivery.status, 'processing');
-});
-
-
-test('deliveries.execute claims, posts, and completes a successful attempt with a dedicated worker token', async () => {
-  const calls: string[] = [];
-
-  const repository: Repository = {
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-2'],
-        metadata: {},
-      };
-    },
-    async searchMembers() { return []; },
-    async listMembers() { return [makeNetworkMember()]; },
-    async getMemberProfile() { return makeProfile(); },
-    async updateOwnProfile() { return makeProfile(); },
-    async createEntity() { return makeEntity(); },
-    async updateEntity() { return makeEntity(); },
-    async createEvent() { return makeEvent(); },
-    async listEvents() { return [makeEvent()]; },
-    async rsvpEvent() { return makeEvent(); },
-    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
-    async listDeliveries() { return [makeDeliverySummary()]; },
-    async retryDelivery() { return makeDeliverySummary(); },
-    async claimNextDelivery() {
-      calls.push('claim');
-      return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }), endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2', sharedSecretRef: null }) });
-    },
-    async completeDeliveryAttempt(input) {
-      calls.push(`complete:${String(input.responseStatusCode)}:${String(input.responseBody)}`);
-      return makeClaimedDelivery({
-        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'sent', sentAt: '2026-03-12T00:05:00Z' }),
-        attempt: { ...makeClaimedDelivery().attempt, status: 'sent', responseStatusCode: 202, responseBody: 'accepted', finishedAt: '2026-03-12T00:05:00Z' },
-        endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2', sharedSecretRef: null }),
-      });
-    },
-    async failDeliveryAttempt() { throw new Error('fail should not be called'); },
-    async sendDirectMessage() { return makeDirectMessage(); },
-    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
-    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
-    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
-    async listEntities() { return [makeEntity()]; },
-    async listBearerTokens() { return [makeBearerTokenSummary()]; },
-    async createBearerToken() { return makeCreatedBearerToken(); },
-    async revokeBearerToken() { return makeBearerTokenSummary(); },
-  };
-
-  let fetchRequest: Record<string, unknown> | null = null;
-  const app = buildApp({
-    repository,
-    fetchImpl: async (url, init) => {
-      fetchRequest = { url: String(url), method: init?.method, headers: init?.headers, body: init?.body };
-      return new Response('accepted', { status: 202 });
-    },
-  });
-
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.execute',
-    payload: { workerKey: 'worker-a' },
-  });
-
-  assert.deepEqual(calls, ['claim', 'complete:202:accepted']);
-  assert.equal(result.actor.member.publicName, 'delivery worker');
-  assert.equal(result.data.execution.outcome, 'sent');
-  assert.equal(result.data.execution.claimed.delivery.status, 'sent');
-  assert.equal(fetchRequest?.url, 'https://example.test/hooks/member-2');
-  assert.equal(fetchRequest?.method, 'POST');
-  assert.match(String(fetchRequest?.body), /"deliveryId":"delivery-1"/);
-  const headers = fetchRequest?.headers as Record<string, string>;
-  assert.equal(headers['x-clawclub-signature-v1'], undefined);
-  assert.equal(headers['x-clawclub-signature-timestamp'], undefined);
-});
-
-test('deliveries.execute signs webhook requests when the endpoint has a shared secret ref', async () => {
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-2'],
-        metadata: {},
-      };
-    },
-    async claimNextDelivery() {
-      return makeClaimedDelivery({
-        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }),
-        endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2', sharedSecretRef: 'op://clawclub/member-2' }),
-      });
-    },
-    async completeDeliveryAttempt() {
-      return makeClaimedDelivery({
-        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'sent', sentAt: '2026-03-12T00:05:00Z' }),
-        attempt: { ...makeClaimedDelivery().attempt, status: 'sent', responseStatusCode: 202, responseBody: 'accepted', finishedAt: '2026-03-12T00:05:00Z' },
-        endpoint: makeDeliveryEndpoint({ endpointUrl: 'https://example.test/hooks/member-2', sharedSecretRef: 'op://clawclub/member-2' }),
-      });
-    },
-    async failDeliveryAttempt() { throw new Error('fail should not be called'); },
-  };
-
-  let resolvedSecretRef: string | null = null;
-  let fetchRequest: Record<string, unknown> | null = null;
-  const app = buildApp({
-    repository,
-    resolveDeliverySecret: async ({ sharedSecretRef }) => {
-      resolvedSecretRef = sharedSecretRef;
-      return 'super-secret-value';
-    },
-    fetchImpl: async (url, init) => {
-      fetchRequest = { url: String(url), method: init?.method, headers: init?.headers, body: init?.body };
-      return new Response('accepted', { status: 202 });
-    },
-  });
-
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.execute',
-    payload: { workerKey: 'worker-a' },
-  });
-
-  assert.equal(result.data.execution.outcome, 'sent');
-  assert.equal(resolvedSecretRef, 'op://clawclub/member-2');
-  const headers = fetchRequest?.headers as Record<string, string>;
-  const body = String(fetchRequest?.body);
-  const timestamp = headers['x-clawclub-signature-timestamp'];
-  assert.match(timestamp, /^\d{4}-\d{2}-\d{2}T/);
-  assert.equal(
-    headers['x-clawclub-signature-v1'],
-    `sha256=${createHmac('sha256', 'super-secret-value').update(`${timestamp}.${body}`).digest('hex')}`,
-  );
-});
-
-test('deliveries.execute fails closed when a signed endpoint secret cannot be resolved', async () => {
-  const calls: string[] = [];
-
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-2'],
-        metadata: {},
-      };
-    },
-    async claimNextDelivery() {
-      calls.push('claim');
-      return makeClaimedDelivery({
-        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }),
-        endpoint: makeDeliveryEndpoint({ sharedSecretRef: 'op://clawclub/member-2' }),
-      });
-    },
-    async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
-    async failDeliveryAttempt(input) {
-      calls.push(`fail:${String(input.errorMessage)}`);
-      return makeClaimedDelivery({
-        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'failed', failedAt: '2026-03-12T00:05:00Z', lastError: String(input.errorMessage) }),
-        attempt: { ...makeClaimedDelivery().attempt, status: 'failed', errorMessage: String(input.errorMessage), finishedAt: '2026-03-12T00:05:00Z' },
-        endpoint: makeDeliveryEndpoint({ sharedSecretRef: 'op://clawclub/member-2' }),
-      });
-    },
-  };
-
-  const app = buildApp({
-    repository,
-    resolveDeliverySecret: async () => null,
-    fetchImpl: async () => {
-      throw new Error('fetch should not be called');
-    },
-  });
-
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.execute',
-  });
-
-  assert.deepEqual(calls, ['claim', 'fail:Delivery endpoint endpoint-1 secret could not be resolved']);
-  assert.equal(result.data.execution.outcome, 'failed');
-  assert.equal(result.data.execution.claimed.attempt.errorMessage, 'Delivery endpoint endpoint-1 secret could not be resolved');
-});
-
-test('deliveries.execute fails the claimed attempt when the webhook responds non-2xx', async () => {
-  const calls: string[] = [];
-
-  const repository: Repository = {
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-2'],
-        metadata: {},
-      };
-    },
-    async searchMembers() { return []; },
-    async listMembers() { return [makeNetworkMember()]; },
-    async getMemberProfile() { return makeProfile(); },
-    async updateOwnProfile() { return makeProfile(); },
-    async createEntity() { return makeEntity(); },
-    async updateEntity() { return makeEntity(); },
-    async createEvent() { return makeEvent(); },
-    async listEvents() { return [makeEvent()]; },
-    async rsvpEvent() { return makeEvent(); },
-    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
-    async listDeliveries() { return [makeDeliverySummary()]; },
-    async retryDelivery() { return makeDeliverySummary(); },
-    async claimNextDelivery() { calls.push('claim'); return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }), endpoint: makeDeliveryEndpoint({ sharedSecretRef: null }) }); },
-    async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
-    async failDeliveryAttempt(input) {
-      calls.push(`fail:${String(input.errorMessage)}:${String(input.responseStatusCode)}:${String(input.responseBody)}`);
-      return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'failed', failedAt: '2026-03-12T00:05:00Z', lastError: 'HTTP 500' }), attempt: { ...makeClaimedDelivery().attempt, status: 'failed', responseStatusCode: 500, responseBody: 'boom', errorMessage: 'HTTP 500', finishedAt: '2026-03-12T00:05:00Z' } });
-    },
-    async sendDirectMessage() { return makeDirectMessage(); },
-    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
-    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
-    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
-    async listEntities() { return [makeEntity()]; },
-    async listBearerTokens() { return [makeBearerTokenSummary()]; },
-    async createBearerToken() { return makeCreatedBearerToken(); },
-    async revokeBearerToken() { return makeBearerTokenSummary(); },
-  };
-
-  const app = buildApp({ repository, fetchImpl: async () => new Response('boom', { status: 500 }) });
-  const result = await app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' });
-
-  assert.deepEqual(calls, ['claim', 'fail:HTTP 500:500:boom']);
-  assert.equal(result.data.execution.outcome, 'failed');
-  assert.equal(result.data.execution.claimed.delivery.status, 'failed');
-});
-
-test('deliveries.execute marks the claimed attempt failed when fetch throws', async () => {
-  const calls: string[] = [];
-
-  const repository: Repository = {
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-2'],
-        metadata: {},
-      };
-    },
-    async searchMembers() { return []; },
-    async listMembers() { return [makeNetworkMember()]; },
-    async getMemberProfile() { return makeProfile(); },
-    async updateOwnProfile() { return makeProfile(); },
-    async createEntity() { return makeEntity(); },
-    async updateEntity() { return makeEntity(); },
-    async createEvent() { return makeEvent(); },
-    async listEvents() { return [makeEvent()]; },
-    async rsvpEvent() { return makeEvent(); },
-    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
-    async listDeliveries() { return [makeDeliverySummary()]; },
-    async retryDelivery() { return makeDeliverySummary(); },
-    async claimNextDelivery() { calls.push('claim'); return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'processing' }), endpoint: makeDeliveryEndpoint({ sharedSecretRef: null }) }); },
-    async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
-    async failDeliveryAttempt(input) {
-      calls.push(`fail:${String(input.errorMessage)}`);
-      return makeClaimedDelivery({ delivery: makeDeliverySummary({ networkId: 'network-2', status: 'failed', failedAt: '2026-03-12T00:05:00Z', lastError: 'network down' }), attempt: { ...makeClaimedDelivery().attempt, status: 'failed', errorMessage: 'network down', finishedAt: '2026-03-12T00:05:00Z' } });
-    },
-    async sendDirectMessage() { return makeDirectMessage(); },
-    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
-    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
-    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
-    async listEntities() { return [makeEntity()]; },
-    async listBearerTokens() { return [makeBearerTokenSummary()]; },
-    async createBearerToken() { return makeCreatedBearerToken(); },
-    async revokeBearerToken() { return makeBearerTokenSummary(); },
-  };
-
-  const app = buildApp({ repository, fetchImpl: async () => { throw new Error('network down'); } });
-  const result = await app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' });
-
-  assert.deepEqual(calls, ['claim', 'fail:network down']);
-  assert.equal(result.data.execution.outcome, 'failed');
-  assert.equal(result.data.execution.claimed.attempt.errorMessage, 'network down');
-});
-
-test('deliveries.execute rejects ordinary member bearer tokens once worker auth is separated', async () => {
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken() { return makeAuthResult(); },
-    async authenticateDeliveryWorkerToken() { return null; },
-  };
-
-  const app = buildApp({ repository });
-  await assert.rejects(
-    () => app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' }),
-    /Unknown bearer token/,
-  );
-});
-
-test('deliveries.execute rejects worker tokens that no longer resolve to current network access', async () => {
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() { return null; },
-  };
-
-  const app = buildApp({ repository });
-  await assert.rejects(
-    () => app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' }),
-    /Unknown bearer token/,
-  );
-});
-
-test('deliveries.execute returns idle when no pending delivery is claimable', async () => {
-  const repository: Repository = {
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-2'],
-        metadata: {},
-      };
-    },
-    async searchMembers() { return []; },
-    async listMembers() { return [makeNetworkMember()]; },
-    async getMemberProfile() { return makeProfile(); },
-    async updateOwnProfile() { return makeProfile(); },
-    async createEntity() { return makeEntity(); },
-    async updateEntity() { return makeEntity(); },
-    async createEvent() { return makeEvent(); },
-    async listEvents() { return [makeEvent()]; },
-    async rsvpEvent() { return makeEvent(); },
-    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
-    async listDeliveries() { return [makeDeliverySummary()]; },
-    async retryDelivery() { return makeDeliverySummary(); },
-    async claimNextDelivery() { return null; },
-    async completeDeliveryAttempt() { throw new Error('complete should not be called'); },
-    async failDeliveryAttempt() { throw new Error('fail should not be called'); },
-    async sendDirectMessage() { return makeDirectMessage(); },
-    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
-    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
-    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
-    async listEntities() { return [makeEntity()]; },
-    async listBearerTokens() { return [makeBearerTokenSummary()]; },
-    async createBearerToken() { return makeCreatedBearerToken(); },
-    async revokeBearerToken() { return makeBearerTokenSummary(); },
-  };
-
-  const app = buildApp({ repository, fetchImpl: async () => { throw new Error('fetch should not be called'); } });
-  const result = await app.handleAction({ bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs', action: 'deliveries.execute' });
-
-  assert.equal(result.data.execution.outcome, 'idle');
-  assert.equal(result.data.execution.claimed, null);
-});
-
-
-test('deliveries.complete returns the finished attempt inside worker scope', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
-  const repository: Repository = {
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-2'],
-        metadata: {},
-      };
-    },
-    async searchMembers() { return []; },
-    async listMembers() { return [makeNetworkMember()]; },
-    async getMemberProfile() { return makeProfile(); },
-    async updateOwnProfile() { return makeProfile(); },
-    async createEntity() { return makeEntity(); },
-    async updateEntity() { return makeEntity(); },
-    async createEvent() { return makeEvent(); },
-    async listEvents() { return [makeEvent()]; },
-    async rsvpEvent() { return makeEvent(); },
-    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
-    async listDeliveries() { return [makeDeliverySummary()]; },
-    async retryDelivery() { return makeDeliverySummary(); },
-    async claimNextDelivery() { return makeClaimedDelivery(); },
-    async completeDeliveryAttempt(input) {
-      capturedInput = input as Record<string, unknown>;
-      return makeClaimedDelivery({
-        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'sent', attemptCount: 2, sentAt: '2026-03-12T00:05:00Z' }),
-        attempt: { ...makeClaimedDelivery().attempt, status: 'sent', responseStatusCode: 202, responseBody: 'ok', finishedAt: '2026-03-12T00:05:00Z' },
-      });
-    },
-    async failDeliveryAttempt() { return makeClaimedDelivery(); },
-    async sendDirectMessage() { return makeDirectMessage(); },
-    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
-    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
-    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
-    async listEntities() { return [makeEntity()]; },
-    async listBearerTokens() { return [makeBearerTokenSummary()]; },
-    async createBearerToken() { return makeCreatedBearerToken(); },
-    async revokeBearerToken() { return makeBearerTokenSummary(); },
-  };
-
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.complete',
-    payload: { deliveryId: 'delivery-1', responseStatusCode: 202, responseBody: 'ok' },
-  });
-
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-2'],
-    deliveryId: 'delivery-1',
-    responseStatusCode: 202,
-    responseBody: 'ok',
-  });
-  assert.equal(result.action, 'deliveries.complete');
-  assert.equal(result.data.delivery.status, 'sent');
-  assert.equal(result.data.attempt.status, 'sent');
-  assert.equal(result.data.attempt.responseStatusCode, 202);
-});
-
-test('deliveries.fail returns the failed attempt inside worker scope', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
-  const repository: Repository = {
-    async authenticateBearerToken() { return null; },
-    async authenticateDeliveryWorkerToken() {
-      return {
-        tokenId: 'worker-token-1',
-        label: 'delivery worker',
-        actorMemberId: 'member-1',
-        allowedNetworkIds: ['network-2'],
-        metadata: {},
-      };
-    },
-    async searchMembers() { return []; },
-    async listMembers() { return [makeNetworkMember()]; },
-    async getMemberProfile() { return makeProfile(); },
-    async updateOwnProfile() { return makeProfile(); },
-    async createEntity() { return makeEntity(); },
-    async updateEntity() { return makeEntity(); },
-    async createEvent() { return makeEvent(); },
-    async listEvents() { return [makeEvent()]; },
-    async rsvpEvent() { return makeEvent(); },
-    async acknowledgeDelivery() { return makeDeliveryAcknowledgement(); },
-    async listDeliveries() { return [makeDeliverySummary()]; },
-    async retryDelivery() { return makeDeliverySummary(); },
-    async claimNextDelivery() { return makeClaimedDelivery(); },
-    async completeDeliveryAttempt() { return makeClaimedDelivery(); },
-    async failDeliveryAttempt(input) {
-      capturedInput = input as Record<string, unknown>;
-      return makeClaimedDelivery({
-        delivery: makeDeliverySummary({ networkId: 'network-2', status: 'failed', attemptCount: 2, sentAt: null, failedAt: '2026-03-12T00:05:00Z', lastError: 'timeout' }),
-        attempt: { ...makeClaimedDelivery().attempt, status: 'failed', responseStatusCode: 504, responseBody: 'timeout', errorMessage: 'timeout', finishedAt: '2026-03-12T00:05:00Z' },
-      });
-    },
-    async sendDirectMessage() { return makeDirectMessage(); },
-    async listDirectMessageThreads() { return [makeDirectMessageThread()]; },
-    async listDirectMessageInbox() { return [makeDirectMessageInbox()]; },
-    async readDirectMessageThread() { return { thread: makeDirectMessageThread(), messages: [makeDirectMessageTranscriptEntry()] }; },
-    async listEntities() { return [makeEntity()]; },
-    async listBearerTokens() { return [makeBearerTokenSummary()]; },
-    async createBearerToken() { return makeCreatedBearerToken(); },
-    async revokeBearerToken() { return makeBearerTokenSummary(); },
-  };
-
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'deliveries.fail',
-    payload: { deliveryId: 'delivery-1', errorMessage: 'timeout', responseStatusCode: 504, responseBody: 'timeout' },
-  });
-
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-2'],
-    deliveryId: 'delivery-1',
-    errorMessage: 'timeout',
-    responseStatusCode: 504,
-    responseBody: 'timeout',
-  });
-  assert.equal(result.action, 'deliveries.fail');
-  assert.equal(result.data.delivery.status, 'failed');
-  assert.equal(result.data.attempt.errorMessage, 'timeout');
 });

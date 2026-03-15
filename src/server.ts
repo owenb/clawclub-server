@@ -1,8 +1,9 @@
 import http from 'node:http';
+import type net from 'node:net';
 import { URL } from 'node:url';
 import { Pool } from 'pg';
-import { AppError, buildApp, type DeliverySecretResolver, type Repository } from './app.ts';
-import { createDeliverySecretResolver } from './delivery-signing.ts';
+import { AppError, buildApp, type Repository } from './app.ts';
+import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
 
 export const DEFAULT_SERVER_LIMITS = {
@@ -12,6 +13,8 @@ export const DEFAULT_SERVER_LIMITS = {
   keepAliveTimeoutMs: 5_000,
   maxRequestsPerSocket: 100,
   maxHeadersCount: 100,
+  updatesStreamHeartbeatMs: 15_000,
+  updatesStreamLimit: 20,
 } as const;
 
 function readJsonBody(
@@ -80,6 +83,19 @@ function normalizeUpdatesLimit(value: string | null): number {
   return Math.min(Math.max(parsed, 1), 20);
 }
 
+function normalizeUpdatesAfter(value: string | null): number | null {
+  if (value === null || value.trim().length === 0) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new AppError(400, 'invalid_input', 'after must be a non-negative integer');
+  }
+
+  return parsed;
+}
+
 function writeJson(response: http.ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
@@ -90,11 +106,59 @@ function writeJson(response: http.ServerResponse, statusCode: number, payload: u
   response.end(JSON.stringify(payload, null, 2));
 }
 
-export function createServer(options: { resolveDeliverySecret?: DeliverySecretResolver; repository?: Repository } = {}) {
+function writeSseEvent(response: http.ServerResponse, event: string, data: unknown, id?: number) {
+  if (id !== undefined) {
+    response.write(`id: ${id}\n`);
+  }
+
+  response.write(`event: ${event}\n`);
+  response.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function writeSseComment(response: http.ServerResponse, comment: string) {
+  response.write(`: ${comment}\n\n`);
+}
+
+function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
+  return {
+    async waitForUpdate({ timeoutMs, signal }) {
+      if (signal?.aborted) {
+        throw new Error('Update wait aborted');
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          cleanup();
+          resolve();
+        }, timeoutMs);
+
+        const onAbort = () => {
+          cleanup();
+          reject(new Error('Update wait aborted'));
+        };
+
+        const cleanup = () => {
+          clearTimeout(timeout);
+          signal?.removeEventListener('abort', onAbort);
+        };
+
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+
+      return 'timed_out';
+    },
+    async close() {},
+  };
+}
+
+export function createServer(options: { repository?: Repository; updatesNotifier?: MemberUpdateNotifier } = {}) {
   const databaseUrl = process.env.DATABASE_URL;
   const pool = options.repository ? null : new Pool({ connectionString: databaseUrl ?? (() => { throw new Error('DATABASE_URL must be set'); })() });
   const repository = options.repository ?? createPostgresRepository({ pool: pool! });
-  const app = buildApp({ repository, resolveDeliverySecret: options.resolveDeliverySecret ?? createDeliverySecretResolver() });
+  const updatesNotifier = options.updatesNotifier
+    ?? (databaseUrl ? createPostgresMemberUpdateNotifier(databaseUrl) : createTimeoutOnlyNotifier());
+  const app = buildApp({ repository });
+  const sockets = new Set<net.Socket>();
 
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
@@ -111,14 +175,14 @@ export function createServer(options: { resolveDeliverySecret?: DeliverySecretRe
           throw new AppError(401, 'unauthorized', 'Unknown bearer token');
         }
 
-        if (!repository.pollUpdates) {
-          throw new Error('Repository does not implement pollUpdates');
+        if (!repository.listMemberUpdates) {
+          throw new Error('Repository does not implement listMemberUpdates');
         }
 
-        const updates = await repository.pollUpdates({
+        const updates = await repository.listMemberUpdates({
           actorMemberId: auth.actor.member.id,
-          accessibleNetworkIds: auth.requestScope.activeNetworkIds,
           limit: normalizeUpdatesLimit(url.searchParams.get('limit')),
+          after: normalizeUpdatesAfter(url.searchParams.get('after')),
         });
 
         writeJson(response, 200, {
@@ -151,12 +215,131 @@ export function createServer(options: { resolveDeliverySecret?: DeliverySecretRe
       return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/updates/stream') {
+      const abortController = new AbortController();
+      const abortStream = () => abortController.abort();
+      request.on('close', abortStream);
+      request.on('aborted', abortStream);
+      response.on('close', abortStream);
+      response.on('error', abortStream);
+
+      try {
+        const bearerToken = getBearerToken(request);
+        if (!bearerToken) {
+          throw new AppError(401, 'unauthorized', 'Unknown bearer token');
+        }
+
+        const auth = await repository.authenticateBearerToken(bearerToken);
+        if (!auth) {
+          throw new AppError(401, 'unauthorized', 'Unknown bearer token');
+        }
+
+        if (!repository.listMemberUpdates) {
+          throw new Error('Repository does not implement listMemberUpdates');
+        }
+
+        const limit = Math.min(
+          normalizeUpdatesLimit(url.searchParams.get('limit')),
+          DEFAULT_SERVER_LIMITS.updatesStreamLimit,
+        );
+        const lastEventId = request.headers['last-event-id'];
+        const after = normalizeUpdatesAfter(
+          url.searchParams.get('after')
+          ?? (typeof lastEventId === 'string' ? lastEventId : null),
+        );
+
+        response.writeHead(200, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-store, no-cache, max-age=0',
+          pragma: 'no-cache',
+          'x-content-type-options': 'nosniff',
+          connection: 'keep-alive',
+          'x-accel-buffering': 'no',
+        });
+        response.flushHeaders();
+
+        request.socket?.setTimeout(0);
+        response.socket?.setTimeout(0);
+
+        writeSseEvent(response, 'ready', {
+          member: auth.actor.member,
+          requestScope: auth.requestScope,
+          nextAfter: after,
+        });
+
+        let cursor = after;
+
+        while (!abortController.signal.aborted) {
+          const updates = await repository.listMemberUpdates({
+            actorMemberId: auth.actor.member.id,
+            limit,
+            after: cursor,
+          });
+
+          if (updates.items.length > 0) {
+            for (const item of updates.items) {
+              writeSseEvent(response, 'update', item, item.streamSeq);
+              cursor = item.streamSeq;
+            }
+            continue;
+          }
+
+          const outcome = await updatesNotifier.waitForUpdate({
+            recipientMemberId: auth.actor.member.id,
+            afterStreamSeq: cursor,
+            timeoutMs: DEFAULT_SERVER_LIMITS.updatesStreamHeartbeatMs,
+            signal: abortController.signal,
+          });
+
+          if (outcome === 'timed_out' && !abortController.signal.aborted) {
+            writeSseComment(response, 'keepalive');
+          }
+        }
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          response.end();
+          return;
+        }
+
+        if (error instanceof AppError) {
+          if (response.headersSent) {
+            response.end();
+            return;
+          }
+
+          writeJson(response, error.statusCode, {
+            ok: false,
+            error: {
+              code: error.code,
+              message: error.message,
+            },
+          });
+          return;
+        }
+
+        console.error(error);
+        if (response.headersSent) {
+          response.end();
+          return;
+        }
+
+        writeJson(response, 500, {
+          ok: false,
+          error: {
+            code: 'internal_error',
+            message: 'Unexpected server error',
+          },
+        });
+      }
+      return;
+    }
+
     if (request.method !== 'POST' || url.pathname !== '/api') {
       writeJson(response, 404, {
         ok: false,
         error: {
           code: 'not_found',
-          message: 'Only GET /updates and POST /api are supported',
+          message: 'Only GET /updates, GET /updates/stream, and POST /api are supported',
         },
       });
       return;
@@ -201,6 +384,12 @@ export function createServer(options: { resolveDeliverySecret?: DeliverySecretRe
   server.keepAliveTimeout = DEFAULT_SERVER_LIMITS.keepAliveTimeoutMs;
   server.maxRequestsPerSocket = DEFAULT_SERVER_LIMITS.maxRequestsPerSocket;
   server.maxHeadersCount = DEFAULT_SERVER_LIMITS.maxHeadersCount;
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => {
+      sockets.delete(socket);
+    });
+  });
   server.on('clientError', (_error, socket) => {
     if (!socket.writable) {
       socket.destroy();
@@ -211,7 +400,7 @@ export function createServer(options: { resolveDeliverySecret?: DeliverySecretRe
   });
 
   const shutdown = async () => {
-    await new Promise<void>((resolve, reject) => {
+    const closePromise = new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error) {
           reject(error);
@@ -221,10 +410,16 @@ export function createServer(options: { resolveDeliverySecret?: DeliverySecretRe
         resolve();
       });
     });
+    for (const socket of sockets) {
+      socket.destroy();
+    }
+    await closePromise;
 
     if (pool) {
       await pool.end();
     }
+
+    await updatesNotifier.close();
   };
 
   return { server, shutdown };

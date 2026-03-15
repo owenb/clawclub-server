@@ -105,12 +105,24 @@ returning id as media_id \gset
 insert into app.entity_media_links (entity_version_id, media_link_id, is_primary)
 values (:'post_version_id', :'media_id', true);
 
-insert into app.delivery_endpoints (member_id, endpoint_url, label)
-values (:'member_id', 'https://openclaw.example/webhook', 'Smoke endpoint')
-returning id as endpoint_id \gset
-
-insert into app.deliveries (network_id, recipient_member_id, endpoint_id, entity_id, entity_version_id, topic, payload, dedupe_key)
-values (:'network_id', :'member_id', :'endpoint_id', :'event_entity_id', :'event_version_id', 'event.published', jsonb_build_object('entityId', :'event_entity_id'), 'event:' || :'event_entity_id');
+insert into app.member_updates (
+  recipient_member_id,
+  network_id,
+  topic,
+  payload,
+  entity_id,
+  entity_version_id,
+  created_by_member_id
+)
+values (
+  :'member_id',
+  :'network_id',
+  'entity.version.published',
+  jsonb_build_object('entityId', :'event_entity_id'),
+  :'event_entity_id',
+  :'event_version_id',
+  :'owner_id'
+);
 
 insert into app.embeddings (member_profile_version_id, model, dimensions, embedding, source_text)
 values (:'profile_version_id', 'smoke-model', 3, array[0.1, 0.2, 0.3]::double precision[], 'Smoke member profile');
@@ -123,7 +135,8 @@ select
   (select count(*) from app.current_entity_versions) as current_entity_versions,
   (select count(*) from app.current_published_entity_versions) as current_published_entity_versions,
   (select count(*) from app.live_entities) as live_entities,
-  (select count(*) from app.active_network_memberships) as active_memberships;
+  (select count(*) from app.active_network_memberships) as active_memberships,
+  (select count(*) from app.pending_member_updates) as pending_member_updates;
 
 rollback;
 SQL

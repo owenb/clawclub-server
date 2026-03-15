@@ -61,9 +61,11 @@ function makeAuthResult(): AuthResult {
       activeNetworkIds: ['network-conscious'],
     },
     sharedContext: {
-      pendingDeliveries: [
+      pendingUpdates: [
         {
-          deliveryId: 'delivery-1',
+          updateId: 'update-1',
+          streamSeq: 1,
+          recipientMemberId: 'member-1',
           networkId: 'network-conscious',
           entityId: null,
           entityVersionId: null,
@@ -71,7 +73,7 @@ function makeAuthResult(): AuthResult {
           topic: 'transcript.message.created',
           payload: { kind: 'dm', threadId: 'thread-1' },
           createdAt: '2026-03-12T09:00:00Z',
-          sentAt: '2026-03-12T09:00:01Z',
+          createdByMemberId: 'member-2',
         },
       ],
     },
@@ -205,7 +207,7 @@ function makeInboxThread(): DirectMessageInboxSummary {
     unread: {
       hasUnread: true,
       unreadMessageCount: 1,
-      unreadDeliveryCount: 1,
+      unreadUpdateCount: 1,
       latestUnreadMessageCreatedAt: '2026-03-12T09:00:00Z',
     },
   };
@@ -238,7 +240,7 @@ function makeTranscript(): { thread: DirectMessageThreadSummary; messages: Direc
         payload: {},
         createdAt: '2026-03-12T08:00:00Z',
         inReplyToMessageId: null,
-        deliveryReceipts: [],
+        updateReceipts: [],
       },
       {
         messageId: 'message-2',
@@ -249,7 +251,7 @@ function makeTranscript(): { thread: DirectMessageThreadSummary; messages: Direc
         payload: {},
         createdAt: '2026-03-12T09:00:00Z',
         inReplyToMessageId: null,
-        deliveryReceipts: [],
+        updateReceipts: [],
       },
     ],
   };
@@ -264,7 +266,7 @@ function makeSentMessage(): DirectMessageSummary {
     messageId: 'message-3',
     messageText: 'Perfect — let us do 15:00 UTC tomorrow.',
     createdAt: '2026-03-12T09:05:00Z',
-    deliveryCount: 1,
+    updateCount: 1,
   };
 }
 
@@ -364,10 +366,6 @@ function makeRepository(callLog: string[]): Repository {
         },
       });
     },
-    async listDeliveryEndpoints() { return []; },
-    async createDeliveryEndpoint() { throw new Error('unused'); },
-    async updateDeliveryEndpoint() { return null; },
-    async revokeDeliveryEndpoint() { return null; },
     async searchMembers(input) {
       callLog.push(`searchMembers:${JSON.stringify(input)}`);
       return [makeMemberSearchResult()];
@@ -410,13 +408,6 @@ function makeRepository(callLog: string[]): Repository {
     async listBearerTokens() { return []; },
     async createBearerToken() { throw new Error('unused'); },
     async revokeBearerToken() { return null; },
-    async acknowledgeDelivery() { return null; },
-    async listDeliveries() { return []; },
-    async listDeliveryAttempts() { return []; },
-    async retryDelivery() { return null; },
-    async claimNextDelivery() { return null; },
-    async completeDeliveryAttempt() { return null; },
-    async failDeliveryAttempt() { return null; },
     async sendDirectMessage(input) {
       callLog.push(`sendDirectMessage:${JSON.stringify(input)}`);
       return makeSentMessage();
@@ -481,7 +472,7 @@ const smokeScenarios: SmokeScenario[] = [
     prompt: 'Who am I here?',
     steps: [
       { type: 'tool', toolName: 'session_describe', args: {} },
-      { type: 'text', text: 'You are Owen in Conscious Engineers with one pending DM delivery.' },
+      { type: 'text', text: 'You are Owen in Conscious Engineers with one pending DM update.' },
     ],
     assert: ({ text, callLog }) => {
       assert.match(text, /Owen/);

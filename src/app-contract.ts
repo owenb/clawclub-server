@@ -228,8 +228,10 @@ export type RequestScope = {
   activeNetworkIds: string[];
 };
 
-export type PendingDelivery = {
-  deliveryId: string;
+export type PendingUpdate = {
+  updateId: string;
+  streamSeq: number;
+  recipientMemberId: string;
   networkId: string;
   entityId: string | null;
   entityVersionId: string | null;
@@ -237,16 +239,16 @@ export type PendingDelivery = {
   topic: string;
   payload: Record<string, unknown>;
   createdAt: string;
-  sentAt: string | null;
+  createdByMemberId: string | null;
 };
 
 export type SharedResponseContext = {
-  pendingDeliveries: PendingDelivery[];
+  pendingUpdates: PendingUpdate[];
 };
 
 export type MemberUpdates = {
-  deliveries: PendingDelivery[];
-  posts: EntitySummary[];
+  items: PendingUpdate[];
+  nextAfter: number | null;
   polledAt: string;
 };
 
@@ -256,12 +258,26 @@ export type AuthResult = {
   sharedContext: SharedResponseContext;
 };
 
-export type DeliveryWorkerAuthResult = {
-  tokenId: string;
-  label: string | null;
+export type UpdateReceiptState = 'processed' | 'suppressed';
+
+export type UpdateReceipt = {
+  receiptId: string;
+  updateId: string;
+  recipientMemberId: string;
+  networkId: string;
+  state: UpdateReceiptState;
+  suppressionReason: string | null;
+  versionNo: number;
+  supersedesReceiptId: string | null;
+  createdAt: string;
+  createdByMemberId: string | null;
+};
+
+export type AcknowledgeUpdatesInput = {
   actorMemberId: string;
-  allowedNetworkIds: string[];
-  metadata: Record<string, unknown>;
+  updateIds: string[];
+  state: UpdateReceiptState;
+  suppressionReason?: string | null;
 };
 
 export type MemberSearchResult = {
@@ -466,60 +482,6 @@ export type ListEntitiesInput = {
   query?: string;
 };
 
-export type DeliveryAckState = 'shown' | 'suppressed';
-
-export type DeliveryEndpointChannel = 'openclaw_webhook';
-export type DeliveryEndpointState = 'active' | 'disabled' | 'failing';
-
-export type DeliveryEndpointSummary = {
-  endpointId: string;
-  memberId: string;
-  channel: DeliveryEndpointChannel;
-  label: string | null;
-  endpointUrl: string;
-  sharedSecretRef: string | null;
-  state: DeliveryEndpointState;
-  lastSuccessAt: string | null;
-  lastFailureAt: string | null;
-  health: {
-    pendingCount: number;
-    processingCount: number;
-    sentCount: number;
-    failedCount: number;
-    canceledCount: number;
-    lastDeliveryAt: string | null;
-  };
-  metadata: Record<string, unknown>;
-  createdAt: string;
-  disabledAt: string | null;
-};
-
-export type CreateDeliveryEndpointInput = {
-  actorMemberId: string;
-  channel?: DeliveryEndpointChannel;
-  label?: string | null;
-  endpointUrl: string;
-  sharedSecretRef?: string | null;
-  metadata?: Record<string, unknown>;
-};
-
-export type UpdateDeliveryEndpointInput = {
-  actorMemberId: string;
-  endpointId: string;
-  patch: {
-    label?: string | null;
-    endpointUrl?: string;
-    sharedSecretRef?: string | null;
-    state?: DeliveryEndpointState;
-    metadata?: Record<string, unknown>;
-  };
-};
-
-export type RevokeDeliveryEndpointInput = {
-  actorMemberId: string;
-  endpointId: string;
-};
-
 export type BearerTokenSummary = {
   tokenId: string;
   memberId: string;
@@ -546,148 +508,6 @@ export type RevokeBearerTokenInput = {
   tokenId: string;
 };
 
-export type AcknowledgeDeliveryInput = {
-  actorMemberId: string;
-  accessibleNetworkIds: string[];
-  deliveryId: string;
-  state: DeliveryAckState;
-  suppressionReason?: string | null;
-};
-
-export type DeliveryAcknowledgement = {
-  acknowledgementId: string;
-  deliveryId: string;
-  networkId: string;
-  recipientMemberId: string;
-  state: DeliveryAckState;
-  suppressionReason: string | null;
-  versionNo: number;
-  supersedesAcknowledgementId: string | null;
-  createdAt: string;
-  createdByMemberId: string | null;
-};
-
-export type DeliverySummary = {
-  deliveryId: string;
-  networkId: string;
-  recipientMemberId: string;
-  endpointId: string;
-  topic: string;
-  payload: Record<string, unknown>;
-  status: 'pending' | 'processing' | 'sent' | 'failed' | 'canceled';
-  attemptCount: number;
-  entityId: string | null;
-  entityVersionId: string | null;
-  transcriptMessageId: string | null;
-  scheduledAt: string;
-  sentAt: string | null;
-  failedAt: string | null;
-  lastError: string | null;
-  createdAt: string;
-  acknowledgement: {
-    acknowledgementId: string;
-    state: DeliveryAckState;
-    suppressionReason: string | null;
-    versionNo: number;
-    createdAt: string;
-    createdByMemberId: string | null;
-  } | null;
-};
-
-export type ListDeliveriesInput = {
-  actorMemberId: string;
-  networkIds: string[];
-  limit: number;
-  pendingOnly: boolean;
-};
-
-export type ListDeliveryAttemptsInput = {
-  actorMemberId: string;
-  networkIds: string[];
-  limit: number;
-  endpointId?: string;
-  recipientMemberId?: string;
-  status?: DeliveryAttemptSummary['status'];
-};
-
-export type DeliveryAttemptInspection = {
-  attempt: DeliveryAttemptSummary;
-  delivery: Pick<
-    DeliverySummary,
-    'networkId' | 'recipientMemberId' | 'endpointId' | 'topic' | 'status' | 'attemptCount' | 'scheduledAt' | 'sentAt' | 'failedAt' | 'lastError' | 'createdAt'
-  > & {
-    deliveryId: string;
-    recipient: {
-      memberId: string;
-      publicName: string;
-      handle: string | null;
-    };
-  };
-};
-
-export type RetryDeliveryInput = {
-  actorMemberId: string;
-  accessibleNetworkIds: string[];
-  deliveryId: string;
-};
-
-export type ClaimDeliveryInput = {
-  actorMemberId: string;
-  accessibleNetworkIds: string[];
-  workerKey?: string | null;
-};
-
-export type CompleteDeliveryAttemptInput = {
-  actorMemberId: string;
-  accessibleNetworkIds: string[];
-  deliveryId: string;
-  responseStatusCode?: number | null;
-  responseBody?: string | null;
-};
-
-export type FailDeliveryAttemptInput = {
-  actorMemberId: string;
-  accessibleNetworkIds: string[];
-  deliveryId: string;
-  errorMessage: string;
-  responseStatusCode?: number | null;
-  responseBody?: string | null;
-};
-
-export type DeliveryAttemptSummary = {
-  attemptId: string;
-  deliveryId: string;
-  networkId: string | null;
-  endpointId: string;
-  workerKey: string | null;
-  status: 'processing' | 'sent' | 'failed' | 'canceled';
-  attemptNo: number;
-  responseStatusCode: number | null;
-  responseBody: string | null;
-  errorMessage: string | null;
-  startedAt: string;
-  finishedAt: string | null;
-  createdByMemberId: string | null;
-};
-
-export type ClaimedDelivery = {
-  delivery: DeliverySummary;
-  attempt: DeliveryAttemptSummary;
-  endpoint: DeliveryEndpointSummary;
-};
-
-export type DeliveryExecutionResult = {
-  outcome: 'idle' | 'sent' | 'failed';
-  claimed: ClaimedDelivery | null;
-};
-
-export type DeliverySecretResolver = (input: {
-  sharedSecretRef: string;
-  endpoint: DeliveryEndpointSummary;
-  delivery: DeliverySummary;
-  attempt: DeliveryAttemptSummary;
-}) => Promise<string | null> | string | null;
-
 export type DirectMessageSummary = {
   threadId: string;
   networkId: string;
@@ -696,7 +516,7 @@ export type DirectMessageSummary = {
   messageId: string;
   messageText: string;
   createdAt: string;
-  deliveryCount: number;
+  updateCount: number;
 };
 
 export type DirectMessageThreadSummary = {
@@ -719,22 +539,19 @@ export type DirectMessageInboxSummary = DirectMessageThreadSummary & {
   unread: {
     hasUnread: boolean;
     unreadMessageCount: number;
-    unreadDeliveryCount: number;
+    unreadUpdateCount: number;
     latestUnreadMessageCreatedAt: string | null;
   };
 };
 
-export type DirectMessageReceipt = {
-  deliveryId: string;
+export type DirectMessageUpdateReceipt = {
+  updateId: string;
   recipientMemberId: string;
-  status: 'pending' | 'processing' | 'sent' | 'failed' | 'canceled';
-  scheduledAt: string;
-  sentAt: string | null;
-  failedAt: string | null;
+  topic: string;
   createdAt: string;
-  acknowledgement: {
-    acknowledgementId: string;
-    state: DeliveryAckState;
+  receipt: {
+    receiptId: string;
+    state: UpdateReceiptState;
     suppressionReason: string | null;
     versionNo: number;
     createdAt: string;
@@ -751,7 +568,7 @@ export type DirectMessageTranscriptEntry = {
   payload: Record<string, unknown>;
   createdAt: string;
   inReplyToMessageId: string | null;
-  deliveryReceipts: DirectMessageReceipt[];
+  updateReceipts: DirectMessageUpdateReceipt[];
 };
 
 export type SendDirectMessageInput = {
@@ -777,7 +594,6 @@ export type UpdateEntityInput = {
 
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
-  authenticateDeliveryWorkerToken?(bearerToken: string): Promise<DeliveryWorkerAuthResult | null>;
   listNetworks?(input: { actorMemberId: string; includeArchived: boolean }): Promise<NetworkSummary[]>;
   createNetwork?(input: CreateNetworkInput): Promise<NetworkSummary | null>;
   archiveNetwork?(input: ArchiveNetworkInput): Promise<NetworkSummary | null>;
@@ -804,10 +620,6 @@ export type Repository = {
     limit: number;
     statuses: MembershipState[];
   }): Promise<MembershipReviewSummary[]>;
-  listDeliveryEndpoints(input: { actorMemberId: string }): Promise<DeliveryEndpointSummary[]>;
-  createDeliveryEndpoint(input: CreateDeliveryEndpointInput): Promise<DeliveryEndpointSummary>;
-  updateDeliveryEndpoint(input: UpdateDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null>;
-  revokeDeliveryEndpoint(input: RevokeDeliveryEndpointInput): Promise<DeliveryEndpointSummary | null>;
   searchMembers(input: {
     actorMemberId: string;
     networkIds: string[];
@@ -831,18 +643,12 @@ export type Repository = {
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
-  pollUpdates?(input: {
+  listMemberUpdates?(input: {
     actorMemberId: string;
-    accessibleNetworkIds: string[];
     limit: number;
+    after?: number | null;
   }): Promise<MemberUpdates>;
-  acknowledgeDelivery(input: AcknowledgeDeliveryInput): Promise<DeliveryAcknowledgement | null>;
-  listDeliveries(input: ListDeliveriesInput): Promise<DeliverySummary[]>;
-  listDeliveryAttempts(input: ListDeliveryAttemptsInput): Promise<DeliveryAttemptInspection[]>;
-  retryDelivery(input: RetryDeliveryInput): Promise<DeliverySummary | null>;
-  claimNextDelivery(input: ClaimDeliveryInput): Promise<ClaimedDelivery | null>;
-  completeDeliveryAttempt(input: CompleteDeliveryAttemptInput): Promise<ClaimedDelivery | null>;
-  failDeliveryAttempt(input: FailDeliveryAttemptInput): Promise<ClaimedDelivery | null>;
+  acknowledgeUpdates?(input: AcknowledgeUpdatesInput): Promise<UpdateReceipt[]>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
   listDirectMessageThreads(input: { actorMemberId: string; networkIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
   listDirectMessageInbox(input: {

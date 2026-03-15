@@ -38,7 +38,7 @@ function makeAuthResult(): AuthResult {
       activeNetworkIds: ['network-1'],
     },
     sharedContext: {
-      pendingDeliveries: [],
+      pendingUpdates: [],
     },
   };
 }
@@ -123,10 +123,6 @@ function makeRepository(overrides: Partial<Repository> = {}): Repository {
     async createMembership() { return null; },
     async transitionMembershipState() { return null; },
     async listMembershipReviews() { return []; },
-    async listDeliveryEndpoints() { return []; },
-    async createDeliveryEndpoint() { throw new Error('unused'); },
-    async updateDeliveryEndpoint() { return null; },
-    async revokeDeliveryEndpoint() { return null; },
     async searchMembers() { return []; },
     async listMembers() { return []; },
     async getMemberProfile() { return null; },
@@ -140,13 +136,6 @@ function makeRepository(overrides: Partial<Repository> = {}): Repository {
     async listBearerTokens() { return []; },
     async createBearerToken() { throw new Error('unused'); },
     async revokeBearerToken() { return null; },
-    async acknowledgeDelivery() { return null; },
-    async listDeliveries() { return []; },
-    async listDeliveryAttempts() { return []; },
-    async retryDelivery() { return null; },
-    async claimNextDelivery() { return null; },
-    async completeDeliveryAttempt() { return null; },
-    async failDeliveryAttempt() { return null; },
     async sendDirectMessage() { return null; },
     async listDirectMessageThreads() { return []; },
     async listDirectMessageInbox() { return []; },
@@ -181,7 +170,6 @@ test('listCanonicalClawClubTools exposes the curated chat-facing tool set only',
     ],
   );
   assert.equal(tools.some((tool) => tool.action === 'tokens.create'), false);
-  assert.equal(tools.some((tool) => tool.action === 'deliveries.execute'), false);
   assert.equal(tools.some((tool) => tool.action === 'memberships.transition'), false);
   assert.equal(tools.some((tool) => tool.action === 'memberships.create'), false);
 });

@@ -7,33 +7,46 @@ The system still revolves around two strong axes:
 1. **Global personhood**
    - one member identity across all networks
    - one profile history
-   - one set of bearer tokens and delivery endpoints
+   - one bearer-token inventory
 
 2. **Network-local trust and activity**
    - membership is scoped per network
    - sponsor and owner history are append-only
-   - content, deliveries, events, and messages live inside network boundaries
+   - content, events, messages, and update fanout live inside network boundaries
 
-That split still drives the schema: global tables such as `members`, `member_profile_versions`, and `delivery_endpoints`, plus network tables such as `networks`, `network_memberships`, `entities`, `events`, and `deliveries`.
+That split drives the schema: global tables such as `members`, `member_profile_versions`, and `member_bearer_tokens`, plus network tables such as `networks`, `network_memberships`, `entities`, `events`, `transcript_*`, and `member_updates`.
 
 ## Current foundation
 
-- two HTTP surfaces: `POST /api` for action calls and `GET /updates` for simple polling, both with bearer-token actor resolution
+- three HTTP surfaces: `POST /api`, `GET /updates`, and `GET /updates/stream`
 - append-only version/event tables plus `current_*` views for normal reads
 - Postgres auth and RLS as the hard permission boundary
-- membership identity and paid-access source rows (`network_memberships`, `subscriptions`) are protected by forced RLS before any higher-level helper or view consumes them
-- app-layer orchestration in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-deliveries.ts`, `src/app-messages.ts`, `src/app-profile.ts`, and `src/app-system.ts`
+- RLS-protected membership/subscription source rows feeding scope helpers
+- app-layer orchestration in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-messages.ts`, `src/app-profile.ts`, `src/app-system.ts`, and `src/app-updates.ts`
 - repository/auth seams in `src/postgres.ts` plus the domain modules under `src/postgres/`
 
 ## Versioning stance
 
-Important mutable state should still follow one of two shapes:
+Important mutable state should use one of two shapes:
 
 - root table + append-only version table + current view
 - append-only event table + current view
 
-That now covers member profiles, entities, applications, membership state, network ownership, RSVP state, delivery attempts, and direct-message history.
-Polling-specific seen state for posts is tracked as member/entity-version receipts rather than a mutable cursor.
+That now covers member profiles, entities, applications, membership state, network ownership, RSVP state, message history, member updates, and member update receipts.
+
+## Transport stance
+
+The durable truth is the database, not the socket.
+
+- `member_updates` is the append-only recipient update log
+- `member_update_receipts` is the append-only acknowledgement history
+- `GET /updates` is the replay/polling fallback
+- `GET /updates/stream` is the canonical first-party transport
+
+This keeps the model simple:
+- no outbound webhook execution
+- no worker queue for first-party delivery
+- no endpoint-secret surface
 
 ## Where flexibility lives
 
@@ -43,20 +56,18 @@ Structured columns are used where correctness or filtering matters:
 - application status and intake fields
 - entity kind/state/time windows
 - event scheduling and RSVP state
-- delivery state and worker scope
+- update topic and acknowledgement state
 
 Everything else can evolve inside JSONB metadata or content payloads.
 
 ## Intentional non-goals
 
-These are still intentionally not part of the current core:
-
 - no ORM
 - no public web UI
-- no automatic embedding generation/ranking pipeline yet
+- no automatic embedding generation pipeline yet
+- no third-party webhook transport
 - no owner-editable policy engine inside the database
-- no operationally enabled WebHugs outbound delivery until outbound hardening is complete
 
 ## Expected read/write patterns
 
-Normal reads should prefer current projections such as accessible memberships, current profiles, current entities/events, current ownership, and current membership state. Access helpers should derive from protected source rows rather than bypassing them. Normal writes should append a new fact or version row, then let views project the latest state back out.
+Normal reads should prefer current projections such as accessible memberships, current profiles, current entities/events, current ownership, current membership state, and pending member updates. Normal writes should append a new fact or version row, then let views project the latest state back out.

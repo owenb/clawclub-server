@@ -1,216 +1,137 @@
 # ClawClub Design Decisions
 
-This is the **single canonical record** of ClawClub design decisions.
-
-If a durable product or architecture decision matters, it belongs here.
-The README should stay short and public-facing. Memory files should point back to this document rather than becoming the long-term source of truth.
+This is the canonical record of durable ClawClub design decisions.
 
 ## Product shape
 
-- ClawClub is open source software for running **private member networks through OpenClaw**.
-- It is **not** a website, public UI, public member directory, or public social network.
-- Joining requires **OpenClaw**. No exceptions.
-- Humans use chat; agents decide which ClawClub tools/actions to call in the background.
-- The value is in the **network**, not the software.
-
-## Clubs and admissions
-
-- Current live/active clubs: **ConsciousClaw** and **AI Club**.
-- Planned: **VC Club**.
-- Owen currently runs the live clubs directly and has final say on admissions.
-- Sponsored path: **10-minute fit check for $49**.
-- Unsponsored/outside path: **30-minute AI advice/interview call for $250**.
-- Advice is guaranteed; membership is not.
-- Cal.com is the assumed booking tool, with Stripe-backed paid booking.
-
-## Core interaction model
-
-- ClawClub is **agent-native**.
-- The human should never need to think in CRUD or database terms.
-- The important interface is the **tool/action contract for agents**.
-- Shared actor/network context should come back on every authenticated response so the calling agent stays grounded without extra calls.
-- The `actor` envelope is canonical session state; actions should not duplicate the same member/network context again inside `data` unless the payload is genuinely different.
+- ClawClub is open source software for running private member networks through OpenClaw.
+- It is not a public UI, public directory, or public social network.
+- Joining requires an agent-capable client such as OpenClaw.
+- The primary contract is the tool/action surface for agents.
 
 ## Tool naming
 
-Approved tool/action namespaces:
+Approved action namespaces:
 - `session.*`
 - `members.*`
 - `profile.*`
 - `entities.*`
 - `events.*`
 - `messages.*`
-- `deliveries.*`
+- `updates.*`
 - `applications.*`
+- `memberships.*`
 - `tokens.*`
+- `networks.*`
 
 ## Security and permissions
 
-- Security/auth is foundational.
-- Bearer token identifies the actor.
-- Actor context and scope are resolved **server-side**, never trusted from the client.
-- The app layer enforces agent/human behavior rules.
-- **Postgres auth / RLS is the hard boundary** that prevents members from seeing or mutating content outside groups they do not belong to.
-- Network scope should be derived from memberships, not simply requested by the client.
-- The membership and subscription source tables that feed network-access helpers must themselves stay RLS-protected; downstream views such as `accessible_network_memberships` should never depend on unguarded base rows.
+- bearer token identifies the actor
+- actor scope is always resolved server-side
+- the app layer provides orchestration and validation
+- Postgres RLS is the hard boundary
+- network scope derives from protected membership and subscription source rows
 
 ## Database architecture
 
-- Lean heavily on **Postgres**.
-- Postgres is not just storage; it is a major part of the application architecture.
-- Prefer:
-  - append-only fact/event tables
-  - Postgres views for current state
-  - constraints/indexes for correctness
-  - SQL-driven derivation where sane
-- The app layer should mainly provide orchestration, validation, and agent-facing ergonomics.
+- lean heavily on Postgres
+- prefer append-only facts and versions
+- prefer `current_*` views for normal reads
+- use constraints and SQL projections for correctness
+- keep the app layer thin and agent-facing
 
 ## Append-only default
 
 The default rule is:
-- **facts are append-only**
-- **current state is a view**
-- mutability is mostly a convenience layer, not the source of truth
+- facts are append-only
+- current state is a view
+- in-place mutation is compatibility or convenience, not the source of truth
 
-This should apply to:
-- entity versions
+This applies to:
 - profile versions
-- RSVPs
-- delivery acknowledgements
-- membership status changes
-- token lifecycle
-- transcript/message history
-- other important state transitions where auditability matters
-
-For entities specifically, archive visibility should come from the latest `entity_versions.state`, not from mutating the root `entities` row.
-Entity edits should also authorize in the write-selection SQL before a new version row is appended, with RLS acting as the backstop instead of the only guard.
+- entity versions
+- application versions
+- membership state versions
+- network owner versions
+- transcript history
+- member updates
+- member update receipts
 
 ## Versioning standard
 
-ClawClub should use one consistent versioning philosophy across the database.
+For important mutable state, use one of two shapes:
 
-For important mutable state, use one of these two shapes:
-
-### Shape A: root table + version table + current view
-Use this for stateful domain objects with stable identity and evolving state.
-
-Pattern:
-- `thing`
-- `thing_versions`
-- `current_thing`
+1. root table + append-only version table + current view
+2. append-only event table + current view
 
 Examples:
-- profiles
-- entities
-- applications
-- membership states
-- network ownership
-- global roles
-- future network settings/policy objects
-
-The root table gives the object a durable identity.
-The version table is append-only history.
-The current view gives the latest state for normal reads.
-
-### Shape B: append-only event table + current view
-Use this for naturally event-like data where each row is already a meaningful fact.
-
-Pattern:
-- `thing_events`
-- `current_thing`
-
-Examples:
-- RSVPs
-- delivery attempts
-- transcript messages
-- some trust/vouching edges
-
-This is the same philosophy, just a different natural shape.
-The event table is the durable history, and the current view projects the latest useful state.
-
-## Versioning rule
-
-For all important mutable domain state in ClawClub, use either:
-1. a root table + append-only version table + current view, or
-2. an append-only event table + current view.
-
-In-place mutation should not be the primary source of truth for important state.
+- profiles, entities, applications, membership state, ownership: shape 1
+- transcript messages, RSVPs, member updates, update receipts: shape 2
 
 ## Identity and IDs
 
-- Use compact **Stripe-style IDs** everywhere.
-- One shared ID generator across the codebase.
-- **No UUIDs**.
-- Stable IDs are the real identity surface.
-- Handles are optional mutable aliases, not authoritative identifiers.
+- use compact Stripe-style IDs everywhere
+- no UUIDs
+- stable IDs are authoritative
+- handles are mutable aliases
 
 ## Membership and trust
 
-- Identity is global; membership is network-specific.
-- Use **sponsor** for the accountable inviter.
-- Use **vouching** for lighter endorsements.
-- Sponsor is permanent for that membership.
-- Membership is private by default.
-- DMs require at least one shared network.
+- identity is global; membership is network-local
+- sponsor is the accountable inviter
+- vouching is a lighter endorsement
+- DMs require at least one shared network
 
 ## Search and content
 
-- Separate entity types include: `post`, `ask`, `service`, `opportunity`, and `event`.
-- Expired entities should auto-hide.
-- Search should push back on ambiguous terms before searching.
-- For example, "find me a builder" should search profiles/services, not opportunities.
-- Current/latest information should be shown by default; older versions are for audit/debug/admin.
-- Until embeddings-backed search exists, text retrieval should stay explicit and deterministic: exact/prefix/title hits outrank broad body matches, and time remains the tie-breaker.
-- Embeddings should remain append-only facts with latest-per-version projection views. For now, the minimal foundation is just current profile/entity embedding metadata on reads, not a full indexing queue or ranking engine.
-- Owner admissions views should expose the handoff to activation directly on the current application projection: linked membership, its current status, and whether the accepted application is ready for activation.
-- The final owner handoff should stay append-only and transactional: accepting a completed interview may append the membership activation state in the same transaction, rather than relying on a hidden mutable side channel.
+- primary entity kinds are `post`, `ask`, `service`, `opportunity`, and `event`
+- expired entities auto-hide
+- deterministic retrieval should stay explicit until semantic search is real
+- query text should be escaped and bounded before SQL matching
 
-## Events and RSVP
+## Update transport
 
-- RSVP states are locked in as:
-  - `yes`
-  - `maybe`
-  - `no`
-  - `waitlist`
-- Events should support recurring schedules, capacities, and visible RSVP lists.
+ClawClub no longer ships any outbound webhook delivery transport.
+
+The canonical model is:
+- `member_updates` as the append-only recipient update log
+- `member_update_receipts` as append-only acknowledgement history
+- `GET /updates` as polling/replay
+- `GET /updates/stream` as SSE replay + live push
+
+Rules:
+- the database is the source of truth, not the socket
+- delivery semantics are at-least-once
+- clients reconnect normally and replay from `streamSeq`
+- acknowledgements are explicit and transport-independent
+
+Polling and SSE are two views of the same underlying update log, not separate systems.
 
 ## Alerts and acknowledgement
 
-- Alerts are judged in two layers:
-  1. central ClawClub logic decides whether something is relevant enough to send
-  2. the member’s OpenClaw decides whether to surface it to the human
-- ClawClub should track **agent acknowledgement**, not just reply state.
-- Initial acknowledgement model:
-  - `shown`
+- ClawClub decides whether something is worth surfacing
+- the client decides how to present it to the human
+- acknowledgement states are:
+  - `processed`
   - `suppressed`
-- Suppression reason is optional **free text**, not an enum.
-- The goal is to analyze real reasons later rather than over-structuring them now.
-- Webhook delivery signing should be practical, not ceremonial: resolve sender secrets server-side, sign the exact raw body, and ship a tiny receiver verification helper so the path is usable end-to-end.
-- Delivery execution auth should be separate from ordinary member bearer auth. Worker/service tokens should be explicit, Postgres-backed, and scoped to allowed network ids so background executors do not inherit full member session authority.
-- Worker/service tokens should also decay with real membership access: their stored scope is only a ceiling, and runtime auth should intersect it with the actor's current memberships so stale tokens lose authority automatically.
-- Short-term proactive notification delivery also has a simple non-LLM polling endpoint, `GET /updates`, intended for periodic OpenClaw polling.
-- `/updates` returns unseen delivery-backed alerts and unseen network posts the member is allowed to see.
-- The server, not the cron job, tracks what each member has already seen for this polling surface so the same updates are not re-notified repeatedly.
-- Delivery-backed seen state reuses delivery acknowledgements; post seen state is tracked as member/entity-version receipts.
-- Even if something has already been surfaced through `/updates`, the conversational/LLM layer may still resurface it later if it is relevant in context.
+- suppression reason is free text
 
 ## Media and UI assumptions
 
-- Links are enough for media for now.
-- No public content anywhere.
-- No website-first UX; OpenClaw is the entry point.
+- links are enough for media for now
+- no public content anywhere
+- no website-first UX; OpenClaw is the entry point
 
 ## Open source and support stance
 
-- ClawClub is **MIT-licensed open source**.
-- No warranty.
-- No support obligation.
-- No liability accepted for use, misuse, deployment, or operation.
-- Self-hosters are responsible for their own infrastructure, secrets, backups, access control, updates, moderation, and compliance.
+- MIT licensed
+- no warranty
+- no support obligation
+- self-hosters own their infra, secrets, backups, access control, moderation, and compliance
 
 ## Current implementation milestones
 
-Already landed in code:
+Already landed:
 - bearer-token auth
 - shared actor context
 - `session.describe`
@@ -226,29 +147,21 @@ Already landed in code:
 - `events.create`
 - `events.list`
 - `events.rsvp`
-- `messages.inbox`
+- `messages.send`
 - `messages.list`
 - `messages.read`
-- delivery acknowledgement context
-- `deliveries.acknowledge`
-- `deliveries.retry`
-- delivery endpoint CRUD, worker auth, and execution plumbing
-- `memberships.list`
-- `memberships.create`
-- `memberships.review`
-- `memberships.transition`
-- `applications.list`
-- `applications.create`
-- `applications.transition`
+- `messages.inbox`
+- `updates.list`
+- `updates.acknowledge`
 - `tokens.list`
 - `tokens.create`
 - `tokens.revoke`
-- `messages.send`
-- ConsciousClaw bootstrap/seed flow
+- append-only membership/application history
+- SSE and polling over the same update log
 
 ## Maintenance rule
 
 When a design decision changes:
 1. update this file first
-2. update README only if the public framing needs it
-3. add a short memory note pointing back here if helpful
+2. update README if the public framing changed
+3. update API and runbook docs if the runtime contract changed

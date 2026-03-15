@@ -1,21 +1,13 @@
 import { handleAdmissionsAction } from './app-admissions.ts';
 import { handleContentAction } from './app-content.ts';
-import { handleDeliveryAction } from './app-deliveries.ts';
 import { handleMessageAction } from './app-messages.ts';
 import { handleProfileAction } from './app-profile.ts';
 import { handleSystemAction } from './app-system.ts';
-import { signClawClubDelivery } from './delivery-signing.ts';
+import { handleUpdatesAction } from './app-updates.ts';
 import type {
   ActorContext,
   ApplicationStatus,
   CreateApplicationInput,
-  CreateDeliveryEndpointInput,
-  DeliveryAttemptSummary,
-  DeliveryEndpointChannel,
-  DeliveryEndpointState,
-  DeliveryEndpointSummary,
-  DeliverySecretResolver,
-  DeliverySummary,
   EntityKind,
   EventRsvpState,
   MembershipState,
@@ -23,14 +15,11 @@ import type {
   Repository,
   RequestScope,
   SharedResponseContext,
-  UpdateDeliveryEndpointInput,
   UpdateEntityInput,
   UpdateOwnProfileInput,
 } from './app-contract.ts';
 
 export * from './app-contract.ts';
-
-const DELIVERY_WORKER_ACTIONS = new Set(['deliveries.claim', 'deliveries.execute', 'deliveries.complete', 'deliveries.fail']);
 
 export class AppError extends Error {
   statusCode: number;
@@ -247,22 +236,6 @@ function normalizeEntityPatch(payload: Record<string, unknown>): UpdateEntityInp
   return patch;
 }
 
-function isDeliveryAttemptStatus(value: unknown): value is DeliveryAttemptSummary['status'] {
-  return value === 'processing' || value === 'sent' || value === 'failed' || value === 'canceled';
-}
-
-function normalizeOptionalDeliveryAttemptStatus(value: unknown): DeliveryAttemptSummary['status'] | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (!isDeliveryAttemptStatus(value)) {
-    throw new AppError(400, 'invalid_input', 'status must be one of: processing, sent, failed, canceled');
-  }
-
-  return value;
-}
-
 function normalizeOptionalInteger(value: unknown, field: string): number | null | undefined {
   if (value === undefined) {
     return undefined;
@@ -371,49 +344,6 @@ function normalizeApplicationMetadataPatch(value: unknown, field: string): Recor
   return value === undefined ? undefined : requireObject(value, field);
 }
 
-function requireDeliveryEndpointChannel(value: unknown, field: string): DeliveryEndpointChannel {
-  if (value !== 'openclaw_webhook') {
-    throw new AppError(400, 'invalid_input', `${field} must be openclaw_webhook`);
-  }
-
-  return value;
-}
-
-function requireDeliveryEndpointState(value: unknown, field: string): DeliveryEndpointState {
-  if (value !== 'active' && value !== 'disabled' && value !== 'failing') {
-    throw new AppError(400, 'invalid_input', `${field} must be one of: active, disabled, failing`);
-  }
-
-  return value;
-}
-
-function normalizeCreateDeliveryEndpointInput(payload: Record<string, unknown>): Omit<CreateDeliveryEndpointInput, 'actorMemberId'> {
-  return {
-    channel: payload.channel === undefined ? 'openclaw_webhook' : requireDeliveryEndpointChannel(payload.channel, 'channel'),
-    label: normalizeOptionalString(payload.label, 'label') ?? null,
-    endpointUrl: requireNonEmptyString(payload.endpointUrl, 'endpointUrl'),
-    sharedSecretRef: normalizeOptionalString(payload.sharedSecretRef, 'sharedSecretRef') ?? null,
-    metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
-  };
-}
-
-function normalizeUpdateDeliveryEndpointPatch(payload: Record<string, unknown>): UpdateDeliveryEndpointInput['patch'] {
-  const endpointUrl = payload.endpointUrl === undefined ? undefined : requireNonEmptyString(payload.endpointUrl, 'endpointUrl');
-  const patch = {
-    label: normalizeOptionalString(payload.label, 'label'),
-    endpointUrl,
-    sharedSecretRef: normalizeOptionalString(payload.sharedSecretRef, 'sharedSecretRef'),
-    state: payload.state === undefined ? undefined : requireDeliveryEndpointState(payload.state, 'state'),
-    metadata: payload.metadata === undefined ? undefined : requireObject(payload.metadata, 'metadata'),
-  };
-
-  if (Object.values(patch).every((value) => value === undefined)) {
-    throw new AppError(400, 'invalid_input', 'deliveries.endpoints.update requires at least one field to change');
-  }
-
-  return patch;
-}
-
 function buildSuccessResponse(input: {
   action: string;
   actor: ActorContext;
@@ -434,50 +364,7 @@ function buildSuccessResponse(input: {
   };
 }
 
-async function readExecutionResponseBody(response: Response): Promise<string | null> {
-  const body = await response.text();
-  if (body.length === 0) {
-    return null;
-  }
-
-  return body.length > 4000 ? `${body.slice(0, 4000)}…` : body;
-}
-
-async function buildSignedDeliveryHeaders(input: {
-  endpoint: DeliveryEndpointSummary;
-  delivery: DeliverySummary;
-  attempt: DeliveryAttemptSummary;
-  body: string;
-  resolveDeliverySecret?: DeliverySecretResolver;
-}): Promise<Record<string, string>> {
-  const sharedSecretRef = input.endpoint.sharedSecretRef?.trim() ?? null;
-
-  if (!sharedSecretRef) {
-    return {};
-  }
-
-  if (!input.resolveDeliverySecret) {
-    throw new Error(`Delivery endpoint ${input.endpoint.endpointId} requires secret resolution before execution`);
-  }
-
-  const secret = await input.resolveDeliverySecret({
-    sharedSecretRef,
-    endpoint: input.endpoint,
-    delivery: input.delivery,
-    attempt: input.attempt,
-  });
-
-  if (typeof secret !== 'string' || secret.length === 0) {
-    throw new Error(`Delivery endpoint ${input.endpoint.endpointId} secret could not be resolved`);
-  }
-
-  return signClawClubDelivery({ secret, body: input.body });
-}
-
-export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeliverySecret }: { repository: Repository; fetchImpl?: typeof fetch; resolveDeliverySecret?: DeliverySecretResolver }) {
-  if (typeof fetchImpl !== 'function') {
-    throw new Error('fetch implementation is required');
-  }
+export function buildApp({ repository }: { repository: Repository }) {
   return {
     async handleAction(input: {
       bearerToken: string | null;
@@ -487,53 +374,14 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
       const bearerToken = requireNonEmptyString(input.bearerToken, 'Authorization bearer token');
       const action = requireNonEmptyString(input.action, 'action');
       const payload = (input.payload ?? {}) as Record<string, unknown>;
+      const auth = await repository.authenticateBearerToken(bearerToken);
 
-      const requiresWorkerAuth = DELIVERY_WORKER_ACTIONS.has(action);
-      const workerAuth = requiresWorkerAuth
-        ? await repository.authenticateDeliveryWorkerToken?.(bearerToken) ?? null
-        : null;
-      const auth = requiresWorkerAuth ? null : await repository.authenticateBearerToken(bearerToken);
-
-      if (!auth && !workerAuth) {
+      if (!auth) {
         throw new AppError(401, 'unauthorized', 'Unknown bearer token');
       }
 
-      const actor = auth?.actor ?? {
-        member: {
-          id: workerAuth!.actorMemberId,
-          handle: null,
-          publicName: workerAuth!.label ?? 'Delivery worker',
-        },
-        memberships: [],
-        globalRoles: [],
-      };
-      const sharedContext = auth?.sharedContext ?? { pendingDeliveries: [] };
-
-      const deliveryResponse = await handleDeliveryAction({
-        action,
-        payload,
-        actor,
-        workerAuth,
-        sharedContext,
-        repository,
-        fetchImpl,
-        resolveDeliverySecret,
-        buildSuccessResponse,
-        createAppError: (status, code, message) => new AppError(status, code, message),
-        normalizeLimit,
-        normalizeOptionalDeliveryAttemptStatus,
-        normalizeOptionalString,
-        requireAccessibleNetwork,
-        requireInteger,
-        requireNonEmptyString,
-        normalizeCreateDeliveryEndpointInput,
-        normalizeUpdateDeliveryEndpointPatch,
-        buildSignedDeliveryHeaders,
-        readExecutionResponseBody,
-      });
-      if (deliveryResponse) {
-        return deliveryResponse;
-      }
+      const actor = auth.actor;
+      const sharedContext = auth.sharedContext ?? { pendingUpdates: [] };
 
       const admissionsResponse = await handleAdmissionsAction({
         action,
@@ -573,6 +421,23 @@ export function buildApp({ repository, fetchImpl = globalThis.fetch, resolveDeli
       });
       if (profileResponse) {
         return profileResponse;
+      }
+
+      const updatesResponse = await handleUpdatesAction({
+        action,
+        payload,
+        actor,
+        requestScope: auth.requestScope,
+        sharedContext,
+        repository,
+        buildSuccessResponse,
+        createAppError: (status, code, message) => new AppError(status, code, message),
+        normalizeLimit,
+        requireInteger,
+        requireNonEmptyString,
+      });
+      if (updatesResponse) {
+        return updatesResponse;
       }
 
       const contentResponse = await handleContentAction({

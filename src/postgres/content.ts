@@ -14,6 +14,7 @@ import type {
 } from '../app.ts';
 import { mapEmbeddingProjectionRow } from './projections.ts';
 import { buildContainsLikePattern, buildPrefixLikePattern, normalizeSearchQuery } from './search.ts';
+import { appendEntityVersionUpdates } from './updates.ts';
 
 type DbClient = Pool | PoolClient;
 
@@ -21,7 +22,7 @@ type ApplyActorContext = (
   client: DbClient,
   actorMemberId: string,
   networkIds: string[],
-  options?: { deliveryWorkerScope?: boolean },
+  options?: Record<string, never>,
 ) => Promise<void>;
 
 type WithActorContext = <T>(
@@ -178,6 +179,51 @@ function mapEventRow(row: EventRow): EventSummary {
       attendees: row.attendees ?? [],
     },
     createdAt: row.entity_created_at,
+  };
+}
+
+function buildEntityUpdatePayload(input: {
+  entityId: string;
+  entityVersionId: string;
+  networkId: string;
+  kind: EntitySummary['kind'] | 'event';
+  state: 'published' | 'archived';
+  author: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  };
+  title: string | null;
+  summary: string | null;
+  body: string | null;
+  effectiveAt: string;
+  expiresAt: string | null;
+  content: Record<string, unknown>;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  timezone?: string | null;
+  recurrenceRule?: string | null;
+  capacity?: number | null;
+}) {
+  return {
+    kind: 'entity',
+    entityId: input.entityId,
+    entityVersionId: input.entityVersionId,
+    networkId: input.networkId,
+    entityKind: input.kind,
+    state: input.state,
+    author: input.author,
+    title: input.title,
+    summary: input.summary,
+    body: input.body,
+    effectiveAt: input.effectiveAt,
+    expiresAt: input.expiresAt,
+    content: input.content,
+    startsAt: input.startsAt ?? null,
+    endsAt: input.endsAt ?? null,
+    timezone: input.timezone ?? null,
+    recurrenceRule: input.recurrenceRule ?? null,
+    capacity: input.capacity ?? null,
   };
 }
 
@@ -358,14 +404,32 @@ export function buildContentRepository({
           `,
           [entity.id, input.title, input.summary, input.body, input.expiresAt, JSON.stringify(input.content), input.authorMemberId],
         );
-        await client.query('commit');
-
-        const summary = await withActorContext(pool, input.authorMemberId, [input.networkId], (scopedClient) =>
-          readEntitySummary(scopedClient, entity.id, versionResult.rows[0]!.id),
-        );
+        const summary = await readEntitySummary(client, entity.id, versionResult.rows[0]!.id);
         if (!summary) {
           throw new Error('Created entity could not be reloaded');
         }
+        await appendEntityVersionUpdates(client, {
+          networkId: summary.networkId,
+          entityId: summary.entityId,
+          entityVersionId: summary.entityVersionId,
+          topic: 'entity.version.published',
+          createdByMemberId: input.authorMemberId,
+          payload: buildEntityUpdatePayload({
+            entityId: summary.entityId,
+            entityVersionId: summary.entityVersionId,
+            networkId: summary.networkId,
+            kind: summary.kind,
+            state: summary.version.state,
+            author: summary.author,
+            title: summary.version.title,
+            summary: summary.version.summary,
+            body: summary.version.body,
+            effectiveAt: summary.version.effectiveAt,
+            expiresAt: summary.version.expiresAt,
+            content: summary.version.content,
+          }),
+        });
+        await client.query('commit');
         return summary;
       } catch (error) {
         await client.query('rollback');
@@ -451,15 +515,32 @@ export function buildContentRepository({
             input.actorMemberId,
           ],
         );
-
-        await client.query('commit');
-
-        const summary = await withActorContext(pool, input.actorMemberId, input.accessibleNetworkIds, (scopedClient) =>
-          readEntitySummary(scopedClient, current.entity_id, nextVersionResult.rows[0]!.id),
-        );
+        const summary = await readEntitySummary(client, current.entity_id, nextVersionResult.rows[0]!.id);
         if (!summary) {
           throw new Error('Updated entity could not be reloaded');
         }
+        await appendEntityVersionUpdates(client, {
+          networkId: summary.networkId,
+          entityId: summary.entityId,
+          entityVersionId: summary.entityVersionId,
+          topic: 'entity.version.published',
+          createdByMemberId: input.actorMemberId,
+          payload: buildEntityUpdatePayload({
+            entityId: summary.entityId,
+            entityVersionId: summary.entityVersionId,
+            networkId: summary.networkId,
+            kind: summary.kind,
+            state: summary.version.state,
+            author: summary.author,
+            title: summary.version.title,
+            summary: summary.version.summary,
+            body: summary.version.body,
+            effectiveAt: summary.version.effectiveAt,
+            expiresAt: summary.version.expiresAt,
+            content: summary.version.content,
+          }),
+        });
+        await client.query('commit');
         return summary;
       } catch (error) {
         await client.query('rollback');
@@ -549,9 +630,7 @@ export function buildContentRepository({
           ],
         );
 
-        await client.query('commit');
-
-        return {
+        const summary: EntitySummary = {
           entityId: current.entity_id,
           entityVersionId: archivedVersionResult.rows[0]!.id,
           networkId: current.network_id,
@@ -575,6 +654,29 @@ export function buildContentRepository({
           },
           createdAt: current.entity_created_at,
         };
+        await appendEntityVersionUpdates(client, {
+          networkId: summary.networkId,
+          entityId: summary.entityId,
+          entityVersionId: summary.entityVersionId,
+          topic: 'entity.version.archived',
+          createdByMemberId: input.actorMemberId,
+          payload: buildEntityUpdatePayload({
+            entityId: summary.entityId,
+            entityVersionId: summary.entityVersionId,
+            networkId: summary.networkId,
+            kind: summary.kind,
+            state: summary.version.state,
+            author: summary.author,
+            title: summary.version.title,
+            summary: summary.version.summary,
+            body: summary.version.body,
+            effectiveAt: summary.version.effectiveAt,
+            expiresAt: summary.version.expiresAt,
+            content: summary.version.content,
+          }),
+        });
+        await client.query('commit');
+        return summary;
       } catch (error) {
         await client.query('rollback');
         throw error;
@@ -617,14 +719,37 @@ export function buildContentRepository({
             input.authorMemberId,
           ],
         );
-        await client.query('commit');
-
-        const event = await withActorContext(pool, input.authorMemberId, [input.networkId], (scopedClient) =>
-          readEventSummary(scopedClient, input.authorMemberId, entityId, versionResult.rows[0]!.id),
-        );
+        const event = await readEventSummary(client, input.authorMemberId, entityId, versionResult.rows[0]!.id);
         if (!event) {
           throw new Error('Created event could not be reloaded');
         }
+        await appendEntityVersionUpdates(client, {
+          networkId: event.networkId,
+          entityId: event.entityId,
+          entityVersionId: event.entityVersionId,
+          topic: 'entity.version.published',
+          createdByMemberId: input.authorMemberId,
+          payload: buildEntityUpdatePayload({
+            entityId: event.entityId,
+            entityVersionId: event.entityVersionId,
+            networkId: event.networkId,
+            kind: 'event',
+            state: event.version.state,
+            author: event.author,
+            title: event.version.title,
+            summary: event.version.summary,
+            body: event.version.body,
+            effectiveAt: event.version.effectiveAt,
+            expiresAt: event.version.expiresAt,
+            content: event.version.content,
+            startsAt: event.version.startsAt,
+            endsAt: event.version.endsAt,
+            timezone: event.version.timezone,
+            recurrenceRule: event.version.recurrenceRule,
+            capacity: event.version.capacity,
+          }),
+        });
+        await client.query('commit');
         return event;
       } catch (error) {
         await client.query('rollback');

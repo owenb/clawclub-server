@@ -151,19 +151,13 @@ ClawClub already has:
 - deterministic plain-text retrieval for entities and events
 - entity create/update/archive/list for posts, asks, services, and opportunities
 - archive visibility now follows the latest entity version state, keeping the content lifecycle append-only
-- delivery claim/execute/complete/fail plumbing
-- webhook signing with real secret resolution (`env:` and `op://`) plus receiver verification helpers
-- endpoint inventory now includes per-endpoint delivery health counters for quick operator checks
-- a tiny delivery worker CLI for draining pending deliveries in short passes
+- append-only `member_updates` plus explicit `member_update_receipts`
+- `GET /updates` for cursor-based polling and `GET /updates/stream` for SSE replay + live push
+- DM sends and content publishes fan out into the same recipient update log
 - hardened HTTP server defaults for request size, header timeout, request timeout, keep-alive, and per-socket reuse
 - API responses now ship with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`
 - a real over-HTTP smoke command that mints a temporary token, boots the server, exercises core read surfaces, and revokes the token
-- WebHugs/webhook delivery is still disabled operationally until outbound hardening is finished:
-  - `https://`-only endpoint validation
-  - SSRF blocking for localhost, private ranges, and metadata/internal targets after DNS resolution
-  - fetch timeout and redirect denial/limits
-  - restrict `env:` signing-secret resolution to an explicit allowlist or dedicated namespace
-  - retry/backoff plus endpoint disable/circuit-break rules
+- WebHugs/webhook delivery has been removed in favor of first-party polling + SSE
 - embeddings-ready projection placeholders for current profile/entity versions
 - a ConsciousClaw seed flow
 - tests
@@ -207,7 +201,7 @@ export CLAWCLUB_DB_APP_PASSWORD=...
 npm run db:provision:app-role
 ```
 
-For a real Hetzner-hosted server runbook (env, migrate, systemd, worker, backups, health), see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).
+For a real Hetzner-hosted server runbook (env, migrate, systemd, SSE/proxy notes, backups, health), see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).
 
 Add a new member to a network:
 
@@ -221,21 +215,19 @@ Generate a bearer token for a member:
 npm run api:token -- create --handle owen-barnes --label local-dev
 ```
 
-Mint a dedicated delivery worker token with explicit network scope:
+Poll updates with a cursor:
 
 ```bash
-npm run api:worker-token -- create --member <member_id> --networks <network_id[,network_id...]> --label local-dev
+curl -s 'http://127.0.0.1:8787/updates?limit=10' \
+  -H 'Authorization: Bearer <token>'
 ```
 
-Run a short delivery worker pass with that worker token:
+Open the live SSE stream:
 
 ```bash
-export CLAWCLUB_WORKER_BEARER_TOKEN=<worker_token>
-npm run api:worker -- --worker-key local-dev --max-runs 10
+curl -N http://127.0.0.1:8787/updates/stream \
+  -H 'Authorization: Bearer <token>'
 ```
-
-WebHugs are disabled operationally right now. Leave the worker off unless you are actively developing or validating the delivery path.
-Before re-enabling it in production, finish the outbound hardening checklist above.
 
 The HTTP edge now enforces:
 - 1MB JSON request bodies
@@ -246,8 +238,6 @@ The HTTP edge now enforces:
 - JSON responses marked `no-store` with `nosniff`
 
 If you deploy behind a reverse proxy, keep the proxy at least this strict.
-
-The worker simply calls the existing `deliveries.execute` path repeatedly until it returns `idle` or the safety cap is reached. These execution surfaces now require dedicated worker/service auth rather than ordinary member bearer tokens.
 
 Example request:
 
@@ -294,8 +284,8 @@ By default the foreman scripts now derive `PROJECT_ROOT` from the repo location 
 ## Near-term roadmap
 
 Next up:
-1. harden WebHugs/webhook execution before re-enabling it
-2. validate `/updates` polling against real OpenClaw client behavior and tune relevance/seen semantics if needed
+1. validate `/updates/stream` reconnect/resume behavior against real OpenClaw clients
+2. keep `/updates` polling semantics aligned with the same append-only update log
 3. richer search/embeddings maturity
 4. keep docs and deployment runbooks aligned with the hardened server/runtime shape
 
@@ -306,5 +296,5 @@ Useful early contribution areas:
 - Postgres schema review
 - self-hosting/dev setup polish
 - HTTP smoke and deployment validation
-- WebHugs hardening and receiver verification examples
+- SSE client integration and replay validation
 - documentation and examples

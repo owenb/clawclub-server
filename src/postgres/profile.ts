@@ -8,7 +8,7 @@ type ApplyActorContext = (
   client: DbClient,
   actorMemberId: string,
   networkIds: string[],
-  options?: { deliveryWorkerScope?: boolean },
+  options?: Record<string, never>,
 ) => Promise<void>;
 
 type WithActorContext = <T>(

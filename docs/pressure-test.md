@@ -1,6 +1,6 @@
 # Pressure-Test Notes
 
-This document is a historical note about the first schema hardening pass. The core problems and fixes described here were real, but later migrations added RLS, worker auth, ownership history, membership state history, and the HTTP/app layer on top.
+This document is a historical note about the first schema hardening pass. The core problems and fixes described here were real, but later migrations added stronger RLS, ownership history, membership state history, the HTTP/app layer, and the current update-stream transport on top.
 
 ## Gaps found
 
@@ -63,7 +63,7 @@ At the time of this pass, these were intentionally left to application logic:
 - shared-network DM permission checks
 - ambiguous-search clarification flow
 - owner-editable prompting policy
-- delivery judgment / alerting heuristics
+- update judgment / alerting heuristics
 - embedding generation and ranking
 - account erasure execution workflow
 

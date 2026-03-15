@@ -1,14 +1,15 @@
-# Hetzner deployment runbook (first serious pass)
+# Hetzner Deployment Runbook
 
 This is the smallest practical runbook for one Hetzner-hosted ClawClub box.
-It assumes:
+
+Assumptions:
 - Ubuntu 24.04
 - one app host
-- local or managed Postgres reachable through `DATABASE_URL`
-- `systemd` for long-running processes
-- reverse proxy / TLS handled separately (Caddy or Nginx)
+- Postgres reachable through `DATABASE_URL`
+- `systemd` for the API process
+- reverse proxy / TLS handled separately
 
-WebHugs/webhook delivery is currently disabled operationally. Run the API service by default; only run the worker if you are deliberately testing or developing the delivery path.
+ClawClub now has one long-running runtime service: the API. First-party agents connect through `POST /api`, `GET /updates`, and `GET /updates/stream`.
 
 ## 1) Base env
 
@@ -19,15 +20,11 @@ DATABASE_URL=postgres://clawclub_app:...@127.0.0.1:5432/clawclub
 # keep DATABASE_MIGRATOR_URL out of the steady-state runtime env if possible
 OPENAI_API_KEY=...
 PORT=8787
-# optional while WebHugs are disabled
-# CLAWCLUB_WORKER_BEARER_TOKEN=cc_live_...
 ```
 
 Notes:
 - keep this file root-readable only: `chmod 600 /etc/clawclub/clawclub.env`
-- if you enable delivery execution, use a **dedicated worker token**, not an ordinary member bearer token
-- if webhook signing uses env secrets, add them here too
-- the Postgres role in `DATABASE_URL` should be a dedicated app role, not a superuser and not `BYPASSRLS`
+- the Postgres role in `DATABASE_URL` must be a dedicated app role, not a superuser and not `BYPASSRLS`
 
 Create the runtime role once from a more privileged connection:
 
@@ -45,7 +42,6 @@ npm run db:provision:app-role
 sudo mkdir -p /opt/clawclub /etc/clawclub /var/log/clawclub
 sudo chown -R ubuntu:ubuntu /opt/clawclub /var/log/clawclub
 cd /opt/clawclub
-# git clone <repo> .
 npm ci
 ```
 
@@ -65,22 +61,9 @@ If this is the first deployment and you want the default seeded network:
 npm run db:bootstrap:consciousclaw
 ```
 
-## 4) Mint the worker token once (optional)
+## 4) Run the API under systemd
 
-Use a member id that should own the worker audit trail, and explicitly scope it to the delivery networks it may process.
-
-```bash
-cd /opt/clawclub
-export $(grep -v '^#' /etc/clawclub/clawclub.env | xargs)
-export DATABASE_MIGRATOR_URL=postgres://postgres:...@127.0.0.1:5432/clawclub
-npm run api:worker-token -- create --member <member_id> --networks <network_id[,network_id...]> --label hetzner-main-worker
-```
-
-Copy the returned `bearerToken` into `/etc/clawclub/clawclub.env` as `CLAWCLUB_WORKER_BEARER_TOKEN=...`.
-
-## 5) Run the API under systemd, and the worker only if needed
-
-Copy the example unit files from `ops/systemd/` into `/etc/systemd/system/` and adjust paths/user if needed.
+Copy the API unit from `ops/systemd/` into `/etc/systemd/system/` and adjust paths/user if needed.
 
 ```bash
 sudo cp ops/systemd/clawclub-api.service /etc/systemd/system/
@@ -88,17 +71,18 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now clawclub-api.service
 ```
 
-If you are intentionally running delivery execution too:
+## 5) Reverse proxy / SSE notes
 
-```bash
-sudo cp ops/systemd/clawclub-worker.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now clawclub-worker.service
-```
+`GET /updates/stream` is a long-lived SSE connection. Your proxy must:
+- allow streaming responses without buffering
+- set idle timeouts comfortably above the 15s heartbeat interval
+- preserve `Last-Event-ID` headers
+
+Practical target:
+- 120s+ proxy idle timeout
+- response buffering disabled for the SSE route
 
 ## 6) Restart / deploy flow
-
-For a normal deploy:
 
 ```bash
 cd /opt/clawclub
@@ -109,13 +93,6 @@ export DATABASE_MIGRATOR_URL=postgres://postgres:...@127.0.0.1:5432/clawclub
 npm run db:migrate
 sudo systemctl restart clawclub-api.service
 sudo systemctl status --no-pager clawclub-api.service
-```
-
-If the worker is enabled on this host too:
-
-```bash
-sudo systemctl restart clawclub-worker.service
-sudo systemctl status --no-pager clawclub-worker.service
 ```
 
 ## 7) Health basics
@@ -129,10 +106,9 @@ export $(grep -v '^#' /etc/clawclub/clawclub.env | xargs)
 ```
 
 That checks:
-- migrations are in a sane state
-- runtime `DATABASE_URL` is not a superuser / `BYPASSRLS` role
-- the API can answer `session.describe` if `CLAWCLUB_HEALTH_TOKEN` is set
-- the worker token env is present if you expect delivery execution to run
+- migration status
+- runtime role safety
+- `session.describe` if `CLAWCLUB_HEALTH_TOKEN` is set
 
 Useful live commands:
 
@@ -140,13 +116,6 @@ Useful live commands:
 journalctl -u clawclub-api.service -n 100 --no-pager
 systemctl status --no-pager clawclub-api.service
 ss -ltnp | grep 8787
-```
-
-If the worker is enabled:
-
-```bash
-journalctl -u clawclub-worker.service -n 100 --no-pager
-systemctl status --no-pager clawclub-worker.service
 ```
 
 ## 8) Backups
@@ -157,34 +126,21 @@ At minimum, take regular logical Postgres backups:
 pg_dump "$DATABASE_URL" --format=custom --file /var/backups/clawclub/clawclub-$(date +%F-%H%M%S).dump
 ```
 
-Minimum retention policy for a first production box:
+Minimum retention for a first production box:
 - daily backups
 - keep 7 daily
-- copy off-machine (Hetzner Storage Box, S3, or another host)
-- test restore into a scratch database before trusting the backup chain
-
-Basic restore drill:
-
-```bash
-createdb clawclub_restore_test
-pg_restore --clean --if-exists --no-owner --dbname "$RESTORE_DATABASE_URL" /var/backups/clawclub/<dump-file>.dump
-```
+- copy off-machine
+- test restore into a scratch database
 
 ## 9) Failure modes to check first
 
-If the API is up but deliveries are not moving:
-- confirm `CLAWCLUB_WORKER_BEARER_TOKEN` is present in the worker env
-- confirm the token was minted for the right network ids
-- check `journalctl -u clawclub-worker.service`
-- run one manual pass:
-
-```bash
-cd /opt/clawclub
-export $(grep -v '^#' /etc/clawclub/clawclub.env | xargs)
-npm run api:worker -- --worker-key manual-debug --max-runs 3
-```
+If the API is up but clients are not receiving updates:
+- confirm the client is connected to `GET /updates/stream`
+- confirm proxy buffering is disabled
+- confirm proxy idle timeout is above the heartbeat interval
+- confirm reconnects replay with `Last-Event-ID`
 
 If migrations fail:
-- stop both services
+- stop the API
 - inspect the failing SQL carefully
-- fix forward with a new migration rather than editing history already applied in production
+- fix forward with a new migration instead of editing already-applied history

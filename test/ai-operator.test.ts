@@ -23,7 +23,7 @@ function makeAuthResult(): AuthResult {
       }],
     },
     requestScope: { requestedNetworkId: null, activeNetworkIds: ['network-conscious'] },
-    sharedContext: { pendingDeliveries: [] },
+    sharedContext: { pendingUpdates: [] },
   };
 }
 
@@ -51,10 +51,6 @@ function makeRepository(): Repository {
     async listApplications() { return []; },
     async createApplication() { return null; },
     async transitionApplication() { return null; },
-    async listDeliveryEndpoints() { return []; },
-    async createDeliveryEndpoint() { throw new Error('unused'); },
-    async updateDeliveryEndpoint() { return null; },
-    async revokeDeliveryEndpoint() { return null; },
     async searchMembers() { return []; },
     async listMembers() { return []; },
     async getMemberProfile() { return null; },
@@ -68,13 +64,6 @@ function makeRepository(): Repository {
     async listBearerTokens() { return []; },
     async createBearerToken() { throw new Error('unused'); },
     async revokeBearerToken() { return null; },
-    async acknowledgeDelivery() { return null; },
-    async listDeliveries() { return []; },
-    async listDeliveryAttempts() { return []; },
-    async retryDelivery() { return null; },
-    async claimNextDelivery() { return null; },
-    async completeDeliveryAttempt() { return null; },
-    async failDeliveryAttempt() { return null; },
     async sendDirectMessage() { return null; },
     async listDirectMessageThreads() { return []; },
     async listDirectMessageInbox() { return []; },

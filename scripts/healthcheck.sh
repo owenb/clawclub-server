@@ -37,14 +37,6 @@ else
   echo "ok: role=$db_role superuser=$db_superuser bypassrls=$db_bypassrls"
 fi
 
-if [[ -n "${CLAWCLUB_WORKER_BEARER_TOKEN:-}" ]]; then
-  printf '\n== worker token env ==\n'
-  echo 'present'
-else
-  printf '\n== worker token env ==\n'
-  echo 'missing CLAWCLUB_WORKER_BEARER_TOKEN'
-fi
-
 if [[ -n "${CLAWCLUB_HEALTH_TOKEN:-}" ]]; then
   printf '\n== api session.describe ==\n'
   curl -fsS "$APP_URL/api" \

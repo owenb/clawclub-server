@@ -17,11 +17,11 @@ cat >"$QUEUE_FILE" <<JSON
   "activeTaskId": null,
   "tasks": [
     {
-      "id": "roadmap-delivery-worker-loop",
-      "title": "Add a tiny delivery worker loop CLI that runs deliveries.execute until idle with tests and docs",
+      "id": "roadmap-update-stream-resume-hardening",
+      "title": "Harden update stream resume semantics and replay docs",
       "status": "queued",
       "createdAt": "$NOW",
-      "prompt": "Work in $PROJECT_ROOT only. Implement the next real ClawClub roadmap slice: add a tiny transparent worker CLI/script that repeatedly runs the existing deliveries.execute path until it returns idle or reaches a small safety limit. Keep it simple. Add or update tests proving success, idle exit, and safety-limit behavior. Update README/docs briefly. Commit cleanly and report concise milestones/blockers."
+      "prompt": "Work in $PROJECT_ROOT only. Implement the next ClawClub reliability slice for the member update stream: tighten cursor replay semantics, add or update tests around reconnect/resume behavior, and refresh the docs so OpenClaw-style agents have a crisp transport contract. Keep it simple and append-only. Commit cleanly and report concise milestones/blockers."
     },
     {
       "id": "roadmap-embeddings-foundation",

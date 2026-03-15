@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const execFileAsync = promisify(execFile);
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
-test('healthcheck script reports migration status, worker token presence, and skipped api check without a health token', async () => {
+test('healthcheck script reports migration status and skipped api check without a health token', async () => {
   const tmpDir = '/tmp/clawclub-healthcheck-test';
   await mkdir(tmpDir, { recursive: true });
 
@@ -23,14 +23,12 @@ test('healthcheck script reports migration status, worker token presence, and sk
       ...process.env,
       PATH: `${stubDir}:${process.env.PATH}`,
       DATABASE_URL: 'postgres://example.test/clawclub',
-      CLAWCLUB_WORKER_BEARER_TOKEN: 'cc_live_test_worker',
     },
   });
 
   assert.match(stdout, /== migration status ==/);
   assert.match(stdout, /applied:0017_membership_state_compatibility_sync/);
   assert.match(stdout, /== database role safety ==\s+ok: role=runtime_role superuser=f bypassrls=f/s);
-  assert.match(stdout, /== worker token env ==\s+present/s);
   assert.match(stdout, /== api session.describe ==\s+skipped \(set CLAWCLUB_HEALTH_TOKEN to enable\)/s);
 });
 
