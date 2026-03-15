@@ -376,6 +376,7 @@ function makeApplication(overrides: Partial<ApplicationSummary> = {}): Applicati
       memberId: 'member-9',
       publicName: 'Member Nine',
       handle: 'member-nine',
+      email: null,
     },
     sponsor: {
       memberId: 'member-1',
@@ -1122,6 +1123,116 @@ test('applications.transition can append accepted interview state and activate t
     acceptedCovenantAt: null,
     readyForActivation: false,
   });
+});
+
+test('applications.challenge creates a cold application challenge without a bearer token', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() {
+      throw new Error('authenticateBearerToken should not run for cold application actions');
+    },
+    async createColdApplicationChallenge(input) {
+      capturedInput = input as Record<string, unknown>;
+      return {
+        challengeId: 'challenge-1',
+        difficulty: 7,
+        expiresAt: '2026-03-15T13:00:00.000Z',
+      };
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: null,
+    action: 'applications.challenge',
+    payload: {
+      networkSlug: 'consciousclaw',
+      email: 'Jane@Example.com',
+      name: 'Jane Doe',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    networkSlug: 'consciousclaw',
+    email: 'jane@example.com',
+    name: 'Jane Doe',
+  });
+  assert.equal(result.action, 'applications.challenge');
+  assert.deepEqual(result.data, {
+    challengeId: 'challenge-1',
+    difficulty: 7,
+    expiresAt: '2026-03-15T13:00:00.000Z',
+  });
+  assert.equal('actor' in result, false);
+});
+
+test('applications.challenge returns 404 when the network slug is unknown', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() {
+      throw new Error('authenticateBearerToken should not run for cold application actions');
+    },
+    async createColdApplicationChallenge() {
+      return null;
+    },
+  };
+
+  const app = buildApp({ repository });
+  await assert.rejects(
+    () => app.handleAction({
+      bearerToken: null,
+      action: 'applications.challenge',
+      payload: {
+        networkSlug: 'missing-network',
+        email: 'jane@example.com',
+        name: 'Jane Doe',
+      },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 404);
+      assert.equal(error.code, 'not_found');
+      return true;
+    },
+  );
+});
+
+test('applications.solve submits a solved cold application without a bearer token', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() {
+      throw new Error('authenticateBearerToken should not run for cold application actions');
+    },
+    async solveColdApplicationChallenge(input) {
+      capturedInput = input as Record<string, unknown>;
+      return { success: true };
+    },
+  };
+
+  const app = buildApp({ repository });
+  const result = await app.handleAction({
+    bearerToken: null,
+    action: 'applications.solve',
+    payload: {
+      challengeId: 'challenge-1',
+      nonce: '183729471',
+    },
+  });
+
+  assert.deepEqual(capturedInput, {
+    challengeId: 'challenge-1',
+    nonce: '183729471',
+  });
+  assert.equal(result.action, 'applications.solve');
+  assert.equal(
+    result.data.message,
+    'Application submitted. The network owner will review your application and may reach out by email to schedule an interview.',
+  );
+  assert.equal('actor' in result, false);
 });
 
 test('members.search narrows scope when a permitted network is requested', async () => {

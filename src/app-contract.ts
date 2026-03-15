@@ -84,9 +84,10 @@ export type ApplicationSummary = {
   applicationId: string;
   networkId: string;
   applicant: {
-    memberId: string;
+    memberId: string | null;
     publicName: string;
     handle: string | null;
+    email: string | null;
   };
   sponsor: {
     memberId: string;
@@ -100,7 +101,7 @@ export type ApplicationSummary = {
     acceptedCovenantAt: string | null;
     readyForActivation: boolean;
   };
-  path: 'sponsored' | 'outside';
+  path: 'sponsored' | 'outside' | 'cold';
   intake: {
     kind: 'fit_check' | 'advice_call' | 'other';
     price: {
@@ -128,7 +129,7 @@ export type CreateApplicationInput = {
   applicantMemberId: string;
   sponsorMemberId?: string | null;
   membershipId?: string | null;
-  path: 'sponsored' | 'outside';
+  path: 'sponsored' | 'outside' | 'cold';
   initialStatus: Extract<ApplicationStatus, 'draft' | 'submitted' | 'interview_scheduled'>;
   notes?: string | null;
   intake: {
@@ -142,6 +143,23 @@ export type CreateApplicationInput = {
     completedAt?: string | null;
   };
   metadata: Record<string, unknown>;
+};
+
+export type CreateColdApplicationChallengeInput = {
+  networkSlug: string;
+  email: string;
+  name: string;
+};
+
+export type SolveColdApplicationChallengeInput = {
+  challengeId: string;
+  nonce: string;
+};
+
+export type ColdApplicationChallengeResult = {
+  challengeId: string;
+  difficulty: number;
+  expiresAt: string;
 };
 
 export type TransitionApplicationInput = {
@@ -612,6 +630,8 @@ export type Repository = {
   }): Promise<ApplicationSummary[]>;
   createApplication?(input: CreateApplicationInput): Promise<ApplicationSummary | null>;
   transitionApplication?(input: TransitionApplicationInput): Promise<ApplicationSummary | null>;
+  createColdApplicationChallenge?(input: CreateColdApplicationChallengeInput): Promise<ColdApplicationChallengeResult | null>;
+  solveColdApplicationChallenge?(input: SolveColdApplicationChallengeInput): Promise<{ success: boolean } | null>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: {

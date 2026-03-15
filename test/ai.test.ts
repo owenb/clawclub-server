@@ -81,7 +81,7 @@ function makeApplication(overrides: Partial<ApplicationSummary> = {}): Applicati
   return {
     applicationId: 'application-1',
     networkId: 'network-1',
-    applicant: { memberId: 'member-2', publicName: 'Member Two', handle: 'member-two' },
+    applicant: { memberId: 'member-2', publicName: 'Member Two', handle: 'member-two', email: null },
     sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
     membershipId: null,
     activation: {

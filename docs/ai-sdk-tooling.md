@@ -33,6 +33,7 @@ The first curated tools are:
 - `messages_send`
 
 Notably excluded:
+- unauthenticated cold-application challenge/solve flow
 - token management
 - superadmin network management
 - raw update acknowledgement controls

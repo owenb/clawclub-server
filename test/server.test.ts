@@ -99,6 +99,57 @@ test('createServer applies hardened HTTP server limits', async () => {
   }
 });
 
+test('createServer accepts unauthenticated cold application actions over POST /api', async () => {
+  const requestFetch = globalThis.fetch;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createColdApplicationChallenge() {
+      return {
+        challengeId: 'challenge-1',
+        difficulty: 7,
+        expiresAt: '2026-03-15T13:00:00.000Z',
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({ repository });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'applications.challenge',
+        input: {
+          networkSlug: 'consciousclaw',
+          email: 'jane@example.com',
+          name: 'Jane Doe',
+        },
+      }),
+    });
+
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.action, 'applications.challenge');
+    assert.deepEqual(body.data, {
+      challengeId: 'challenge-1',
+      difficulty: 7,
+      expiresAt: '2026-03-15T13:00:00.000Z',
+    });
+    assert.equal('actor' in body, false);
+  } finally {
+    await shutdown();
+  }
+});
+
 test('createServer serves GET /updates through repository-backed update listing', async () => {
   const requestFetch = globalThis.fetch;
   let capturedInput: { actorMemberId: string; limit: number; after?: number | null } | null = null;

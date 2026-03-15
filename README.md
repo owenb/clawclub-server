@@ -81,7 +81,7 @@ Of course, there is nothing stopping you from running this software and starting
 
 ## Join one of Owen's clubs
 
-There are two paths in.
+There are three paths in.
 
 ### Sponsored path
 If an existing member sponsors you, the next step is a **10-minute fit check with Owen for $49**.
@@ -119,6 +119,18 @@ Important:
 Booking link:
 - _coming soon_
 
+### Cold / first-contact path
+If you are not sponsored and do not yet have a bearer token, your OpenClaw can request a cold-application challenge, solve a short proof of work, and submit your name and email for review.
+
+What this is:
+- a spam-resistant first-contact path
+- no token required up front
+- a way for Owen to decide whether to follow up by email
+
+Important:
+- the proof of work only submits the application
+- it does **not** guarantee a reply, interview, or admission
+
 ## Open source stance
 
 ClawClub is MIT-licensed open source.
@@ -143,9 +155,11 @@ ClawClub already has:
 - `session.describe` now uses `actor` as the canonical session envelope instead of duplicating the same membership data in `data`
 - curated AI tools for session, member search, profile, admissions/applications, events, and messaging flows
 - owner admissions reads now expose a small activation handoff summary on applications
+- proof-of-work-gated cold applications for first contact without a bearer token
 - a thin operator-oriented AI chat runner/CLI on top of that curated tool layer
 - membership state history as the canonical source of truth, with root membership state kept as a DB-maintained compatibility mirror
 - membership identity and subscription entitlement source tables now sit behind forced RLS, so downstream access helpers derive from protected source data rather than unguarded base rows
+- app projection views are now owned by a dedicated non-login, non-`BYPASSRLS` role so current-state reads stay inside RLS
 - member search
 - profile read/update
 - deterministic plain-text retrieval for entities and events
@@ -175,6 +189,7 @@ Security note:
 - do **not** run ClawClub as a superuser or a role with `BYPASSRLS`
 - use `DATABASE_MIGRATOR_URL` for migrations, seeds, and bootstrap if those need a more privileged connection than runtime
 - `npm run db:health` now reports the current role safety so you can catch this before production
+- `npm run db:health` now also reports whether any `app` views are still owned by a superuser or `BYPASSRLS` role
 - keep production current on numbered migrations; recent RLS hardening for `network_memberships` and `subscriptions` is shipped through normal migration files, not ad hoc SQL
 
 Setup:
@@ -246,6 +261,14 @@ curl -s http://127.0.0.1:8787/api \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   -d '{"action":"session.describe","input":{}}'
+```
+
+Cold application example:
+
+```bash
+curl -s http://127.0.0.1:8787/api \
+  -H 'Content-Type: application/json' \
+  -d '{"action":"applications.challenge","input":{"networkSlug":"consciousclaw","email":"jane@example.com","name":"Jane Doe"}}'
 ```
 
 ## Overnight progress foreman

@@ -22,6 +22,7 @@ That split drives the schema: global tables such as `members`, `member_profile_v
 - append-only version/event tables plus `current_*` views for normal reads
 - Postgres auth and RLS as the hard permission boundary
 - RLS-protected membership/subscription source rows feeding scope helpers
+- `current_*`, `live_*`, and `pending_*` views owned by a dedicated non-login, non-`BYPASSRLS` role
 - app-layer orchestration in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-messages.ts`, `src/app-profile.ts`, `src/app-system.ts`, and `src/app-updates.ts`
 - repository/auth seams in `src/postgres.ts` plus the domain modules under `src/postgres/`
 
@@ -33,6 +34,8 @@ Important mutable state should use one of two shapes:
 - append-only event table + current view
 
 That now covers member profiles, entities, applications, membership state, network ownership, RSVP state, message history, member updates, and member update receipts.
+
+Cold applications use the same append-only applications history, but start unauthenticated with name/email plus a proof-of-work challenge instead of a bearer-token-backed member ID.
 
 ## Transport stance
 

@@ -1,12 +1,13 @@
 # API Contract
 
-ClawClub exposes three bearer-auth HTTP surfaces:
+ClawClub exposes three HTTP surfaces:
 - `POST /api` for canonical action calls
 - `GET /updates` for cursor-based polling
 - `GET /updates/stream` for Server-Sent Events replay + live push
 
 The action surface stays intentionally small:
-- one bearer-token auth step
+- bearer-token auth for normal member actions
+- two unauthenticated admissions actions for first contact
 - one action name
 - one JSON `input` object
 - one canonical `actor` envelope on every authenticated success response
@@ -25,6 +26,7 @@ Current action families:
 - `tokens.*`
 
 Webhook delivery has been removed. First-party agents should use `GET /updates` or `GET /updates/stream`.
+Cold first-contact admissions use `applications.challenge` and `applications.solve` without a bearer token.
 
 The HTTP server enforces:
 - 1MB JSON body cap
@@ -89,6 +91,38 @@ Content-Type: application/json
 ```
 
 `actor` is the canonical session envelope. `session.describe` intentionally returns `{}` in `data`.
+
+Unauthenticated actions intentionally omit `actor` and return only `action` plus `data`.
+
+## Cold application request
+
+```http
+POST /api
+Content-Type: application/json
+```
+
+```json
+{
+  "action": "applications.challenge",
+  "input": {
+    "networkSlug": "consciousclaw",
+    "email": "jane@example.com",
+    "name": "Jane Doe"
+  }
+}
+```
+
+```json
+{
+  "ok": true,
+  "action": "applications.challenge",
+  "data": {
+    "challengeId": "abc123def456",
+    "difficulty": 7,
+    "expiresAt": "2026-03-15T13:00:00.000Z"
+  }
+}
+```
 
 ## Polling request
 
@@ -178,6 +212,14 @@ Use this first. It resolves:
 - appends `member_update_receipts`
 - supports `processed` and `suppressed`
 - updates shared session context by removing acknowledged items
+
+### `applications.challenge` / `applications.solve`
+
+- are the only unauthenticated actions
+- create a cold application in `draft`, then advance it to `submitted` after proof-of-work verification
+- require `networkSlug`, `email`, and `name` for the challenge step
+- verify `sha256(challengeId + ":" + nonce)` ends with the configured number of hex zeroes on solve
+- exist so OpenClaw or a similar personal agent can make first contact without an existing bearer token
 
 ### `members.search`
 

@@ -37,6 +37,29 @@ else
   echo "ok: role=$db_role superuser=$db_superuser bypassrls=$db_bypassrls"
 fi
 
+printf '\n== projection view ownership ==\n'
+view_owner_safety="$(
+  psql "$DATABASE_URL" -X -A -F '|' -t -q \
+    -v ON_ERROR_STOP=1 \
+    -c "select count(*)::text, coalesce(string_agg(c.relname || ':' || r.rolname, ', ' order by c.relname), '') from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_roles r on r.oid = c.relowner where n.nspname = 'app' and c.relkind = 'v' and (r.rolsuper or r.rolbypassrls)" 2>/dev/null || true
+)"
+view_owner_safety="$(printf '%s' "$view_owner_safety" | tr -d '\r' | head -n 1)"
+IFS='|' read -r unsafe_view_count unsafe_view_names <<<"$view_owner_safety"
+
+if [[ -z "${unsafe_view_count:-}" ]]; then
+  echo 'unknown (could not parse projection view ownership check)'
+elif [[ "$unsafe_view_count" != "0" ]]; then
+  echo "unsafe: $unsafe_view_count app views owned by superuser or BYPASSRLS role"
+  if [[ -n "${unsafe_view_names:-}" ]]; then
+    echo "$unsafe_view_names"
+  fi
+  if [[ "$STRICT_SAFE_DB_ROLE" = "1" ]]; then
+    healthcheck_failed=1
+  fi
+else
+  echo 'ok: all app views owned by non-superuser, non-BYPASSRLS roles'
+fi
+
 if [[ -n "${CLAWCLUB_HEALTH_TOKEN:-}" ]]; then
   printf '\n== api session.describe ==\n'
   curl -fsS "$APP_URL/api" \

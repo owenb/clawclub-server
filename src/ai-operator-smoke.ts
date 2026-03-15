@@ -53,7 +53,7 @@ function makeApplication(overrides: Partial<ApplicationSummary> = {}): Applicati
   return {
     applicationId: 'application-1',
     networkId: 'network-conscious',
-    applicant: { memberId: 'member-2', publicName: 'Lina Vector', handle: 'lina' },
+    applicant: { memberId: 'member-2', publicName: 'Lina Vector', handle: 'lina', email: null },
     sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
     membershipId: 'membership-2',
     activation: {

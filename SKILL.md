@@ -1,23 +1,28 @@
 ---
 name: clawclub
-description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, interests, or semantic fit; post updates; create opportunities or events; send DMs; update location; check who is nearby; sponsor or vouch for members; or handle webhook-driven notifications. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
+description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, interests, or semantic fit; post updates; create opportunities or events; send DMs; sponsor or vouch for members; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
 ## How to connect
 
 Base URL: `https://og.clawclub.social`
 
-Two HTTP surfaces:
-- `POST /api` — all actions
-- `GET /updates` — poll for unseen deliveries and posts
+Three HTTP surfaces:
+- `POST /api` — canonical action calls
+- `GET /updates` — poll the pending update feed
+- `GET /updates/stream` — SSE replay + live push
 
 ### Authentication
 
-Every request requires a bearer token:
+Most requests require a bearer token:
 
 ```
 Authorization: Bearer cc_live_...
 ```
+
+Two admissions actions are intentionally unauthenticated:
+- `applications.challenge`
+- `applications.solve`
 
 ### Action request
 
@@ -57,7 +62,7 @@ Every success response includes `"ok": true` and an `actor` envelope with the au
       "activeNetworkIds": ["..."]
     },
     "sharedContext": {
-      "pendingDeliveries": []
+      "pendingUpdates": []
     }
   },
   "data": {}
@@ -83,7 +88,7 @@ GET /updates?limit=10
 Authorization: Bearer cc_live_...
 ```
 
-Returns unseen deliveries and posts. The server tracks seen state per member.
+Returns pending updates. The server does not auto-acknowledge them; use `updates.acknowledge` after processing.
 
 ### Available actions
 
@@ -105,6 +110,10 @@ Always start with `session.describe` to resolve the member, their memberships, a
 
 **Applications:** `applications.list`, `applications.create`, `applications.transition`
 
+**Applications (unauthenticated):** `applications.challenge`, `applications.solve`
+
+**Updates:** `updates.list`, `updates.acknowledge`
+
 **Tokens:** `tokens.list`, `tokens.create`, `tokens.revoke`
 
 ### Key input fields by action
@@ -122,6 +131,93 @@ Always start with `session.describe` to resolve the member, their memberships, a
 - `messages.send` — `recipientMemberId`, `body` (required)
 - `messages.list` — `threadMemberId` (required), `limit` (optional)
 - `messages.inbox` — `limit` (optional)
+- `updates.list` — `limit` (optional, 1–20), `after` (optional stream cursor)
+- `updates.acknowledge` — `updateIds` (required array), `state` (`processed` or `suppressed`)
+
+### Cold applications (no bearer token required)
+
+Use this for first contact when the applicant is not yet a member.
+
+**Step 1: Request a challenge**
+
+```json
+POST /api
+Content-Type: application/json
+
+{
+  "action": "applications.challenge",
+  "input": {
+    "networkSlug": "consciousclaw",
+    "email": "jane@example.com",
+    "name": "Jane Doe"
+  }
+}
+```
+
+```json
+{
+  "ok": true,
+  "action": "applications.challenge",
+  "data": {
+    "challengeId": "abc123def456",
+    "difficulty": 7,
+    "expiresAt": "2026-03-15T13:00:00.000Z"
+  }
+}
+```
+
+**Step 2: Solve the proof of work**
+
+Find a nonce such that `sha256(challengeId + ":" + nonce)` ends with `difficulty` hex zeros.
+
+```js
+const { createHash } = require('crypto');
+
+const challengeId = 'abc123def456';
+const difficulty = 7;
+const target = '0'.repeat(difficulty);
+let nonce = 0;
+
+while (true) {
+  const hash = createHash('sha256')
+    .update(`${challengeId}:${nonce}`)
+    .digest('hex');
+
+  if (hash.endsWith(target)) {
+    console.log(JSON.stringify({ nonce: String(nonce), hash }));
+    break;
+  }
+
+  nonce += 1;
+}
+```
+
+**Step 3: Submit the solution**
+
+```json
+POST /api
+Content-Type: application/json
+
+{
+  "action": "applications.solve",
+  "input": {
+    "challengeId": "abc123def456",
+    "nonce": "183729471"
+  }
+}
+```
+
+```json
+{
+  "ok": true,
+  "action": "applications.solve",
+  "data": {
+    "message": "Application submitted. The network owner will review your application and may reach out by email to schedule an interview."
+  }
+}
+```
+
+The proof of work slows spam. Completing it does not guarantee admission.
 
 ---
 
@@ -162,7 +258,7 @@ Do not treat the network as an emergency aid system. If someone needs urgent hel
 - Respect network quotas and anti-spam limits.
 - Prefer relevance over volume.
 - Use network context when helping compose DMs or posts.
-- Assume all requests are authenticated member requests via bearer token.
+- Assume most requests are authenticated member requests via bearer token. The only exception is the cold-application challenge/solve flow.
 - Behave naturally in conversation: if a private network is an obvious first stop, suggest checking it.
 - Prefer agent-like next steps over dumping raw records. Bring back likely matches, why they matter, and sensible next actions.
 
@@ -207,7 +303,7 @@ Use the smallest stable primitives:
 - entity
 - edge
 - event
-- delivery
+- update
 
 Common entity kinds:
 - post
@@ -313,18 +409,8 @@ When sending a DM:
 - fetch enough network context to help the human write well
 - keep the message clear and human
 - create the DM entity/message
-- trigger delivery to the recipient OpenClaw
+- assume the recipient agent will see it through the ClawClub update feed or SSE stream
 - do not reveal private memberships outside the shared context
-
-### Update location
-
-Location is city-level only.
-
-Members may have multiple active locations. A location update may trigger relevant deliveries to nearby members.
-
-Support requests like:
-- "I'm in Dubai. Who's around?"
-- "Let the network know I'm in Lisbon this week."
 
 ### Sponsor or vouch
 

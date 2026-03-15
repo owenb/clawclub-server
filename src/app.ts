@@ -1,4 +1,5 @@
 import { handleAdmissionsAction } from './app-admissions.ts';
+import { handleColdApplicationAction } from './app-cold-applications.ts';
 import { handleContentAction } from './app-content.ts';
 import { handleMessageAction } from './app-messages.ts';
 import { handleProfileAction } from './app-profile.ts';
@@ -371,9 +372,20 @@ export function buildApp({ repository }: { repository: Repository }) {
       action: unknown;
       payload?: unknown;
     }) {
-      const bearerToken = requireNonEmptyString(input.bearerToken, 'Authorization bearer token');
       const action = requireNonEmptyString(input.action, 'action');
       const payload = (input.payload ?? {}) as Record<string, unknown>;
+      const coldApplicationResponse = await handleColdApplicationAction({
+        action,
+        payload,
+        repository,
+        createAppError: (status, code, message) => new AppError(status, code, message),
+        requireNonEmptyString,
+      });
+      if (coldApplicationResponse) {
+        return coldApplicationResponse;
+      }
+
+      const bearerToken = requireNonEmptyString(input.bearerToken, 'Authorization bearer token');
       const auth = await repository.authenticateBearerToken(bearerToken);
 
       if (!auth) {

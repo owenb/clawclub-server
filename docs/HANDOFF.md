@@ -9,6 +9,7 @@ ClawClub is now in **final simplification and production-polish mode**.
 A realistic summary:
 - backend foundation is strong
 - the member, admissions, profile, content, events, messaging, token, and update-stream surfaces exist
+- cold applications now exist as a proof-of-work-gated, unauthenticated first-contact path
 - webhook delivery has been removed in favor of first-party polling + SSE
 - tests are healthy against a real local Postgres role/runtime
 
@@ -25,6 +26,7 @@ Latest known local validation:
 - `session.describe` uses `actor` as the canonical session envelope
 - RLS hardening across member, application, ownership, update, and content surfaces
 - `network_memberships` and `subscriptions` are forced-RLS source tables
+- `app` projection views are owned by `clawclub_view_owner`, a non-login, non-`BYPASSRLS` role
 
 ### Members / profiles / search
 - `members.search`
@@ -69,6 +71,8 @@ Latest known local validation:
 - `memberships.transition`
 - `memberships.review`
 - append-only applications/interviews workflow
+- `applications.challenge`
+- `applications.solve`
 - superadmin network lifecycle:
   - `networks.list`
   - `networks.create`

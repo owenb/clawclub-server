@@ -31,6 +31,7 @@ Approved action namespaces:
 - the app layer provides orchestration and validation
 - Postgres RLS is the hard boundary
 - network scope derives from protected membership and subscription source rows
+- app projection views are owned by a dedicated non-login, non-`BYPASSRLS` role so current-state reads stay inside RLS even when migrations are applied by a privileged role
 
 ## Database architecture
 
@@ -81,6 +82,8 @@ Examples:
 - sponsor is the accountable inviter
 - vouching is a lighter endorsement
 - DMs require at least one shared network
+- warm application path is `sponsored`
+- cold application path is unauthenticated and proof-of-work gated; the applicant provides name and email, solves a SHA-256 challenge, and the owner follows up by email
 
 ## Search and content
 
@@ -156,6 +159,8 @@ Already landed:
 - `tokens.list`
 - `tokens.create`
 - `tokens.revoke`
+- `applications.challenge`
+- `applications.solve`
 - append-only membership/application history
 - SSE and polling over the same update log
 

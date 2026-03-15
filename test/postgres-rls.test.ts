@@ -561,6 +561,151 @@ test('RLS restricts subscription writes to superadmin scope and blocks ordinary 
   });
 });
 
+test('RLS gates cold application insert/select/update behind app.allow_cold_application', async () => {
+  await withIsolatedClient(async (client, roleName) => {
+    const fixture = await seedRlsFixture(client);
+    const seededColdApplication = await client.query<{ id: string }>(
+      `
+        insert into app.applications (
+          network_id,
+          path,
+          applicant_email,
+          applicant_name,
+          metadata
+        )
+        values ($1, 'cold', 'seeded@example.com', 'Seeded Applicant', '{"challenge":{"difficulty":1,"expiresAt":"2099-01-01T00:00:00.000Z"}}'::jsonb)
+        returning id
+      `,
+      [fixture.network1Id],
+    );
+    await client.query(
+      `
+        insert into app.application_versions (
+          application_id,
+          status,
+          notes,
+          version_no
+        )
+        values ($1, 'draft', 'Seeded cold application', 1)
+      `,
+      [seededColdApplication.rows[0]?.id],
+    );
+
+    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
+    await client.query(`select set_config('app.actor_member_id', '', true)`);
+
+    await client.query('savepoint bad_cold_insert');
+    await assert.rejects(
+      () => client.query(
+        `
+          insert into app.applications (
+            network_id,
+            path,
+            applicant_email,
+            applicant_name,
+            metadata
+          )
+          values ($1, 'cold', 'jane@example.com', 'Jane Doe', '{"challenge":{"difficulty":1,"expiresAt":"2099-01-01T00:00:00.000Z"}}'::jsonb)
+        `,
+        [fixture.network1Id],
+      ),
+      /row-level security|violates row-level security policy/i,
+    );
+    await client.query('rollback to savepoint bad_cold_insert');
+
+    const hidden = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.current_applications
+        where id = $1
+      `,
+      [seededColdApplication.rows[0]?.id],
+    );
+    const blockedUpdate = await client.query<{ id: string }>(
+      `
+        update app.applications
+        set metadata = '{}'::jsonb
+        where id = $1
+        returning id
+      `,
+      [seededColdApplication.rows[0]?.id],
+    );
+
+    await client.query(`set local app.allow_cold_application = '1'`);
+    const visible = await client.query<{ visible_count: string }>(
+      `
+        select count(*)::text as visible_count
+        from app.current_applications
+        where id = $1
+      `,
+      [seededColdApplication.rows[0]?.id],
+    );
+    const updated = await client.query<{ id: string }>(
+      `
+        update app.applications
+        set metadata = '{"challenge":{"difficulty":1,"expiresAt":"2099-01-01T00:00:00.000Z","solvedAt":"2099-01-01T00:00:01.000Z"}}'::jsonb
+        where id = $1
+        returning id
+      `,
+      [seededColdApplication.rows[0]?.id],
+    );
+    const inserted = await client.query<{ id: string }>(
+      `
+        insert into app.applications (
+          network_id,
+          path,
+          applicant_email,
+          applicant_name,
+          metadata
+        )
+        values ($1, 'cold', 'jane@example.com', 'Jane Doe', '{"challenge":{"difficulty":1,"expiresAt":"2099-01-01T00:00:00.000Z"}}'::jsonb)
+        returning id
+      `,
+      [fixture.network1Id],
+    );
+    const insertedVersion = await client.query<{ id: string }>(
+      `
+        insert into app.application_versions (
+          application_id,
+          status,
+          notes,
+          version_no
+        )
+        values ($1, 'draft', 'Cold application challenge issued', 1)
+        returning id
+      `,
+      [inserted.rows[0]?.id],
+    );
+
+    assert.equal(typeof inserted.rows[0]?.id, 'string');
+    assert.equal(typeof insertedVersion.rows[0]?.id, 'string');
+    assert.equal(hidden.rows[0]?.visible_count, '0');
+    assert.equal(blockedUpdate.rowCount, 0);
+    assert.equal(visible.rows[0]?.visible_count, '1');
+    assert.equal(updated.rows[0]?.id, seededColdApplication.rows[0]?.id);
+  });
+});
+
+test('app projection views are owned by non-superuser, non-bypassrls roles', async () => {
+  await withIsolatedClient(async (client) => {
+    const result = await client.query<{ unsafe_views: string | null; unsafe_count: string }>(
+      `
+        select
+          count(*)::text as unsafe_count,
+          string_agg(c.relname || ':' || r.rolname, ', ' order by c.relname) as unsafe_views
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        join pg_roles r on r.oid = c.relowner
+        where n.nspname = 'app'
+          and c.relkind = 'v'
+          and (r.rolsuper or r.rolbypassrls)
+      `,
+    );
+
+    assert.equal(result.rows[0]?.unsafe_count, '0', result.rows[0]?.unsafe_views ?? 'unexpected unsafe app view owners');
+  });
+});
+
 test('RLS only lets authors archive accessible entities', async () => {
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
@@ -660,8 +805,9 @@ test('RLS only lets authors archive accessible entities', async () => {
           ) as archived_version_count,
           (
             select state::text
-            from app.current_entity_versions
+            from app.entity_versions
             where entity_id = $1
+            order by version_no desc, created_at desc
             limit 1
           ) as current_state
       `,

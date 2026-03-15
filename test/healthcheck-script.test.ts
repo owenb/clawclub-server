@@ -15,7 +15,11 @@ test('healthcheck script reports migration status and skipped api check without 
 
   const stubDir = join(tmpDir, 'bin');
   await mkdir(stubDir, { recursive: true });
-  await writeFile(join(stubDir, 'psql'), '#!/usr/bin/env bash\nif printf "%s\\n" "$*" | grep -q "select current_user, rolsuper, rolbypassrls"; then\necho "runtime_role|f|f"\nelse\necho applied:0017_membership_state_compatibility_sync\nfi\n', { mode: 0o755 });
+  await writeFile(
+    join(stubDir, 'psql'),
+    '#!/usr/bin/env bash\nif printf "%s\\n" "$*" | grep -q "select current_user, rolsuper, rolbypassrls"; then\necho "runtime_role|f|f"\nelif printf "%s\\n" "$*" | grep -q "r.rolsuper or r.rolbypassrls"; then\necho "0|"\nelse\necho applied:0017_membership_state_compatibility_sync\nfi\n',
+    { mode: 0o755 },
+  );
 
   const { stdout } = await execFileAsync('./scripts/healthcheck.sh', {
     cwd: repoRoot,
@@ -29,6 +33,7 @@ test('healthcheck script reports migration status and skipped api check without 
   assert.match(stdout, /== migration status ==/);
   assert.match(stdout, /applied:0017_membership_state_compatibility_sync/);
   assert.match(stdout, /== database role safety ==\s+ok: role=runtime_role superuser=f bypassrls=f/s);
+  assert.match(stdout, /== projection view ownership ==\s+ok: all app views owned by non-superuser, non-BYPASSRLS roles/s);
   assert.match(stdout, /== api session.describe ==\s+skipped \(set CLAWCLUB_HEALTH_TOKEN to enable\)/s);
 });
 
@@ -45,6 +50,8 @@ test('healthcheck prefers DATABASE_MIGRATOR_URL for migration checks and can fai
 echo "$1|$*" >> ${JSON.stringify(logFile)}
 if printf "%s\\n" "$*" | grep -q "select current_user, rolsuper, rolbypassrls"; then
   echo "runtime_role|t|t"
+elif printf "%s\\n" "$*" | grep -q "r.rolsuper or r.rolbypassrls"; then
+  echo "2|current_applications:postgres, live_entities:postgres"
 else
   echo applied:0017_membership_state_compatibility_sync
 fi
