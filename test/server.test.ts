@@ -260,6 +260,9 @@ test('createServer serves GET /updates through repository-backed polling', async
     });
 
     assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store, no-cache, max-age=0');
+    assert.equal(response.headers.get('pragma'), 'no-cache');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     assert.deepEqual(capturedInput, {
       actorMemberId: 'member-1',
       accessibleNetworkIds: ['network-1'],

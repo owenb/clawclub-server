@@ -13,6 +13,7 @@ import {
   type TransitionMembershipInput,
 } from '../app.ts';
 import { buildApplicationsRepository } from './applications.ts';
+import { buildContainsLikePattern, normalizeSearchQuery } from './search.ts';
 
 type DbClient = Pool | PoolClient;
 
@@ -388,9 +389,12 @@ async function readMemberSearch(client: DbClient, input: {
     return [];
   }
 
-  const trimmedQuery = input.query.trim();
+  const trimmedQuery = normalizeSearchQuery(input.query);
+  if (trimmedQuery === null) {
+    throw new AppError(400, 'invalid_input', 'query must be a non-empty string');
+  }
   const tokens = tokenizeSearchQuery(trimmedQuery);
-  const likePattern = `%${trimmedQuery}%`;
+  const likePattern = buildContainsLikePattern(trimmedQuery);
   const candidateLimit = Math.min(Math.max(input.limit * 5, 25), 100);
 
   const result = await client.query<SearchRow>(
@@ -420,14 +424,14 @@ async function readMemberSearch(client: DbClient, input: {
       left join app.current_member_profiles cmp on cmp.member_id = m.id
       join app.networks n on n.id = anm.network_id and n.archived_at is null
       where (
-        m.public_name ilike $2
-        or coalesce(cmp.display_name, '') ilike $2
-        or coalesce(m.handle, '') ilike $2
-        or coalesce(cmp.tagline, '') ilike $2
-        or coalesce(cmp.summary, '') ilike $2
-        or coalesce(cmp.what_i_do, '') ilike $2
-        or coalesce(cmp.known_for, '') ilike $2
-        or coalesce(cmp.services_summary, '') ilike $2
+        m.public_name ilike $2 escape '\\'
+        or coalesce(cmp.display_name, '') ilike $2 escape '\\'
+        or coalesce(m.handle, '') ilike $2 escape '\\'
+        or coalesce(cmp.tagline, '') ilike $2 escape '\\'
+        or coalesce(cmp.summary, '') ilike $2 escape '\\'
+        or coalesce(cmp.what_i_do, '') ilike $2 escape '\\'
+        or coalesce(cmp.known_for, '') ilike $2 escape '\\'
+        or coalesce(cmp.services_summary, '') ilike $2 escape '\\'
       )
         and not exists (
           select 1

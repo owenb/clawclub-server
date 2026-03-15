@@ -83,6 +83,9 @@ function normalizeUpdatesLimit(value: string | null): number {
 function writeJson(response: http.ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store, no-cache, max-age=0',
+    pragma: 'no-cache',
+    'x-content-type-options': 'nosniff',
   });
   response.end(JSON.stringify(payload, null, 2));
 }

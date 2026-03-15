@@ -384,6 +384,43 @@ test('postgres repository searchMembers requires every query token across search
   assert.deepEqual(calls[2]?.params, [['network-2'], '%Chris builder%', ['chris', 'builder'], 25]);
 });
 
+test('postgres repository searchMembers escapes LIKE metacharacters before querying shared-member search', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('with scope as (') && sql.includes('from tokens t') && sql.includes('cmp.services_summary')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const results = await repository.searchMembers({
+    actorMemberId: 'member-1',
+    networkIds: ['network-2'],
+    query: '100% builder_',
+    limit: 2,
+  });
+
+  assert.deepEqual(results, []);
+  assert.match(calls[2]?.sql ?? '', /ilike \$2 escape '\\'/);
+  assert.deepEqual(calls[2]?.params, [['network-2'], '%100\\% builder\\_%', ['100', 'builder'], 25]);
+});
+
 test('postgres repository projects actor scope into the db session before dm reads', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 

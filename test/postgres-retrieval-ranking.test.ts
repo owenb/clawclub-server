@@ -143,3 +143,41 @@ test('postgres repository forwards event query terms into deterministic retrieva
   assert.match(calls[2]?.sql ?? '', /coalesce\(le\.body, ''\) ilike \$3/);
   assert.deepEqual(calls[2]?.params, [['network-1'], 'hetzner', '%hetzner%', 'hetzner%', 3]);
 });
+
+test('postgres repository escapes LIKE metacharacters in entity retrieval queries', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: '' }], rowCount: 1 };
+      }
+
+      if (sql.includes('from scope s') && sql.includes('join app.live_entities le') && sql.includes('where le.kind = any($2::app.entity_kind[])')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const results = await repository.listEntities({
+    actorMemberId: 'member-1',
+    networkIds: ['network-1'],
+    kinds: ['service'],
+    limit: 5,
+    query: '100%_backend',
+  });
+
+  assert.deepEqual(results, []);
+  assert.match(calls[2]?.sql ?? '', /ilike \$4 escape '\\'/);
+  assert.deepEqual(calls[2]?.params, [['network-1'], ['service'], '100%_backend', '%100\\%\\_backend%', '100\\%\\_backend%', 5]);
+});

@@ -156,6 +156,7 @@ ClawClub already has:
 - endpoint inventory now includes per-endpoint delivery health counters for quick operator checks
 - a tiny delivery worker CLI for draining pending deliveries in short passes
 - hardened HTTP server defaults for request size, header timeout, request timeout, keep-alive, and per-socket reuse
+- API responses now ship with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`
 - a real over-HTTP smoke command that mints a temporary token, boots the server, exercises core read surfaces, and revokes the token
 - WebHugs/webhook delivery is still disabled operationally until outbound hardening is finished
 - embeddings-ready projection placeholders for current profile/entity versions
@@ -236,6 +237,7 @@ The HTTP edge now enforces:
 - 20s full request timeout
 - 5s keep-alive timeout
 - 100 requests per socket
+- JSON responses marked `no-store` with `nosniff`
 
 If you deploy behind a reverse proxy, keep the proxy at least this strict.
 

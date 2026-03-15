@@ -25,7 +25,7 @@ Current action families:
 
 Delivery execution actions (`deliveries.claim`, `deliveries.execute`, `deliveries.complete`, `deliveries.fail`) require dedicated worker tokens rather than ordinary member bearer tokens.
 
-The HTTP server currently enforces a 1MB JSON body cap, a 15s header timeout, a 20s request timeout, a 5s keep-alive timeout, and a 100-request per-socket reuse cap.
+The HTTP server currently enforces a 1MB JSON body cap, a 15s header timeout, a 20s request timeout, a 5s keep-alive timeout, and a 100-request per-socket reuse cap. JSON responses are emitted with `Cache-Control: no-store`, `Pragma: no-cache`, and `X-Content-Type-Options: nosniff`.
 
 ## Action request shape
 
@@ -147,6 +147,7 @@ Use this first. It resolves:
 ### `members.search`
 
 - `query` is required
+- query text is trimmed, capped at 120 characters, and `%`, `_`, and `\` are treated literally rather than as SQL wildcard operators
 - `networkId` is optional, but must already be inside actor scope
 - `limit` is optional and clamped to `1..20`
 - results only include members who already share scope with the actor
@@ -250,4 +251,5 @@ Receiver-side helpers live in `src/delivery-signing.ts`.
 - no public UI
 - no semantic ranking yet
 - no automatic embedding generation pipeline yet
+- search still uses deterministic text matching; it is safe-scoped and wildcard-escaped, but it is not yet semantic retrieval
 - WebHugs outbound execution stays disabled until URL validation, SSRF blocking, timeout/redirect limits, and retry/circuit-break behavior are in place

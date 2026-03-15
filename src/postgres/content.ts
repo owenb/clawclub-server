@@ -13,6 +13,7 @@ import type {
   UpdateEntityInput,
 } from '../app.ts';
 import { mapEmbeddingProjectionRow } from './projections.ts';
+import { buildContainsLikePattern, buildPrefixLikePattern, normalizeSearchQuery } from './search.ts';
 
 type DbClient = Pool | PoolClient;
 
@@ -635,9 +636,9 @@ export function buildContentRepository({
 
     async listEvents({ actorMemberId, networkIds, limit, query }: ListEventsInput): Promise<EventSummary[]> {
       return withActorContext(pool, actorMemberId, networkIds, async (client) => {
-        const trimmedQuery = query?.trim();
-        const likePattern = trimmedQuery ? `%${trimmedQuery}%` : null;
-        const prefixPattern = trimmedQuery ? `${trimmedQuery}%` : null;
+        const trimmedQuery = normalizeSearchQuery(query);
+        const likePattern = buildContainsLikePattern(trimmedQuery);
+        const prefixPattern = buildPrefixLikePattern(trimmedQuery);
 
         const result = await client.query<{ entity_id: string }>(
           `
@@ -650,20 +651,20 @@ export function buildContentRepository({
             where le.kind = 'event'
               and (
                 $3::text is null
-                or coalesce(le.title, '') ilike $3
-                or coalesce(le.summary, '') ilike $3
-                or coalesce(le.body, '') ilike $3
+                or coalesce(le.title, '') ilike $3 escape '\\'
+                or coalesce(le.summary, '') ilike $3 escape '\\'
+                or coalesce(le.body, '') ilike $3 escape '\\'
               )
             order by
               case
                 when $2::text is null then 0
                 when lower(coalesce(le.title, '')) = lower($2::text) then 400
-                when lower(coalesce(le.title, '')) like lower($4::text) then 250
-                when lower(coalesce(le.summary, '')) like lower($4::text) then 175
-                when lower(coalesce(le.body, '')) like lower($4::text) then 120
-                when coalesce(le.title, '') ilike $3 then 90
-                when coalesce(le.summary, '') ilike $3 then 60
-                when coalesce(le.body, '') ilike $3 then 30
+                when lower(coalesce(le.title, '')) like lower($4::text) escape '\\' then 250
+                when lower(coalesce(le.summary, '')) like lower($4::text) escape '\\' then 175
+                when lower(coalesce(le.body, '')) like lower($4::text) escape '\\' then 120
+                when coalesce(le.title, '') ilike $3 escape '\\' then 90
+                when coalesce(le.summary, '') ilike $3 escape '\\' then 60
+                when coalesce(le.body, '') ilike $3 escape '\\' then 30
                 else 0
               end desc,
               coalesce(le.starts_at, le.effective_at) asc,
@@ -752,9 +753,9 @@ export function buildContentRepository({
 
     async listEntities({ actorMemberId, networkIds, kinds, limit, query }: ListEntitiesInput): Promise<EntitySummary[]> {
       return withActorContext(pool, actorMemberId, networkIds, async (client) => {
-        const trimmedQuery = query?.trim();
-        const likePattern = trimmedQuery ? `%${trimmedQuery}%` : null;
-        const prefixPattern = trimmedQuery ? `${trimmedQuery}%` : null;
+        const trimmedQuery = normalizeSearchQuery(query);
+        const likePattern = buildContainsLikePattern(trimmedQuery);
+        const prefixPattern = buildPrefixLikePattern(trimmedQuery);
 
         const result = await client.query<EntityRow>(
           `
@@ -792,20 +793,20 @@ export function buildContentRepository({
             where le.kind = any($2::app.entity_kind[])
               and (
                 $4::text is null
-                or coalesce(le.title, '') ilike $4
-                or coalesce(le.summary, '') ilike $4
-                or coalesce(le.body, '') ilike $4
+                or coalesce(le.title, '') ilike $4 escape '\\'
+                or coalesce(le.summary, '') ilike $4 escape '\\'
+                or coalesce(le.body, '') ilike $4 escape '\\'
               )
             order by
               case
                 when $3::text is null then 0
                 when lower(coalesce(le.title, '')) = lower($3::text) then 400
-                when lower(coalesce(le.title, '')) like lower($5::text) then 250
-                when lower(coalesce(le.summary, '')) like lower($5::text) then 175
-                when lower(coalesce(le.body, '')) like lower($5::text) then 120
-                when coalesce(le.title, '') ilike $4 then 90
-                when coalesce(le.summary, '') ilike $4 then 60
-                when coalesce(le.body, '') ilike $4 then 30
+                when lower(coalesce(le.title, '')) like lower($5::text) escape '\\' then 250
+                when lower(coalesce(le.summary, '')) like lower($5::text) escape '\\' then 175
+                when lower(coalesce(le.body, '')) like lower($5::text) escape '\\' then 120
+                when coalesce(le.title, '') ilike $4 escape '\\' then 90
+                when coalesce(le.summary, '') ilike $4 escape '\\' then 60
+                when coalesce(le.body, '') ilike $4 escape '\\' then 30
                 else 0
               end desc,
               le.effective_at desc,
