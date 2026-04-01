@@ -6,20 +6,18 @@ type Flags = {
   handle?: string;
   label?: string;
   tokenId?: string;
+  expiresIn?: string;
   metadata?: Record<string, unknown>;
 };
 
 function usage(): never {
   console.error(`usage:
-  node --experimental-strip-types src/token-cli.ts create --member <member_id> [--label <label>] [--metadata '{"key":"value"}']
-  node --experimental-strip-types src/token-cli.ts create --handle <handle> [--label <label>] [--metadata '{"key":"value"}']
+  node --experimental-strip-types src/token-cli.ts create --member <member_id> [--label <label>] [--expires-in <duration>] [--metadata '{"key":"value"}']
+  node --experimental-strip-types src/token-cli.ts create --handle <handle> [--label <label>] [--expires-in <duration>] [--metadata '{"key":"value"}']
   node --experimental-strip-types src/token-cli.ts list --member <member_id>
   node --experimental-strip-types src/token-cli.ts list --handle <handle>
   node --experimental-strip-types src/token-cli.ts revoke --member <member_id> --token <token_id>
-  node --experimental-strip-types src/token-cli.ts revoke --handle <handle> --token <token_id>
-
-legacy fallback:
-  node --experimental-strip-types src/token-cli.ts <member_id> [label]`);
+  node --experimental-strip-types src/token-cli.ts revoke --handle <handle> --token <token_id>`);
   process.exit(1);
 }
 
@@ -29,13 +27,7 @@ function parseFlags(argv: string[]): { command: string; flags: Flags } {
   }
 
   if (!['create', 'list', 'revoke'].includes(argv[0] ?? '')) {
-    return {
-      command: 'legacy-create',
-      flags: {
-        memberId: argv[0],
-        label: argv[1] ?? 'default',
-      },
-    };
+    usage();
   }
 
   const command = argv[0]!;
@@ -60,6 +52,10 @@ function parseFlags(argv: string[]): { command: string; flags: Flags } {
         break;
       case '--token':
         flags.tokenId = next;
+        index += 1;
+        break;
+      case '--expires-in':
+        flags.expiresIn = next;
         index += 1;
         break;
       case '--metadata':
@@ -87,7 +83,8 @@ function parseFlags(argv: string[]): { command: string; flags: Flags } {
 }
 
 function requireDatabaseUrl(): string {
-  const databaseUrl = process.env.DATABASE_MIGRATOR_URL ?? process.env.DATABASE_URL;
+  // Prefer the least-privilege runtime role. The migrator URL is only a fallback for bootstrap-only environments.
+  const databaseUrl = process.env.DATABASE_URL ?? process.env.DATABASE_MIGRATOR_URL;
   if (!databaseUrl) {
     console.error('DATABASE_URL or DATABASE_MIGRATOR_URL must be set for this command');
     process.exit(1);
@@ -118,14 +115,31 @@ async function resolveMemberId(pool: Pool, flags: Flags): Promise<string> {
   return memberId;
 }
 
+function parseDurationMs(duration: string): number {
+  const match = duration.match(/^(\d+)(h|d|m)$/);
+  if (!match) {
+    console.error('--expires-in must be a duration like 24h, 30d, or 60m');
+    process.exit(1);
+  }
+
+  const value = Number(match[1]);
+  const unit = match[2];
+  if (unit === 'm') return value * 60 * 1000;
+  if (unit === 'h') return value * 60 * 60 * 1000;
+  return value * 24 * 60 * 60 * 1000;
+}
+
 async function createToken(pool: Pool, flags: Flags) {
   const memberId = await resolveMemberId(pool, flags);
   const token = buildBearerToken();
+  const expiresAt = flags.expiresIn
+    ? new Date(Date.now() + parseDurationMs(flags.expiresIn)).toISOString()
+    : null;
 
   await pool.query(
-    `insert into app.member_bearer_tokens (id, member_id, label, token_hash, metadata)
-     values ($1, $2, $3, $4, $5::jsonb)`,
-    [token.tokenId, memberId, flags.label ?? 'default', token.tokenHash, JSON.stringify(flags.metadata ?? {})],
+    `insert into app.member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
+     values ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)`,
+    [token.tokenId, memberId, flags.label ?? 'default', token.tokenHash, expiresAt, JSON.stringify(flags.metadata ?? {})],
   );
 
   console.log(
@@ -135,6 +149,7 @@ async function createToken(pool: Pool, flags: Flags) {
         label: flags.label ?? 'default',
         tokenId: token.tokenId,
         bearerToken: token.bearerToken,
+        expiresAt,
         metadata: flags.metadata ?? {},
       },
       null,
@@ -146,7 +161,7 @@ async function createToken(pool: Pool, flags: Flags) {
 async function listTokens(pool: Pool, flags: Flags) {
   const memberId = await resolveMemberId(pool, flags);
   const result = await pool.query(
-    `select id as "tokenId", member_id as "memberId", label, created_at as "createdAt", last_used_at as "lastUsedAt", revoked_at as "revokedAt", metadata
+    `select id as "tokenId", member_id as "memberId", label, created_at as "createdAt", last_used_at as "lastUsedAt", revoked_at as "revokedAt", expires_at as "expiresAt", metadata
      from app.member_bearer_tokens
      where member_id = $1
      order by created_at desc, id desc`,
@@ -166,7 +181,7 @@ async function revokeToken(pool: Pool, flags: Flags) {
     `update app.member_bearer_tokens
      set revoked_at = coalesce(revoked_at, now())
      where id = $1 and member_id = $2
-     returning id as "tokenId", member_id as "memberId", label, created_at as "createdAt", last_used_at as "lastUsedAt", revoked_at as "revokedAt", metadata`,
+     returning id as "tokenId", member_id as "memberId", label, created_at as "createdAt", last_used_at as "lastUsedAt", revoked_at as "revokedAt", expires_at as "expiresAt", metadata`,
     [flags.tokenId, memberId],
   );
 
@@ -178,35 +193,7 @@ async function revokeToken(pool: Pool, flags: Flags) {
   console.log(JSON.stringify({ memberId, token: result.rows[0] }, null, 2));
 }
 
-async function legacyCreate(memberId?: string, label = 'default') {
-  if (!memberId) {
-    usage();
-  }
-
-  const token = buildBearerToken();
-  console.log(
-    JSON.stringify(
-      {
-        memberId,
-        label,
-        tokenId: token.tokenId,
-        bearerToken: token.bearerToken,
-        insertSql:
-          'insert into app.member_bearer_tokens (id, member_id, label, token_hash) values ' +
-          `('${token.tokenId}', '${memberId}', '${label.replace(/'/g, "''")}', '${token.tokenHash}');`,
-      },
-      null,
-      2,
-    ),
-  );
-}
-
 const { command, flags } = parseFlags(process.argv.slice(2));
-
-if (command === 'legacy-create') {
-  await legacyCreate(flags.memberId, flags.label);
-  process.exit(0);
-}
 
 const pool = new Pool({ connectionString: requireDatabaseUrl() });
 

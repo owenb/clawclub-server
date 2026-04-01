@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from 'pg';
+import type { Pool } from 'pg';
 import {
   AppError,
   type CreateMembershipInput,
@@ -14,22 +14,7 @@ import {
 } from '../app.ts';
 import { buildApplicationsRepository } from './applications.ts';
 import { buildContainsLikePattern, normalizeSearchQuery } from './search.ts';
-
-type DbClient = Pool | PoolClient;
-
-type ApplyActorContext = (
-  client: DbClient,
-  actorMemberId: string,
-  networkIds: string[],
-  options?: Record<string, never>,
-) => Promise<void>;
-
-type WithActorContext = <T>(
-  pool: Pool,
-  actorMemberId: string,
-  networkIds: string[],
-  fn: (client: PoolClient) => Promise<T>,
-) => Promise<T>;
+import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
 
 type SearchRow = {
   member_id: string;

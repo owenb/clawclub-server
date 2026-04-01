@@ -1,4 +1,5 @@
-import type { CoreMessage, LanguageModel, OpenAIProvider } from 'ai';
+import type { CoreMessage, LanguageModel } from 'ai';
+import type { OpenAIProvider } from '@ai-sdk/openai';
 import { generateClawClubChatText, type ClawClubAiRuntime } from './ai.ts';
 import { createPostgresRepository } from './postgres.ts';
 import { Pool } from 'pg';

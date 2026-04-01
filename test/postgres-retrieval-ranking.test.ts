@@ -90,7 +90,7 @@ test('postgres repository forwards event query terms into deterministic retrieva
         };
       }
 
-      if (sql.includes('with actor_scope as (') && sql.includes("where e.id = $2") && sql.includes("and e.kind = 'event'")) {
+      if (sql.includes('with actor_scope as (') && sql.includes("e.id = any($2") && sql.includes("and e.kind = 'event'")) {
         return {
           rows: [{
             entity_id: 'event-1',

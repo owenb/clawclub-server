@@ -53,6 +53,6 @@ Notably excluded:
 ## Why this shape
 
 The AI layer stays thin:
-- app logic lives in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-messages.ts`, `src/app-profile.ts`, `src/app-system.ts`, and `src/app-updates.ts`
+- app logic lives in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-messages.ts`, `src/app-profile.ts`, `src/app-platform.ts`, and `src/app-updates.ts`
 - repository/auth rules live in `src/postgres.ts` plus the domain modules under `src/postgres/`
 - the AI layer mainly translates curated conversational tools into the existing API contract

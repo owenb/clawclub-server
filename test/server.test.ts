@@ -1,89 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, DEFAULT_SERVER_LIMITS } from '../src/server.ts';
-import type { PendingUpdate, Repository } from '../src/app.ts';
-
-function makeAuthResult() {
-  return {
-    actor: {
-      member: {
-        id: 'member-1',
-        handle: 'member-one',
-        publicName: 'Member One',
-      },
-      memberships: [{
-        membershipId: 'membership-1',
-        networkId: 'network-1',
-        slug: 'alpha',
-        name: 'Alpha',
-        summary: 'First network',
-        manifestoMarkdown: null,
-        role: 'member' as const,
-        status: 'active' as const,
-        sponsorMemberId: null,
-        joinedAt: '2026-03-14T10:00:00Z',
-      }],
-      globalRoles: [],
-    },
-    requestScope: {
-      requestedNetworkId: null,
-      activeNetworkIds: ['network-1'],
-    },
-    sharedContext: {
-      pendingUpdates: [],
-    },
-  };
-}
-
-function makePendingUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdate {
-  return {
-    updateId: 'update-1',
-    streamSeq: 1,
-    recipientMemberId: 'member-1',
-    networkId: 'network-1',
-    entityId: null,
-    entityVersionId: null,
-    transcriptMessageId: 'message-1',
-    topic: 'transcript.message.created',
-    payload: { kind: 'dm', threadId: 'thread-1' },
-    createdAt: '2026-03-14T11:00:00Z',
-    createdByMemberId: 'member-2',
-    ...overrides,
-  };
-}
-
-function makeRepository(): Repository {
-  return {
-    async authenticateBearerToken() {
-      return null;
-    },
-    async listMemberships() { return []; },
-    async createMembership() { throw new Error('not used'); },
-    async transitionMembershipState() { throw new Error('not used'); },
-    async listMembershipReviews() { return []; },
-    async searchMembers() { return []; },
-    async listMembers() { return []; },
-    async getMemberProfile() { return null; },
-    async updateOwnProfile() { throw new Error('not used'); },
-    async createEntity() { throw new Error('not used'); },
-    async updateEntity() { throw new Error('not used'); },
-    async listEntities() { return []; },
-    async createEvent() { throw new Error('not used'); },
-    async listEvents() { return []; },
-    async rsvpEvent() { throw new Error('not used'); },
-    async listBearerTokens() { return []; },
-    async createBearerToken() { throw new Error('not used'); },
-    async revokeBearerToken() { throw new Error('not used'); },
-    async sendDirectMessage() { throw new Error('not used'); },
-    async listDirectMessageThreads() { return []; },
-    async listDirectMessageInbox() { return []; },
-    async readDirectMessageThread() { return null; },
-  };
-}
+import type { Repository } from '../src/app.ts';
+import { makeAuthResult, makePendingUpdate, makeRepository, makeUpdatesNotifier } from './fixtures.ts';
 
 test('createServer applies hardened HTTP server limits', async () => {
   const { server, shutdown } = createServer({
     repository: makeRepository(),
+    updatesNotifier: makeUpdatesNotifier(),
   });
 
   try {
@@ -113,7 +37,10 @@ test('createServer accepts unauthenticated cold application actions over POST /a
     },
   };
 
-  const { server, shutdown } = createServer({ repository });
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
 
   try {
     await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -150,6 +77,142 @@ test('createServer accepts unauthenticated cold application actions over POST /a
   }
 });
 
+test('createServer rate limits cold application actions per IP and per action', async () => {
+  const requestFetch = globalThis.fetch;
+  let challengeCalls = 0;
+  let solveCalls = 0;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createColdApplicationChallenge() {
+      challengeCalls += 1;
+      return {
+        challengeId: `challenge-${challengeCalls}`,
+        difficulty: 7,
+        expiresAt: '2026-03-15T13:00:00.000Z',
+      };
+    },
+    async solveColdApplicationChallenge() {
+      solveCalls += 1;
+      return { success: true };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+    coldApplicationRateLimits: {
+      'applications.challenge': { limit: 1, windowMs: 60_000 },
+      'applications.solve': { limit: 1, windowMs: 60_000 },
+    },
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const challengeInput = {
+      action: 'applications.challenge',
+      input: {
+        networkSlug: 'consciousclaw',
+        email: 'jane@example.com',
+        name: 'Jane Doe',
+      },
+    };
+
+    const firstChallenge = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(challengeInput),
+    });
+    assert.equal(firstChallenge.status, 200);
+
+    const secondChallenge = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(challengeInput),
+    });
+    const secondChallengeBody = await secondChallenge.json();
+    assert.equal(secondChallenge.status, 429);
+    assert.equal(secondChallengeBody.ok, false);
+    assert.equal(secondChallengeBody.error.code, 'rate_limited');
+
+    const solveResponse = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action: 'applications.solve',
+        input: {
+          challengeId: 'challenge-1',
+          nonce: '123456',
+        },
+      }),
+    });
+    const solveBody = await solveResponse.json();
+    assert.equal(solveResponse.status, 200);
+    assert.equal(solveBody.ok, true);
+    assert.equal(challengeCalls, 1);
+    assert.equal(solveCalls, 1);
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer enforces request body limits by byte size, not decoded string length', async () => {
+  const requestFetch = globalThis.fetch;
+  let challengeCalls = 0;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createColdApplicationChallenge() {
+      challengeCalls += 1;
+      return {
+        challengeId: 'challenge-1',
+        difficulty: 7,
+        expiresAt: '2026-03-15T13:00:00.000Z',
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const oversizedName = '😀'.repeat(300_000);
+    const body = JSON.stringify({
+      action: 'applications.challenge',
+      input: {
+        networkSlug: 'consciousclaw',
+        email: 'jane@example.com',
+        name: oversizedName,
+      },
+    });
+
+    assert.ok(body.length < DEFAULT_SERVER_LIMITS.maxBodyBytes);
+    assert.ok(Buffer.byteLength(body, 'utf8') > DEFAULT_SERVER_LIMITS.maxBodyBytes);
+
+    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    });
+    const responseBody = await response.json();
+
+    assert.equal(response.status, 413);
+    assert.equal(responseBody.ok, false);
+    assert.equal(responseBody.error.code, 'payload_too_large');
+    assert.equal(challengeCalls, 0);
+  } finally {
+    await shutdown();
+  }
+});
+
 test('createServer serves GET /updates through repository-backed update listing', async () => {
   const requestFetch = globalThis.fetch;
   let capturedInput: { actorMemberId: string; limit: number; after?: number | null } | null = null;
@@ -169,7 +232,10 @@ test('createServer serves GET /updates through repository-backed update listing'
     },
   };
 
-  const { server, shutdown } = createServer({ repository });
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
 
   try {
     await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -212,7 +278,10 @@ test('createServer rejects GET /updates without a valid bearer token', async () 
     },
   };
 
-  const { server, shutdown } = createServer({ repository });
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
 
   try {
     await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -354,5 +423,115 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
   } finally {
     requestAbort.abort();
     await shutdown();
+  }
+});
+
+test('createServer rejects SSE stream when per-member connection cap is reached', async () => {
+  const requestFetch = globalThis.fetch;
+  const abortControllers: AbortController[] = [];
+  let waitBlocked = false;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_test' ? makeAuthResult() : null;
+    },
+    async listMemberUpdates() {
+      return { items: [], nextAfter: null, polledAt: '2026-03-14T11:05:00Z' };
+    },
+  };
+
+  const updatesNotifier = {
+    async waitForUpdate({ signal }: { signal?: AbortSignal }) {
+      waitBlocked = true;
+      return new Promise<'timed_out' | 'notified'>((resolve, reject) => {
+        const onAbort = () => { reject(new Error('aborted')); };
+        if (signal?.aborted) { onAbort(); return; }
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    },
+    async close() {},
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier,
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    for (let i = 0; i < 3; i++) {
+      const abort = new AbortController();
+      abortControllers.push(abort);
+      const res = await requestFetch(`http://127.0.0.1:${port}/updates/stream`, {
+        headers: { authorization: 'Bearer cc_live_test' },
+        signal: abort.signal,
+      });
+      assert.equal(res.status, 200);
+    }
+
+    const extraAbort = new AbortController();
+    const extraResponse = await requestFetch(`http://127.0.0.1:${port}/updates/stream`, {
+      headers: { authorization: 'Bearer cc_live_test' },
+      signal: extraAbort.signal,
+    });
+    const body = await extraResponse.json();
+    assert.equal(extraResponse.status, 429);
+    assert.equal(body.error.code, 'too_many_streams');
+    extraAbort.abort();
+  } finally {
+    for (const abort of abortControllers) {
+      abort.abort();
+    }
+    await shutdown();
+  }
+});
+
+test('createServer uses x-forwarded-for only when trustProxy is enabled', async () => {
+  const requestFetch = globalThis.fetch;
+  let challengeCalls = 0;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createColdApplicationChallenge() {
+      challengeCalls += 1;
+      return { challengeId: `challenge-${challengeCalls}`, difficulty: 7, expiresAt: '2026-03-15T13:00:00.000Z' };
+    },
+  };
+
+  const { server: serverNoProxy, shutdown: shutdownNoProxy } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+    coldApplicationRateLimits: { 'applications.challenge': { limit: 1, windowMs: 60_000 } },
+    trustProxy: false,
+  });
+
+  try {
+    await new Promise<void>((resolve) => serverNoProxy.listen(0, resolve));
+    const address = serverNoProxy.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const body = JSON.stringify({ action: 'applications.challenge', input: { networkSlug: 'test', email: 'a@b.com', name: 'A' } });
+
+    await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '1.2.3.4' },
+      body,
+    });
+
+    const secondRes = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '5.6.7.8' },
+      body,
+    });
+    const secondBody = await secondRes.json();
+
+    assert.equal(secondRes.status, 429, 'Without trustProxy, different X-Forwarded-For should still be rate limited by socket IP');
+    assert.equal(secondBody.error.code, 'rate_limited');
+  } finally {
+    await shutdownNoProxy();
   }
 });

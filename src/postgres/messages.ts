@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from 'pg';
+import type { Pool } from 'pg';
 import type {
   DirectMessageInboxSummary,
   DirectMessageSummary,
@@ -8,23 +8,9 @@ import type {
   Repository,
   SendDirectMessageInput,
 } from '../app.ts';
+import { requireReturnedRow } from './query-guards.ts';
 import { appendDirectMessageUpdate } from './updates.ts';
-
-type DbClient = Pool | PoolClient;
-
-type ApplyActorContext = (
-  client: DbClient,
-  actorMemberId: string,
-  networkIds: string[],
-  options?: Record<string, never>,
-) => Promise<void>;
-
-type WithActorContext = <T>(
-  pool: Pool,
-  actorMemberId: string,
-  networkIds: string[],
-  fn: (client: PoolClient) => Promise<T>,
-) => Promise<T>;
+import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
 
 type DirectMessageRow = {
   thread_id: string;
@@ -166,17 +152,12 @@ async function listDirectMessageThreads(client: DbClient, actorMemberId: string,
       ),
       thread_scope as (
         select
-          tt.id as thread_id,
-          tt.network_id,
-          case
-            when tt.created_by_member_id = $1 then tt.counterpart_member_id
-            else tt.created_by_member_id
-          end as counterpart_member_id
-        from app.transcript_threads tt
-        join scope s on s.network_id = tt.network_id
-        where tt.kind = 'dm'
-          and tt.archived_at is null
-          and $1 in (tt.created_by_member_id, tt.counterpart_member_id)
+          participant.thread_id,
+          participant.network_id,
+          participant.counterpart_member_id
+        from app.current_dm_thread_participants participant
+        join scope s on s.network_id = participant.network_id
+        where participant.participant_member_id = $1
       ),
       message_ranked as (
         select
@@ -226,11 +207,6 @@ async function listDirectMessageInbox(
 ): Promise<DirectMessageInboxSummary[]> {
   const result = await client.query<DirectMessageInboxRow>(
     `
-      with thread_message_counts as (
-        select tm.thread_id, count(*)::int as message_count
-        from app.transcript_messages tm
-        group by tm.thread_id
-      )
       select
         inbox.thread_id,
         inbox.network_id,
@@ -242,14 +218,13 @@ async function listDirectMessageInbox(
         inbox.latest_role,
         inbox.latest_message_text,
         inbox.latest_created_at::text as latest_created_at,
-        coalesce(tmc.message_count, 0) as message_count,
+        (select count(*)::int from app.transcript_messages tm where tm.thread_id = inbox.thread_id) as message_count,
         inbox.unread_message_count,
         inbox.unread_update_count,
         inbox.latest_unread_message_created_at::text as latest_unread_message_created_at,
         inbox.has_unread
       from app.current_dm_inbox_threads inbox
       join app.members m on m.id = inbox.counterpart_member_id and m.state = 'active'
-      left join thread_message_counts tmc on tmc.thread_id = inbox.thread_id
       where inbox.recipient_member_id = $1
         and inbox.network_id = any($2::app.short_id[])
         and ($3::boolean = false or inbox.has_unread)
@@ -276,18 +251,13 @@ async function readDirectMessageThread(
     `
       with thread_scope as (
         select
-          tt.id as thread_id,
-          tt.network_id,
-          case
-            when tt.created_by_member_id = $1 then tt.counterpart_member_id
-            else tt.created_by_member_id
-          end as counterpart_member_id
-        from app.transcript_threads tt
-        where tt.id = $2
-          and tt.kind = 'dm'
-          and tt.archived_at is null
-          and tt.network_id = any($3::app.short_id[])
-          and $1 in (tt.created_by_member_id, tt.counterpart_member_id)
+          participant.thread_id,
+          participant.network_id,
+          participant.counterpart_member_id
+        from app.current_dm_thread_participants participant
+        where participant.participant_member_id = $1
+          and participant.thread_id = $2
+          and participant.network_id = any($3::app.short_id[])
       ),
       message_ranked as (
         select
@@ -431,34 +401,34 @@ export function buildMessagesRepository({
           return null;
         }
 
-        const threadResult = await client.query<{ id: string }>(
+        const insertedThread = await client.query<{ id: string }>(
           `
-            select tt.id
-            from app.transcript_threads tt
-            where tt.kind = 'dm'
-              and tt.archived_at is null
-              and tt.network_id = $1
-              and (
-                (tt.created_by_member_id = $2 and tt.counterpart_member_id = $3)
-                or (tt.created_by_member_id = $3 and tt.counterpart_member_id = $2)
-              )
-            order by tt.created_at asc, tt.id asc
-            limit 1
+            insert into app.transcript_threads (network_id, kind, created_by_member_id, counterpart_member_id)
+            values ($1, 'dm', $2, $3)
+            on conflict do nothing
+            returning id
           `,
           [networkId, input.actorMemberId, input.recipientMemberId],
         );
 
-        let threadId = threadResult.rows[0]?.id;
+        let threadId = insertedThread.rows[0]?.id;
         if (!threadId) {
-          const insertedThread = await client.query<{ id: string }>(
+          const existingThread = await client.query<{ id: string }>(
             `
-              insert into app.transcript_threads (network_id, kind, created_by_member_id, counterpart_member_id)
-              values ($1, 'dm', $2, $3)
-              returning id
+              select participant.thread_id as id
+              from app.current_dm_thread_participants participant
+              where participant.network_id = $1
+                and participant.participant_member_id = $2
+                and participant.counterpart_member_id = $3
+              order by participant.thread_id asc
+              limit 1
             `,
             [networkId, input.actorMemberId, input.recipientMemberId],
           );
-          threadId = insertedThread.rows[0]!.id;
+          threadId = requireReturnedRow(
+            existingThread.rows[0],
+            'Direct message thread row was not returned',
+          ).id;
         }
 
         const messageResult = await client.query<{ id: string; created_at: string }>(
@@ -469,7 +439,7 @@ export function buildMessagesRepository({
           `,
           [threadId, input.actorMemberId, input.messageText],
         );
-        const message = messageResult.rows[0]!;
+        const message = requireReturnedRow(messageResult.rows[0], 'Direct message row was not returned');
 
         const senderResult = await client.query<{ public_name: string; handle: string | null }>(
           `
@@ -481,10 +451,10 @@ export function buildMessagesRepository({
           `,
           [input.actorMemberId],
         );
-        const sender = senderResult.rows[0];
-        if (!sender) {
-          throw new Error('Sender profile could not be loaded for DM update fanout');
-        }
+        const sender = requireReturnedRow(
+          senderResult.rows[0],
+          'Sender profile row was not returned for DM update fanout',
+        );
 
         const updateCount = await appendDirectMessageUpdate(client, {
           recipientMemberId: input.recipientMemberId,

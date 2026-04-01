@@ -335,6 +335,15 @@ export type EmbeddingProjectionSummary = {
   createdAt: string;
 };
 
+export type EmbeddingProjectionRow = {
+  embedding_id: string | null;
+  embedding_model: string | null;
+  embedding_dimensions: number | null;
+  embedding_source_text: string | null;
+  embedding_metadata: Record<string, unknown> | null;
+  embedding_created_at: string | null;
+};
+
 export type MemberProfile = {
   memberId: string;
   publicName: string;
@@ -507,12 +516,14 @@ export type BearerTokenSummary = {
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  expiresAt: string | null;
   metadata: Record<string, unknown>;
 };
 
 export type CreateBearerTokenInput = {
   actorMemberId: string;
   label?: string | null;
+  expiresAt?: string | null;
   metadata?: Record<string, unknown>;
 };
 
@@ -610,6 +621,98 @@ export type UpdateEntityInput = {
   };
 };
 
+export type AdminOverview = {
+  totalMembers: number;
+  totalNetworks: number;
+  totalEntities: number;
+  totalMessages: number;
+  totalApplications: number;
+  recentMembers: Array<{
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+    createdAt: string;
+  }>;
+};
+
+export type AdminMemberSummary = {
+  memberId: string;
+  publicName: string;
+  handle: string | null;
+  state: string;
+  createdAt: string;
+  membershipCount: number;
+  tokenCount: number;
+};
+
+export type AdminMemberDetail = {
+  memberId: string;
+  publicName: string;
+  handle: string | null;
+  state: string;
+  createdAt: string;
+  memberships: Array<{
+    membershipId: string;
+    networkId: string;
+    networkName: string;
+    networkSlug: string;
+    role: string;
+    status: string;
+    joinedAt: string;
+  }>;
+  tokenCount: number;
+  profile: MemberProfile | null;
+};
+
+export type AdminNetworkStats = {
+  networkId: string;
+  slug: string;
+  name: string;
+  archivedAt: string | null;
+  memberCounts: Record<string, number>;
+  entityCount: number;
+  messageCount: number;
+  applicationCounts: Record<string, number>;
+};
+
+export type AdminContentSummary = {
+  entityId: string;
+  networkId: string;
+  networkName: string;
+  kind: EntityKind;
+  author: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  };
+  title: string | null;
+  state: EntityState;
+  createdAt: string;
+};
+
+export type AdminThreadSummary = {
+  threadId: string;
+  networkId: string;
+  networkName: string;
+  participants: Array<{
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  }>;
+  messageCount: number;
+  latestMessageAt: string;
+};
+
+export type AdminDiagnostics = {
+  migrationCount: number;
+  latestMigration: string | null;
+  memberCount: number;
+  networkCount: number;
+  tablesWithRls: number;
+  totalAppTables: number;
+  databaseSize: string;
+};
+
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
   listNetworks?(input: { actorMemberId: string; includeArchived: boolean }): Promise<NetworkSummary[]>;
@@ -683,4 +786,16 @@ export type Repository = {
     threadId: string;
     limit: number;
   }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null>;
+
+  adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
+  adminListMembers?(input: { actorMemberId: string; limit: number; offset: number }): Promise<AdminMemberSummary[]>;
+  adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;
+  adminGetNetworkStats?(input: { actorMemberId: string; networkId: string }): Promise<AdminNetworkStats | null>;
+  adminListContent?(input: { actorMemberId: string; networkId?: string; kind?: EntityKind; limit: number; offset: number }): Promise<AdminContentSummary[]>;
+  adminArchiveEntity?(input: { actorMemberId: string; entityId: string }): Promise<{ entityId: string } | null>;
+  adminListThreads?(input: { actorMemberId: string; networkId?: string; limit: number; offset: number }): Promise<AdminThreadSummary[]>;
+  adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<{ thread: AdminThreadSummary; messages: DirectMessageTranscriptEntry[] } | null>;
+  adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
+  adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
+  adminGetDiagnostics?(input: { actorMemberId: string }): Promise<AdminDiagnostics>;
 };

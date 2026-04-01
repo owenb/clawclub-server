@@ -1,9 +1,11 @@
+import { KNOWN_ACTIONS } from './action-manifest.ts';
+import { handleAdminAction } from './app-admin.ts';
 import { handleAdmissionsAction } from './app-admissions.ts';
 import { handleColdApplicationAction } from './app-cold-applications.ts';
 import { handleContentAction } from './app-content.ts';
 import { handleMessageAction } from './app-messages.ts';
 import { handleProfileAction } from './app-profile.ts';
-import { handleSystemAction } from './app-system.ts';
+import { handlePlatformAction } from './app-platform.ts';
 import { handleUpdatesAction } from './app-updates.ts';
 import type {
   ActorContext,
@@ -491,7 +493,7 @@ export function buildApp({ repository }: { repository: Repository }) {
         return messageResponse;
       }
 
-      const systemResponse = await handleSystemAction({
+      const systemResponse = await handlePlatformAction({
         action,
         payload,
         actor,
@@ -509,6 +511,29 @@ export function buildApp({ repository }: { repository: Repository }) {
         return systemResponse;
       }
 
+      const adminResponse = await handleAdminAction({
+        action,
+        payload,
+        actor,
+        requestScope: auth.requestScope,
+        sharedContext,
+        repository,
+        buildSuccessResponse,
+        createAppError: (status, code, message) => new AppError(status, code, message),
+        requireSuperadmin,
+        requireNonEmptyString,
+        normalizeLimit,
+        isEntityKind,
+      });
+      if (adminResponse) {
+        return adminResponse;
+      }
+
+      if (KNOWN_ACTIONS.has(action)) {
+        throw new AppError(501, 'not_implemented', `Action ${action} is registered but not handled by any module`);
+      }
+
+      console.warn(`Unsupported action received: ${action}`);
       throw new AppError(400, 'unknown_action', `Unsupported action: ${action}`);
     },
   };

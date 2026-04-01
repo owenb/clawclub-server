@@ -23,7 +23,7 @@ That split drives the schema: global tables such as `members`, `member_profile_v
 - Postgres auth and RLS as the hard permission boundary
 - RLS-protected membership/subscription source rows feeding scope helpers
 - `current_*`, `live_*`, and `pending_*` views owned by a dedicated non-login, non-`BYPASSRLS` role
-- app-layer orchestration in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-messages.ts`, `src/app-profile.ts`, `src/app-system.ts`, and `src/app-updates.ts`
+- app-layer orchestration in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-messages.ts`, `src/app-profile.ts`, `src/app-platform.ts`, and `src/app-updates.ts`
 - repository/auth seams in `src/postgres.ts` plus the domain modules under `src/postgres/`
 
 ## Versioning stance

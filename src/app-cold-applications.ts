@@ -1,11 +1,6 @@
-import type {
-  CreateColdApplicationChallengeInput,
-  Repository,
-  SolveColdApplicationChallengeInput,
-} from './app.ts';
-
-type CreateAppError = (status: number, code: string, message: string) => Error;
-type RequireNonEmptyString = (value: unknown, field: string) => string;
+import type { Repository } from './app.ts';
+import type { CreateColdApplicationChallengeInput, SolveColdApplicationChallengeInput } from './app-contract.ts';
+import type { CreateAppError, RequireNonEmptyString } from './app-helpers.ts';
 
 function normalizeApplicantEmail(value: unknown, requireNonEmptyString: RequireNonEmptyString, createAppError: CreateAppError): string {
   const email = requireNonEmptyString(value, 'email').toLowerCase();

@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from 'pg';
+import type { Pool } from 'pg';
 import type {
   ArchiveNetworkInput,
   AssignNetworkOwnerInput,
@@ -6,22 +6,7 @@ import type {
   NetworkSummary,
   Repository,
 } from '../app.ts';
-
-type DbClient = Pool | PoolClient;
-
-type ApplyActorContext = (
-  client: DbClient,
-  actorMemberId: string,
-  networkIds: string[],
-  options?: Record<string, never>,
-) => Promise<void>;
-
-type WithActorContext = <T>(
-  pool: Pool,
-  actorMemberId: string,
-  networkIds: string[],
-  fn: (client: PoolClient) => Promise<T>,
-) => Promise<T>;
+import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
 
 type NetworkRow = {
   network_id: string;
@@ -115,7 +100,7 @@ async function readNetworkSummary(client: DbClient, networkId: string): Promise<
   return result.rows[0] ? mapNetworkRow(result.rows[0]) : null;
 }
 
-export function buildSystemRepository({
+export function buildPlatformRepository({
   pool,
   applyActorContext,
   withActorContext,

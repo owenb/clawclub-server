@@ -2,38 +2,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MockLanguageModelV1 } from 'ai/test';
 import { runClawClubOperatorTurn } from '../src/ai-operator.ts';
-import type { AuthResult, Repository } from '../src/app.ts';
+import type { Repository } from '../src/app.ts';
+import { makeAuthResult as makeBaseAuthResult, makeRepository as makeBaseRepository } from './fixtures.ts';
 
-function makeAuthResult(): AuthResult {
-  return {
-    actor: {
-      member: { id: 'member-1', handle: 'owen', publicName: 'Owen' },
-      globalRoles: [],
-      memberships: [{
-        membershipId: 'membership-1',
-        networkId: 'network-conscious',
-        slug: 'conscious-engineers',
-        name: 'Conscious Engineers',
-        summary: 'Private network',
-        manifestoMarkdown: null,
-        role: 'owner',
-        status: 'active',
-        sponsorMemberId: null,
-        joinedAt: '2026-03-12T00:00:00Z',
-      }],
-    },
-    requestScope: { requestedNetworkId: null, activeNetworkIds: ['network-conscious'] },
-    sharedContext: { pendingUpdates: [] },
-  };
+function makeAuthResult() {
+  return makeBaseAuthResult({
+    memberId: 'member-1',
+    handle: 'owen',
+    publicName: 'Owen',
+    memberships: [{
+      membershipId: 'membership-1',
+      networkId: 'network-conscious',
+      slug: 'conscious-engineers',
+      name: 'Conscious Engineers',
+      summary: 'Private network',
+      manifestoMarkdown: null,
+      role: 'owner',
+      status: 'active',
+      sponsorMemberId: null,
+      joinedAt: '2026-03-12T00:00:00Z',
+    }],
+  });
 }
 
 function makeRepository(): Repository {
-  return {
+  return makeBaseRepository({
     async authenticateBearerToken(token) { return token === 'cc_live_test' ? makeAuthResult() : null; },
-    async listMemberships() { return []; },
-    async createMembership() { return null; },
-    async transitionMembershipState() { return null; },
-    async listMembershipReviews(input) {
+    async listMembershipReviews() {
       return [{
         membershipId: 'membership-2',
         networkId: 'network-conscious',
@@ -48,27 +43,7 @@ function makeRepository(): Repository {
         vouches: [],
       }];
     },
-    async listApplications() { return []; },
-    async createApplication() { return null; },
-    async transitionApplication() { return null; },
-    async searchMembers() { return []; },
-    async listMembers() { return []; },
-    async getMemberProfile() { return null; },
-    async updateOwnProfile() { throw new Error('unused'); },
-    async createEntity() { throw new Error('unused'); },
-    async updateEntity() { return null; },
-    async listEntities() { return []; },
-    async createEvent() { throw new Error('unused'); },
-    async listEvents() { return []; },
-    async rsvpEvent() { return null; },
-    async listBearerTokens() { return []; },
-    async createBearerToken() { throw new Error('unused'); },
-    async revokeBearerToken() { return null; },
-    async sendDirectMessage() { return null; },
-    async listDirectMessageThreads() { return []; },
-    async listDirectMessageInbox() { return []; },
-    async readDirectMessageThread() { return null; },
-  };
+  });
 }
 
 test('runClawClubOperatorTurn runs a realistic operator flow on top of curated tools', async () => {

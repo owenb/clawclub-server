@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from 'pg';
+import type { Pool } from 'pg';
 import type {
   BearerTokenSummary,
   CreateBearerTokenInput,
@@ -6,14 +6,9 @@ import type {
   Repository,
   RevokeBearerTokenInput,
 } from '../app.ts';
+import { requireReturnedRow } from './query-guards.ts';
 import { buildBearerToken } from '../token.ts';
-
-type WithActorContext = <T>(
-  pool: Pool,
-  actorMemberId: string,
-  networkIds: string[],
-  fn: (client: PoolClient) => Promise<T>,
-) => Promise<T>;
+import type { WithActorContext } from './shared.ts';
 
 type BearerTokenRow = {
   token_id: string;
@@ -22,6 +17,7 @@ type BearerTokenRow = {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  expires_at: string | null;
   metadata: Record<string, unknown> | null;
 };
 
@@ -33,6 +29,7 @@ function mapBearerTokenRow(row: BearerTokenRow): BearerTokenSummary {
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at,
     revokedAt: row.revoked_at,
+    expiresAt: row.expires_at,
     metadata: row.metadata ?? {},
   };
 }
@@ -61,6 +58,7 @@ export function buildTokenRepository({
               mbt.created_at::text as created_at,
               mbt.last_used_at::text as last_used_at,
               mbt.revoked_at::text as revoked_at,
+              mbt.expires_at::text as expires_at,
               mbt.metadata
             from app.member_bearer_tokens mbt
             where mbt.member_id = $1
@@ -78,8 +76,8 @@ export function buildTokenRepository({
       return withActorContext(pool, input.actorMemberId, [], async (client) => {
         const result = await client.query<BearerTokenRow>(
           `
-            insert into app.member_bearer_tokens (id, member_id, label, token_hash, metadata)
-            values ($1, $2, $3, $4, $5::jsonb)
+            insert into app.member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
+            values ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)
             returning
               id as token_id,
               member_id,
@@ -87,13 +85,14 @@ export function buildTokenRepository({
               created_at::text as created_at,
               last_used_at::text as last_used_at,
               revoked_at::text as revoked_at,
+              expires_at::text as expires_at,
               metadata
           `,
-          [token.tokenId, input.actorMemberId, input.label ?? null, token.tokenHash, JSON.stringify(input.metadata ?? {})],
+          [token.tokenId, input.actorMemberId, input.label ?? null, token.tokenHash, input.expiresAt ?? null, JSON.stringify(input.metadata ?? {})],
         );
 
         return {
-          token: mapBearerTokenRow(result.rows[0]!),
+          token: mapBearerTokenRow(requireReturnedRow(result.rows[0], 'Created bearer token row was not returned')),
           bearerToken: token.bearerToken,
         };
       });
@@ -114,6 +113,7 @@ export function buildTokenRepository({
               mbt.created_at::text as created_at,
               mbt.last_used_at::text as last_used_at,
               mbt.revoked_at::text as revoked_at,
+              mbt.expires_at::text as expires_at,
               mbt.metadata
           `,
           [input.tokenId, input.actorMemberId],

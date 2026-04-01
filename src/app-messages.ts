@@ -1,44 +1,13 @@
+import type { Repository, RequestScope, SharedResponseContext } from './app.ts';
 import type {
-  ActorContext,
-  MembershipSummary,
-  Repository,
-  RequestScope,
-  SharedResponseContext,
-} from './app.ts';
-
-type BuildSuccessResponse = (input: {
-  action: string;
-  actor: ActorContext;
-  requestScope: RequestScope;
-  sharedContext: SharedResponseContext;
-  data: unknown;
-}) => unknown;
-
-type CreateAppError = (status: number, code: string, message: string) => Error;
-type NormalizeLimit = (value: unknown) => number;
-type RequireAccessibleNetwork = (actor: ActorContext, networkIdValue: unknown) => MembershipSummary;
-type RequireNonEmptyString = (value: unknown, field: string) => string;
-
-function resolveScopedNetworks(
-  actor: ActorContext,
-  requestedNetworkId: unknown,
-  requireAccessibleNetwork: RequireAccessibleNetwork,
-  createAppError: CreateAppError,
-): MembershipSummary[] {
-  if (requestedNetworkId !== undefined) {
-    return [requireAccessibleNetwork(actor, requestedNetworkId)];
-  }
-
-  if (actor.memberships.length === 0) {
-    throw createAppError(403, 'forbidden', 'This member does not currently have access to any networks');
-  }
-
-  return actor.memberships;
-}
-
-function resolveRequestedNetworkId(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-}
+  BuildSuccessResponse,
+  CreateAppError,
+  NormalizeLimit,
+  RequireAccessibleNetwork,
+  RequireNonEmptyString,
+} from './app-helpers.ts';
+import { resolveScopedNetworks, resolveRequestedNetworkId } from './app-helpers.ts';
+import type { ActorContext } from './app-contract.ts';
 
 export async function handleMessageAction(input: {
   action: string;

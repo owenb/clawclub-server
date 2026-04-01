@@ -1,34 +1,20 @@
+import type { Repository, RequestScope, SharedResponseContext } from './app.ts';
+import type { ActorContext, ApplicationStatus, MembershipState } from './app-contract.ts';
 import type {
-  ActorContext,
-  ApplicationStatus,
-  CreateApplicationInput,
-  MembershipState,
-  MembershipSummary,
-  Repository,
-  RequestScope,
-  SharedResponseContext,
-} from './app.ts';
-
-type BuildSuccessResponse = (input: {
-  action: string;
-  actor: ActorContext;
-  requestScope: RequestScope;
-  sharedContext: SharedResponseContext;
-  data: unknown;
-}) => unknown;
-
-type CreateAppError = (status: number, code: string, message: string) => Error;
-type NormalizeLimit = (value: unknown) => number;
-type NormalizeOptionalString = (value: unknown, field: string) => string | null | undefined;
-type RequireAccessibleNetwork = (actor: ActorContext, networkIdValue: unknown) => MembershipSummary;
-type RequireMembershipOwner = (actor: ActorContext, networkIdValue: unknown) => MembershipSummary;
-type RequireMembershipState = (value: unknown, field: string) => MembershipState;
-type RequireApplicationStatus = (value: unknown, field: string) => ApplicationStatus;
-type RequireApplicationPath = (value: unknown, field: string) => 'sponsored' | 'outside';
-type NormalizeApplicationIntake = (value: unknown, field: string) => CreateApplicationInput['intake'];
-type NormalizeApplicationMetadataPatch = (value: unknown, field: string) => Record<string, unknown> | undefined;
-type RequireNonEmptyString = (value: unknown, field: string) => string;
-type RequireObject = (value: unknown, field: string) => Record<string, unknown>;
+  BuildSuccessResponse,
+  CreateAppError,
+  NormalizeApplicationIntake,
+  NormalizeApplicationMetadataPatch,
+  NormalizeLimit,
+  NormalizeOptionalString,
+  RequireAccessibleNetwork,
+  RequireApplicationPath,
+  RequireApplicationStatus,
+  RequireMembershipOwner,
+  RequireMembershipState,
+  RequireNonEmptyString,
+  RequireObject,
+} from './app-helpers.ts';
 
 function normalizeMembershipReviewStatuses(
   value: unknown,

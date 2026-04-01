@@ -1,13 +1,15 @@
 import { Pool, type PoolClient } from 'pg';
 import { type ActorContext, type AuthResult, type MembershipSummary, type Repository } from './app.ts';
 import { hashTokenSecret, parseBearerToken } from './token.ts';
+import { buildAdminRepository } from './postgres/admin.ts';
 import { buildAdmissionsRepository } from './postgres/admissions.ts';
 import { buildContentRepository } from './postgres/content.ts';
 import { buildMessagesRepository } from './postgres/messages.ts';
 import { buildProfileRepository } from './postgres/profile.ts';
-import { buildSystemRepository } from './postgres/system.ts';
+import { buildPlatformRepository } from './postgres/platform.ts';
 import { buildTokenRepository } from './postgres/tokens.ts';
-import { buildUpdatesRepository, listPendingUpdates } from './postgres/updates.ts';
+import { buildUpdatesRepository } from './postgres/updates.ts';
+import type { DbClient } from './postgres/shared.ts';
 
 type ActorRow = {
   member_id: string;
@@ -50,8 +52,6 @@ function parsePostgresTextArray(value: string[] | string | null | undefined): st
     .filter((entry) => entry.length > 0)
     .map((entry) => entry.replace(/^"(.*)"$/, '$1').replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
 }
-
-type DbClient = Pool | PoolClient;
 
 // RLS now derives network access from membership state in the database.
 async function applyActorContext(
@@ -186,9 +186,6 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       }
 
       const activeNetworkIds = actor.memberships.map((membership) => membership.networkId);
-      const pendingUpdates = await withActorContext(pool, actor.member.id, activeNetworkIds, (client) =>
-        listPendingUpdates(client, actor.member.id, 5, null).then((updates) => updates.items),
-      );
 
       return {
         actor,
@@ -197,7 +194,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
           activeNetworkIds,
         },
         sharedContext: {
-          pendingUpdates,
+          pendingUpdates: [],
         },
       };
     },
@@ -207,8 +204,9 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
     ...buildContentRepository({ pool, applyActorContext, withActorContext }),
     ...buildTokenRepository({ pool, withActorContext }),
     ...buildMessagesRepository({ pool, applyActorContext, withActorContext }),
-    ...buildSystemRepository({ pool, applyActorContext, withActorContext }),
+    ...buildPlatformRepository({ pool, applyActorContext, withActorContext }),
     ...buildUpdatesRepository({ pool, applyActorContext }),
+    ...buildAdminRepository({ pool, applyActorContext, withActorContext }),
 
   };
 }

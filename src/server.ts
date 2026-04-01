@@ -6,6 +6,10 @@ import { AppError, buildApp, type Repository } from './app.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
 
+type ColdApplicationAction = 'applications.challenge' | 'applications.solve';
+type FixedWindowRateLimit = { limit: number; windowMs: number };
+type FixedWindowRateLimitState = { count: number; resetAt: number };
+
 export const DEFAULT_SERVER_LIMITS = {
   maxBodyBytes: 1024 * 1024,
   requestTimeoutMs: 20_000,
@@ -15,6 +19,18 @@ export const DEFAULT_SERVER_LIMITS = {
   maxHeadersCount: 100,
   updatesStreamHeartbeatMs: 15_000,
   updatesStreamLimit: 20,
+  maxStreamsPerMember: 3,
+} as const;
+
+export const DEFAULT_COLD_APPLICATION_RATE_LIMITS: Record<ColdApplicationAction, FixedWindowRateLimit> = {
+  'applications.challenge': {
+    limit: 10,
+    windowMs: 60 * 60 * 1000,
+  },
+  'applications.solve': {
+    limit: 30,
+    windowMs: 60 * 60 * 1000,
+  },
 } as const;
 
 function readJsonBody(
@@ -22,22 +38,56 @@ function readJsonBody(
   maxBodyBytes = DEFAULT_SERVER_LIMITS.maxBodyBytes,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
-    let body = '';
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let settled = false;
 
-    request.setEncoding('utf8');
+    const cleanup = () => {
+      request.off('data', onData);
+      request.off('end', onEnd);
+      request.off('error', onError);
+      request.off('aborted', onAborted);
+    };
 
-    request.on('data', (chunk) => {
-      body += chunk;
-
-      if (body.length > maxBodyBytes) {
-        reject(new AppError(413, 'payload_too_large', 'Request body exceeded 1MB'));
-        request.destroy();
+    const resolveOnce = (value: Record<string, unknown>) => {
+      if (settled) {
+        return;
       }
-    });
 
-    request.on('end', () => {
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+
+    const rejectOnce = (error: unknown) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+
+    const onData = (chunk: Buffer | string) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.byteLength;
+
+      if (totalBytes > maxBodyBytes) {
+        request.pause();
+        rejectOnce(new AppError(413, 'payload_too_large', 'Request body exceeded 1MB'));
+        request.resume();
+        return;
+      }
+
+      chunks.push(buffer);
+    };
+
+    const onEnd = () => {
+      const body = Buffer.concat(chunks).toString('utf8');
+
       if (body.trim().length === 0) {
-        resolve({});
+        resolveOnce({});
         return;
       }
 
@@ -45,17 +95,28 @@ function readJsonBody(
         const parsed = JSON.parse(body);
 
         if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-          reject(new AppError(400, 'invalid_json', 'Request body must be a JSON object'));
+          rejectOnce(new AppError(400, 'invalid_json', 'Request body must be a JSON object'));
           return;
         }
 
-        resolve(parsed as Record<string, unknown>);
+        resolveOnce(parsed as Record<string, unknown>);
       } catch {
-        reject(new AppError(400, 'invalid_json', 'Request body must be valid JSON'));
+        rejectOnce(new AppError(400, 'invalid_json', 'Request body must be valid JSON'));
       }
-    });
+    };
 
-    request.on('error', reject);
+    const onError = (error: Error) => {
+      rejectOnce(error);
+    };
+
+    const onAborted = () => {
+      rejectOnce(new Error('Request body was aborted'));
+    };
+
+    request.on('data', onData);
+    request.on('end', onEnd);
+    request.on('error', onError);
+    request.on('aborted', onAborted);
   });
 }
 
@@ -119,6 +180,54 @@ function writeSseComment(response: http.ServerResponse, comment: string) {
   response.write(`: ${comment}\n\n`);
 }
 
+function isColdApplicationAction(value: unknown): value is ColdApplicationAction {
+  return value === 'applications.challenge' || value === 'applications.solve';
+}
+
+function getClientIp(request: http.IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) {
+    const forwarded = request.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string') {
+      const first = forwarded.split(',')[0].trim();
+      if (first.length > 0) {
+        return first;
+      }
+    }
+  }
+
+  return request.socket.remoteAddress ?? 'unknown';
+}
+
+function consumeFixedWindowRateLimit(
+  buckets: Map<string, FixedWindowRateLimitState>,
+  key: string,
+  rule: FixedWindowRateLimit,
+  now = Date.now(),
+): boolean {
+  for (const [bucketKey, state] of buckets) {
+    if (state.resetAt <= now) {
+      buckets.delete(bucketKey);
+    }
+  }
+
+  const bucket = buckets.get(key);
+
+  if (!bucket || bucket.resetAt <= now) {
+    buckets.set(key, {
+      count: 1,
+      resetAt: now + rule.windowMs,
+    });
+    return true;
+  }
+
+  if (bucket.count >= rule.limit) {
+    return false;
+  }
+
+  bucket.count += 1;
+  return true;
+}
+
 function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
   return {
     async waitForUpdate({ timeoutMs, signal }) {
@@ -151,12 +260,24 @@ function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
   };
 }
 
-export function createServer(options: { repository?: Repository; updatesNotifier?: MemberUpdateNotifier } = {}) {
+export function createServer(options: {
+  repository?: Repository;
+  updatesNotifier?: MemberUpdateNotifier;
+  coldApplicationRateLimits?: Partial<Record<ColdApplicationAction, FixedWindowRateLimit>>;
+  trustProxy?: boolean;
+} = {}) {
+  const trustProxy = options.trustProxy ?? (process.env.TRUST_PROXY === '1');
   const databaseUrl = process.env.DATABASE_URL;
   const pool = options.repository ? null : new Pool({ connectionString: databaseUrl ?? (() => { throw new Error('DATABASE_URL must be set'); })() });
   const repository = options.repository ?? createPostgresRepository({ pool: pool! });
   const updatesNotifier = options.updatesNotifier
     ?? (databaseUrl ? createPostgresMemberUpdateNotifier(databaseUrl) : createTimeoutOnlyNotifier());
+  const coldApplicationRateLimits: Record<ColdApplicationAction, FixedWindowRateLimit> = {
+    'applications.challenge': options.coldApplicationRateLimits?.['applications.challenge'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['applications.challenge'],
+    'applications.solve': options.coldApplicationRateLimits?.['applications.solve'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['applications.solve'],
+  };
+  const coldApplicationRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
+  const activeStreams = new Map<string, number>();
   const app = buildApp({ repository });
   const sockets = new Set<net.Socket>();
 
@@ -237,6 +358,24 @@ export function createServer(options: { repository?: Repository; updatesNotifier
         if (!repository.listMemberUpdates) {
           throw new Error('Repository does not implement listMemberUpdates');
         }
+
+        const memberId = auth.actor.member.id;
+        const currentStreams = activeStreams.get(memberId) ?? 0;
+        if (currentStreams >= DEFAULT_SERVER_LIMITS.maxStreamsPerMember) {
+          throw new AppError(429, 'too_many_streams', `Maximum ${DEFAULT_SERVER_LIMITS.maxStreamsPerMember} concurrent streams per member`);
+        }
+        activeStreams.set(memberId, currentStreams + 1);
+        const decrementStreams = () => {
+          const count = activeStreams.get(memberId);
+          if (count !== undefined) {
+            if (count <= 1) {
+              activeStreams.delete(memberId);
+            } else {
+              activeStreams.set(memberId, count - 1);
+            }
+          }
+        };
+        request.on('close', decrementStreams);
 
         const limit = Math.min(
           normalizeUpdatesLimit(url.searchParams.get('limit')),
@@ -347,6 +486,15 @@ export function createServer(options: { repository?: Repository; updatesNotifier
 
     try {
       const body = await readJsonBody(request);
+      if (isColdApplicationAction(body.action)) {
+        const clientIp = getClientIp(request, trustProxy);
+        const key = `${body.action}:${clientIp}`;
+
+        if (!consumeFixedWindowRateLimit(coldApplicationRateLimitBuckets, key, coldApplicationRateLimits[body.action])) {
+          throw new AppError(429, 'rate_limited', `Too many ${body.action} requests from this IP`);
+        }
+      }
+
       const result = await app.handleAction({
         bearerToken: getBearerToken(request),
         action: body.action,
@@ -355,7 +503,7 @@ export function createServer(options: { repository?: Repository; updatesNotifier
 
       writeJson(response, 200, {
         ok: true,
-        ...result,
+        ...(result as Record<string, unknown>),
       });
     } catch (error) {
       if (error instanceof AppError) {

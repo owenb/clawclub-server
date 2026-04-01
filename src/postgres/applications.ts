@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Pool, type PoolClient } from 'pg';
+import type { Pool } from 'pg';
 import {
   AppError,
   type ApplicationStatus,
@@ -12,25 +12,11 @@ import {
   type SolveColdApplicationChallengeInput,
   type TransitionApplicationInput,
 } from '../app.ts';
+import { requireReturnedRow } from './query-guards.ts';
+import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
 
 const COLD_APPLICATION_DIFFICULTY = 7;
 const COLD_APPLICATION_CHALLENGE_TTL_MS = 60 * 60 * 1000;
-
-type DbClient = Pool | PoolClient;
-
-type ApplyActorContext = (
-  client: DbClient,
-  actorMemberId: string,
-  networkIds: string[],
-  options?: Record<string, never>,
-) => Promise<void>;
-
-type WithActorContext = <T>(
-  pool: Pool,
-  actorMemberId: string,
-  networkIds: string[],
-  fn: (client: PoolClient) => Promise<T>,
-) => Promise<T>;
 
 type ApplicationRow = {
   application_id: string;
@@ -62,48 +48,14 @@ type ApplicationRow = {
   created_at: string;
 };
 
-type ColdApplicationRow = {
-  application_id: string;
-  metadata: Record<string, unknown> | null;
-  status: ApplicationStatus;
-  current_version_id: string;
-  current_version_no: number | string;
-};
-
-type ColdChallengeMetadata = {
+type ColdApplicationChallengeRow = {
+  challenge_id: string;
+  network_id: string;
+  applicant_email: string;
+  applicant_name: string;
   difficulty: number;
-  expiresAt: string;
-  solvedAt?: string;
-  nonce?: string;
-  hash?: string;
+  expires_at: string;
 };
-
-function readColdChallengeMetadata(metadata: Record<string, unknown> | null): ColdChallengeMetadata | null {
-  const challenge = metadata?.challenge;
-  if (!challenge || typeof challenge !== 'object' || Array.isArray(challenge)) {
-    return null;
-  }
-
-  const difficulty = 'difficulty' in challenge ? challenge.difficulty : null;
-  const expiresAt = 'expiresAt' in challenge ? challenge.expiresAt : null;
-  if (!Number.isInteger(difficulty) || typeof expiresAt !== 'string' || expiresAt.trim().length === 0) {
-    return null;
-  }
-
-  return {
-    difficulty,
-    expiresAt,
-    solvedAt: typeof challenge.solvedAt === 'string' && challenge.solvedAt.trim().length > 0
-      ? challenge.solvedAt
-      : undefined,
-    nonce: typeof challenge.nonce === 'string' && challenge.nonce.length > 0
-      ? challenge.nonce
-      : undefined,
-    hash: typeof challenge.hash === 'string' && challenge.hash.length > 0
-      ? challenge.hash
-      : undefined,
-  };
-}
 
 function mapApplicationRow(row: ApplicationRow): ApplicationSummary {
   return {
@@ -630,87 +582,34 @@ export function buildApplicationsRepository({
     async createColdApplicationChallenge(
       input: CreateColdApplicationChallengeInput,
     ): Promise<ColdApplicationChallengeResult | null> {
-      const client = await pool.connect();
-
-      try {
-        await client.query('begin');
-        await client.query(`set local app.allow_cold_application = '1'`);
-
-        const networkResult = await client.query<{ network_id: string }>(
-          `
-            select id as network_id
-            from app.networks
-            where slug = $1
-              and archived_at is null
-            limit 1
-          `,
-          [input.networkSlug],
-        );
-
-        const networkId = networkResult.rows[0]?.network_id;
-        if (!networkId) {
-          await client.query('rollback');
-          return null;
-        }
-
-        const expiresAt = new Date(Date.now() + COLD_APPLICATION_CHALLENGE_TTL_MS).toISOString();
-        const metadata = {
-          challenge: {
-            difficulty: COLD_APPLICATION_DIFFICULTY,
-            expiresAt,
-          },
-        };
-
-        const applicationResult = await client.query<{ application_id: string }>(
-          `
-            with inserted as (
-              insert into app.applications (
-                network_id,
-                path,
-                applicant_email,
-                applicant_name,
-                metadata
-              )
-              values ($1, 'cold', $2, $3, $4::jsonb)
-              returning id as application_id
-            ), version_insert as (
-              insert into app.application_versions (
-                application_id,
-                status,
-                notes,
-                version_no
-              )
-              select
-                application_id,
-                'draft',
-                'Cold application challenge issued',
-                1
-              from inserted
-            )
-            select application_id
-            from inserted
-          `,
-          [networkId, input.email, input.name, JSON.stringify(metadata)],
-        );
-
-        const challengeId = applicationResult.rows[0]?.application_id;
-        if (!challengeId) {
-          await client.query('rollback');
-          return null;
-        }
-
-        await client.query('commit');
-        return {
-          challengeId,
-          difficulty: COLD_APPLICATION_DIFFICULTY,
-          expiresAt,
-        };
-      } catch (error) {
-        await client.query('rollback');
-        throw error;
-      } finally {
-        client.release();
+      const challengeResult = await pool.query<{ challenge_id: string; expires_at: string }>(
+        `
+          select challenge_id, expires_at
+          from app.create_cold_application_challenge($1, $2, $3, $4, $5)
+        `,
+        [
+          input.networkSlug,
+          input.email,
+          input.name,
+          COLD_APPLICATION_DIFFICULTY,
+          COLD_APPLICATION_CHALLENGE_TTL_MS,
+        ],
+      );
+      const challenge = challengeResult.rows[0];
+      if (!challenge) {
+        return null;
       }
+
+      const expiresAt = Date.parse(challenge.expires_at);
+      if (!Number.isFinite(expiresAt)) {
+        throw new AppError(500, 'invalid_data', 'Cold application challenge expiry was not returned');
+      }
+
+      return {
+        challengeId: challenge.challenge_id,
+        difficulty: COLD_APPLICATION_DIFFICULTY,
+        expiresAt: new Date(expiresAt).toISOString(),
+      };
     },
 
     async solveColdApplicationChallenge(
@@ -720,53 +619,40 @@ export function buildApplicationsRepository({
 
       try {
         await client.query('begin');
-        await client.query(`set local app.allow_cold_application = '1'`);
 
-        const applicationResult = await client.query<ColdApplicationRow>(
+        const challengeResult = await client.query<ColdApplicationChallengeRow>(
           `
             select
-              a.id as application_id,
-              a.metadata,
-              cav.status,
-              cav.id as current_version_id,
-              cav.version_no as current_version_no
-            from app.applications a
-            join app.current_application_versions cav on cav.application_id = a.id
-            where a.id = $1
-              and a.path = 'cold'
-            limit 1
-            for update of a
+              challenge_id,
+              network_id,
+              applicant_email,
+              applicant_name,
+              difficulty,
+              expires_at
+            from app.get_cold_application_challenge($1)
           `,
           [input.challengeId],
         );
 
-        const application = applicationResult.rows[0];
-        if (!application) {
-          await client.query('rollback');
-          return null;
-        }
-
-        if (application.status !== 'draft') {
-          throw new AppError(409, 'already_solved', 'This challenge has already been solved');
-        }
-
-        const challenge = readColdChallengeMetadata(application.metadata);
+        const challenge = challengeResult.rows[0];
         if (!challenge) {
           await client.query('rollback');
           return null;
         }
 
-        if (challenge.solvedAt) {
-          throw new AppError(409, 'already_solved', 'This challenge has already been solved');
-        }
-
-        const expiresAt = Date.parse(challenge.expiresAt);
+        const expiresAt = Date.parse(challenge.expires_at);
         if (!Number.isFinite(expiresAt)) {
           await client.query('rollback');
           return null;
         }
 
         if (expiresAt < Date.now()) {
+          await client.query(
+            `
+              select app.delete_cold_application_challenge($1)
+            `,
+            [input.challengeId],
+          );
           throw new AppError(410, 'challenge_expired', 'This challenge has expired');
         }
 
@@ -777,43 +663,14 @@ export function buildApplicationsRepository({
           throw new AppError(400, 'invalid_proof', 'The submitted proof does not meet the difficulty requirement');
         }
 
-        const solvedAt = new Date().toISOString();
-        const updatedMetadata = {
-          ...(application.metadata ?? {}),
-          challenge: {
-            ...challenge,
-            solvedAt,
-            nonce: input.nonce,
-            hash,
-          },
-        };
-
-        await client.query(
+        const applicationResult = await client.query<{ application_id: string }>(
           `
-            update app.applications
-            set metadata = $2::jsonb
-            where id = $1
+            select application_id
+            from app.consume_cold_application_challenge($1)
           `,
-          [input.challengeId, JSON.stringify(updatedMetadata)],
+          [input.challengeId],
         );
-
-        await client.query(
-          `
-            insert into app.application_versions (
-              application_id,
-              status,
-              notes,
-              version_no,
-              supersedes_version_id
-            )
-            values ($1, 'submitted', 'Proof of work verified', $2, $3)
-          `,
-          [
-            input.challengeId,
-            Number(application.current_version_no) + 1,
-            application.current_version_id,
-          ],
-        );
+        requireReturnedRow(applicationResult.rows[0], 'Cold application row was not returned after challenge solve');
 
         await client.query('commit');
         return { success: true };

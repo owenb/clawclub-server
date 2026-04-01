@@ -1,24 +1,10 @@
-import { Pool, type PoolClient } from 'pg';
-import { AppError, type ActorContext, type MemberProfile, type Repository, type UpdateOwnProfileInput } from '../app.ts';
+import type { Pool } from 'pg';
+import { AppError, type ActorContext, type EmbeddingProjectionRow, type MemberProfile, type Repository, type UpdateOwnProfileInput } from '../app.ts';
 import { mapEmbeddingProjectionRow } from './projections.ts';
+import { requireReturnedRow } from './query-guards.ts';
+import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
 
-type DbClient = Pool | PoolClient;
-
-type ApplyActorContext = (
-  client: DbClient,
-  actorMemberId: string,
-  networkIds: string[],
-  options?: Record<string, never>,
-) => Promise<void>;
-
-type WithActorContext = <T>(
-  pool: Pool,
-  actorMemberId: string,
-  networkIds: string[],
-  fn: (client: PoolClient) => Promise<T>,
-) => Promise<T>;
-
-type ProfileRow = {
+type ProfileRow = EmbeddingProjectionRow & {
   member_id: string;
   public_name: string;
   handle: string | null;
@@ -35,12 +21,6 @@ type ProfileRow = {
   version_no: number | null;
   version_created_at: string | null;
   version_created_by_member_id: string | null;
-  embedding_id: string | null;
-  embedding_model: string | null;
-  embedding_dimensions: number | null;
-  embedding_source_text: string | null;
-  embedding_metadata: Record<string, unknown> | null;
-  embedding_created_at: string | null;
   shared_networks: Array<{ id: string; slug: string; name: string }> | null;
 };
 
@@ -182,10 +162,10 @@ export function buildProfileRepository({
           [actor.member.id],
         );
 
-        const current = currentResult.rows[0];
-        if (!current) {
-          throw new Error('Actor member disappeared during profile update');
-        }
+        const current = requireReturnedRow(
+          currentResult.rows[0],
+          'Actor member row disappeared during profile update',
+        );
 
         await client.query(
           `
@@ -231,10 +211,7 @@ export function buildProfileRepository({
         actor.memberships.map((membership) => membership.networkId),
         (scopedClient) => readMemberProfile(scopedClient, actor.member.id),
       );
-      if (!updated) {
-        throw new Error('Updated profile could not be reloaded');
-      }
-      return updated;
+      return requireReturnedRow(updated, 'Updated profile could not be reloaded');
     },
   };
 }

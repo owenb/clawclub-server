@@ -1,22 +1,11 @@
+import type { Repository, RequestScope, SharedResponseContext } from './app.ts';
+import type { ActorContext } from './app-contract.ts';
 import type {
-  ActorContext,
-  Repository,
-  RequestScope,
-  SharedResponseContext,
-  UpdateOwnProfileInput,
-} from './app.ts';
-
-type BuildSuccessResponse = (input: {
-  action: string;
-  actor: ActorContext;
-  requestScope: RequestScope;
-  sharedContext: SharedResponseContext;
-  data: unknown;
-}) => unknown;
-
-type CreateAppError = (status: number, code: string, message: string) => Error;
-type NormalizeProfilePatch = (payload: Record<string, unknown>) => UpdateOwnProfileInput;
-type RequireNonEmptyString = (value: unknown, field: string) => string;
+  BuildSuccessResponse,
+  CreateAppError,
+  NormalizeProfilePatch,
+  RequireNonEmptyString,
+} from './app-helpers.ts';
 
 export async function handleProfileAction(input: {
   action: string;

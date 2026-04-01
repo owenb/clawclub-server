@@ -1,23 +1,12 @@
+import type { Repository, RequestScope, SharedResponseContext, UpdateReceiptState } from './app.ts';
+import type { ActorContext } from './app-contract.ts';
 import type {
-  ActorContext,
-  Repository,
-  RequestScope,
-  SharedResponseContext,
-  UpdateReceiptState,
-} from './app.ts';
-
-type BuildSuccessResponse = (input: {
-  action: string;
-  actor: ActorContext;
-  requestScope: RequestScope;
-  sharedContext: SharedResponseContext;
-  data: unknown;
-}) => unknown;
-
-type CreateAppError = (status: number, code: string, message: string) => Error;
-type NormalizeLimit = (value: unknown) => number;
-type RequireInteger = (value: unknown, field: string) => number;
-type RequireNonEmptyString = (value: unknown, field: string) => string;
+  BuildSuccessResponse,
+  CreateAppError,
+  NormalizeLimit,
+  RequireInteger,
+  RequireNonEmptyString,
+} from './app-helpers.ts';
 
 function requireUpdateReceiptState(value: unknown, field: string): UpdateReceiptState {
   if (value !== 'processed' && value !== 'suppressed') {

@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from 'pg';
+import type { Pool } from 'pg';
 import type {
   AcknowledgeUpdatesInput,
   MemberUpdates,
@@ -6,15 +6,7 @@ import type {
   Repository,
   UpdateReceipt,
 } from '../app.ts';
-
-type DbClient = Pool | PoolClient;
-
-type ApplyActorContext = (
-  client: DbClient,
-  actorMemberId: string,
-  networkIds: string[],
-  options?: Record<string, never>,
-) => Promise<void>;
+import type { ApplyActorContext, DbClient } from './shared.ts';
 
 type PendingUpdateRow = {
   update_id: string;

@@ -30,18 +30,28 @@ SQL
 printf '%-40s %s\n' "MIGRATION" "STATUS"
 printf '%-40s %s\n' "---------" "------"
 
+PENDING_COUNT=0
+
 shopt -s nullglob
 for file in "$MIGRATIONS_DIR"/*.sql; do
   name="$(basename "$file")"
   applied="$({
     psql "$DATABASE_URL" -X -A -t -q \
       -v ON_ERROR_STOP=1 \
-      -c "select applied_at::text from public.schema_migrations where filename = '$name'";
+      -v migration_name="$name" \
+      -c "select applied_at::text from public.schema_migrations where filename = :'migration_name'";
   } | tr -d '\r')"
 
   if [ -n "$applied" ]; then
     printf '%-40s applied %s\n' "$name" "$applied"
   else
     printf '%-40s pending\n' "$name"
+    PENDING_COUNT=$((PENDING_COUNT + 1))
   fi
 done
+
+if [ "$PENDING_COUNT" -gt 0 ]; then
+  echo ""
+  echo "ERROR: $PENDING_COUNT pending migration(s)"
+  exit 1
+fi

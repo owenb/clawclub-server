@@ -1,28 +1,15 @@
+import type { Repository, RequestScope, SharedResponseContext } from './app.ts';
+import type { ActorContext } from './app-contract.ts';
 import type {
-  ActorContext,
-  Repository,
-  RequestScope,
-  SharedResponseContext,
-} from './app.ts';
+  BuildSuccessResponse,
+  CreateAppError,
+  NormalizeOptionalString,
+  NormalizeTokenCreateInput,
+  RequireNonEmptyString,
+  RequireSuperadmin,
+} from './app-helpers.ts';
 
-type BuildSuccessResponse = (input: {
-  action: string;
-  actor: ActorContext;
-  requestScope: RequestScope;
-  sharedContext: SharedResponseContext;
-  data: unknown;
-}) => unknown;
-
-type CreateAppError = (status: number, code: string, message: string) => Error;
-type NormalizeOptionalString = (value: unknown, field: string) => string | null | undefined;
-type NormalizeTokenCreateInput = (payload: Record<string, unknown>) => {
-  label: string | null;
-  metadata: Record<string, unknown>;
-};
-type RequireNonEmptyString = (value: unknown, field: string) => string;
-type RequireSuperadmin = (actor: ActorContext) => void;
-
-export async function handleSystemAction(input: {
+export async function handlePlatformAction(input: {
   action: string;
   payload: Record<string, unknown>;
   actor: ActorContext;

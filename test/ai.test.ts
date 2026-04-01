@@ -7,41 +7,8 @@ import {
   createClawClubOpenAIProvider,
   listCanonicalClawClubTools,
 } from '../src/ai.ts';
-import type { ApplicationSummary, AuthResult, MembershipReviewSummary, Repository } from '../src/app.ts';
-
-function makeAuthResult(): AuthResult {
-  return {
-    actor: {
-      member: {
-        id: 'member-1',
-        handle: 'member-one',
-        publicName: 'Member One',
-      },
-      globalRoles: [],
-      memberships: [
-        {
-          membershipId: 'membership-1',
-          networkId: 'network-1',
-          slug: 'alpha',
-          name: 'Alpha',
-          summary: 'First network',
-          manifestoMarkdown: null,
-          role: 'owner',
-          status: 'active',
-          sponsorMemberId: null,
-          joinedAt: '2026-03-12T00:00:00Z',
-        },
-      ],
-    },
-    requestScope: {
-      requestedNetworkId: null,
-      activeNetworkIds: ['network-1'],
-    },
-    sharedContext: {
-      pendingUpdates: [],
-    },
-  };
-}
+import type { ApplicationSummary, MembershipReviewSummary, Repository } from '../src/app.ts';
+import { makeAuthResult, makeRepository as makeBaseRepository } from './fixtures.ts';
 
 function makeMembershipReview(): MembershipReviewSummary {
   return {
@@ -112,61 +79,37 @@ function makeApplication(overrides: Partial<ApplicationSummary> = {}): Applicati
 }
 
 function makeRepository(overrides: Partial<Repository> = {}): Repository {
-  return {
+  return makeBaseRepository({
     async authenticateBearerToken(token) {
       return token === 'cc_live_test' ? makeAuthResult() : null;
     },
-    async listMemberships() { return []; },
-    async listApplications() { return []; },
-    async createApplication() { return null; },
-    async transitionApplication() { return null; },
-    async createMembership() { return null; },
-    async transitionMembershipState() { return null; },
-    async listMembershipReviews() { return []; },
-    async searchMembers() { return []; },
-    async listMembers() { return []; },
-    async getMemberProfile() { return null; },
-    async updateOwnProfile() { throw new Error('unused'); },
-    async createEntity() { throw new Error('unused'); },
-    async updateEntity() { return null; },
-    async listEntities() { return []; },
-    async createEvent() { throw new Error('unused'); },
-    async listEvents() { return []; },
-    async rsvpEvent() { return null; },
-    async listBearerTokens() { return []; },
-    async createBearerToken() { throw new Error('unused'); },
-    async revokeBearerToken() { return null; },
-    async sendDirectMessage() { return null; },
-    async listDirectMessageThreads() { return []; },
-    async listDirectMessageInbox() { return []; },
-    async readDirectMessageThread() { return null; },
     ...overrides,
-  };
+  });
 }
 
 test('listCanonicalClawClubTools exposes the curated chat-facing tool set only', () => {
   const tools = listCanonicalClawClubTools();
 
   assert.deepEqual(
-    tools.map((tool) => tool.name),
+    tools.map((tool) => tool.name).sort(),
     [
-      'session_describe',
-      'memberships_review',
-      'applications_list',
       'applications_create',
+      'applications_list',
       'applications_transition',
-      'members_search',
-      'profile_get',
-      'profile_update',
-      'entities_list',
-      'entities_create',
       'entities_archive',
-      'events_list',
+      'entities_create',
+      'entities_list',
       'events_create',
+      'events_list',
       'events_rsvp',
+      'members_search',
+      'memberships_review',
       'messages_inbox',
       'messages_read',
       'messages_send',
+      'profile_get',
+      'profile_update',
+      'session_describe',
     ],
   );
   assert.equal(tools.some((tool) => tool.action === 'tokens.create'), false);
@@ -389,4 +332,82 @@ test('createClawClubOpenAIModel disables structured outputs for optional tool sc
   assert.equal(capturedModelId, CLAWCLUB_OPENAI_MODEL);
   assert.deepEqual(capturedSettings, { structuredOutputs: false });
   assert.equal(model.modelId, CLAWCLUB_OPENAI_MODEL);
+});
+
+test('buildClawClubAiTools readOnly mode excludes mutating tools', () => {
+  const repository = makeRepository();
+  const allTools = buildClawClubAiTools({ repository, bearerToken: 'cc_live_test' });
+  const readOnlyTools = buildClawClubAiTools({ repository, bearerToken: 'cc_live_test' }, { readOnly: true });
+
+  const allNames = Object.keys(allTools);
+  const readOnlyNames = Object.keys(readOnlyTools);
+
+  assert.ok(allNames.includes('messages_send'), 'full mode includes mutating tools');
+  assert.ok(allNames.includes('applications_create'), 'full mode includes mutating tools');
+  assert.ok(allNames.includes('entities_create'), 'full mode includes mutating tools');
+
+  assert.ok(!readOnlyNames.includes('messages_send'), 'readOnly excludes messages_send');
+  assert.ok(!readOnlyNames.includes('applications_create'), 'readOnly excludes applications_create');
+  assert.ok(!readOnlyNames.includes('applications_transition'), 'readOnly excludes applications_transition');
+  assert.ok(!readOnlyNames.includes('profile_update'), 'readOnly excludes profile_update');
+  assert.ok(!readOnlyNames.includes('entities_create'), 'readOnly excludes entities_create');
+  assert.ok(!readOnlyNames.includes('entities_archive'), 'readOnly excludes entities_archive');
+  assert.ok(!readOnlyNames.includes('events_create'), 'readOnly excludes events_create');
+  assert.ok(!readOnlyNames.includes('events_rsvp'), 'readOnly excludes events_rsvp');
+
+  assert.ok(readOnlyNames.includes('session_describe'), 'readOnly includes session_describe');
+  assert.ok(readOnlyNames.includes('members_search'), 'readOnly includes members_search');
+  assert.ok(readOnlyNames.includes('messages_inbox'), 'readOnly includes messages_inbox');
+  assert.ok(readOnlyNames.includes('messages_read'), 'readOnly includes messages_read');
+  assert.ok(readOnlyNames.includes('profile_get'), 'readOnly includes profile_get');
+
+  assert.ok(readOnlyNames.length < allNames.length, 'readOnly has fewer tools');
+});
+
+test('listCanonicalClawClubTools includes safety classification', () => {
+  const tools = listCanonicalClawClubTools();
+  const readOnly = tools.filter((t) => t.safety === 'read_only');
+  const mutating = tools.filter((t) => t.safety === 'mutating');
+
+  assert.ok(readOnly.length > 0, 'has read_only tools');
+  assert.ok(mutating.length > 0, 'has mutating tools');
+  assert.equal(readOnly.length + mutating.length, tools.length, 'every tool has a safety classification');
+});
+
+test('action manifest covers exactly the set of handled actions', async () => {
+  const { ACTION_MANIFEST, KNOWN_ACTIONS } = await import('../src/action-manifest.ts');
+
+  const handledActions = new Set<string>();
+  const handlerFiles = [
+    '../src/app-admin.ts',
+    '../src/app-admissions.ts',
+    '../src/app-cold-applications.ts',
+    '../src/app-content.ts',
+    '../src/app-messages.ts',
+    '../src/app-platform.ts',
+    '../src/app-profile.ts',
+    '../src/app-updates.ts',
+  ];
+
+  for (const file of handlerFiles) {
+    const source = await import('node:fs').then((fs) =>
+      fs.readFileSync(new URL(file, import.meta.url), 'utf-8'),
+    );
+    const matches = source.matchAll(/case\s+'([^']+)'/g);
+    for (const match of matches) {
+      handledActions.add(match[1]);
+    }
+  }
+
+  const manifestActions = new Set(ACTION_MANIFEST.map((s: { action: string }) => s.action));
+
+  for (const action of handledActions) {
+    assert.ok(manifestActions.has(action), `handled action '${action}' is missing from ACTION_MANIFEST`);
+  }
+
+  for (const action of manifestActions) {
+    assert.ok(handledActions.has(action), `manifest action '${action}' is not handled by any module`);
+  }
+
+  assert.equal(KNOWN_ACTIONS.size, handledActions.size, 'manifest and handlers have the same action count');
 });
