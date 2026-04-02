@@ -42,7 +42,7 @@ test('postgres repository exposes current profile embedding projection metadata'
             embedding_source_text: 'Member Two profile summary',
             embedding_metadata: { subject: 'profile' },
             embedding_created_at: '2026-03-12T00:11:00Z',
-            shared_networks: [{ id: 'network-1', slug: 'alpha', name: 'Alpha' }],
+            shared_clubs: [{ id: 'club-1', slug: 'alpha', name: 'Alpha' }],
           }],
           rowCount: 1,
         };
@@ -91,7 +91,7 @@ test('postgres repository exposes current entity embedding projection metadata d
           rows: [{
             entity_id: 'entity-1',
             entity_version_id: 'entity-version-1',
-            network_id: 'network-1',
+            club_id: 'club-1',
             kind: 'post',
             author_member_id: 'member-1',
             author_public_name: 'Member One',
@@ -123,7 +123,7 @@ test('postgres repository exposes current entity embedding projection metadata d
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const entities = await repository.listEntities({ actorMemberId: 'member-1', networkIds: ['network-1'], kinds: ['post'], limit: 5 });
+  const entities = await repository.listEntities({ actorMemberId: 'member-1', clubIds: ['club-1'], kinds: ['post'], limit: 5 });
 
   assert.equal(entities[0]?.version.embedding?.embeddingId, 'embedding-9');
   assert.equal(entities[0]?.version.embedding?.sourceText, 'Hello Summary Body');

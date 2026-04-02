@@ -5,16 +5,16 @@
 The system still revolves around two strong axes:
 
 1. **Global personhood**
-   - one member identity across all networks
+   - one member identity across all clubs
    - one profile history
    - one bearer-token inventory
 
-2. **Network-local trust and activity**
-   - membership is scoped per network
+2. **Club-local trust and activity**
+   - membership is scoped per club
    - sponsor and owner history are append-only
-   - content, events, messages, and update fanout live inside network boundaries
+   - content, events, messages, and update fanout live inside club boundaries
 
-That split drives the schema: global tables such as `members`, `member_profile_versions`, and `member_bearer_tokens`, plus network tables such as `networks`, `network_memberships`, `entities`, `events`, `transcript_*`, and `member_updates`.
+That split drives the schema: global tables such as `members`, `member_profile_versions`, and `member_bearer_tokens`, plus club tables such as `clubs`, `club_memberships`, `entities`, `events`, `transcript_*`, and `member_updates`.
 
 ## Current foundation
 
@@ -33,7 +33,7 @@ Important mutable state should use one of two shapes:
 - root table + append-only version table + current view
 - append-only event table + current view
 
-That now covers member profiles, entities, applications, membership state, network ownership, RSVP state, message history, member updates, and member update receipts.
+That now covers member profiles, entities, applications, membership state, club ownership, RSVP state, message history, member updates, and member update receipts.
 
 Cold applications use the same append-only applications history, but start unauthenticated with name/email plus a proof-of-work challenge instead of a bearer-token-backed member ID.
 

@@ -13,7 +13,7 @@ import { makeAuthResult, makeRepository as makeBaseRepository } from './fixtures
 function makeMembershipReview(): MembershipReviewSummary {
   return {
     membershipId: 'membership-2',
-    networkId: 'network-1',
+    clubId: 'club-1',
     member: { memberId: 'member-2', publicName: 'Member Two', handle: 'member-two' },
     sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
     role: 'member',
@@ -47,7 +47,7 @@ function makeMembershipReview(): MembershipReviewSummary {
 function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
   return {
     applicationId: 'application-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     applicant: { memberId: 'member-2', publicName: 'Member Two', handle: 'member-two', email: null },
     sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
     membershipId: null,
@@ -139,27 +139,27 @@ test('buildClawClubAiTools forwards tool execution through the existing app/auth
           knownFor: null,
           servicesSummary: null,
           websiteUrl: null,
-          sharedNetworks: [{ id: 'network-1', slug: 'alpha', name: 'Alpha' }],
+          sharedClubs: [{ id: 'club-1', slug: 'alpha', name: 'Alpha' }],
         },
       ];
     },
   });
 
   const tools = buildClawClubAiTools({ repository, bearerToken: 'cc_live_test' });
-  const result = await tools.members_search.execute?.({ query: 'builder', networkId: 'network-1', limit: 3 }, {
+  const result = await tools.members_search.execute?.({ query: 'builder', clubId: 'club-1', limit: 3 }, {
     toolCallId: 'tool-call-1',
     messages: [],
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-1'],
+    clubIds: ['club-1'],
     query: 'builder',
     limit: 3,
   });
   assert.equal(result?.action, 'members.search');
   assert.equal(result?.actor.member.id, 'member-1');
-  assert.equal(result?.actor.requestScope.requestedNetworkId, 'network-1');
+  assert.equal(result?.actor.requestScope.requestedClubId, 'club-1');
   assert.equal(result?.data.results[0]?.memberId, 'member-2');
 });
 
@@ -195,10 +195,10 @@ test('applications tools stay small and operator-ready through the curated layer
   });
 
   const tools = buildClawClubAiTools({ repository, bearerToken: 'cc_live_test' });
-  const reviewResult = await tools.memberships_review.execute?.({ networkId: 'network-1', limit: 5 }, { toolCallId: 'tool-call-review', messages: [] });
-  const listResult = await tools.applications_list.execute?.({ networkId: 'network-1', statuses: ['submitted'], limit: 5 }, { toolCallId: 'tool-call-list', messages: [] });
+  const reviewResult = await tools.memberships_review.execute?.({ clubId: 'club-1', limit: 5 }, { toolCallId: 'tool-call-review', messages: [] });
+  const listResult = await tools.applications_list.execute?.({ clubId: 'club-1', statuses: ['submitted'], limit: 5 }, { toolCallId: 'tool-call-list', messages: [] });
   const createResult = await tools.applications_create.execute?.({
-    networkId: 'network-1',
+    clubId: 'club-1',
     applicantMemberId: 'member-2',
     sponsorMemberId: 'member-1',
     path: 'sponsored',
@@ -216,19 +216,19 @@ test('applications tools stay small and operator-ready through the curated layer
 
   assert.deepEqual(reviewInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-1'],
+    clubIds: ['club-1'],
     limit: 5,
     statuses: ['invited', 'pending_review'],
   });
   assert.deepEqual(listInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-1'],
+    clubIds: ['club-1'],
     limit: 5,
     statuses: ['submitted'],
   });
   assert.deepEqual(createInput, {
     actorMemberId: 'member-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     applicantMemberId: 'member-2',
     sponsorMemberId: 'member-1',
     membershipId: undefined,
@@ -243,7 +243,7 @@ test('applications tools stay small and operator-ready through the curated layer
     applicationId: 'application-1',
     nextStatus: 'interview_scheduled',
     notes: 'Call booked',
-    accessibleNetworkIds: ['network-1'],
+    accessibleClubIds: ['club-1'],
     intake: { kind: undefined, price: undefined, bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z', completedAt: undefined },
     membershipId: undefined,
     activateMembership: false,
@@ -283,7 +283,7 @@ test('profile_update tool preserves targeted patch semantics instead of exposing
           createdByMemberId: 'member-1',
           embedding: null,
         },
-        sharedNetworks: [{ id: 'network-1', slug: 'alpha', name: 'Alpha' }],
+        sharedClubs: [{ id: 'club-1', slug: 'alpha', name: 'Alpha' }],
       };
     },
   });

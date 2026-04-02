@@ -55,7 +55,7 @@ if printf "%s\\n" "$*" | grep -q "select current_user, rolsuper, rolbypassrls"; 
 elif printf "%s\\n" "$*" | grep -q "from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_roles r on r.oid = c.relowner"; then
   echo "2|current_applications:postgres, live_entities:postgres"
 elif printf "%s\\n" "$*" | grep -q "from pg_proc p join pg_namespace n on n.oid = p.pronamespace join pg_roles r on r.oid = p.proowner"; then
-  echo "1|actor_has_network_access:target_network_id app.short_id:postgres"
+  echo "1|actor_has_club_access:target_club_id app.short_id:postgres"
 elif printf "%s\\n" "$*" | grep -q "relrowsecurity"; then
   echo "1|embeddings:rls=f,force=f"
 else

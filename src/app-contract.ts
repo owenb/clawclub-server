@@ -2,7 +2,7 @@ export type MembershipState = 'invited' | 'pending_review' | 'active' | 'paused'
 
 export type MembershipSummary = {
   membershipId: string;
-  networkId: string;
+  clubId: string;
   slug: string;
   name: string;
   summary: string | null;
@@ -28,7 +28,7 @@ export type MembershipVouchSummary = {
 
 export type MembershipAdminSummary = {
   membershipId: string;
-  networkId: string;
+  clubId: string;
   member: {
     memberId: string;
     publicName: string;
@@ -54,7 +54,7 @@ export type MembershipAdminSummary = {
 
 export type CreateMembershipInput = {
   actorMemberId: string;
-  networkId: string;
+  clubId: string;
   memberId: string;
   sponsorMemberId: string;
   role: 'admin' | 'member';
@@ -82,7 +82,7 @@ export type ApplicationStatus =
 
 export type ApplicationSummary = {
   applicationId: string;
-  networkId: string;
+  clubId: string;
   applicant: {
     memberId: string | null;
     publicName: string;
@@ -126,7 +126,7 @@ export type ApplicationSummary = {
 
 export type CreateApplicationInput = {
   actorMemberId: string;
-  networkId: string;
+  clubId: string;
   applicantMemberId: string;
   sponsorMemberId?: string | null;
   membershipId?: string | null;
@@ -149,7 +149,7 @@ export type CreateApplicationInput = {
 export type SolveColdApplicationChallengeInput = {
   challengeId: string;
   nonce: string;
-  networkSlug: string;
+  clubSlug: string;
   name: string;
   email: string;
   socials: string;
@@ -168,7 +168,7 @@ export type TransitionApplicationInput = {
   applicationId: string;
   nextStatus: ApplicationStatus;
   notes?: string | null;
-  accessibleNetworkIds: string[];
+  accessibleClubIds: string[];
   intake?: {
     kind?: 'fit_check' | 'advice_call' | 'other';
     price?: {
@@ -190,11 +190,11 @@ export type TransitionMembershipInput = {
   membershipId: string;
   nextStatus: MembershipState;
   reason?: string | null;
-  accessibleNetworkIds: string[];
+  accessibleClubIds: string[];
 };
 
-export type NetworkSummary = {
-  networkId: string;
+export type ClubSummary = {
+  clubId: string;
   slug: string;
   name: string;
   summary: string | null;
@@ -212,7 +212,7 @@ export type NetworkSummary = {
   };
 };
 
-export type CreateNetworkInput = {
+export type CreateClubInput = {
   actorMemberId: string;
   slug: string;
   name: string;
@@ -221,14 +221,14 @@ export type CreateNetworkInput = {
   ownerMemberId: string;
 };
 
-export type ArchiveNetworkInput = {
+export type ArchiveClubInput = {
   actorMemberId: string;
-  networkId: string;
+  clubId: string;
 };
 
-export type AssignNetworkOwnerInput = {
+export type AssignClubOwnerInput = {
   actorMemberId: string;
-  networkId: string;
+  clubId: string;
   ownerMemberId: string;
 };
 
@@ -243,15 +243,15 @@ export type ActorContext = {
 };
 
 export type RequestScope = {
-  requestedNetworkId: string | null;
-  activeNetworkIds: string[];
+  requestedClubId: string | null;
+  activeClubIds: string[];
 };
 
 export type PendingUpdate = {
   updateId: string;
   streamSeq: number;
   recipientMemberId: string;
-  networkId: string;
+  clubId: string;
   entityId: string | null;
   entityVersionId: string | null;
   transcriptMessageId: string | null;
@@ -283,7 +283,7 @@ export type UpdateReceipt = {
   receiptId: string;
   updateId: string;
   recipientMemberId: string;
-  networkId: string;
+  clubId: string;
   state: UpdateReceiptState;
   suppressionReason: string | null;
   versionNo: number;
@@ -310,10 +310,10 @@ export type MemberSearchResult = {
   knownFor: string | null;
   servicesSummary: string | null;
   websiteUrl: string | null;
-  sharedNetworks: Array<{ id: string; slug: string; name: string }>;
+  sharedClubs: Array<{ id: string; slug: string; name: string }>;
 };
 
-export type NetworkMemberSummary = {
+export type ClubMemberSummary = {
   memberId: string;
   publicName: string;
   displayName: string;
@@ -365,7 +365,7 @@ export type MemberProfile = {
     createdByMemberId: string | null;
     embedding: EmbeddingProjectionSummary | null;
   };
-  sharedNetworks: Array<{ id: string; slug: string; name: string }>;
+  sharedClubs: Array<{ id: string; slug: string; name: string }>;
 };
 
 export type UpdateOwnProfileInput = {
@@ -387,7 +387,7 @@ export type EntityState = 'draft' | 'published' | 'archived';
 export type EntitySummary = {
   entityId: string;
   entityVersionId: string;
-  networkId: string;
+  clubId: string;
   kind: EntityKind;
   author: {
     memberId: string;
@@ -411,7 +411,7 @@ export type EntitySummary = {
 
 export type CreateEntityInput = {
   authorMemberId: string;
-  networkId: string;
+  clubId: string;
   kind: EntityKind;
   title: string | null;
   summary: string | null;
@@ -422,7 +422,7 @@ export type CreateEntityInput = {
 
 export type ArchiveEntityInput = {
   actorMemberId: string;
-  accessibleNetworkIds: string[];
+  accessibleClubIds: string[];
   entityId: string;
 };
 
@@ -431,7 +431,7 @@ export type EventRsvpState = 'yes' | 'maybe' | 'no' | 'waitlist';
 export type EventSummary = {
   entityId: string;
   entityVersionId: string;
-  networkId: string;
+  clubId: string;
   author: {
     memberId: string;
     publicName: string;
@@ -471,7 +471,7 @@ export type EventSummary = {
 
 export type CreateEventInput = {
   authorMemberId: string;
-  networkId: string;
+  clubId: string;
   title: string | null;
   summary: string | null;
   body: string | null;
@@ -486,7 +486,7 @@ export type CreateEventInput = {
 
 export type ListEventsInput = {
   actorMemberId: string;
-  networkIds: string[];
+  clubIds: string[];
   limit: number;
   query?: string;
 };
@@ -498,13 +498,13 @@ export type RsvpEventInput = {
   note?: string | null;
   accessibleMemberships: Array<{
     membershipId: string;
-    networkId: string;
+    clubId: string;
   }>;
 };
 
 export type ListEntitiesInput = {
   actorMemberId: string;
-  networkIds: string[];
+  clubIds: string[];
   kinds: EntityKind[];
   limit: number;
   query?: string;
@@ -540,7 +540,7 @@ export type RevokeBearerTokenInput = {
 
 export type DirectMessageSummary = {
   threadId: string;
-  networkId: string;
+  clubId: string;
   senderMemberId: string;
   recipientMemberId: string;
   messageId: string;
@@ -551,7 +551,7 @@ export type DirectMessageSummary = {
 
 export type DirectMessageThreadSummary = {
   threadId: string;
-  networkId: string;
+  clubId: string;
   counterpartMemberId: string;
   counterpartPublicName: string;
   counterpartHandle: string | null;
@@ -603,15 +603,15 @@ export type DirectMessageTranscriptEntry = {
 
 export type SendDirectMessageInput = {
   actorMemberId: string;
-  accessibleNetworkIds: string[];
+  accessibleClubIds: string[];
   recipientMemberId: string;
-  networkId?: string;
+  clubId?: string;
   messageText: string;
 };
 
 export type UpdateEntityInput = {
   actorMemberId: string;
-  accessibleNetworkIds: string[];
+  accessibleClubIds: string[];
   entityId: string;
   patch: {
     title?: string | null;
@@ -624,14 +624,14 @@ export type UpdateEntityInput = {
 
 export type CreateVouchInput = {
   actorMemberId: string;
-  networkId: string;
+  clubId: string;
   targetMemberId: string;
   reason: string;
 };
 
 export type SponsorshipSummary = {
   sponsorshipId: string;
-  networkId: string;
+  clubId: string;
   sponsor: {
     memberId: string;
     publicName: string;
@@ -646,7 +646,7 @@ export type SponsorshipSummary = {
 
 export type CreateSponsorshipInput = {
   actorMemberId: string;
-  networkId: string;
+  clubId: string;
   candidateName: string;
   candidateEmail: string;
   candidateDetails: Record<string, unknown>;
@@ -655,7 +655,7 @@ export type CreateSponsorshipInput = {
 
 export type QuotaAllowance = {
   action: string;
-  networkId: string;
+  clubId: string;
   maxPerDay: number;
   usedToday: number;
   remaining: number;
@@ -663,7 +663,7 @@ export type QuotaAllowance = {
 
 export type AdminOverview = {
   totalMembers: number;
-  totalNetworks: number;
+  totalClubs: number;
   totalEntities: number;
   totalMessages: number;
   totalApplications: number;
@@ -693,9 +693,9 @@ export type AdminMemberDetail = {
   createdAt: string;
   memberships: Array<{
     membershipId: string;
-    networkId: string;
-    networkName: string;
-    networkSlug: string;
+    clubId: string;
+    clubName: string;
+    clubSlug: string;
     role: string;
     status: string;
     joinedAt: string;
@@ -704,8 +704,8 @@ export type AdminMemberDetail = {
   profile: MemberProfile | null;
 };
 
-export type AdminNetworkStats = {
-  networkId: string;
+export type AdminClubStats = {
+  clubId: string;
   slug: string;
   name: string;
   archivedAt: string | null;
@@ -717,8 +717,8 @@ export type AdminNetworkStats = {
 
 export type AdminContentSummary = {
   entityId: string;
-  networkId: string;
-  networkName: string;
+  clubId: string;
+  clubName: string;
   kind: EntityKind;
   author: {
     memberId: string;
@@ -732,8 +732,8 @@ export type AdminContentSummary = {
 
 export type AdminThreadSummary = {
   threadId: string;
-  networkId: string;
-  networkName: string;
+  clubId: string;
+  clubName: string;
   participants: Array<{
     memberId: string;
     publicName: string;
@@ -747,7 +747,7 @@ export type AdminDiagnostics = {
   migrationCount: number;
   latestMigration: string | null;
   memberCount: number;
-  networkCount: number;
+  clubCount: number;
   tablesWithRls: number;
   totalAppTables: number;
   databaseSize: string;
@@ -755,19 +755,19 @@ export type AdminDiagnostics = {
 
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
-  listNetworks?(input: { actorMemberId: string; includeArchived: boolean }): Promise<NetworkSummary[]>;
-  createNetwork?(input: CreateNetworkInput): Promise<NetworkSummary | null>;
-  archiveNetwork?(input: ArchiveNetworkInput): Promise<NetworkSummary | null>;
-  assignNetworkOwner?(input: AssignNetworkOwnerInput): Promise<NetworkSummary | null>;
+  listClubs?(input: { actorMemberId: string; includeArchived: boolean }): Promise<ClubSummary[]>;
+  createClub?(input: CreateClubInput): Promise<ClubSummary | null>;
+  archiveClub?(input: ArchiveClubInput): Promise<ClubSummary | null>;
+  assignClubOwner?(input: AssignClubOwnerInput): Promise<ClubSummary | null>;
   listMemberships(input: {
     actorMemberId: string;
-    networkIds: string[];
+    clubIds: string[];
     limit: number;
     status?: MembershipState;
   }): Promise<MembershipAdminSummary[]>;
   listApplications?(input: {
     actorMemberId: string;
-    networkIds: string[];
+    clubIds: string[];
     limit: number;
     statuses?: ApplicationStatus[];
   }): Promise<ApplicationSummary[]>;
@@ -779,21 +779,21 @@ export type Repository = {
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: {
     actorMemberId: string;
-    networkIds: string[];
+    clubIds: string[];
     limit: number;
     statuses: MembershipState[];
   }): Promise<MembershipReviewSummary[]>;
   searchMembers(input: {
     actorMemberId: string;
-    networkIds: string[];
+    clubIds: string[];
     query: string;
     limit: number;
   }): Promise<MemberSearchResult[]>;
   listMembers(input: {
     actorMemberId: string;
-    networkIds: string[];
+    clubIds: string[];
     limit: number;
-  }): Promise<NetworkMemberSummary[]>;
+  }): Promise<ClubMemberSummary[]>;
   getMemberProfile(input: { actorMemberId: string; targetMemberId: string }): Promise<MemberProfile | null>;
   updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
@@ -813,33 +813,33 @@ export type Repository = {
   }): Promise<MemberUpdates>;
   acknowledgeUpdates?(input: AcknowledgeUpdatesInput): Promise<UpdateReceipt[]>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
-  listDirectMessageThreads(input: { actorMemberId: string; networkIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
+  listDirectMessageThreads(input: { actorMemberId: string; clubIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
   listDirectMessageInbox(input: {
     actorMemberId: string;
-    networkIds: string[];
+    clubIds: string[];
     limit: number;
     unreadOnly: boolean;
   }): Promise<DirectMessageInboxSummary[]>;
   readDirectMessageThread(input: {
     actorMemberId: string;
-    accessibleNetworkIds: string[];
+    accessibleClubIds: string[];
     threadId: string;
     limit: number;
   }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null>;
 
   createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
-  listVouches(input: { actorMemberId: string; networkIds: string[]; targetMemberId: string; limit: number }): Promise<MembershipVouchSummary[]>;
+  listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number }): Promise<MembershipVouchSummary[]>;
   createSponsorship(input: CreateSponsorshipInput): Promise<SponsorshipSummary>;
-  listSponsorships(input: { actorMemberId: string; networkIds: string[]; limit: number }): Promise<SponsorshipSummary[]>;
-  getQuotaStatus(input: { actorMemberId: string; networkIds: string[] }): Promise<QuotaAllowance[]>;
+  listSponsorships(input: { actorMemberId: string; clubIds: string[]; limit: number }): Promise<SponsorshipSummary[]>;
+  getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;
 
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
   adminListMembers?(input: { actorMemberId: string; limit: number; offset: number }): Promise<AdminMemberSummary[]>;
   adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;
-  adminGetNetworkStats?(input: { actorMemberId: string; networkId: string }): Promise<AdminNetworkStats | null>;
-  adminListContent?(input: { actorMemberId: string; networkId?: string; kind?: EntityKind; limit: number; offset: number }): Promise<AdminContentSummary[]>;
+  adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
+  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; offset: number }): Promise<AdminContentSummary[]>;
   adminArchiveEntity?(input: { actorMemberId: string; entityId: string }): Promise<{ entityId: string } | null>;
-  adminListThreads?(input: { actorMemberId: string; networkId?: string; limit: number; offset: number }): Promise<AdminThreadSummary[]>;
+  adminListThreads?(input: { actorMemberId: string; clubId?: string; limit: number; offset: number }): Promise<AdminThreadSummary[]>;
   adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<{ thread: AdminThreadSummary; messages: DirectMessageTranscriptEntry[] } | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
   adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;

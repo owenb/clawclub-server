@@ -7,7 +7,7 @@ This document is a historical note about the first schema hardening pass. The co
 ### 1. Access scope was implied, not named
 The first schema had active memberships and subscriptions, but no single database-level read surface for:
 - memberships that are active
-- and currently entitled to search/post inside a network
+- and currently entitled to search/post inside a club
 
 That matters because the central agent/server needs one deterministic scope primitive before any API work starts.
 
@@ -28,7 +28,7 @@ That is exactly the kind of invariant worth protecting in the database.
 ### Accessible memberships
 Added:
 - `app.live_subscriptions`
-- `app.accessible_network_memberships`
+- `app.accessible_club_memberships`
 
 This gives the future API/server one canonical scope source:
 - active memberships
@@ -47,7 +47,7 @@ This keeps RSVP history while still making “show me the current list” easy.
 
 ### Sponsor immutability guard
 Added a small trigger guard preventing updates to:
-- `network_id`
+- `club_id`
 - `member_id`
 - `sponsor_member_id`
 - `joined_at`
@@ -60,7 +60,7 @@ These changes do **not** add new top-level primitives.
 They just harden the existing model where the agreed rules were already clear.
 
 At the time of this pass, these were intentionally left to application logic:
-- shared-network DM permission checks
+- shared-club DM permission checks
 - ambiguous-search clarification flow
 - owner-editable prompting policy
 - update judgment / alerting heuristics

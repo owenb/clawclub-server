@@ -24,8 +24,8 @@ import {
   type MembershipAdminSummary,
   type MembershipReviewSummary,
   type MemberProfile,
-  type NetworkMemberSummary,
-  type NetworkSummary,
+  type ClubMemberSummary,
+  type ClubSummary,
   type RsvpEventInput,
   type UpdateEntityInput,
   type MemberSearchResult,
@@ -46,10 +46,10 @@ function makeActor(): ActorContext {
     memberships: [
       {
         membershipId: 'membership-1',
-        networkId: 'network-1',
+        clubId: 'club-1',
         slug: 'alpha',
         name: 'Alpha',
-        summary: 'First network',
+        summary: 'First club',
         manifestoMarkdown: null,
         role: 'admin',
         status: 'active',
@@ -58,10 +58,10 @@ function makeActor(): ActorContext {
       },
       {
         membershipId: 'membership-2',
-        networkId: 'network-2',
+        clubId: 'club-2',
         slug: 'beta',
         name: 'Beta',
-        summary: 'Second network',
+        summary: 'Second club',
         manifestoMarkdown: null,
         role: 'owner',
         status: 'active',
@@ -77,8 +77,8 @@ function makeAuthResult(): AuthResult {
   return {
     actor,
     requestScope: {
-      requestedNetworkId: null,
-      activeNetworkIds: actor.memberships.map((membership) => membership.networkId),
+      requestedClubId: null,
+      activeClubIds: actor.memberships.map((membership) => membership.clubId),
     },
     sharedContext: {
       pendingUpdates: [makePendingUpdate()],
@@ -91,7 +91,7 @@ function makePendingUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdat
     updateId: 'update-1',
     streamSeq: 1,
     recipientMemberId: 'member-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     entityId: 'entity-1',
     entityVersionId: 'entity-version-1',
     transcriptMessageId: null,
@@ -108,7 +108,7 @@ function makeUpdateReceipt(overrides: Partial<UpdateReceipt> = {}): UpdateReceip
     receiptId: 'receipt-1',
     updateId: 'update-1',
     recipientMemberId: 'member-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     state: 'processed',
     suppressionReason: null,
     versionNo: 1,
@@ -171,7 +171,7 @@ function makeDeliveryAcknowledgement(overrides: Partial<DeliveryAcknowledgement>
   return {
     acknowledgementId: 'ack-1',
     deliveryId: 'delivery-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     recipientMemberId: 'member-1',
     state: 'shown',
     suppressionReason: null,
@@ -186,7 +186,7 @@ function makeDeliveryAcknowledgement(overrides: Partial<DeliveryAcknowledgement>
 function makeDeliverySummary(overrides: Partial<DeliverySummary> = {}): DeliverySummary {
   return {
     deliveryId: 'delivery-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     recipientMemberId: 'member-1',
     endpointId: 'endpoint-1',
     topic: 'transcript.message.created',
@@ -212,7 +212,7 @@ function makeClaimedDelivery(overrides: Partial<ClaimedDelivery> = {}): ClaimedD
     attempt: {
       attemptId: 'attempt-1',
       deliveryId: 'delivery-1',
-      networkId: 'network-1',
+      clubId: 'club-1',
       endpointId: 'endpoint-1',
       workerKey: 'worker-a',
       status: 'processing',
@@ -232,7 +232,7 @@ function makeClaimedDelivery(overrides: Partial<ClaimedDelivery> = {}): ClaimedD
 function makeDirectMessage(overrides: Partial<DirectMessageSummary> = {}): DirectMessageSummary {
   return {
     threadId: 'thread-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     senderMemberId: 'member-1',
     recipientMemberId: 'member-2',
     messageId: 'message-1',
@@ -246,7 +246,7 @@ function makeDirectMessage(overrides: Partial<DirectMessageSummary> = {}): Direc
 function makeDirectMessageThread(overrides: Partial<DirectMessageThreadSummary> = {}): DirectMessageThreadSummary {
   return {
     threadId: 'thread-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     counterpartMemberId: 'member-2',
     counterpartPublicName: 'Member Two',
     counterpartHandle: 'member-two',
@@ -292,12 +292,12 @@ function makeDirectMessageTranscriptEntry(
   };
 }
 
-function makeNetwork(overrides: Partial<NetworkSummary> = {}): NetworkSummary {
+function makeClub(overrides: Partial<ClubSummary> = {}): ClubSummary {
   return {
-    networkId: 'network-1',
+    clubId: 'club-1',
     slug: 'alpha',
     name: 'Alpha',
-    summary: 'First network',
+    summary: 'First club',
     manifestoMarkdown: null,
     archivedAt: null,
     owner: {
@@ -317,7 +317,7 @@ function makeNetwork(overrides: Partial<NetworkSummary> = {}): NetworkSummary {
 function makeMembershipAdmin(overrides: Partial<MembershipAdminSummary> = {}): MembershipAdminSummary {
   return {
     membershipId: 'membership-9',
-    networkId: 'network-1',
+    clubId: 'club-1',
     member: {
       memberId: 'member-9',
       publicName: 'Member Nine',
@@ -371,7 +371,7 @@ function makeMembershipReview(overrides: Partial<MembershipReviewSummary> = {}):
 function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
   return {
     applicationId: 'application-1',
-    networkId: 'network-2',
+    clubId: 'club-2',
     applicant: {
       memberId: 'member-9',
       publicName: 'Member Nine',
@@ -411,7 +411,7 @@ function makeApplication(overrides: Partial<ApplicationSummary> = {}): Applicati
   };
 }
 
-function makeNetworkMember(overrides: Partial<NetworkMemberSummary> = {}): NetworkMemberSummary {
+function makeClubMember(overrides: Partial<ClubMemberSummary> = {}): ClubMemberSummary {
   return {
     memberId: 'member-1',
     publicName: 'Member One',
@@ -449,7 +449,7 @@ function makeProfile(memberId = 'member-1'): MemberProfile {
       createdByMemberId: memberId,
       embedding: null,
     },
-    sharedNetworks: [{ id: 'network-1', slug: 'alpha', name: 'Alpha' }],
+    sharedClubs: [{ id: 'club-1', slug: 'alpha', name: 'Alpha' }],
   };
 }
 
@@ -457,7 +457,7 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
   return {
     entityId: 'entity-1',
     entityVersionId: 'entity-version-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     kind: 'post',
     author: {
       memberId: 'member-1',
@@ -487,7 +487,7 @@ function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
   return {
     entityId: 'event-1',
     entityVersionId: 'event-version-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     author: {
       memberId: 'member-1',
       publicName: 'Member One',
@@ -531,17 +531,17 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
 
       return makeAuthResult();
     },
-    async listNetworks() {
-      return [makeNetwork()];
+    async listClubs() {
+      return [makeClub()];
     },
-    async createNetwork() {
-      return makeNetwork();
+    async createClub() {
+      return makeClub();
     },
-    async archiveNetwork() {
-      return makeNetwork({ archivedAt: '2026-03-12T01:00:00Z' });
+    async archiveClub() {
+      return makeClub({ archivedAt: '2026-03-12T01:00:00Z' });
     },
-    async assignNetworkOwner() {
-      return makeNetwork({
+    async assignClubOwner() {
+      return makeClub({
         owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
         ownerVersion: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
       });
@@ -571,7 +571,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return results;
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile({ targetMemberId }) {
       return makeProfile(targetMemberId);
@@ -636,29 +636,29 @@ test('session.describe returns the canonical actor session envelope once', async
   assert.deepEqual(result.actor.globalRoles, ['superadmin']);
   assert.equal(result.actor.activeMemberships.length, 2);
   assert.deepEqual(
-    result.actor.activeMemberships.map((network) => network.networkId),
-    ['network-1', 'network-2'],
+    result.actor.activeMemberships.map((club) => club.clubId),
+    ['club-1', 'club-2'],
   );
   assert.deepEqual(result.data, {});
   assert.equal(result.actor.sharedContext.pendingUpdates.length, 1);
   assert.equal(result.actor.sharedContext.pendingUpdates[0]?.updateId, 'update-1');
 });
 
-test('networks.list requires superadmin and returns archived flag filter', async () => {
+test('clubs.list requires superadmin and returns archived flag filter', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async listNetworks(input) {
+    async listClubs(input) {
       capturedInput = input as Record<string, unknown>;
-      return [makeNetwork({ archivedAt: '2026-03-12T01:00:00Z' })];
+      return [makeClub({ archivedAt: '2026-03-12T01:00:00Z' })];
     },
   };
 
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'networks.list',
+    action: 'clubs.list',
     payload: { includeArchived: true },
   });
 
@@ -666,18 +666,18 @@ test('networks.list requires superadmin and returns archived flag filter', async
     actorMemberId: 'member-1',
     includeArchived: true,
   });
-  assert.equal(result.data.networks[0]?.archivedAt, '2026-03-12T01:00:00Z');
+  assert.equal(result.data.clubs[0]?.archivedAt, '2026-03-12T01:00:00Z');
 });
 
-test('networks.create derives superadmin ownership assignment server-side', async () => {
+test('clubs.create derives superadmin ownership assignment server-side', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async createNetwork(input) {
+    async createClub(input) {
       capturedInput = input as Record<string, unknown>;
-      return makeNetwork({
-        networkId: 'network-9',
+      return makeClub({
+        clubId: 'club-9',
         slug: 'gamma',
         name: 'Gamma',
         owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
@@ -688,11 +688,11 @@ test('networks.create derives superadmin ownership assignment server-side', asyn
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'networks.create',
+    action: 'clubs.create',
     payload: {
       slug: 'gamma',
       name: 'Gamma',
-      summary: 'Third network',
+      summary: 'Third club',
       ownerMemberId: 'member-9',
     },
   });
@@ -701,23 +701,23 @@ test('networks.create derives superadmin ownership assignment server-side', asyn
     actorMemberId: 'member-1',
     slug: 'gamma',
     name: 'Gamma',
-    summary: 'Third network',
+    summary: 'Third club',
     manifestoMarkdown: undefined,
     ownerMemberId: 'member-9',
   });
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-9');
-  assert.equal(result.data.network.owner.memberId, 'member-9');
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-9');
+  assert.equal(result.data.club.owner.memberId, 'member-9');
 });
 
-test('networks.assignOwner appends a new owner version via the superadmin surface', async () => {
+test('clubs.assignOwner appends a new owner version via the superadmin surface', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async assignNetworkOwner(input) {
+    async assignClubOwner(input) {
       capturedInput = input as Record<string, unknown>;
-      return makeNetwork({
-        networkId: 'network-2',
+      return makeClub({
+        clubId: 'club-2',
         owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
         ownerVersion: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
       });
@@ -727,30 +727,30 @@ test('networks.assignOwner appends a new owner version via the superadmin surfac
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'networks.assignOwner',
+    action: 'clubs.assignOwner',
     payload: {
-      networkId: 'network-2',
+      clubId: 'club-2',
       ownerMemberId: 'member-9',
     },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkId: 'network-2',
+    clubId: 'club-2',
     ownerMemberId: 'member-9',
   });
-  assert.equal(result.data.network.owner.memberId, 'member-9');
-  assert.equal(result.data.network.ownerVersion.versionNo, 2);
+  assert.equal(result.data.club.owner.memberId, 'member-9');
+  assert.equal(result.data.club.ownerVersion.versionNo, 2);
 });
 
-test('memberships.list stays inside owner network scope and can filter by status', async () => {
+test('memberships.list stays inside owner club scope and can filter by status', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
     async listMemberships(input) {
       capturedInput = input as Record<string, unknown>;
-      return [makeMembershipAdmin({ networkId: 'network-2', state: { ...makeMembershipAdmin().state, status: 'pending_review' } })];
+      return [makeMembershipAdmin({ clubId: 'club-2', state: { ...makeMembershipAdmin().state, status: 'pending_review' } })];
     },
   };
 
@@ -758,28 +758,28 @@ test('memberships.list stays inside owner network scope and can filter by status
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'memberships.list',
-    payload: { networkId: 'network-2', status: 'pending_review', limit: 4 },
+    payload: { clubId: 'club-2', status: 'pending_review', limit: 4 },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 4,
     status: 'pending_review',
   });
   assert.equal(result.action, 'memberships.list');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.equal(result.data.results[0]?.state.status, 'pending_review');
 });
 
-test('memberships.list rejects admin-only network membership', async () => {
+test('memberships.list rejects admin-only club membership', async () => {
   const app = buildApp({ repository: makeRepository() });
 
   await assert.rejects(
     () => app.handleAction({
       bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
       action: 'memberships.list',
-      payload: { networkId: 'network-1', limit: 4 },
+      payload: { clubId: 'club-1', limit: 4 },
     }),
     (error: unknown) => {
       assert.ok(error instanceof AppError);
@@ -807,14 +807,14 @@ test('memberships.review defaults to admissions-focused statuses and returns spo
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'memberships.review',
     payload: {
-      networkId: 'network-2',
+      clubId: 'club-2',
       limit: 3,
     },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 3,
     statuses: ['invited', 'pending_review'],
   });
@@ -832,7 +832,7 @@ test('memberships.create derives scope server-side and preserves sponsor semanti
       capturedInput = input as Record<string, unknown>;
       return makeMembershipAdmin({
         membershipId: 'membership-10',
-        networkId: 'network-2',
+        clubId: 'club-2',
         member: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
         sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
         state: { ...makeMembershipAdmin().state, status: 'invited' },
@@ -845,7 +845,7 @@ test('memberships.create derives scope server-side and preserves sponsor semanti
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'memberships.create',
     payload: {
-      networkId: 'network-2',
+      clubId: 'club-2',
       memberId: 'member-9',
       sponsorMemberId: 'member-1',
       initialStatus: 'invited',
@@ -856,7 +856,7 @@ test('memberships.create derives scope server-side and preserves sponsor semanti
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkId: 'network-2',
+    clubId: 'club-2',
     memberId: 'member-9',
     sponsorMemberId: 'member-1',
     role: 'member',
@@ -878,7 +878,7 @@ test('memberships.transition appends a new membership state version inside owner
       capturedInput = input as Record<string, unknown>;
       return makeMembershipAdmin({
         membershipId: 'membership-10',
-        networkId: 'network-2',
+        clubId: 'club-2',
         state: {
           status: 'active',
           reason: 'Fit check complete',
@@ -898,7 +898,7 @@ test('memberships.transition appends a new membership state version inside owner
       membershipId: 'membership-10',
       status: 'active',
       reason: 'Fit check complete',
-      networkId: 'network-999',
+      clubId: 'club-999',
     },
   });
 
@@ -907,14 +907,14 @@ test('memberships.transition appends a new membership state version inside owner
     membershipId: 'membership-10',
     nextStatus: 'active',
     reason: 'Fit check complete',
-    accessibleNetworkIds: ['network-2'],
+    accessibleClubIds: ['club-2'],
   });
   assert.equal(result.action, 'memberships.transition');
   assert.equal(result.data.membership.state.versionNo, 2);
   assert.equal(result.data.membership.state.status, 'active');
 });
 
-test('memberships.transition rejects admin-only network scope', async () => {
+test('memberships.transition rejects admin-only club scope', async () => {
   const actor = makeActor();
   actor.memberships = [actor.memberships[0]!];
 
@@ -925,14 +925,14 @@ test('memberships.transition rejects admin-only network scope', async () => {
         return {
           actor,
           requestScope: {
-            requestedNetworkId: null,
-            activeNetworkIds: actor.memberships.map((membership) => membership.networkId),
+            requestedClubId: null,
+            activeClubIds: actor.memberships.map((membership) => membership.clubId),
           },
           sharedContext: { pendingUpdates: [makePendingUpdate()] },
         };
       },
       async transitionMembershipState(input) {
-        assert.deepEqual(input.accessibleNetworkIds, []);
+        assert.deepEqual(input.accessibleClubIds, []);
         return null;
       },
     },
@@ -973,12 +973,12 @@ test('applications.list stays inside owner scope and can filter interview workfl
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'applications.list',
-    payload: { networkId: 'network-2', statuses: ['submitted', 'interview_scheduled'], limit: 4 },
+    payload: { clubId: 'club-2', statuses: ['submitted', 'interview_scheduled'], limit: 4 },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 4,
     statuses: ['submitted', 'interview_scheduled'],
   });
@@ -1007,7 +1007,7 @@ test('applications.create captures a sponsored fit-check intake and owner scope 
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'applications.create',
     payload: {
-      networkId: 'network-2',
+      clubId: 'club-2',
       applicantMemberId: 'member-9',
       sponsorMemberId: 'member-1',
       membershipId: 'membership-9',
@@ -1026,7 +1026,7 @@ test('applications.create captures a sponsored fit-check intake and owner scope 
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkId: 'network-2',
+    clubId: 'club-2',
     applicantMemberId: 'member-9',
     sponsorMemberId: 'member-1',
     membershipId: 'membership-9',
@@ -1101,7 +1101,7 @@ test('applications.transition can append accepted interview state and activate t
     applicationId: 'application-9',
     nextStatus: 'accepted',
     notes: 'Interview complete and accepted',
-    accessibleNetworkIds: ['network-2'],
+    accessibleClubIds: ['club-2'],
     intake: {
       kind: undefined,
       price: undefined,
@@ -1176,7 +1176,7 @@ test('applications.solve submits a cold application with all required fields', a
     payload: {
       challengeId: 'challenge-1',
       nonce: '183729471',
-      networkSlug: 'alpha',
+      clubSlug: 'alpha',
       name: 'Jane Doe',
       email: 'Jane@Example.com',
       socials: '@janedoe',
@@ -1187,7 +1187,7 @@ test('applications.solve submits a cold application with all required fields', a
   assert.deepEqual(capturedInput, {
     challengeId: 'challenge-1',
     nonce: '183729471',
-    networkSlug: 'alpha',
+    clubSlug: 'alpha',
     name: 'Jane Doe',
     email: 'jane@example.com',
     socials: '@janedoe',
@@ -1198,19 +1198,19 @@ test('applications.solve submits a cold application with all required fields', a
   assert.equal('actor' in result, false);
 });
 
-test('members.search narrows scope when a permitted network is requested', async () => {
-  let capturedNetworkIds: string[] = [];
+test('members.search narrows scope when a permitted club is requested', async () => {
+  let capturedClubIds: string[] = [];
 
   const repository: Repository = {
     async authenticateBearerToken() {
       return makeAuthResult();
     },
-    async searchMembers({ networkIds }) {
-      capturedNetworkIds = networkIds;
+    async searchMembers({ clubIds }) {
+      capturedClubIds = clubIds;
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1277,20 +1277,20 @@ test('members.search narrows scope when a permitted network is requested', async
     action: 'members.search',
     payload: {
       query: 'Chris',
-      networkId: 'network-2',
+      clubId: 'club-2',
       limit: 3,
     },
   });
 
   assert.equal(result.action, 'members.search');
-  assert.deepEqual(capturedNetworkIds, ['network-2']);
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.equal(result.data.networkScope.length, 1);
-  assert.equal(result.data.networkScope[0]?.networkId, 'network-2');
+  assert.deepEqual(capturedClubIds, ['club-2']);
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
+  assert.equal(result.data.clubScope.length, 1);
+  assert.equal(result.data.clubScope[0]?.clubId, 'club-2');
 });
 
 test('members.list returns active members with scoped membership context', async () => {
-  let capturedInput: { actorMemberId: string; networkIds: string[]; limit: number } | null = null;
+  let capturedInput: { actorMemberId: string; clubIds: string[]; limit: number } | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1302,7 +1302,7 @@ test('members.list returns active members with scoped membership context', async
     async listMembers(input) {
       capturedInput = input;
       return [
-        makeNetworkMember({
+        makeClubMember({
           memberId: 'member-2',
           publicName: 'Member Two',
           displayName: 'Member Two',
@@ -1375,21 +1375,21 @@ test('members.list returns active members with scoped membership context', async
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'members.list',
     payload: {
-      networkId: 'network-2',
+      clubId: 'club-2',
       limit: 4,
     },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 4,
   });
   assert.equal(result.action, 'members.list');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
+  assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.results[0]?.memberId, 'member-2');
-  assert.equal(result.data.results[0]?.memberships[0]?.networkId, 'network-2');
+  assert.equal(result.data.results[0]?.memberships[0]?.clubId, 'club-2');
 });
 
 test('profile.get defaults to the actor member id', async () => {
@@ -1403,7 +1403,7 @@ test('profile.get defaults to the actor member id', async () => {
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile({ targetMemberId }) {
       capturedTargetMemberId = targetMemberId;
@@ -1487,7 +1487,7 @@ test('profile.update normalizes nullable strings and handle changes', async () =
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1597,7 +1597,7 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1609,7 +1609,7 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
       capturedInput = input;
       return {
         ...makeEntity(),
-        networkId: input.networkId,
+        clubId: input.clubId,
         kind: input.kind,
         version: {
           ...makeEntity().version,
@@ -1678,7 +1678,7 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'entities.create',
     payload: {
-      networkId: 'network-2',
+      clubId: 'club-2',
       kind: 'service',
       title: 'Debugging help',
       summary: 'Fast TypeScript debugging',
@@ -1690,7 +1690,7 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
 
   assert.deepEqual(capturedInput, {
     authorMemberId: 'member-1',
-    networkId: 'network-2',
+    clubId: 'club-2',
     kind: 'service',
     title: 'Debugging help',
     summary: 'Fast TypeScript debugging',
@@ -1699,8 +1699,8 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     content: { priceHint: '£120/hour' },
   });
   assert.equal(result.action, 'entities.create');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
+  assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.entity.kind, 'service');
 });
 
@@ -1715,7 +1715,7 @@ test('entities.update appends a new version on the shared entity surface', async
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1730,7 +1730,7 @@ test('entities.update appends a new version on the shared entity surface', async
       capturedInput = input;
       return makeEntity({
         entityVersionId: 'entity-version-2',
-        networkId: 'network-2',
+        clubId: 'club-2',
         version: {
           ...makeEntity().version,
           versionNo: 2,
@@ -1776,7 +1776,7 @@ test('entities.update appends a new version on the shared entity surface', async
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-1', 'network-2'],
+    accessibleClubIds: ['club-1', 'club-2'],
     entityId: 'entity-1',
     patch: {
       title: 'Hello again',
@@ -1787,14 +1787,14 @@ test('entities.update appends a new version on the shared entity surface', async
     },
   });
   assert.equal(result.action, 'entities.update');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
+  assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.entity.entityVersionId, 'entity-version-2');
   assert.equal(result.data.entity.version.versionNo, 2);
 });
 
 test('entities.archive appends an archived version on the shared entity surface', async () => {
-  let capturedInput: { actorMemberId: string; accessibleNetworkIds: string[]; entityId: string } | null = null;
+  let capturedInput: { actorMemberId: string; accessibleClubIds: string[]; entityId: string } | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1804,7 +1804,7 @@ test('entities.archive appends an archived version on the shared entity surface'
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1822,7 +1822,7 @@ test('entities.archive appends an archived version on the shared entity surface'
       capturedInput = input;
       return makeEntity({
         entityVersionId: 'entity-version-3',
-        networkId: 'network-2',
+        clubId: 'club-2',
         version: {
           ...makeEntity().version,
           versionNo: 3,
@@ -1864,12 +1864,12 @@ test('entities.archive appends an archived version on the shared entity surface'
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-1', 'network-2'],
+    accessibleClubIds: ['club-1', 'club-2'],
     entityId: 'entity-1',
   });
   assert.equal(result.action, 'entities.archive');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
+  assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.entity.entityVersionId, 'entity-version-3');
   assert.equal(result.data.entity.version.versionNo, 3);
   assert.equal(result.data.entity.version.state, 'archived');
@@ -1905,7 +1905,7 @@ test('entities.update rejects non-author updates', async () => {
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1977,7 +1977,7 @@ test('events.create writes the smallest sane event payload', async () => {
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1993,7 +1993,7 @@ test('events.create writes the smallest sane event payload', async () => {
     },
     async createEvent(input) {
       capturedInput = input as Record<string, unknown>;
-      return makeEvent({ networkId: input.networkId, version: { ...makeEvent().version, title: input.title, capacity: input.capacity } });
+      return makeEvent({ clubId: input.clubId, version: { ...makeEvent().version, title: input.title, capacity: input.capacity } });
     },
     async listEvents() {
       return [makeEvent()];
@@ -2046,7 +2046,7 @@ test('events.create writes the smallest sane event payload', async () => {
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'events.create',
     payload: {
-      networkId: 'network-2',
+      clubId: 'club-2',
       title: 'Supper club',
       startsAt: '2026-03-20T19:00:00Z',
       endsAt: '2026-03-20T21:00:00Z',
@@ -2058,7 +2058,7 @@ test('events.create writes the smallest sane event payload', async () => {
 
   assert.deepEqual(capturedInput, {
     authorMemberId: 'member-1',
-    networkId: 'network-2',
+    clubId: 'club-2',
     title: 'Supper club',
     summary: null,
     body: null,
@@ -2071,7 +2071,7 @@ test('events.create writes the smallest sane event payload', async () => {
     content: { locationHint: 'Hackney' },
   });
   assert.equal(result.action, 'events.create');
-  assert.equal(result.data.event.networkId, 'network-2');
+  assert.equal(result.data.event.clubId, 'club-2');
 });
 
 test('events.list stays inside accessible scope and forwards optional query', async () => {
@@ -2085,7 +2085,7 @@ test('events.list stays inside accessible scope and forwards optional query', as
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2104,7 +2104,7 @@ test('events.list stays inside accessible scope and forwards optional query', as
     },
     async listEvents(input) {
       capturedInput = input;
-      return [makeEvent({ networkId: 'network-2' })];
+      return [makeEvent({ clubId: 'club-2' })];
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2151,20 +2151,20 @@ test('events.list stays inside accessible scope and forwards optional query', as
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'events.list',
-    payload: { networkId: 'network-2', query: 'hetzner', limit: 4 },
+    payload: { clubId: 'club-2', query: 'hetzner', limit: 4 },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 4,
     query: 'hetzner',
   });
   assert.equal(result.data.query, 'hetzner');
-  assert.equal(result.data.results[0]?.networkId, 'network-2');
+  assert.equal(result.data.results[0]?.clubId, 'club-2');
 });
 
-test('events.rsvp uses the actor membership in the event network', async () => {
+test('events.rsvp uses the actor membership in the event club', async () => {
   let capturedInput: RsvpEventInput | null = null;
 
   const repository: Repository = {
@@ -2175,7 +2175,7 @@ test('events.rsvp uses the actor membership in the event network', async () => {
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2198,7 +2198,7 @@ test('events.rsvp uses the actor membership in the event network', async () => {
     async rsvpEvent(input) {
       capturedInput = input;
       return makeEvent({
-        networkId: 'network-2',
+        clubId: 'club-2',
         rsvps: {
           viewerResponse: 'yes',
           counts: { yes: 1, maybe: 0, no: 0, waitlist: 0 },
@@ -2249,15 +2249,15 @@ test('events.rsvp uses the actor membership in the event network', async () => {
     response: 'yes',
     note: 'I am in',
     accessibleMemberships: [
-      { membershipId: 'membership-1', networkId: 'network-1' },
-      { membershipId: 'membership-2', networkId: 'network-2' },
+      { membershipId: 'membership-1', clubId: 'club-1' },
+      { membershipId: 'membership-2', clubId: 'club-2' },
     ],
   });
   assert.equal(result.action, 'events.rsvp');
   assert.equal(result.data.event.rsvps.viewerResponse, 'yes');
 });
 
-test('entities.list can span accessible networks and filter by kinds with optional query', async () => {
+test('entities.list can span accessible clubs and filter by kinds with optional query', async () => {
   let capturedInput: ListEntitiesInput | null = null;
 
   const repository: Repository = {
@@ -2268,7 +2268,7 @@ test('entities.list can span accessible networks and filter by kinds with option
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2310,7 +2310,7 @@ test('entities.list can span accessible networks and filter by kinds with option
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-1', 'network-2'],
+    clubIds: ['club-1', 'club-2'],
     kinds: ['ask', 'service'],
     limit: 5,
     query: 'backend',
@@ -2318,10 +2318,10 @@ test('entities.list can span accessible networks and filter by kinds with option
   assert.equal(result.action, 'entities.list');
   assert.equal(result.data.query, 'backend');
   assert.equal(result.data.results[0]?.kind, 'ask');
-  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-1', 'network-2']);
+  assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-1', 'club-2']);
 });
 
-test('networks.create rejects non-superadmins', async () => {
+test('clubs.create rejects non-superadmins', async () => {
   const actor = makeActor();
   actor.globalRoles = [];
   const app = buildApp({
@@ -2330,7 +2330,7 @@ test('networks.create rejects non-superadmins', async () => {
       async authenticateBearerToken() {
         return {
           actor,
-          requestScope: { requestedNetworkId: null, activeNetworkIds: actor.memberships.map((membership) => membership.networkId) },
+          requestScope: { requestedClubId: null, activeClubIds: actor.memberships.map((membership) => membership.clubId) },
           sharedContext: { pendingUpdates: [makePendingUpdate()] },
         };
       },
@@ -2340,7 +2340,7 @@ test('networks.create rejects non-superadmins', async () => {
   await assert.rejects(
     () => app.handleAction({
       bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-      action: 'networks.create',
+      action: 'clubs.create',
       payload: { slug: 'gamma', name: 'Gamma', ownerMemberId: 'member-9' },
     }),
     (error: unknown) => {
@@ -2352,7 +2352,7 @@ test('networks.create rejects non-superadmins', async () => {
   );
 });
 
-test('members.search rejects a network outside the actor scope', async () => {
+test('members.search rejects a club outside the actor scope', async () => {
   const app = buildApp({ repository: makeRepository() });
 
   await assert.rejects(
@@ -2362,7 +2362,7 @@ test('members.search rejects a network outside the actor scope', async () => {
         action: 'members.search',
         payload: {
           query: 'Chris',
-          networkId: 'network-999',
+          clubId: 'club-999',
         },
       }),
     (error: unknown) => {
@@ -2383,7 +2383,7 @@ test('profile.get returns 404 when the target member is outside shared scope', a
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return null;
@@ -2485,7 +2485,7 @@ test('profile.update rejects invalid handles', async () => {
   );
 });
 
-test('messages.send picks a shared network, appends the request scope, and returns update metadata', async () => {
+test('messages.send picks a shared club, appends the request scope, and returns update metadata', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -2496,7 +2496,7 @@ test('messages.send picks a shared network, appends the request scope, and retur
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2534,7 +2534,7 @@ test('messages.send picks a shared network, appends the request scope, and retur
     async sendDirectMessage(input) {
       capturedInput = input as Record<string, unknown>;
       return makeDirectMessage({
-        networkId: 'network-2',
+        clubId: 'club-2',
         recipientMemberId: 'member-9',
         messageText: input.messageText,
         updateCount: 2,
@@ -2565,23 +2565,23 @@ test('messages.send picks a shared network, appends the request scope, and retur
     action: 'messages.send',
     payload: {
       recipientMemberId: 'member-9',
-      networkId: 'network-2',
-      messageText: 'Hello from the network edge',
+      clubId: 'club-2',
+      messageText: 'Hello from the club edge',
     },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-1', 'network-2'],
+    accessibleClubIds: ['club-1', 'club-2'],
     recipientMemberId: 'member-9',
-    networkId: 'network-2',
-    messageText: 'Hello from the network edge',
+    clubId: 'club-2',
+    messageText: 'Hello from the club edge',
   });
   assert.equal(result.action, 'messages.send');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.deepEqual(result.actor.requestScope.activeNetworkIds, ['network-2']);
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
+  assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.message.updateCount, 2);
-  assert.equal(result.data.message.messageText, 'Hello from the network edge');
+  assert.equal(result.data.message.messageText, 'Hello from the club edge');
 });
 
 test('messages.send returns 404 when the recipient is outside shared scope', async () => {
@@ -2593,7 +2593,7 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2688,7 +2688,7 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2734,7 +2734,7 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
     },
     async listDirectMessageThreads(input) {
       capturedInput = input as Record<string, unknown>;
-      return [makeDirectMessageThread({ networkId: 'network-2' })];
+      return [makeDirectMessageThread({ clubId: 'club-2' })];
     },
     async readDirectMessageThread() {
       return {
@@ -2751,17 +2751,17 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.list',
-    payload: { networkId: 'network-2', limit: 4 },
+    payload: { clubId: 'club-2', limit: 4 },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 4,
   });
   assert.equal(result.action, 'messages.list');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
-  assert.equal(result.data.results[0]?.networkId, 'network-2');
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
+  assert.equal(result.data.results[0]?.clubId, 'club-2');
   assert.equal(result.data.results[0]?.counterpartMemberId, 'member-2');
 });
 
@@ -2776,7 +2776,7 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2827,7 +2827,7 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
       capturedInput = input as Record<string, unknown>;
       return [
         makeDirectMessageInbox({
-          networkId: 'network-2',
+          clubId: 'club-2',
           unread: {
             hasUnread: true,
             unreadMessageCount: 2,
@@ -2852,19 +2852,19 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.inbox',
-    payload: { networkId: 'network-2', limit: 4, unreadOnly: true },
+    payload: { clubId: 'club-2', limit: 4, unreadOnly: true },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 4,
     unreadOnly: true,
   });
   assert.equal(result.action, 'messages.inbox');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.equal(result.data.unreadOnly, true);
-  assert.equal(result.data.results[0]?.networkId, 'network-2');
+  assert.equal(result.data.results[0]?.clubId, 'club-2');
   assert.equal(result.data.results[0]?.unread.unreadMessageCount, 2);
   assert.equal(result.data.results[0]?.unread.unreadUpdateCount, 3);
 });
@@ -2880,7 +2880,7 @@ test('messages.read scopes thread access server-side and returns transcript entr
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2930,7 +2930,7 @@ test('messages.read scopes thread access server-side and returns transcript entr
     async readDirectMessageThread(input) {
       capturedInput = input as Record<string, unknown>;
       return {
-        thread: makeDirectMessageThread({ networkId: 'network-2' }),
+        thread: makeDirectMessageThread({ clubId: 'club-2' }),
         messages: [
           makeDirectMessageTranscriptEntry({
             messageId: 'message-1',
@@ -2986,12 +2986,12 @@ test('messages.read scopes thread access server-side and returns transcript entr
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-1', 'network-2'],
+    accessibleClubIds: ['club-1', 'club-2'],
     threadId: 'thread-1',
     limit: 2,
   });
   assert.equal(result.action, 'messages.read');
-  assert.equal(result.actor.requestScope.requestedNetworkId, 'network-2');
+  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.equal(result.data.thread.threadId, 'thread-1');
   assert.equal(result.data.messages.length, 2);
   assert.equal(result.data.messages[1]?.inReplyToMessageId, 'message-1');
@@ -3022,7 +3022,7 @@ test('tokens.create mints a new bearer token for the actor member', async () => 
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -3121,7 +3121,7 @@ test('tokens.revoke only revokes actor-owned tokens', async () => {
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();
@@ -3213,7 +3213,7 @@ test('updates.list returns the pending update feed with cursor semantics', async
           makePendingUpdate({
             updateId: 'update-9',
             streamSeq: 9,
-            networkId: 'network-2',
+            clubId: 'club-2',
           }),
         ],
         nextAfter: 9,
@@ -3316,7 +3316,7 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
       return [];
     },
     async listMembers() {
-      return [makeNetworkMember()];
+      return [makeClubMember()];
     },
     async getMemberProfile() {
       return makeProfile();

@@ -5,13 +5,13 @@ export type DbClient = Pool | PoolClient;
 export type ApplyActorContext = (
   client: DbClient,
   actorMemberId: string,
-  networkIds: string[],
+  clubIds: string[],
   options?: Record<string, never>,
 ) => Promise<void>;
 
 export type WithActorContext = <T>(
   pool: Pool,
   actorMemberId: string,
-  networkIds: string[],
+  clubIds: string[],
   fn: (client: PoolClient) => Promise<T>,
 ) => Promise<T>;

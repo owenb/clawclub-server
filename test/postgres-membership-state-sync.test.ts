@@ -11,7 +11,7 @@ function requireDatabaseUrl(): string {
   return databaseUrl;
 }
 
-test('network membership root status and left_at mirror the latest state version', async () => {
+test('club membership root status and left_at mirror the latest state version', async () => {
   const pool = new Pool({ connectionString: requireDatabaseUrl() });
   const client = await pool.connect();
   const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -42,15 +42,15 @@ test('network membership root status and left_at mirror the latest state version
       [ownerId],
     );
 
-    const networkId = (await client.query<{ id: string }>(
-      `insert into app.networks (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
-      [`mirror-network-${suffix}`, `Mirror Network ${suffix}`, ownerId, 'Compatibility sync test'],
+    const clubId = (await client.query<{ id: string }>(
+      `insert into app.clubs (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
+      [`mirror-club-${suffix}`, `Mirror Club ${suffix}`, ownerId, 'Compatibility sync test'],
     )).rows[0]!.id;
 
     const membershipId = (await client.query<{ id: string }>(
       `
-        insert into app.network_memberships (
-          network_id,
+        insert into app.club_memberships (
+          club_id,
           member_id,
           sponsor_member_id,
           status
@@ -58,12 +58,12 @@ test('network membership root status and left_at mirror the latest state version
         values ($1, $2, $3, 'invited')
         returning id
       `,
-      [networkId, memberId, ownerId],
+      [clubId, memberId, ownerId],
     )).rows[0]!.id;
 
     const invitedAt = (await client.query<{ created_at: string }>(
       `
-        insert into app.network_membership_state_versions (
+        insert into app.club_membership_state_versions (
           membership_id,
           status,
           version_no,
@@ -76,7 +76,7 @@ test('network membership root status and left_at mirror the latest state version
     )).rows[0]!.created_at;
 
     const invited = await client.query<{ status: string; left_at: string | null }>(
-      `select status::text, left_at::text from app.network_memberships where id = $1`,
+      `select status::text, left_at::text from app.club_memberships where id = $1`,
       [membershipId],
     );
 
@@ -86,7 +86,7 @@ test('network membership root status and left_at mirror the latest state version
 
     const revokedAt = (await client.query<{ created_at: string }>(
       `
-        insert into app.network_membership_state_versions (
+        insert into app.club_membership_state_versions (
           membership_id,
           status,
           version_no,
@@ -94,7 +94,7 @@ test('network membership root status and left_at mirror the latest state version
           created_by_member_id
         )
         select $1::app.short_id, 'revoked', 2, cnms.id, $2::app.short_id
-        from app.current_network_membership_states cnms
+        from app.current_club_membership_states cnms
         where cnms.membership_id = $1::app.short_id
         returning created_at::text
       `,
@@ -102,7 +102,7 @@ test('network membership root status and left_at mirror the latest state version
     )).rows[0]!.created_at;
 
     const revoked = await client.query<{ status: string; left_at: string | null }>(
-      `select status::text, left_at::text from app.network_memberships where id = $1`,
+      `select status::text, left_at::text from app.club_memberships where id = $1`,
       [membershipId],
     );
 
@@ -111,7 +111,7 @@ test('network membership root status and left_at mirror the latest state version
 
     await client.query(
       `
-        insert into app.network_membership_state_versions (
+        insert into app.club_membership_state_versions (
           membership_id,
           status,
           version_no,
@@ -119,14 +119,14 @@ test('network membership root status and left_at mirror the latest state version
           created_by_member_id
         )
         select $1::app.short_id, 'active', 3, cnms.id, $2::app.short_id
-        from app.current_network_membership_states cnms
+        from app.current_club_membership_states cnms
         where cnms.membership_id = $1::app.short_id
       `,
       [membershipId, ownerId],
     );
 
     const reactivated = await client.query<{ status: string; left_at: string | null }>(
-      `select status::text, left_at::text from app.network_memberships where id = $1`,
+      `select status::text, left_at::text from app.club_memberships where id = $1`,
       [membershipId],
     );
 

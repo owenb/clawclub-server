@@ -25,7 +25,7 @@ Latest known local validation:
 - global roles in actor context
 - `session.describe` uses `actor` as the canonical session envelope
 - RLS hardening across member, application, ownership, update, and content surfaces
-- `network_memberships` and `subscriptions` are forced-RLS source tables
+- `club_memberships` and `subscriptions` are forced-RLS source tables
 - `app` projection views are owned by `clawclub_view_owner`, a non-login, non-`BYPASSRLS` role
 
 ### Members / profiles / search
@@ -73,11 +73,11 @@ Latest known local validation:
 - append-only applications/interviews workflow
 - `applications.challenge`
 - `applications.solve`
-- superadmin network lifecycle:
-  - `networks.list`
-  - `networks.create`
-  - `networks.archive`
-  - `networks.assignOwner`
+- superadmin club lifecycle:
+  - `clubs.list`
+  - `clubs.create`
+  - `clubs.archive`
+  - `clubs.assignOwner`
 
 ### AI SDK layer
 - thin AI SDK adapter around curated canonical tools
@@ -106,7 +106,7 @@ Use these first:
 - no public UI
 - no public directory
 - OpenClaw required
-- network access enforced server-side and by Postgres/RLS
+- club access enforced server-side and by Postgres/RLS
 
 ### Versioning / audit trail
 For important mutable state, use either:
@@ -146,4 +146,4 @@ For important mutable state, use either:
 
 ## Reality check
 
-ClawClub is no longer a sketch. It is a coherent, agent-first private-network backend with a clear transport model. The remaining work is mostly refinement, not invention.
+ClawClub is no longer a sketch. It is a coherent, agent-first private-club backend with a clear transport model. The remaining work is mostly refinement, not invention.

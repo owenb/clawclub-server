@@ -21,7 +21,7 @@ test('postgres repository lists applications with derived activation state from 
         return {
           rows: [{
             application_id: 'application-9',
-            network_id: 'network-2',
+            club_id: 'club-2',
             applicant_member_id: 'member-9',
             applicant_public_name: 'Member Nine',
             applicant_handle: 'member-nine',
@@ -58,7 +58,7 @@ test('postgres repository lists applications with derived activation state from 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const applications = await repository.listApplications({
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 5,
     statuses: ['accepted'],
   });
@@ -70,5 +70,5 @@ test('postgres repository lists applications with derived activation state from 
     acceptedCovenantAt: null,
     readyForActivation: true,
   });
-  assert.match(calls[2]?.sql ?? '', /left join app\.current_network_memberships cnm on cnm\.id = ca\.membership_id/);
+  assert.match(calls[2]?.sql ?? '', /left join app\.current_club_memberships cnm on cnm\.id = ca\.membership_id/);
 });

@@ -17,10 +17,10 @@ function makeAuthResult(): AuthResult {
       globalRoles: [],
       memberships: [{
         membershipId: 'membership-1',
-        networkId: 'network-conscious',
+        clubId: 'club-conscious',
         slug: 'conscious-engineers',
         name: 'Conscious Engineers',
-        summary: 'Private member network',
+        summary: 'Private member club',
         manifestoMarkdown: null,
         role: 'owner',
         status: 'active',
@@ -28,7 +28,7 @@ function makeAuthResult(): AuthResult {
         joinedAt: '2026-03-12T00:00:00Z',
       }],
     },
-    requestScope: { requestedNetworkId: null, activeNetworkIds: ['network-conscious'] },
+    requestScope: { requestedClubId: null, activeClubIds: ['club-conscious'] },
     sharedContext: { pendingUpdates: [] },
   };
 }
@@ -36,7 +36,7 @@ function makeAuthResult(): AuthResult {
 function makeMembershipReview(): MembershipReviewSummary {
   return {
     membershipId: 'membership-2',
-    networkId: 'network-conscious',
+    clubId: 'club-conscious',
     member: { memberId: 'member-2', publicName: 'Lina Vector', handle: 'lina' },
     sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
     role: 'member',
@@ -52,7 +52,7 @@ function makeMembershipReview(): MembershipReviewSummary {
 function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
   return {
     applicationId: 'application-1',
-    networkId: 'network-conscious',
+    clubId: 'club-conscious',
     applicant: { memberId: 'member-2', publicName: 'Lina Vector', handle: 'lina', email: null },
     sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
     membershipId: 'membership-2',
@@ -148,8 +148,8 @@ function makeToolCall(toolCallId: string, toolName: string, args: Record<string,
 function makeScriptedModel(): LanguageModelV1 {
   let index = 0;
   const steps = [
-    { type: 'tool', toolName: 'memberships_review', args: { networkId: 'network-conscious', limit: 5 } },
-    { type: 'tool', toolName: 'applications_list', args: { networkId: 'network-conscious', statuses: ['interview_completed'], limit: 5 } },
+    { type: 'tool', toolName: 'memberships_review', args: { clubId: 'club-conscious', limit: 5 } },
+    { type: 'tool', toolName: 'applications_list', args: { clubId: 'club-conscious', statuses: ['interview_completed'], limit: 5 } },
     { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'accepted', membershipId: 'membership-2', activateMembership: true, activationReason: 'Interview passed and owner approved', notes: 'Accepted and activated', intake: { completedAt: '2026-03-14T10:30:00Z' } } },
     { type: 'text', text: 'I reviewed the queue, confirmed Lina completed the interview, then accepted the application and activated the membership.' },
   ] as const;

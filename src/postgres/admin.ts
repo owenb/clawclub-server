@@ -19,7 +19,7 @@ export function buildAdminRepository({
   | 'adminGetOverview'
   | 'adminListMembers'
   | 'adminGetMember'
-  | 'adminGetNetworkStats'
+  | 'adminGetClubStats'
   | 'adminListContent'
   | 'adminArchiveEntity'
   | 'adminListThreads'
@@ -33,7 +33,7 @@ export function buildAdminRepository({
       return withActorContext(pool, actorMemberId, [], async (client) => {
         const result = await client.query<{
           total_members: string;
-          total_networks: string;
+          total_clubs: string;
           total_entities: string;
           total_messages: string;
           total_applications: string;
@@ -46,7 +46,7 @@ export function buildAdminRepository({
         }>(`
           select
             (select count(*) from app.members where state = 'active')::text as total_members,
-            (select count(*) from app.networks where archived_at is null)::text as total_networks,
+            (select count(*) from app.clubs where archived_at is null)::text as total_clubs,
             (select count(*) from app.entities)::text as total_entities,
             (select count(*) from app.transcript_messages)::text as total_messages,
             (select count(*) from app.applications)::text as total_applications,
@@ -70,7 +70,7 @@ export function buildAdminRepository({
         const row = result.rows[0];
         return {
           totalMembers: Number(row.total_members),
-          totalNetworks: Number(row.total_networks),
+          totalClubs: Number(row.total_clubs),
           totalEntities: Number(row.total_entities),
           totalMessages: Number(row.total_messages),
           totalApplications: Number(row.total_applications),
@@ -97,7 +97,7 @@ export function buildAdminRepository({
               m.handle,
               m.state::text,
               m.created_at::text as created_at,
-              (select count(*) from app.network_memberships nm where nm.member_id = m.id)::text as membership_count,
+              (select count(*) from app.club_memberships nm where nm.member_id = m.id)::text as membership_count,
               (select count(*) from app.member_bearer_tokens mbt where mbt.member_id = m.id and mbt.revoked_at is null)::text as token_count
             from app.members m
             order by m.created_at desc, m.id desc
@@ -150,9 +150,9 @@ export function buildAdminRepository({
 
         const membershipsResult = await client.query<{
           membership_id: string;
-          network_id: string;
-          network_name: string;
-          network_slug: string;
+          club_id: string;
+          club_name: string;
+          club_slug: string;
           role: string;
           status: string;
           joined_at: string;
@@ -160,14 +160,14 @@ export function buildAdminRepository({
           `
             select
               nm.id as membership_id,
-              nm.network_id,
-              n.name as network_name,
-              n.slug as network_slug,
+              nm.club_id,
+              n.name as club_name,
+              n.slug as club_slug,
               nm.role::text,
               nm.status::text,
               nm.joined_at::text as joined_at
-            from app.network_memberships nm
-            join app.networks n on n.id = nm.network_id
+            from app.club_memberships nm
+            join app.clubs n on n.id = nm.club_id
             where nm.member_id = $1
             order by nm.joined_at desc
           `,
@@ -182,9 +182,9 @@ export function buildAdminRepository({
           createdAt: member.created_at,
           memberships: membershipsResult.rows.map((row) => ({
             membershipId: row.membership_id,
-            networkId: row.network_id,
-            networkName: row.network_name,
-            networkSlug: row.network_slug,
+            clubId: row.club_id,
+            clubName: row.club_name,
+            clubSlug: row.club_slug,
             role: row.role,
             status: row.status,
             joinedAt: row.joined_at,
@@ -195,10 +195,10 @@ export function buildAdminRepository({
       });
     },
 
-    async adminGetNetworkStats({ actorMemberId, networkId }) {
+    async adminGetClubStats({ actorMemberId, clubId }) {
       return withActorContext(pool, actorMemberId, [], async (client) => {
         const result = await client.query<{
-          network_id: string;
+          club_id: string;
           slug: string;
           name: string;
           archived_at: string | null;
@@ -209,7 +209,7 @@ export function buildAdminRepository({
         }>(
           `
             select
-              n.id as network_id,
+              n.id as club_id,
               n.slug,
               n.name,
               n.archived_at::text,
@@ -217,17 +217,17 @@ export function buildAdminRepository({
                 select jsonb_object_agg(status::text, cnt)
                 from (
                   select nm.status, count(*)::int as cnt
-                  from app.network_memberships nm
-                  where nm.network_id = n.id
+                  from app.club_memberships nm
+                  where nm.club_id = n.id
                   group by nm.status
                 ) s
               ), '{}'::jsonb) as member_counts,
-              (select count(*) from app.entities e where e.network_id = n.id)::text as entity_count,
+              (select count(*) from app.entities e where e.club_id = n.id)::text as entity_count,
               (
                 select count(*)
                 from app.transcript_messages tm
                 join app.transcript_threads tt on tt.id = tm.thread_id
-                where tt.network_id = n.id
+                where tt.club_id = n.id
               )::text as message_count,
               coalesce((
                 select jsonb_object_agg(status::text, cnt)
@@ -235,15 +235,15 @@ export function buildAdminRepository({
                   select av.status, count(*)::int as cnt
                   from app.applications a
                   join app.current_application_versions av on av.application_id = a.id
-                  where a.network_id = n.id
+                  where a.club_id = n.id
                   group by av.status
                 ) s
               ), '{}'::jsonb) as application_counts
-            from app.networks n
+            from app.clubs n
             where n.id = $1
             limit 1
           `,
-          [networkId],
+          [clubId],
         );
 
         const row = result.rows[0];
@@ -252,7 +252,7 @@ export function buildAdminRepository({
         }
 
         return {
-          networkId: row.network_id,
+          clubId: row.club_id,
           slug: row.slug,
           name: row.name,
           archivedAt: row.archived_at,
@@ -264,12 +264,12 @@ export function buildAdminRepository({
       });
     },
 
-    async adminListContent({ actorMemberId, networkId, kind, limit, offset }) {
+    async adminListContent({ actorMemberId, clubId, kind, limit, offset }) {
       return withActorContext(pool, actorMemberId, [], async (client) => {
         const result = await client.query<{
           entity_id: string;
-          network_id: string;
-          network_name: string;
+          club_id: string;
+          club_name: string;
           kind: EntityKind;
           author_member_id: string;
           author_public_name: string;
@@ -281,8 +281,8 @@ export function buildAdminRepository({
           `
             select
               e.id as entity_id,
-              e.network_id,
-              n.name as network_name,
+              e.club_id,
+              n.name as club_name,
               e.kind::text as kind,
               e.author_member_id,
               m.public_name as author_public_name,
@@ -291,21 +291,21 @@ export function buildAdminRepository({
               ev.state::text,
               e.created_at::text as created_at
             from app.entities e
-            join app.networks n on n.id = e.network_id
+            join app.clubs n on n.id = e.club_id
             join app.members m on m.id = e.author_member_id
             join app.current_entity_versions ev on ev.entity_id = e.id
-            where ($1::app.short_id is null or e.network_id = $1)
+            where ($1::app.short_id is null or e.club_id = $1)
               and ($2::app.entity_kind is null or e.kind = $2)
             order by e.created_at desc, e.id desc
             limit $3 offset $4
           `,
-          [networkId ?? null, kind ?? null, limit, offset],
+          [clubId ?? null, kind ?? null, limit, offset],
         );
 
         return result.rows.map((row) => ({
           entityId: row.entity_id,
-          networkId: row.network_id,
-          networkName: row.network_name,
+          clubId: row.club_id,
+          clubName: row.club_name,
           kind: row.kind,
           author: {
             memberId: row.author_member_id,
@@ -403,12 +403,12 @@ export function buildAdminRepository({
       }
     },
 
-    async adminListThreads({ actorMemberId, networkId, limit, offset }) {
+    async adminListThreads({ actorMemberId, clubId, limit, offset }) {
       return withActorContext(pool, actorMemberId, [], async (client) => {
         const result = await client.query<{
           thread_id: string;
-          network_id: string;
-          network_name: string;
+          club_id: string;
+          club_name: string;
           participants: Array<{ memberId: string; publicName: string; handle: string | null }>;
           message_count: string;
           latest_message_at: string;
@@ -416,8 +416,8 @@ export function buildAdminRepository({
           `
             select
               tt.id as thread_id,
-              tt.network_id,
-              n.name as network_name,
+              tt.club_id,
+              n.name as club_name,
               coalesce((
                 select jsonb_agg(jsonb_build_object(
                   'memberId', m.id,
@@ -435,18 +435,18 @@ export function buildAdminRepository({
               (select count(*) from app.transcript_messages tm where tm.thread_id = tt.id)::text as message_count,
               (select max(tm.created_at)::text from app.transcript_messages tm where tm.thread_id = tt.id) as latest_message_at
             from app.transcript_threads tt
-            join app.networks n on n.id = tt.network_id
-            where ($1::app.short_id is null or tt.network_id = $1)
+            join app.clubs n on n.id = tt.club_id
+            where ($1::app.short_id is null or tt.club_id = $1)
             order by (select max(tm.created_at) from app.transcript_messages tm where tm.thread_id = tt.id) desc nulls last, tt.id desc
             limit $2 offset $3
           `,
-          [networkId ?? null, limit, offset],
+          [clubId ?? null, limit, offset],
         );
 
         return result.rows.map((row) => ({
           threadId: row.thread_id,
-          networkId: row.network_id,
-          networkName: row.network_name,
+          clubId: row.club_id,
+          clubName: row.club_name,
           participants: row.participants,
           messageCount: Number(row.message_count),
           latestMessageAt: row.latest_message_at,
@@ -458,8 +458,8 @@ export function buildAdminRepository({
       return withActorContext(pool, actorMemberId, [], async (client) => {
         const threadResult = await client.query<{
           thread_id: string;
-          network_id: string;
-          network_name: string;
+          club_id: string;
+          club_name: string;
           participants: Array<{ memberId: string; publicName: string; handle: string | null }>;
           message_count: string;
           latest_message_at: string;
@@ -467,8 +467,8 @@ export function buildAdminRepository({
           `
             select
               tt.id as thread_id,
-              tt.network_id,
-              n.name as network_name,
+              tt.club_id,
+              n.name as club_name,
               coalesce((
                 select jsonb_agg(jsonb_build_object(
                   'memberId', m.id,
@@ -486,7 +486,7 @@ export function buildAdminRepository({
               (select count(*) from app.transcript_messages tm where tm.thread_id = tt.id)::text as message_count,
               (select max(tm.created_at)::text from app.transcript_messages tm where tm.thread_id = tt.id) as latest_message_at
             from app.transcript_threads tt
-            join app.networks n on n.id = tt.network_id
+            join app.clubs n on n.id = tt.club_id
             where tt.id = $1
             limit 1
           `,
@@ -529,8 +529,8 @@ export function buildAdminRepository({
         return {
           thread: {
             threadId: thread.thread_id,
-            networkId: thread.network_id,
-            networkName: thread.network_name,
+            clubId: thread.club_id,
+            clubName: thread.club_name,
             participants: thread.participants,
             messageCount: Number(thread.message_count),
             latestMessageAt: thread.latest_message_at,
@@ -642,7 +642,7 @@ export function buildAdminRepository({
           migration_count: string;
           latest_migration: string | null;
           member_count: string;
-          network_count: string;
+          club_count: string;
           tables_with_rls: string;
           total_app_tables: string;
           database_size: string;
@@ -651,7 +651,7 @@ export function buildAdminRepository({
             (select count(*) from public.schema_migrations)::text as migration_count,
             (select max(filename) from public.schema_migrations) as latest_migration,
             (select count(*) from app.members where state = 'active')::text as member_count,
-            (select count(*) from app.networks where archived_at is null)::text as network_count,
+            (select count(*) from app.clubs where archived_at is null)::text as club_count,
             (
               select count(distinct tablename)::text
               from pg_policies
@@ -671,7 +671,7 @@ export function buildAdminRepository({
           migrationCount: Number(row.migration_count),
           latestMigration: row.latest_migration,
           memberCount: Number(row.member_count),
-          networkCount: Number(row.network_count),
+          clubCount: Number(row.club_count),
           tablesWithRls: Number(row.tables_with_rls),
           totalAppTables: Number(row.total_app_tables),
           databaseSize: row.database_size,

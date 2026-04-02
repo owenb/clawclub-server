@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 3 ]]; then
-  echo "usage: $0 <handle> <public-name> <network-slug>" >&2
+  echo "usage: $0 <handle> <public-name> <club-slug>" >&2
   echo "" >&2
   echo "Requires CLAWCLUB_OWNER_TOKEN in the environment." >&2
   echo "example:" >&2
@@ -17,7 +17,7 @@ fi
 
 handle="$1"
 public_name="$2"
-network_slug="$3"
+club_slug="$3"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
@@ -53,29 +53,29 @@ fi
 
 echo "Member created: $member_id"
 
-network_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v network_slug="$network_slug" \
-  -c "select id from app.networks where slug = :'network_slug'")"
-if [[ -z "$network_id" ]]; then
-  echo "No network found with slug '$network_slug'" >&2
+club_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v club_slug="$club_slug" \
+  -c "select id from app.clubs where slug = :'club_slug'")"
+if [[ -z "$club_id" ]]; then
+  echo "No club found with slug '$club_slug'" >&2
   exit 1
 fi
 
-owner_member_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v network_slug="$network_slug" \
-  -c "select owner_member_id from app.networks where slug = :'network_slug'")"
+owner_member_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v club_slug="$club_slug" \
+  -c "select owner_member_id from app.clubs where slug = :'club_slug'")"
 
-echo "Adding membership to $network_slug ($network_id)..."
+echo "Adding membership to $club_slug ($club_id)..."
 
 membership_response=$(curl -s -f -X POST "$api_base_url/api" \
   -H "Authorization: Bearer $CLAWCLUB_OWNER_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d "$(printf '{"action":"memberships.create","input":{"networkId":"%s","memberId":"%s","sponsorMemberId":"%s","role":"member","initialStatus":"active","reason":"Added via add-member script"}}' \
-    "$network_id" "$member_id" "$owner_member_id")")
+  -d "$(printf '{"action":"memberships.create","input":{"clubId":"%s","memberId":"%s","sponsorMemberId":"%s","role":"member","initialStatus":"active","reason":"Added via add-member script"}}' \
+    "$club_id" "$member_id" "$owner_member_id")")
 
 echo "Membership response:"
 echo "$membership_response" | node -e "process.stdin.setEncoding('utf8');let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.stringify(JSON.parse(d),null,2)))" 2>/dev/null || echo "$membership_response"
 
-membership_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v network_id="$network_id" -v member_id="$member_id" \
-  -c "select id from app.network_memberships where network_id = :'network_id' and member_id = :'member_id'")"
+membership_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v club_id="$club_id" -v member_id="$member_id" \
+  -c "select id from app.club_memberships where club_id = :'club_id' and member_id = :'member_id'")"
 if [[ -z "$membership_id" ]]; then
   echo "Failed to resolve membership id — membership may not have been created" >&2
   exit 1

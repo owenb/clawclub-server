@@ -104,12 +104,12 @@ export async function handleAdminAction(input: {
       });
     }
 
-    case 'admin.networks.stats': {
+    case 'admin.clubs.stats': {
       requireSuperadmin(actor);
-      const networkId = requireNonEmptyString(payload.networkId, 'networkId');
-      const stats = await repository.adminGetNetworkStats?.({ actorMemberId: actor.member.id, networkId });
+      const clubId = requireNonEmptyString(payload.clubId, 'clubId');
+      const stats = await repository.adminGetClubStats?.({ actorMemberId: actor.member.id, clubId });
       if (!stats) {
-        throw createAppError(404, 'not_found', 'Network not found');
+        throw createAppError(404, 'not_found', 'Club not found');
       }
 
       return buildSuccessResponse({
@@ -123,11 +123,11 @@ export async function handleAdminAction(input: {
 
     case 'admin.content.list': {
       requireSuperadmin(actor);
-      const networkId = typeof payload.networkId === 'string' ? payload.networkId.trim() : undefined;
+      const clubId = typeof payload.clubId === 'string' ? payload.clubId.trim() : undefined;
       const kind = isEntityKind(payload.kind) ? payload.kind : undefined;
       const content = await repository.adminListContent?.({
         actorMemberId: actor.member.id,
-        networkId: networkId || undefined,
+        clubId: clubId || undefined,
         kind,
         limit: normalizeLimit(payload.limit),
         offset: normalizeOffset(payload.offset, createAppError),
@@ -164,10 +164,10 @@ export async function handleAdminAction(input: {
 
     case 'admin.messages.threads': {
       requireSuperadmin(actor);
-      const networkId = typeof payload.networkId === 'string' ? payload.networkId.trim() : undefined;
+      const clubId = typeof payload.clubId === 'string' ? payload.clubId.trim() : undefined;
       const threads = await repository.adminListThreads?.({
         actorMemberId: actor.member.id,
-        networkId: networkId || undefined,
+        clubId: clubId || undefined,
         limit: normalizeLimit(payload.limit),
         offset: normalizeOffset(payload.offset, createAppError),
       });

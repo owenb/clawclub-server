@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { AppError } from '../src/app.ts';
 import { createPostgresRepository } from '../src/postgres.ts';
 
-test('postgres repository lists networks for superadmin scope including archived ones on request', async () => {
+test('postgres repository lists clubs for superadmin scope including archived ones on request', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
   const client = {
@@ -11,10 +11,10 @@ test('postgres repository lists networks for superadmin scope including archived
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('from app.networks n') && sql.includes('where ($1::boolean = true or n.archived_at is null)')) {
+      if (sql.includes('from app.clubs n') && sql.includes('where ($1::boolean = true or n.archived_at is null)')) {
         return {
           rows: [{
-            network_id: 'network-1', slug: 'alpha', name: 'Alpha', summary: 'First network', manifesto_markdown: null,
+            club_id: 'club-1', slug: 'alpha', name: 'Alpha', summary: 'First club', manifesto_markdown: null,
             archived_at: '2026-03-12T01:00:00Z', owner_member_id: 'member-1', owner_public_name: 'Member One', owner_handle: 'member-one',
             owner_version_no: 2, owner_created_at: '2026-03-12T00:30:00Z', owner_created_by_member_id: 'member-1',
           }], rowCount: 1,
@@ -26,16 +26,16 @@ test('postgres repository lists networks for superadmin scope including archived
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const results = await repository.listNetworks({ actorMemberId: 'member-1', includeArchived: true });
+  const results = await repository.listClubs({ actorMemberId: 'member-1', includeArchived: true });
 
-  assert.equal(results[0]?.networkId, 'network-1');
+  assert.equal(results[0]?.clubId, 'club-1');
   assert.equal(results[0]?.archivedAt, '2026-03-12T01:00:00Z');
   assert.equal(results[0]?.ownerVersion.versionNo, 2);
   assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.deepEqual(calls[2]?.params, [true]);
 });
 
-test('postgres repository creates, archives, and reassigns network owners through superadmin scope', async () => {
+test('postgres repository creates, archives, and reassigns club owners through superadmin scope', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
   const client = {
@@ -43,16 +43,16 @@ test('postgres repository creates, archives, and reassigns network owners throug
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('with owner_member as (')) return { rows: [{ network_id: 'network-9' }], rowCount: 1 };
-      if (sql.includes("update app.networks n\n            set archived_at = coalesce")) return { rows: [{ network_id: 'network-9' }], rowCount: 1 };
-      if (sql.includes('select') && sql.includes('join app.current_network_owners cno on cno.network_id = n.id') && sql.includes('join app.members m on m.id = $2')) {
-        return { rows: [{ network_id: 'network-9', current_owner_version_id: 'owner-1', current_version_no: 1 }], rowCount: 1 };
+      if (sql.includes('with owner_member as (')) return { rows: [{ club_id: 'club-9' }], rowCount: 1 };
+      if (sql.includes("update app.clubs n\n            set archived_at = coalesce")) return { rows: [{ club_id: 'club-9' }], rowCount: 1 };
+      if (sql.includes('select') && sql.includes('join app.current_club_owners cno on cno.club_id = n.id') && sql.includes('join app.members m on m.id = $2')) {
+        return { rows: [{ club_id: 'club-9', current_owner_version_id: 'owner-1', current_version_no: 1 }], rowCount: 1 };
       }
-      if (sql.includes('insert into app.network_owner_versions')) return { rows: [], rowCount: 1 };
-      if (sql.includes('from app.networks n') && sql.includes('where n.id = $1')) {
+      if (sql.includes('insert into app.club_owner_versions')) return { rows: [], rowCount: 1 };
+      if (sql.includes('from app.clubs n') && sql.includes('where n.id = $1')) {
         return {
           rows: [{
-            network_id: 'network-9', slug: 'gamma', name: 'Gamma', summary: 'Third network', manifesto_markdown: null,
+            club_id: 'club-9', slug: 'gamma', name: 'Gamma', summary: 'Third club', manifesto_markdown: null,
             archived_at: null, owner_member_id: 'member-9', owner_public_name: 'Member Nine', owner_handle: 'member-nine',
             owner_version_no: 2, owner_created_at: '2026-03-12T01:00:00Z', owner_created_by_member_id: 'member-1',
           }], rowCount: 1,
@@ -64,12 +64,12 @@ test('postgres repository creates, archives, and reassigns network owners throug
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const created = await repository.createNetwork({ actorMemberId: 'member-1', slug: 'gamma', name: 'Gamma', summary: 'Third network', manifestoMarkdown: null, ownerMemberId: 'member-9' });
-  const archived = await repository.archiveNetwork({ actorMemberId: 'member-1', networkId: 'network-9' });
-  const reassigned = await repository.assignNetworkOwner({ actorMemberId: 'member-1', networkId: 'network-9', ownerMemberId: 'member-9' });
+  const created = await repository.createClub({ actorMemberId: 'member-1', slug: 'gamma', name: 'Gamma', summary: 'Third club', manifestoMarkdown: null, ownerMemberId: 'member-9' });
+  const archived = await repository.archiveClub({ actorMemberId: 'member-1', clubId: 'club-9' });
+  const reassigned = await repository.assignClubOwner({ actorMemberId: 'member-1', clubId: 'club-9', ownerMemberId: 'member-9' });
 
-  assert.equal(created?.networkId, 'network-9');
-  assert.equal(archived?.networkId, 'network-9');
+  assert.equal(created?.clubId, 'club-9');
+  assert.equal(archived?.clubId, 'club-9');
   assert.equal(reassigned?.owner.memberId, 'member-9');
   assert.equal(reassigned?.ownerVersion.versionNo, 2);
 });
@@ -93,7 +93,7 @@ test('postgres repository updates an entity only when the actor is the author in
         return {
           rows: [{
             entity_id: 'entity-1',
-            network_id: 'network-2',
+            club_id: 'club-2',
             author_member_id: 'member-1',
             version_id: 'entity-version-1',
             version_no: 1,
@@ -120,7 +120,7 @@ test('postgres repository updates an entity only when the actor is the author in
           rows: [{
             entity_id: 'entity-1',
             entity_version_id: 'entity-version-2',
-            network_id: 'network-2',
+            club_id: 'club-2',
             kind: 'post',
             author_member_id: 'member-1',
             author_public_name: 'Member One',
@@ -154,7 +154,7 @@ test('postgres repository updates an entity only when the actor is the author in
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const updated = await repository.updateEntity?.({
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-2'],
+    accessibleClubIds: ['club-2'],
     entityId: 'entity-1',
     patch: {
       title: undefined,
@@ -169,7 +169,7 @@ test('postgres repository updates an entity only when the actor is the author in
   assert.equal(updated?.entityVersionId, 'entity-version-2');
   assert.equal(updated?.version.versionNo, 2);
   assert.deepEqual(calls[1]?.params, ['member-1']);
-  assert.deepEqual(calls[2]?.params, ['entity-1', ['network-2'], 'member-1']);
+  assert.deepEqual(calls[2]?.params, ['entity-1', ['club-2'], 'member-1']);
 });
 
 test('postgres repository archives an entity by appending an archived version without mutating root rows directly', async () => {
@@ -195,7 +195,7 @@ test('postgres repository archives an entity by appending an archived version wi
         return {
           rows: [{
             entity_id: 'entity-1',
-            network_id: 'network-2',
+            club_id: 'club-2',
             kind: 'post',
             author_member_id: 'member-1',
             author_public_name: 'Member One',
@@ -229,7 +229,7 @@ test('postgres repository archives an entity by appending an archived version wi
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const archived = await repository.archiveEntity?.({
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-2'],
+    accessibleClubIds: ['club-2'],
     entityId: 'entity-1',
   });
 
@@ -240,7 +240,7 @@ test('postgres repository archives an entity by appending an archived version wi
   assert.equal(archived?.version.effectiveAt, '2026-03-14T12:00:00Z');
   assert.equal(archived?.version.expiresAt, '2026-04-01T00:00:00Z');
   assert.deepEqual(calls[1]?.params, ['member-1']);
-  assert.deepEqual(calls[2]?.params, ['entity-1', ['network-2'], 'member-1']);
+  assert.deepEqual(calls[2]?.params, ['entity-1', ['club-2'], 'member-1']);
   assert.deepEqual(calls[4]?.params, [
     'entity-1',
     3,
@@ -271,7 +271,7 @@ test('postgres repository createEntity throws a missing_row AppError when the ro
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
+      if (sql.includes('club_quota_policies') || sql.includes('count_member_writes_today')) {
         return { rows: [], rowCount: 0 };
       }
 
@@ -285,7 +285,7 @@ test('postgres repository createEntity throws a missing_row AppError when the ro
   await assert.rejects(
     () => repository.createEntity({
       authorMemberId: 'member-1',
-      networkId: 'network-2',
+      clubId: 'club-2',
       kind: 'post',
       title: 'Hello',
       summary: null,
@@ -326,7 +326,7 @@ test('postgres repository createEntity throws a missing_row AppError when the cr
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
+      if (sql.includes('club_quota_policies') || sql.includes('count_member_writes_today')) {
         return { rows: [], rowCount: 0 };
       }
 
@@ -340,7 +340,7 @@ test('postgres repository createEntity throws a missing_row AppError when the cr
   await assert.rejects(
     () => repository.createEntity({
       authorMemberId: 'member-1',
-      networkId: 'network-2',
+      clubId: 'club-2',
       kind: 'post',
       title: 'Hello',
       summary: null,
@@ -373,7 +373,7 @@ test('postgres repository updateEntity throws a missing_row AppError when the up
         return {
           rows: [{
             entity_id: 'entity-1',
-            network_id: 'network-2',
+            club_id: 'club-2',
             author_member_id: 'member-1',
             version_id: 'entity-version-1',
             version_no: 1,
@@ -405,7 +405,7 @@ test('postgres repository updateEntity throws a missing_row AppError when the up
   await assert.rejects(
     () => repository.updateEntity?.({
       actorMemberId: 'member-1',
-      accessibleNetworkIds: ['network-2'],
+      accessibleClubIds: ['club-2'],
       entityId: 'entity-1',
       patch: {
         title: undefined,
@@ -457,10 +457,10 @@ test('postgres repository lists active members with scoped membership context', 
               memberships: [
                 {
                   membershipId: 'membership-2',
-                  networkId: 'network-2',
+                  clubId: 'club-2',
                   slug: 'beta',
                   name: 'Beta',
-                  summary: 'Second network',
+                  summary: 'Second club',
                   manifestoMarkdown: null,
                   role: 'member',
                   status: 'active',
@@ -482,15 +482,15 @@ test('postgres repository lists active members with scoped membership context', 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const results = await repository.listMembers({
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 5,
   });
 
   assert.equal(results.length, 1);
   assert.equal(results[0]?.memberId, 'member-2');
-  assert.equal(results[0]?.memberships[0]?.networkId, 'network-2');
-  assert.match(calls[2]?.sql ?? '', /join app\.accessible_network_memberships anm/);
-  assert.deepEqual(calls[2]?.params, [['network-2'], 5]);
+  assert.equal(results[0]?.memberships[0]?.clubId, 'club-2');
+  assert.match(calls[2]?.sql ?? '', /join app\.accessible_club_memberships anm/);
+  assert.deepEqual(calls[2]?.params, [['club-2'], 5]);
 });
 
 test('postgres repository searchMembers requires every query token across searchable fields and ranks deterministically', async () => {
@@ -522,7 +522,7 @@ test('postgres repository searchMembers requires every query token across search
               known_for: 'Community rituals',
               services_summary: 'Advisory',
               website_url: null,
-              shared_networks: [{ id: 'network-2', slug: 'beta', name: 'Beta' }],
+              shared_clubs: [{ id: 'club-2', slug: 'beta', name: 'Beta' }],
             },
             {
               member_id: 'member-2',
@@ -530,12 +530,12 @@ test('postgres repository searchMembers requires every query token across search
               display_name: 'Chris Stone',
               handle: 'chris-stone',
               tagline: 'Builder',
-              summary: 'Backend and AI builder for small trusted networks',
+              summary: 'Backend and AI builder for small trusted clubs',
               what_i_do: 'Backend AI builder',
               known_for: 'Shipping fast',
               services_summary: 'Architecture help',
               website_url: 'https://example.test/chris',
-              shared_networks: [{ id: 'network-2', slug: 'beta', name: 'Beta' }],
+              shared_clubs: [{ id: 'club-2', slug: 'beta', name: 'Beta' }],
             },
             {
               member_id: 'member-4',
@@ -548,7 +548,7 @@ test('postgres repository searchMembers requires every query token across search
               known_for: 'Calm execution',
               services_summary: 'Fractional ops',
               website_url: null,
-              shared_networks: [{ id: 'network-2', slug: 'beta', name: 'Beta' }],
+              shared_clubs: [{ id: 'club-2', slug: 'beta', name: 'Beta' }],
             },
           ],
           rowCount: 3,
@@ -563,7 +563,7 @@ test('postgres repository searchMembers requires every query token across search
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const results = await repository.searchMembers({
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     query: 'Chris builder',
     limit: 2,
   });
@@ -571,7 +571,7 @@ test('postgres repository searchMembers requires every query token across search
   assert.deepEqual(results.map((result) => result.memberId), ['member-2', 'member-4']);
   assert.match(calls[2]?.sql ?? '', /from tokens t/);
   assert.match(calls[2]?.sql ?? '', /cmp\.summary/);
-  assert.deepEqual(calls[2]?.params, [['network-2'], '%Chris builder%', ['chris', 'builder'], 25]);
+  assert.deepEqual(calls[2]?.params, [['club-2'], '%Chris builder%', ['chris', 'builder'], 25]);
 });
 
 test('postgres repository searchMembers escapes LIKE metacharacters before querying shared-member search', async () => {
@@ -601,14 +601,14 @@ test('postgres repository searchMembers escapes LIKE metacharacters before query
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const results = await repository.searchMembers({
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     query: '100% builder_',
     limit: 2,
   });
 
   assert.deepEqual(results, []);
   assert.match(calls[2]?.sql ?? '', /ilike \$2 escape '\\'/);
-  assert.deepEqual(calls[2]?.params, [['network-2'], '%100\\% builder\\_%', ['100', 'builder'], 25]);
+  assert.deepEqual(calls[2]?.params, [['club-2'], '%100\\% builder\\_%', ['100', 'builder'], 25]);
 });
 
 test('postgres repository projects actor scope into the db session before dm reads', async () => {
@@ -631,7 +631,7 @@ test('postgres repository projects actor scope into the db session before dm rea
           rows: [
             {
               thread_id: 'thread-1',
-              network_id: 'network-1',
+              club_id: 'club-1',
               counterpart_member_id: 'member-2',
               counterpart_public_name: 'Member Two',
               counterpart_handle: 'member-two',
@@ -695,7 +695,7 @@ test('postgres repository projects actor scope into the db session before dm rea
   const repository = createPostgresRepository({ pool: pool as any });
   const results = await repository.listDirectMessageThreads({
     actorMemberId: 'member-1',
-    networkIds: ['network-1', 'network-2'],
+    clubIds: ['club-1', 'club-2'],
     limit: 5,
   });
 
@@ -729,7 +729,7 @@ test('postgres repository stitches current update receipt state into dm transcri
           rows: [
             {
               thread_id: 'thread-1',
-              network_id: 'network-2',
+              club_id: 'club-2',
               counterpart_member_id: 'member-2',
               counterpart_public_name: 'Member Two',
               counterpart_handle: 'member-two',
@@ -812,7 +812,7 @@ test('postgres repository stitches current update receipt state into dm transcri
   const repository = createPostgresRepository({ pool: pool as any });
   const transcript = await repository.readDirectMessageThread({
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-2'],
+    accessibleClubIds: ['club-2'],
     threadId: 'thread-1',
     limit: 5,
   });
@@ -850,7 +850,7 @@ test('postgres repository projects actor scope into the db session before inbox 
           rows: [
             {
               thread_id: 'thread-1',
-              network_id: 'network-2',
+              club_id: 'club-2',
               counterpart_member_id: 'member-2',
               counterpart_public_name: 'Member Two',
               counterpart_handle: 'member-two',
@@ -884,7 +884,7 @@ test('postgres repository projects actor scope into the db session before inbox 
   const repository = createPostgresRepository({ pool: pool as any });
   const results = await repository.listDirectMessageInbox({
     actorMemberId: 'member-1',
-    networkIds: ['network-2'],
+    clubIds: ['club-2'],
     limit: 5,
     unreadOnly: true,
   });
@@ -896,7 +896,7 @@ test('postgres repository projects actor scope into the db session before inbox 
   assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
   assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.match(calls[2]?.sql ?? '', /from app\.current_dm_inbox_threads inbox/);
-  assert.deepEqual(calls[2]?.params, ['member-1', ['network-2'], true, 5]);
+  assert.deepEqual(calls[2]?.params, ['member-1', ['club-2'], true, 5]);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
@@ -1045,7 +1045,7 @@ test('postgres repository sendDirectMessage throws a missing_row AppError when t
       }
 
       if (sql.includes('with actor_scope as (')) {
-        return { rows: [{ network_id: 'network-2' }], rowCount: 1 };
+        return { rows: [{ club_id: 'club-2' }], rowCount: 1 };
       }
 
       if (sql.includes('insert into app.transcript_threads') && sql.includes('on conflict do nothing')) {
@@ -1056,7 +1056,7 @@ test('postgres repository sendDirectMessage throws a missing_row AppError when t
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
+      if (sql.includes('club_quota_policies') || sql.includes('count_member_writes_today')) {
         return { rows: [], rowCount: 0 };
       }
 
@@ -1070,7 +1070,7 @@ test('postgres repository sendDirectMessage throws a missing_row AppError when t
   await assert.rejects(
     () => repository.sendDirectMessage({
       actorMemberId: 'member-1',
-      accessibleNetworkIds: ['network-2'],
+      accessibleClubIds: ['club-2'],
       recipientMemberId: 'member-2',
       messageText: 'hello',
     }),
@@ -1100,7 +1100,7 @@ test('postgres repository sendDirectMessage reuses an existing DM thread after i
       }
 
       if (sql.includes('with actor_scope as (')) {
-        return { rows: [{ network_id: 'network-2' }], rowCount: 1 };
+        return { rows: [{ club_id: 'club-2' }], rowCount: 1 };
       }
 
       if (sql.includes('insert into app.transcript_threads') && sql.includes('on conflict do nothing')) {
@@ -1123,7 +1123,7 @@ test('postgres repository sendDirectMessage reuses an existing DM thread after i
         return { rows: [], rowCount: 1 };
       }
 
-      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
+      if (sql.includes('club_quota_policies') || sql.includes('count_member_writes_today')) {
         return { rows: [], rowCount: 0 };
       }
 
@@ -1135,7 +1135,7 @@ test('postgres repository sendDirectMessage reuses an existing DM thread after i
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const message = await repository.sendDirectMessage({
     actorMemberId: 'member-1',
-    accessibleNetworkIds: ['network-2'],
+    accessibleClubIds: ['club-2'],
     recipientMemberId: 'member-2',
     messageText: 'hello',
   });
@@ -1161,7 +1161,7 @@ test('postgres repository sendDirectMessage throws a missing_row AppError when t
       }
 
       if (sql.includes('with actor_scope as (')) {
-        return { rows: [{ network_id: 'network-2' }], rowCount: 1 };
+        return { rows: [{ club_id: 'club-2' }], rowCount: 1 };
       }
 
       if (sql.includes('insert into app.transcript_threads') && sql.includes('on conflict do nothing')) {
@@ -1176,7 +1176,7 @@ test('postgres repository sendDirectMessage throws a missing_row AppError when t
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
+      if (sql.includes('club_quota_policies') || sql.includes('count_member_writes_today')) {
         return { rows: [], rowCount: 0 };
       }
 
@@ -1190,7 +1190,7 @@ test('postgres repository sendDirectMessage throws a missing_row AppError when t
   await assert.rejects(
     () => repository.sendDirectMessage({
       actorMemberId: 'member-1',
-      accessibleNetworkIds: ['network-2'],
+      accessibleClubIds: ['club-2'],
       recipientMemberId: 'member-2',
       messageText: 'hello',
     }),
@@ -1260,7 +1260,7 @@ test('postgres repository createEvent throws a missing_row AppError when the cre
         return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
       }
 
-      if (sql.includes(`insert into app.entities (network_id, kind, author_member_id) values ($1, 'event', $2)`)) {
+      if (sql.includes(`insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2)`)) {
         return { rows: [{ id: 'event-entity-1' }], rowCount: 1 };
       }
 
@@ -1272,7 +1272,7 @@ test('postgres repository createEvent throws a missing_row AppError when the cre
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
+      if (sql.includes('club_quota_policies') || sql.includes('count_member_writes_today')) {
         return { rows: [], rowCount: 0 };
       }
 
@@ -1286,7 +1286,7 @@ test('postgres repository createEvent throws a missing_row AppError when the cre
   await assert.rejects(
     () => repository.createEvent?.({
       authorMemberId: 'member-1',
-      networkId: 'network-2',
+      clubId: 'club-2',
       title: 'Launch Party',
       summary: null,
       body: 'Body',
@@ -1316,10 +1316,10 @@ test('postgres repository lists current membership projections for owner scope',
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('from app.current_network_memberships cnm')) {
+      if (sql.includes('from app.current_club_memberships cnm')) {
         return {
           rows: [{
-            membership_id: 'membership-9', network_id: 'network-2', member_id: 'member-9', public_name: 'Member Nine', handle: 'member-nine',
+            membership_id: 'membership-9', club_id: 'club-2', member_id: 'member-9', public_name: 'Member Nine', handle: 'member-nine',
             sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', role: 'member', status: 'pending_review',
             state_reason: 'Booked intro call', state_version_no: 2, state_created_at: '2026-03-12T00:04:00Z', state_created_by_member_id: 'member-1',
             joined_at: '2026-03-12T00:00:00Z', accepted_covenant_at: null, metadata: { source: 'operator' },
@@ -1332,13 +1332,13 @@ test('postgres repository lists current membership projections for owner scope',
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const results = await repository.listMemberships({ actorMemberId: 'member-1', networkIds: ['network-2'], limit: 5, status: 'pending_review' });
+  const results = await repository.listMemberships({ actorMemberId: 'member-1', clubIds: ['club-2'], limit: 5, status: 'pending_review' });
 
   assert.equal(results.length, 1);
   assert.equal(results[0]?.state.status, 'pending_review');
   assert.equal(results[0]?.sponsor?.memberId, 'member-1');
-  assert.match(calls[2]?.sql ?? '', /from app\.current_network_memberships cnm/);
-  assert.deepEqual(calls[2]?.params, [['network-2'], 'pending_review', 5]);
+  assert.match(calls[2]?.sql ?? '', /from app\.current_club_memberships cnm/);
+  assert.deepEqual(calls[2]?.params, [['club-2'], 'pending_review', 5]);
 });
 
 test('postgres repository lists applications with interview metadata inside owner scope', async () => {
@@ -1352,7 +1352,7 @@ test('postgres repository lists applications with interview metadata inside owne
       if (sql.includes('from app.current_applications ca')) {
         return {
           rows: [{
-            application_id: 'application-9', network_id: 'network-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
+            application_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
             sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-9', path: 'sponsored',
             intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
             intake_booked_at: '2026-03-14T10:00:00Z', intake_completed_at: null,
@@ -1367,13 +1367,13 @@ test('postgres repository lists applications with interview metadata inside owne
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const results = await repository.listApplications({ actorMemberId: 'member-1', networkIds: ['network-2'], limit: 5, statuses: ['submitted'] });
+  const results = await repository.listApplications({ actorMemberId: 'member-1', clubIds: ['club-2'], limit: 5, statuses: ['submitted'] });
 
   assert.equal(results.length, 1);
   assert.equal(results[0]?.applicationId, 'application-9');
   assert.equal(results[0]?.intake.kind, 'fit_check');
   assert.equal(results[0]?.intake.price.amount, 49);
-  assert.deepEqual(calls[2]?.params, [['network-2'], ['submitted'], 5]);
+  assert.deepEqual(calls[2]?.params, [['club-2'], ['submitted'], 5]);
 });
 
 test('postgres repository lists admissions review context with sponsor load and vouches', async () => {
@@ -1384,10 +1384,10 @@ test('postgres repository lists admissions review context with sponsor load and 
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes("from app.current_network_memberships cnm") && sql.includes("e.kind = 'vouched_for'")) {
+      if (sql.includes("from app.current_club_memberships cnm") && sql.includes("e.kind = 'vouched_for'")) {
         return {
           rows: [{
-            membership_id: 'membership-9', network_id: 'network-2', member_id: 'member-9', public_name: 'Member Nine', handle: 'member-nine',
+            membership_id: 'membership-9', club_id: 'club-2', member_id: 'member-9', public_name: 'Member Nine', handle: 'member-nine',
             sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', role: 'member', status: 'pending_review',
             state_reason: 'Booked intro call', state_version_no: 2, state_created_at: '2026-03-12T00:04:00Z', state_created_by_member_id: 'member-1',
             joined_at: '2026-03-12T00:00:00Z', accepted_covenant_at: null, metadata: { source: 'operator' },
@@ -1406,14 +1406,14 @@ test('postgres repository lists admissions review context with sponsor load and 
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const results = await repository.listMembershipReviews({ actorMemberId: 'member-1', networkIds: ['network-2'], limit: 5, statuses: ['pending_review'] });
+  const results = await repository.listMembershipReviews({ actorMemberId: 'member-1', clubIds: ['club-2'], limit: 5, statuses: ['pending_review'] });
 
   assert.equal(results.length, 1);
   assert.equal(results[0]?.sponsorStats.activeSponsoredCount, 1);
   assert.equal(results[0]?.vouches[0]?.fromMember.publicName, 'Member Two');
   assert.equal(results[0]?.vouches[0]?.reason, 'I trust their presence and follow-through.');
   assert.match(calls[2]?.sql ?? '', /e\.kind = 'vouched_for'/);
-  assert.deepEqual(calls[2]?.params, [['network-2'], ['pending_review'], 5]);
+  assert.deepEqual(calls[2]?.params, [['club-2'], ['pending_review'], 5]);
 });
 
 test('postgres repository creates an application with interview intake details and reloads current projection', async () => {
@@ -1424,8 +1424,8 @@ test('postgres repository creates an application with interview intake details a
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('from app.accessible_network_memberships anm') && sql.includes("and anm.role = 'owner'")) return { rows: [{ membership_id: 'membership-owner' }], rowCount: 1 };
-      if (sql.includes('from app.current_network_memberships cnm') && sql.includes('and cnm.member_id = $2') && sql.includes("and cnm.status = 'active'")) return { rows: [{ member_id: 'member-1' }], rowCount: 1 };
+      if (sql.includes('from app.accessible_club_memberships anm') && sql.includes("and anm.role = 'owner'")) return { rows: [{ membership_id: 'membership-owner' }], rowCount: 1 };
+      if (sql.includes('from app.current_club_memberships cnm') && sql.includes('and cnm.member_id = $2') && sql.includes("and cnm.status = 'active'")) return { rows: [{ member_id: 'member-1' }], rowCount: 1 };
       if (sql.includes('select cnm.id as membership_id') && sql.includes('where cnm.id = $1')) return { rows: [{ membership_id: 'membership-9' }], rowCount: 1 };
       if (sql.includes('insert into app.applications') && sql.includes('where app.member_is_active($2)')) {
         return { rows: [{ application_id: 'application-9' }], rowCount: 1 };
@@ -1433,7 +1433,7 @@ test('postgres repository creates an application with interview intake details a
       if (sql.includes('from app.current_applications ca') && sql.includes('where ca.id = $1')) {
         return {
           rows: [{
-            application_id: 'application-9', network_id: 'network-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
+            application_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
             sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-9', path: 'sponsored',
             intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
             intake_booked_at: '2026-03-14T10:00:00Z', intake_completed_at: null,
@@ -1450,7 +1450,7 @@ test('postgres repository creates an application with interview intake details a
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const application = await repository.createApplication({
     actorMemberId: 'member-1',
-    networkId: 'network-2',
+    clubId: 'club-2',
     applicantMemberId: 'member-9',
     sponsorMemberId: 'member-1',
     membershipId: 'membership-9',
@@ -1465,7 +1465,7 @@ test('postgres repository creates an application with interview intake details a
   assert.equal(application?.applicationId, 'application-9');
   assert.match(calls[5]?.sql ?? '', /insert into app\.applications/);
   assert.deepEqual(calls[5]?.params, [
-    'network-2',
+    'club-2',
     'member-9',
     'member-1',
     'membership-9',
@@ -1492,10 +1492,10 @@ test('postgres repository appends application state transitions and reloads curr
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('from app.current_applications ca') && sql.includes('join app.accessible_network_memberships owner_scope')) {
+      if (sql.includes('from app.current_applications ca') && sql.includes('join app.accessible_club_memberships owner_scope')) {
         return {
           rows: [{
-            application_id: 'application-9', network_id: 'network-2', applicant_member_id: 'member-9', current_status: 'interview_scheduled', current_version_no: 2,
+            application_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', current_status: 'interview_scheduled', current_version_no: 2,
             current_version_id: 'appver-2', current_metadata: { source: 'operator' }, current_intake_kind: 'fit_check', current_intake_price_amount: '49.00',
             current_intake_price_currency: 'GBP', current_intake_booking_url: 'https://cal.example.test/fit-check', current_intake_booked_at: '2026-03-14T10:00:00Z',
             current_intake_completed_at: null, current_membership_id: 'membership-9',
@@ -1505,17 +1505,17 @@ test('postgres repository appends application state transitions and reloads curr
       if (sql.includes('select cnm.id as membership_id') && sql.includes('where cnm.id = $1')) return { rows: [{ membership_id: 'membership-10' }], rowCount: 1 };
       if (sql.includes('update app.applications a')) return { rows: [], rowCount: 1 };
       if (sql.includes('insert into app.application_versions')) return { rows: [], rowCount: 1 };
-      if (sql.includes('from app.current_network_memberships cnm') && sql.includes('current_state_version_id')) {
+      if (sql.includes('from app.current_club_memberships cnm') && sql.includes('current_state_version_id')) {
         return {
           rows: [{ membership_id: 'membership-10', current_status: 'pending_review', current_version_no: 2, current_state_version_id: 'state-2' }],
           rowCount: 1,
         };
       }
-      if (sql.includes('insert into app.network_membership_state_versions')) return { rows: [], rowCount: 1 };
+      if (sql.includes('insert into app.club_membership_state_versions')) return { rows: [], rowCount: 1 };
       if (sql.includes('from app.current_applications ca') && sql.includes('where ca.id = $1')) {
         return {
           rows: [{
-            application_id: 'application-9', network_id: 'network-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
+            application_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
             sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-10',
             linked_membership_status: 'active', linked_membership_accepted_covenant_at: null, path: 'sponsored',
             intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
@@ -1536,7 +1536,7 @@ test('postgres repository appends application state transitions and reloads curr
     applicationId: 'application-9',
     nextStatus: 'accepted',
     notes: 'Strong yes',
-    accessibleNetworkIds: ['network-2'],
+    accessibleClubIds: ['club-2'],
     intake: { completedAt: '2026-03-14T10:30:00Z' },
     membershipId: 'membership-10',
     activateMembership: true,
@@ -1552,7 +1552,7 @@ test('postgres repository appends application state transitions and reloads curr
     acceptedCovenantAt: null,
     readyForActivation: false,
   });
-  assert.deepEqual(calls[3]?.params, ['membership-10', 'network-2', 'member-9']);
+  assert.deepEqual(calls[3]?.params, ['membership-10', 'club-2', 'member-9']);
   assert.deepEqual(calls[4]?.params, ['application-9', 'membership-10', '{"source":"operator","outcome":"strong_yes"}']);
   assert.deepEqual(calls[5]?.params, ['application-9', 'accepted', 'Strong yes', 'fit_check', '49.00', 'GBP', 'https://cal.example.test/fit-check', '2026-03-14T10:00:00Z', '2026-03-14T10:30:00Z', 3, 'appver-2', 'member-1']);
   assert.deepEqual(calls[7]?.params, ['membership-10', 'Interview complete and approved', 3, 'state-2', 'member-1']);
@@ -1566,20 +1566,20 @@ test('postgres repository appends membership state transitions and reloads curre
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('join app.accessible_network_memberships owner_scope')) {
+      if (sql.includes('join app.accessible_club_memberships owner_scope')) {
         return {
           rows: [{
-            membership_id: 'membership-9', network_id: 'network-2', member_id: 'member-9', current_status: 'pending_review', current_version_no: 2, current_state_version_id: 'state-2',
+            membership_id: 'membership-9', club_id: 'club-2', member_id: 'member-9', current_status: 'pending_review', current_version_no: 2, current_state_version_id: 'state-2',
           }], rowCount: 1,
         };
       }
-      if (sql.includes('insert into app.network_membership_state_versions')) {
+      if (sql.includes('insert into app.club_membership_state_versions')) {
         return { rows: [], rowCount: 1 };
       }
       if (sql.includes('where cnm.id = $1')) {
         return {
           rows: [{
-            membership_id: 'membership-9', network_id: 'network-2', member_id: 'member-9', public_name: 'Member Nine', handle: 'member-nine',
+            membership_id: 'membership-9', club_id: 'club-2', member_id: 'member-9', public_name: 'Member Nine', handle: 'member-nine',
             sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', role: 'member', status: 'active',
             state_reason: 'Fit check passed', state_version_no: 3, state_created_at: '2026-03-12T00:05:00Z', state_created_by_member_id: 'member-1',
             joined_at: '2026-03-12T00:00:00Z', accepted_covenant_at: null, metadata: {},
@@ -1592,13 +1592,13 @@ test('postgres repository appends membership state transitions and reloads curre
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const membership = await repository.transitionMembershipState({ actorMemberId: 'member-1', membershipId: 'membership-9', nextStatus: 'active', reason: 'Fit check passed', accessibleNetworkIds: ['network-2'] });
+  const membership = await repository.transitionMembershipState({ actorMemberId: 'member-1', membershipId: 'membership-9', nextStatus: 'active', reason: 'Fit check passed', accessibleClubIds: ['club-2'] });
 
   assert.ok(membership);
   assert.equal(membership?.state.status, 'active');
   assert.equal(membership?.state.versionNo, 3);
-  assert.match(calls[2]?.sql ?? '', /join app\.accessible_network_memberships owner_scope/);
-  assert.deepEqual(calls[2]?.params, ['member-1', 'membership-9', ['network-2']]);
+  assert.match(calls[2]?.sql ?? '', /join app\.accessible_club_memberships owner_scope/);
+  assert.deepEqual(calls[2]?.params, ['member-1', 'membership-9', ['club-2']]);
   assert.deepEqual(calls[3]?.params, ['membership-9', 'active', 'Fit check passed', 3, 'state-2', 'member-1']);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });

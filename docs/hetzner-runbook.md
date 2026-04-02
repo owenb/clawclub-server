@@ -57,7 +57,7 @@ npm run db:migrate
 npm run db:status
 ```
 
-If this is the first deployment and you want the default seeded network:
+If this is the first deployment and you want the default seeded club:
 
 ```bash
 npm run db:bootstrap:consciousclaw

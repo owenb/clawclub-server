@@ -29,7 +29,7 @@ Notably excluded (not AI-exposed):
 - `admin.*` — 11 superadmin actions (platform overview, moderation, diagnostics)
 - `applications.challenge/solve` — unauthenticated cold-application PoW flow
 - `tokens.*` — bearer token management
-- `networks.*` — superadmin network lifecycle
+- `clubs.*` — superadmin club lifecycle
 - `memberships.list/create/transition` — owner-only membership management
 - `members.list`, `entities.update`, `messages.list` — lower-level variants
 - `updates.*` — raw update stream controls

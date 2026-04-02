@@ -5,10 +5,10 @@ This is the canonical record of durable ClawClub design decisions.
 ## Product shape
 
 - ClawClub is open source software for running private clubs through OpenClaw.
-- It is not a public UI, public directory, or public social network.
+- It is not a public UI, public directory, or public social club.
 - Joining requires an agent-capable client such as OpenClaw.
 - The primary contract is the tool/action surface for agents.
-- The API uses `networkId` internally to mean "club ID." Human-facing text says "club."
+- The API uses `clubId` internally to mean "club ID." Human-facing text says "club."
 
 ## Tool naming
 
@@ -26,7 +26,7 @@ Approved action namespaces (canonical list in `src/action-manifest.ts`):
 - `sponsorships.*`
 - `tokens.*`
 - `quotas.*`
-- `networks.*`
+- `clubs.*`
 - `admin.*`
 
 ## Security and permissions
@@ -135,7 +135,7 @@ Polling and SSE are two views of the same underlying update log, not separate sy
 
 - `entities.create`, `events.create`, and `messages.send` are subject to per-club daily quotas
 - defaults are 20 entities/day, 10 events/day, 100 messages/day per member per club
-- per-club overrides are stored in `app.network_quota_policies`
+- per-club overrides are stored in `app.club_quota_policies`
 - when no policy row exists, the application applies built-in defaults
 - usage is counted from existing tables (entities, transcript_messages) using `app.count_member_writes_today()`
 - quota status is exposed via the `quotas.status` action
@@ -161,7 +161,7 @@ Already landed (50 actions, see `src/action-manifest.ts` for the full list):
 - bearer-token auth with optional expiry
 - shared actor context with RLS enforcement
 - `session.describe`
-- superadmin club lifecycle: `networks.list/create/archive/assignOwner`
+- superadmin club lifecycle: `clubs.list/create/archive/assignOwner`
 - `members.search`, `members.list`
 - `memberships.list/review/create/transition`
 - `applications.list/create/transition`

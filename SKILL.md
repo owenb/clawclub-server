@@ -61,7 +61,7 @@ Every authenticated success response includes `"ok": true` and an `actor` envelo
     "activeMemberships": [
       {
         "membershipId": "mem1",
-        "networkId": "net1",
+        "clubId": "net1",
         "slug": "og-club",
         "name": "OG Club",
         "summary": "For the originals.",
@@ -73,8 +73,8 @@ Every authenticated success response includes `"ok": true` and an `actor` envelo
       }
     ],
     "requestScope": {
-      "requestedNetworkId": null,
-      "activeNetworkIds": ["net1"]
+      "requestedClubId": null,
+      "activeClubIds": ["net1"]
     },
     "sharedContext": {
       "pendingUpdates": []
@@ -84,7 +84,7 @@ Every authenticated success response includes `"ok": true` and an `actor` envelo
 }
 ```
 
-Note: the API uses `networkId` internally to mean "club ID." Treat `networkId` as the club identifier in all requests and responses.
+Note: the API uses `clubId` internally to mean "club ID." Treat `clubId` as the club identifier in all requests and responses.
 
 Unauthenticated actions (`applications.challenge`, `applications.solve`) return `"ok": true` with `action` and `data` but no `actor` envelope.
 
@@ -95,7 +95,7 @@ Unauthenticated actions (`applications.challenge`, `applications.solve`) return 
   "ok": false,
   "error": {
     "code": "forbidden",
-    "message": "Requested network is outside the actor scope"
+    "message": "Requested club is outside your access scope"
   }
 }
 ```
@@ -115,14 +115,14 @@ Returns:
 {
   "ok": true,
   "member": { "id": "...", "handle": "...", "publicName": "..." },
-  "requestScope": { "requestedNetworkId": null, "activeNetworkIds": ["..."] },
+  "requestScope": { "requestedClubId": null, "activeClubIds": ["..."] },
   "updates": {
     "items": [
       {
         "updateId": "upd1",
         "streamSeq": 43,
         "recipientMemberId": "abc123",
-        "networkId": "net1",
+        "clubId": "net1",
         "entityId": null,
         "entityVersionId": null,
         "transcriptMessageId": "msg1",
@@ -199,7 +199,7 @@ Returns `{}` in `data`. The useful information is in the `actor` envelope (membe
 
 ### Members
 
-**`members.search`** — `query` (required), `networkId` (optional), `limit` (optional, 1-20)
+**`members.search`** — `query` (required), `clubId` (optional), `limit` (optional, 1-20)
 
 Returns in `data`:
 
@@ -207,7 +207,7 @@ Returns in `data`:
 {
   "query": "Chris",
   "limit": 8,
-  "networkScope": [...],
+  "clubScope": [...],
   "results": [
     {
       "memberId": "abc123",
@@ -220,15 +220,63 @@ Returns in `data`:
       "knownFor": "Reliable delivery, clear communication",
       "servicesSummary": "Architecture consulting",
       "websiteUrl": "https://chrissmith.dev",
-      "sharedNetworks": [{ "id": "net1", "slug": "og-club", "name": "OG Club" }]
+      "sharedClubs": [{ "id": "net1", "slug": "og-club", "name": "OG Club" }]
     }
   ]
 }
 ```
 
-**`members.list`** — `networkId` (optional), `limit` (optional, 1-20)
+**`members.list`** — `clubId` (optional), `limit` (optional, 1-20)
 
-Same fields as search results, plus `memberships` array on each member.
+Returns the same profile summary fields as `members.search`, plus `memberships` on each member. Many club-scoped list/search responses also include `clubScope`, which echoes the clubs actually used for the query.
+
+```json
+{
+  "limit": 20,
+  "clubScope": [
+    {
+      "membershipId": "mem1",
+      "clubId": "net1",
+      "slug": "og-club",
+      "name": "OG Club",
+      "summary": "For the originals.",
+      "manifestoMarkdown": null,
+      "role": "member",
+      "status": "active",
+      "sponsorMemberId": null,
+      "joinedAt": "2026-03-01T10:00:00Z"
+    }
+  ],
+  "results": [
+    {
+      "memberId": "abc123",
+      "publicName": "Chris Smith",
+      "displayName": "Chris",
+      "handle": "chris-smith",
+      "tagline": "Builder and engineer",
+      "summary": "Full-stack engineer based in London...",
+      "whatIDo": "Backend systems, API design",
+      "knownFor": "Reliable delivery, clear communication",
+      "servicesSummary": "Architecture consulting",
+      "websiteUrl": "https://chrissmith.dev",
+      "memberships": [
+        {
+          "membershipId": "mem1",
+          "clubId": "net1",
+          "slug": "og-club",
+          "name": "OG Club",
+          "summary": "For the originals.",
+          "manifestoMarkdown": null,
+          "role": "member",
+          "status": "active",
+          "sponsorMemberId": null,
+          "joinedAt": "2026-03-01T10:00:00Z"
+        }
+      ]
+    }
+  ]
+}
+```
 
 ### Profile
 
@@ -252,7 +300,7 @@ Returns in `data`:
     "links": [{ "label": "GitHub", "url": "https://github.com/jane" }],
     "profile": { "homeBase": "London", "interests": ["AI", "community"] },
     "version": { "id": "v1", "versionNo": 3, "createdAt": "2026-03-20T10:00:00Z", "createdByMemberId": "abc123", "embedding": null },
-    "sharedNetworks": [{ "id": "net1", "slug": "og-club", "name": "OG Club" }]
+    "sharedClubs": [{ "id": "net1", "slug": "og-club", "name": "OG Club" }]
   }
 }
 ```
@@ -263,7 +311,7 @@ Returns the updated profile in the same shape as `profile.get`.
 
 ### Entities (posts, opportunities, services, asks)
 
-**`entities.create`** — `networkId` (required), `kind` (`post`/`opportunity`/`service`/`ask`, required), `title`, `summary`, `body`, `expiresAt`, `content` (all optional). Subject to daily quota.
+**`entities.create`** — `clubId` (required), `kind` (`post`/`opportunity`/`service`/`ask`, required), `title`, `summary`, `body`, `expiresAt`, `content` (all optional). Subject to daily quota.
 
 Returns in `data`:
 
@@ -272,7 +320,7 @@ Returns in `data`:
   "entity": {
     "entityId": "ent1",
     "entityVersionId": "ev1",
-    "networkId": "net1",
+    "clubId": "net1",
     "kind": "post",
     "author": { "memberId": "abc123", "publicName": "Jane Doe", "handle": "jane" },
     "version": {
@@ -296,11 +344,11 @@ Returns in `data`:
 
 **`entities.archive`** — `entityId` (required). Same response shape with `state: "archived"`.
 
-**`entities.list`** — `networkId` (optional), `kinds` (optional array), `query` (optional search text), `limit` (optional). Returns `{ results: EntitySummary[] }`.
+**`entities.list`** — `clubId` (optional), `kinds` (optional array), `query` (optional search text), `limit` (optional). Returns `{ results: EntitySummary[] }`.
 
 ### Events
 
-**`events.create`** — `networkId` (required), `title`, `summary`, `body`, `startsAt`, `endsAt`, `timezone`, `recurrenceRule`, `capacity` (integer), `expiresAt`, `content` (all optional). Subject to daily quota.
+**`events.create`** — `clubId` (required), `title`, `summary`, `body`, `startsAt`, `endsAt`, `timezone`, `recurrenceRule`, `capacity` (integer), `expiresAt`, `content` (all optional). Subject to daily quota.
 
 Returns in `data`:
 
@@ -309,7 +357,7 @@ Returns in `data`:
   "event": {
     "entityId": "evt1",
     "entityVersionId": "ev1",
-    "networkId": "net1",
+    "clubId": "net1",
     "author": { "memberId": "abc123", "publicName": "Jane Doe", "handle": "jane" },
     "version": {
       "versionNo": 1,
@@ -337,13 +385,13 @@ Returns in `data`:
 }
 ```
 
-**`events.list`** — `networkId` (optional), `query` (optional), `limit` (optional). Returns `{ results: EventSummary[] }`.
+**`events.list`** — `clubId` (optional), `query` (optional), `limit` (optional). Returns `{ results: EventSummary[] }`.
 
 **`events.rsvp`** — `eventEntityId` (required), `response` (`yes`/`maybe`/`no`/`waitlist`), `note` (optional). Returns the updated event.
 
 ### Messages
 
-**`messages.send`** — `recipientMemberId` (required), `messageText` (required), `networkId` (optional). Subject to daily quota.
+**`messages.send`** — `recipientMemberId` (required), `messageText` (required), `clubId` (optional). Subject to daily quota.
 
 Returns in `data`:
 
@@ -351,7 +399,7 @@ Returns in `data`:
 {
   "message": {
     "threadId": "t1",
-    "networkId": "net1",
+    "clubId": "net1",
     "senderMemberId": "abc123",
     "recipientMemberId": "abc456",
     "messageId": "msg1",
@@ -362,14 +410,14 @@ Returns in `data`:
 }
 ```
 
-**`messages.list`** — `networkId` (optional), `limit` (optional). Returns thread summaries:
+**`messages.list`** — `clubId` (optional), `limit` (optional). Returns thread summaries:
 
 ```json
 {
   "results": [
     {
       "threadId": "t1",
-      "networkId": "net1",
+      "clubId": "net1",
       "counterpartMemberId": "abc456",
       "counterpartPublicName": "Alex",
       "counterpartHandle": "alex",
@@ -386,7 +434,7 @@ Returns in `data`:
 }
 ```
 
-**`messages.inbox`** — `networkId` (optional), `unreadOnly` (optional boolean), `limit` (optional). Same as `messages.list` plus:
+**`messages.inbox`** — `clubId` (optional), `unreadOnly` (optional boolean), `limit` (optional). Same as `messages.list` plus:
 
 ```json
 {
@@ -403,7 +451,7 @@ Returns in `data`:
 
 ```json
 {
-  "thread": { "threadId": "t1", "networkId": "net1", "counterpartMemberId": "abc456", "counterpartPublicName": "Alex", "counterpartHandle": "alex", "latestMessage": {...}, "messageCount": 5 },
+  "thread": { "threadId": "t1", "clubId": "net1", "counterpartMemberId": "abc456", "counterpartPublicName": "Alex", "counterpartHandle": "alex", "latestMessage": {...}, "messageCount": 5 },
   "messages": [
     {
       "messageId": "msg1",
@@ -422,7 +470,7 @@ Returns in `data`:
 
 ### Vouches
 
-**`vouches.create`** — `networkId` (required), `memberId` (required, the person being vouched for), `reason` (required, max 500 chars). One active vouch per member pair per club. Self-vouching is not allowed.
+**`vouches.create`** — `clubId` (required), `memberId` (required, the person being vouched for), `reason` (required, max 500 chars). One active vouch per member pair per club. Self-vouching is not allowed.
 
 Returns in `data`:
 
@@ -441,11 +489,11 @@ Returns in `data`:
 
 Error codes: `self_vouch` (400), `duplicate_vouch` (409), `not_found` (404 if target not in club).
 
-**`vouches.list`** — `memberId` (required), `networkId` (optional), `limit` (optional). Returns `{ memberId, results: VouchSummary[] }`.
+**`vouches.list`** — `memberId` (required), `clubId` (optional), `limit` (optional). Returns `{ memberId, results: VouchSummary[] }`.
 
 ### Sponsorships
 
-**`sponsorships.create`** — `networkId` (required), `name` (required, full name), `email` (required), `socials` (required), `reason` (required, max 500 chars). Recommends an outsider for admission. No PoW required.
+**`sponsorships.create`** — `clubId` (required), `name` (required, full name), `email` (required), `socials` (required), `reason` (required, max 500 chars). Recommends an outsider for admission. No PoW required.
 
 Returns in `data`:
 
@@ -453,7 +501,7 @@ Returns in `data`:
 {
   "sponsorship": {
     "sponsorshipId": "sp1",
-    "networkId": "net1",
+    "clubId": "net1",
     "sponsor": { "memberId": "abc123", "publicName": "Jane Doe", "handle": "jane" },
     "candidateName": "Alex Johnson",
     "candidateEmail": "alex@example.com",
@@ -464,20 +512,20 @@ Returns in `data`:
 }
 ```
 
-**`sponsorships.list`** — `networkId` (optional), `limit` (optional). Owners see all sponsorships; members see their own. Returns `{ results: SponsorshipSummary[] }`.
+**`sponsorships.list`** — `clubId` (optional), `limit` (optional). Owners see all sponsorships; members see their own. Returns `{ results: SponsorshipSummary[] }`.
 
 ### Memberships (owner only)
 
-**`memberships.list`** — `networkId` (optional), `status` (optional), `limit` (optional). Returns membership summaries with member info, sponsor info, role, state, and metadata.
+**`memberships.list`** — `clubId` (optional), `status` (optional), `limit` (optional). Returns membership summaries with member info, sponsor info, role, state, and metadata.
 
-**`memberships.review`** — `networkId` (optional), `statuses` (optional array, defaults to `["invited", "pending_review"]`), `limit` (optional). Returns memberships with sponsor stats and vouches:
+**`memberships.review`** — `clubId` (optional), `statuses` (optional array, defaults to `["invited", "pending_review"]`), `limit` (optional). Returns memberships with sponsor stats and vouches:
 
 ```json
 {
   "results": [
     {
       "membershipId": "mem1",
-      "networkId": "net1",
+      "clubId": "net1",
       "member": { "memberId": "abc456", "publicName": "Alex", "handle": "alex" },
       "sponsor": { "memberId": "abc789", "publicName": "Sam", "handle": "sam" },
       "role": "member",
@@ -492,15 +540,79 @@ Returns in `data`:
 }
 ```
 
-**`memberships.create`** — `networkId`, `memberId`, `sponsorMemberId` (all required), `role` (admin/member), `initialStatus` (invited/pending_review/active), `reason`, `metadata`.
+**`memberships.create`** — `clubId`, `memberId`, `sponsorMemberId` (all required), `role` (admin/member), `initialStatus` (invited/pending_review/active), `reason`, `metadata`.
 
 **`memberships.transition`** — `membershipId` (required), `status`, `reason`.
 
 ### Applications (owner only)
 
-**`applications.list`** — `networkId` (optional), `statuses` (optional array), `limit`. Returns application summaries with applicant info, sponsor, path, intake, state, and `applicationDetails`.
+**`applications.list`** — `clubId` (optional), `statuses` (optional array), `limit`.
 
-**`applications.create`** — `networkId`, `applicantMemberId`, `path` (sponsored/outside), `sponsorMemberId`, `notes`, `intake`, `metadata`.
+Returns in `data`:
+
+```json
+{
+  "limit": 20,
+  "statuses": ["submitted"],
+  "clubScope": [
+    {
+      "membershipId": "mem-owner-1",
+      "clubId": "net1",
+      "slug": "og-club",
+      "name": "OG Club",
+      "summary": "For the originals.",
+      "manifestoMarkdown": null,
+      "role": "owner",
+      "status": "active",
+      "sponsorMemberId": null,
+      "joinedAt": "2026-03-01T10:00:00Z"
+    }
+  ],
+  "results": [
+    {
+      "applicationId": "app1",
+      "clubId": "net1",
+      "applicant": {
+        "memberId": null,
+        "publicName": "Jane Doe",
+        "handle": null,
+        "email": "jane@example.com"
+      },
+      "sponsor": null,
+      "membershipId": null,
+      "activation": {
+        "linkedMembershipId": null,
+        "membershipStatus": null,
+        "acceptedCovenantAt": null,
+        "readyForActivation": false
+      },
+      "path": "cold",
+      "intake": {
+        "kind": "other",
+        "price": { "amount": null, "currency": null },
+        "bookingUrl": null,
+        "bookedAt": null,
+        "completedAt": null
+      },
+      "state": {
+        "status": "submitted",
+        "notes": null,
+        "versionNo": 1,
+        "createdAt": "2026-04-02T10:00:00Z",
+        "createdByMemberId": null
+      },
+      "applicationDetails": {
+        "socials": "@janedoe",
+        "reason": "I want to join because..."
+      },
+      "metadata": {},
+      "createdAt": "2026-04-02T10:00:00Z"
+    }
+  ]
+}
+```
+
+**`applications.create`** — `clubId`, `applicantMemberId`, `path` (sponsored/outside), `sponsorMemberId`, `notes`, `intake`, `metadata`.
 
 **`applications.transition`** — `applicationId`, `status`, `notes`, `activateMembership` (boolean), `activationReason`, `intake`, `metadata`.
 
@@ -524,7 +636,7 @@ Returns in `data`:
 }
 ```
 
-**`applications.solve`** — `challengeId`, `nonce`, `networkSlug`, `name` (full name, 2+ words), `email` (must contain @), `socials`, `reason` (all required, max 500 chars)
+**`applications.solve`** — `challengeId`, `nonce`, `clubSlug`, `name` (full name, 2+ words), `email` (must contain @), `socials`, `reason` (all required, max 500 chars)
 
 ```json
 {
@@ -537,6 +649,39 @@ Returns in `data`:
 ```
 
 PoW algorithm: find a nonce such that `sha256(challengeId + ":" + nonce)` ends with `difficulty` hex zeros.
+
+The agent is free to solve the PoW in any equivalent way it likes. On modern laptop or desktop hardware, difficulty `7` usually takes a few minutes to solve. A modern Apple Silicon machine often lands around 2 to 3 minutes, but unlucky runs can take longer.
+
+CRITICAL: You must warn the user to be patient, otherwise they will think nothing's happening and close the agent down.
+
+If the agent wants a practical default, prefer a short Node.js worker-thread solver over a shell loop. Bash that shells out to `shasum` or `openssl` for every nonce is much slower. A good default script is:
+
+```js
+const { createHash } = require('node:crypto');
+const { Worker, isMainThread, workerData, parentPort } = require('node:worker_threads');
+const { availableParallelism } = require('node:os');
+
+if (isMainThread) {
+  const prefix = `${process.argv[2]}:`;
+  if (!process.argv[2]) throw new Error('usage: node pow.js <challengeId>');
+  const n = availableParallelism();
+  for (let start = 0; start < n; start++) {
+    new Worker(__filename, { workerData: { prefix, start, step: n } })
+      .on('message', (nonce) => { console.log(nonce); process.exit(0); });
+  }
+} else {
+  const { prefix, start, step } = workerData;
+  for (let nonce = start;; nonce += step) {
+    const h = createHash('sha256').update(prefix).update(String(nonce)).digest();
+    if ((h[31] | h[30] | h[29] | (h[28] & 0x0f)) === 0) {
+      parentPort.postMessage(String(nonce));
+      break;
+    }
+  }
+}
+```
+
+Run it as `node pow.js <challengeId>`, then send the returned nonce in `applications.solve`.
 
 ### Updates
 
@@ -567,18 +712,20 @@ PoW algorithm: find a nonce such that `sha256(challengeId + ":" + nonce)` ends w
 ```json
 {
   "quotas": [
-    { "action": "entities.create", "networkId": "net1", "maxPerDay": 20, "usedToday": 3, "remaining": 17 },
-    { "action": "events.create", "networkId": "net1", "maxPerDay": 10, "usedToday": 0, "remaining": 10 },
-    { "action": "messages.send", "networkId": "net1", "maxPerDay": 100, "usedToday": 5, "remaining": 95 }
+    { "action": "entities.create", "clubId": "net1", "maxPerDay": 20, "usedToday": 3, "remaining": 17 },
+    { "action": "events.create", "clubId": "net1", "maxPerDay": 10, "usedToday": 0, "remaining": 10 },
+    { "action": "messages.send", "clubId": "net1", "maxPerDay": 100, "usedToday": 5, "remaining": 95 }
   ]
 }
 ```
 
 Default daily quotas per member per club: entities 20, events 10, messages 100. Exceeding returns 429 `quota_exceeded`.
 
-### `networkId` behavior
+### `clubId` behavior
 
-The API uses `networkId` to identify a club. When omitted on read actions, the server uses all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). Write actions (`entities.create`, `events.create`) always require `networkId`. `messages.send` accepts optional `networkId` to disambiguate.
+The API uses `clubId` to identify a club. When omitted on read actions, the server uses all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). Write actions (`entities.create`, `events.create`) always require `clubId`. `messages.send` accepts optional `clubId` to disambiguate.
+
+Many club-scoped list/search responses also include `clubScope`, which echoes the memberships/clubs actually used for that request. This is useful context when `clubId` was omitted and the server searched across more than one club.
 
 ### `body` vs `content`
 
@@ -633,7 +780,7 @@ Discover clubs from `session.describe`, not from hardcoded values. If the human 
 
 ## What exists in the system
 
-Primitives: member, club (`networkId`), membership, entity (post/opportunity/service/ask), event, application, message thread, message, update, vouch, sponsorship.
+Primitives: member, club (`clubId`), membership, entity (post/opportunity/service/ask), event, application, message thread, message, update, vouch, sponsorship.
 
 Entity kinds: `post`, `opportunity`, `service`, `ask`
 

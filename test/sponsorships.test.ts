@@ -6,7 +6,7 @@ import { makeAuthResult, makeRepository } from './fixtures.ts';
 
 const sampleSponsorship: SponsorshipSummary = {
   sponsorshipId: 'sp-1',
-  networkId: 'network-1',
+  clubId: 'club-1',
   sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
   candidateName: 'Jane Doe',
   candidateEmail: 'jane@example.com',
@@ -31,7 +31,7 @@ test('sponsorships.create creates a sponsorship for an outsider', async () => {
     bearerToken: 'test-token',
     action: 'sponsorships.create',
     payload: {
-      networkId: 'network-1',
+      clubId: 'club-1',
       name: 'Jane Doe',
       email: 'Jane@Example.com',
       socials: '@janedoe',
@@ -57,7 +57,7 @@ test('sponsorships.create rejects single-word name', async () => {
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'sponsorships.create',
-      payload: { networkId: 'network-1', name: 'Jane', email: 'j@x.com', socials: '@j', reason: 'test' },
+      payload: { clubId: 'club-1', name: 'Jane', email: 'j@x.com', socials: '@j', reason: 'test' },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 400);
@@ -78,7 +78,7 @@ test('sponsorships.create rejects invalid email', async () => {
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'sponsorships.create',
-      payload: { networkId: 'network-1', name: 'Jane Doe', email: 'nope', socials: '@j', reason: 'test' },
+      payload: { clubId: 'club-1', name: 'Jane Doe', email: 'nope', socials: '@j', reason: 'test' },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 400);
@@ -99,7 +99,7 @@ test('sponsorships.create rejects reason exceeding 500 characters', async () => 
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'sponsorships.create',
-      payload: { networkId: 'network-1', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'x'.repeat(501) },
+      payload: { clubId: 'club-1', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'x'.repeat(501) },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 400);
@@ -109,7 +109,7 @@ test('sponsorships.create rejects reason exceeding 500 characters', async () => 
   );
 });
 
-test('sponsorships.create rejects network outside actor scope', async () => {
+test('sponsorships.create rejects club outside actor scope', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -120,7 +120,7 @@ test('sponsorships.create rejects network outside actor scope', async () => {
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'sponsorships.create',
-      payload: { networkId: 'network-999', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'test' },
+      payload: { clubId: 'club-999', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'test' },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 403);
@@ -129,7 +129,7 @@ test('sponsorships.create rejects network outside actor scope', async () => {
   );
 });
 
-test('sponsorships.list returns sponsorships for accessible networks', async () => {
+test('sponsorships.list returns sponsorships for accessible clubs', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },

@@ -7,13 +7,13 @@ import type {
   NormalizeLimit,
   NormalizeOptionalInteger,
   NormalizeOptionalString,
-  RequireAccessibleNetwork,
+  RequireAccessibleClub,
   RequireEntityKind,
   RequireEventRsvpState,
   RequireNonEmptyString,
   RequireObject,
 } from './app-helpers.ts';
-import { resolveScopedNetworks, resolveRequestedNetworkId } from './app-helpers.ts';
+import { resolveScopedClubs, resolveRequestedClubId } from './app-helpers.ts';
 import type { ActorContext } from './app-contract.ts';
 
 export async function handleContentAction(input: {
@@ -29,7 +29,7 @@ export async function handleContentAction(input: {
   normalizeOptionalString: NormalizeOptionalString;
   normalizeEntityKinds: NormalizeEntityKinds;
   normalizeEntityPatch: NormalizeEntityPatch;
-  requireAccessibleNetwork: RequireAccessibleNetwork;
+  requireAccessibleClub: RequireAccessibleClub;
   requireEntityKind: RequireEntityKind;
   requireEventRsvpState: RequireEventRsvpState;
   requireNonEmptyString: RequireNonEmptyString;
@@ -47,7 +47,7 @@ export async function handleContentAction(input: {
     normalizeOptionalString,
     payload,
     repository,
-    requireAccessibleNetwork,
+    requireAccessibleClub,
     requireEntityKind,
     requireEventRsvpState,
     requireNonEmptyString,
@@ -57,10 +57,10 @@ export async function handleContentAction(input: {
 
   switch (action) {
     case 'entities.create': {
-      const network = requireAccessibleNetwork(actor, payload.networkId);
+      const club = requireAccessibleClub(actor, payload.clubId);
       const entity = await repository.createEntity({
         authorMemberId: actor.member.id,
-        networkId: network.networkId,
+        clubId: club.clubId,
         kind: requireEntityKind(payload.kind, 'kind'),
         title: normalizeOptionalString(payload.title, 'title') ?? null,
         summary: normalizeOptionalString(payload.summary, 'summary') ?? null,
@@ -73,8 +73,8 @@ export async function handleContentAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: network.networkId,
-          activeNetworkIds: [network.networkId],
+          requestedClubId: club.clubId,
+          activeClubIds: [club.clubId],
         },
         sharedContext,
         data: { entity },
@@ -85,7 +85,7 @@ export async function handleContentAction(input: {
       const entityId = requireNonEmptyString(payload.entityId, 'entityId');
       const entity = await repository.updateEntity({
         actorMemberId: actor.member.id,
-        accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+        accessibleClubIds: actor.memberships.map((club) => club.clubId),
         entityId,
         patch: normalizeEntityPatch(payload),
       });
@@ -102,8 +102,8 @@ export async function handleContentAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: entity.networkId,
-          activeNetworkIds: [entity.networkId],
+          requestedClubId: entity.clubId,
+          activeClubIds: [entity.clubId],
         },
         sharedContext,
         data: { entity },
@@ -118,7 +118,7 @@ export async function handleContentAction(input: {
 
       const entity = await repository.archiveEntity({
         actorMemberId: actor.member.id,
-        accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+        accessibleClubIds: actor.memberships.map((club) => club.clubId),
         entityId,
       });
 
@@ -134,8 +134,8 @@ export async function handleContentAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: entity.networkId,
-          activeNetworkIds: [entity.networkId],
+          requestedClubId: entity.clubId,
+          activeClubIds: [entity.clubId],
         },
         sharedContext,
         data: { entity },
@@ -145,12 +145,12 @@ export async function handleContentAction(input: {
     case 'entities.list': {
       const limit = normalizeLimit(payload.limit);
       const kinds = normalizeEntityKinds(payload.kinds);
-      const networkScope = resolveScopedNetworks(actor, payload.networkId, requireAccessibleNetwork, createAppError);
-      const networkIds = networkScope.map((network) => network.networkId);
+      const clubScope = resolveScopedClubs(actor, payload.clubId, requireAccessibleClub, createAppError);
+      const clubIds = clubScope.map((club) => club.clubId);
       const query = normalizeOptionalString(payload.query, 'query') ?? undefined;
       const results = await repository.listEntities({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         kinds,
         limit,
         query,
@@ -160,25 +160,25 @@ export async function handleContentAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: resolveRequestedNetworkId(payload.networkId),
-          activeNetworkIds: networkIds,
+          requestedClubId: resolveRequestedClubId(payload.clubId),
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: {
           query: query ?? null,
           kinds,
           limit,
-          networkScope,
+          clubScope,
           results,
         },
       });
     }
 
     case 'events.create': {
-      const network = requireAccessibleNetwork(actor, payload.networkId);
+      const club = requireAccessibleClub(actor, payload.clubId);
       const event = await repository.createEvent({
         authorMemberId: actor.member.id,
-        networkId: network.networkId,
+        clubId: club.clubId,
         title: normalizeOptionalString(payload.title, 'title') ?? null,
         summary: normalizeOptionalString(payload.summary, 'summary') ?? null,
         body: normalizeOptionalString(payload.body, 'body') ?? null,
@@ -195,8 +195,8 @@ export async function handleContentAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: network.networkId,
-          activeNetworkIds: [network.networkId],
+          requestedClubId: club.clubId,
+          activeClubIds: [club.clubId],
         },
         sharedContext,
         data: { event },
@@ -205,12 +205,12 @@ export async function handleContentAction(input: {
 
     case 'events.list': {
       const limit = normalizeLimit(payload.limit);
-      const networkScope = resolveScopedNetworks(actor, payload.networkId, requireAccessibleNetwork, createAppError);
-      const networkIds = networkScope.map((network) => network.networkId);
+      const clubScope = resolveScopedClubs(actor, payload.clubId, requireAccessibleClub, createAppError);
+      const clubIds = clubScope.map((club) => club.clubId);
       const query = normalizeOptionalString(payload.query, 'query') ?? undefined;
       const results = await repository.listEvents({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         limit,
         query,
       });
@@ -219,14 +219,14 @@ export async function handleContentAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: resolveRequestedNetworkId(payload.networkId),
-          activeNetworkIds: networkIds,
+          requestedClubId: resolveRequestedClubId(payload.clubId),
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: {
           query: query ?? null,
           limit,
-          networkScope,
+          clubScope,
           results,
         },
       });
@@ -241,7 +241,7 @@ export async function handleContentAction(input: {
         note: normalizeOptionalString(payload.note, 'note'),
         accessibleMemberships: actor.memberships.map((membership) => ({
           membershipId: membership.membershipId,
-          networkId: membership.networkId,
+          clubId: membership.clubId,
         })),
       });
 
@@ -253,8 +253,8 @@ export async function handleContentAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: event.networkId,
-          activeNetworkIds: [event.networkId],
+          requestedClubId: event.clubId,
+          activeClubIds: [event.clubId],
         },
         sharedContext,
         data: { event },

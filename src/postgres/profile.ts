@@ -21,7 +21,7 @@ type ProfileRow = EmbeddingProjectionRow & {
   version_no: number | null;
   version_created_at: string | null;
   version_created_by_member_id: string | null;
-  shared_networks: Array<{ id: string; slug: string; name: string }> | null;
+  shared_clubs: Array<{ id: string; slug: string; name: string }> | null;
 };
 
 function mapProfileRow(row: ProfileRow): MemberProfile {
@@ -45,7 +45,7 @@ function mapProfileRow(row: ProfileRow): MemberProfile {
       createdByMemberId: row.version_created_by_member_id,
       embedding: mapEmbeddingProjectionRow(row),
     },
-    sharedNetworks: row.shared_networks ?? [],
+    sharedClubs: row.shared_clubs ?? [],
   };
 }
 
@@ -53,10 +53,10 @@ async function readMemberProfile(client: DbClient, targetMemberId: string): Prom
   const result = await client.query<ProfileRow>(
     `
       with target_scope as (
-        select distinct anm.network_id
-        from app.accessible_network_memberships anm
+        select distinct anm.club_id
+        from app.accessible_club_memberships anm
         where anm.member_id = $1
-          and app.actor_has_network_access(anm.network_id)
+          and app.actor_has_club_access(anm.club_id)
       )
       select
         m.id as member_id,
@@ -82,12 +82,12 @@ async function readMemberProfile(client: DbClient, targetMemberId: string): Prom
         cpve.metadata as embedding_metadata,
         cpve.created_at::text as embedding_created_at,
         jsonb_agg(distinct jsonb_build_object('id', n.id, 'slug', n.slug, 'name', n.name))
-          filter (where n.id is not null) as shared_networks
+          filter (where n.id is not null) as shared_clubs
       from app.members m
       left join app.current_member_profiles cmp on cmp.member_id = m.id
       left join app.current_profile_version_embeddings cpve on cpve.member_profile_version_id = cmp.id
       left join target_scope ts on true
-      left join app.networks n on n.id = ts.network_id and n.archived_at is null
+      left join app.clubs n on n.id = ts.club_id and n.archived_at is null
       where m.id = $1
         and m.state = 'active'
       group by
@@ -122,7 +122,7 @@ export function buildProfileRepository({
 
       try {
         await client.query('begin');
-        await applyActorContext(client, actor.member.id, actor.memberships.map((membership) => membership.networkId));
+        await applyActorContext(client, actor.member.id, actor.memberships.map((membership) => membership.clubId));
 
         if (patch.handle !== undefined) {
           await client.query(`update app.members set handle = $2 where id = $1`, [actor.member.id, patch.handle]);
@@ -208,7 +208,7 @@ export function buildProfileRepository({
       const updated = await withActorContext(
         pool,
         actor.member.id,
-        actor.memberships.map((membership) => membership.networkId),
+        actor.memberships.map((membership) => membership.clubId),
         (scopedClient) => readMemberProfile(scopedClient, actor.member.id),
       );
       return requireReturnedRow(updated, 'Updated profile could not be reloaded');

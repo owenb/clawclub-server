@@ -22,7 +22,7 @@ test('postgres repository forwards entity query terms into deterministic retriev
           rows: [{
             entity_id: 'entity-1',
             entity_version_id: 'entity-version-1',
-            network_id: 'network-1',
+            club_id: 'club-1',
             kind: 'service',
             author_member_id: 'member-1',
             author_public_name: 'Member One',
@@ -56,7 +56,7 @@ test('postgres repository forwards entity query terms into deterministic retriev
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const results = await repository.listEntities({
     actorMemberId: 'member-1',
-    networkIds: ['network-1'],
+    clubIds: ['club-1'],
     kinds: ['service'],
     limit: 5,
     query: 'backend',
@@ -65,7 +65,7 @@ test('postgres repository forwards entity query terms into deterministic retriev
   assert.equal(results[0]?.entityId, 'entity-1');
   assert.match(calls[2]?.sql ?? '', /lower\(coalesce\(le\.title, ''\)\) = lower\(\$3::text\)/);
   assert.match(calls[2]?.sql ?? '', /coalesce\(le\.summary, ''\) ilike \$4/);
-  assert.deepEqual(calls[2]?.params, [['network-1'], ['service'], 'backend', '%backend%', 'backend%', 5]);
+  assert.deepEqual(calls[2]?.params, [['club-1'], ['service'], 'backend', '%backend%', 'backend%', 5]);
 });
 
 test('postgres repository forwards event query terms into deterministic retrieval SQL', async () => {
@@ -95,7 +95,7 @@ test('postgres repository forwards event query terms into deterministic retrieva
           rows: [{
             entity_id: 'event-1',
             entity_version_id: 'event-version-1',
-            network_id: 'network-1',
+            club_id: 'club-1',
             author_member_id: 'member-1',
             author_public_name: 'Member One',
             author_handle: 'member-one',
@@ -133,7 +133,7 @@ test('postgres repository forwards event query terms into deterministic retrieva
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const results = await repository.listEvents({
     actorMemberId: 'member-1',
-    networkIds: ['network-1'],
+    clubIds: ['club-1'],
     limit: 3,
     query: 'hetzner',
   });
@@ -141,7 +141,7 @@ test('postgres repository forwards event query terms into deterministic retrieva
   assert.equal(results[0]?.entityId, 'event-1');
   assert.match(calls[2]?.sql ?? '', /lower\(coalesce\(le\.title, ''\)\) = lower\(\$2::text\)/);
   assert.match(calls[2]?.sql ?? '', /coalesce\(le\.body, ''\) ilike \$3/);
-  assert.deepEqual(calls[2]?.params, [['network-1'], 'hetzner', '%hetzner%', 'hetzner%', 3]);
+  assert.deepEqual(calls[2]?.params, [['club-1'], 'hetzner', '%hetzner%', 'hetzner%', 3]);
 });
 
 test('postgres repository escapes LIKE metacharacters in entity retrieval queries', async () => {
@@ -171,7 +171,7 @@ test('postgres repository escapes LIKE metacharacters in entity retrieval querie
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
   const results = await repository.listEntities({
     actorMemberId: 'member-1',
-    networkIds: ['network-1'],
+    clubIds: ['club-1'],
     kinds: ['service'],
     limit: 5,
     query: '100%_backend',
@@ -179,5 +179,5 @@ test('postgres repository escapes LIKE metacharacters in entity retrieval querie
 
   assert.deepEqual(results, []);
   assert.match(calls[2]?.sql ?? '', /ilike \$4 escape '\\'/);
-  assert.deepEqual(calls[2]?.params, [['network-1'], ['service'], '100%_backend', '%100\\%\\_backend%', '100\\%\\_backend%', 5]);
+  assert.deepEqual(calls[2]?.params, [['club-1'], ['service'], '100%_backend', '%100\\%\\_backend%', '100\\%\\_backend%', 5]);
 });

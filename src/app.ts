@@ -134,12 +134,12 @@ function normalizeProfilePatch(payload: Record<string, unknown>): UpdateOwnProfi
   };
 }
 
-function requireAccessibleNetwork(actor: ActorContext, networkIdValue: unknown): MembershipSummary {
-  const networkId = requireNonEmptyString(networkIdValue, 'networkId');
-  const allowed = actor.memberships.find((network) => network.networkId === networkId);
+function requireAccessibleClub(actor: ActorContext, clubIdValue: unknown): MembershipSummary {
+  const clubId = requireNonEmptyString(clubIdValue, 'clubId');
+  const allowed = actor.memberships.find((club) => club.clubId === clubId);
 
   if (!allowed) {
-    throw new AppError(403, 'forbidden', 'Requested network is outside the actor scope');
+    throw new AppError(403, 'forbidden', 'Requested club is outside your access scope');
   }
 
   return allowed;
@@ -208,11 +208,11 @@ function requireApplicationStatus(value: unknown, field: string): ApplicationSta
   return value;
 }
 
-function requireMembershipOwner(actor: ActorContext, networkIdValue: unknown): MembershipSummary {
-  const membership = requireAccessibleNetwork(actor, networkIdValue);
+function requireMembershipOwner(actor: ActorContext, clubIdValue: unknown): MembershipSummary {
+  const membership = requireAccessibleClub(actor, clubIdValue);
 
   if (membership.role !== 'owner') {
-    throw new AppError(403, 'forbidden', 'This action requires owner membership in the requested network');
+    throw new AppError(403, 'forbidden', 'This action requires owner membership in the requested club');
   }
 
   return membership;
@@ -409,7 +409,7 @@ export function buildApp({ repository }: { repository: Repository }) {
         createAppError: (status, code, message) => new AppError(status, code, message),
         normalizeLimit,
         normalizeOptionalString,
-        requireAccessibleNetwork,
+        requireAccessibleClub,
         requireMembershipOwner,
         requireMembershipState,
         requireApplicationStatus,
@@ -469,7 +469,7 @@ export function buildApp({ repository }: { repository: Repository }) {
         normalizeOptionalString,
         normalizeEntityKinds,
         normalizeEntityPatch,
-        requireAccessibleNetwork,
+        requireAccessibleClub,
         requireEntityKind,
         requireEventRsvpState,
         requireNonEmptyString,
@@ -488,7 +488,7 @@ export function buildApp({ repository }: { repository: Repository }) {
         buildSuccessResponse,
         createAppError: (status, code, message) => new AppError(status, code, message),
         normalizeLimit,
-        requireAccessibleNetwork,
+        requireAccessibleClub,
         requireNonEmptyString,
       });
       if (messageResponse) {
@@ -504,7 +504,7 @@ export function buildApp({ repository }: { repository: Repository }) {
         buildSuccessResponse,
         createAppError: (status, code, message) => new AppError(status, code, message),
         normalizeLimit,
-        requireAccessibleNetwork,
+        requireAccessibleClub,
         requireNonEmptyString,
       });
       if (sponsorshipResponse) {

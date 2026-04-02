@@ -27,7 +27,7 @@ type EventRsvpAttendeeRow = {
 type EventRow = {
   entity_id: string;
   entity_version_id: string;
-  network_id: string;
+  club_id: string;
   author_member_id: string;
   author_public_name: string;
   author_handle: string | null;
@@ -58,7 +58,7 @@ function mapEventRow(row: EventRow): EventSummary {
   return {
     entityId: row.entity_id,
     entityVersionId: row.entity_version_id,
-    networkId: row.network_id,
+    clubId: row.club_id,
     author: {
       memberId: row.author_member_id,
       publicName: row.author_public_name,
@@ -102,15 +102,15 @@ async function readEventSummaries(client: DbClient, actorMemberId: string, entit
   const result = await client.query<EventRow>(
     `
       with actor_scope as (
-        select distinct network_id
-        from app.accessible_network_memberships
+        select distinct club_id
+        from app.accessible_club_memberships
         where member_id = $1
       ),
       event_base as (
         select
           e.id as entity_id,
           cev.id as entity_version_id,
-          e.network_id,
+          e.club_id,
           e.author_member_id,
           m.public_name as author_public_name,
           m.handle as author_handle,
@@ -130,7 +130,7 @@ async function readEventSummaries(client: DbClient, actorMemberId: string, entit
           cev.content,
           e.created_at::text as entity_created_at
         from app.entities e
-        join actor_scope ac on ac.network_id = e.network_id
+        join actor_scope ac on ac.club_id = e.club_id
         join app.current_entity_versions cev on cev.entity_id = e.id
         join app.members m on m.id = e.author_member_id
         where e.id = any($2::app.short_id[])
@@ -149,7 +149,7 @@ async function readEventSummaries(client: DbClient, actorMemberId: string, entit
           cer.note,
           cer.created_at::text as created_at
         from app.current_event_rsvps cer
-        join app.network_memberships nm on nm.id = cer.membership_id
+        join app.club_memberships nm on nm.id = cer.membership_id
         join app.members mem on mem.id = nm.member_id
         join event_base eb on eb.entity_id = cer.event_entity_id
       ),
@@ -178,7 +178,7 @@ async function readEventSummaries(client: DbClient, actorMemberId: string, entit
       viewer_rsvp as (
         select cer.event_entity_id, cer.response
         from app.current_event_rsvps cer
-        join app.network_memberships nm on nm.id = cer.membership_id
+        join app.club_memberships nm on nm.id = cer.membership_id
         where nm.member_id = $1
       )
       select
@@ -203,15 +203,15 @@ async function readEventSummary(client: DbClient, actorMemberId: string, entityI
   const result = await client.query<EventRow>(
     `
       with actor_scope as (
-        select distinct network_id
-        from app.accessible_network_memberships
+        select distinct club_id
+        from app.accessible_club_memberships
         where member_id = $1
       ),
       event_base as (
         select
           e.id as entity_id,
           cev.id as entity_version_id,
-          e.network_id,
+          e.club_id,
           e.author_member_id,
           m.public_name as author_public_name,
           m.handle as author_handle,
@@ -231,7 +231,7 @@ async function readEventSummary(client: DbClient, actorMemberId: string, entityI
           cev.content,
           e.created_at::text as entity_created_at
         from app.entities e
-        join actor_scope ac on ac.network_id = e.network_id
+        join actor_scope ac on ac.club_id = e.club_id
         join app.current_entity_versions cev on cev.entity_id = e.id
         join app.members m on m.id = e.author_member_id
         where e.id = $2
@@ -251,7 +251,7 @@ async function readEventSummary(client: DbClient, actorMemberId: string, entityI
           cer.note,
           cer.created_at::text as created_at
         from app.current_event_rsvps cer
-        join app.network_memberships nm on nm.id = cer.membership_id
+        join app.club_memberships nm on nm.id = cer.membership_id
         join app.members mem on mem.id = nm.member_id
         join event_base eb on eb.entity_id = cer.event_entity_id
       ),
@@ -280,7 +280,7 @@ async function readEventSummary(client: DbClient, actorMemberId: string, entityI
       viewer_rsvp as (
         select cer.event_entity_id, cer.response
         from app.current_event_rsvps cer
-        join app.network_memberships nm on nm.id = cer.membership_id
+        join app.club_memberships nm on nm.id = cer.membership_id
         where nm.member_id = $1
       )
       select
@@ -318,11 +318,11 @@ export function buildEventsRepository({
       const client = await pool.connect();
       try {
         await client.query('begin');
-        await applyActorContext(client, input.authorMemberId, [input.networkId]);
-        await enforceQuota(client, input.authorMemberId, input.networkId, 'events.create');
+        await applyActorContext(client, input.authorMemberId, [input.clubId]);
+        await enforceQuota(client, input.authorMemberId, input.clubId, 'events.create');
         const entityResult = await client.query<{ id: string }>(
-          `insert into app.entities (network_id, kind, author_member_id) values ($1, 'event', $2) returning id`,
-          [input.networkId, input.authorMemberId],
+          `insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id`,
+          [input.clubId, input.authorMemberId],
         );
         const entity = requireReturnedRow(entityResult.rows[0], 'Created event entity row was not returned');
         const entityId = entity.id;
@@ -356,7 +356,7 @@ export function buildEventsRepository({
           'Created event could not be reloaded',
         );
         await appendEntityVersionUpdates(client, {
-          networkId: event.networkId,
+          clubId: event.clubId,
           entityId: event.entityId,
           entityVersionId: event.entityVersionId,
           topic: 'entity.version.published',
@@ -364,7 +364,7 @@ export function buildEventsRepository({
           payload: buildEntityUpdatePayload({
             entityId: event.entityId,
             entityVersionId: event.entityVersionId,
-            networkId: event.networkId,
+            clubId: event.clubId,
             kind: 'event',
             state: event.version.state,
             author: event.author,
@@ -391,8 +391,8 @@ export function buildEventsRepository({
       }
     },
 
-    async listEvents({ actorMemberId, networkIds, limit, query }: ListEventsInput): Promise<EventSummary[]> {
-      return withActorContext(pool, actorMemberId, networkIds, async (client) => {
+    async listEvents({ actorMemberId, clubIds, limit, query }: ListEventsInput): Promise<EventSummary[]> {
+      return withActorContext(pool, actorMemberId, clubIds, async (client) => {
         const trimmedQuery = normalizeSearchQuery(query);
         const likePattern = buildContainsLikePattern(trimmedQuery);
         const prefixPattern = buildPrefixLikePattern(trimmedQuery);
@@ -400,11 +400,11 @@ export function buildEventsRepository({
         const result = await client.query<{ entity_id: string }>(
           `
             with scope as (
-              select unnest($1::text[])::app.short_id as network_id
+              select unnest($1::text[])::app.short_id as club_id
             )
             select le.entity_id
             from scope s
-            join app.live_entities le on le.network_id = s.network_id
+            join app.live_entities le on le.club_id = s.club_id
             where le.kind = 'event'
               and (
                 $3::text is null
@@ -428,7 +428,7 @@ export function buildEventsRepository({
               le.entity_id asc
             limit $5
           `,
-          [networkIds, trimmedQuery ?? null, likePattern, prefixPattern, limit],
+          [clubIds, trimmedQuery ?? null, likePattern, prefixPattern, limit],
         );
 
         return readEventSummaries(client, actorMemberId, result.rows.map((row) => row.entity_id));
@@ -439,10 +439,10 @@ export function buildEventsRepository({
       const client = await pool.connect();
       try {
         await client.query('begin');
-        await applyActorContext(client, input.actorMemberId, input.accessibleMemberships.map((membership) => membership.networkId));
-        const eventResult = await client.query<{ entity_id: string; network_id: string }>(
+        await applyActorContext(client, input.actorMemberId, input.accessibleMemberships.map((membership) => membership.clubId));
+        const eventResult = await client.query<{ entity_id: string; club_id: string }>(
           `
-            select e.id as entity_id, e.network_id
+            select e.id as entity_id, e.club_id
             from app.entities e
             where e.id = $1
               and e.kind = 'event'
@@ -457,7 +457,7 @@ export function buildEventsRepository({
           return null;
         }
 
-        const membership = input.accessibleMemberships.find((item) => item.networkId === eventRow.network_id);
+        const membership = input.accessibleMemberships.find((item) => item.clubId === eventRow.club_id);
         if (!membership) {
           await client.query('rollback');
           return null;
@@ -496,7 +496,7 @@ export function buildEventsRepository({
         return await withActorContext(
           pool,
           input.actorMemberId,
-          input.accessibleMemberships.map((membership) => membership.networkId),
+          input.accessibleMemberships.map((membership) => membership.clubId),
           (scopedClient) => readEventSummary(scopedClient, input.actorMemberId, input.eventEntityId),
         );
       } catch (error) {

@@ -12,7 +12,7 @@ type PendingUpdateRow = {
   update_id: string;
   stream_seq: string | number;
   recipient_member_id: string;
-  network_id: string;
+  club_id: string;
   topic: string;
   payload: Record<string, unknown> | null;
   entity_id: string | null;
@@ -26,7 +26,7 @@ type UpdateReceiptRow = {
   receipt_id: string;
   update_id: string;
   recipient_member_id: string;
-  network_id: string;
+  club_id: string;
   state: UpdateReceipt['state'];
   suppression_reason: string | null;
   version_no: number | string;
@@ -40,7 +40,7 @@ function mapPendingUpdateRow(row: PendingUpdateRow): PendingUpdate {
     updateId: row.update_id,
     streamSeq: Number(row.stream_seq),
     recipientMemberId: row.recipient_member_id,
-    networkId: row.network_id,
+    clubId: row.club_id,
     entityId: row.entity_id,
     entityVersionId: row.entity_version_id,
     transcriptMessageId: row.transcript_message_id,
@@ -56,7 +56,7 @@ function mapUpdateReceiptRow(row: UpdateReceiptRow): UpdateReceipt {
     receiptId: row.receipt_id,
     updateId: row.update_id,
     recipientMemberId: row.recipient_member_id,
-    networkId: row.network_id,
+    clubId: row.club_id,
     state: row.state,
     suppressionReason: row.suppression_reason,
     versionNo: Number(row.version_no),
@@ -78,7 +78,7 @@ export async function listPendingUpdates(
         pmu.update_id,
         pmu.stream_seq,
         pmu.recipient_member_id,
-        pmu.network_id,
+        pmu.club_id,
         pmu.topic,
         pmu.payload,
         pmu.entity_id,
@@ -109,7 +109,7 @@ export async function appendDirectMessageUpdate(
   client: DbClient,
   input: {
     recipientMemberId: string;
-    networkId: string;
+    clubId: string;
     transcriptMessageId: string;
     createdByMemberId: string;
     payload: Record<string, unknown>;
@@ -119,7 +119,7 @@ export async function appendDirectMessageUpdate(
     `
       insert into app.member_updates (
         recipient_member_id,
-        network_id,
+        club_id,
         topic,
         payload,
         transcript_message_id,
@@ -129,7 +129,7 @@ export async function appendDirectMessageUpdate(
     `,
     [
       input.recipientMemberId,
-      input.networkId,
+      input.clubId,
       JSON.stringify(input.payload),
       input.transcriptMessageId,
       input.createdByMemberId,
@@ -142,7 +142,7 @@ export async function appendDirectMessageUpdate(
 export async function appendEntityVersionUpdates(
   client: DbClient,
   input: {
-    networkId: string;
+    clubId: string;
     entityId: string;
     entityVersionId: string;
     topic: string;
@@ -154,7 +154,7 @@ export async function appendEntityVersionUpdates(
     `
       insert into app.member_updates (
         recipient_member_id,
-        network_id,
+        club_id,
         topic,
         payload,
         entity_id,
@@ -169,12 +169,12 @@ export async function appendEntityVersionUpdates(
         $4,
         $5,
         $6
-      from app.accessible_network_memberships anm
-      where anm.network_id = $1
+      from app.accessible_club_memberships anm
+      where anm.club_id = $1
         and anm.member_id <> $6
     `,
     [
-      input.networkId,
+      input.clubId,
       input.topic,
       JSON.stringify(input.payload),
       input.entityId,
@@ -200,7 +200,7 @@ async function acknowledgeUpdates(
         select
           mu.id as update_id,
           mu.recipient_member_id,
-          mu.network_id
+          mu.club_id
         from app.member_updates mu
         where mu.recipient_member_id = $1
           and mu.id = any($2::app.short_id[])
@@ -209,7 +209,7 @@ async function acknowledgeUpdates(
         select
           su.update_id,
           su.recipient_member_id,
-          su.network_id,
+          su.club_id,
           cmur.id as current_receipt_id,
           cmur.state as current_state,
           cmur.suppression_reason as current_suppression_reason,
@@ -225,7 +225,7 @@ async function acknowledgeUpdates(
         insert into app.member_update_receipts (
           member_update_id,
           recipient_member_id,
-          network_id,
+          club_id,
           state,
           suppression_reason,
           version_no,
@@ -235,7 +235,7 @@ async function acknowledgeUpdates(
         select
           cr.update_id,
           cr.recipient_member_id,
-          cr.network_id,
+          cr.club_id,
           $3::app.member_update_receipt_state,
           $4,
           coalesce(cr.current_version_no, 0) + 1,
@@ -249,7 +249,7 @@ async function acknowledgeUpdates(
           id as receipt_id,
           member_update_id as update_id,
           recipient_member_id,
-          network_id,
+          club_id,
           state,
           suppression_reason,
           version_no,
@@ -262,7 +262,7 @@ async function acknowledgeUpdates(
           cr.current_receipt_id as receipt_id,
           cr.update_id,
           cr.recipient_member_id,
-          cr.network_id,
+          cr.club_id,
           cr.current_state as state,
           cr.current_suppression_reason as suppression_reason,
           cr.current_version_no as version_no,

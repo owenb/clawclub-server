@@ -7,7 +7,7 @@ import type {
   NormalizeApplicationMetadataPatch,
   NormalizeLimit,
   NormalizeOptionalString,
-  RequireAccessibleNetwork,
+  RequireAccessibleClub,
   RequireApplicationPath,
   RequireApplicationStatus,
   RequireMembershipOwner,
@@ -99,7 +99,7 @@ export async function handleAdmissionsAction(input: {
   createAppError: CreateAppError;
   normalizeLimit: NormalizeLimit;
   normalizeOptionalString: NormalizeOptionalString;
-  requireAccessibleNetwork: RequireAccessibleNetwork;
+  requireAccessibleClub: RequireAccessibleClub;
   requireMembershipOwner: RequireMembershipOwner;
   requireMembershipState: RequireMembershipState;
   requireApplicationStatus: RequireApplicationStatus;
@@ -120,7 +120,7 @@ export async function handleAdmissionsAction(input: {
     normalizeOptionalString,
     payload,
     repository,
-    requireAccessibleNetwork,
+    requireAccessibleClub,
     requireApplicationPath,
     requireApplicationStatus,
     requireMembershipOwner,
@@ -133,21 +133,21 @@ export async function handleAdmissionsAction(input: {
   switch (action) {
     case 'memberships.list': {
       const limit = normalizeLimit(payload.limit);
-      let networkScope = actor.memberships.filter((membership) => membership.role === 'owner');
+      let clubScope = actor.memberships.filter((membership) => membership.role === 'owner');
 
-      if (payload.networkId !== undefined) {
-        networkScope = [requireMembershipOwner(actor, payload.networkId)];
+      if (payload.clubId !== undefined) {
+        clubScope = [requireMembershipOwner(actor, payload.clubId)];
       }
 
-      if (networkScope.length === 0) {
-        throw createAppError(403, 'forbidden', 'This member does not currently own any networks');
+      if (clubScope.length === 0) {
+        throw createAppError(403, 'forbidden', 'This member does not currently own any clubs');
       }
 
       const status = payload.status === undefined ? undefined : requireMembershipState(payload.status, 'status');
-      const networkIds = networkScope.map((network) => network.networkId);
+      const clubIds = clubScope.map((club) => club.clubId);
       const results = await repository.listMemberships({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         limit,
         status,
       });
@@ -156,15 +156,15 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId:
-            typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-          activeNetworkIds: networkIds,
+          requestedClubId:
+            typeof payload.clubId === 'string' && payload.clubId.trim().length > 0 ? payload.clubId.trim() : null,
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: {
           limit,
           status: status ?? null,
-          networkScope,
+          clubScope,
           results,
         },
       });
@@ -172,21 +172,21 @@ export async function handleAdmissionsAction(input: {
 
     case 'memberships.review': {
       const limit = normalizeLimit(payload.limit);
-      let networkScope = actor.memberships.filter((membership) => membership.role === 'owner');
+      let clubScope = actor.memberships.filter((membership) => membership.role === 'owner');
 
-      if (payload.networkId !== undefined) {
-        networkScope = [requireMembershipOwner(actor, payload.networkId)];
+      if (payload.clubId !== undefined) {
+        clubScope = [requireMembershipOwner(actor, payload.clubId)];
       }
 
-      if (networkScope.length === 0) {
-        throw createAppError(403, 'forbidden', 'This member does not currently own any networks');
+      if (clubScope.length === 0) {
+        throw createAppError(403, 'forbidden', 'This member does not currently own any clubs');
       }
 
       const statuses = normalizeMembershipReviewStatuses(payload.statuses, requireMembershipState, createAppError);
-      const networkIds = networkScope.map((network) => network.networkId);
+      const clubIds = clubScope.map((club) => club.clubId);
       const results = await repository.listMembershipReviews({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         limit,
         statuses,
       });
@@ -195,25 +195,25 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId:
-            typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-          activeNetworkIds: networkIds,
+          requestedClubId:
+            typeof payload.clubId === 'string' && payload.clubId.trim().length > 0 ? payload.clubId.trim() : null,
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: {
           limit,
           statuses,
-          networkScope,
+          clubScope,
           results,
         },
       });
     }
 
     case 'memberships.create': {
-      const network = requireMembershipOwner(actor, payload.networkId);
+      const club = requireMembershipOwner(actor, payload.clubId);
       const membership = await repository.createMembership({
         actorMemberId: actor.member.id,
-        networkId: network.networkId,
+        clubId: club.clubId,
         memberId: requireNonEmptyString(payload.memberId, 'memberId'),
         sponsorMemberId: requireNonEmptyString(payload.sponsorMemberId, 'sponsorMemberId'),
         role: requireMembershipCreateRole(payload.role, createAppError),
@@ -230,8 +230,8 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: membership.networkId,
-          activeNetworkIds: [membership.networkId],
+          requestedClubId: membership.clubId,
+          activeClubIds: [membership.clubId],
         },
         sharedContext,
         data: { membership },
@@ -245,7 +245,7 @@ export async function handleAdmissionsAction(input: {
         membershipId,
         nextStatus: requireMembershipState(payload.status, 'status'),
         reason: normalizeOptionalString(payload.reason, 'reason'),
-        accessibleNetworkIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.networkId),
+        accessibleClubIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.clubId),
       });
 
       if (!membership) {
@@ -256,8 +256,8 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: membership.networkId,
-          activeNetworkIds: [membership.networkId],
+          requestedClubId: membership.clubId,
+          activeClubIds: [membership.clubId],
         },
         sharedContext,
         data: { membership },
@@ -266,21 +266,21 @@ export async function handleAdmissionsAction(input: {
 
     case 'applications.list': {
       const limit = normalizeLimit(payload.limit);
-      let networkScope = actor.memberships.filter((membership) => membership.role === 'owner');
+      let clubScope = actor.memberships.filter((membership) => membership.role === 'owner');
 
-      if (payload.networkId !== undefined) {
-        networkScope = [requireMembershipOwner(actor, payload.networkId)];
+      if (payload.clubId !== undefined) {
+        clubScope = [requireMembershipOwner(actor, payload.clubId)];
       }
 
-      if (networkScope.length === 0) {
-        throw createAppError(403, 'forbidden', 'This member does not currently own any networks');
+      if (clubScope.length === 0) {
+        throw createAppError(403, 'forbidden', 'This member does not currently own any clubs');
       }
 
       const statuses = normalizeApplicationStatuses(payload.statuses, requireApplicationStatus, createAppError);
-      const networkIds = networkScope.map((network) => network.networkId);
+      const clubIds = clubScope.map((club) => club.clubId);
       const results = await repository.listApplications?.({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         limit,
         statuses,
       });
@@ -293,25 +293,25 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId:
-            typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-          activeNetworkIds: networkIds,
+          requestedClubId:
+            typeof payload.clubId === 'string' && payload.clubId.trim().length > 0 ? payload.clubId.trim() : null,
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: {
           limit,
           statuses: statuses ?? null,
-          networkScope,
+          clubScope,
           results,
         },
       });
     }
 
     case 'applications.create': {
-      const network = requireMembershipOwner(actor, payload.networkId);
+      const club = requireMembershipOwner(actor, payload.clubId);
       const application = await repository.createApplication?.({
         actorMemberId: actor.member.id,
-        networkId: network.networkId,
+        clubId: club.clubId,
         applicantMemberId: requireNonEmptyString(payload.applicantMemberId, 'applicantMemberId'),
         sponsorMemberId: normalizeOptionalString(payload.sponsorMemberId, 'sponsorMemberId'),
         membershipId: normalizeOptionalString(payload.membershipId, 'membershipId'),
@@ -334,8 +334,8 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: application.networkId,
-          activeNetworkIds: [application.networkId],
+          requestedClubId: application.clubId,
+          activeClubIds: [application.clubId],
         },
         sharedContext,
         data: { application },
@@ -349,7 +349,7 @@ export async function handleAdmissionsAction(input: {
         applicationId,
         nextStatus: requireApplicationStatus(payload.status, 'status'),
         notes: normalizeOptionalString(payload.notes, 'notes'),
-        accessibleNetworkIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.networkId),
+        accessibleClubIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.clubId),
         intake: payload.intake === undefined ? undefined : normalizeApplicationIntake(payload.intake, 'intake'),
         membershipId: payload.membershipId === undefined ? undefined : normalizeOptionalString(payload.membershipId, 'membershipId'),
         activateMembership: payload.activateMembership === true,
@@ -369,8 +369,8 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: application.networkId,
-          activeNetworkIds: [application.networkId],
+          requestedClubId: application.clubId,
+          activeClubIds: [application.clubId],
         },
         sharedContext,
         data: { application },
@@ -380,20 +380,20 @@ export async function handleAdmissionsAction(input: {
     case 'members.search': {
       const query = requireNonEmptyString(payload.query, 'query');
       const limit = normalizeLimit(payload.limit);
-      const requestedNetworkId = payload.networkId;
+      const requestedClubId = payload.clubId;
 
-      let networkIds = actor.memberships.map((network) => network.networkId);
-      if (requestedNetworkId !== undefined) {
-        networkIds = [requireAccessibleNetwork(actor, requestedNetworkId).networkId];
+      let clubIds = actor.memberships.map((club) => club.clubId);
+      if (requestedClubId !== undefined) {
+        clubIds = [requireAccessibleClub(actor, requestedClubId).clubId];
       }
 
-      if (networkIds.length === 0) {
-        throw createAppError(403, 'forbidden', 'This member does not currently have access to any networks');
+      if (clubIds.length === 0) {
+        throw createAppError(403, 'forbidden', 'This member does not currently have access to any clubs');
       }
 
       const results = await repository.searchMembers({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         query,
         limit,
       });
@@ -402,15 +402,15 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId:
-            typeof requestedNetworkId === 'string' && requestedNetworkId.trim().length > 0 ? requestedNetworkId.trim() : null,
-          activeNetworkIds: networkIds,
+          requestedClubId:
+            typeof requestedClubId === 'string' && requestedClubId.trim().length > 0 ? requestedClubId.trim() : null,
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: {
           query,
           limit,
-          networkScope: actor.memberships.filter((network) => networkIds.includes(network.networkId)),
+          clubScope: actor.memberships.filter((club) => clubIds.includes(club.clubId)),
           results,
         },
       });
@@ -418,20 +418,20 @@ export async function handleAdmissionsAction(input: {
 
     case 'members.list': {
       const limit = normalizeLimit(payload.limit);
-      let networkScope = actor.memberships;
+      let clubScope = actor.memberships;
 
-      if (payload.networkId !== undefined) {
-        networkScope = [requireAccessibleNetwork(actor, payload.networkId)];
+      if (payload.clubId !== undefined) {
+        clubScope = [requireAccessibleClub(actor, payload.clubId)];
       }
 
-      if (networkScope.length === 0) {
-        throw createAppError(403, 'forbidden', 'This member does not currently have access to any networks');
+      if (clubScope.length === 0) {
+        throw createAppError(403, 'forbidden', 'This member does not currently have access to any clubs');
       }
 
-      const networkIds = networkScope.map((network) => network.networkId);
+      const clubIds = clubScope.map((club) => club.clubId);
       const results = await repository.listMembers({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         limit,
       });
 
@@ -439,21 +439,21 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId:
-            typeof payload.networkId === 'string' && payload.networkId.trim().length > 0 ? payload.networkId.trim() : null,
-          activeNetworkIds: networkIds,
+          requestedClubId:
+            typeof payload.clubId === 'string' && payload.clubId.trim().length > 0 ? payload.clubId.trim() : null,
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: {
           limit,
-          networkScope,
+          clubScope,
           results,
         },
       });
     }
 
     case 'vouches.create': {
-      const network = requireAccessibleNetwork(actor, payload.networkId);
+      const club = requireAccessibleClub(actor, payload.clubId);
       const targetMemberId = requireNonEmptyString(payload.memberId, 'memberId');
       const reason = requireNonEmptyString(payload.reason, 'reason');
 
@@ -469,13 +469,13 @@ export async function handleAdmissionsAction(input: {
       try {
         vouch = await repository.createVouch({
           actorMemberId: actor.member.id,
-          networkId: network.networkId,
+          clubId: club.clubId,
           targetMemberId,
           reason,
         });
       } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
-          throw createAppError(409, 'duplicate_vouch', 'You have already vouched for this member in this network');
+          throw createAppError(409, 'duplicate_vouch', 'You have already vouched for this member in this club');
         }
         if (error && typeof error === 'object' && 'code' in error && error.code === '23514') {
           throw createAppError(400, 'self_vouch', 'You cannot vouch for yourself');
@@ -484,15 +484,15 @@ export async function handleAdmissionsAction(input: {
       }
 
       if (!vouch) {
-        throw createAppError(404, 'not_found', 'Target member was not found in this network');
+        throw createAppError(404, 'not_found', 'Target member was not found in this club');
       }
 
       return buildSuccessResponse({
         action,
         actor,
         requestScope: {
-          requestedNetworkId: network.networkId,
-          activeNetworkIds: [network.networkId],
+          requestedClubId: club.clubId,
+          activeClubIds: [club.clubId],
         },
         sharedContext,
         data: { vouch },
@@ -502,17 +502,17 @@ export async function handleAdmissionsAction(input: {
     case 'vouches.list': {
       const targetMemberId = requireNonEmptyString(payload.memberId, 'memberId');
       const limit = normalizeLimit(payload.limit);
-      const networkScope = actor.memberships;
-      if (payload.networkId !== undefined) {
-        requireAccessibleNetwork(actor, payload.networkId);
+      const clubScope = actor.memberships;
+      if (payload.clubId !== undefined) {
+        requireAccessibleClub(actor, payload.clubId);
       }
-      const networkIds = payload.networkId !== undefined
-        ? [requireNonEmptyString(payload.networkId, 'networkId')]
-        : networkScope.map((m) => m.networkId);
+      const clubIds = payload.clubId !== undefined
+        ? [requireNonEmptyString(payload.clubId, 'clubId')]
+        : clubScope.map((m) => m.clubId);
 
       const results = await repository.listVouches({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         targetMemberId,
         limit,
       });
@@ -521,8 +521,8 @@ export async function handleAdmissionsAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: typeof payload.networkId === 'string' ? payload.networkId.trim() : null,
-          activeNetworkIds: networkIds,
+          requestedClubId: typeof payload.clubId === 'string' ? payload.clubId.trim() : null,
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: { memberId: targetMemberId, results },

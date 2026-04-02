@@ -30,7 +30,7 @@ test('admin.overview returns platform stats for superadmin', async () => {
     async adminGetOverview() {
       return {
         totalMembers: 42,
-        totalNetworks: 3,
+        totalClubs: 3,
         totalEntities: 150,
         totalMessages: 500,
         totalApplications: 10,
@@ -58,7 +58,7 @@ test('admin.overview returns platform stats for superadmin', async () => {
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.overview.totalMembers, 42);
-    assert.equal(body.data.overview.totalNetworks, 3);
+    assert.equal(body.data.overview.totalClubs, 3);
     assert.equal(body.data.overview.recentMembers.length, 1);
   } finally {
     await shutdown();
@@ -150,9 +150,9 @@ test('admin.members.get returns full member detail', async () => {
         createdAt: '2026-03-14T10:00:00Z',
         memberships: [{
           membershipId: 'ms-1',
-          networkId: 'network-1',
-          networkName: 'Alpha',
-          networkSlug: 'alpha',
+          clubId: 'club-1',
+          clubName: 'Alpha',
+          clubSlug: 'alpha',
           role: 'member',
           status: 'active',
           joinedAt: '2026-03-14T10:00:00Z',
@@ -186,16 +186,16 @@ test('admin.members.get returns full member detail', async () => {
   }
 });
 
-test('admin.networks.stats returns network statistics', async () => {
+test('admin.clubs.stats returns club statistics', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
       return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
     },
-    async adminGetNetworkStats({ networkId }) {
-      if (networkId !== 'network-1') return null;
+    async adminGetClubStats({ clubId }) {
+      if (clubId !== 'club-1') return null;
       return {
-        networkId: 'network-1',
+        clubId: 'club-1',
         slug: 'alpha',
         name: 'Alpha',
         archivedAt: null,
@@ -217,7 +217,7 @@ test('admin.networks.stats returns network statistics', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.networks.stats', { networkId: 'network-1' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.clubs.stats', { clubId: 'club-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.stats.entityCount, 25);
@@ -270,7 +270,7 @@ test('admin.diagnostics.health returns system diagnostics', async () => {
         migrationCount: 43,
         latestMigration: '0043_rls_security_hardening.sql',
         memberCount: 42,
-        networkCount: 3,
+        clubCount: 3,
         tablesWithRls: 15,
         totalAppTables: 18,
         databaseSize: '24 MB',

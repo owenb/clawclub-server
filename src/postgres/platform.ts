@@ -1,15 +1,15 @@
 import type { Pool } from 'pg';
 import type {
-  ArchiveNetworkInput,
-  AssignNetworkOwnerInput,
-  CreateNetworkInput,
-  NetworkSummary,
+  ArchiveClubInput,
+  AssignClubOwnerInput,
+  CreateClubInput,
+  ClubSummary,
   Repository,
 } from '../app.ts';
 import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
 
-type NetworkRow = {
-  network_id: string;
+type ClubRow = {
+  club_id: string;
   slug: string;
   name: string;
   summary: string | null;
@@ -23,9 +23,9 @@ type NetworkRow = {
   owner_created_by_member_id: string | null;
 };
 
-function mapNetworkRow(row: NetworkRow): NetworkSummary {
+function mapClubRow(row: ClubRow): ClubSummary {
   return {
-    networkId: row.network_id,
+    clubId: row.club_id,
     slug: row.slug,
     name: row.name,
     summary: row.summary,
@@ -44,11 +44,11 @@ function mapNetworkRow(row: NetworkRow): NetworkSummary {
   };
 }
 
-async function listNetworks(client: DbClient, includeArchived: boolean): Promise<NetworkSummary[]> {
-  const result = await client.query<NetworkRow>(
+async function listClubs(client: DbClient, includeArchived: boolean): Promise<ClubSummary[]> {
+  const result = await client.query<ClubRow>(
     `
       select
-        n.id as network_id,
+        n.id as club_id,
         n.slug,
         n.name,
         n.summary,
@@ -60,8 +60,8 @@ async function listNetworks(client: DbClient, includeArchived: boolean): Promise
         owner.version_no as owner_version_no,
         owner.created_at::text as owner_created_at,
         owner.created_by_member_id as owner_created_by_member_id
-      from app.networks n
-      join app.current_network_owners owner on owner.network_id = n.id
+      from app.clubs n
+      join app.current_club_owners owner on owner.club_id = n.id
       join app.members m on m.id = owner.owner_member_id
       where ($1::boolean = true or n.archived_at is null)
       order by n.archived_at asc nulls first, n.name asc, n.id asc
@@ -69,14 +69,14 @@ async function listNetworks(client: DbClient, includeArchived: boolean): Promise
     [includeArchived],
   );
 
-  return result.rows.map(mapNetworkRow);
+  return result.rows.map(mapClubRow);
 }
 
-async function readNetworkSummary(client: DbClient, networkId: string): Promise<NetworkSummary | null> {
-  const result = await client.query<NetworkRow>(
+async function readClubSummary(client: DbClient, clubId: string): Promise<ClubSummary | null> {
+  const result = await client.query<ClubRow>(
     `
       select
-        n.id as network_id,
+        n.id as club_id,
         n.slug,
         n.name,
         n.summary,
@@ -88,16 +88,16 @@ async function readNetworkSummary(client: DbClient, networkId: string): Promise<
         owner.version_no as owner_version_no,
         owner.created_at::text as owner_created_at,
         owner.created_by_member_id as owner_created_by_member_id
-      from app.networks n
-      join app.current_network_owners owner on owner.network_id = n.id
+      from app.clubs n
+      join app.current_club_owners owner on owner.club_id = n.id
       join app.members m on m.id = owner.owner_member_id
       where n.id = $1
       limit 1
     `,
-    [networkId],
+    [clubId],
   );
 
-  return result.rows[0] ? mapNetworkRow(result.rows[0]) : null;
+  return result.rows[0] ? mapClubRow(result.rows[0]) : null;
 }
 
 export function buildPlatformRepository({
@@ -108,27 +108,27 @@ export function buildPlatformRepository({
   pool: Pool;
   applyActorContext: ApplyActorContext;
   withActorContext: WithActorContext;
-}): Pick<Repository, 'listNetworks' | 'createNetwork' | 'archiveNetwork' | 'assignNetworkOwner'> {
+}): Pick<Repository, 'listClubs' | 'createClub' | 'archiveClub' | 'assignClubOwner'> {
   return {
-    async listNetworks({ actorMemberId, includeArchived }) {
-      return withActorContext(pool, actorMemberId, [], (client) => listNetworks(client, includeArchived));
+    async listClubs({ actorMemberId, includeArchived }) {
+      return withActorContext(pool, actorMemberId, [], (client) => listClubs(client, includeArchived));
     },
 
-    async createNetwork(input: CreateNetworkInput): Promise<NetworkSummary | null> {
+    async createClub(input: CreateClubInput): Promise<ClubSummary | null> {
       const client = await pool.connect();
       try {
         await client.query('begin');
         await applyActorContext(client, input.actorMemberId, []);
 
-        const networkResult = await client.query<{ network_id: string }>(
+        const clubResult = await client.query<{ club_id: string }>(
           `
             with owner_member as (
               select m.id
               from app.members m
               where m.id = $4
                 and m.state = 'active'
-            ), inserted_network as (
-              insert into app.networks (
+            ), inserted_club as (
+              insert into app.clubs (
                 slug,
                 name,
                 summary,
@@ -137,31 +137,31 @@ export function buildPlatformRepository({
               )
               select $1, $2, $3, om.id, $5
               from owner_member om
-              returning id as network_id
+              returning id as club_id
             ), owner_version as (
-              insert into app.network_owner_versions (
-                network_id,
+              insert into app.club_owner_versions (
+                club_id,
                 owner_member_id,
                 version_no,
                 created_by_member_id
               )
-              select network_id, $4, 1, $6
-              from inserted_network
+              select club_id, $4, 1, $6
+              from inserted_club
             )
-            select network_id
-            from inserted_network
+            select club_id
+            from inserted_club
           `,
           [input.slug, input.name, input.summary ?? null, input.ownerMemberId, input.manifestoMarkdown ?? null, input.actorMemberId],
         );
 
-        const networkId = networkResult.rows[0]?.network_id;
-        if (!networkId) {
+        const clubId = clubResult.rows[0]?.club_id;
+        if (!clubId) {
           await client.query('rollback');
           return null;
         }
 
         await client.query('commit');
-        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readNetworkSummary(scopedClient, networkId));
+        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readClubSummary(scopedClient, clubId));
       } catch (error) {
         await client.query('rollback');
         throw error;
@@ -170,29 +170,29 @@ export function buildPlatformRepository({
       }
     },
 
-    async archiveNetwork(input: ArchiveNetworkInput): Promise<NetworkSummary | null> {
+    async archiveClub(input: ArchiveClubInput): Promise<ClubSummary | null> {
       const client = await pool.connect();
       try {
         await client.query('begin');
         await applyActorContext(client, input.actorMemberId, []);
-        const result = await client.query<{ network_id: string }>(
+        const result = await client.query<{ club_id: string }>(
           `
-            update app.networks n
+            update app.clubs n
             set archived_at = coalesce(n.archived_at, now())
             where n.id = $1
-            returning n.id as network_id
+            returning n.id as club_id
           `,
-          [input.networkId],
+          [input.clubId],
         );
 
-        const networkId = result.rows[0]?.network_id;
-        if (!networkId) {
+        const clubId = result.rows[0]?.club_id;
+        if (!clubId) {
           await client.query('rollback');
           return null;
         }
 
         await client.query('commit');
-        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readNetworkSummary(scopedClient, networkId));
+        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readClubSummary(scopedClient, clubId));
       } catch (error) {
         await client.query('rollback');
         throw error;
@@ -201,29 +201,29 @@ export function buildPlatformRepository({
       }
     },
 
-    async assignNetworkOwner(input: AssignNetworkOwnerInput): Promise<NetworkSummary | null> {
+    async assignClubOwner(input: AssignClubOwnerInput): Promise<ClubSummary | null> {
       const client = await pool.connect();
       try {
         await client.query('begin');
         await applyActorContext(client, input.actorMemberId, []);
 
         const currentResult = await client.query<{
-          network_id: string;
+          club_id: string;
           current_owner_version_id: string;
           current_version_no: number;
         }>(
           `
             select
-              n.id as network_id,
+              n.id as club_id,
               cno.id as current_owner_version_id,
               cno.version_no as current_version_no
-            from app.networks n
-            join app.current_network_owners cno on cno.network_id = n.id
+            from app.clubs n
+            join app.current_club_owners cno on cno.club_id = n.id
             join app.members m on m.id = $2 and m.state = 'active'
             where n.id = $1
             limit 1
           `,
-          [input.networkId, input.ownerMemberId],
+          [input.clubId, input.ownerMemberId],
         );
 
         const current = currentResult.rows[0];
@@ -234,8 +234,8 @@ export function buildPlatformRepository({
 
         await client.query(
           `
-            insert into app.network_owner_versions (
-              network_id,
+            insert into app.club_owner_versions (
+              club_id,
               owner_member_id,
               version_no,
               supersedes_owner_version_id,
@@ -243,11 +243,11 @@ export function buildPlatformRepository({
             )
             values ($1, $2, $3, $4, $5)
           `,
-          [input.networkId, input.ownerMemberId, Number(current.current_version_no) + 1, current.current_owner_version_id, input.actorMemberId],
+          [input.clubId, input.ownerMemberId, Number(current.current_version_no) + 1, current.current_owner_version_id, input.actorMemberId],
         );
 
         await client.query('commit');
-        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readNetworkSummary(scopedClient, input.networkId));
+        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readClubSummary(scopedClient, input.clubId));
       } catch (error) {
         await client.query('rollback');
         throw error;

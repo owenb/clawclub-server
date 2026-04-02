@@ -14,7 +14,7 @@ The action surface stays intentionally small:
 
 Current action families (see `src/action-manifest.ts` for the canonical list):
 - `session.*` — session context
-- `networks.*` — club management (superadmin)
+- `clubs.*` — club management (superadmin)
 - `members.*` — member search and directory
 - `memberships.*` — membership lifecycle (owner)
 - `applications.*` — admissions workflow (owner + cold/unauthenticated)
@@ -27,7 +27,7 @@ Current action families (see `src/action-manifest.ts` for the canonical list):
 - `sponsorships.*` — member recommendations for outsiders
 - `tokens.*` — bearer token management
 - `quotas.*` — write quota status
-- `admin.*` — platform admin (superadmin): overview, member/network/content/message inspection, token management, diagnostics
+- `admin.*` — platform admin (superadmin): overview, member/club/content/message inspection, token management, diagnostics
 
 Webhook delivery has been removed. First-party agents should use `GET /updates` or `GET /updates/stream`.
 Cold first-contact admissions use `applications.challenge` and `applications.solve` without a bearer token.
@@ -41,8 +41,8 @@ All `admin.*` actions require a bearer token with superadmin global role. They p
 | `admin.overview` | Platform totals (members, clubs, entities, messages, applications) + recent members |
 | `admin.members.list` | All members with pagination (limit/offset), membership and token counts |
 | `admin.members.get` | Full member detail: profile, all memberships across clubs, token count |
-| `admin.networks.stats` | Per-club breakdown: member counts by status, entity/message/application counts |
-| `admin.content.list` | All content across clubs, filterable by networkId and kind |
+| `admin.clubs.stats` | Per-club breakdown: member counts by status, entity/message/application counts |
+| `admin.content.list` | All content across clubs, filterable by clubId and kind |
 | `admin.content.archive` | Archive any entity (moderation, append-only) |
 | `admin.messages.threads` | All message threads across clubs |
 | `admin.messages.read` | Read any thread transcript |
@@ -89,9 +89,9 @@ Content-Type: application/json
     "activeMemberships": [
       {
         "membershipId": "...",
-        "networkId": "...",
-        "slug": "smoke-network",
-        "name": "Smoke Network",
+        "clubId": "...",
+        "slug": "smoke-club",
+        "name": "Smoke Club",
         "summary": "Schema smoke test",
         "manifestoMarkdown": null,
         "role": "member",
@@ -101,8 +101,8 @@ Content-Type: application/json
       }
     ],
     "requestScope": {
-      "requestedNetworkId": null,
-      "activeNetworkIds": ["..."]
+      "requestedClubId": null,
+      "activeClubIds": ["..."]
     },
     "sharedContext": {
       "pendingUpdates": []
@@ -166,8 +166,8 @@ Authorization: Bearer cc_live_23456789abcd_23456789abcdefghjkmnpqrs
     "publicName": "Smoke Member"
   },
   "requestScope": {
-    "requestedNetworkId": null,
-    "activeNetworkIds": ["..."]
+    "requestedClubId": null,
+    "activeClubIds": ["..."]
   },
   "updates": {
     "items": [],
@@ -199,7 +199,7 @@ Behavior:
   "ok": false,
   "error": {
     "code": "forbidden",
-    "message": "Requested network is outside the actor scope"
+    "message": "Requested club is outside your access scope"
   }
 }
 ```
@@ -211,7 +211,7 @@ Behavior:
 Use this first. It resolves:
 - the authenticated member
 - global roles
-- active memberships and network scope
+- active memberships and club scope
 - pending update context
 
 ### `GET /updates`
@@ -242,7 +242,7 @@ Cold applications include an `applicationDetails` object on the `ApplicationSumm
 
 - are the only unauthenticated actions
 - `applications.challenge` takes no input, returns a PoW challenge + list of publicly listed clubs
-- `applications.solve` takes the PoW proof + `networkSlug`, `name` (full name), `email`, `socials`, `reason`
+- `applications.solve` takes the PoW proof + `clubSlug`, `name` (full name), `email`, `socials`, `reason`
 - creates a cold application directly as `submitted` after proof-of-work verification
 - private clubs don't appear in the challenge response but accept applications by slug
 - verify `sha256(challengeId + ":" + nonce)` ends with the configured number of hex zeroes on solve
@@ -253,16 +253,16 @@ Cold applications include an `applicationDetails` object on the `ApplicationSumm
 ### `vouches.create`
 
 - creates a `vouched_for` edge in `app.edges`
-- per-network: one active vouch per (actor, target) pair per network
+- per-club: one active vouch per (actor, target) pair per club
 - self-vouching is rejected at both app and DB level
-- target must have a membership in the same network
+- target must have a membership in the same club
 - returns a `MembershipVouchSummary` on success
 - created vouches appear in `memberships.review` for club owners
 
 ### `sponsorships.create` / `sponsorships.list`
 
 - `sponsorships.create` — an existing member recommends an outsider for admission
-- input: `networkId`, `name` (full name), `email`, `socials`, `reason` (all required, max 500 chars)
+- input: `clubId`, `name` (full name), `email`, `socials`, `reason` (all required, max 500 chars)
 - no proof-of-work — trust comes from the sponsoring member
 - multiple sponsorships for the same outsider are allowed and are a signal
 - `sponsorships.list` — owners see all sponsorships; members see their own
@@ -272,7 +272,7 @@ Cold applications include an `applicationDetails` object on the `ApplicationSumm
 
 - `query` is required
 - query text is trimmed, capped at 120 characters, and `%`, `_`, and `\` are treated literally
-- `networkId` is optional, but must already be inside actor scope
+- `clubId` is optional, but must already be inside actor scope
 - `limit` is optional and clamped to `1..20`
 
 ### `entities.create` / `entities.update` / `entities.archive`
@@ -284,7 +284,7 @@ Cold applications include an `applicationDetails` object on the `ApplicationSumm
 
 ### `messages.*`
 
-- DMs require shared network scope
+- DMs require shared club scope
 - transcript reads include current update receipt state
 - sending a DM appends a `member_updates` row for the recipient
 
@@ -333,7 +333,7 @@ curl -s http://127.0.0.1:8787/api \
 - **SSE connection cap:** max 3 concurrent streams per member
 - **Proxy trust:** `X-Forwarded-For` is only used for IP-based rate limiting when `TRUST_PROXY=1` is set. Without it, `socket.remoteAddress` is used. Always set `TRUST_PROXY=1` when running behind a reverse proxy.
 - **Bearer token expiry:** tokens support an optional `expires_at` field; expired tokens are rejected at auth time
-- **Write quotas:** `entities.create`, `events.create`, and `messages.send` are subject to per-network daily quotas (defaults: 20/10/100 per day). Returns 429 `quota_exceeded` when limit is reached. Check via `quotas.status`.
+- **Write quotas:** `entities.create`, `events.create`, and `messages.send` are subject to per-club daily quotas (defaults: 20/10/100 per day). Returns 429 `quota_exceeded` when limit is reached. Check via `quotas.status`.
 
 ## Current limits
 

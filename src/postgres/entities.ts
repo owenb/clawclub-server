@@ -18,7 +18,7 @@ import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts'
 type EntityRow = EmbeddingProjectionRow & {
   entity_id: string;
   entity_version_id: string;
-  network_id: string;
+  club_id: string;
   kind: EntitySummary['kind'];
   author_member_id: string;
   author_public_name: string;
@@ -37,7 +37,7 @@ type EntityRow = EmbeddingProjectionRow & {
 
 type CurrentEntityRow = {
   entity_id: string;
-  network_id: string;
+  club_id: string;
   kind: EntitySummary['kind'];
   author_member_id: string;
   author_public_name: string;
@@ -56,7 +56,7 @@ export function mapEntityRow(row: EntityRow): EntitySummary {
   return {
     entityId: row.entity_id,
     entityVersionId: row.entity_version_id,
-    networkId: row.network_id,
+    clubId: row.club_id,
     kind: row.kind,
     author: {
       memberId: row.author_member_id,
@@ -82,7 +82,7 @@ export function mapEntityRow(row: EntityRow): EntitySummary {
 export function buildEntityUpdatePayload(input: {
   entityId: string;
   entityVersionId: string;
-  networkId: string;
+  clubId: string;
   kind: EntitySummary['kind'] | 'event';
   state: 'published' | 'archived';
   author: {
@@ -106,7 +106,7 @@ export function buildEntityUpdatePayload(input: {
     kind: 'entity',
     entityId: input.entityId,
     entityVersionId: input.entityVersionId,
-    networkId: input.networkId,
+    clubId: input.clubId,
     entityKind: input.kind,
     state: input.state,
     author: input.author,
@@ -130,7 +130,7 @@ export async function readEntitySummary(client: DbClient, entityId: string, enti
       select
         e.id as entity_id,
         cev.id as entity_version_id,
-        e.network_id,
+        e.club_id,
         e.kind,
         m.id as author_member_id,
         m.public_name as author_public_name,
@@ -183,11 +183,11 @@ export function buildEntitiesRepository({
       const client = await pool.connect();
       try {
         await client.query('begin');
-        await applyActorContext(client, input.authorMemberId, [input.networkId]);
-        await enforceQuota(client, input.authorMemberId, input.networkId, 'entities.create');
+        await applyActorContext(client, input.authorMemberId, [input.clubId]);
+        await enforceQuota(client, input.authorMemberId, input.clubId, 'entities.create');
         const entityResult = await client.query<{ id: string; created_at: string }>(
-          `insert into app.entities (network_id, kind, author_member_id) values ($1, $2, $3) returning id, created_at::text`,
-          [input.networkId, input.kind, input.authorMemberId],
+          `insert into app.entities (club_id, kind, author_member_id) values ($1, $2, $3) returning id, created_at::text`,
+          [input.clubId, input.kind, input.authorMemberId],
         );
         const entity = requireReturnedRow(entityResult.rows[0], 'Created entity row was not returned');
         const versionResult = await client.query<{ id: string }>(
@@ -206,7 +206,7 @@ export function buildEntitiesRepository({
           'Created entity could not be reloaded',
         );
         await appendEntityVersionUpdates(client, {
-          networkId: summary.networkId,
+          clubId: summary.clubId,
           entityId: summary.entityId,
           entityVersionId: summary.entityVersionId,
           topic: 'entity.version.published',
@@ -214,7 +214,7 @@ export function buildEntitiesRepository({
           payload: buildEntityUpdatePayload({
             entityId: summary.entityId,
             entityVersionId: summary.entityVersionId,
-            networkId: summary.networkId,
+            clubId: summary.clubId,
             kind: summary.kind,
             state: summary.version.state as 'published' | 'archived',
             author: summary.author,
@@ -240,11 +240,11 @@ export function buildEntitiesRepository({
       const client = await pool.connect();
       try {
         await client.query('begin');
-        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
+        await applyActorContext(client, input.actorMemberId, input.accessibleClubIds);
 
         const currentResult = await client.query<{
           entity_id: string;
-          network_id: string;
+          club_id: string;
           author_member_id: string;
           version_id: string;
           version_no: number;
@@ -257,7 +257,7 @@ export function buildEntitiesRepository({
           `
             select
               e.id as entity_id,
-              e.network_id,
+              e.club_id,
               e.author_member_id,
               cev.id as version_id,
               cev.version_no,
@@ -269,12 +269,12 @@ export function buildEntitiesRepository({
             from app.entities e
             join app.current_entity_versions cev on cev.entity_id = e.id
             where e.id = $1
-              and e.network_id = any($2::app.short_id[])
+              and e.club_id = any($2::app.short_id[])
               and e.author_member_id = $3
               and e.deleted_at is null
               and cev.state = 'published'
           `,
-          [input.entityId, input.accessibleNetworkIds, input.actorMemberId],
+          [input.entityId, input.accessibleClubIds, input.actorMemberId],
         );
 
         const current = currentResult.rows[0];
@@ -318,7 +318,7 @@ export function buildEntitiesRepository({
           'Updated entity could not be reloaded',
         );
         await appendEntityVersionUpdates(client, {
-          networkId: summary.networkId,
+          clubId: summary.clubId,
           entityId: summary.entityId,
           entityVersionId: summary.entityVersionId,
           topic: 'entity.version.published',
@@ -326,7 +326,7 @@ export function buildEntitiesRepository({
           payload: buildEntityUpdatePayload({
             entityId: summary.entityId,
             entityVersionId: summary.entityVersionId,
-            networkId: summary.networkId,
+            clubId: summary.clubId,
             kind: summary.kind,
             state: summary.version.state as 'published' | 'archived',
             author: summary.author,
@@ -352,13 +352,13 @@ export function buildEntitiesRepository({
       const client = await pool.connect();
       try {
         await client.query('begin');
-        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
+        await applyActorContext(client, input.actorMemberId, input.accessibleClubIds);
 
         const currentResult = await client.query<CurrentEntityRow>(
           `
             select
               e.id as entity_id,
-              e.network_id,
+              e.club_id,
               e.kind,
               e.author_member_id,
               m.public_name as author_public_name,
@@ -375,14 +375,14 @@ export function buildEntitiesRepository({
             join app.current_entity_versions cev on cev.entity_id = e.id
             join app.members m on m.id = e.author_member_id
             where e.id = $1
-              and e.network_id = any($2::app.short_id[])
+              and e.club_id = any($2::app.short_id[])
               and e.author_member_id = $3
               and e.kind = any(array['post', 'opportunity', 'service', 'ask']::app.entity_kind[])
               and e.deleted_at is null
               and cev.state = 'published'
             limit 1
           `,
-          [input.entityId, input.accessibleNetworkIds, input.actorMemberId],
+          [input.entityId, input.accessibleClubIds, input.actorMemberId],
         );
 
         const current = currentResult.rows[0];
@@ -431,7 +431,7 @@ export function buildEntitiesRepository({
         const summary: EntitySummary = {
           entityId: current.entity_id,
           entityVersionId: archivedVersion.id,
-          networkId: current.network_id,
+          clubId: current.club_id,
           kind: current.kind,
           author: {
             memberId: current.author_member_id,
@@ -453,7 +453,7 @@ export function buildEntitiesRepository({
           createdAt: current.entity_created_at,
         };
         await appendEntityVersionUpdates(client, {
-          networkId: summary.networkId,
+          clubId: summary.clubId,
           entityId: summary.entityId,
           entityVersionId: summary.entityVersionId,
           topic: 'entity.version.archived',
@@ -461,7 +461,7 @@ export function buildEntitiesRepository({
           payload: buildEntityUpdatePayload({
             entityId: summary.entityId,
             entityVersionId: summary.entityVersionId,
-            networkId: summary.networkId,
+            clubId: summary.clubId,
             kind: summary.kind,
             state: summary.version.state as 'published' | 'archived',
             author: summary.author,
@@ -483,8 +483,8 @@ export function buildEntitiesRepository({
       }
     },
 
-    async listEntities({ actorMemberId, networkIds, kinds, limit, query }: ListEntitiesInput): Promise<EntitySummary[]> {
-      return withActorContext(pool, actorMemberId, networkIds, async (client) => {
+    async listEntities({ actorMemberId, clubIds, kinds, limit, query }: ListEntitiesInput): Promise<EntitySummary[]> {
+      return withActorContext(pool, actorMemberId, clubIds, async (client) => {
         const trimmedQuery = normalizeSearchQuery(query);
         const likePattern = buildContainsLikePattern(trimmedQuery);
         const prefixPattern = buildPrefixLikePattern(trimmedQuery);
@@ -492,12 +492,12 @@ export function buildEntitiesRepository({
         const result = await client.query<EntityRow>(
           `
             with scope as (
-              select unnest($1::text[])::app.short_id as network_id
+              select unnest($1::text[])::app.short_id as club_id
             )
             select
               le.entity_id,
               le.entity_version_id,
-              le.network_id,
+              le.club_id,
               le.kind,
               m.id as author_member_id,
               m.public_name as author_public_name,
@@ -519,7 +519,7 @@ export function buildEntitiesRepository({
               ceve.created_at::text as embedding_created_at,
               le.entity_created_at::text as entity_created_at
             from scope s
-            join app.live_entities le on le.network_id = s.network_id
+            join app.live_entities le on le.club_id = s.club_id
             left join app.current_entity_version_embeddings ceve on ceve.entity_version_id = le.entity_version_id
             join app.members m on m.id = le.author_member_id
             where le.kind = any($2::app.entity_kind[])
@@ -545,7 +545,7 @@ export function buildEntitiesRepository({
               le.entity_id desc
             limit $6
           `,
-          [networkIds, kinds, trimmedQuery ?? null, likePattern, prefixPattern, limit],
+          [clubIds, kinds, trimmedQuery ?? null, likePattern, prefixPattern, limit],
         );
 
         return result.rows.map(mapEntityRow);

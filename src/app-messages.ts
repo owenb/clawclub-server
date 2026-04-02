@@ -3,10 +3,10 @@ import type {
   BuildSuccessResponse,
   CreateAppError,
   NormalizeLimit,
-  RequireAccessibleNetwork,
+  RequireAccessibleClub,
   RequireNonEmptyString,
 } from './app-helpers.ts';
-import { resolveScopedNetworks, resolveRequestedNetworkId } from './app-helpers.ts';
+import { resolveScopedClubs, resolveRequestedClubId } from './app-helpers.ts';
 import type { ActorContext } from './app-contract.ts';
 
 export async function handleMessageAction(input: {
@@ -18,7 +18,7 @@ export async function handleMessageAction(input: {
   buildSuccessResponse: BuildSuccessResponse;
   createAppError: CreateAppError;
   normalizeLimit: NormalizeLimit;
-  requireAccessibleNetwork: RequireAccessibleNetwork;
+  requireAccessibleClub: RequireAccessibleClub;
   requireNonEmptyString: RequireNonEmptyString;
 }): Promise<unknown | null> {
   const {
@@ -29,7 +29,7 @@ export async function handleMessageAction(input: {
     normalizeLimit,
     payload,
     repository,
-    requireAccessibleNetwork,
+    requireAccessibleClub,
     requireNonEmptyString,
     sharedContext,
   } = input;
@@ -39,9 +39,9 @@ export async function handleMessageAction(input: {
       const recipientMemberId = requireNonEmptyString(payload.recipientMemberId, 'recipientMemberId');
       const message = await repository.sendDirectMessage({
         actorMemberId: actor.member.id,
-        accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+        accessibleClubIds: actor.memberships.map((club) => club.clubId),
         recipientMemberId,
-        networkId: payload.networkId === undefined ? undefined : requireAccessibleNetwork(actor, payload.networkId).networkId,
+        clubId: payload.clubId === undefined ? undefined : requireAccessibleClub(actor, payload.clubId).clubId,
         messageText: requireNonEmptyString(payload.messageText, 'messageText'),
       });
 
@@ -53,8 +53,8 @@ export async function handleMessageAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: message.networkId,
-          activeNetworkIds: [message.networkId],
+          requestedClubId: message.clubId,
+          activeClubIds: [message.clubId],
         },
         sharedContext,
         data: { message },
@@ -63,11 +63,11 @@ export async function handleMessageAction(input: {
 
     case 'messages.list': {
       const limit = normalizeLimit(payload.limit);
-      const networkScope = resolveScopedNetworks(actor, payload.networkId, requireAccessibleNetwork, createAppError);
-      const networkIds = networkScope.map((network) => network.networkId);
+      const clubScope = resolveScopedClubs(actor, payload.clubId, requireAccessibleClub, createAppError);
+      const clubIds = clubScope.map((club) => club.clubId);
       const results = await repository.listDirectMessageThreads({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         limit,
       });
 
@@ -75,13 +75,13 @@ export async function handleMessageAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: resolveRequestedNetworkId(payload.networkId),
-          activeNetworkIds: networkIds,
+          requestedClubId: resolveRequestedClubId(payload.clubId),
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: {
           limit,
-          networkScope,
+          clubScope,
           results,
         },
       });
@@ -91,7 +91,7 @@ export async function handleMessageAction(input: {
       const threadId = requireNonEmptyString(payload.threadId, 'threadId');
       const transcript = await repository.readDirectMessageThread({
         actorMemberId: actor.member.id,
-        accessibleNetworkIds: actor.memberships.map((network) => network.networkId),
+        accessibleClubIds: actor.memberships.map((club) => club.clubId),
         threadId,
         limit: normalizeLimit(payload.limit),
       });
@@ -104,8 +104,8 @@ export async function handleMessageAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: transcript.thread.networkId,
-          activeNetworkIds: [transcript.thread.networkId],
+          requestedClubId: transcript.thread.clubId,
+          activeClubIds: [transcript.thread.clubId],
         },
         sharedContext,
         data: transcript,
@@ -114,12 +114,12 @@ export async function handleMessageAction(input: {
 
     case 'messages.inbox': {
       const limit = normalizeLimit(payload.limit);
-      const networkScope = resolveScopedNetworks(actor, payload.networkId, requireAccessibleNetwork, createAppError);
-      const networkIds = networkScope.map((network) => network.networkId);
+      const clubScope = resolveScopedClubs(actor, payload.clubId, requireAccessibleClub, createAppError);
+      const clubIds = clubScope.map((club) => club.clubId);
       const unreadOnly = payload.unreadOnly === true;
       const results = await repository.listDirectMessageInbox({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         limit,
         unreadOnly,
       });
@@ -128,14 +128,14 @@ export async function handleMessageAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: resolveRequestedNetworkId(payload.networkId),
-          activeNetworkIds: networkIds,
+          requestedClubId: resolveRequestedClubId(payload.clubId),
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: {
           limit,
           unreadOnly,
-          networkScope,
+          clubScope,
           results,
         },
       });

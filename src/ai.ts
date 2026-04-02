@@ -30,17 +30,17 @@ type AiExposedAction = (typeof AI_EXPOSED_ACTIONS)[number]['action'];
 const aiToolInputSchemas: Record<AiExposedAction, z.ZodType> = {
   'session.describe': z.object({}),
   'memberships.review': z.object({
-    networkId: z.string().trim().min(1).optional(),
+    clubId: z.string().trim().min(1).optional(),
     statuses: z.array(z.enum(['invited', 'pending_review'])).min(1).optional(),
     limit: z.number().int().min(1).max(20).optional(),
   }),
   'applications.list': z.object({
-    networkId: z.string().trim().min(1).optional(),
+    clubId: z.string().trim().min(1).optional(),
     statuses: z.array(z.enum(['draft', 'submitted', 'interview_scheduled', 'interview_completed', 'accepted', 'declined', 'withdrawn'])).min(1).optional(),
     limit: z.number().int().min(1).max(20).optional(),
   }),
   'applications.create': z.object({
-    networkId: nonEmptyString('networkId'),
+    clubId: nonEmptyString('clubId'),
     applicantMemberId: nonEmptyString('applicantMemberId'),
     sponsorMemberId: z.string().trim().min(1).optional().nullable(),
     membershipId: z.string().trim().min(1).optional().nullable(),
@@ -79,29 +79,29 @@ const aiToolInputSchemas: Record<AiExposedAction, z.ZodType> = {
     metadata: z.record(z.string(), z.unknown()).optional().nullable(),
   }),
   'vouches.create': z.object({
-    networkId: nonEmptyString('networkId'),
+    clubId: nonEmptyString('clubId'),
     memberId: nonEmptyString('memberId').describe('The member ID of the person being vouched for'),
     reason: z.string().trim().min(1).max(500).describe('A concrete, firsthand reason for the vouch. Must include observable evidence, not vague praise.'),
   }),
   'vouches.list': z.object({
-    networkId: z.string().trim().min(1).optional(),
+    clubId: z.string().trim().min(1).optional(),
     memberId: nonEmptyString('memberId').describe('The member ID to look up vouches for'),
     limit: z.number().int().min(1).max(20).optional(),
   }),
   'sponsorships.create': z.object({
-    networkId: nonEmptyString('networkId'),
+    clubId: nonEmptyString('clubId'),
     name: z.string().trim().min(1).max(500).describe('Full name (first and last) of the person being sponsored'),
     email: z.string().trim().min(1).max(500).describe('Email address of the person being sponsored'),
     socials: z.string().trim().min(1).max(500).describe('Social media handles or links'),
     reason: z.string().trim().min(1).max(500).describe('Why this person should be invited. Concrete, firsthand evidence required.'),
   }),
   'sponsorships.list': z.object({
-    networkId: z.string().trim().min(1).optional(),
+    clubId: z.string().trim().min(1).optional(),
     limit: z.number().int().min(1).max(20).optional(),
   }),
   'members.search': z.object({
     query: nonEmptyString('query'),
-    networkId: z.string().trim().min(1).optional(),
+    clubId: z.string().trim().min(1).optional(),
     limit: z.number().int().min(1).max(20).optional(),
   }),
   'profile.get': z.object({
@@ -120,13 +120,13 @@ const aiToolInputSchemas: Record<AiExposedAction, z.ZodType> = {
     profile: z.record(z.string(), z.unknown()).optional(),
   }).refine((value) => Object.keys(value).length > 0, 'At least one profile field must be provided'),
   'entities.list': z.object({
-    networkId: z.string().trim().min(1).optional(),
+    clubId: z.string().trim().min(1).optional(),
     query: z.string().trim().min(1).optional(),
     kinds: z.array(z.enum(['post', 'opportunity', 'service', 'ask'])).min(1).optional(),
     limit: z.number().int().min(1).max(20).optional(),
   }),
   'entities.create': z.object({
-    networkId: nonEmptyString('networkId'),
+    clubId: nonEmptyString('clubId'),
     kind: z.enum(['post', 'opportunity', 'service', 'ask']),
     title: z.string().optional().nullable(),
     summary: z.string().optional().nullable(),
@@ -138,12 +138,12 @@ const aiToolInputSchemas: Record<AiExposedAction, z.ZodType> = {
     entityId: nonEmptyString('entityId'),
   }),
   'events.list': z.object({
-    networkId: z.string().trim().min(1).optional(),
+    clubId: z.string().trim().min(1).optional(),
     query: z.string().trim().min(1).optional(),
     limit: z.number().int().min(1).max(20).optional(),
   }),
   'events.create': z.object({
-    networkId: nonEmptyString('networkId'),
+    clubId: nonEmptyString('clubId'),
     title: z.string().optional().nullable(),
     summary: z.string().optional().nullable(),
     body: z.string().optional().nullable(),
@@ -161,7 +161,7 @@ const aiToolInputSchemas: Record<AiExposedAction, z.ZodType> = {
     note: z.string().optional().nullable(),
   }),
   'messages.inbox': z.object({
-    networkId: z.string().trim().min(1).optional(),
+    clubId: z.string().trim().min(1).optional(),
     unreadOnly: z.boolean().optional(),
     limit: z.number().int().min(1).max(20).optional(),
   }),
@@ -171,7 +171,7 @@ const aiToolInputSchemas: Record<AiExposedAction, z.ZodType> = {
   }),
   'messages.send': z.object({
     recipientMemberId: nonEmptyString('recipientMemberId'),
-    networkId: z.string().trim().min(1).optional(),
+    clubId: z.string().trim().min(1).optional(),
     messageText: nonEmptyString('messageText'),
   }),
 };

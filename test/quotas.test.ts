@@ -4,11 +4,11 @@ import { buildApp } from '../src/app.ts';
 import type { QuotaAllowance } from '../src/app-contract.ts';
 import { makeAuthResult, makeRepository } from './fixtures.ts';
 
-test('quotas.status returns quota allowances for all networks', async () => {
+test('quotas.status returns quota allowances for all clubs', async () => {
   const quotas: QuotaAllowance[] = [
-    { action: 'entities.create', networkId: 'network-1', maxPerDay: 20, usedToday: 3, remaining: 17 },
-    { action: 'events.create', networkId: 'network-1', maxPerDay: 10, usedToday: 0, remaining: 10 },
-    { action: 'messages.send', networkId: 'network-1', maxPerDay: 100, usedToday: 5, remaining: 95 },
+    { action: 'entities.create', clubId: 'club-1', maxPerDay: 20, usedToday: 3, remaining: 17 },
+    { action: 'events.create', clubId: 'club-1', maxPerDay: 10, usedToday: 0, remaining: 10 },
+    { action: 'messages.send', clubId: 'club-1', maxPerDay: 100, usedToday: 5, remaining: 95 },
   ];
 
   const auth = makeAuthResult();

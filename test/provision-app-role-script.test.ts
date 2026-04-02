@@ -98,23 +98,23 @@ async function assertProvisionedRoleWorks({
       [ownerId],
     );
 
-    const networkId = (await client.query<{ id: string }>(
-      `insert into app.networks (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
-      [`provision-network-${suffix}`, `Provision Network ${suffix}`, ownerId, 'Provision script test'],
+    const clubId = (await client.query<{ id: string }>(
+      `insert into app.clubs (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
+      [`provision-club-${suffix}`, `Provision Club ${suffix}`, ownerId, 'Provision script test'],
     )).rows[0]!.id;
 
     const membershipId = (await client.query<{ id: string }>(
       `
-        insert into app.network_memberships (network_id, member_id, role)
+        insert into app.club_memberships (club_id, member_id, role)
         values ($1, $2, 'owner')
         returning id
       `,
-      [networkId, ownerId],
+      [clubId, ownerId],
     )).rows[0]!.id;
 
     await client.query(
       `
-        insert into app.network_membership_state_versions (
+        insert into app.club_membership_state_versions (
           membership_id,
           status,
           version_no,

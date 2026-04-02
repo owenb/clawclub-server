@@ -4,10 +4,10 @@ import type {
   BuildSuccessResponse,
   CreateAppError,
   NormalizeLimit,
-  RequireAccessibleNetwork,
+  RequireAccessibleClub,
   RequireNonEmptyString,
 } from './app-helpers.ts';
-import { resolveScopedNetworks, resolveRequestedNetworkId } from './app-helpers.ts';
+import { resolveScopedClubs, resolveRequestedClubId } from './app-helpers.ts';
 
 const MAX_FIELD_LENGTH = 500;
 
@@ -20,7 +20,7 @@ export async function handleSponsorshipAction(input: {
   buildSuccessResponse: BuildSuccessResponse;
   createAppError: CreateAppError;
   normalizeLimit: NormalizeLimit;
-  requireAccessibleNetwork: RequireAccessibleNetwork;
+  requireAccessibleClub: RequireAccessibleClub;
   requireNonEmptyString: RequireNonEmptyString;
 }): Promise<unknown | null> {
   const {
@@ -31,14 +31,14 @@ export async function handleSponsorshipAction(input: {
     normalizeLimit,
     payload,
     repository,
-    requireAccessibleNetwork,
+    requireAccessibleClub,
     requireNonEmptyString,
     sharedContext,
   } = input;
 
   switch (action) {
     case 'sponsorships.create': {
-      const network = requireAccessibleNetwork(actor, payload.networkId);
+      const club = requireAccessibleClub(actor, payload.clubId);
 
       const name = requireNonEmptyString(payload.name, 'name');
       const nameWords = name.split(/\s+/).filter((w) => w.length > 0);
@@ -70,7 +70,7 @@ export async function handleSponsorshipAction(input: {
 
       const sponsorship = await repository.createSponsorship({
         actorMemberId: actor.member.id,
-        networkId: network.networkId,
+        clubId: club.clubId,
         candidateName,
         candidateEmail: email,
         candidateDetails: { socials },
@@ -81,8 +81,8 @@ export async function handleSponsorshipAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: network.networkId,
-          activeNetworkIds: [network.networkId],
+          requestedClubId: club.clubId,
+          activeClubIds: [club.clubId],
         },
         sharedContext,
         data: { sponsorship },
@@ -91,12 +91,12 @@ export async function handleSponsorshipAction(input: {
 
     case 'sponsorships.list': {
       const limit = normalizeLimit(payload.limit);
-      const networkScope = resolveScopedNetworks(actor, payload.networkId, requireAccessibleNetwork, createAppError);
-      const networkIds = networkScope.map((n) => n.networkId);
+      const clubScope = resolveScopedClubs(actor, payload.clubId, requireAccessibleClub, createAppError);
+      const clubIds = clubScope.map((n) => n.clubId);
 
       const results = await repository.listSponsorships({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
         limit,
       });
 
@@ -104,8 +104,8 @@ export async function handleSponsorshipAction(input: {
         action,
         actor,
         requestScope: {
-          requestedNetworkId: resolveRequestedNetworkId(payload.networkId),
-          activeNetworkIds: networkIds,
+          requestedClubId: resolveRequestedClubId(payload.clubId),
+          activeClubIds: clubIds,
         },
         sharedContext,
         data: { limit, results },

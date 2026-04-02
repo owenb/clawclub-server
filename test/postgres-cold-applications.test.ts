@@ -46,7 +46,7 @@ test('postgres applications repository creates a cold application challenge', as
         return { rows: [{ challenge_id: 'challenge-1', expires_at: expiresAt }], rowCount: 1 };
       }
 
-      if (sql.includes('from app.list_publicly_listed_networks()')) {
+      if (sql.includes('from app.list_publicly_listed_clubs()')) {
         return { rows: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }], rowCount: 1 };
       }
 
@@ -66,8 +66,8 @@ test('postgres applications repository creates a cold application challenge', as
 
   const challengeCall = calls.find((call) => call.sql.includes('from app.create_cold_application_challenge('));
   assert.deepEqual(challengeCall?.params, [7, 60 * 60 * 1000]);
-  const networksCall = calls.find((call) => call.sql.includes('from app.list_publicly_listed_networks()'));
-  assert.ok(networksCall);
+  const clubsCall = calls.find((call) => call.sql.includes('from app.list_publicly_listed_clubs()'));
+  assert.ok(clubsCall);
 });
 
 test('postgres applications repository verifies a solved cold application challenge', async () => {
@@ -109,7 +109,7 @@ test('postgres applications repository verifies a solved cold application challe
   const result = await repository.solveColdApplicationChallenge?.({
     challengeId,
     nonce,
-    networkSlug: 'alpha',
+    clubSlug: 'alpha',
     name: 'Jane Doe',
     email: 'jane@example.com',
     socials: '@janedoe',
@@ -162,7 +162,7 @@ test('postgres applications repository rejects invalid proof for cold applicatio
     () => repository.solveColdApplicationChallenge?.({
       challengeId,
       nonce: 'definitely-not-valid',
-      networkSlug: 'alpha',
+      clubSlug: 'alpha',
       name: 'Jane Doe',
       email: 'jane@example.com',
       socials: '@janedoe',

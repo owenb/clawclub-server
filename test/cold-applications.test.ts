@@ -10,7 +10,7 @@ const challengeStub = {
   clubs: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }],
 };
 
-test('applications.challenge returns a PoW challenge and public network list', async () => {
+test('applications.challenge returns a PoW challenge and public club list', async () => {
   const repository = {
     ...makeRepository(),
     async createColdApplicationChallenge() { return challengeStub; },
@@ -41,7 +41,7 @@ test('applications.solve rejects single-word name', async () => {
       action: 'applications.solve',
       payload: {
         challengeId: 'c1', nonce: '123',
-        networkSlug: 'alpha', name: 'Jane',
+        clubSlug: 'alpha', name: 'Jane',
         email: 'j@example.com', socials: '@jane', reason: 'I want to join',
       },
     }),
@@ -66,7 +66,7 @@ test('applications.solve rejects invalid email', async () => {
       action: 'applications.solve',
       payload: {
         challengeId: 'c1', nonce: '123',
-        networkSlug: 'alpha', name: 'Jane Doe',
+        clubSlug: 'alpha', name: 'Jane Doe',
         email: 'not-an-email', socials: '@jane', reason: 'I want to join',
       },
     }),
@@ -91,7 +91,7 @@ test('applications.solve rejects missing socials', async () => {
       action: 'applications.solve',
       payload: {
         challengeId: 'c1', nonce: '123',
-        networkSlug: 'alpha', name: 'Jane Doe',
+        clubSlug: 'alpha', name: 'Jane Doe',
         email: 'j@example.com', socials: '', reason: 'I want to join',
       },
     }),
@@ -115,7 +115,7 @@ test('applications.solve rejects missing reason', async () => {
       action: 'applications.solve',
       payload: {
         challengeId: 'c1', nonce: '123',
-        networkSlug: 'alpha', name: 'Jane Doe',
+        clubSlug: 'alpha', name: 'Jane Doe',
         email: 'j@example.com', socials: '@jane', reason: '',
       },
     }),
@@ -142,7 +142,7 @@ test('applications.solve forwards all fields to repository', async () => {
     action: 'applications.solve',
     payload: {
       challengeId: 'c1', nonce: '123',
-      networkSlug: 'alpha', name: '  Jane   Doe  ',
+      clubSlug: 'alpha', name: '  Jane   Doe  ',
       email: 'Jane@Example.COM', socials: '@janedoe on twitter', reason: 'Love the community',
     },
   });
@@ -152,7 +152,7 @@ test('applications.solve forwards all fields to repository', async () => {
   assert.equal(capturedInput.email, 'jane@example.com');
   assert.equal(capturedInput.socials, '@janedoe on twitter');
   assert.equal(capturedInput.reason, 'Love the community');
-  assert.equal(capturedInput.networkSlug, 'alpha');
+  assert.equal(capturedInput.clubSlug, 'alpha');
 });
 
 test('applications.solve rejects fields exceeding 500 characters', async () => {
@@ -164,10 +164,10 @@ test('applications.solve rejects fields exceeding 500 characters', async () => {
   const app = buildApp({ repository });
   const longString = 'x'.repeat(501);
 
-  for (const field of ['name', 'email', 'socials', 'reason', 'networkSlug']) {
+  for (const field of ['name', 'email', 'socials', 'reason', 'clubSlug']) {
     const payload: Record<string, string> = {
       challengeId: 'c1', nonce: '123',
-      networkSlug: 'alpha', name: 'Jane Doe',
+      clubSlug: 'alpha', name: 'Jane Doe',
       email: 'j@example.com', socials: '@jane', reason: 'test',
     };
     payload[field] = field === 'name' ? `${'x'.repeat(250)} ${'y'.repeat(250)}` : longString;

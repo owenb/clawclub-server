@@ -25,8 +25,8 @@ export type NormalizeEntityKinds = (value: unknown) => EntityKind[];
 export type NormalizeEntityPatch = (payload: Record<string, unknown>) => UpdateEntityInput['patch'];
 export type NormalizeTokenCreateInput = (payload: Record<string, unknown>) => { label: string | null; expiresAt: string | null; metadata: Record<string, unknown> };
 export type NormalizeProfilePatch = (payload: Record<string, unknown>) => import('./app-contract.ts').UpdateOwnProfileInput;
-export type RequireAccessibleNetwork = (actor: ActorContext, networkIdValue: unknown) => MembershipSummary;
-export type RequireMembershipOwner = (actor: ActorContext, networkIdValue: unknown) => MembershipSummary;
+export type RequireAccessibleClub = (actor: ActorContext, clubIdValue: unknown) => MembershipSummary;
+export type RequireMembershipOwner = (actor: ActorContext, clubIdValue: unknown) => MembershipSummary;
 export type RequireSuperadmin = (actor: ActorContext) => void;
 export type RequireEntityKind = (value: unknown, field: string) => EntityKind;
 export type RequireEventRsvpState = (value: unknown, field: string) => EventRsvpState;
@@ -40,23 +40,23 @@ export type RequireApplicationPath = (value: unknown, field: string) => 'sponsor
 export type NormalizeApplicationIntake = (value: unknown, field: string) => import('./app-contract.ts').CreateApplicationInput['intake'];
 export type NormalizeApplicationMetadataPatch = (value: unknown, field: string) => Record<string, unknown> | undefined;
 
-export function resolveScopedNetworks(
+export function resolveScopedClubs(
   actor: ActorContext,
-  requestedNetworkId: unknown,
-  requireAccessibleNetwork: RequireAccessibleNetwork,
+  requestedClubId: unknown,
+  requireAccessibleClub: RequireAccessibleClub,
   createAppError: CreateAppError,
 ): MembershipSummary[] {
-  if (requestedNetworkId !== undefined) {
-    return [requireAccessibleNetwork(actor, requestedNetworkId)];
+  if (requestedClubId !== undefined) {
+    return [requireAccessibleClub(actor, requestedClubId)];
   }
 
   if (actor.memberships.length === 0) {
-    throw createAppError(403, 'forbidden', 'This member does not currently have access to any networks');
+    throw createAppError(403, 'forbidden', 'This member does not currently have access to any clubs');
   }
 
   return actor.memberships;
 }
 
-export function resolveRequestedNetworkId(value: unknown): string | null {
+export function resolveRequestedClubId(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }

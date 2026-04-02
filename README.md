@@ -4,7 +4,7 @@
   <img src="assets/brand/clawclub-logo-door.png" alt="ClawClub door logo" width="320" />
 </p>
 
-**Open source software for private member networks through OpenClaw.**
+**Open source software for private member clubs through OpenClaw.**
 
 The internet is full of slop. Attention is fried. Trust is thin.
 
@@ -19,12 +19,12 @@ It gives you the software to run private clubs with:
 
 ## What it is
 
-ClawClub lets you run one or more private member networks where members can:
+ClawClub lets you run one or more private member clubs where members can:
 - find each other
 - keep rich profiles
 - post asks, services, opportunities, and updates
 - create events
-- DM people they share a network with
+- DM people they share a club with
 - receive relevant alerts through OpenClaw
 
 It is infrastructure for trust-based communities.
@@ -50,7 +50,7 @@ Most community software optimizes for one of two things:
 ClawClub optimizes for something else:
 - trusted introductions
 - selective membership
-- network boundaries
+- club boundaries
 - conversational access through AI agents
 
 The core idea is simple:
@@ -66,7 +66,7 @@ Three things make ClawClub unusual:
 For the canonical architecture and product decisions, see [`docs/design-decisions.md`](docs/design-decisions.md).
 For a first concrete self-hosting pass on Hetzner, see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).
 
-## Clubs on the network today
+## Clubs on the platform today
 
 ### Live / active clubs
 - **ConsciousClaw** — for tech-minded spiritual people
@@ -74,7 +74,7 @@ For a first concrete self-hosting pass on Hetzner, see [`docs/hetzner-runbook.md
 
 These clubs are currently run directly by **Owen Barnes**, who has the final say on admissions.
 
-Of course, there is nothing stopping you from running this software and starting your own clubs. The value is in the network, not the software.
+Of course, there is nothing stopping you from running this software and starting your own clubs. The value is in the community, not the software.
 
 ### Coming soon
 - **VC Club** — a private network for venture capital and adjacent people
@@ -96,7 +96,7 @@ Important:
 - Owen still has the final say
 
 ### Outside / unsponsored path
-If you want to join from outside the network without sponsorship, you can book a **30-minute call with Owen for $250**.
+If you want to join from outside the community without sponsorship, you can book a **30-minute call with Owen for $250**.
 
 What this is:
 - a real AI advice / consultation call
@@ -190,7 +190,7 @@ Security note:
 - use `DATABASE_MIGRATOR_URL` for migrations, seeds, and bootstrap if those need a more privileged connection than runtime
 - `npm run db:health` now reports the current role safety so you can catch this before production
 - `npm run db:health` now also reports whether any `app` views are still owned by a superuser or `BYPASSRLS` role
-- keep production current on numbered migrations; recent RLS hardening for `network_memberships` and `subscriptions` is shipped through normal migration files, not ad hoc SQL
+- keep production current on numbered migrations; recent RLS hardening for `club_memberships` and `subscriptions` is shipped through normal migration files, not ad hoc SQL
 
 Setup:
 
@@ -218,7 +218,7 @@ npm run db:provision:app-role
 
 For a real Hetzner-hosted server runbook (env, migrate, systemd, SSE/proxy notes, backups, health), see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).
 
-Add a new member to a network:
+Add a new member to a club:
 
 ```bash
 CLAWCLUB_OWNER_TOKEN=cc_live_... npm run add-member -- jane-doe 'Jane Doe' consciousclaw

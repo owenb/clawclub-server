@@ -49,10 +49,10 @@ export async function handlePlatformAction(input: {
       });
 
     case 'quotas.status': {
-      const networkIds = actor.memberships.map((m) => m.networkId);
+      const clubIds = actor.memberships.map((m) => m.clubId);
       const quotas = await repository.getQuotaStatus({
         actorMemberId: actor.member.id,
-        networkIds,
+        clubIds,
       });
 
       return buildSuccessResponse({
@@ -64,10 +64,10 @@ export async function handlePlatformAction(input: {
       });
     }
 
-    case 'networks.list': {
+    case 'clubs.list': {
       requireSuperadmin(actor);
       const includeArchived = payload.includeArchived === true;
-      const networks = await repository.listNetworks?.({
+      const clubs = await repository.listClubs?.({
         actorMemberId: actor.member.id,
         includeArchived,
       });
@@ -79,14 +79,14 @@ export async function handlePlatformAction(input: {
         sharedContext,
         data: {
           includeArchived,
-          networks: networks ?? [],
+          clubs: clubs ?? [],
         },
       });
     }
 
-    case 'networks.create': {
+    case 'clubs.create': {
       requireSuperadmin(actor);
-      const network = await repository.createNetwork?.({
+      const club = await repository.createClub?.({
         actorMemberId: actor.member.id,
         slug: requireNonEmptyString(payload.slug, 'slug'),
         name: requireNonEmptyString(payload.name, 'name'),
@@ -95,66 +95,66 @@ export async function handlePlatformAction(input: {
         ownerMemberId: requireNonEmptyString(payload.ownerMemberId, 'ownerMemberId'),
       });
 
-      if (!network) {
-        throw createAppError(404, 'not_found', 'Owner member not found for network create');
+      if (!club) {
+        throw createAppError(404, 'not_found', 'Owner member not found for club create');
       }
 
       return buildSuccessResponse({
         action,
         actor,
         requestScope: {
-          requestedNetworkId: network.networkId,
-          activeNetworkIds: [network.networkId],
+          requestedClubId: club.clubId,
+          activeClubIds: [club.clubId],
         },
         sharedContext,
-        data: { network },
+        data: { club },
       });
     }
 
-    case 'networks.archive': {
+    case 'clubs.archive': {
       requireSuperadmin(actor);
-      const network = await repository.archiveNetwork?.({
+      const club = await repository.archiveClub?.({
         actorMemberId: actor.member.id,
-        networkId: requireNonEmptyString(payload.networkId, 'networkId'),
+        clubId: requireNonEmptyString(payload.clubId, 'clubId'),
       });
 
-      if (!network) {
-        throw createAppError(404, 'not_found', 'Network not found for archive');
+      if (!club) {
+        throw createAppError(404, 'not_found', 'Club not found for archive');
       }
 
       return buildSuccessResponse({
         action,
         actor,
         requestScope: {
-          requestedNetworkId: network.networkId,
-          activeNetworkIds: [network.networkId],
+          requestedClubId: club.clubId,
+          activeClubIds: [club.clubId],
         },
         sharedContext,
-        data: { network },
+        data: { club },
       });
     }
 
-    case 'networks.assignOwner': {
+    case 'clubs.assignOwner': {
       requireSuperadmin(actor);
-      const network = await repository.assignNetworkOwner?.({
+      const club = await repository.assignClubOwner?.({
         actorMemberId: actor.member.id,
-        networkId: requireNonEmptyString(payload.networkId, 'networkId'),
+        clubId: requireNonEmptyString(payload.clubId, 'clubId'),
         ownerMemberId: requireNonEmptyString(payload.ownerMemberId, 'ownerMemberId'),
       });
 
-      if (!network) {
-        throw createAppError(404, 'not_found', 'Network or owner member not found for owner assignment');
+      if (!club) {
+        throw createAppError(404, 'not_found', 'Club or owner member not found for owner assignment');
       }
 
       return buildSuccessResponse({
         action,
         actor,
         requestScope: {
-          requestedNetworkId: network.networkId,
-          activeNetworkIds: [network.networkId],
+          requestedClubId: club.clubId,
+          activeClubIds: [club.clubId],
         },
         sharedContext,
-        data: { network },
+        data: { club },
       });
     }
 

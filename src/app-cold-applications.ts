@@ -73,7 +73,7 @@ export async function handleColdApplicationAction(input: {
       const solved = await repository.solveColdApplicationChallenge({
         challengeId: requireBoundedString(payload.challengeId, 'challengeId', requireNonEmptyString, createAppError),
         nonce: requireBoundedString(payload.nonce, 'nonce', requireNonEmptyString, createAppError),
-        networkSlug: requireBoundedString(payload.networkSlug, 'networkSlug', requireNonEmptyString, createAppError),
+        clubSlug: requireBoundedString(payload.clubSlug, 'clubSlug', requireNonEmptyString, createAppError),
         name: normalizeApplicantFullName(payload.name, requireNonEmptyString, createAppError),
         email: normalizeApplicantEmail(payload.email, requireNonEmptyString, createAppError),
         socials: requireBoundedString(payload.socials, 'socials', requireNonEmptyString, createAppError),
@@ -81,7 +81,7 @@ export async function handleColdApplicationAction(input: {
       } satisfies SolveColdApplicationChallengeInput);
 
       if (!solved) {
-        throw createAppError(404, 'not_found', 'Requested challenge was not found or the network does not exist');
+        throw createAppError(404, 'not_found', 'Requested challenge was not found or the club does not exist');
       }
 
       return {

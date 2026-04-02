@@ -44,10 +44,10 @@ function makeAuthResult(): AuthResult {
       memberships: [
         {
           membershipId: 'membership-1',
-          networkId: 'network-conscious',
+          clubId: 'club-conscious',
           slug: 'conscious-engineers',
           name: 'Conscious Engineers',
-          summary: 'Private member network',
+          summary: 'Private member club',
           manifestoMarkdown: null,
           role: 'owner',
           status: 'active',
@@ -57,8 +57,8 @@ function makeAuthResult(): AuthResult {
       ],
     },
     requestScope: {
-      requestedNetworkId: null,
-      activeNetworkIds: ['network-conscious'],
+      requestedClubId: null,
+      activeClubIds: ['club-conscious'],
     },
     sharedContext: {
       pendingUpdates: [
@@ -66,7 +66,7 @@ function makeAuthResult(): AuthResult {
           updateId: 'update-1',
           streamSeq: 1,
           recipientMemberId: 'member-1',
-          networkId: 'network-conscious',
+          clubId: 'club-conscious',
           entityId: null,
           entityVersionId: null,
           transcriptMessageId: 'message-2',
@@ -92,14 +92,14 @@ function makeMemberSearchResult(): MemberSearchResult {
     knownFor: 'Fast execution',
     servicesSummary: 'Fractional technical leadership',
     websiteUrl: 'https://ava.example.test',
-    sharedNetworks: [{ id: 'network-conscious', slug: 'conscious-engineers', name: 'Conscious Engineers' }],
+    sharedClubs: [{ id: 'club-conscious', slug: 'conscious-engineers', name: 'Conscious Engineers' }],
   };
 }
 
 function makeMembershipReview(): MembershipReviewSummary {
   return {
     membershipId: 'membership-review-1',
-    networkId: 'network-conscious',
+    clubId: 'club-conscious',
     member: { memberId: 'member-7', publicName: 'Lina Vector', handle: 'lina' },
     sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
     role: 'member',
@@ -133,7 +133,7 @@ function makeMembershipReview(): MembershipReviewSummary {
 function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
   return {
     applicationId: 'application-1',
-    networkId: 'network-conscious',
+    clubId: 'club-conscious',
     applicant: { memberId: 'member-7', publicName: 'Lina Vector', handle: 'lina', email: null },
     sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
     membershipId: null,
@@ -185,14 +185,14 @@ function makeProfile(): MemberProfile {
       createdByMemberId: 'member-1',
       embedding: null,
     },
-    sharedNetworks: [{ id: 'network-conscious', slug: 'conscious-engineers', name: 'Conscious Engineers' }],
+    sharedClubs: [{ id: 'club-conscious', slug: 'conscious-engineers', name: 'Conscious Engineers' }],
   };
 }
 
 function makeInboxThread(): DirectMessageInboxSummary {
   return {
     threadId: 'thread-1',
-    networkId: 'network-conscious',
+    clubId: 'club-conscious',
     counterpartMemberId: 'member-2',
     counterpartPublicName: 'Ava Builder',
     counterpartHandle: 'ava',
@@ -217,7 +217,7 @@ function makeTranscript(): { thread: DirectMessageThreadSummary; messages: Direc
   return {
     thread: {
       threadId: 'thread-1',
-      networkId: 'network-conscious',
+      clubId: 'club-conscious',
       counterpartMemberId: 'member-2',
       counterpartPublicName: 'Ava Builder',
       counterpartHandle: 'ava',
@@ -260,7 +260,7 @@ function makeTranscript(): { thread: DirectMessageThreadSummary; messages: Direc
 function makeSentMessage(): DirectMessageSummary {
   return {
     threadId: 'thread-1',
-    networkId: 'network-conscious',
+    clubId: 'club-conscious',
     senderMemberId: 'member-1',
     recipientMemberId: 'member-2',
     messageId: 'message-3',
@@ -274,7 +274,7 @@ function makeEvent(): EventSummary {
   return {
     entityId: 'event-1',
     entityVersionId: 'event-version-1',
-    networkId: 'network-conscious',
+    clubId: 'club-conscious',
     author: {
       memberId: 'member-1',
       publicName: 'Owen',
@@ -485,8 +485,8 @@ const smokeScenarios: SmokeScenario[] = [
     name: 'admissions operator flow',
     prompt: 'Review pending admissions, check submitted applications, book Lina for interview, then accept and activate her membership once the interview is complete.',
     steps: [
-      { type: 'tool', toolName: 'memberships_review', args: { networkId: 'network-conscious', limit: 5 } },
-      { type: 'tool', toolName: 'applications_list', args: { networkId: 'network-conscious', statuses: ['submitted'], limit: 5 } },
+      { type: 'tool', toolName: 'memberships_review', args: { clubId: 'club-conscious', limit: 5 } },
+      { type: 'tool', toolName: 'applications_list', args: { clubId: 'club-conscious', statuses: ['submitted'], limit: 5 } },
       { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'interview_scheduled', notes: 'Booked fit check', intake: { bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' } } },
       { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'accepted', notes: 'Interview complete and accepted', membershipId: 'membership-1', activateMembership: true, activationReason: 'Interview passed and owner approved', intake: { completedAt: '2026-03-14T10:30:00Z' } } },
       { type: 'text', text: 'Lina looks clean all the way through. I reviewed the queue, scheduled the interview, then accepted the application and activated the linked membership.' },
@@ -501,7 +501,7 @@ const smokeScenarios: SmokeScenario[] = [
   },
   {
     name: 'member search',
-    prompt: 'Find me a backend/AI builder in my network.',
+    prompt: 'Find me a backend/AI builder in my club.',
     steps: [
       { type: 'tool', toolName: 'session_describe', args: {} },
       { type: 'tool', toolName: 'members_search', args: { query: 'backend AI builder', limit: 3 } },
@@ -532,7 +532,7 @@ const smokeScenarios: SmokeScenario[] = [
     steps: [
       { type: 'tool', toolName: 'messages_inbox', args: { unreadOnly: true, limit: 5 } },
       { type: 'tool', toolName: 'messages_read', args: { threadId: 'thread-1', limit: 10 } },
-      { type: 'tool', toolName: 'messages_send', args: { recipientMemberId: 'member-2', networkId: 'network-conscious', messageText: 'Perfect — let us do 15:00 UTC tomorrow.' } },
+      { type: 'tool', toolName: 'messages_send', args: { recipientMemberId: 'member-2', clubId: 'club-conscious', messageText: 'Perfect — let us do 15:00 UTC tomorrow.' } },
       { type: 'text', text: 'Inbox checked, thread read, and reply sent to Ava.' },
     ],
     assert: ({ text, callLog }) => {
@@ -547,7 +547,7 @@ const smokeScenarios: SmokeScenario[] = [
     prompt: 'Check whether we already have a Hetzner operator event, then create one for Saturday at 15:00 UTC if needed.',
     steps: [
       { type: 'tool', toolName: 'events_list', args: { query: 'Hetzner operator', limit: 5 } },
-      { type: 'tool', toolName: 'events_create', args: { networkId: 'network-conscious', title: 'Hetzner operator session', summary: 'Review rollout plan', body: 'Short sync for infra assumptions and next steps', startsAt: '2026-03-14T15:00:00Z', endsAt: '2026-03-14T15:30:00Z', timezone: 'UTC', capacity: 6 } },
+      { type: 'tool', toolName: 'events_create', args: { clubId: 'club-conscious', title: 'Hetzner operator session', summary: 'Review rollout plan', body: 'Short sync for infra assumptions and next steps', startsAt: '2026-03-14T15:00:00Z', endsAt: '2026-03-14T15:30:00Z', timezone: 'UTC', capacity: 6 } },
       { type: 'text', text: 'Checked the existing Hetzner operator events and created the next session for Saturday at 15:00 UTC.' },
     ],
     assert: ({ text, callLog }) => {

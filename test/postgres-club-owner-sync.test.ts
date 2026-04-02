@@ -6,12 +6,12 @@ const databaseUrl = process.env.DATABASE_URL;
 
 function requireDatabaseUrl(): string {
   if (!databaseUrl) {
-    throw new Error('DATABASE_URL must be set for network owner sync tests');
+    throw new Error('DATABASE_URL must be set for club owner sync tests');
   }
   return databaseUrl;
 }
 
-test('network owner root column mirrors owner history and rejects direct updates', async () => {
+test('club owner root column mirrors owner history and rejects direct updates', async () => {
   const pool = new Pool({ connectionString: requireDatabaseUrl() });
   const client = await pool.connect();
   const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -42,50 +42,50 @@ test('network owner root column mirrors owner history and rejects direct updates
       [originalOwnerId],
     );
 
-    const networkId = (await client.query<{ id: string }>(
-      `insert into app.networks (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
+    const clubId = (await client.query<{ id: string }>(
+      `insert into app.clubs (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
       [`owner-sync-${suffix}`, `Owner Sync ${suffix}`, originalOwnerId, 'Owner compatibility sync test'],
     )).rows[0]!.id;
 
     await client.query(
       `
-        insert into app.network_owner_versions (
-          network_id,
+        insert into app.club_owner_versions (
+          club_id,
           owner_member_id,
           version_no,
           created_by_member_id
         )
         values ($1, $2, 1, $3)
       `,
-      [networkId, originalOwnerId, originalOwnerId],
+      [clubId, originalOwnerId, originalOwnerId],
     );
 
     await client.query(
       `
-        insert into app.network_owner_versions (
-          network_id,
+        insert into app.club_owner_versions (
+          club_id,
           owner_member_id,
           version_no,
           supersedes_owner_version_id,
           created_by_member_id
         )
         select $1::app.short_id, $2::app.short_id, 2, cno.id, $3::app.short_id
-        from app.current_network_owners cno
-        where cno.network_id = $1::app.short_id
+        from app.current_club_owners cno
+        where cno.club_id = $1::app.short_id
       `,
-      [networkId, nextOwnerId, originalOwnerId],
+      [clubId, nextOwnerId, originalOwnerId],
     );
 
     const mirroredOwner = await client.query<{ owner_member_id: string }>(
-      `select owner_member_id from app.networks where id = $1`,
-      [networkId],
+      `select owner_member_id from app.clubs where id = $1`,
+      [clubId],
     );
 
     assert.equal(mirroredOwner.rows[0]?.owner_member_id, nextOwnerId);
 
     await assert.rejects(
-      client.query(`update app.networks set owner_member_id = $2 where id = $1`, [networkId, originalOwnerId]),
-      /network_owner_versions/,
+      client.query(`update app.clubs set owner_member_id = $2 where id = $1`, [clubId, originalOwnerId]),
+      /club_owner_versions/,
     );
   } finally {
     await client.query('rollback').catch(() => {});

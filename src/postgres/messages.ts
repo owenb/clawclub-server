@@ -15,7 +15,7 @@ import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts'
 
 type DirectMessageRow = {
   thread_id: string;
-  network_id: string;
+  club_id: string;
   sender_member_id: string;
   recipient_member_id: string;
   message_id: string;
@@ -26,7 +26,7 @@ type DirectMessageRow = {
 
 type DirectMessageThreadRow = {
   thread_id: string;
-  network_id: string;
+  club_id: string;
   counterpart_member_id: string;
   counterpart_public_name: string;
   counterpart_handle: string | null;
@@ -60,7 +60,7 @@ type DirectMessageTranscriptRow = {
 
 type DirectMessageInboxRow = {
   thread_id: string;
-  network_id: string;
+  club_id: string;
   counterpart_member_id: string;
   counterpart_public_name: string;
   counterpart_handle: string | null;
@@ -79,7 +79,7 @@ type DirectMessageInboxRow = {
 function mapDirectMessageRow(row: DirectMessageRow): DirectMessageSummary {
   return {
     threadId: row.thread_id,
-    networkId: row.network_id,
+    clubId: row.club_id,
     senderMemberId: row.sender_member_id,
     recipientMemberId: row.recipient_member_id,
     messageId: row.message_id,
@@ -92,7 +92,7 @@ function mapDirectMessageRow(row: DirectMessageRow): DirectMessageSummary {
 function mapDirectMessageThreadRow(row: DirectMessageThreadRow): DirectMessageThreadSummary {
   return {
     threadId: row.thread_id,
-    networkId: row.network_id,
+    clubId: row.club_id,
     counterpartMemberId: row.counterpart_member_id,
     counterpartPublicName: row.counterpart_public_name,
     counterpartHandle: row.counterpart_handle,
@@ -124,7 +124,7 @@ function mapDirectMessageTranscriptRow(row: DirectMessageTranscriptRow): DirectM
 function mapDirectMessageInboxRow(row: DirectMessageInboxRow): DirectMessageInboxSummary {
   return {
     threadId: row.thread_id,
-    networkId: row.network_id,
+    clubId: row.club_id,
     counterpartMemberId: row.counterpart_member_id,
     counterpartPublicName: row.counterpart_public_name,
     counterpartHandle: row.counterpart_handle,
@@ -145,25 +145,25 @@ function mapDirectMessageInboxRow(row: DirectMessageInboxRow): DirectMessageInbo
   };
 }
 
-async function listDirectMessageThreads(client: DbClient, actorMemberId: string, networkIds: string[], limit: number): Promise<DirectMessageThreadSummary[]> {
+async function listDirectMessageThreads(client: DbClient, actorMemberId: string, clubIds: string[], limit: number): Promise<DirectMessageThreadSummary[]> {
   const result = await client.query<DirectMessageThreadRow>(
     `
       with scope as (
-        select unnest($2::text[])::app.short_id as network_id
+        select unnest($2::text[])::app.short_id as club_id
       ),
       thread_scope as (
         select
           participant.thread_id,
-          participant.network_id,
+          participant.club_id,
           participant.counterpart_member_id
         from app.current_dm_thread_participants participant
-        join scope s on s.network_id = participant.network_id
+        join scope s on s.club_id = participant.club_id
         where participant.participant_member_id = $1
       ),
       message_ranked as (
         select
           ts.thread_id,
-          ts.network_id,
+          ts.club_id,
           ts.counterpart_member_id,
           tm.id as latest_message_id,
           tm.sender_member_id as latest_sender_member_id,
@@ -177,7 +177,7 @@ async function listDirectMessageThreads(client: DbClient, actorMemberId: string,
       )
       select
         mr.thread_id,
-        mr.network_id,
+        mr.club_id,
         mr.counterpart_member_id,
         m.public_name as counterpart_public_name,
         m.handle as counterpart_handle,
@@ -193,7 +193,7 @@ async function listDirectMessageThreads(client: DbClient, actorMemberId: string,
       order by mr.latest_created_at desc, mr.thread_id desc
       limit $3
     `,
-    [actorMemberId, networkIds, limit],
+    [actorMemberId, clubIds, limit],
   );
 
   return result.rows.map(mapDirectMessageThreadRow);
@@ -202,7 +202,7 @@ async function listDirectMessageThreads(client: DbClient, actorMemberId: string,
 async function listDirectMessageInbox(
   client: DbClient,
   actorMemberId: string,
-  networkIds: string[],
+  clubIds: string[],
   limit: number,
   unreadOnly: boolean,
 ): Promise<DirectMessageInboxSummary[]> {
@@ -210,7 +210,7 @@ async function listDirectMessageInbox(
     `
       select
         inbox.thread_id,
-        inbox.network_id,
+        inbox.club_id,
         inbox.counterpart_member_id,
         m.public_name as counterpart_public_name,
         m.handle as counterpart_handle,
@@ -227,7 +227,7 @@ async function listDirectMessageInbox(
       from app.current_dm_inbox_threads inbox
       join app.members m on m.id = inbox.counterpart_member_id and m.state = 'active'
       where inbox.recipient_member_id = $1
-        and inbox.network_id = any($2::app.short_id[])
+        and inbox.club_id = any($2::app.short_id[])
         and ($3::boolean = false or inbox.has_unread)
       order by
         inbox.has_unread desc,
@@ -235,7 +235,7 @@ async function listDirectMessageInbox(
         inbox.thread_id desc
       limit $4
     `,
-    [actorMemberId, networkIds, unreadOnly, limit],
+    [actorMemberId, clubIds, unreadOnly, limit],
   );
 
   return result.rows.map(mapDirectMessageInboxRow);
@@ -244,7 +244,7 @@ async function listDirectMessageInbox(
 async function readDirectMessageThread(
   client: DbClient,
   actorMemberId: string,
-  accessibleNetworkIds: string[],
+  accessibleClubIds: string[],
   threadId: string,
   limit: number,
 ): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null> {
@@ -253,17 +253,17 @@ async function readDirectMessageThread(
       with thread_scope as (
         select
           participant.thread_id,
-          participant.network_id,
+          participant.club_id,
           participant.counterpart_member_id
         from app.current_dm_thread_participants participant
         where participant.participant_member_id = $1
           and participant.thread_id = $2
-          and participant.network_id = any($3::app.short_id[])
+          and participant.club_id = any($3::app.short_id[])
       ),
       message_ranked as (
         select
           ts.thread_id,
-          ts.network_id,
+          ts.club_id,
           ts.counterpart_member_id,
           tm.id as latest_message_id,
           tm.sender_member_id as latest_sender_member_id,
@@ -277,7 +277,7 @@ async function readDirectMessageThread(
       )
       select
         mr.thread_id,
-        mr.network_id,
+        mr.club_id,
         mr.counterpart_member_id,
         m.public_name as counterpart_public_name,
         m.handle as counterpart_handle,
@@ -291,7 +291,7 @@ async function readDirectMessageThread(
       join app.members m on m.id = mr.counterpart_member_id and m.state = 'active'
       where mr.row_no = 1
     `,
-    [actorMemberId, threadId, accessibleNetworkIds],
+    [actorMemberId, threadId, accessibleClubIds],
   );
 
   const thread = threadResult.rows[0];
@@ -370,48 +370,48 @@ export function buildMessagesRepository({
       const client = await pool.connect();
       try {
         await client.query('begin');
-        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
+        await applyActorContext(client, input.actorMemberId, input.accessibleClubIds);
 
-        const scopeResult = await client.query<{ network_id: string }>(
+        const scopeResult = await client.query<{ club_id: string }>(
           `
             with actor_scope as (
-              select distinct network_id
-              from app.accessible_network_memberships
+              select distinct club_id
+              from app.accessible_club_memberships
               where member_id = $1
-                and network_id = any($2::app.short_id[])
+                and club_id = any($2::app.short_id[])
             ),
             shared_scope as (
-              select actor_scope.network_id
+              select actor_scope.club_id
               from actor_scope
-              join app.accessible_network_memberships recipient_scope
-                on recipient_scope.network_id = actor_scope.network_id
+              join app.accessible_club_memberships recipient_scope
+                on recipient_scope.club_id = actor_scope.club_id
              where recipient_scope.member_id = $3
             )
-            select network_id
+            select club_id
             from shared_scope
-            where ($4::app.short_id is null or network_id = $4)
-            order by network_id asc
+            where ($4::app.short_id is null or club_id = $4)
+            order by club_id asc
             limit 1
           `,
-          [input.actorMemberId, input.accessibleNetworkIds, input.recipientMemberId, input.networkId ?? null],
+          [input.actorMemberId, input.accessibleClubIds, input.recipientMemberId, input.clubId ?? null],
         );
 
-        const networkId = scopeResult.rows[0]?.network_id;
-        if (!networkId) {
+        const clubId = scopeResult.rows[0]?.club_id;
+        if (!clubId) {
           await client.query('rollback');
           return null;
         }
 
-        await enforceQuota(client, input.actorMemberId, networkId, 'messages.send');
+        await enforceQuota(client, input.actorMemberId, clubId, 'messages.send');
 
         const insertedThread = await client.query<{ id: string }>(
           `
-            insert into app.transcript_threads (network_id, kind, created_by_member_id, counterpart_member_id)
+            insert into app.transcript_threads (club_id, kind, created_by_member_id, counterpart_member_id)
             values ($1, 'dm', $2, $3)
             on conflict do nothing
             returning id
           `,
-          [networkId, input.actorMemberId, input.recipientMemberId],
+          [clubId, input.actorMemberId, input.recipientMemberId],
         );
 
         let threadId = insertedThread.rows[0]?.id;
@@ -420,13 +420,13 @@ export function buildMessagesRepository({
             `
               select participant.thread_id as id
               from app.current_dm_thread_participants participant
-              where participant.network_id = $1
+              where participant.club_id = $1
                 and participant.participant_member_id = $2
                 and participant.counterpart_member_id = $3
               order by participant.thread_id asc
               limit 1
             `,
-            [networkId, input.actorMemberId, input.recipientMemberId],
+            [clubId, input.actorMemberId, input.recipientMemberId],
           );
           threadId = requireReturnedRow(
             existingThread.rows[0],
@@ -461,7 +461,7 @@ export function buildMessagesRepository({
 
         const updateCount = await appendDirectMessageUpdate(client, {
           recipientMemberId: input.recipientMemberId,
-          networkId,
+          clubId,
           transcriptMessageId: message.id,
           createdByMemberId: input.actorMemberId,
           payload: {
@@ -479,7 +479,7 @@ export function buildMessagesRepository({
         await client.query('commit');
         return mapDirectMessageRow({
           thread_id: threadId,
-          network_id: networkId,
+          club_id: clubId,
           sender_member_id: input.actorMemberId,
           recipient_member_id: input.recipientMemberId,
           message_id: message.id,
@@ -495,21 +495,21 @@ export function buildMessagesRepository({
       }
     },
 
-    async listDirectMessageThreads({ actorMemberId, networkIds, limit }) {
-      return withActorContext(pool, actorMemberId, networkIds, (client) =>
-        listDirectMessageThreads(client, actorMemberId, networkIds, limit),
+    async listDirectMessageThreads({ actorMemberId, clubIds, limit }) {
+      return withActorContext(pool, actorMemberId, clubIds, (client) =>
+        listDirectMessageThreads(client, actorMemberId, clubIds, limit),
       );
     },
 
-    async listDirectMessageInbox({ actorMemberId, networkIds, limit, unreadOnly }) {
-      return withActorContext(pool, actorMemberId, networkIds, (client) =>
-        listDirectMessageInbox(client, actorMemberId, networkIds, limit, unreadOnly),
+    async listDirectMessageInbox({ actorMemberId, clubIds, limit, unreadOnly }) {
+      return withActorContext(pool, actorMemberId, clubIds, (client) =>
+        listDirectMessageInbox(client, actorMemberId, clubIds, limit, unreadOnly),
       );
     },
 
-    async readDirectMessageThread({ actorMemberId, accessibleNetworkIds, threadId, limit }) {
-      return withActorContext(pool, actorMemberId, accessibleNetworkIds, (client) =>
-        readDirectMessageThread(client, actorMemberId, accessibleNetworkIds, threadId, limit),
+    async readDirectMessageThread({ actorMemberId, accessibleClubIds, threadId, limit }) {
+      return withActorContext(pool, actorMemberId, accessibleClubIds, (client) =>
+        readDirectMessageThread(client, actorMemberId, accessibleClubIds, threadId, limit),
       );
     },
   };

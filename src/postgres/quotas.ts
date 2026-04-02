@@ -14,24 +14,24 @@ export const DEFAULT_QUOTAS: Record<string, number> = {
 export async function resolveQuota(
   client: DbClient,
   actorMemberId: string,
-  networkId: string,
+  clubId: string,
   action: string,
 ): Promise<QuotaAllowance> {
   const policyResult = await client.query<{ max_per_day: number }>(
-    `select max_per_day from app.network_quota_policies where network_id = $1 and action_name = $2`,
-    [networkId, action],
+    `select max_per_day from app.club_quota_policies where club_id = $1 and action_name = $2`,
+    [clubId, action],
   );
   const maxPerDay = policyResult.rows[0]?.max_per_day ?? DEFAULT_QUOTAS[action];
 
   const usageResult = await client.query<{ count: number }>(
     `select app.count_member_writes_today($1, $2, $3) as count`,
-    [actorMemberId, networkId, action],
+    [actorMemberId, clubId, action],
   );
   const usedToday = usageResult.rows[0]?.count ?? 0;
 
   return {
     action,
-    networkId,
+    clubId,
     maxPerDay,
     usedToday,
     remaining: Math.max(0, maxPerDay - usedToday),
@@ -41,15 +41,15 @@ export async function resolveQuota(
 export async function enforceQuota(
   client: DbClient,
   actorMemberId: string,
-  networkId: string,
+  clubId: string,
   action: string,
 ): Promise<void> {
-  const quota = await resolveQuota(client, actorMemberId, networkId, action);
+  const quota = await resolveQuota(client, actorMemberId, clubId, action);
   if (quota.remaining <= 0) {
     throw new AppError(
       429,
       'quota_exceeded',
-      `Daily quota exceeded for ${action} in this network (${quota.usedToday}/${quota.maxPerDay})`,
+      `Daily quota exceeded for ${action} in this club (${quota.usedToday}/${quota.maxPerDay})`,
     );
   }
 }
@@ -63,12 +63,12 @@ export function buildQuotaRepository({
 }): Pick<Repository, 'getQuotaStatus'> {
   return {
     async getQuotaStatus(input) {
-      return withActorContext(pool, input.actorMemberId, input.networkIds, async (client) => {
+      return withActorContext(pool, input.actorMemberId, input.clubIds, async (client) => {
         const allowances: QuotaAllowance[] = [];
 
-        for (const networkId of input.networkIds) {
+        for (const clubId of input.clubIds) {
           for (const action of QUOTA_ACTIONS) {
-            allowances.push(await resolveQuota(client, input.actorMemberId, networkId, action));
+            allowances.push(await resolveQuota(client, input.actorMemberId, clubId, action));
           }
         }
 

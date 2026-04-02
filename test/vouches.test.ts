@@ -28,7 +28,7 @@ test('vouches.create creates a vouch for another member', async () => {
   const result: any = await app.handleAction({
     bearerToken: 'test-token',
     action: 'vouches.create',
-    payload: { networkId: 'network-1', memberId: 'member-2', reason: 'Excellent engineer, shipped the API in a week' },
+    payload: { clubId: 'club-1', memberId: 'member-2', reason: 'Excellent engineer, shipped the API in a week' },
   });
 
   assert.equal(result.action, 'vouches.create');
@@ -49,7 +49,7 @@ test('vouches.create rejects self-vouch at app layer', async () => {
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'vouches.create',
-      payload: { networkId: 'network-1', memberId: 'member-1', reason: 'I vouch for myself' },
+      payload: { clubId: 'club-1', memberId: 'member-1', reason: 'I vouch for myself' },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 400);
@@ -75,7 +75,7 @@ test('vouches.create rejects duplicate vouch (23505 unique violation)', async ()
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'vouches.create',
-      payload: { networkId: 'network-1', memberId: 'member-2', reason: 'Solid contributor' },
+      payload: { clubId: 'club-1', memberId: 'member-2', reason: 'Solid contributor' },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 409);
@@ -96,7 +96,7 @@ test('vouches.create rejects missing reason', async () => {
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'vouches.create',
-      payload: { networkId: 'network-1', memberId: 'member-2' },
+      payload: { clubId: 'club-1', memberId: 'member-2' },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 400);
@@ -117,7 +117,7 @@ test('vouches.create rejects reason exceeding 500 characters', async () => {
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'vouches.create',
-      payload: { networkId: 'network-1', memberId: 'member-2', reason: 'x'.repeat(501) },
+      payload: { clubId: 'club-1', memberId: 'member-2', reason: 'x'.repeat(501) },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 400);
@@ -127,7 +127,7 @@ test('vouches.create rejects reason exceeding 500 characters', async () => {
   );
 });
 
-test('vouches.create returns 404 when target is not in network', async () => {
+test('vouches.create returns 404 when target is not in club', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -139,7 +139,7 @@ test('vouches.create returns 404 when target is not in network', async () => {
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'vouches.create',
-      payload: { networkId: 'network-1', memberId: 'member-99', reason: 'Great person' },
+      payload: { clubId: 'club-1', memberId: 'member-99', reason: 'Great person' },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 404);
@@ -160,7 +160,7 @@ test('vouches.list returns vouches for a member', async () => {
   const result: any = await app.handleAction({
     bearerToken: 'test-token',
     action: 'vouches.list',
-    payload: { memberId: 'member-2', networkId: 'network-1' },
+    payload: { memberId: 'member-2', clubId: 'club-1' },
   });
 
   assert.equal(result.action, 'vouches.list');
@@ -169,7 +169,7 @@ test('vouches.list returns vouches for a member', async () => {
   assert.equal(result.data.memberId, 'member-2');
 });
 
-test('vouches.create rejects network outside actor scope', async () => {
+test('vouches.create rejects club outside actor scope', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -180,7 +180,7 @@ test('vouches.create rejects network outside actor scope', async () => {
     () => app.handleAction({
       bearerToken: 'test-token',
       action: 'vouches.create',
-      payload: { networkId: 'network-999', memberId: 'member-2', reason: 'Good member' },
+      payload: { clubId: 'club-999', memberId: 'member-2', reason: 'Good member' },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 403);

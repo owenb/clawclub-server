@@ -14,7 +14,7 @@ type SessionDescribeResponse = {
       publicName: string;
     };
     activeMemberships: Array<{
-      networkId: string;
+      clubId: string;
     }>;
   };
   data: Record<string, never>;
@@ -26,7 +26,7 @@ type UpdatesResponse = {
     id: string;
   };
   requestScope: {
-    activeNetworkIds: string[];
+    activeClubIds: string[];
   };
   updates: {
     items: unknown[];
@@ -196,7 +196,7 @@ async function getUpdates(baseUrl: string, bearerToken: string, limit: number): 
 
 export async function runHttpSmoke(): Promise<{
   memberId: string;
-  networkId: string;
+  clubId: string;
   actions: string[];
 }> {
   const runtimeDatabaseUrl = requireRuntimeDatabaseUrl();
@@ -220,13 +220,13 @@ export async function runHttpSmoke(): Promise<{
     assert.equal(session.actor.member.id, memberId);
     assert.ok(session.actor.activeMemberships.length > 0, 'HTTP smoke member must have at least one active membership');
 
-    const networkId = session.actor.activeMemberships[0]!.networkId;
+    const clubId = session.actor.activeMemberships[0]!.clubId;
     const updates = await getUpdates(baseUrl, token.bearerToken, 5);
     assert.equal(updates.member.id, memberId);
     assert.ok(Array.isArray(updates.updates.items), 'GET /updates should return an items array');
     assert.ok(updates.updates.nextAfter === null || Number.isInteger(updates.updates.nextAfter), 'GET /updates should return a numeric nextAfter cursor when present');
     assert.equal(typeof updates.updates.polledAt, 'string');
-    assert.ok(updates.requestScope.activeNetworkIds.includes(networkId), 'GET /updates should reflect actor network scope');
+    assert.ok(updates.requestScope.activeClubIds.includes(clubId), 'GET /updates should reflect actor club scope');
 
     await assertUpdatesStreamReady(baseUrl, token.bearerToken);
 
@@ -234,7 +234,7 @@ export async function runHttpSmoke(): Promise<{
 
     const members = await postAction(baseUrl, token.bearerToken, 'members.search', {
       query: memberQuery,
-      networkId,
+      clubId,
       limit: 5,
     });
     assert.ok(Array.isArray(members.data?.results), 'members.search should return a results array');
@@ -243,26 +243,26 @@ export async function runHttpSmoke(): Promise<{
     assert.equal(profile.data?.memberId, memberId);
 
     const inbox = await postAction(baseUrl, token.bearerToken, 'messages.inbox', {
-      networkId,
+      clubId,
       limit: 5,
     });
     assert.ok(Array.isArray(inbox.data?.results), 'messages.inbox should return a results array');
 
     const entities = await postAction(baseUrl, token.bearerToken, 'entities.list', {
-      networkId,
+      clubId,
       limit: 5,
     });
     assert.ok(Array.isArray(entities.data?.results), 'entities.list should return a results array');
 
     const events = await postAction(baseUrl, token.bearerToken, 'events.list', {
-      networkId,
+      clubId,
       limit: 5,
     });
     assert.ok(Array.isArray(events.data?.results), 'events.list should return a results array');
 
     return {
       memberId,
-      networkId,
+      clubId,
       actions,
     };
   } finally {
@@ -282,7 +282,7 @@ async function main() {
   const result = await runHttpSmoke();
   console.log('ok - http smoke');
   console.log(`  memberId: ${result.memberId}`);
-  console.log(`  networkId: ${result.networkId}`);
+  console.log(`  clubId: ${result.clubId}`);
   console.log(`  actions: ${result.actions.join(', ')}`);
 }
 

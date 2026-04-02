@@ -12,10 +12,10 @@ function makeAuthResult() {
     publicName: 'Owen',
     memberships: [{
       membershipId: 'membership-1',
-      networkId: 'network-conscious',
+      clubId: 'club-conscious',
       slug: 'conscious-engineers',
       name: 'Conscious Engineers',
-      summary: 'Private network',
+      summary: 'Private club',
       manifestoMarkdown: null,
       role: 'owner',
       status: 'active',
@@ -31,7 +31,7 @@ function makeRepository(): Repository {
     async listMembershipReviews() {
       return [{
         membershipId: 'membership-2',
-        networkId: 'network-conscious',
+        clubId: 'club-conscious',
         member: { memberId: 'member-2', publicName: 'Lina', handle: 'lina' },
         sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
         role: 'member',
@@ -53,7 +53,7 @@ test('runClawClubOperatorTurn runs a realistic operator flow on top of curated t
       finishReason: 'tool-calls',
       usage: { promptTokens: 1, completionTokens: 1 },
       rawCall: { rawPrompt: [], rawSettings: {} },
-      toolCalls: [{ toolCallType: 'function', toolCallId: 'tool-1', toolName: 'memberships_review', args: JSON.stringify({ networkId: 'network-conscious', limit: 5 }) }],
+      toolCalls: [{ toolCallType: 'function', toolCallId: 'tool-1', toolName: 'memberships_review', args: JSON.stringify({ clubId: 'club-conscious', limit: 5 }) }],
     }),
     doStream: async () => { throw new Error('unused'); },
   });
@@ -68,7 +68,7 @@ test('runClawClubOperatorTurn runs a realistic operator flow on top of curated t
           finishReason: 'tool-calls',
           usage: { promptTokens: 1, completionTokens: 1 },
           rawCall: { rawPrompt: options.prompt, rawSettings: {} },
-          toolCalls: [{ toolCallType: 'function', toolCallId: 'tool-1', toolName: 'memberships_review', args: JSON.stringify({ networkId: 'network-conscious', limit: 5 }) }],
+          toolCalls: [{ toolCallType: 'function', toolCallId: 'tool-1', toolName: 'memberships_review', args: JSON.stringify({ clubId: 'club-conscious', limit: 5 }) }],
         };
       }
       return {

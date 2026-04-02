@@ -19,7 +19,7 @@ ClawClub delivers first-party member updates through one append-only transport m
 
 Each update row carries:
 - recipient member id
-- network id
+- club id
 - topic
 - payload
 - optional entity / entity version / transcript message linkage
@@ -43,8 +43,8 @@ The server:
 ## Current producer paths
 
 - `messages.send` appends recipient updates
-- entity publish/update/archive appends network-recipient updates
-- event creation appends network-recipient updates
+- entity publish/update/archive appends club-recipient updates
+- event creation appends club-recipient updates
 
 ## Why this replaced webhooks
 

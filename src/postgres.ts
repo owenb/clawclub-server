@@ -19,10 +19,10 @@ type ActorRow = {
   public_name: string;
   global_roles: Array<'superadmin'> | string | null;
   membership_id: string | null;
-  network_id: string | null;
+  club_id: string | null;
   slug: string | null;
-  network_name: string | null;
-  network_summary: string | null;
+  club_name: string | null;
+  club_summary: string | null;
   manifesto_markdown: string | null;
   role: MembershipSummary['role'] | null;
   status: MembershipSummary['status'] | null;
@@ -55,11 +55,11 @@ function parsePostgresTextArray(value: string[] | string | null | undefined): st
     .map((entry) => entry.replace(/^"(.*)"$/, '$1').replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
 }
 
-// RLS now derives network access from membership state in the database.
+// RLS now derives club access from membership state in the database.
 async function applyActorContext(
   client: DbClient,
   actorMemberId: string,
-  _networkIds: string[],
+  _clubIds: string[],
   _options: Record<string, never> = {},
 ): Promise<void> {
   await client.query(
@@ -70,12 +70,12 @@ async function applyActorContext(
   );
 }
 
-async function withActorContext<T>(pool: Pool, actorMemberId: string, networkIds: string[], fn: (client: PoolClient) => Promise<T>): Promise<T> {
+async function withActorContext<T>(pool: Pool, actorMemberId: string, clubIds: string[], fn: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
 
   try {
     await client.query('begin');
-    await applyActorContext(client, actorMemberId, networkIds);
+    await applyActorContext(client, actorMemberId, clubIds);
     const result = await fn(client);
     await client.query('commit');
     return result;
@@ -102,13 +102,13 @@ function mapActor(rows: ActorRow[]): ActorContext | null {
     },
     globalRoles: parsePostgresTextArray(first.global_roles) as Array<'superadmin'>,
     memberships: rows
-      .filter((row) => row.network_id && row.membership_id && row.slug && row.network_name && row.role && row.status && row.joined_at)
+      .filter((row) => row.club_id && row.membership_id && row.slug && row.club_name && row.role && row.status && row.joined_at)
       .map((row) => ({
         membershipId: row.membership_id as string,
-        networkId: row.network_id as string,
+        clubId: row.club_id as string,
         slug: row.slug as string,
-        name: row.network_name as string,
-        summary: row.network_summary,
+        name: row.club_name as string,
+        summary: row.club_summary,
         manifestoMarkdown: row.manifesto_markdown,
         role: row.role as MembershipSummary['role'],
         status: row.status as MembershipSummary['status'],
@@ -127,10 +127,10 @@ async function readActorByMemberId(client: DbClient, memberId: string): Promise<
         m.public_name,
         coalesce(gr.global_roles, array[]::app.global_role[]) as global_roles,
         anm.id as membership_id,
-        anm.network_id,
+        anm.club_id,
         n.slug,
-        n.name as network_name,
-        n.summary as network_summary,
+        n.name as club_name,
+        n.summary as club_summary,
         n.manifesto_markdown,
         anm.role,
         anm.status,
@@ -142,10 +142,10 @@ async function readActorByMemberId(client: DbClient, memberId: string): Promise<
         from app.current_member_global_roles cmgr
         where cmgr.member_id = m.id
       ) gr on true
-      left join app.accessible_network_memberships anm
+      left join app.accessible_club_memberships anm
         on anm.member_id = m.id
-      left join app.networks n
-        on n.id = anm.network_id
+      left join app.clubs n
+        on n.id = anm.club_id
        and n.archived_at is null
       where m.id = $1
         and m.state = 'active'
@@ -187,13 +187,13 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
         return null;
       }
 
-      const activeNetworkIds = actor.memberships.map((membership) => membership.networkId);
+      const activeClubIds = actor.memberships.map((membership) => membership.clubId);
 
       return {
         actor,
         requestScope: {
-          requestedNetworkId: null,
-          activeNetworkIds,
+          requestedClubId: null,
+          activeClubIds,
         },
         sharedContext: {
           pendingUpdates: [],

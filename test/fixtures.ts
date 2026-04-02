@@ -23,10 +23,10 @@ export function makeActor(overrides: {
     globalRoles: overrides.globalRoles ?? [],
     memberships: overrides.memberships ?? [{
       membershipId: 'membership-1',
-      networkId: 'network-1',
+      clubId: 'club-1',
       slug: 'alpha',
       name: 'Alpha',
-      summary: 'First network',
+      summary: 'First club',
       manifestoMarkdown: null,
       role: 'owner',
       status: 'active',
@@ -42,16 +42,16 @@ export function makeAuthResult(overrides: {
   publicName?: string;
   globalRoles?: ActorContext['globalRoles'];
   memberships?: MembershipSummary[];
-  networkIds?: string[];
+  clubIds?: string[];
 } = {}): AuthResult {
   const actor = makeActor(overrides);
-  const activeNetworkIds = overrides.networkIds ?? actor.memberships.map((m) => m.networkId);
+  const activeClubIds = overrides.clubIds ?? actor.memberships.map((m) => m.clubId);
 
   return {
     actor,
     requestScope: {
-      requestedNetworkId: null,
-      activeNetworkIds,
+      requestedClubId: null,
+      activeClubIds,
     },
     sharedContext: {
       pendingUpdates: [],
@@ -73,7 +73,7 @@ export function makePendingUpdate(overrides: Partial<PendingUpdate> = {}): Pendi
     updateId: 'update-1',
     streamSeq: 1,
     recipientMemberId: 'member-1',
-    networkId: 'network-1',
+    clubId: 'club-1',
     entityId: null,
     entityVersionId: null,
     transcriptMessageId: 'message-1',

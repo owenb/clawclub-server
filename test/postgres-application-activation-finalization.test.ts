@@ -17,7 +17,7 @@ test('postgres repository rejects activation-through-application when interview 
         return {
           rows: [{
             application_id: 'application-9',
-            network_id: 'network-2',
+            club_id: 'club-2',
             applicant_member_id: 'member-9',
             current_status: 'interview_completed',
             current_version_no: 2,
@@ -52,7 +52,7 @@ test('postgres repository rejects activation-through-application when interview 
       applicationId: 'application-9',
       nextStatus: 'accepted',
       notes: 'Strong yes',
-      accessibleNetworkIds: ['network-2'],
+      accessibleClubIds: ['club-2'],
       membershipId: 'membership-10',
       activateMembership: true,
       activationReason: 'Interview passed',

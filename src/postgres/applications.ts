@@ -19,7 +19,7 @@ const COLD_APPLICATION_CHALLENGE_TTL_MS = 60 * 60 * 1000;
 
 type ApplicationRow = {
   application_id: string;
-  network_id: string;
+  club_id: string;
   applicant_member_id: string | null;
   applicant_public_name: string | null;
   applicant_handle: string | null;
@@ -51,7 +51,7 @@ type ApplicationRow = {
 function mapApplicationRow(row: ApplicationRow): ApplicationSummary {
   return {
     applicationId: row.application_id,
-    networkId: row.network_id,
+    clubId: row.club_id,
     applicant: {
       memberId: row.applicant_member_id,
       publicName: row.applicant_public_name ?? row.applicant_name ?? 'Unknown applicant',
@@ -97,11 +97,11 @@ function mapApplicationRow(row: ApplicationRow): ApplicationSummary {
 }
 
 async function readApplications(client: DbClient, input: {
-  networkIds: string[];
+  clubIds: string[];
   limit: number;
   statuses?: ApplicationStatus[];
 }): Promise<ApplicationSummary[]> {
-  if (input.networkIds.length === 0) {
+  if (input.clubIds.length === 0) {
     return [];
   }
 
@@ -109,7 +109,7 @@ async function readApplications(client: DbClient, input: {
     `
       select
         ca.id as application_id,
-        ca.network_id,
+        ca.club_id,
         ca.applicant_member_id,
         ca.applicant_email,
         ca.applicant_name,
@@ -139,13 +139,13 @@ async function readApplications(client: DbClient, input: {
       from app.current_applications ca
       left join app.members applicant on applicant.id = ca.applicant_member_id
       left join app.members sponsor on sponsor.id = ca.sponsor_member_id
-      left join app.current_network_memberships cnm on cnm.id = ca.membership_id
-      where ca.network_id = any($1::app.short_id[])
+      left join app.current_club_memberships cnm on cnm.id = ca.membership_id
+      where ca.club_id = any($1::app.short_id[])
         and ($2::app.application_status[] is null or ca.status = any($2::app.application_status[]))
       order by ca.version_created_at desc, ca.id asc
       limit $3
     `,
-    [input.networkIds, input.statuses ?? null, input.limit],
+    [input.clubIds, input.statuses ?? null, input.limit],
   );
 
   return result.rows.map(mapApplicationRow);
@@ -156,7 +156,7 @@ async function readApplicationSummary(client: DbClient, applicationId: string): 
     `
       select
         ca.id as application_id,
-        ca.network_id,
+        ca.club_id,
         ca.applicant_member_id,
         ca.applicant_email,
         ca.applicant_name,
@@ -186,7 +186,7 @@ async function readApplicationSummary(client: DbClient, applicationId: string): 
       from app.current_applications ca
       left join app.members applicant on applicant.id = ca.applicant_member_id
       left join app.members sponsor on sponsor.id = ca.sponsor_member_id
-      left join app.current_network_memberships cnm on cnm.id = ca.membership_id
+      left join app.current_club_memberships cnm on cnm.id = ca.membership_id
       where ca.id = $1
       limit 1
     `,
@@ -213,26 +213,26 @@ export function buildApplicationsRepository({
   | 'solveColdApplicationChallenge'
 > {
   return {
-    async listApplications({ actorMemberId, networkIds, limit, statuses }) {
-      return withActorContext(pool, actorMemberId, networkIds, (client) => readApplications(client, { networkIds, limit, statuses }));
+    async listApplications({ actorMemberId, clubIds, limit, statuses }) {
+      return withActorContext(pool, actorMemberId, clubIds, (client) => readApplications(client, { clubIds, limit, statuses }));
     },
 
     async createApplication(input: CreateApplicationInput): Promise<ApplicationSummary | null> {
       const client = await pool.connect();
       try {
         await client.query('begin');
-        await applyActorContext(client, input.actorMemberId, [input.networkId]);
+        await applyActorContext(client, input.actorMemberId, [input.clubId]);
 
         const ownerScopeResult = await client.query<{ membership_id: string }>(
           `
             select anm.id as membership_id
-            from app.accessible_network_memberships anm
+            from app.accessible_club_memberships anm
             where anm.member_id = $1
-              and anm.network_id = $2
+              and anm.club_id = $2
               and anm.role = 'owner'
             limit 1
           `,
-          [input.actorMemberId, input.networkId],
+          [input.actorMemberId, input.clubId],
         );
 
         if (!ownerScopeResult.rows[0]) {
@@ -249,13 +249,13 @@ export function buildApplicationsRepository({
           ? await client.query<{ member_id: string }>(
               `
                 select cnm.member_id
-                from app.current_network_memberships cnm
-                where cnm.network_id = $1
+                from app.current_club_memberships cnm
+                where cnm.club_id = $1
                   and cnm.member_id = $2
                   and cnm.status = 'active'
                 limit 1
               `,
-              [input.networkId, input.sponsorMemberId],
+              [input.clubId, input.sponsorMemberId],
             )
           : { rows: [] };
 
@@ -268,13 +268,13 @@ export function buildApplicationsRepository({
           ? await client.query<{ membership_id: string }>(
               `
                 select cnm.id as membership_id
-                from app.current_network_memberships cnm
+                from app.current_club_memberships cnm
                 where cnm.id = $1
-                  and cnm.network_id = $2
+                  and cnm.club_id = $2
                   and cnm.member_id = $3
                 limit 1
               `,
-              [input.membershipId, input.networkId, input.applicantMemberId],
+              [input.membershipId, input.clubId, input.applicantMemberId],
             )
           : { rows: [] };
 
@@ -287,7 +287,7 @@ export function buildApplicationsRepository({
           `
             with inserted as (
               insert into app.applications (
-                network_id,
+                club_id,
                 applicant_member_id,
                 sponsor_member_id,
                 membership_id,
@@ -329,7 +329,7 @@ export function buildApplicationsRepository({
             from inserted
           `,
           [
-            input.networkId,
+            input.clubId,
             input.applicantMemberId,
             input.sponsorMemberId ?? null,
             input.membershipId ?? null,
@@ -354,7 +354,7 @@ export function buildApplicationsRepository({
         }
 
         await client.query('commit');
-        return await withActorContext(pool, input.actorMemberId, [input.networkId], (scopedClient) => readApplicationSummary(scopedClient, applicationId));
+        return await withActorContext(pool, input.actorMemberId, [input.clubId], (scopedClient) => readApplicationSummary(scopedClient, applicationId));
       } catch (error) {
         await client.query('rollback');
         throw error;
@@ -367,11 +367,11 @@ export function buildApplicationsRepository({
       const client = await pool.connect();
       try {
         await client.query('begin');
-        await applyActorContext(client, input.actorMemberId, input.accessibleNetworkIds);
+        await applyActorContext(client, input.actorMemberId, input.accessibleClubIds);
 
         const applicationResult = await client.query<{
           application_id: string;
-          network_id: string;
+          club_id: string;
           applicant_member_id: string | null;
           current_status: ApplicationStatus;
           current_version_no: number;
@@ -388,7 +388,7 @@ export function buildApplicationsRepository({
           `
             select
               ca.id as application_id,
-              ca.network_id,
+              ca.club_id,
               ca.applicant_member_id,
               ca.status as current_status,
               ca.version_no as current_version_no,
@@ -402,15 +402,15 @@ export function buildApplicationsRepository({
               ca.intake_completed_at::text as current_intake_completed_at,
               ca.membership_id as current_membership_id
             from app.current_applications ca
-            join app.accessible_network_memberships owner_scope
-              on owner_scope.network_id = ca.network_id
+            join app.accessible_club_memberships owner_scope
+              on owner_scope.club_id = ca.club_id
              and owner_scope.member_id = $1
              and owner_scope.role = 'owner'
             where ca.id = $2
-              and ca.network_id = any($3::app.short_id[])
+              and ca.club_id = any($3::app.short_id[])
             limit 1
           `,
-          [input.actorMemberId, input.applicationId, input.accessibleNetworkIds],
+          [input.actorMemberId, input.applicationId, input.accessibleClubIds],
         );
 
         const application = applicationResult.rows[0];
@@ -423,13 +423,13 @@ export function buildApplicationsRepository({
           const membershipResult = await client.query<{ membership_id: string }>(
             `
               select cnm.id as membership_id
-              from app.current_network_memberships cnm
+              from app.current_club_memberships cnm
               where cnm.id = $1
-                and cnm.network_id = $2
+                and cnm.club_id = $2
                 and cnm.member_id = $3
               limit 1
             `,
-            [input.membershipId, application.network_id, application.applicant_member_id],
+            [input.membershipId, application.club_id, application.applicant_member_id],
           );
 
           if (!membershipResult.rows[0]) {
@@ -517,16 +517,16 @@ export function buildApplicationsRepository({
                 cnm.status as current_status,
                 cnm.state_version_no as current_version_no,
                 cnm.state_version_id as current_state_version_id
-              from app.current_network_memberships cnm
-              join app.accessible_network_memberships owner_scope
-                on owner_scope.network_id = cnm.network_id
+              from app.current_club_memberships cnm
+              join app.accessible_club_memberships owner_scope
+                on owner_scope.club_id = cnm.club_id
                and owner_scope.member_id = $1
                and owner_scope.role = 'owner'
               where cnm.id = $2
-                and cnm.network_id = any($3::app.short_id[])
+                and cnm.club_id = any($3::app.short_id[])
               limit 1
             `,
-            [input.actorMemberId, resolvedMembershipId, input.accessibleNetworkIds],
+            [input.actorMemberId, resolvedMembershipId, input.accessibleClubIds],
           );
 
           const membership = membershipResult.rows[0];
@@ -541,7 +541,7 @@ export function buildApplicationsRepository({
 
           await client.query(
             `
-              insert into app.network_membership_state_versions (
+              insert into app.club_membership_state_versions (
                 membership_id,
                 status,
                 reason,
@@ -562,7 +562,7 @@ export function buildApplicationsRepository({
         }
 
         await client.query('commit');
-        return await withActorContext(pool, input.actorMemberId, input.accessibleNetworkIds, (scopedClient) =>
+        return await withActorContext(pool, input.actorMemberId, input.accessibleClubIds, (scopedClient) =>
           readApplicationSummary(scopedClient, application.application_id),
         );
       } catch (error) {
@@ -585,15 +585,15 @@ export function buildApplicationsRepository({
         throw new AppError(500, 'invalid_data', 'Cold application challenge expiry was not returned');
       }
 
-      const networksResult = await pool.query<{ slug: string; name: string; summary: string | null }>(
-        `select slug, name, summary from app.list_publicly_listed_networks()`,
+      const clubsResult = await pool.query<{ slug: string; name: string; summary: string | null }>(
+        `select slug, name, summary from app.list_publicly_listed_clubs()`,
       );
 
       return {
         challengeId: challenge.challenge_id,
         difficulty: COLD_APPLICATION_DIFFICULTY,
         expiresAt: new Date(expiresAt).toISOString(),
-        clubs: networksResult.rows,
+        clubs: clubsResult.rows,
       };
     },
 
@@ -640,7 +640,7 @@ export function buildApplicationsRepository({
 
         const applicationResult = await client.query<{ application_id: string }>(
           `select application_id from app.consume_cold_application_challenge($1, $2, $3, $4, $5::jsonb)`,
-          [input.challengeId, input.networkSlug, input.name, input.email, applicationDetails],
+          [input.challengeId, input.clubSlug, input.name, input.email, applicationDetails],
         );
 
         if (!applicationResult.rows[0]) {

@@ -18,11 +18,11 @@ export const ACTION_MANIFEST: ActionSpec[] = [
   // Session
   { action: 'session.describe', domain: 'platform', description: 'Resolve the current member session, accessible clubs, and any pending update context.', auth: 'member', safety: 'read_only', aiExposed: true },
 
-  // Networks/clubs (superadmin)
-  { action: 'networks.list', domain: 'platform', description: 'List all clubs (superadmin only).', auth: 'superadmin', safety: 'read_only', aiExposed: false },
-  { action: 'networks.create', domain: 'platform', description: 'Create a new club (superadmin only).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
-  { action: 'networks.archive', domain: 'platform', description: 'Archive a club (superadmin only).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
-  { action: 'networks.assignOwner', domain: 'platform', description: 'Reassign club ownership (superadmin only).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
+  // Clubs (superadmin)
+  { action: 'clubs.list', domain: 'platform', description: 'List all clubs (superadmin only).', auth: 'superadmin', safety: 'read_only', aiExposed: false },
+  { action: 'clubs.create', domain: 'platform', description: 'Create a new club (superadmin only).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
+  { action: 'clubs.archive', domain: 'platform', description: 'Archive a club (superadmin only).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
+  { action: 'clubs.assignOwner', domain: 'platform', description: 'Reassign club ownership (superadmin only).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
 
   // Quotas
   { action: 'quotas.status', domain: 'platform', description: 'Get current write quota usage and limits across clubs.', auth: 'member', safety: 'read_only', aiExposed: false },
@@ -78,7 +78,7 @@ export const ACTION_MANIFEST: ActionSpec[] = [
   { action: 'admin.overview', domain: 'admin', description: 'Platform-wide stats overview.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.members.list', domain: 'admin', description: 'List all members with pagination.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.members.get', domain: 'admin', description: 'Get full member detail with all memberships.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
-  { action: 'admin.networks.stats', domain: 'admin', description: 'Per-club member, content, message, and application counts.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
+  { action: 'admin.clubs.stats', domain: 'admin', description: 'Per-club member, content, message, and application counts.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.content.list', domain: 'admin', description: 'List all content across clubs.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.content.archive', domain: 'admin', description: 'Archive any content (moderation).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
   { action: 'admin.messages.threads', domain: 'admin', description: 'List all message threads across clubs.', auth: 'superadmin', safety: 'read_only', aiExposed: false },

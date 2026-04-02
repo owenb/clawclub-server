@@ -24,13 +24,13 @@ set
 
 select id from app.members where handle = 'owen-barnes' \gset
 
-insert into app.networks (slug, name, owner_member_id, summary, manifesto_markdown, config)
+insert into app.clubs (slug, name, owner_member_id, summary, manifesto_markdown, config)
 values (
   'consciousclaw',
   'ConsciousClaw',
   :'id',
-  'Private relational network for spiritually aligned builders, friends, collaborators, and real-world connection.',
-  'ConsciousClaw is a private members network for aligned people who want real relationship, collaboration, service, and grounded shared reality. It is not public social media and not a dating app. It is a trust-based field for meaningful connection.',
+  'Private relational club for spiritually aligned builders, friends, collaborators, and real-world connection.',
+  'ConsciousClaw is a private members club for aligned people who want real relationship, collaboration, service, and grounded shared reality. It is not public social media and not a dating app. It is a trust-based field for meaningful connection.',
   jsonb_build_object('seed', 'consciousclaw')
 )
 on conflict (slug) do update
@@ -39,41 +39,41 @@ set
   owner_member_id = excluded.owner_member_id,
   summary = excluded.summary,
   manifesto_markdown = excluded.manifesto_markdown,
-  config = app.networks.config || excluded.config;
+  config = app.clubs.config || excluded.config;
 
-select id as network_id from app.networks where slug = 'consciousclaw' \gset
+select id as club_id from app.clubs where slug = 'consciousclaw' \gset
 select id as owner_member_id from app.members where handle = 'owen-barnes' \gset
 
-insert into app.network_memberships (network_id, member_id, role, sponsor_member_id, accepted_covenant_at, metadata)
+insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, accepted_covenant_at, metadata)
 values (
-  :'network_id',
+  :'club_id',
   :'owner_member_id',
   'owner',
   null,
   now(),
   jsonb_build_object('seed', 'consciousclaw')
 )
-on conflict (network_id, member_id) do update
+on conflict (club_id, member_id) do update
 set
   role = excluded.role,
-  accepted_covenant_at = coalesce(app.network_memberships.accepted_covenant_at, excluded.accepted_covenant_at),
-  metadata = app.network_memberships.metadata || excluded.metadata;
+  accepted_covenant_at = coalesce(app.club_memberships.accepted_covenant_at, excluded.accepted_covenant_at),
+  metadata = app.club_memberships.metadata || excluded.metadata;
 
 select id as owner_membership_id
-from app.network_memberships
-where network_id = :'network_id'
+from app.club_memberships
+where club_id = :'club_id'
   and member_id = :'owner_member_id' \gset
 
 with latest_state as (
   select id, status
-  from app.current_network_membership_states
+  from app.current_club_membership_states
   where membership_id = :'owner_membership_id'
 ), next_version as (
   select coalesce(max(version_no), 0) + 1 as version_no
-  from app.network_membership_state_versions
+  from app.club_membership_state_versions
   where membership_id = :'owner_membership_id'
 )
-insert into app.network_membership_state_versions (
+insert into app.club_membership_state_versions (
   membership_id,
   status,
   reason,
@@ -119,7 +119,7 @@ select
   :'owner_member_id',
   current_version.version_no + 1,
   'Owen',
-  'Conscious engineer building a private members network for aligned humans.',
+  'Conscious engineer building a private members club for aligned humans.',
   'Builder, steward, and spiritually grounded technologist focused on helping aligned people find each other for friendship, collaboration, service, gatherings, and real-world connection.',
   'Designs and builds software systems, relational infrastructure, and agent-native tools that support trust, resonance, and practical coordination.',
   'Clear thinking, system design, spiritual framing, and bringing the right people into meaningful relationship.',
@@ -140,7 +140,7 @@ where not exists (
   select 1
   from latest
   where latest.display_name = 'Owen'
-    and latest.tagline = 'Conscious engineer building a private members network for aligned humans.'
+    and latest.tagline = 'Conscious engineer building a private members club for aligned humans.'
     and latest.summary = 'Builder, steward, and spiritually grounded technologist focused on helping aligned people find each other for friendship, collaboration, service, gatherings, and real-world connection.'
     and latest.what_i_do = 'Designs and builds software systems, relational infrastructure, and agent-native tools that support trust, resonance, and practical coordination.'
     and latest.known_for = 'Clear thinking, system design, spiritual framing, and bringing the right people into meaningful relationship.'

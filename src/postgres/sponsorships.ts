@@ -4,7 +4,7 @@ import type { WithActorContext } from './shared.ts';
 
 type SponsorshipRow = {
   id: string;
-  network_id: string;
+  club_id: string;
   sponsor_member_id: string;
   sponsor_public_name: string;
   sponsor_handle: string | null;
@@ -18,7 +18,7 @@ type SponsorshipRow = {
 function mapSponsorshipRow(row: SponsorshipRow): SponsorshipSummary {
   return {
     sponsorshipId: row.id,
-    networkId: row.network_id,
+    clubId: row.club_id,
     sponsor: {
       memberId: row.sponsor_member_id,
       publicName: row.sponsor_public_name,
@@ -41,14 +41,14 @@ export function buildSponsorshipRepository({
 }): Pick<Repository, 'createSponsorship' | 'listSponsorships'> {
   return {
     async createSponsorship(input: CreateSponsorshipInput): Promise<SponsorshipSummary> {
-      return withActorContext(pool, input.actorMemberId, [input.networkId], async (client) => {
+      return withActorContext(pool, input.actorMemberId, [input.clubId], async (client) => {
         const result = await client.query<SponsorshipRow>(
           `
-            insert into app.sponsorships (network_id, sponsor_member_id, candidate_name, candidate_email, candidate_details, reason)
+            insert into app.sponsorships (club_id, sponsor_member_id, candidate_name, candidate_email, candidate_details, reason)
             values ($1, $2, $3, $4, $5::jsonb, $6)
             returning
               id,
-              network_id,
+              club_id,
               sponsor_member_id,
               (select public_name from app.members where id = sponsor_member_id) as sponsor_public_name,
               (select handle from app.members where id = sponsor_member_id) as sponsor_handle,
@@ -58,7 +58,7 @@ export function buildSponsorshipRepository({
               reason,
               created_at::text as created_at
           `,
-          [input.networkId, input.actorMemberId, input.candidateName, input.candidateEmail, JSON.stringify(input.candidateDetails), input.reason],
+          [input.clubId, input.actorMemberId, input.candidateName, input.candidateEmail, JSON.stringify(input.candidateDetails), input.reason],
         );
 
         const row = result.rows[0];
@@ -71,12 +71,12 @@ export function buildSponsorshipRepository({
     },
 
     async listSponsorships(input): Promise<SponsorshipSummary[]> {
-      return withActorContext(pool, input.actorMemberId, input.networkIds, async (client) => {
+      return withActorContext(pool, input.actorMemberId, input.clubIds, async (client) => {
         const result = await client.query<SponsorshipRow>(
           `
             select
               s.id,
-              s.network_id,
+              s.club_id,
               s.sponsor_member_id,
               m.public_name as sponsor_public_name,
               m.handle as sponsor_handle,
@@ -87,11 +87,11 @@ export function buildSponsorshipRepository({
               s.created_at::text as created_at
             from app.sponsorships s
             join app.members m on m.id = s.sponsor_member_id
-            where s.network_id = any($1::app.short_id[])
+            where s.club_id = any($1::app.short_id[])
             order by s.created_at desc
             limit $2
           `,
-          [input.networkIds, input.limit],
+          [input.clubIds, input.limit],
         );
 
         return result.rows.map(mapSponsorshipRow);

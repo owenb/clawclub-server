@@ -102,7 +102,7 @@ test('createServer returns 404 for applications.solve with a bogus challengeId',
         action: 'applications.solve',
         input: {
           challengeId: 'totally-bogus-id', nonce: '12345',
-          networkSlug: 'test', name: 'Jane Doe', email: 'j@x.com',
+          clubSlug: 'test', name: 'Jane Doe', email: 'j@x.com',
           socials: '@j', reason: 'test',
         },
       }),
@@ -183,7 +183,7 @@ test('createServer rate limits cold application actions per IP and per action', 
         input: {
           challengeId: 'challenge-1',
           nonce: '123456',
-          networkSlug: 'test',
+          clubSlug: 'test',
           name: 'Jane Doe',
           email: 'jane@example.com',
           socials: '@jane',
@@ -537,7 +537,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     ...makeRepository(),
     async createColdApplicationChallenge() {
       challengeCalls += 1;
-      return { challengeId: `challenge-${challengeCalls}`, difficulty: 7, expiresAt: '2026-03-15T13:00:00.000Z', networks: [] };
+      return { challengeId: `challenge-${challengeCalls}`, difficulty: 7, expiresAt: '2026-03-15T13:00:00.000Z', clubs: [] };
     },
   };
 
