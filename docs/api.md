@@ -14,7 +14,7 @@ The action surface stays intentionally small:
 
 Current action families (see `src/action-manifest.ts` for the canonical list):
 - `session.*` — session context
-- `networks.*` — network management (superadmin)
+- `networks.*` — club management (superadmin)
 - `members.*` — member search and directory
 - `memberships.*` — membership lifecycle (owner)
 - `applications.*` — admissions workflow (owner + cold/unauthenticated)
@@ -38,13 +38,13 @@ All `admin.*` actions require a bearer token with superadmin global role. They p
 
 | Action | Description |
 |---|---|
-| `admin.overview` | Platform totals (members, networks, entities, messages, applications) + recent members |
+| `admin.overview` | Platform totals (members, clubs, entities, messages, applications) + recent members |
 | `admin.members.list` | All members with pagination (limit/offset), membership and token counts |
-| `admin.members.get` | Full member detail: profile, all memberships across networks, token count |
-| `admin.networks.stats` | Per-network breakdown: member counts by status, entity/message/application counts |
-| `admin.content.list` | All content across networks, filterable by networkId and kind |
+| `admin.members.get` | Full member detail: profile, all memberships across clubs, token count |
+| `admin.networks.stats` | Per-club breakdown: member counts by status, entity/message/application counts |
+| `admin.content.list` | All content across clubs, filterable by networkId and kind |
 | `admin.content.archive` | Archive any entity (moderation, append-only) |
-| `admin.messages.threads` | All message threads across networks |
+| `admin.messages.threads` | All message threads across clubs |
 | `admin.messages.read` | Read any thread transcript |
 | `admin.tokens.list` | List bearer tokens for any member |
 | `admin.tokens.revoke` | Revoke any member's bearer token |
@@ -138,7 +138,7 @@ Content-Type: application/json
     "challengeId": "abc123def456",
     "difficulty": 7,
     "expiresAt": "2026-03-15T13:00:00.000Z",
-    "networks": [
+    "clubs": [
       { "slug": "alpha-club", "name": "Alpha Club", "summary": "A club for builders" }
     ]
   }

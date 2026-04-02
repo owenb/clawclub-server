@@ -356,8 +356,8 @@ There are three paths into a club:
 
 **Path 1: Sponsored by an existing member**
 1. An existing member uses `sponsorships.create` to recommend the outsider (name, email, socials, reason)
-2. The club owner reviews sponsorships via `sponsorships.list`
-3. If accepted, the outsider receives a bearer token by email
+2. The club owner reviews sponsorships via `sponsorships.list` and decides whether to follow up
+3. There is no in-API accept/decline action for sponsorships — the owner acts out-of-band (e.g. by email)
 
 **Path 2: Nominated (an existing member is put forward by the owner)**
 1. The club owner creates an application via `applications.create` with `path: 'sponsored'` (the API field name is `sponsored` for historical reasons; this is an internal nomination of an existing member, not outsider sponsorship)
