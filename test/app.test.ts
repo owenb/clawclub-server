@@ -1136,7 +1136,7 @@ test('applications.challenge creates a cold application challenge without a bear
         challengeId: 'challenge-1',
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
-        networks: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }],
+        clubs: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }],
       };
     },
   };
@@ -1150,8 +1150,8 @@ test('applications.challenge creates a cold application challenge without a bear
   assert.equal(result.action, 'applications.challenge');
   assert.equal(result.data.challengeId, 'challenge-1');
   assert.equal(result.data.difficulty, 7);
-  assert.equal(result.data.networks.length, 1);
-  assert.equal(result.data.networks[0].slug, 'alpha');
+  assert.equal(result.data.clubs.length, 1);
+  assert.equal(result.data.clubs[0].slug, 'alpha');
   assert.equal('actor' in result, false);
 });
 

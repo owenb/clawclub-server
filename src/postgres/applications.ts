@@ -593,7 +593,7 @@ export function buildApplicationsRepository({
         challengeId: challenge.challenge_id,
         difficulty: COLD_APPLICATION_DIFFICULTY,
         expiresAt: new Date(expiresAt).toISOString(),
-        networks: networksResult.rows,
+        clubs: networksResult.rows,
       };
     },
 

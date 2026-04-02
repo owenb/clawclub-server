@@ -60,7 +60,7 @@ export async function handleColdApplicationAction(input: {
           challengeId: challenge.challengeId,
           difficulty: challenge.difficulty,
           expiresAt: challenge.expiresAt,
-          networks: challenge.networks,
+          clubs: challenge.clubs,
         },
       };
     }

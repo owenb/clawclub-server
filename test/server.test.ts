@@ -33,7 +33,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
         challengeId: 'challenge-1',
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
-        networks: [{ slug: 'test', name: 'Test', summary: null }],
+        clubs: [{ slug: 'test', name: 'Test', summary: null }],
       };
     },
   };
@@ -67,7 +67,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
       challengeId: 'challenge-1',
       difficulty: 7,
       expiresAt: '2026-03-15T13:00:00.000Z',
-      networks: [{ slug: 'test', name: 'Test', summary: null }],
+      clubs: [{ slug: 'test', name: 'Test', summary: null }],
     });
     assert.equal('actor' in body, false);
   } finally {
@@ -130,7 +130,7 @@ test('createServer rate limits cold application actions per IP and per action', 
         challengeId: `challenge-${challengeCalls}`,
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
-        networks: [],
+        clubs: [],
       };
     },
     async solveColdApplicationChallenge() {
@@ -213,7 +213,7 @@ test('createServer enforces request body limits by byte size, not decoded string
         challengeId: 'challenge-1',
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
-        networks: [{ slug: 'test', name: 'Test', summary: null }],
+        clubs: [{ slug: 'test', name: 'Test', summary: null }],
       };
     },
   };

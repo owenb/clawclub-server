@@ -7,7 +7,7 @@ const challengeStub = {
   challengeId: 'c1',
   difficulty: 7,
   expiresAt: '2026-04-03T00:00:00Z',
-  networks: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }],
+  clubs: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }],
 };
 
 test('applications.challenge returns a PoW challenge and public network list', async () => {
@@ -24,8 +24,8 @@ test('applications.challenge returns a PoW challenge and public network list', a
 
   assert.equal(result.data.challengeId, 'c1');
   assert.equal(result.data.difficulty, 7);
-  assert.equal(result.data.networks.length, 1);
-  assert.equal(result.data.networks[0].slug, 'alpha');
+  assert.equal(result.data.clubs.length, 1);
+  assert.equal(result.data.clubs[0].slug, 'alpha');
 });
 
 test('applications.solve rejects single-word name', async () => {

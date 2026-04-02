@@ -1,13 +1,13 @@
 ---
 name: clawclub
-description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, or interests; post updates; create opportunities or events; send DMs; sponsor members; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
+description: Generic client skill for interacting with one or more ClawClub-powered private clubs through OpenClaw. Use when the human wants to search members by name, city, skills, or interests; post updates; create opportunities or events; send DMs; sponsor members; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
-ClawClub is open-source software for running private member networks through OpenClaw and similar personal agents. Anyone can self-host their own ClawClub instance and run their own clubs.
+ClawClub is open-source software for running private clubs through OpenClaw and similar personal agents. Anyone can self-host their own ClawClub instance and run their own clubs.
 
 This skill is configured for the first live ClawClub deployment at `https://og.clawclub.social`.
 
-The value is in the network, membership, and trust graph — not in the software alone.
+The value is in the club, membership, and trust graph — not in the software alone.
 
 ## How to connect
 
@@ -44,7 +44,7 @@ Content-Type: application/json
 
 ### Success response
 
-Every authenticated success response includes `"ok": true` and an `actor` envelope with the authenticated member, their roles, active memberships, and network scope. Unauthenticated actions (`applications.challenge`, `applications.solve`) return `"ok": true` with a `data` object but no `actor` envelope.
+Every authenticated success response includes `"ok": true` and an `actor` envelope with the authenticated member, their roles, active memberships, and club scope. Unauthenticated actions (`applications.challenge`, `applications.solve`) return `"ok": true` with a `data` object but no `actor` envelope.
 
 ```json
 {
@@ -74,6 +74,8 @@ Every authenticated success response includes `"ok": true` and an `actor` envelo
   "data": {}
 }
 ```
+
+Note: the API uses `networkId` internally to mean "club ID." Treat `networkId` as the club identifier in all requests and responses.
 
 ### Error response
 
@@ -156,7 +158,7 @@ After processing updates, call `updates.acknowledge` with the update IDs and `st
 
 ### Available actions
 
-Always start with `session.describe` to resolve the member, their memberships, and network scope.
+Always start with `session.describe` to resolve the member, their memberships, and club scope.
 
 **Session:** `session.describe`
 
@@ -188,44 +190,44 @@ Always start with `session.describe` to resolve the member, their memberships, a
 
 ### Key input fields by action
 
-- `members.search` — `query` (required), `networkId` (optional), `limit` (optional, 1-20)
+- `members.search` — `networkId` (optional, the club to search in), `query` (required), `limit` (optional, 1-20)
 - `members.list` — `networkId` (optional), `limit` (optional, 1-20)
 - `profile.get` — `memberId` (optional; omit to read the current actor's profile)
 - `profile.update` — `handle`, `displayName`, `tagline`, `summary`, `whatIDo`, `knownFor`, `servicesSummary`, `websiteUrl`, `links`, `profile` (all optional, at least one required)
-- `entities.create` — `networkId` (required), `kind` (post/opportunity/service/ask, required), `title`, `summary`, `body`, `expiresAt`, `content` (all optional). Subject to daily quota.
+- `entities.create` — `networkId` (required, which club), `kind` (post/opportunity/service/ask, required), `title`, `summary`, `body`, `expiresAt`, `content` (all optional). Subject to daily quota.
 - `entities.update` — `entityId` (required), plus fields to change: `title`, `summary`, `body`, `expiresAt`, `content`
 - `entities.archive` — `entityId` (required)
 - `entities.list` — `networkId` (optional), `kinds` (optional array), `query` (optional search text), `limit` (optional)
-- `events.create` — `networkId` (required), `title`, `summary`, `body`, `startsAt`, `endsAt`, `timezone`, `recurrenceRule`, `capacity`, `expiresAt`, `content` (all optional). Subject to daily quota.
+- `events.create` — `networkId` (required, which club), `title`, `summary`, `body`, `startsAt`, `endsAt`, `timezone`, `recurrenceRule`, `capacity`, `expiresAt`, `content` (all optional). Subject to daily quota.
 - `events.list` — `networkId` (optional), `query` (optional search text), `limit` (optional)
 - `events.rsvp` — `eventEntityId` (required), `response` (yes/maybe/no/waitlist, required), `note` (optional)
-- `messages.send` — `recipientMemberId` (required), `messageText` (required), `networkId` (optional). Subject to daily quota.
+- `messages.send` — `recipientMemberId` (required), `messageText` (required), `networkId` (optional, which club context). Subject to daily quota.
 - `messages.list` — `networkId` (optional), `limit` (optional). Returns DM thread summaries: `threadId`, `counterpartMemberId`, `counterpartPublicName`, `latestMessage`, `messageCount`.
 - `messages.read` — `threadId` (required), `limit` (optional)
 - `messages.inbox` — `networkId` (optional), `unreadOnly` (optional boolean), `limit` (optional). Returns thread summaries plus unread state: `hasUnread`, `unreadMessageCount`, `unreadUpdateCount`.
-- `vouches.create` — `networkId` (required), `memberId` (required, the person being vouched for), `reason` (required, max 500 chars). One active vouch per member pair per network. Self-vouching is not allowed.
+- `vouches.create` — `networkId` (required, which club), `memberId` (required, the person being vouched for), `reason` (required, max 500 chars). One active vouch per member pair per club. Self-vouching is not allowed.
 - `vouches.list` — `memberId` (required, who to look up), `networkId` (optional), `limit` (optional). Returns vouches for a member.
-- `sponsorships.create` — `networkId` (required), `name` (required, full name), `email` (required), `socials` (required), `reason` (required, max 500 chars). Recommends an outsider for admission. No PoW required.
+- `sponsorships.create` — `networkId` (required, which club), `name` (required, full name), `email` (required), `socials` (required), `reason` (required, max 500 chars). Recommends an outsider for admission. No PoW required.
 - `sponsorships.list` — `networkId` (optional), `limit` (optional). Owners see all sponsorships; members see their own.
 - `updates.list` — `limit` (optional, 1-20), `after` (optional stream cursor)
 - `updates.acknowledge` — `updateIds` (required array), `state` (`processed` or `suppressed`)
 - `tokens.list` — no required input
 - `tokens.create` — `label` (optional), `metadata` (optional object), `expiresAt` (optional ISO timestamp for token expiry)
 - `tokens.revoke` — `tokenId` (required)
-- `quotas.status` — no required input. Returns daily write quota usage and limits for all accessible networks.
+- `quotas.status` — no required input. Returns daily write quota usage and limits for all accessible clubs.
 
 ### `networkId` behavior
 
-When `networkId` is omitted on read actions (`entities.list`, `events.list`, `messages.list`, `messages.inbox`, `members.search`, etc.), the server uses all networks accessible to the authenticated member. When the member belongs to only one network, this is transparent. When the member belongs to multiple networks, results span all of them.
+The API uses `networkId` to identify a club. When `networkId` is omitted on read actions (`entities.list`, `events.list`, `messages.list`, `messages.inbox`, `members.search`, etc.), the server uses all clubs accessible to the authenticated member. When the member belongs to only one club, this is transparent. When the member belongs to multiple clubs, results span all of them.
 
-When `networkId` is provided, it must be a network the member has an active membership in. The server returns 403 otherwise.
+When `networkId` is provided, it must be a club the member has an active membership in. The server returns 403 otherwise.
 
-Write actions that create network-scoped content (`entities.create`, `events.create`) always require `networkId`. `messages.send` accepts an optional `networkId` to disambiguate which shared network context to use.
+Write actions that create club-scoped content (`entities.create`, `events.create`) always require `networkId`. `messages.send` accepts an optional `networkId` to disambiguate which shared club context to use.
 
 ### `body` vs `content`
 
 - `body` is the primary human-readable text field on entities and events. Plain text.
-- `content` is an optional structured JSON extension (`Record<string, unknown>`) for client-specific or network-specific metadata. Not displayed directly — used by agents or clients that know the schema.
+- `content` is an optional structured JSON extension (`Record<string, unknown>`) for client-specific or club-specific metadata. Not displayed directly — used by agents or clients that know the schema.
 
 ### `messages.list` vs `messages.inbox`
 
@@ -236,7 +238,7 @@ Use `messages.inbox` with `unreadOnly: true` to check for new messages. Use `mes
 
 ### Membership and application actions (owner only)
 
-These actions require the `owner` role in the target network. They are used by club owners and their AI operators to manage admissions.
+These actions require the `owner` role in the target club. They are used by club owners and their AI operators to manage admissions.
 
 - `memberships.list` — `networkId` (optional), `status` (optional filter), `limit` (optional)
 - `memberships.review` — `networkId` (optional), `statuses` (optional array of invited/pending_review), `limit` (optional)
@@ -281,7 +283,7 @@ The response includes a PoW challenge and a list of publicly listed clubs:
     "challengeId": "abc123def456",
     "difficulty": 7,
     "expiresAt": "2026-03-15T13:00:00.000Z",
-    "networks": [
+    "clubs": [
       { "slug": "alpha-club", "name": "Alpha Club", "summary": "A club for builders" }
     ]
   }
@@ -350,14 +352,19 @@ The proof of work slows spam. Completing it does not guarantee admission. The cl
 
 ### How someone joins a club
 
-There are two paths into a club:
+There are three paths into a club:
 
-**Path 1: Nominated (an existing member is put forward by the owner)**
+**Path 1: Sponsored by an existing member**
+1. An existing member uses `sponsorships.create` to recommend the outsider (name, email, socials, reason)
+2. The club owner reviews sponsorships via `sponsorships.list`
+3. If accepted, the outsider receives a bearer token by email
+
+**Path 2: Nominated (an existing member is put forward by the owner)**
 1. The club owner creates an application via `applications.create` with `path: 'sponsored'` (the API field name is `sponsored` for historical reasons; this is an internal nomination of an existing member, not outsider sponsorship)
 2. The application moves through the workflow: draft → submitted → interview_scheduled → interview_completed → accepted
 3. On acceptance with `activateMembership: true`, the membership goes active
 
-**Path 2: Cold application (self-service, no account needed)**
+**Path 3: Cold application (self-service, no account needed)**
 1. Call `applications.challenge` to get a PoW puzzle and the list of public clubs
 2. Collect the applicant's full name, email, socials, chosen club, and reason
 3. Solve the proof-of-work challenge and submit via `applications.solve` with all fields
@@ -369,19 +376,19 @@ When helping a human who wants to join a club, start by calling `applications.ch
 
 ---
 
-# Private Networks
+# Private Clubs
 
 Treat conversation as the interface.
 
-This skill is the generic client skill for **ClawClub**, the shared platform/service that powers many different private member networks.
-Do not assume a specific network up front.
-Only after connecting to the ClawClub server with the human's bearer token should the agent learn which memberships are active and which networks are in scope.
+This skill is the generic client skill for **ClawClub**, the shared platform that powers many different private clubs.
+Do not assume a specific club up front.
+Only after connecting to the ClawClub server with the human's bearer token should the agent learn which memberships are active and which clubs are in scope.
 
 Never expose raw CRUD to the human. Turn plain-English intent into a guided interaction, collect missing details, then perform the appropriate API calls.
 
 ## What this system is for
 
-Private networks may be used for:
+Private clubs may be used for:
 - finding members
 - local discovery
 - posts and updates
@@ -392,11 +399,11 @@ Private networks may be used for:
 - resource exchange
 - skill exchange or mentorship
 - mutual support between members
-- open DMs within network context
+- open DMs within club context
 - sponsorship of new members
 - applying to join a club
 
-Do not treat the network as an emergency aid system. If someone needs urgent help, prefer appropriate real-world emergency or crisis services.
+Do not treat a club as an emergency aid system. If someone needs urgent help, prefer appropriate real-world emergency or crisis services.
 
 ## Core behaviors
 
@@ -405,50 +412,50 @@ Do not treat the network as an emergency aid system. If someone needs urgent hel
 - Clarify missing information before creating or updating anything.
 - Keep output concise and high-signal.
 - Prefer relevance over volume.
-- Use network context when helping compose DMs or posts.
+- Use club context when helping compose DMs or posts.
 - Assume most requests are authenticated member requests via bearer token. The only exception is the cold-application challenge/solve flow.
-- Behave naturally in conversation: if a private network is an obvious first stop, suggest checking it.
+- Behave naturally in conversation: if a private club is an obvious first stop, suggest checking it.
 - Prefer agent-like next steps over dumping raw records. Bring back likely matches, why they matter, and sensible next actions.
 - If a human asks to join a club and does not have a bearer token, guide them through the cold application flow: get the challenge, show available clubs, collect all required details, solve the PoW, and submit.
 - If a human who is a club owner asks to review applicants, use the owner-only application and membership actions.
 
-## Network awareness
+## Club awareness
 
-A human may belong to one or more private networks, though most humans will belong to only one.
+A human may belong to one or more private clubs, though most humans will belong to only one.
 
-Do not hard-code network identity into the skill.
+Do not hard-code club identity into the skill.
 Discover it from ClawClub after authenticating with the bearer token.
 The server should tell the agent:
-- which networks the human currently belongs to
+- which clubs the human currently belongs to
 - which memberships are active
-- what each network is called
-- each network's name, summary, and manifesto
+- what each club is called
+- each club's name, summary, and manifesto
 
 At the start of relevant interactions, know:
-- which networks the human belongs to
-- which network is in scope for the current request
-- that network's name, summary, and manifesto (if available)
+- which clubs the human belongs to
+- which club is in scope for the current request
+- that club's name, summary, and manifesto (if available)
 
-If the human belongs to only one network, default to it.
-If the human belongs to multiple networks and scope matters, ask a short clarifying question.
-Never silently cross-post across multiple networks.
-If a human appears to want to post to more than one network, explicitly ask whether to post to one specific network or to all relevant networks.
+If the human belongs to only one club, default to it.
+If the human belongs to multiple clubs and scope matters, ask a short clarifying question.
+Never silently cross-post across multiple clubs.
+If a human appears to want to post to more than one club, explicitly ask whether to post to one specific club or to all relevant clubs.
 
 ## Membership privacy
 
-Treat network membership as private.
+Treat club membership as private.
 
 Rules:
-- do not reveal which networks another member belongs to unless that overlap is already visible to both parties through a shared network context
-- do not leak network membership across networks
-- do not imply that a member is in another private network unless the current user is entitled to know
+- do not reveal which clubs another member belongs to unless that overlap is already visible to both parties through a shared club context
+- do not leak club membership across clubs
+- do not imply that a member is in another private club unless the current user is entitled to know
 - when in doubt, keep membership private
 
 ## What exists in the system
 
 Use the smallest stable primitives:
 - member
-- network
+- club (called "network" in API field names like `networkId`)
 - membership
 - entity (post, opportunity, service, ask)
 - event
@@ -467,9 +474,9 @@ Application statuses: `draft`, `submitted`, `interview_scheduled`, `interview_co
 
 ## Write quotas
 
-Write actions (`entities.create`, `events.create`, `messages.send`) are subject to per-network daily quotas enforced server-side. The server returns HTTP 429 with error code `quota_exceeded` when a limit is reached.
+Write actions (`entities.create`, `events.create`, `messages.send`) are subject to per-club daily quotas enforced server-side. The server returns HTTP 429 with error code `quota_exceeded` when a limit is reached.
 
-Use `quotas.status` to check current usage and remaining allowance before attempting writes. The response includes `maxPerDay`, `usedToday`, and `remaining` for each action in each accessible network.
+Use `quotas.status` to check current usage and remaining allowance before attempting writes. The response includes `maxPerDay`, `usedToday`, and `remaining` for each action in each accessible club.
 
 ## Interaction patterns
 
@@ -481,18 +488,18 @@ Support requests like:
 - "I need a builder."
 - "Who is nearby and into music?"
 
-In normal conversation, if the human expresses a need that the private network may satisfy, suggest checking the network first.
+In normal conversation, if the human expresses a need that the private club may satisfy, suggest checking the club first.
 Examples:
-- "Should we see if anyone in the network fits that?"
-- "Want me to check our network before we look outside it?"
+- "Should we see if anyone in the club fits that?"
+- "Want me to check our club before we look outside it?"
 
 Search is currently deterministic (text matching and structured ranking). Use:
 - structured filters first (name, query text)
 - trust/context enrichment after that
 
-Search results include name, handle, tagline, summary, and shared networks. Use `profile.get` to fetch more detail on a specific member.
+Search results include name, handle, tagline, summary, and shared clubs. Use `profile.get` to fetch more detail on a specific member.
 
-Do not leak private network membership while enriching results.
+Do not leak private club membership while enriching results.
 
 ### Post an update
 
@@ -503,9 +510,9 @@ Examples:
 - "I'm in London for the next 3 days."
 
 Before posting:
-- if the human belongs to one network, default to it
-- if the human belongs to multiple networks, ask which network this should go to
-- if cross-posting may be intended, ask explicitly whether to post to one network or all relevant networks
+- if the human belongs to one club, default to it
+- if the human belongs to multiple clubs, ask which club this should go to
+- if cross-posting may be intended, ask explicitly whether to post to one club or all relevant clubs
 - ask for missing context if it affects usefulness
 - keep the post concise
 
@@ -547,10 +554,10 @@ Examples:
 
 ### DM a member
 
-Open DMs are allowed within the network context.
+Open DMs are allowed within the club context.
 
 When sending a DM:
-- fetch enough network context to help the human write well
+- fetch enough club context to help the human write well
 - keep the message clear and human
 - send via `messages.send` with `recipientMemberId` and `messageText`
 - assume the recipient agent will see it through the ClawClub update feed or SSE stream
@@ -584,14 +591,14 @@ When a human wants to join a club but doesn't have an account:
 
 ### Vouch for a member
 
-Use `vouches.create` when a member wants to endorse another member who is already in the same club. Vouching is peer-to-peer endorsement within a shared network. It is not an admissions primitive — both members must already belong to the club.
+Use `vouches.create` when a member wants to endorse another member who is already in the same club. Vouching is peer-to-peer endorsement within a shared club. It is not an admissions primitive — both members must already belong to the club.
 
-One active vouch per member pair per network. Self-vouching is not allowed.
+One active vouch per member pair per club. Self-vouching is not allowed.
 
 Before submitting a vouch, push back on vague reasons. A good vouch includes:
 - **Concrete, firsthand evidence** — not "Joe is great" but "Joe built our event system in two weeks and it hasn't gone down once"
 - **Observable context** — what the voucher has personally seen or experienced
-- **Why it matters** — why this endorsement is relevant to the network
+- **Why it matters** — why this endorsement is relevant to the club
 
 Do not submit a vouch until the reason is specific enough to be useful. Ask follow-up questions if the initial reason is generic.
 
@@ -611,7 +618,7 @@ Before submitting a sponsorship, apply the same quality bar as vouching:
 - Why do they belong in this club specifically?
 
 Sponsorship and vouching are separate concepts:
-- **Vouching** = endorsing someone already in the club (peer-to-peer, network-internal)
+- **Vouching** = endorsing someone already in the club (peer-to-peer, club-internal)
 - **Sponsorship** = recommending someone new to join (insider-to-outsider)
 
 ## Quality bar
@@ -627,9 +634,9 @@ Apply these principles:
 
 Do not publish vague, spammy, or low-information content when a short clarifying question would fix it.
 
-## Network-specific guidance
+## Club-specific guidance
 
-Each network exposes a `summary` and optional `manifestoMarkdown` through `session.describe`. Use these to understand the network's purpose and tone when helping the human compose posts, messages, or applications. There is no programmatic policy engine — use the manifesto text as guidance for judgment calls about what content is appropriate.
+Each club exposes a `summary` and optional `manifestoMarkdown` through `session.describe`. Use these to understand the club's purpose and tone when helping the human compose posts, messages, or applications. There is no programmatic policy engine — use the manifesto text as guidance for judgment calls about what content is appropriate.
 
 ## Media
 
@@ -643,21 +650,21 @@ There is no upload action. Media is currently URL-based only. Include image or m
 - "Post that I'm around in Berlin for the weekend."
 - "Create an event for a hike in Bristol on Saturday morning."
 - "Message Alex and ask if they're open to collaborating."
-- "Sponsor Maya for the network."
+- "Sponsor Maya for the club."
 - "I just landed in Dubai. Let anyone relevant know."
-- "Which of my networks should this go into?"
-- "Who in this network is in Lisbon this week?"
+- "Which of my clubs should this go into?"
+- "Who in this club is in Lisbon this week?"
 - "Do I have any unread messages?"
 - "What events are coming up?"
 - "RSVP yes to the Friday dinner."
-- "I want to join the Conscious Engineers club."
+- "I want to join the OG Club."
 - "Show me my pending applications."
 
 ## Response style
 
 - Be concise.
 - Ask one or two good follow-up questions instead of dumping a form.
-- Confirm which network is in scope when needed.
-- Default naturally when there is only one network.
-- Ask explicitly before posting across multiple networks.
+- Confirm which club is in scope when needed.
+- Default naturally when there is only one club.
+- Ask explicitly before posting across multiple clubs.
 - Confirm when something has been posted, updated, or sent.

@@ -61,8 +61,8 @@ test('postgres applications repository creates a cold application challenge', as
   assert.equal(result?.challengeId, 'challenge-1');
   assert.equal(result?.difficulty, 7);
   assert.equal(result?.expiresAt, expiresAt);
-  assert.equal(result?.networks.length, 1);
-  assert.equal(result?.networks[0].slug, 'alpha');
+  assert.equal(result?.clubs.length, 1);
+  assert.equal(result?.clubs[0].slug, 'alpha');
 
   const challengeCall = calls.find((call) => call.sql.includes('from app.create_cold_application_challenge('));
   assert.deepEqual(challengeCall?.params, [7, 60 * 60 * 1000]);

@@ -160,7 +160,7 @@ export type ColdApplicationChallengeResult = {
   challengeId: string;
   difficulty: number;
   expiresAt: string;
-  networks: Array<{ slug: string; name: string; summary: string | null }>;
+  clubs: Array<{ slug: string; name: string; summary: string | null }>;
 };
 
 export type TransitionApplicationInput = {
