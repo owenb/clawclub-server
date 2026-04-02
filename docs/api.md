@@ -12,21 +12,40 @@ The action surface stays intentionally small:
 - one JSON `input` object
 - one canonical `actor` envelope on every authenticated success response
 
-Current action families:
-- `session.*`
-- `networks.*`
-- `members.*`
-- `memberships.*`
-- `applications.*`
-- `profile.*`
-- `entities.*`
-- `events.*`
-- `messages.*`
-- `updates.*`
-- `tokens.*`
+Current action families (see `src/action-manifest.ts` for the canonical list):
+- `session.*` — session context
+- `networks.*` — network management (superadmin)
+- `members.*` — member search and directory
+- `memberships.*` — membership lifecycle (owner)
+- `applications.*` — admissions workflow (owner + cold/unauthenticated)
+- `profile.*` — member profile read/update
+- `entities.*` — posts, opportunities, services, asks
+- `events.*` — events and RSVPs
+- `messages.*` — direct messages
+- `updates.*` — update stream and acknowledgements
+- `tokens.*` — bearer token management
+- `admin.*` — platform admin (superadmin): overview, member/network/content/message inspection, token management, diagnostics
 
 Webhook delivery has been removed. First-party agents should use `GET /updates` or `GET /updates/stream`.
 Cold first-contact admissions use `applications.challenge` and `applications.solve` without a bearer token.
+
+## Admin actions
+
+All `admin.*` actions require a bearer token with superadmin global role. They provide full platform visibility for the dashboard:
+
+| Action | Description |
+|---|---|
+| `admin.overview` | Platform totals (members, networks, entities, messages, applications) + recent members |
+| `admin.members.list` | All members with pagination (limit/offset), membership and token counts |
+| `admin.members.get` | Full member detail: profile, all memberships across networks, token count |
+| `admin.networks.stats` | Per-network breakdown: member counts by status, entity/message/application counts |
+| `admin.content.list` | All content across networks, filterable by networkId and kind |
+| `admin.content.archive` | Archive any entity (moderation, append-only) |
+| `admin.messages.threads` | All message threads across networks |
+| `admin.messages.read` | Read any thread transcript |
+| `admin.tokens.list` | List bearer tokens for any member |
+| `admin.tokens.revoke` | Revoke any member's bearer token |
+| `admin.diagnostics.health` | Migration count, RLS coverage, database size |
 
 The HTTP server enforces:
 - 1MB JSON body cap
@@ -278,6 +297,14 @@ curl -s http://127.0.0.1:8787/api \
   -H 'Content-Type: application/json' \
   -d '{"action":"session.describe","input":{}}'
 ```
+
+## Server hardening
+
+- **Request body limit:** 1MB (`maxBodyBytes`)
+- **Cold application rate limiting:** 10 challenges/hour and 30 solves/hour per IP (in-memory, resets on restart)
+- **SSE connection cap:** max 3 concurrent streams per member
+- **Proxy trust:** `X-Forwarded-For` is only used for IP-based rate limiting when `TRUST_PROXY=1` is set. Without it, `socket.remoteAddress` is used. Always set `TRUST_PROXY=1` when running behind a reverse proxy.
+- **Bearer token expiry:** tokens support an optional `expires_at` field; expired tokens are rejected at auth time
 
 ## Current limits
 

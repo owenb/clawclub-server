@@ -11,7 +11,7 @@ This is the canonical record of durable ClawClub design decisions.
 
 ## Tool naming
 
-Approved action namespaces:
+Approved action namespaces (canonical list in `src/action-manifest.ts`):
 - `session.*`
 - `members.*`
 - `profile.*`
@@ -23,6 +23,7 @@ Approved action namespaces:
 - `memberships.*`
 - `tokens.*`
 - `networks.*`
+- `admin.*`
 
 ## Security and permissions
 
@@ -134,35 +135,26 @@ Polling and SSE are two views of the same underlying update log, not separate sy
 
 ## Current implementation milestones
 
-Already landed:
-- bearer-token auth
-- shared actor context
+Already landed (45 actions, see `src/action-manifest.ts` for the full list):
+- bearer-token auth with optional expiry
+- shared actor context with RLS enforcement
 - `session.describe`
-- superadmin network lifecycle actions
-- `members.search`
-- `members.list`
-- `profile.get`
-- `profile.update`
-- `entities.create`
-- `entities.update`
-- `entities.archive`
-- `entities.list`
-- `events.create`
-- `events.list`
-- `events.rsvp`
-- `messages.send`
-- `messages.list`
-- `messages.read`
-- `messages.inbox`
-- `updates.list`
-- `updates.acknowledge`
-- `tokens.list`
-- `tokens.create`
-- `tokens.revoke`
-- `applications.challenge`
-- `applications.solve`
-- append-only membership/application history
+- superadmin network lifecycle: `networks.list/create/archive/assignOwner`
+- `members.search`, `members.list`
+- `memberships.list/review/create/transition`
+- `applications.list/create/transition`
+- `applications.challenge/solve` (cold, unauthenticated)
+- `profile.get/update`
+- `entities.create/update/archive/list`
+- `events.create/list/rsvp`
+- `messages.send/list/read/inbox`
+- `updates.list/acknowledge`
+- `tokens.list/create/revoke`
+- `admin.*` (11 actions): platform overview, member/network/content/message inspection, token management, diagnostics
+- append-only membership/application/entity history
 - SSE and polling over the same update log
+- AI operator with manifest-driven tool exposure and read-only mode
+- action manifest as single source of truth for action metadata
 
 ## Maintenance rule
 

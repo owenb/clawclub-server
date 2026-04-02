@@ -20,11 +20,13 @@ DATABASE_URL=postgres://clawclub_app:...@127.0.0.1:5432/clawclub
 # keep DATABASE_MIGRATOR_URL out of the steady-state runtime env if possible
 OPENAI_API_KEY=...
 PORT=8787
+TRUST_PROXY=1
 ```
 
 Notes:
 - keep this file root-readable only: `chmod 600 /etc/clawclub/clawclub.env`
 - the Postgres role in `DATABASE_URL` must be a dedicated app role, not a superuser and not `BYPASSRLS`
+- `TRUST_PROXY=1` is required when behind a reverse proxy so that `X-Forwarded-For` is used for IP-based rate limiting; without it, all requests appear to come from the proxy's IP
 
 Create the runtime role once from a more privileged connection:
 
@@ -105,10 +107,13 @@ export $(grep -v '^#' /etc/clawclub/clawclub.env | xargs)
 ./scripts/healthcheck.sh
 ```
 
-That checks:
-- migration status
-- runtime role safety
-- `session.describe` if `CLAWCLUB_HEALTH_TOKEN` is set
+That checks (and exits non-zero on failure):
+- migration status (fails if any migrations are pending)
+- runtime role safety (fails if role is superuser or BYPASSRLS; default-on)
+- projection view ownership (fails if any app views are owned by superuser/BYPASSRLS roles)
+- security definer function ownership (fails if any SECURITY DEFINER functions are owned by privileged roles)
+- table RLS coverage (fails if any app tables lack RLS or FORCE RLS)
+- `session.describe` API call if `CLAWCLUB_HEALTH_TOKEN` is set
 
 Useful live commands:
 
