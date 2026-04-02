@@ -48,6 +48,22 @@ export async function handlePlatformAction(input: {
         data: {},
       });
 
+    case 'quotas.status': {
+      const networkIds = actor.memberships.map((m) => m.networkId);
+      const quotas = await repository.getQuotaStatus({
+        actorMemberId: actor.member.id,
+        networkIds,
+      });
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope,
+        sharedContext,
+        data: { quotas },
+      });
+    }
+
     case 'networks.list': {
       requireSuperadmin(actor);
       const includeArchived = payload.includeArchived === true;
@@ -157,10 +173,11 @@ export async function handlePlatformAction(input: {
     }
 
     case 'tokens.create': {
-      const { label, metadata } = normalizeTokenCreateInput(payload);
+      const { label, expiresAt, metadata } = normalizeTokenCreateInput(payload);
       const created = await repository.createBearerToken({
         actorMemberId: actor.member.id,
         label,
+        expiresAt,
         metadata,
       });
 

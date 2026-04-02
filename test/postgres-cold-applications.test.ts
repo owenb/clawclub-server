@@ -46,26 +46,28 @@ test('postgres applications repository creates a cold application challenge', as
         return { rows: [{ challenge_id: 'challenge-1', expires_at: expiresAt }], rowCount: 1 };
       }
 
+      if (sql.includes('from app.list_publicly_listed_networks()')) {
+        return { rows: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }], rowCount: 1 };
+      }
+
       throw new Error(`Unexpected query: ${sql}`);
     },
     release() {},
   };
 
   const repository = buildRepository(client);
-  const result = await repository.createColdApplicationChallenge?.({
-    networkSlug: 'consciousclaw',
-    email: 'jane@example.com',
-    name: 'Jane Doe',
-  });
+  const result = await repository.createColdApplicationChallenge?.();
 
   assert.equal(result?.challengeId, 'challenge-1');
   assert.equal(result?.difficulty, 7);
   assert.equal(result?.expiresAt, expiresAt);
+  assert.equal(result?.networks.length, 1);
+  assert.equal(result?.networks[0].slug, 'alpha');
 
-  const insertCall = calls.find((call) => call.sql.includes('insert into app.cold_application_challenges'));
-  assert.equal(insertCall, undefined);
-  const functionCall = calls.find((call) => call.sql.includes('from app.create_cold_application_challenge('));
-  assert.deepEqual(functionCall?.params, ['consciousclaw', 'jane@example.com', 'Jane Doe', 7, 60 * 60 * 1000]);
+  const challengeCall = calls.find((call) => call.sql.includes('from app.create_cold_application_challenge('));
+  assert.deepEqual(challengeCall?.params, [7, 60 * 60 * 1000]);
+  const networksCall = calls.find((call) => call.sql.includes('from app.list_publicly_listed_networks()'));
+  assert.ok(networksCall);
 });
 
 test('postgres applications repository verifies a solved cold application challenge', async () => {
@@ -87,9 +89,6 @@ test('postgres applications repository verifies a solved cold application challe
         return {
           rows: [{
             challenge_id: challengeId,
-            network_id: 'network-1',
-            applicant_email: 'jane@example.com',
-            applicant_name: 'Jane Doe',
             difficulty,
             expires_at: expiresAt,
           }],
@@ -110,6 +109,11 @@ test('postgres applications repository verifies a solved cold application challe
   const result = await repository.solveColdApplicationChallenge?.({
     challengeId,
     nonce,
+    networkSlug: 'alpha',
+    name: 'Jane Doe',
+    email: 'jane@example.com',
+    socials: '@janedoe',
+    reason: 'Love the community',
   });
 
   assert.deepEqual(result, { success: true });
@@ -117,7 +121,14 @@ test('postgres applications repository verifies a solved cold application challe
   const getCall = calls.find((call) => call.sql.includes('from app.get_cold_application_challenge('));
   assert.deepEqual(getCall?.params, [challengeId]);
   const consumeCall = calls.find((call) => call.sql.includes('from app.consume_cold_application_challenge('));
-  assert.deepEqual(consumeCall?.params, [challengeId]);
+  assert.ok(consumeCall);
+  assert.equal(consumeCall?.params?.[0], challengeId);
+  assert.equal(consumeCall?.params?.[1], 'alpha');
+  assert.equal(consumeCall?.params?.[2], 'Jane Doe');
+  assert.equal(consumeCall?.params?.[3], 'jane@example.com');
+  const applicationDetails = JSON.parse(consumeCall?.params?.[4] as string);
+  assert.equal(applicationDetails.socials, '@janedoe');
+  assert.equal(applicationDetails.reason, 'Love the community');
 });
 
 test('postgres applications repository rejects invalid proof for cold applications', async () => {
@@ -134,9 +145,6 @@ test('postgres applications repository rejects invalid proof for cold applicatio
         return {
           rows: [{
             challenge_id: challengeId,
-            network_id: 'network-1',
-            applicant_email: 'jane@example.com',
-            applicant_name: 'Jane Doe',
             difficulty: 2,
             expires_at: expiresAt,
           }],
@@ -154,6 +162,11 @@ test('postgres applications repository rejects invalid proof for cold applicatio
     () => repository.solveColdApplicationChallenge?.({
       challengeId,
       nonce: 'definitely-not-valid',
+      networkSlug: 'alpha',
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      socials: '@janedoe',
+      reason: 'Testing',
     }),
     (error: unknown) => {
       assert.ok(error instanceof AppError);

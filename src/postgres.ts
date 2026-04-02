@@ -8,6 +8,7 @@ import { buildMessagesRepository } from './postgres/messages.ts';
 import { buildProfileRepository } from './postgres/profile.ts';
 import { buildPlatformRepository } from './postgres/platform.ts';
 import { buildTokenRepository } from './postgres/tokens.ts';
+import { buildQuotaRepository } from './postgres/quotas.ts';
 import { buildUpdatesRepository } from './postgres/updates.ts';
 import type { DbClient } from './postgres/shared.ts';
 
@@ -205,6 +206,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
     ...buildTokenRepository({ pool, withActorContext }),
     ...buildMessagesRepository({ pool, applyActorContext, withActorContext }),
     ...buildPlatformRepository({ pool, applyActorContext, withActorContext }),
+    ...buildQuotaRepository({ pool, withActorContext }),
     ...buildUpdatesRepository({ pool, applyActorContext }),
     ...buildAdminRepository({ pool, applyActorContext, withActorContext }),
 

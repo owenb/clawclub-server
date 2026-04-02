@@ -33,6 +33,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
         challengeId: 'challenge-1',
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
+        networks: [{ slug: 'test', name: 'Test', summary: null }],
       };
     },
   };
@@ -54,11 +55,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
       },
       body: JSON.stringify({
         action: 'applications.challenge',
-        input: {
-          networkSlug: 'consciousclaw',
-          email: 'jane@example.com',
-          name: 'Jane Doe',
-        },
+        input: {},
       }),
     });
 
@@ -70,8 +67,51 @@ test('createServer accepts unauthenticated cold application actions over POST /a
       challengeId: 'challenge-1',
       difficulty: 7,
       expiresAt: '2026-03-15T13:00:00.000Z',
+      networks: [{ slug: 'test', name: 'Test', summary: null }],
     });
     assert.equal('actor' in body, false);
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer returns 404 for applications.solve with a bogus challengeId', async () => {
+  const requestFetch = globalThis.fetch;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async solveColdApplicationChallenge() {
+      return null;
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action: 'applications.solve',
+        input: {
+          challengeId: 'totally-bogus-id', nonce: '12345',
+          networkSlug: 'test', name: 'Jane Doe', email: 'j@x.com',
+          socials: '@j', reason: 'test',
+        },
+      }),
+    });
+
+    const body = await response.json();
+    assert.equal(response.status, 404);
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, 'not_found');
   } finally {
     await shutdown();
   }
@@ -90,6 +130,7 @@ test('createServer rate limits cold application actions per IP and per action', 
         challengeId: `challenge-${challengeCalls}`,
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
+        networks: [],
       };
     },
     async solveColdApplicationChallenge() {
@@ -114,11 +155,7 @@ test('createServer rate limits cold application actions per IP and per action', 
 
     const challengeInput = {
       action: 'applications.challenge',
-      input: {
-        networkSlug: 'consciousclaw',
-        email: 'jane@example.com',
-        name: 'Jane Doe',
-      },
+      input: {},
     };
 
     const firstChallenge = await requestFetch(`http://127.0.0.1:${port}/api`, {
@@ -146,6 +183,11 @@ test('createServer rate limits cold application actions per IP and per action', 
         input: {
           challengeId: 'challenge-1',
           nonce: '123456',
+          networkSlug: 'test',
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          socials: '@jane',
+          reason: 'I want to join',
         },
       }),
     });
@@ -171,6 +213,7 @@ test('createServer enforces request body limits by byte size, not decoded string
         challengeId: 'challenge-1',
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
+        networks: [{ slug: 'test', name: 'Test', summary: null }],
       };
     },
   };
@@ -184,14 +227,10 @@ test('createServer enforces request body limits by byte size, not decoded string
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
-    const oversizedName = '😀'.repeat(300_000);
+    const oversizedPayload = '😀'.repeat(300_000);
     const body = JSON.stringify({
       action: 'applications.challenge',
-      input: {
-        networkSlug: 'consciousclaw',
-        email: 'jane@example.com',
-        name: oversizedName,
-      },
+      input: { padding: oversizedPayload },
     });
 
     assert.ok(body.length < DEFAULT_SERVER_LIMITS.maxBodyBytes);
@@ -498,7 +537,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     ...makeRepository(),
     async createColdApplicationChallenge() {
       challengeCalls += 1;
-      return { challengeId: `challenge-${challengeCalls}`, difficulty: 7, expiresAt: '2026-03-15T13:00:00.000Z' };
+      return { challengeId: `challenge-${challengeCalls}`, difficulty: 7, expiresAt: '2026-03-15T13:00:00.000Z', networks: [] };
     },
   };
 
@@ -514,7 +553,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     const address = serverNoProxy.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const body = JSON.stringify({ action: 'applications.challenge', input: { networkSlug: 'test', email: 'a@b.com', name: 'A' } });
+    const body = JSON.stringify({ action: 'applications.challenge', input: {} });
 
     await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',

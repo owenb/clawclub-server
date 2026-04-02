@@ -272,9 +272,10 @@ function requireEventRsvpState(value: unknown, field: string): EventRsvpState {
   return value;
 }
 
-function normalizeTokenCreateInput(payload: Record<string, unknown>): { label: string | null; metadata: Record<string, unknown> } {
+function normalizeTokenCreateInput(payload: Record<string, unknown>): { label: string | null; expiresAt: string | null; metadata: Record<string, unknown> } {
   return {
     label: normalizeOptionalString(payload.label, 'label') ?? null,
+    expiresAt: normalizeOptionalString(payload.expiresAt, 'expiresAt') ?? null,
     metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
   };
 }

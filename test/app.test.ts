@@ -1126,19 +1126,17 @@ test('applications.transition can append accepted interview state and activate t
 });
 
 test('applications.challenge creates a cold application challenge without a bearer token', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken() {
       throw new Error('authenticateBearerToken should not run for cold application actions');
     },
-    async createColdApplicationChallenge(input) {
-      capturedInput = input as Record<string, unknown>;
+    async createColdApplicationChallenge() {
       return {
         challengeId: 'challenge-1',
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
+        networks: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }],
       };
     },
   };
@@ -1147,59 +1145,17 @@ test('applications.challenge creates a cold application challenge without a bear
   const result = await app.handleAction({
     bearerToken: null,
     action: 'applications.challenge',
-    payload: {
-      networkSlug: 'consciousclaw',
-      email: 'Jane@Example.com',
-      name: 'Jane Doe',
-    },
   });
 
-  assert.deepEqual(capturedInput, {
-    networkSlug: 'consciousclaw',
-    email: 'jane@example.com',
-    name: 'Jane Doe',
-  });
   assert.equal(result.action, 'applications.challenge');
-  assert.deepEqual(result.data, {
-    challengeId: 'challenge-1',
-    difficulty: 7,
-    expiresAt: '2026-03-15T13:00:00.000Z',
-  });
+  assert.equal(result.data.challengeId, 'challenge-1');
+  assert.equal(result.data.difficulty, 7);
+  assert.equal(result.data.networks.length, 1);
+  assert.equal(result.data.networks[0].slug, 'alpha');
   assert.equal('actor' in result, false);
 });
 
-test('applications.challenge returns 404 when the network slug is unknown', async () => {
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken() {
-      throw new Error('authenticateBearerToken should not run for cold application actions');
-    },
-    async createColdApplicationChallenge() {
-      return null;
-    },
-  };
-
-  const app = buildApp({ repository });
-  await assert.rejects(
-    () => app.handleAction({
-      bearerToken: null,
-      action: 'applications.challenge',
-      payload: {
-        networkSlug: 'missing-network',
-        email: 'jane@example.com',
-        name: 'Jane Doe',
-      },
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof AppError);
-      assert.equal(error.statusCode, 404);
-      assert.equal(error.code, 'not_found');
-      return true;
-    },
-  );
-});
-
-test('applications.solve submits a solved cold application without a bearer token', async () => {
+test('applications.solve submits a cold application with all required fields', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -1220,18 +1176,25 @@ test('applications.solve submits a solved cold application without a bearer toke
     payload: {
       challengeId: 'challenge-1',
       nonce: '183729471',
+      networkSlug: 'alpha',
+      name: 'Jane Doe',
+      email: 'Jane@Example.com',
+      socials: '@janedoe',
+      reason: 'Love the community',
     },
   });
 
   assert.deepEqual(capturedInput, {
     challengeId: 'challenge-1',
     nonce: '183729471',
+    networkSlug: 'alpha',
+    name: 'Jane Doe',
+    email: 'jane@example.com',
+    socials: '@janedoe',
+    reason: 'Love the community',
   });
   assert.equal(result.action, 'applications.solve');
-  assert.equal(
-    result.data.message,
-    'Application submitted. The network owner will review your application and may reach out by email to schedule an interview.',
-  );
+  assert.equal(result.data.message, 'Application submitted. Watch your email — you will hear back soon.');
   assert.equal('actor' in result, false);
 });
 
@@ -1706,6 +1669,8 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     async listEntities() {
       return [makeEntity()];
     },
+    async getQuotaStatus() { return []; },
+
   };
 
   const app = buildApp({ repository });
@@ -2072,6 +2037,8 @@ test('events.create writes the smallest sane event payload', async () => {
     async listEntities() {
       return [makeEntity()];
     },
+    async getQuotaStatus() { return []; },
+
   };
 
   const app = buildApp({ repository });
@@ -2588,6 +2555,8 @@ test('messages.send picks a shared network, appends the request scope, and retur
     async listEntities() {
       return [makeEntity()];
     },
+    async getQuotaStatus() { return []; },
+
   };
 
   const app = buildApp({ repository });
@@ -2683,6 +2652,8 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
     async listEntities() {
       return [makeEntity()];
     },
+    async getQuotaStatus() { return []; },
+
   };
 
   const app = buildApp({ repository });
@@ -3114,6 +3085,8 @@ test('tokens.create mints a new bearer token for the actor member', async () => 
     async listEntities() {
       return [makeEntity()];
     },
+    async getQuotaStatus() { return []; },
+
   };
 
   const app = buildApp({ repository });
@@ -3129,6 +3102,7 @@ test('tokens.create mints a new bearer token for the actor member', async () => 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
     label: 'laptop',
+    expiresAt: null,
     metadata: { device: 'mbp' },
   });
   assert.equal(result.action, 'tokens.create');

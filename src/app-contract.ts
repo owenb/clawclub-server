@@ -119,6 +119,7 @@ export type ApplicationSummary = {
     createdAt: string;
     createdByMemberId: string | null;
   };
+  applicationDetails: Record<string, unknown>;
   metadata: Record<string, unknown>;
   createdAt: string;
 };
@@ -145,21 +146,21 @@ export type CreateApplicationInput = {
   metadata: Record<string, unknown>;
 };
 
-export type CreateColdApplicationChallengeInput = {
-  networkSlug: string;
-  email: string;
-  name: string;
-};
-
 export type SolveColdApplicationChallengeInput = {
   challengeId: string;
   nonce: string;
+  networkSlug: string;
+  name: string;
+  email: string;
+  socials: string;
+  reason: string;
 };
 
 export type ColdApplicationChallengeResult = {
   challengeId: string;
   difficulty: number;
   expiresAt: string;
+  networks: Array<{ slug: string; name: string; summary: string | null }>;
 };
 
 export type TransitionApplicationInput = {
@@ -621,6 +622,14 @@ export type UpdateEntityInput = {
   };
 };
 
+export type QuotaAllowance = {
+  action: string;
+  networkId: string;
+  maxPerDay: number;
+  usedToday: number;
+  remaining: number;
+};
+
 export type AdminOverview = {
   totalMembers: number;
   totalNetworks: number;
@@ -733,7 +742,7 @@ export type Repository = {
   }): Promise<ApplicationSummary[]>;
   createApplication?(input: CreateApplicationInput): Promise<ApplicationSummary | null>;
   transitionApplication?(input: TransitionApplicationInput): Promise<ApplicationSummary | null>;
-  createColdApplicationChallenge?(input: CreateColdApplicationChallengeInput): Promise<ColdApplicationChallengeResult | null>;
+  createColdApplicationChallenge?(): Promise<ColdApplicationChallengeResult>;
   solveColdApplicationChallenge?(input: SolveColdApplicationChallengeInput): Promise<{ success: boolean } | null>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
@@ -786,6 +795,8 @@ export type Repository = {
     threadId: string;
     limit: number;
   }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null>;
+
+  getQuotaStatus(input: { actorMemberId: string; networkIds: string[] }): Promise<QuotaAllowance[]>;
 
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
   adminListMembers?(input: { actorMemberId: string; limit: number; offset: number }): Promise<AdminMemberSummary[]>;

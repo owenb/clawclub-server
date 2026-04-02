@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { enforceQuota } from './quotas.ts';
 import type {
   CreateEventInput,
   EventRsvpState,
@@ -318,6 +319,7 @@ export function buildEventsRepository({
       try {
         await client.query('begin');
         await applyActorContext(client, input.authorMemberId, [input.networkId]);
+        await enforceQuota(client, input.authorMemberId, input.networkId, 'events.create');
         const entityResult = await client.query<{ id: string }>(
           `insert into app.entities (network_id, kind, author_member_id) values ($1, 'event', $2) returning id`,
           [input.networkId, input.authorMemberId],

@@ -108,6 +108,7 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async listBearerTokens() { return []; },
     async createBearerToken() { throw new Error('not used'); },
     async revokeBearerToken() { return null; },
+    async getQuotaStatus() { return []; },
     async sendDirectMessage() { return null; },
     async listDirectMessageThreads() { return []; },
     async listDirectMessageInbox() { return []; },

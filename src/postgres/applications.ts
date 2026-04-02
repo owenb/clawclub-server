@@ -6,7 +6,6 @@ import {
   type ApplicationSummary,
   type ColdApplicationChallengeResult,
   type CreateApplicationInput,
-  type CreateColdApplicationChallengeInput,
   type MembershipState,
   type Repository,
   type SolveColdApplicationChallengeInput,
@@ -44,17 +43,9 @@ type ApplicationRow = {
   version_no: number;
   version_created_at: string;
   version_created_by_member_id: string | null;
+  application_details: Record<string, unknown> | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
-};
-
-type ColdApplicationChallengeRow = {
-  challenge_id: string;
-  network_id: string;
-  applicant_email: string;
-  applicant_name: string;
-  difficulty: number;
-  expires_at: string;
 };
 
 function mapApplicationRow(row: ApplicationRow): ApplicationSummary {
@@ -99,6 +90,7 @@ function mapApplicationRow(row: ApplicationRow): ApplicationSummary {
       createdAt: row.version_created_at,
       createdByMemberId: row.version_created_by_member_id,
     },
+    applicationDetails: row.application_details ?? {},
     metadata: row.metadata ?? {},
     createdAt: row.created_at,
   };
@@ -141,6 +133,7 @@ async function readApplications(client: DbClient, input: {
         ca.version_no,
         ca.version_created_at::text as version_created_at,
         ca.version_created_by_member_id,
+        ca.application_details,
         ca.metadata,
         ca.created_at::text as created_at
       from app.current_applications ca
@@ -187,6 +180,7 @@ async function readApplicationSummary(client: DbClient, applicationId: string): 
         ca.version_no,
         ca.version_created_at::text as version_created_at,
         ca.version_created_by_member_id,
+        ca.application_details,
         ca.metadata,
         ca.created_at::text as created_at
       from app.current_applications ca
@@ -579,36 +573,27 @@ export function buildApplicationsRepository({
       }
     },
 
-    async createColdApplicationChallenge(
-      input: CreateColdApplicationChallengeInput,
-    ): Promise<ColdApplicationChallengeResult | null> {
+    async createColdApplicationChallenge(): Promise<ColdApplicationChallengeResult> {
       const challengeResult = await pool.query<{ challenge_id: string; expires_at: string }>(
-        `
-          select challenge_id, expires_at
-          from app.create_cold_application_challenge($1, $2, $3, $4, $5)
-        `,
-        [
-          input.networkSlug,
-          input.email,
-          input.name,
-          COLD_APPLICATION_DIFFICULTY,
-          COLD_APPLICATION_CHALLENGE_TTL_MS,
-        ],
+        `select challenge_id, expires_at from app.create_cold_application_challenge($1, $2)`,
+        [COLD_APPLICATION_DIFFICULTY, COLD_APPLICATION_CHALLENGE_TTL_MS],
       );
-      const challenge = challengeResult.rows[0];
-      if (!challenge) {
-        return null;
-      }
+      const challenge = requireReturnedRow(challengeResult.rows[0], 'Cold application challenge was not created');
 
       const expiresAt = Date.parse(challenge.expires_at);
       if (!Number.isFinite(expiresAt)) {
         throw new AppError(500, 'invalid_data', 'Cold application challenge expiry was not returned');
       }
 
+      const networksResult = await pool.query<{ slug: string; name: string; summary: string | null }>(
+        `select slug, name, summary from app.list_publicly_listed_networks()`,
+      );
+
       return {
         challengeId: challenge.challenge_id,
         difficulty: COLD_APPLICATION_DIFFICULTY,
         expiresAt: new Date(expiresAt).toISOString(),
+        networks: networksResult.rows,
       };
     },
 
@@ -620,17 +605,8 @@ export function buildApplicationsRepository({
       try {
         await client.query('begin');
 
-        const challengeResult = await client.query<ColdApplicationChallengeRow>(
-          `
-            select
-              challenge_id,
-              network_id,
-              applicant_email,
-              applicant_name,
-              difficulty,
-              expires_at
-            from app.get_cold_application_challenge($1)
-          `,
+        const challengeResult = await client.query<{ challenge_id: string; difficulty: number; expires_at: string }>(
+          `select challenge_id, difficulty, expires_at from app.get_cold_application_challenge($1)`,
           [input.challengeId],
         );
 
@@ -641,18 +617,12 @@ export function buildApplicationsRepository({
         }
 
         const expiresAt = Date.parse(challenge.expires_at);
-        if (!Number.isFinite(expiresAt)) {
-          await client.query('rollback');
-          return null;
-        }
-
-        if (expiresAt < Date.now()) {
+        if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
           await client.query(
-            `
-              select app.delete_cold_application_challenge($1)
-            `,
+            `select app.delete_cold_application_challenge($1)`,
             [input.challengeId],
           );
+          await client.query('commit');
           throw new AppError(410, 'challenge_expired', 'This challenge has expired');
         }
 
@@ -663,19 +633,28 @@ export function buildApplicationsRepository({
           throw new AppError(400, 'invalid_proof', 'The submitted proof does not meet the difficulty requirement');
         }
 
+        const applicationDetails = JSON.stringify({
+          socials: input.socials,
+          reason: input.reason,
+        });
+
         const applicationResult = await client.query<{ application_id: string }>(
-          `
-            select application_id
-            from app.consume_cold_application_challenge($1)
-          `,
-          [input.challengeId],
+          `select application_id from app.consume_cold_application_challenge($1, $2, $3, $4, $5::jsonb)`,
+          [input.challengeId, input.networkSlug, input.name, input.email, applicationDetails],
         );
-        requireReturnedRow(applicationResult.rows[0], 'Cold application row was not returned after challenge solve');
+
+        if (!applicationResult.rows[0]) {
+          await client.query('rollback');
+          return null;
+        }
 
         await client.query('commit');
         return { success: true };
       } catch (error) {
         await client.query('rollback');
+        if (error && typeof error === 'object' && 'code' in error && error.code === '23514') {
+          return null;
+        }
         throw error;
       } finally {
         client.release();

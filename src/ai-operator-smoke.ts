@@ -136,6 +136,8 @@ function makeRepository(callLog: string[]): Repository {
     async listDirectMessageThreads() { return []; },
     async listDirectMessageInbox() { return []; },
     async readDirectMessageThread() { return null; },
+    async getQuotaStatus() { return []; },
+
   };
 }
 

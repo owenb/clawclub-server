@@ -421,6 +421,8 @@ function makeRepository(callLog: string[]): Repository {
       callLog.push(`readDirectMessageThread:${JSON.stringify(input)}`);
       return makeTranscript();
     },
+    async getQuotaStatus() { return []; },
+
   };
 }
 

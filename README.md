@@ -268,7 +268,7 @@ Cold application example:
 ```bash
 curl -s http://127.0.0.1:8787/api \
   -H 'Content-Type: application/json' \
-  -d '{"action":"applications.challenge","input":{"networkSlug":"consciousclaw","email":"jane@example.com","name":"Jane Doe"}}'
+  -d '{"action":"applications.challenge","input":{}}'
 ```
 
 ## Overnight progress foreman

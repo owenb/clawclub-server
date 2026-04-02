@@ -84,7 +84,7 @@ Examples:
 - vouching is a lighter endorsement
 - DMs require at least one shared network
 - warm application path is `sponsored`
-- cold application path is unauthenticated and proof-of-work gated; the applicant provides name and email, solves a SHA-256 challenge, and the owner follows up by email
+- cold application path is unauthenticated and proof-of-work gated; `applications.challenge` takes no input and returns a PoW challenge plus publicly listed clubs; `applications.solve` collects full name, email, socials, club slug, and reason; private clubs accept applications by slug but don't appear in the public list; completing the PoW does not mint auth — the first bearer token is delivered out-of-band by email
 
 ## Search and content
 
@@ -120,9 +120,20 @@ Polling and SSE are two views of the same underlying update log, not separate sy
   - `suppressed`
 - suppression reason is free text
 
+## Write quotas
+
+- `entities.create`, `events.create`, and `messages.send` are subject to per-network daily quotas
+- defaults are 20 entities/day, 10 events/day, 100 messages/day per member per network
+- per-network overrides are stored in `app.network_quota_policies`
+- when no policy row exists, the application applies built-in defaults
+- usage is counted from existing tables (entities, transcript_messages) using `app.count_member_writes_today()`
+- quota status is exposed via the `quotas.status` action
+- exceeding a quota returns 429 `quota_exceeded`
+
 ## Media and UI assumptions
 
-- links are enough for media for now
+- no upload action; media is URL-based only
+- no DM attachments
 - no public content anywhere
 - no website-first UX; OpenClaw is the entry point
 
@@ -135,7 +146,7 @@ Polling and SSE are two views of the same underlying update log, not separate sy
 
 ## Current implementation milestones
 
-Already landed (45 actions, see `src/action-manifest.ts` for the full list):
+Already landed (46 actions, see `src/action-manifest.ts` for the full list):
 - bearer-token auth with optional expiry
 - shared actor context with RLS enforcement
 - `session.describe`
@@ -150,7 +161,9 @@ Already landed (45 actions, see `src/action-manifest.ts` for the full list):
 - `messages.send/list/read/inbox`
 - `updates.list/acknowledge`
 - `tokens.list/create/revoke`
+- `quotas.status`: per-network daily write quota usage and limits
 - `admin.*` (11 actions): platform overview, member/network/content/message inspection, token management, diagnostics
+- per-network daily write quotas on entities.create, events.create, messages.send
 - append-only membership/application/entity history
 - SSE and polling over the same update log
 - AI operator with manifest-driven tool exposure and read-only mode

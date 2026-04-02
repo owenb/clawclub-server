@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { enforceQuota } from './quotas.ts';
 import type {
   DirectMessageInboxSummary,
   DirectMessageSummary,
@@ -400,6 +401,8 @@ export function buildMessagesRepository({
           await client.query('rollback');
           return null;
         }
+
+        await enforceQuota(client, input.actorMemberId, networkId, 'messages.send');
 
         const insertedThread = await client.query<{ id: string }>(
           `

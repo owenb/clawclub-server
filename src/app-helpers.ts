@@ -23,7 +23,7 @@ export type NormalizeOptionalInteger = (value: unknown, field: string) => number
 export type NormalizeOptionalString = (value: unknown, field: string) => string | null | undefined;
 export type NormalizeEntityKinds = (value: unknown) => EntityKind[];
 export type NormalizeEntityPatch = (payload: Record<string, unknown>) => UpdateEntityInput['patch'];
-export type NormalizeTokenCreateInput = (payload: Record<string, unknown>) => { label: string | null; metadata: Record<string, unknown> };
+export type NormalizeTokenCreateInput = (payload: Record<string, unknown>) => { label: string | null; expiresAt: string | null; metadata: Record<string, unknown> };
 export type NormalizeProfilePatch = (payload: Record<string, unknown>) => import('./app-contract.ts').UpdateOwnProfileInput;
 export type RequireAccessibleNetwork = (actor: ActorContext, networkIdValue: unknown) => MembershipSummary;
 export type RequireMembershipOwner = (actor: ActorContext, networkIdValue: unknown) => MembershipSummary;

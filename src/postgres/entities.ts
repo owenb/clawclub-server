@@ -8,6 +8,7 @@ import type {
   Repository,
   UpdateEntityInput,
 } from '../app.ts';
+import { enforceQuota } from './quotas.ts';
 import { mapEmbeddingProjectionRow } from './projections.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import { buildContainsLikePattern, buildPrefixLikePattern, normalizeSearchQuery } from './search.ts';
@@ -183,6 +184,7 @@ export function buildEntitiesRepository({
       try {
         await client.query('begin');
         await applyActorContext(client, input.authorMemberId, [input.networkId]);
+        await enforceQuota(client, input.authorMemberId, input.networkId, 'entities.create');
         const entityResult = await client.query<{ id: string; created_at: string }>(
           `insert into app.entities (network_id, kind, author_member_id) values ($1, $2, $3) returning id, created_at::text`,
           [input.networkId, input.kind, input.authorMemberId],

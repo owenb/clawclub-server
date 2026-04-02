@@ -271,6 +271,10 @@ test('postgres repository createEntity throws a missing_row AppError when the ro
         return { rows: [], rowCount: 0 };
       }
 
+      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
+        return { rows: [], rowCount: 0 };
+      }
+
       throw new Error(`Unexpected query: ${sql}`);
     },
     release() {},
@@ -319,6 +323,10 @@ test('postgres repository createEntity throws a missing_row AppError when the cr
       }
 
       if (sql.includes('from app.entities e') && sql.includes('join app.current_entity_versions cev on cev.entity_id = e.id')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
         return { rows: [], rowCount: 0 };
       }
 
@@ -1048,6 +1056,10 @@ test('postgres repository sendDirectMessage throws a missing_row AppError when t
         return { rows: [], rowCount: 0 };
       }
 
+      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
+        return { rows: [], rowCount: 0 };
+      }
+
       throw new Error(`Unexpected query: ${sql}`);
     },
     release() {},
@@ -1111,6 +1123,10 @@ test('postgres repository sendDirectMessage reuses an existing DM thread after i
         return { rows: [], rowCount: 1 };
       }
 
+      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
+        return { rows: [], rowCount: 0 };
+      }
+
       throw new Error(`Unexpected query: ${sql}`);
     },
     release() {},
@@ -1127,8 +1143,10 @@ test('postgres repository sendDirectMessage reuses an existing DM thread after i
   assert.equal(message?.threadId, 'thread-1');
   assert.equal(message?.messageId, 'message-1');
   assert.equal(message?.updateCount, 1);
-  assert.match(calls[3]?.sql ?? '', /insert into app\.transcript_threads/);
-  assert.match(calls[4]?.sql ?? '', /select participant\.thread_id as id/);
+  const threadInsertCall = calls.find((c) => c.sql.includes('insert into app.transcript_threads'));
+  const threadLookupCall = calls.find((c) => c.sql.includes('select participant.thread_id as id'));
+  assert.ok(threadInsertCall, 'expected a transcript_threads INSERT');
+  assert.ok(threadLookupCall, 'expected a thread_id lookup after insert conflict');
 });
 
 test('postgres repository sendDirectMessage throws a missing_row AppError when the sender profile row is missing', async () => {
@@ -1155,6 +1173,10 @@ test('postgres repository sendDirectMessage throws a missing_row AppError when t
       }
 
       if (sql.includes('select public_name, handle')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
         return { rows: [], rowCount: 0 };
       }
 
@@ -1247,6 +1269,10 @@ test('postgres repository createEvent throws a missing_row AppError when the cre
       }
 
       if (sql.includes('with actor_scope as (') && sql.includes('event_base as (')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes('network_quota_policies') || sql.includes('count_member_writes_today')) {
         return { rows: [], rowCount: 0 };
       }
 

@@ -24,6 +24,9 @@ export const ACTION_MANIFEST: ActionSpec[] = [
   { action: 'networks.archive', domain: 'platform', description: 'Archive a network (superadmin only).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
   { action: 'networks.assignOwner', domain: 'platform', description: 'Reassign network ownership (superadmin only).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
 
+  // Quotas
+  { action: 'quotas.status', domain: 'platform', description: 'Get current write quota usage and limits across networks.', auth: 'member', safety: 'read_only', aiExposed: false },
+
   // Tokens
   { action: 'tokens.list', domain: 'platform', description: 'List bearer tokens for the current member.', auth: 'member', safety: 'read_only', aiExposed: false },
   { action: 'tokens.create', domain: 'platform', description: 'Create a new bearer token for the current member.', auth: 'member', safety: 'mutating', aiExposed: false },

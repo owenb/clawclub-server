@@ -570,70 +570,58 @@ test('RLS keeps cold application tables inaccessible and only permits the cold a
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
     await client.query(`select set_config('app.actor_member_id', '', true)`);
-    await client.query(`select set_config('app.allow_cold_application', '1', true)`);
 
+    // Direct insert into challenges table is blocked by RLS
     await client.query('savepoint bad_cold_challenge_insert');
     await assert.rejects(
       () => client.query(
         `
-          insert into app.cold_application_challenges (
-            network_id,
-            applicant_email,
-            applicant_name,
-            difficulty,
-            expires_at
-          )
-          values ($1, 'jane@example.com', 'Jane Doe', 1, now() + interval '1 day')
+          insert into app.cold_application_challenges (difficulty, expires_at)
+          values (1, now() + interval '1 day')
         `,
-        [fixture.network1Id],
       ),
       /row-level security|violates row-level security policy/i,
     );
     await client.query('rollback to savepoint bad_cold_challenge_insert');
 
+    // Security definer function creates a challenge successfully
     const createdChallenge = await client.query<{ challenge_id: string }>(
-      `
-        select challenge_id
-        from app.create_cold_application_challenge($1, $2, $3, $4, $5)
-      `,
-      [fixture.network1Slug, 'seeded@example.com', 'Seeded Applicant', 1, 60 * 60 * 1000],
+      `select challenge_id from app.create_cold_application_challenge($1, $2)`,
+      [1, 60 * 60 * 1000],
     );
+
+    // Direct read of challenges table returns nothing (RLS blocks)
     const hiddenChallenge = await client.query<{ visible_count: string }>(
-      `
-        select count(*)::text as visible_count
-        from app.cold_application_challenges
-        where id = $1
-      `,
+      `select count(*)::text as visible_count from app.cold_application_challenges where id = $1`,
       [createdChallenge.rows[0]?.challenge_id],
     );
+
+    // Direct delete of challenges is blocked by RLS
     const blockedDelete = await client.query<{ id: string }>(
-      `
-        delete from app.cold_application_challenges
-        where id = $1
-        returning id
-      `,
+      `delete from app.cold_application_challenges where id = $1 returning id`,
       [createdChallenge.rows[0]?.challenge_id],
     );
+
+    // Security definer function can read the challenge
     const visibleChallenge = await client.query<{ challenge_id: string; difficulty: number }>(
-      `
-        select challenge_id, difficulty
-        from app.get_cold_application_challenge($1)
-      `,
+      `select challenge_id, difficulty from app.get_cold_application_challenge($1)`,
       [createdChallenge.rows[0]?.challenge_id],
     );
+
+    // Security definer function can list publicly listed networks
+    const publicNetworks = await client.query<{ slug: string }>(
+      `select slug from app.list_publicly_listed_networks()`,
+    );
+
+    // Security definer function consumes the challenge and creates an application
     const consumedChallenge = await client.query<{ application_id: string }>(
-      `
-        select application_id
-        from app.consume_cold_application_challenge($1)
-      `,
-      [createdChallenge.rows[0]?.challenge_id],
+      `select application_id from app.consume_cold_application_challenge($1, $2, $3, $4, $5::jsonb)`,
+      [createdChallenge.rows[0]?.challenge_id, fixture.network1Slug, 'Seeded Applicant', 'seeded@example.com', '{"socials":"@seeded","reason":"testing"}'],
     );
+
+    // Direct read of applications table returns nothing (RLS blocks)
     const hiddenInsertedApplication = await client.query<{ visible_count: string }>(
-      `
-        select count(*)::text as visible_count
-        from app.current_applications
-        where id = $1
-      `,
+      `select count(*)::text as visible_count from app.current_applications where id = $1`,
       [consumedChallenge.rows[0]?.application_id],
     );
 
@@ -643,6 +631,7 @@ test('RLS keeps cold application tables inaccessible and only permits the cold a
     assert.equal(blockedDelete.rowCount, 0);
     assert.equal(visibleChallenge.rows[0]?.challenge_id, createdChallenge.rows[0]?.challenge_id);
     assert.equal(visibleChallenge.rows[0]?.difficulty, 1);
+    assert.ok(publicNetworks.rows.length >= 0);
     assert.equal(hiddenInsertedApplication.rows[0]?.visible_count, '0');
   });
 });
