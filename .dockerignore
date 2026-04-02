@@ -1,0 +1,9 @@
+node_modules
+.git
+.env
+automation
+memory
+test
+docs
+notes.md
+PLAN.md
