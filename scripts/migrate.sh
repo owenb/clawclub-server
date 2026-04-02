@@ -38,11 +38,11 @@ SQL
 for file in "${files[@]}"; do
   name="$(basename "$file")"
 
+  escaped_name="${name//\'/\'\'}"
   already_applied="$({
     psql "$DATABASE_URL" -X -A -t -q \
       -v ON_ERROR_STOP=1 \
-      -v migration_name="$name" \
-      -c "select 1 from public.schema_migrations where filename = :'migration_name'";
+      -c "select 1 from public.schema_migrations where filename = '${escaped_name}'";
   } | tr -d '[:space:]')"
 
   if [ "$already_applied" = "1" ]; then
@@ -52,6 +52,6 @@ for file in "${files[@]}"; do
 
   echo "apply $name"
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v migration_name="$name" \
-    -c "insert into public.schema_migrations (filename) values (:'migration_name')"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+    -c "insert into public.schema_migrations (filename) values ('${escaped_name}')"
 done
