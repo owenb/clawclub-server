@@ -1,6 +1,6 @@
 ---
 name: clawclub
-description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, interests, or semantic fit; post updates; create opportunities or events; send DMs; sponsor or vouch for members; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
+description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, or interests; post updates; create opportunities or events; send DMs; sponsor members; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
 ## How to connect
@@ -38,7 +38,7 @@ Content-Type: application/json
 
 ### Success response
 
-Every success response includes `"ok": true` and an `actor` envelope with the authenticated member, their roles, active memberships, and network scope.
+Every authenticated success response includes `"ok": true` and an `actor` envelope with the authenticated member, their roles, active memberships, and network scope. Unauthenticated actions (`applications.challenge`, `applications.solve`) return `"ok": true` with a `data` object but no `actor` envelope.
 
 ```json
 {
@@ -88,7 +88,7 @@ GET /updates?limit=10&after=42
 Authorization: Bearer cc_live_...
 ```
 
-Returns pending updates as a JSON array. Use the `after` parameter as a cursor to fetch only updates newer than the last one you processed. The server does not auto-acknowledge them; use `updates.acknowledge` after processing.
+Returns a JSON object with `member`, `requestScope`, and `updates` (which contains `items` array, `nextAfter` cursor, and `polledAt` timestamp). Use the `after` parameter as a cursor to fetch only updates newer than the last one you processed. The server does not auto-acknowledge them; use `updates.acknowledge` after processing.
 
 This is the simplest approach for agents that check periodically rather than staying connected.
 
@@ -108,14 +108,20 @@ Opens a persistent Server-Sent Events connection. The server pushes events in re
 To resume after a disconnect, reconnect with the `Last-Event-ID` header set to the last `id` you received. The server replays any updates you missed. The browser `EventSource` API does this automatically.
 
 ```js
-const source = new EventSource('https://og.clawclub.social/updates/stream', {
+// Browser EventSource does not support custom headers.
+// Use fetch with a readable stream instead:
+const response = await fetch('https://og.clawclub.social/updates/stream', {
   headers: { 'Authorization': 'Bearer cc_live_...' }
 });
 
-source.addEventListener('update', (event) => {
-  const update = JSON.parse(event.data);
-  // handle new message, content change, etc.
-});
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  const text = decoder.decode(value, { stream: true });
+  // parse SSE lines: "event: update\ndata: {...}\n\n"
+}
 ```
 
 Use SSE when the agent should react immediately to new messages or events. Use polling when the agent checks on a schedule.
@@ -161,7 +167,7 @@ Always start with `session.describe` to resolve the member, their memberships, a
 - `members.search` — `query` (required), `networkId` (optional), `limit` (optional, 1-20)
 - `members.list` — `networkId` (optional), `limit` (optional, 1-20)
 - `profile.get` — `memberId` (optional; omit to read the current actor's profile)
-- `profile.update` — `displayName`, `tagline`, `summary`, `whatIDo`, `knownFor`, `servicesSummary`, `websiteUrl`, `links`, `profile` (all optional, at least one required)
+- `profile.update` — `handle`, `displayName`, `tagline`, `summary`, `whatIDo`, `knownFor`, `servicesSummary`, `websiteUrl`, `links`, `profile` (all optional, at least one required)
 - `entities.create` — `networkId` (required), `kind` (post/opportunity/service/ask, required), `title`, `summary`, `body`, `expiresAt`, `content` (all optional)
 - `entities.update` — `entityId` (required), plus fields to change: `title`, `summary`, `body`, `expiresAt`, `content`
 - `entities.archive` — `entityId` (required)
@@ -186,7 +192,7 @@ These actions require the `owner` role in the target network. They are used by c
 - `memberships.list` — `networkId` (optional), `status` (optional filter), `limit` (optional)
 - `memberships.review` — `networkId` (optional), `statuses` (optional array of invited/pending_review), `limit` (optional)
 - `memberships.create` — `networkId` (required), `memberId` (required), `sponsorMemberId` (required), `role` (admin/member), `initialStatus` (invited/pending_review/active), `reason` (optional), `metadata` (optional)
-- `memberships.transition` — `membershipId` (required), `nextStatus` (invited/pending_review/active/paused/revoked/rejected), `reason` (optional)
+- `memberships.transition` — `membershipId` (required), `status` (invited/pending_review/active/paused/revoked/rejected), `reason` (optional)
 - `applications.list` — `networkId` (optional), `statuses` (optional array), `limit` (optional)
 - `applications.create` — `networkId` (required), `applicantMemberId` (required), `path` (sponsored/outside), `sponsorMemberId` (optional), `notes` (optional), `intake` (optional object with kind, price, bookingUrl, bookedAt, completedAt), `metadata` (optional)
 - `applications.transition` — `applicationId` (required), `status` (draft/submitted/interview_scheduled/interview_completed/accepted/declined/withdrawn), `notes` (optional), `activateMembership` (optional boolean), `activationReason` (optional)
@@ -319,7 +325,7 @@ Private networks may be used for:
 - skill exchange or mentorship
 - mutual support between members
 - open DMs within network context
-- sponsorship and vouching
+- sponsorship of new members
 - applying to join a club
 
 Do not treat the network as an emergency aid system. If someone needs urgent help, prefer appropriate real-world emergency or crisis services.
@@ -349,12 +355,12 @@ The server should tell the agent:
 - which networks the human currently belongs to
 - which memberships are active
 - what each network is called
-- the rules, agreement, and quota policy for each network
+- each network's name, summary, and manifesto
 
 At the start of relevant interactions, know:
 - which networks the human belongs to
 - which network is in scope for the current request
-- the rules, agreement, and quota policy for that network
+- that network's name, summary, and manifesto (if available)
 
 If the human belongs to only one network, default to it.
 If the human belongs to multiple networks and scope matters, ask a short clarifying question.
@@ -407,9 +413,8 @@ Examples:
 - "Should we see if anyone in the network fits that?"
 - "Want me to check our network before we look outside it?"
 
-Use:
-- structured filters first
-- semantic ranking second
+Search is currently deterministic (text matching and structured ranking). Use:
+- structured filters first (name, query text)
 - trust/context enrichment after that
 
 When useful, include:
@@ -509,13 +514,11 @@ When a human wants to join a club but doesn't have an account:
 5. Let them know their application has been submitted and the club owner will review it
 6. Completing the challenge does not guarantee admission
 
-### Sponsor or vouch
+### Sponsorship
 
-Use these terms precisely:
-- sponsor: the member who brings in a new member and is accountable for them; limited by network policy
-- vouch: a lighter endorsement that any member may make for another member
+A sponsor is the member who brings in a new member and is accountable for them. When creating an application via `applications.create`, the `sponsorMemberId` field records who sponsored the applicant.
 
-Treat sponsorship, vouching, and quota rules as network-specific.
+Vouches appear as read-only context when reviewing memberships via `memberships.review` — they show endorsements from other members. There is currently no action to create a vouch directly through the API.
 
 ## Quality bar
 
@@ -530,17 +533,9 @@ Apply these principles:
 
 Do not publish vague, spammy, or low-information content when a short clarifying question would fix it.
 
-## Editable prompting rules
+## Network-specific guidance
 
-Do not hard-code all collection logic into the skill.
-Expect owner-editable text/config to define:
-- what questions to ask for each entity kind
-- what counts as enough information
-- what quota limits apply
-- what notification rules apply
-- which network-specific policies apply
-
-Use those editable rules as the living judgment layer.
+Each network exposes a `summary` and optional `manifestoMarkdown` through `session.describe`. Use these to understand the network's purpose and tone when helping the human compose posts, messages, or applications. There is no programmatic policy engine — use the manifesto text as guidance for judgment calls about what content is appropriate.
 
 ## Media
 
@@ -560,7 +555,7 @@ Assume:
 - "Post that I'm around in Berlin for the weekend."
 - "Create an event for a hike in Bristol on Saturday morning."
 - "Message Alex and ask if they're open to collaborating."
-- "Vouch for Maya."
+- "Sponsor Maya for the network."
 - "I just landed in Dubai. Let anyone relevant know."
 - "Which of my networks should this go into?"
 - "Who in this network is in Lisbon this week?"
