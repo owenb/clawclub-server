@@ -8,7 +8,9 @@ alter table app.networks add column publicly_listed boolean not null default fal
 alter table app.applications add column application_details jsonb not null default '{}'::jsonb;
 
 -- Rebuild current_applications view to include the new column.
-create or replace view app.current_applications as
+-- Must drop first because CREATE OR REPLACE cannot reorder columns.
+drop view if exists app.current_applications;
+create view app.current_applications as
 select
   a.id,
   a.network_id,
