@@ -12,9 +12,11 @@ NOW="$(date -u +'%Y-%m-%d %H:%M:%S UTC')"
 COMMITS="$(git -C "$PROJECT_ROOT" log --oneline --decorate -3 | sed 's/^/  - /')"
 TEST_STATUS="PASS"
 TEST_SNIPPET=""
-if ! (cd "$PROJECT_ROOT" && npm run api:test >/tmp/clawclub-watchdog-test.log 2>&1); then
+TEST_LOG_FILE="$(mktemp)"
+trap 'rm -f "${TEST_LOG_FILE:-}"' EXIT
+if ! (cd "$PROJECT_ROOT" && npm run api:test >"$TEST_LOG_FILE" 2>&1); then
   TEST_STATUS="FAIL"
-  TEST_SNIPPET="$(tail -n 20 /tmp/clawclub-watchdog-test.log | sed 's/^/    /')"
+  TEST_SNIPPET="$(tail -n 20 "$TEST_LOG_FILE" | sed 's/^/    /')"
 fi
 if [ -x "$FOREMAN_SCRIPT" ]; then
   "$FOREMAN_SCRIPT"

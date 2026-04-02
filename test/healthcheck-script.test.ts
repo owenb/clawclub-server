@@ -17,7 +17,7 @@ test('healthcheck script reports migration status and skipped api check without 
   await mkdir(stubDir, { recursive: true });
   await writeFile(
     join(stubDir, 'psql'),
-    '#!/usr/bin/env bash\nif printf "%s\\n" "$*" | grep -q "select current_user, rolsuper, rolbypassrls"; then\necho "runtime_role|f|f"\nelif printf "%s\\n" "$*" | grep -q "r.rolsuper or r.rolbypassrls"; then\necho "0|"\nelse\necho applied:0017_membership_state_compatibility_sync\nfi\n',
+    '#!/usr/bin/env bash\nif printf "%s\\n" "$*" | grep -q "select current_user, rolsuper, rolbypassrls"; then\necho "runtime_role|f|f"\nelif printf "%s\\n" "$*" | grep -q "from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_roles r on r.oid = c.relowner"; then\necho "0|"\nelif printf "%s\\n" "$*" | grep -q "from pg_proc p join pg_namespace n on n.oid = p.pronamespace join pg_roles r on r.oid = p.proowner"; then\necho "0|"\nelif printf "%s\\n" "$*" | grep -q "relrowsecurity"; then\necho "0|"\nelse\necho applied:0017_membership_state_compatibility_sync\nfi\n',
     { mode: 0o755 },
   );
 
@@ -34,6 +34,8 @@ test('healthcheck script reports migration status and skipped api check without 
   assert.match(stdout, /applied:0017_membership_state_compatibility_sync/);
   assert.match(stdout, /== database role safety ==\s+ok: role=runtime_role superuser=f bypassrls=f/s);
   assert.match(stdout, /== projection view ownership ==\s+ok: all app views owned by non-superuser, non-BYPASSRLS roles/s);
+  assert.match(stdout, /== security definer ownership ==\s+ok: all app security definer functions owned by non-superuser, non-BYPASSRLS roles/s);
+  assert.match(stdout, /== table RLS coverage ==\s+ok: all app tables enforce RLS and FORCE RLS/s);
   assert.match(stdout, /== api session.describe ==\s+skipped \(set CLAWCLUB_HEALTH_TOKEN to enable\)/s);
 });
 
@@ -50,8 +52,12 @@ test('healthcheck prefers DATABASE_MIGRATOR_URL for migration checks and can fai
 echo "$1|$*" >> ${JSON.stringify(logFile)}
 if printf "%s\\n" "$*" | grep -q "select current_user, rolsuper, rolbypassrls"; then
   echo "runtime_role|t|t"
-elif printf "%s\\n" "$*" | grep -q "r.rolsuper or r.rolbypassrls"; then
+elif printf "%s\\n" "$*" | grep -q "from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_roles r on r.oid = c.relowner"; then
   echo "2|current_applications:postgres, live_entities:postgres"
+elif printf "%s\\n" "$*" | grep -q "from pg_proc p join pg_namespace n on n.oid = p.pronamespace join pg_roles r on r.oid = p.proowner"; then
+  echo "1|actor_has_network_access:target_network_id app.short_id:postgres"
+elif printf "%s\\n" "$*" | grep -q "relrowsecurity"; then
+  echo "1|embeddings:rls=f,force=f"
 else
   echo applied:0017_membership_state_compatibility_sync
 fi

@@ -16,6 +16,7 @@ FOREMAN_SCRIPT="$SCRIPT_DIR/progress-foreman.sh"
 mkdir -p "$RUNS_DIR" "$PROJECT_ROOT"
 cat > "$OPENCLAW_BIN" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' "$*"
 exit 0
 SH
 chmod +x "$OPENCLAW_BIN"
@@ -89,5 +90,32 @@ if ROOT="$TMP_ROOT" PROJECT_ROOT="$PROJECT_ROOT" AUTOMATION_DIR="$AUTOMATION_DIR
 fi
 
 grep -q 'queue validation failed: task ids must be unique' "$OUT"
+
+cat > "$QUEUE_FILE" <<'JSON'
+{
+  "version": 1,
+  "updatedAt": null,
+  "activeTaskId": null,
+  "tasks": [
+    {
+      "id": "prompt-path",
+      "title": "normalize prompt path",
+      "status": "queued",
+      "createdAt": "2026-03-13T00:00:02Z",
+      "prompt": "Work in /home/ubuntu/.openclaw/workspace/clawclub only. Confirm the working directory."
+    }
+  ]
+}
+JSON
+
+ROOT="$TMP_ROOT" PROJECT_ROOT="$PROJECT_ROOT" AUTOMATION_DIR="$AUTOMATION_DIR" QUEUE_FILE="$QUEUE_FILE" RUNS_DIR="$RUNS_DIR" OUT="$OUT" OPENCLAW_BIN="$OPENCLAW_BIN" CHAT_ID="test" "$FOREMAN_SCRIPT"
+sleep 1
+ROOT="$TMP_ROOT" PROJECT_ROOT="$PROJECT_ROOT" AUTOMATION_DIR="$AUTOMATION_DIR" QUEUE_FILE="$QUEUE_FILE" RUNS_DIR="$RUNS_DIR" OUT="$OUT" OPENCLAW_BIN="$OPENCLAW_BIN" CHAT_ID="test" "$FOREMAN_SCRIPT"
+
+grep -q "Work in $PROJECT_ROOT only. Confirm the working directory." "$RUNS_DIR/prompt-path/output.log"
+if grep -q '/home/ubuntu/.openclaw/workspace/clawclub' "$RUNS_DIR/prompt-path/output.log"; then
+  echo "expected foreman to normalize stale prompt paths" >&2
+  exit 1
+fi
 
 echo "progress foreman test passed"

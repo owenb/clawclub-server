@@ -41,7 +41,8 @@ for file in "${files[@]}"; do
   already_applied="$({
     psql "$DATABASE_URL" -X -A -t -q \
       -v ON_ERROR_STOP=1 \
-      -c "select 1 from public.schema_migrations where filename = '$name'";
+      -v migration_name="$name" \
+      -c "select 1 from public.schema_migrations where filename = :'migration_name'";
   } | tr -d '[:space:]')"
 
   if [ "$already_applied" = "1" ]; then
@@ -51,6 +52,6 @@ for file in "${files[@]}"; do
 
   echo "apply $name"
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
-    -c "insert into public.schema_migrations (filename) values ('$name')"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v migration_name="$name" \
+    -c "insert into public.schema_migrations (filename) values (:'migration_name')"
 done

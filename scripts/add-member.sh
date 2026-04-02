@@ -24,6 +24,15 @@ repo_dir="$(cd -- "$script_dir/.." && pwd)"
 source "$repo_dir/scripts/lib/database-urls.sh"
 
 database_url="$(require_migrator_database_url)"
+api_base_url="${CLAWCLUB_API_URL:-http://127.0.0.1:8787}"
+
+echo "Checking API reachability at $api_base_url..."
+if ! curl -sS -f -o /dev/null \
+  -H "Authorization: Bearer $CLAWCLUB_OWNER_TOKEN" \
+  "$api_base_url/updates?limit=1"; then
+  echo "ClawClub API is not reachable or CLAWCLUB_OWNER_TOKEN is not accepted at $api_base_url" >&2
+  exit 1
+fi
 
 echo "Creating member '$handle' ($public_name)..."
 
@@ -35,7 +44,8 @@ set public_name = excluded.public_name,
     auth_subject = excluded.auth_subject;
 SQL
 
-member_id=$(psql "$database_url" -tA -c "select id from app.members where handle = '$handle';")
+member_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v handle="$handle" \
+  -c "select id from app.members where handle = :'handle'")"
 if [[ -z "$member_id" ]]; then
   echo "Failed to resolve member id for handle '$handle'" >&2
   exit 1
@@ -43,17 +53,19 @@ fi
 
 echo "Member created: $member_id"
 
-network_id=$(psql "$database_url" -tA -c "select id from app.networks where slug = '$network_slug';")
+network_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v network_slug="$network_slug" \
+  -c "select id from app.networks where slug = :'network_slug'")"
 if [[ -z "$network_id" ]]; then
   echo "No network found with slug '$network_slug'" >&2
   exit 1
 fi
 
-owner_member_id=$(psql "$database_url" -tA -c "select owner_member_id from app.networks where slug = '$network_slug';")
+owner_member_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v network_slug="$network_slug" \
+  -c "select owner_member_id from app.networks where slug = :'network_slug'")"
 
 echo "Adding membership to $network_slug ($network_id)..."
 
-membership_response=$(curl -s -X POST http://127.0.0.1:8787/api \
+membership_response=$(curl -s -f -X POST "$api_base_url/api" \
   -H "Authorization: Bearer $CLAWCLUB_OWNER_TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$(printf '{"action":"memberships.create","input":{"networkId":"%s","memberId":"%s","sponsorMemberId":"%s","role":"member","initialStatus":"active","reason":"Added via add-member script"}}' \
@@ -61,6 +73,24 @@ membership_response=$(curl -s -X POST http://127.0.0.1:8787/api \
 
 echo "Membership response:"
 echo "$membership_response" | node -e "process.stdin.setEncoding('utf8');let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.stringify(JSON.parse(d),null,2)))" 2>/dev/null || echo "$membership_response"
+
+membership_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v network_id="$network_id" -v member_id="$member_id" \
+  -c "select id from app.network_memberships where network_id = :'network_id' and member_id = :'member_id'")"
+if [[ -z "$membership_id" ]]; then
+  echo "Failed to resolve membership id — membership may not have been created" >&2
+  exit 1
+fi
+
+echo ""
+echo "Creating comped subscription for membership $membership_id..."
+
+psql "$database_url" -v ON_ERROR_STOP=1 -v membership_id="$membership_id" -v owner_member_id="$owner_member_id" <<'SQL'
+insert into app.subscriptions (membership_id, payer_member_id, status, billing_interval, amount, currency, metadata)
+values (:'membership_id', :'owner_member_id', 'active', 'month', 0, 'GBP', '{"comped": true, "reason": "Added via add-member script"}')
+on conflict do nothing;
+SQL
+
+echo "Comped subscription created."
 
 echo ""
 echo "Minting bearer token..."

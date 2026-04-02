@@ -6,7 +6,10 @@ import { buildApplicationsRepository } from '../src/postgres/applications.ts';
 
 function buildRepository(client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>; release: () => void }) {
   return buildApplicationsRepository({
-    pool: { connect: async () => client } as any,
+    pool: {
+      connect: async () => client,
+      query: async (sql: string, params?: unknown[]) => client.query(sql, params),
+    } as any,
     applyActorContext: async () => {
       throw new Error('applyActorContext should not be called for cold application flows');
     },
@@ -33,21 +36,14 @@ function findValidNonce(challengeId: string, difficulty: number): string {
 
 test('postgres applications repository creates a cold application challenge', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
+  const expiresAt = '2026-03-20T12:00:00.000Z';
 
   const client = {
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
 
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback' || sql.includes(`set local app.allow_cold_application = '1'`)) {
-        return { rows: [], rowCount: 0 };
-      }
-
-      if (sql.includes('from app.networks')) {
-        return { rows: [{ network_id: 'network-1' }], rowCount: 1 };
-      }
-
-      if (sql.includes('insert into app.applications')) {
-        return { rows: [{ application_id: 'challenge-1' }], rowCount: 1 };
+      if (sql.includes('from app.create_cold_application_challenge(')) {
+        return { rows: [{ challenge_id: 'challenge-1', expires_at: expiresAt }], rowCount: 1 };
       }
 
       throw new Error(`Unexpected query: ${sql}`);
@@ -64,12 +60,12 @@ test('postgres applications repository creates a cold application challenge', as
 
   assert.equal(result?.challengeId, 'challenge-1');
   assert.equal(result?.difficulty, 7);
-  assert.equal(typeof result?.expiresAt, 'string');
+  assert.equal(result?.expiresAt, expiresAt);
 
-  const insertCall = calls.find((call) => call.sql.includes('insert into app.applications'));
-  const metadata = JSON.parse(String(insertCall?.params?.[3]));
-  assert.equal(metadata.challenge.difficulty, 7);
-  assert.equal(typeof metadata.challenge.expiresAt, 'string');
+  const insertCall = calls.find((call) => call.sql.includes('insert into app.cold_application_challenges'));
+  assert.equal(insertCall, undefined);
+  const functionCall = calls.find((call) => call.sql.includes('from app.create_cold_application_challenge('));
+  assert.deepEqual(functionCall?.params, ['consciousclaw', 'jane@example.com', 'Jane Doe', 7, 60 * 60 * 1000]);
 });
 
 test('postgres applications repository verifies a solved cold application challenge', async () => {
@@ -83,29 +79,26 @@ test('postgres applications repository verifies a solved cold application challe
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
 
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback' || sql.includes(`set local app.allow_cold_application = '1'`)) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes('from app.applications a') && sql.includes('for update of a')) {
+      if (sql.includes('from app.get_cold_application_challenge(')) {
         return {
           rows: [{
-            application_id: challengeId,
-            metadata: { challenge: { difficulty, expiresAt } },
-            status: 'draft',
-            current_version_id: 'version-1',
-            current_version_no: 1,
+            challenge_id: challengeId,
+            network_id: 'network-1',
+            applicant_email: 'jane@example.com',
+            applicant_name: 'Jane Doe',
+            difficulty,
+            expires_at: expiresAt,
           }],
           rowCount: 1,
         };
       }
 
-      if (sql.includes('update app.applications')) {
-        return { rows: [], rowCount: 1 };
-      }
-
-      if (sql.includes('insert into app.application_versions')) {
-        return { rows: [], rowCount: 1 };
+      if (sql.includes('from app.consume_cold_application_challenge(')) {
+        return { rows: [{ application_id: 'application-1' }], rowCount: 1 };
       }
 
       throw new Error(`Unexpected query: ${sql}`);
@@ -121,14 +114,10 @@ test('postgres applications repository verifies a solved cold application challe
 
   assert.deepEqual(result, { success: true });
 
-  const updateCall = calls.find((call) => call.sql.includes('update app.applications'));
-  const metadata = JSON.parse(String(updateCall?.params?.[1]));
-  assert.equal(metadata.challenge.nonce, nonce);
-  assert.equal(typeof metadata.challenge.solvedAt, 'string');
-  assert.match(metadata.challenge.hash, /[0-9a-f]{64}/);
-
-  const versionCall = calls.find((call) => call.sql.includes('insert into app.application_versions'));
-  assert.deepEqual(versionCall?.params, [challengeId, 2, 'version-1']);
+  const getCall = calls.find((call) => call.sql.includes('from app.get_cold_application_challenge('));
+  assert.deepEqual(getCall?.params, [challengeId]);
+  const consumeCall = calls.find((call) => call.sql.includes('from app.consume_cold_application_challenge('));
+  assert.deepEqual(consumeCall?.params, [challengeId]);
 });
 
 test('postgres applications repository rejects invalid proof for cold applications', async () => {
@@ -137,18 +126,19 @@ test('postgres applications repository rejects invalid proof for cold applicatio
 
   const client = {
     async query(sql: string) {
-      if (sql === 'begin' || sql === 'rollback' || sql.includes(`set local app.allow_cold_application = '1'`)) {
+      if (sql === 'begin' || sql === 'rollback') {
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes('from app.applications a') && sql.includes('for update of a')) {
+      if (sql.includes('from app.get_cold_application_challenge(')) {
         return {
           rows: [{
-            application_id: challengeId,
-            metadata: { challenge: { difficulty: 2, expiresAt } },
-            status: 'draft',
-            current_version_id: 'version-1',
-            current_version_no: 1,
+            challenge_id: challengeId,
+            network_id: 'network-1',
+            applicant_email: 'jane@example.com',
+            applicant_name: 'Jane Doe',
+            difficulty: 2,
+            expires_at: expiresAt,
           }],
           rowCount: 1,
         };

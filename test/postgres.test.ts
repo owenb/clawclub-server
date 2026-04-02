@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { AppError } from '../src/app.ts';
 import { createPostgresRepository } from '../src/postgres.ts';
 
 test('postgres repository lists networks for superadmin scope including archived ones on request', async () => {
@@ -205,7 +206,7 @@ test('postgres repository archives an entity by appending an archived version wi
             title: 'Hello',
             summary: 'Summary',
             body: 'Body',
-            expires_at: null,
+            expires_at: '2026-04-01T00:00:00Z',
             content: { mood: 'steady' },
           }],
           rowCount: 1,
@@ -237,10 +238,183 @@ test('postgres repository archives an entity by appending an archived version wi
   assert.equal(archived?.version.versionNo, 3);
   assert.equal(archived?.version.state, 'archived');
   assert.equal(archived?.version.effectiveAt, '2026-03-14T12:00:00Z');
-  assert.equal(archived?.version.expiresAt, '2026-03-14T12:00:00Z');
+  assert.equal(archived?.version.expiresAt, '2026-04-01T00:00:00Z');
   assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.deepEqual(calls[2]?.params, ['entity-1', ['network-2'], 'member-1']);
+  assert.deepEqual(calls[4]?.params, [
+    'entity-1',
+    3,
+    'Hello',
+    'Summary',
+    'Body',
+    '2026-03-14T12:00:00Z',
+    '2026-04-01T00:00:00Z',
+    '{"mood":"steady"}',
+    'entity-version-2',
+    'member-1',
+  ]);
   assert.equal(calls.some((call) => call.sql.includes('update app.entities')), false);
+});
+
+test('postgres repository createEntity throws a missing_row AppError when the root insert returns nothing', async () => {
+  const client = {
+    async query(sql: string) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.entities')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+
+  await assert.rejects(
+    () => repository.createEntity({
+      authorMemberId: 'member-1',
+      networkId: 'network-2',
+      kind: 'post',
+      title: 'Hello',
+      summary: null,
+      body: 'Body',
+      expiresAt: null,
+      content: {},
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 500);
+      assert.equal(error.code, 'missing_row');
+      assert.equal(error.message, 'Created entity row was not returned');
+      return true;
+    },
+  );
+});
+
+test('postgres repository createEntity throws a missing_row AppError when the created entity cannot be reloaded', async () => {
+  const client = {
+    async query(sql: string) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.entities')) {
+        return { rows: [{ id: 'entity-1', created_at: '2026-03-14T12:00:00Z' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.entity_versions') && sql.includes(`'published'`)) {
+        return { rows: [{ id: 'entity-version-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('from app.entities e') && sql.includes('join app.current_entity_versions cev on cev.entity_id = e.id')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+
+  await assert.rejects(
+    () => repository.createEntity({
+      authorMemberId: 'member-1',
+      networkId: 'network-2',
+      kind: 'post',
+      title: 'Hello',
+      summary: null,
+      body: 'Body',
+      expiresAt: null,
+      content: {},
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 500);
+      assert.equal(error.code, 'missing_row');
+      assert.equal(error.message, 'Created entity could not be reloaded');
+      return true;
+    },
+  );
+});
+
+test('postgres repository updateEntity throws a missing_row AppError when the updated entity cannot be reloaded', async () => {
+  const client = {
+    async query(sql: string) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('join app.current_entity_versions cev on cev.entity_id = e.id') && sql.includes('and e.author_member_id = $3')) {
+        return {
+          rows: [{
+            entity_id: 'entity-1',
+            network_id: 'network-2',
+            author_member_id: 'member-1',
+            version_id: 'entity-version-1',
+            version_no: 1,
+            title: 'Hello',
+            summary: 'Summary',
+            body: 'Body',
+            expires_at: null,
+            content: { mood: 'steady' },
+          }],
+          rowCount: 1,
+        };
+      }
+
+      if (sql.includes('insert into app.entity_versions') && sql.includes(`'published'`)) {
+        return { rows: [{ id: 'entity-version-2' }], rowCount: 1 };
+      }
+
+      if (sql.includes('from app.entities e') && sql.includes('join app.current_entity_versions cev on cev.entity_id = e.id')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+
+  await assert.rejects(
+    () => repository.updateEntity?.({
+      actorMemberId: 'member-1',
+      accessibleNetworkIds: ['network-2'],
+      entityId: 'entity-1',
+      patch: {
+        title: undefined,
+        summary: 'Updated summary',
+        body: undefined,
+        expiresAt: undefined,
+        content: undefined,
+      },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 500);
+      assert.equal(error.code, 'missing_row');
+      assert.equal(error.message, 'Updated entity could not be reloaded');
+      return true;
+    },
+  );
 });
 
 test('postgres repository lists active members with scoped membership context', async () => {
@@ -811,6 +985,301 @@ test('postgres repository creates and revokes hashed bearer tokens without retur
   const revokeCall = [...calls].reverse().find((call) => /update app\.member_bearer_tokens mbt/.test(call.sql));
   assert.match(revokeCall?.sql ?? '', /update app\.member_bearer_tokens mbt/);
   assert.deepEqual(revokeCall?.params, ['token-1', 'member-1']);
+});
+
+test('postgres repository createBearerToken throws a missing_row AppError when insert returning is empty', async () => {
+  const client = {
+    async query(sql: string) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.member_bearer_tokens')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+
+  await assert.rejects(
+    () => repository.createBearerToken({
+      actorMemberId: 'member-1',
+      label: 'laptop',
+      metadata: {},
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 500);
+      assert.equal(error.code, 'missing_row');
+      assert.equal(error.message, 'Created bearer token row was not returned');
+      return true;
+    },
+  );
+});
+
+test('postgres repository sendDirectMessage throws a missing_row AppError when the message insert returns nothing', async () => {
+  const client = {
+    async query(sql: string) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('with actor_scope as (')) {
+        return { rows: [{ network_id: 'network-2' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.transcript_threads') && sql.includes('on conflict do nothing')) {
+        return { rows: [{ id: 'thread-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.transcript_messages')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+
+  await assert.rejects(
+    () => repository.sendDirectMessage({
+      actorMemberId: 'member-1',
+      accessibleNetworkIds: ['network-2'],
+      recipientMemberId: 'member-2',
+      messageText: 'hello',
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 500);
+      assert.equal(error.code, 'missing_row');
+      assert.equal(error.message, 'Direct message row was not returned');
+      return true;
+    },
+  );
+});
+
+test('postgres repository sendDirectMessage reuses an existing DM thread after insert conflict', async () => {
+  const calls: Array<{ sql: string; params?: unknown[] }> = [];
+
+  const client = {
+    async query(sql: string, params?: unknown[]) {
+      calls.push({ sql, params });
+
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('with actor_scope as (')) {
+        return { rows: [{ network_id: 'network-2' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.transcript_threads') && sql.includes('on conflict do nothing')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes('select participant.thread_id as id')) {
+        return { rows: [{ id: 'thread-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.transcript_messages')) {
+        return { rows: [{ id: 'message-1', created_at: '2026-03-15T12:00:00Z' }], rowCount: 1 };
+      }
+
+      if (sql.includes('select public_name, handle')) {
+        return { rows: [{ public_name: 'Member One', handle: 'member-one' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.member_updates')) {
+        return { rows: [], rowCount: 1 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+  const message = await repository.sendDirectMessage({
+    actorMemberId: 'member-1',
+    accessibleNetworkIds: ['network-2'],
+    recipientMemberId: 'member-2',
+    messageText: 'hello',
+  });
+
+  assert.equal(message?.threadId, 'thread-1');
+  assert.equal(message?.messageId, 'message-1');
+  assert.equal(message?.updateCount, 1);
+  assert.match(calls[3]?.sql ?? '', /insert into app\.transcript_threads/);
+  assert.match(calls[4]?.sql ?? '', /select participant\.thread_id as id/);
+});
+
+test('postgres repository sendDirectMessage throws a missing_row AppError when the sender profile row is missing', async () => {
+  const client = {
+    async query(sql: string) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('with actor_scope as (')) {
+        return { rows: [{ network_id: 'network-2' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.transcript_threads') && sql.includes('on conflict do nothing')) {
+        return { rows: [{ id: 'thread-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.transcript_messages')) {
+        return { rows: [{ id: 'message-1', created_at: '2026-03-15T12:00:00Z' }], rowCount: 1 };
+      }
+
+      if (sql.includes('select public_name, handle')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+
+  await assert.rejects(
+    () => repository.sendDirectMessage({
+      actorMemberId: 'member-1',
+      accessibleNetworkIds: ['network-2'],
+      recipientMemberId: 'member-2',
+      messageText: 'hello',
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 500);
+      assert.equal(error.code, 'missing_row');
+      assert.equal(error.message, 'Sender profile row was not returned for DM update fanout');
+      return true;
+    },
+  );
+});
+
+test('postgres repository updateOwnProfile throws a missing_row AppError when the actor row disappears during update', async () => {
+  const client = {
+    async query(sql: string) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('from app.members m') && sql.includes('left join app.current_member_profiles')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+
+  await assert.rejects(
+    () => repository.updateOwnProfile?.({
+      actor: {
+        member: {
+          id: 'member-1',
+          handle: 'member-one',
+          publicName: 'Member One',
+        },
+        memberships: [],
+        globalRoles: [],
+      },
+      patch: {},
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 500);
+      assert.equal(error.code, 'missing_row');
+      assert.equal(error.message, 'Actor member row disappeared during profile update');
+      return true;
+    },
+  );
+});
+
+test('postgres repository createEvent throws a missing_row AppError when the created event cannot be reloaded', async () => {
+  const client = {
+    async query(sql: string) {
+      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
+        return { rows: [], rowCount: 0 };
+      }
+
+      if (sql.includes("set_config('app.actor_member_id'")) {
+        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes(`insert into app.entities (network_id, kind, author_member_id) values ($1, 'event', $2)`)) {
+        return { rows: [{ id: 'event-entity-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('insert into app.entity_versions') && sql.includes('recurrence_rule')) {
+        return { rows: [{ id: 'event-version-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('with actor_scope as (') && sql.includes('event_base as (')) {
+        return { rows: [], rowCount: 0 };
+      }
+
+      throw new Error(`Unexpected query: ${sql}`);
+    },
+    release() {},
+  };
+
+  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
+
+  await assert.rejects(
+    () => repository.createEvent?.({
+      authorMemberId: 'member-1',
+      networkId: 'network-2',
+      title: 'Launch Party',
+      summary: null,
+      body: 'Body',
+      startsAt: '2026-03-20T18:00:00Z',
+      endsAt: '2026-03-20T20:00:00Z',
+      timezone: 'UTC',
+      recurrenceRule: null,
+      capacity: 50,
+      expiresAt: null,
+      content: {},
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 500);
+      assert.equal(error.code, 'missing_row');
+      assert.equal(error.message, 'Created event could not be reloaded');
+      return true;
+    },
+  );
 });
 
 test('postgres repository lists current membership projections for owner scope', async () => {

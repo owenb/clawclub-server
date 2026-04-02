@@ -89,6 +89,29 @@ task_field() {
   jq -r --arg id "$task_id" ".tasks[] | select(.id == \$id) | $field" "$QUEUE_FILE"
 }
 
+normalize_prompt() {
+  local prompt="$1"
+
+  if [[ "$prompt" =~ ^Work\ in\ .+\ only\.[[:space:]]*(.*)$ ]]; then
+    if [ -n "${BASH_REMATCH[1]}" ]; then
+      printf 'Work in %s only. %s' "$PROJECT_ROOT" "${BASH_REMATCH[1]}"
+    else
+      printf 'Work in %s only.' "$PROJECT_ROOT"
+    fi
+    return 0
+  fi
+
+  printf 'Work in %s only. %s' "$PROJECT_ROOT" "$prompt"
+}
+
+escape_jq_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\n'/\\n}"
+  printf '%s' "$value"
+}
+
 validate_queue() {
   local validation_output
   validation_output="$(jq -r '
@@ -167,6 +190,7 @@ mark_finished_if_complete() {
 
 launch_next_task() {
   local active_task_id next_task_id next_title next_command next_prompt launch_now run_dir log_file exit_code_file wrapper pid message
+  local wrapper_for_queue log_file_for_queue exit_code_file_for_queue pid_for_queue
   active_task_id="$(queue_get '.activeTaskId // empty')"
   if [ -n "$active_task_id" ]; then
     log "launch skipped: active task already set to $active_task_id"
@@ -182,6 +206,9 @@ launch_next_task() {
   next_title="$(task_field "$next_task_id" '.title // .id')"
   next_command="$(task_field "$next_task_id" '.command // empty')"
   next_prompt="$(task_field "$next_task_id" '.prompt // empty')"
+  if [ -n "$next_prompt" ]; then
+    next_prompt="$(normalize_prompt "$next_prompt")"
+  fi
 
   run_dir="$RUNS_DIR/$next_task_id"
   mkdir -p "$run_dir"
@@ -192,6 +219,10 @@ launch_next_task() {
   if [ "$DRY_RUN" = "1" ]; then
     wrapper="dry-run"
     pid="dry-run"
+    wrapper_for_queue="$(escape_jq_string "$wrapper")"
+    log_file_for_queue="$(escape_jq_string "$log_file")"
+    exit_code_file_for_queue="$(escape_jq_string "$exit_code_file")"
+    pid_for_queue="$(escape_jq_string "$pid")"
     with_queue "(.updatedAt = \"$launch_now\")
       | (.activeTaskId = \"$next_task_id\")
       | (.tasks |= map(if .id == \"$next_task_id\" then . + {
@@ -199,10 +230,10 @@ launch_next_task() {
           startedAt: \"$launch_now\",
           launch: {
             mode: \"dry-run\",
-            wrapper: \"$wrapper\",
-            pid: \"$pid\",
-            logFile: \"$log_file\",
-            exitCodeFile: \"$exit_code_file\"
+            wrapper: \"$wrapper_for_queue\",
+            pid: \"$pid_for_queue\",
+            logFile: \"$log_file_for_queue\",
+            exitCodeFile: \"$exit_code_file_for_queue\"
           }
         } else . end))"
     printf 'dry-run would launch task %s at %s\n' "$next_task_id" "$launch_now" > "$log_file"
@@ -224,6 +255,10 @@ launch_next_task() {
       exit "$exit_code"
     ) &
     pid="$!"
+    wrapper_for_queue="$(escape_jq_string "$wrapper")"
+    log_file_for_queue="$(escape_jq_string "$log_file")"
+    exit_code_file_for_queue="$(escape_jq_string "$exit_code_file")"
+    pid_for_queue="$(escape_jq_string "$pid")"
 
     with_queue "(.updatedAt = \"$launch_now\")
       | (.activeTaskId = \"$next_task_id\")
@@ -232,10 +267,10 @@ launch_next_task() {
           startedAt: \"$launch_now\",
           launch: {
             mode: \"live\",
-            wrapper: \"$wrapper\",
-            pid: \"$pid\",
-            logFile: \"$log_file\",
-            exitCodeFile: \"$exit_code_file\"
+            wrapper: \"$wrapper_for_queue\",
+            pid: \"$pid_for_queue\",
+            logFile: \"$log_file_for_queue\",
+            exitCodeFile: \"$exit_code_file_for_queue\"
           }
         } else . end))"
 
@@ -259,10 +294,14 @@ launch_next_task() {
 - Mode: dry-run"
   fi
 
-  "$OPENCLAW_BIN" message send --channel telegram --target "$CHAT_ID" --message "$message" >/tmp/clawclub-foreman-send.log 2>&1 || {
+  local send_log_file
+  send_log_file="$(mktemp)"
+
+  "$OPENCLAW_BIN" message send --channel telegram --target "$CHAT_ID" --message "$message" >"$send_log_file" 2>&1 || {
     log "telegram send failed for task $next_task_id"
-    tail -n 20 /tmp/clawclub-foreman-send.log >> "$OUT" 2>/dev/null || true
+    tail -n 20 "$send_log_file" >> "$OUT" 2>/dev/null || true
   }
+  rm -f "$send_log_file"
 }
 
 acquire_lock
