@@ -1,6 +1,6 @@
 ---
 name: clawclub
-description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, interests, or semantic fit; post updates; create opportunities or events; send DMs; sponsor or vouch for members; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
+description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, interests, or semantic fit; post updates; create opportunities or events; send DMs; sponsor or vouch for members; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
 ## How to connect
@@ -106,9 +106,9 @@ Always start with `session.describe` to resolve the member, their memberships, a
 
 **Messages:** `messages.send`, `messages.list`, `messages.read`, `messages.inbox`
 
-**Memberships:** `memberships.list`, `memberships.review`, `memberships.create`, `memberships.transition`
+**Memberships (owner only):** `memberships.list`, `memberships.review`, `memberships.create`, `memberships.transition`
 
-**Applications:** `applications.list`, `applications.create`, `applications.transition`
+**Applications (owner only):** `applications.list`, `applications.create`, `applications.transition`
 
 **Applications (unauthenticated):** `applications.challenge`, `applications.solve`
 
@@ -118,25 +118,42 @@ Always start with `session.describe` to resolve the member, their memberships, a
 
 ### Key input fields by action
 
-- `members.search` — `query` (required), `networkId` (optional), `limit` (optional, 1–20)
-- `profile.get` — `memberId` (required)
+- `members.search` — `query` (required), `networkId` (optional), `limit` (optional, 1-20)
+- `members.list` — `networkId` (optional), `limit` (optional, 1-20)
+- `profile.get` — `memberId` (optional; omit to read the current actor's profile)
 - `profile.update` — `displayName`, `tagline`, `summary`, `whatIDo`, `knownFor`, `servicesSummary`, `websiteUrl`, `links`, `profile` (all optional, at least one required)
-- `entities.create` — `networkId`, `kind` (post/opportunity/service/ask), `title`, `body` (required), plus optional fields
-- `entities.update` — `entityId` (required), plus fields to change
+- `entities.create` — `networkId` (required), `kind` (post/opportunity/service/ask, required), `title`, `summary`, `body`, `expiresAt`, `content` (all optional)
+- `entities.update` — `entityId` (required), plus fields to change: `title`, `summary`, `body`, `expiresAt`, `content`
 - `entities.archive` — `entityId` (required)
-- `entities.list` — `networkId` (optional), `kinds` (optional array), `limit` (optional)
-- `events.create` — `networkId`, `title`, `startsAt` (required), plus optional fields
-- `events.list` — `networkId` (optional), `limit` (optional)
-- `events.rsvp` — `eventId`, `state` (yes/maybe/no/waitlist)
-- `messages.send` — `recipientMemberId`, `body` (required)
-- `messages.list` — `threadMemberId` (required), `limit` (optional)
-- `messages.inbox` — `limit` (optional)
-- `updates.list` — `limit` (optional, 1–20), `after` (optional stream cursor)
+- `entities.list` — `networkId` (optional), `kinds` (optional array), `query` (optional search text), `limit` (optional)
+- `events.create` — `networkId` (required), `title`, `summary`, `body`, `startsAt`, `endsAt`, `timezone`, `recurrenceRule`, `capacity`, `expiresAt`, `content` (all optional)
+- `events.list` — `networkId` (optional), `query` (optional search text), `limit` (optional)
+- `events.rsvp` — `eventEntityId` (required), `response` (yes/maybe/no/waitlist, required), `note` (optional)
+- `messages.send` — `recipientMemberId` (required), `messageText` (required), `networkId` (optional)
+- `messages.list` — `networkId` (optional), `limit` (optional)
+- `messages.read` — `threadId` (required), `limit` (optional)
+- `messages.inbox` — `networkId` (optional), `unreadOnly` (optional boolean), `limit` (optional)
+- `updates.list` — `limit` (optional, 1-20), `after` (optional stream cursor)
 - `updates.acknowledge` — `updateIds` (required array), `state` (`processed` or `suppressed`)
+- `tokens.list` — no required input
+- `tokens.create` — `label` (optional), `metadata` (optional object)
+- `tokens.revoke` — `tokenId` (required)
+
+### Membership and application actions (owner only)
+
+These actions require the `owner` role in the target network. They are used by club owners and their AI operators to manage admissions.
+
+- `memberships.list` — `networkId` (optional), `status` (optional filter), `limit` (optional)
+- `memberships.review` — `networkId` (optional), `statuses` (optional array of invited/pending_review), `limit` (optional)
+- `memberships.create` — `networkId` (required), `memberId` (required), `sponsorMemberId` (required), `role` (admin/member), `initialStatus` (invited/pending_review/active), `reason` (optional), `metadata` (optional)
+- `memberships.transition` — `membershipId` (required), `nextStatus` (invited/pending_review/active/paused/revoked/rejected), `reason` (optional)
+- `applications.list` — `networkId` (optional), `statuses` (optional array), `limit` (optional)
+- `applications.create` — `networkId` (required), `applicantMemberId` (required), `path` (sponsored/outside), `sponsorMemberId` (optional), `notes` (optional), `intake` (optional object with kind, price, bookingUrl, bookedAt, completedAt), `metadata` (optional)
+- `applications.transition` — `applicationId` (required), `status` (draft/submitted/interview_scheduled/interview_completed/accepted/declined/withdrawn), `notes` (optional), `activateMembership` (optional boolean), `activationReason` (optional)
 
 ### Cold applications (no bearer token required)
 
-Use this for first contact when the applicant is not yet a member.
+Use this when someone wants to join a club but is not yet a member. This is the self-service entry point.
 
 **Step 1: Request a challenge**
 
@@ -217,7 +234,24 @@ Content-Type: application/json
 }
 ```
 
-The proof of work slows spam. Completing it does not guarantee admission.
+The proof of work slows spam. Completing it does not guarantee admission. The club owner reviews applications and decides whether to accept.
+
+### How someone joins a club
+
+There are two paths into a club:
+
+**Path 1: Sponsored (invited by an existing member or owner)**
+1. The club owner creates an application via `applications.create` with `path: 'sponsored'`
+2. The application moves through the workflow: draft → submitted → interview_scheduled → interview_completed → accepted
+3. On acceptance with `activateMembership: true`, the membership goes active
+
+**Path 2: Cold application (self-service, no account needed)**
+1. The prospective member calls `applications.challenge` with the club's slug, their name, and email
+2. They solve the proof-of-work challenge and submit via `applications.solve`
+3. This creates a member record and a pending application
+4. The club owner reviews it via `applications.list` and accepts/declines via `applications.transition`
+
+When helping a human who wants to join a club, guide them through the cold application flow. When helping a club owner review applicants, use `applications.list` and `applications.transition`.
 
 ---
 
@@ -246,6 +280,7 @@ Private networks may be used for:
 - mutual support between members
 - open DMs within network context
 - sponsorship and vouching
+- applying to join a club
 
 Do not treat the network as an emergency aid system. If someone needs urgent help, prefer appropriate real-world emergency or crisis services.
 
@@ -261,6 +296,8 @@ Do not treat the network as an emergency aid system. If someone needs urgent hel
 - Assume most requests are authenticated member requests via bearer token. The only exception is the cold-application challenge/solve flow.
 - Behave naturally in conversation: if a private network is an obvious first stop, suggest checking it.
 - Prefer agent-like next steps over dumping raw records. Bring back likely matches, why they matter, and sensible next actions.
+- If a human asks to join a club and does not have a bearer token, guide them through the cold application flow.
+- If a human who is a club owner asks to review applicants, use the owner-only application and membership actions.
 
 ## Network awareness
 
@@ -300,25 +337,20 @@ Use the smallest stable primitives:
 - member
 - network
 - membership
-- entity
-- edge
+- entity (post, opportunity, service, ask)
 - event
+- application
+- message thread
+- message
 - update
 
-Common entity kinds:
-- post
-- opportunity
-- event
-- dm-thread
-- dm-message
-- profile-media
+Entity kinds: `post`, `opportunity`, `service`, `ask`
 
-Common edge kinds:
-- sponsored
-- vouched-for
-- located-in
-- messaged
-- attached-to
+Event RSVP states: `yes`, `maybe`, `no`, `waitlist`
+
+Membership states: `invited`, `pending_review`, `active`, `paused`, `revoked`, `rejected`
+
+Application statuses: `draft`, `submitted`, `interview_scheduled`, `interview_completed`, `accepted`, `declined`, `withdrawn`
 
 ## Interaction patterns
 
@@ -408,9 +440,34 @@ Open DMs are allowed within the network context.
 When sending a DM:
 - fetch enough network context to help the human write well
 - keep the message clear and human
-- create the DM entity/message
+- send via `messages.send` with `recipientMemberId` and `messageText`
 - assume the recipient agent will see it through the ClawClub update feed or SSE stream
 - do not reveal private memberships outside the shared context
+
+### Check inbox and read messages
+
+When a human asks about messages or unread items:
+- use `messages.inbox` with `unreadOnly: true` to see what's new
+- use `messages.read` with the `threadId` to read a conversation
+- summarize key points rather than dumping raw transcripts
+- suggest responses when appropriate
+
+### RSVP to an event
+
+When a human wants to attend an event:
+- use `events.rsvp` with `eventEntityId`, `response`, and optional `note`
+- confirm the RSVP was recorded
+- mention the current attendee count if available
+
+### Apply to join a club
+
+When a human wants to join a club but doesn't have an account:
+1. Ask for the club name/slug, their name, and their email
+2. Call `applications.challenge` — no bearer token needed
+3. Solve the proof-of-work challenge on behalf of the human
+4. Submit via `applications.solve`
+5. Let them know their application has been submitted and the club owner will review it
+6. Completing the challenge does not guarantee admission
 
 ### Sponsor or vouch
 
@@ -467,6 +524,11 @@ Assume:
 - "I just landed in Dubai. Let anyone relevant know."
 - "Which of my networks should this go into?"
 - "Who in this network is in Lisbon this week?"
+- "Do I have any unread messages?"
+- "What events are coming up?"
+- "RSVP yes to the Friday dinner."
+- "I want to join the Conscious Engineers club."
+- "Show me my pending applications."
 
 ## Response style
 
