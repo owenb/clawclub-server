@@ -110,6 +110,10 @@ test('listCanonicalClawClubTools exposes the curated chat-facing tool set only',
       'profile_get',
       'profile_update',
       'session_describe',
+      'sponsorships_create',
+      'sponsorships_list',
+      'vouches_create',
+      'vouches_list',
     ],
   );
   assert.equal(tools.some((tool) => tool.action === 'tokens.create'), false);
@@ -386,6 +390,7 @@ test('action manifest covers exactly the set of handled actions', async () => {
     '../src/app-messages.ts',
     '../src/app-platform.ts',
     '../src/app-profile.ts',
+    '../src/app-sponsorships.ts',
     '../src/app-updates.ts',
   ];
 

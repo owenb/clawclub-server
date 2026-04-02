@@ -78,6 +78,27 @@ const aiToolInputSchemas: Record<AiExposedAction, z.ZodType> = {
     }).optional(),
     metadata: z.record(z.string(), z.unknown()).optional().nullable(),
   }),
+  'vouches.create': z.object({
+    networkId: nonEmptyString('networkId'),
+    memberId: nonEmptyString('memberId').describe('The member ID of the person being vouched for'),
+    reason: z.string().trim().min(1).max(500).describe('A concrete, firsthand reason for the vouch. Must include observable evidence, not vague praise.'),
+  }),
+  'vouches.list': z.object({
+    networkId: z.string().trim().min(1).optional(),
+    memberId: nonEmptyString('memberId').describe('The member ID to look up vouches for'),
+    limit: z.number().int().min(1).max(20).optional(),
+  }),
+  'sponsorships.create': z.object({
+    networkId: nonEmptyString('networkId'),
+    name: z.string().trim().min(1).max(500).describe('Full name (first and last) of the person being sponsored'),
+    email: z.string().trim().min(1).max(500).describe('Email address of the person being sponsored'),
+    socials: z.string().trim().min(1).max(500).describe('Social media handles or links'),
+    reason: z.string().trim().min(1).max(500).describe('Why this person should be invited. Concrete, firsthand evidence required.'),
+  }),
+  'sponsorships.list': z.object({
+    networkId: z.string().trim().min(1).optional(),
+    limit: z.number().int().min(1).max(20).optional(),
+  }),
   'members.search': z.object({
     query: nonEmptyString('query'),
     networkId: z.string().trim().min(1).optional(),

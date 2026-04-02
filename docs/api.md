@@ -23,6 +23,8 @@ Current action families (see `src/action-manifest.ts` for the canonical list):
 - `events.*` — events and RSVPs
 - `messages.*` — direct messages
 - `updates.*` — update stream and acknowledgements
+- `vouches.*` — peer endorsements between existing members
+- `sponsorships.*` — member recommendations for outsiders
 - `tokens.*` — bearer token management
 - `quotas.*` — write quota status
 - `admin.*` — platform admin (superadmin): overview, member/network/content/message inspection, token management, diagnostics
@@ -247,6 +249,24 @@ Cold applications include an `applicationDetails` object on the `ApplicationSumm
 - completing the PoW submits an application — it does not create an authenticated session or mint a bearer token
 - if the owner accepts, the first bearer token is delivered out-of-band by email
 - exist so OpenClaw or a similar personal agent can make first contact without an existing bearer token
+
+### `vouches.create`
+
+- creates a `vouched_for` edge in `app.edges`
+- per-network: one active vouch per (actor, target) pair per network
+- self-vouching is rejected at both app and DB level
+- target must have a membership in the same network
+- returns a `MembershipVouchSummary` on success
+- created vouches appear in `memberships.review` for club owners
+
+### `sponsorships.create` / `sponsorships.list`
+
+- `sponsorships.create` — an existing member recommends an outsider for admission
+- input: `networkId`, `name` (full name), `email`, `socials`, `reason` (all required, max 500 chars)
+- no proof-of-work — trust comes from the sponsoring member
+- multiple sponsorships for the same outsider are allowed and are a signal
+- `sponsorships.list` — owners see all sponsorships; members see their own
+- sponsorships are a separate concept from applications and vouches
 
 ### `members.search`
 

@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import {
   AppError,
   type CreateMembershipInput,
+  type CreateVouchInput,
   type MemberSearchResult,
   type MembershipAdminSummary,
   type MembershipReviewSummary,
@@ -545,6 +546,8 @@ export function buildAdmissionsRepository({
   | 'transitionApplication'
   | 'searchMembers'
   | 'listMembers'
+  | 'createVouch'
+  | 'listVouches'
 > {
   const applicationsRepository = buildApplicationsRepository({
     pool,
@@ -761,6 +764,107 @@ export function buildAdmissionsRepository({
 
     async listMembers({ actorMemberId, networkIds, limit }) {
       return withActorContext(pool, actorMemberId, networkIds, (client) => readMembers(client, { networkIds, limit }));
+    },
+
+    async createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null> {
+      return withActorContext(pool, input.actorMemberId, [input.networkId], async (client) => {
+        const result = await client.query<{
+          id: string;
+          from_member_id: string;
+          from_public_name: string;
+          from_handle: string | null;
+          reason: string;
+          metadata: Record<string, unknown>;
+          created_at: string;
+          created_by_member_id: string | null;
+        }>(
+          `
+            insert into app.edges (network_id, kind, from_member_id, to_member_id, reason, created_by_member_id)
+            select $1, 'vouched_for', $2, $3, $4, $2
+            where exists (
+              select 1 from app.accessible_network_memberships anm
+              where anm.member_id = $3 and anm.network_id = $1
+            )
+            returning
+              id,
+              from_member_id,
+              (select public_name from app.members where id = from_member_id) as from_public_name,
+              (select handle from app.members where id = from_member_id) as from_handle,
+              reason,
+              metadata,
+              created_at::text as created_at,
+              created_by_member_id
+          `,
+          [input.networkId, input.actorMemberId, input.targetMemberId, input.reason],
+        );
+
+        const row = result.rows[0];
+        if (!row) {
+          return null;
+        }
+
+        return {
+          edgeId: row.id,
+          fromMember: {
+            memberId: row.from_member_id,
+            publicName: row.from_public_name,
+            handle: row.from_handle,
+          },
+          reason: row.reason,
+          metadata: row.metadata,
+          createdAt: row.created_at,
+          createdByMemberId: row.created_by_member_id,
+        };
+      });
+    },
+
+    async listVouches(input): Promise<MembershipVouchSummary[]> {
+      return withActorContext(pool, input.actorMemberId, input.networkIds, async (client) => {
+        const result = await client.query<{
+          id: string;
+          from_member_id: string;
+          from_public_name: string;
+          from_handle: string | null;
+          reason: string;
+          metadata: Record<string, unknown>;
+          created_at: string;
+          created_by_member_id: string | null;
+        }>(
+          `
+            select
+              e.id,
+              e.from_member_id,
+              fm.public_name as from_public_name,
+              fm.handle as from_handle,
+              e.reason,
+              e.metadata,
+              e.created_at::text as created_at,
+              e.created_by_member_id
+            from app.edges e
+            join app.members fm on fm.id = e.from_member_id
+            where e.network_id = any($1::app.short_id[])
+              and e.kind = 'vouched_for'
+              and e.to_member_id = $2
+              and e.archived_at is null
+            order by e.created_at desc
+            limit $3
+          `,
+          [input.networkIds, input.targetMemberId, input.limit],
+        );
+
+        return result.rows.map((row) => ({
+          edgeId: row.id,
+          fromMember: {
+            memberId: row.from_member_id,
+            publicName: row.from_public_name,
+            handle: row.from_handle,
+          },
+          reason: row.reason,
+          metadata: row.metadata,
+          createdAt: row.created_at,
+          createdByMemberId: row.created_by_member_id,
+        }));
+      });
     },
   };
 }

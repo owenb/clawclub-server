@@ -452,6 +452,83 @@ export async function handleAdmissionsAction(input: {
       });
     }
 
+    case 'vouches.create': {
+      const network = requireAccessibleNetwork(actor, payload.networkId);
+      const targetMemberId = requireNonEmptyString(payload.memberId, 'memberId');
+      const reason = requireNonEmptyString(payload.reason, 'reason');
+
+      if (reason.length > 500) {
+        throw createAppError(400, 'invalid_input', 'reason must be at most 500 characters');
+      }
+
+      if (targetMemberId === actor.member.id) {
+        throw createAppError(400, 'self_vouch', 'You cannot vouch for yourself');
+      }
+
+      let vouch;
+      try {
+        vouch = await repository.createVouch({
+          actorMemberId: actor.member.id,
+          networkId: network.networkId,
+          targetMemberId,
+          reason,
+        });
+      } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {
+          throw createAppError(409, 'duplicate_vouch', 'You have already vouched for this member in this network');
+        }
+        if (error && typeof error === 'object' && 'code' in error && error.code === '23514') {
+          throw createAppError(400, 'self_vouch', 'You cannot vouch for yourself');
+        }
+        throw error;
+      }
+
+      if (!vouch) {
+        throw createAppError(404, 'not_found', 'Target member was not found in this network');
+      }
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope: {
+          requestedNetworkId: network.networkId,
+          activeNetworkIds: [network.networkId],
+        },
+        sharedContext,
+        data: { vouch },
+      });
+    }
+
+    case 'vouches.list': {
+      const targetMemberId = requireNonEmptyString(payload.memberId, 'memberId');
+      const limit = normalizeLimit(payload.limit);
+      const networkScope = actor.memberships;
+      if (payload.networkId !== undefined) {
+        requireAccessibleNetwork(actor, payload.networkId);
+      }
+      const networkIds = payload.networkId !== undefined
+        ? [requireNonEmptyString(payload.networkId, 'networkId')]
+        : networkScope.map((m) => m.networkId);
+
+      const results = await repository.listVouches({
+        actorMemberId: actor.member.id,
+        networkIds,
+        targetMemberId,
+        limit,
+      });
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope: {
+          requestedNetworkId: typeof payload.networkId === 'string' ? payload.networkId.trim() : null,
+          activeNetworkIds: networkIds,
+        },
+        sharedContext,
+        data: { memberId: targetMemberId, results },
+      });
+    }
+
     default:
       return null;
   }

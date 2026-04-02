@@ -176,6 +176,10 @@ Always start with `session.describe` to resolve the member, their memberships, a
 
 **Applications (unauthenticated):** `applications.challenge`, `applications.solve`
 
+**Vouches:** `vouches.create`, `vouches.list`
+
+**Sponsorships:** `sponsorships.create`, `sponsorships.list`
+
 **Updates:** `updates.list`, `updates.acknowledge`
 
 **Tokens:** `tokens.list`, `tokens.create`, `tokens.revoke`
@@ -199,6 +203,10 @@ Always start with `session.describe` to resolve the member, their memberships, a
 - `messages.list` — `networkId` (optional), `limit` (optional). Returns DM thread summaries: `threadId`, `counterpartMemberId`, `counterpartPublicName`, `latestMessage`, `messageCount`.
 - `messages.read` — `threadId` (required), `limit` (optional)
 - `messages.inbox` — `networkId` (optional), `unreadOnly` (optional boolean), `limit` (optional). Returns thread summaries plus unread state: `hasUnread`, `unreadMessageCount`, `unreadUpdateCount`.
+- `vouches.create` — `networkId` (required), `memberId` (required, the person being vouched for), `reason` (required, max 500 chars). One active vouch per member pair per network. Self-vouching is not allowed.
+- `vouches.list` — `memberId` (required, who to look up), `networkId` (optional), `limit` (optional). Returns vouches for a member.
+- `sponsorships.create` — `networkId` (required), `name` (required, full name), `email` (required), `socials` (required), `reason` (required, max 500 chars). Recommends an outsider for admission. No PoW required.
+- `sponsorships.list` — `networkId` (optional), `limit` (optional). Owners see all sponsorships; members see their own.
 - `updates.list` — `limit` (optional, 1-20), `after` (optional stream cursor)
 - `updates.acknowledge` — `updateIds` (required array), `state` (`processed` or `suppressed`)
 - `tokens.list` — no required input
@@ -344,8 +352,8 @@ The proof of work slows spam. Completing it does not guarantee admission. The cl
 
 There are two paths into a club:
 
-**Path 1: Sponsored (invited by an existing member or owner)**
-1. The club owner creates an application via `applications.create` with `path: 'sponsored'`
+**Path 1: Nominated (an existing member is put forward by the owner)**
+1. The club owner creates an application via `applications.create` with `path: 'sponsored'` (the API field name is `sponsored` for historical reasons; this is an internal nomination of an existing member, not outsider sponsorship)
 2. The application moves through the workflow: draft → submitted → interview_scheduled → interview_completed → accepted
 3. On acceptance with `activateMembership: true`, the membership goes active
 
@@ -574,11 +582,37 @@ When a human wants to join a club but doesn't have an account:
 6. Let them know: "Application submitted. Watch your email — you will hear back soon."
 7. Completing the challenge does not guarantee admission
 
-### Sponsorship
+### Vouch for a member
 
-A sponsor is the member who brings in a new member and is accountable for them. When creating an application via `applications.create`, the `sponsorMemberId` field records who sponsored the applicant.
+Use `vouches.create` when a member wants to endorse another member who is already in the same club. Vouching is peer-to-peer endorsement within a shared network. It is not an admissions primitive — both members must already belong to the club.
 
-Vouches appear as read-only context when reviewing memberships via `memberships.review` — they show endorsements from other members. There is currently no action to create a vouch directly through the API.
+One active vouch per member pair per network. Self-vouching is not allowed.
+
+Before submitting a vouch, push back on vague reasons. A good vouch includes:
+- **Concrete, firsthand evidence** — not "Joe is great" but "Joe built our event system in two weeks and it hasn't gone down once"
+- **Observable context** — what the voucher has personally seen or experienced
+- **Why it matters** — why this endorsement is relevant to the network
+
+Do not submit a vouch until the reason is specific enough to be useful. Ask follow-up questions if the initial reason is generic.
+
+Use `vouches.list` to see who has vouched for a specific member. Vouches also appear in `memberships.review` when the club owner reviews membership applications.
+
+### Sponsor an outsider
+
+Use `sponsorships.create` when a member wants to invite someone who is **not yet a member** to join their club. This is how insiders bring in outsiders.
+
+Sponsorship collects the outsider's full name, email, socials, and a reason why they should be invited. No proof-of-work is required — the sponsoring member's existing trust is sufficient.
+
+Multiple members can sponsor the same outsider. The number of sponsorships is a signal of community interest. The club owner reviews sponsorships via `sponsorships.list` and decides whether to reach out.
+
+Before submitting a sponsorship, apply the same quality bar as vouching:
+- Who is this person?
+- What have you seen them do?
+- Why do they belong in this club specifically?
+
+Sponsorship and vouching are separate concepts:
+- **Vouching** = endorsing someone already in the club (peer-to-peer, network-internal)
+- **Sponsorship** = recommending someone new to join (insider-to-outsider)
 
 ## Quality bar
 

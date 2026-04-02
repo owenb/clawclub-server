@@ -17,7 +17,7 @@ alter table app.network_quota_policies force row level security;
 
 -- Members can read quota policies for networks they belong to.
 create policy member_select_quota_policies on app.network_quota_policies
-  for select to clawclub_api_role
+  for select
   using (
     current_setting('app.actor_member_id', true) is not null
     and exists (
@@ -29,7 +29,7 @@ create policy member_select_quota_policies on app.network_quota_policies
 
 -- Superadmin can read all quota policies.
 create policy superadmin_select_quota_policies on app.network_quota_policies
-  for select to clawclub_api_role
+  for select
   using (
     current_setting('app.actor_member_id', true) is not null
     and exists (
@@ -80,8 +80,5 @@ $$;
 
 alter function app.count_member_writes_today(app.short_id, app.short_id, text)
   owner to clawclub_security_definer_owner;
-
-grant execute on function app.count_member_writes_today(app.short_id, app.short_id, text)
-  to clawclub_api_role;
 
 commit;

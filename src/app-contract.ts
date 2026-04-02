@@ -622,6 +622,37 @@ export type UpdateEntityInput = {
   };
 };
 
+export type CreateVouchInput = {
+  actorMemberId: string;
+  networkId: string;
+  targetMemberId: string;
+  reason: string;
+};
+
+export type SponsorshipSummary = {
+  sponsorshipId: string;
+  networkId: string;
+  sponsor: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  };
+  candidateName: string;
+  candidateEmail: string;
+  candidateDetails: Record<string, unknown>;
+  reason: string;
+  createdAt: string;
+};
+
+export type CreateSponsorshipInput = {
+  actorMemberId: string;
+  networkId: string;
+  candidateName: string;
+  candidateEmail: string;
+  candidateDetails: Record<string, unknown>;
+  reason: string;
+};
+
 export type QuotaAllowance = {
   action: string;
   networkId: string;
@@ -796,6 +827,10 @@ export type Repository = {
     limit: number;
   }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null>;
 
+  createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
+  listVouches(input: { actorMemberId: string; networkIds: string[]; targetMemberId: string; limit: number }): Promise<MembershipVouchSummary[]>;
+  createSponsorship(input: CreateSponsorshipInput): Promise<SponsorshipSummary>;
+  listSponsorships(input: { actorMemberId: string; networkIds: string[]; limit: number }): Promise<SponsorshipSummary[]>;
   getQuotaStatus(input: { actorMemberId: string; networkIds: string[] }): Promise<QuotaAllowance[]>;
 
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;

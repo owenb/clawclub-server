@@ -37,6 +37,10 @@ export const ACTION_MANIFEST: ActionSpec[] = [
   { action: 'memberships.review', domain: 'admissions', description: 'Review memberships in admissions flow with sponsor stats and vouches.', auth: 'owner', safety: 'read_only', aiExposed: true },
   { action: 'memberships.create', domain: 'admissions', description: 'Add a new member to a network.', auth: 'owner', safety: 'mutating', aiExposed: false },
   { action: 'memberships.transition', domain: 'admissions', description: 'Change a membership status (activate, pause, revoke).', auth: 'owner', safety: 'mutating', aiExposed: false },
+  { action: 'vouches.create', domain: 'admissions', description: 'Vouch for another member in a shared network with a concrete reason.', auth: 'member', safety: 'mutating', aiExposed: true },
+  { action: 'vouches.list', domain: 'admissions', description: 'List vouches for a member in accessible networks.', auth: 'member', safety: 'read_only', aiExposed: true },
+  { action: 'sponsorships.create', domain: 'sponsorships', description: 'Recommend an outsider for admission to a network.', auth: 'member', safety: 'mutating', aiExposed: true },
+  { action: 'sponsorships.list', domain: 'sponsorships', description: 'List sponsorship recommendations. Owners see all; members see their own.', auth: 'member', safety: 'read_only', aiExposed: true },
   { action: 'members.search', domain: 'admissions', description: 'Search for members by name, skill, or interests.', auth: 'member', safety: 'read_only', aiExposed: true },
   { action: 'members.list', domain: 'admissions', description: 'List members in accessible networks.', auth: 'member', safety: 'read_only', aiExposed: false },
 

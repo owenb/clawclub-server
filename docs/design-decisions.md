@@ -81,7 +81,13 @@ Examples:
 
 - identity is global; membership is network-local
 - sponsor is the accountable inviter
-- vouching is a lighter endorsement
+- vouching is a lighter endorsement, created via `vouches.create` and stored as `vouched_for` edges in `app.edges`
+- one active vouch per (actor, target) pair per network, enforced by partial unique index
+- self-vouching prevented by DB CHECK constraint
+- vouches surface in `vouches.list` (any member) and `memberships.review` (owners)
+- sponsorship is a separate domain: existing member recommends outsider for admission via `sponsorships.create`
+- sponsorships are stored in a dedicated `app.sponsorships` table, not routed through applications
+- multiple sponsorships for the same outsider are allowed — the count is a signal
 - DMs require at least one shared network
 - warm application path is `sponsored`
 - cold application path is unauthenticated and proof-of-work gated; `applications.challenge` takes no input and returns a PoW challenge plus publicly listed clubs; `applications.solve` collects full name, email, socials, club slug, and reason; private clubs accept applications by slug but don't appear in the public list; completing the PoW does not mint auth — the first bearer token is delivered out-of-band by email

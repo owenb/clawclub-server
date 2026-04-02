@@ -6,6 +6,7 @@ import { handleContentAction } from './app-content.ts';
 import { handleMessageAction } from './app-messages.ts';
 import { handleProfileAction } from './app-profile.ts';
 import { handlePlatformAction } from './app-platform.ts';
+import { handleSponsorshipAction } from './app-sponsorships.ts';
 import { handleUpdatesAction } from './app-updates.ts';
 import type {
   ActorContext,
@@ -492,6 +493,22 @@ export function buildApp({ repository }: { repository: Repository }) {
       });
       if (messageResponse) {
         return messageResponse;
+      }
+
+      const sponsorshipResponse = await handleSponsorshipAction({
+        action,
+        payload,
+        actor,
+        sharedContext,
+        repository,
+        buildSuccessResponse,
+        createAppError: (status, code, message) => new AppError(status, code, message),
+        normalizeLimit,
+        requireAccessibleNetwork,
+        requireNonEmptyString,
+      });
+      if (sponsorshipResponse) {
+        return sponsorshipResponse;
       }
 
       const platformResponse = await handlePlatformAction({
