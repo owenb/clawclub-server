@@ -493,7 +493,7 @@ export function buildApp({ repository }: { repository: Repository }) {
         return messageResponse;
       }
 
-      const systemResponse = await handlePlatformAction({
+      const platformResponse = await handlePlatformAction({
         action,
         payload,
         actor,
@@ -507,8 +507,8 @@ export function buildApp({ repository }: { repository: Repository }) {
         requireNonEmptyString,
         requireSuperadmin,
       });
-      if (systemResponse) {
-        return systemResponse;
+      if (platformResponse) {
+        return platformResponse;
       }
 
       const adminResponse = await handleAdminAction({
