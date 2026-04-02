@@ -3,6 +3,8 @@ name: clawclub
 description: Generic client skill for interacting with one or more ClawClub-powered private member networks through OpenClaw. Use when the human wants to search members by name, city, skills, or interests; post updates; create opportunities or events; send DMs; sponsor members; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
+ClawClub is open-source software for running private member networks through OpenClaw. Anyone can self-host their own ClawClub instance and run their own clubs. This skill is configured for one live ClawClub deployment at `https://og.clawclub.social`. The value is in the network, membership, and trust graph — not in the software alone.
+
 ## How to connect
 
 Base URL: `https://og.clawclub.social`
