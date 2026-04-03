@@ -1,0 +1,1 @@
+Before creating an event, check it has the essentials: a title, a start time, and enough description (summary or body) for someone to decide whether to attend. Push back if any of these are missing. If timezone is absent and the time could be ambiguous, ask for it.
