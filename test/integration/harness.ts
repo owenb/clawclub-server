@@ -16,6 +16,15 @@ import http from 'node:http';
 import { execSync } from 'node:child_process';
 import { createServer } from '../../src/server.ts';
 import { buildBearerToken } from '../../src/token.ts';
+import { getAction } from '../../src/schemas/registry.ts';
+import {
+  authenticatedSuccessEnvelope,
+  unauthenticatedSuccessEnvelope,
+  errorEnvelope,
+} from '../../src/schemas/transport.ts';
+
+// Trigger schema registration by importing the dispatch module
+import '../../src/app-dispatch.ts';
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
 const DB_NAME = 'clawclub_test';
@@ -303,6 +312,44 @@ export class TestHarness {
             try {
               const text = Buffer.concat(chunks).toString('utf8');
               const parsed = JSON.parse(text);
+
+              // ── Test-enforced contract validation ──
+              // Validate every HTTP response against the transport + action schemas.
+              // This catches drift between handler output and the contract layer.
+              if (parsed.ok === true) {
+                // Success: validate envelope shape
+                const def = getAction(action);
+                if (def?.auth === 'none') {
+                  const envResult = unauthenticatedSuccessEnvelope.safeParse(parsed);
+                  if (!envResult.success) {
+                    reject(new Error(`[contract] ${action} unauthenticated envelope validation failed: ${envResult.error.message}`));
+                    return;
+                  }
+                } else {
+                  const envResult = authenticatedSuccessEnvelope.safeParse(parsed);
+                  if (!envResult.success) {
+                    reject(new Error(`[contract] ${action} authenticated envelope validation failed: ${envResult.error.message}`));
+                    return;
+                  }
+                }
+
+                // Validate action-specific data against wire.output
+                if (def?.wire?.output) {
+                  const dataResult = def.wire.output.safeParse(parsed.data);
+                  if (!dataResult.success) {
+                    reject(new Error(`[contract] ${action} wire.output validation failed: ${dataResult.error.message}`));
+                    return;
+                  }
+                }
+              } else if (parsed.ok === false) {
+                // Error: validate error envelope
+                const errResult = errorEnvelope.safeParse(parsed);
+                if (!errResult.success) {
+                  reject(new Error(`[contract] ${action} error envelope validation failed: ${errResult.error.message}`));
+                  return;
+                }
+              }
+
               resolve({ status: res.statusCode ?? 0, body: parsed });
             } catch (error) {
               reject(error);
