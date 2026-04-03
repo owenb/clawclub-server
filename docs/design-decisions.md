@@ -88,10 +88,9 @@ Examples:
 - one active vouch per (actor, target) pair per club, enforced by partial unique index
 - self-vouching prevented by DB CHECK constraint
 - vouches surface in `vouches.list` (any member) and `memberships.review` (owners)
-- admissions are the unified model for all paths into a club, with three origins:
+- admissions are the unified model for all paths into a club, with two origins:
   - `self_applied` — unauthenticated, proof-of-work gated; `admissions.challenge` returns a PoW challenge plus publicly listed clubs; `admissions.apply` collects full name, email, socials, club slug, and reason; private clubs accept applications by slug but don't appear in the public list; completing the PoW does not mint auth
   - `member_sponsored` — an existing member sponsors an outsider for admission via `admissions.sponsor`; no PoW required, trust comes from the sponsoring member; multiple sponsorships for the same outsider are allowed and are a signal
-  - `owner_nominated` — an owner nominates an existing member for a club via `admissions.nominate`
 - on acceptance of outsider admissions (self-applied or member-sponsored): the system auto-creates the member, private contacts, profile, and membership
 - the owner issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
 - DMs require at least one shared club
@@ -166,7 +165,6 @@ Already landed (see `src/action-manifest.ts` for the full list):
 - `admissions.list/transition` (owner manages all admissions)
 - `admissions.challenge/apply` (self-applied, unauthenticated)
 - `admissions.sponsor` (member sponsors outsider)
-- `admissions.nominate` (owner nominates existing member)
 - `admissions.issueAccess` (owner issues bearer token for accepted outsider)
 - `profile.get/update`
 - `entities.create/update/archive/list`

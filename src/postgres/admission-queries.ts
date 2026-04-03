@@ -5,7 +5,6 @@ import {
   type AdmissionStatus,
   type AdmissionSummary,
   type AdmissionChallengeResult,
-  type CreateAdmissionNominationInput,
   type CreateAdmissionSponsorInput,
   type IssueAdmissionAccessInput,
   type IssueAdmissionAccessResult,
@@ -205,7 +204,6 @@ export function buildAdmissionsRepository({
 }): Pick<
   Repository,
   | 'listAdmissions'
-  | 'createAdmission'
   | 'transitionAdmission'
   | 'createAdmissionChallenge'
   | 'solveAdmissionChallenge'
@@ -215,116 +213,6 @@ export function buildAdmissionsRepository({
   return {
     async listAdmissions({ actorMemberId, clubIds, limit, statuses }) {
       return withActorContext(pool, actorMemberId, clubIds, (client) => readAdmissions(client, { clubIds, limit, statuses }));
-    },
-
-    async createAdmission(input: CreateAdmissionNominationInput): Promise<AdmissionSummary | null> {
-      const client = await pool.connect();
-      try {
-        await client.query('begin');
-        await applyActorContext(client, input.actorMemberId, [input.clubId]);
-
-        const ownerScopeResult = await client.query<{ membership_id: string }>(
-          `
-            select anm.id as membership_id
-            from app.accessible_club_memberships anm
-            where anm.member_id = $1
-              and anm.club_id = $2
-              and anm.role = 'owner'
-            limit 1
-          `,
-          [input.actorMemberId, input.clubId],
-        );
-
-        if (!ownerScopeResult.rows[0]) {
-          await client.query('rollback');
-          return null;
-        }
-
-        const sponsorResult = input.sponsorMemberId
-          ? await client.query<{ member_id: string }>(
-              `
-                select cnm.member_id
-                from app.current_club_memberships cnm
-                where cnm.club_id = $1
-                  and cnm.member_id = $2
-                  and cnm.status = 'active'
-                limit 1
-              `,
-              [input.clubId, input.sponsorMemberId],
-            )
-          : { rows: [] };
-
-        if (input.sponsorMemberId && !sponsorResult.rows[0]) {
-          await client.query('rollback');
-          return null;
-        }
-
-        const admissionResult = await client.query<{ admission_id: string }>(
-          `
-            insert into app.admissions (
-              club_id,
-              applicant_member_id,
-              sponsor_member_id,
-              origin,
-              metadata
-            )
-            select $1, $2, $3, 'owner_nominated'::text, $4::jsonb
-            where app.member_is_active($2)
-            returning id as admission_id
-          `,
-          [
-            input.clubId,
-            input.applicantMemberId,
-            input.sponsorMemberId ?? null,
-            JSON.stringify(input.metadata ?? {}),
-          ],
-        );
-
-        const admissionId = admissionResult.rows[0]?.admission_id;
-        if (!admissionId) {
-          await client.query('rollback');
-          return null;
-        }
-
-        await client.query(
-          `
-            insert into app.admission_versions (
-              admission_id,
-              status,
-              notes,
-              intake_kind,
-              intake_price_amount,
-              intake_price_currency,
-              intake_booking_url,
-              intake_booked_at,
-              intake_completed_at,
-              version_no,
-              created_by_member_id
-            )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10)
-          `,
-          [
-            admissionId,
-            input.initialStatus,
-            input.notes ?? null,
-            input.intake.kind ?? 'fit_check',
-            input.intake.price?.amount ?? null,
-            input.intake.price?.currency ?? 'GBP',
-            input.intake.bookingUrl ?? null,
-            input.intake.bookedAt ?? null,
-            input.intake.completedAt ?? null,
-            input.actorMemberId,
-          ],
-        );
-
-        await client.query('commit');
-        return await withActorContext(pool, input.actorMemberId, [input.clubId], (scopedClient) => readAdmissionSummary(scopedClient, admissionId));
-      } catch (error) {
-        await client.query('rollback');
-        throw error;
-      } finally {
-        client.release();
-      }
     },
 
     async transitionAdmission(input: TransitionAdmissionInput): Promise<AdmissionSummary | null> {

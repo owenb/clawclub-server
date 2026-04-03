@@ -36,7 +36,7 @@ export type RequireObject = (value: unknown, field: string) => Record<string, un
 export type IsEntityKind = (value: unknown) => value is EntityKind;
 export type RequireMembershipState = (value: unknown, field: string) => import('./app-contract.ts').MembershipState;
 export type RequireAdmissionStatus = (value: unknown, field: string) => import('./app-contract.ts').AdmissionStatus;
-export type NormalizeAdmissionIntake = (value: unknown, field: string) => import('./app-contract.ts').CreateAdmissionNominationInput['intake'];
+export type NormalizeAdmissionIntake = (value: unknown, field: string) => NonNullable<import('./app-contract.ts').TransitionAdmissionInput['intake']>;
 export type NormalizeAdmissionMetadataPatch = (value: unknown, field: string) => Record<string, unknown> | undefined;
 
 const CANDIDATE_FIELD_MAX_LENGTH = 500;

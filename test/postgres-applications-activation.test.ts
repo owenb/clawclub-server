@@ -33,7 +33,7 @@ test('postgres repository lists admissions with derived membership state from li
             membership_id: 'membership-10',
             linked_membership_status: 'pending_review',
             linked_membership_accepted_covenant_at: null,
-            origin: 'owner_nominated',
+            origin: 'member_sponsored',
             intake_kind: 'fit_check',
             intake_price_amount: '49.00',
             intake_price_currency: 'GBP',
@@ -68,6 +68,6 @@ test('postgres repository lists admissions with derived membership state from li
 
   assert.equal(admissions[0]?.admissionId, 'application-9');
   assert.equal(admissions[0]?.membershipId, 'membership-10');
-  assert.equal(admissions[0]?.origin, 'owner_nominated');
+  assert.equal(admissions[0]?.origin, 'member_sponsored');
   assert.match(calls[2]?.sql ?? '', /left join app\.current_club_memberships cnm on cnm\.id = ca\.membership_id/);
 });

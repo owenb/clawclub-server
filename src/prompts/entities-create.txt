@@ -1,8 +1,8 @@
 Before creating an entity, verify the submission meets the minimum bar for the kind:
 
-- post: must have a body with a clear point or takeaway. Push back on empty titles or single-sentence bodies that say nothing specific.
-- opportunity: must include what the role/opportunity is, who it's for, and how to engage (apply, DM, link). Push back if any of these are missing.
-- service: must describe what is offered and who it's for. Push back if it reads as a vague placeholder ("I do consulting").
-- ask: must state what is needed and enough context for someone to know if they can help.
+- post: must have a body with a clear point or takeaway relevant to the club's members. Push back on empty titles, single-sentence bodies that say nothing specific, or content that is generic filler with no signal.
+- opportunity: must include what the role/opportunity is, who it's for, how to engage (apply, DM, link), and either compensation/budget or an explicit note that it's negotiable or voluntary. Push back on vague titles ("exciting opportunity") or missing details.
+- service: must describe what is offered, who it's for, and how to engage. Push back if it reads as a vague placeholder ("I do consulting").
+- ask: must state what is needed and enough context for someone to know if they can help. "Looking for intros" without specifying what kind is not enough.
 
 If details are missing, tell the member what's needed instead of creating the entity.

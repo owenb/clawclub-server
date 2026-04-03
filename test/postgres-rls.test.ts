@@ -285,8 +285,8 @@ async function seedRlsFixture(client: PoolClient) {
 
   const threadId = (await client.query<{ id: string }>(
     `
-      insert into app.transcript_threads (club_id, kind, created_by_member_id, counterpart_member_id)
-      values ($1, 'dm', $2, $3)
+      insert into app.dm_threads (club_id, kind, created_by_member_id, counterpart_member_id)
+      values ($1, 'conversation', $2, $3)
       returning id
     `,
     [club1Id, memberAId, memberBId],
@@ -294,7 +294,7 @@ async function seedRlsFixture(client: PoolClient) {
 
   await client.query(
     `
-      insert into app.transcript_messages (thread_id, sender_member_id, role, message_text)
+      insert into app.dm_messages (thread_id, sender_member_id, role, message_text)
       values ($1, $2, 'member', $3)
     `,
     [threadId, memberAId, 'Private DM'],
@@ -322,11 +322,13 @@ async function seedRlsFixture(client: PoolClient) {
       insert into app.admissions (
         club_id,
         applicant_member_id,
+        applicant_email,
+        applicant_name,
         sponsor_member_id,
         origin,
         metadata
       )
-      values ($1, $2, $3, 'owner_nominated', '{}'::jsonb)
+      values ($1, $2, 'outsider@example.com', 'Test Outsider', $3, 'member_sponsored', '{}'::jsonb)
       returning id
     `,
     [club1Id, outsiderId, ownerId],
@@ -891,7 +893,7 @@ test('RLS only lets authors archive accessible entities', async () => {
   });
 });
 
-test('RLS blocks transcript reads for same-club members who are not participants', async () => {
+test('RLS blocks DM reads for same-club members who are not participants', async () => {
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
@@ -899,7 +901,7 @@ test('RLS blocks transcript reads for same-club members who are not participants
     const blocked = await client.query<{ visible_count: string }>(
       `
         select count(*)::text as visible_count
-        from app.transcript_messages
+        from app.dm_messages
         where thread_id = $1
       `,
       [fixture.threadId],
@@ -909,7 +911,7 @@ test('RLS blocks transcript reads for same-club members who are not participants
     const allowed = await client.query<{ visible_count: string }>(
       `
         select count(*)::text as visible_count
-        from app.transcript_messages
+        from app.dm_messages
         where thread_id = $1
       `,
       [fixture.threadId],

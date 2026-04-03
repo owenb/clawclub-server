@@ -45,7 +45,6 @@ export const ACTION_MANIFEST: ActionSpec[] = [
 
   // Admissions
   { action: 'admissions.list', domain: 'admissions', description: 'List admissions in owner-managed clubs.', auth: 'owner', safety: 'read_only', aiExposed: true },
-  { action: 'admissions.nominate', domain: 'admissions', description: 'Create a new admission nomination.', auth: 'owner', safety: 'mutating', aiExposed: true },
   { action: 'admissions.transition', domain: 'admissions', description: 'Advance an admission through the admissions workflow.', auth: 'owner', safety: 'mutating', aiExposed: true },
   { action: 'admissions.issueAccess', domain: 'admissions', description: 'Issue a bearer token for an admission applicant.', auth: 'owner', safety: 'mutating', aiExposed: false },
 
@@ -58,6 +57,7 @@ export const ACTION_MANIFEST: ActionSpec[] = [
   { action: 'entities.create', domain: 'content', description: 'Create a new post, ask, opportunity, or service.', auth: 'member', safety: 'mutating', aiExposed: true },
   { action: 'entities.update', domain: 'content', description: 'Update an existing entity (author only).', auth: 'member', safety: 'mutating', aiExposed: false },
   { action: 'entities.archive', domain: 'content', description: 'Archive an entity (author only).', auth: 'member', safety: 'mutating', aiExposed: true },
+  { action: 'entities.redact', domain: 'content', description: 'Redact an entity (author or club owner).', auth: 'member', safety: 'mutating', aiExposed: false },
 
   // Events
   { action: 'events.list', domain: 'content', description: 'List upcoming events.', auth: 'member', safety: 'read_only', aiExposed: true },
@@ -67,8 +67,9 @@ export const ACTION_MANIFEST: ActionSpec[] = [
   // Messages
   { action: 'messages.send', domain: 'messages', description: 'Send a direct message to another member.', auth: 'member', safety: 'mutating', aiExposed: true },
   { action: 'messages.list', domain: 'messages', description: 'List DM threads.', auth: 'member', safety: 'read_only', aiExposed: false },
-  { action: 'messages.read', domain: 'messages', description: 'Read a DM thread transcript.', auth: 'member', safety: 'read_only', aiExposed: true },
+  { action: 'messages.read', domain: 'messages', description: 'Read a DM thread.', auth: 'member', safety: 'read_only', aiExposed: true },
   { action: 'messages.inbox', domain: 'messages', description: 'List DM inbox with unread counts.', auth: 'member', safety: 'read_only', aiExposed: true },
+  { action: 'messages.redact', domain: 'messages', description: 'Redact a DM (sender or club owner).', auth: 'member', safety: 'mutating', aiExposed: false },
 
   // Updates
   { action: 'updates.list', domain: 'updates', description: 'List pending updates for the current member.', auth: 'member', safety: 'read_only', aiExposed: false },
@@ -81,8 +82,10 @@ export const ACTION_MANIFEST: ActionSpec[] = [
   { action: 'admin.clubs.stats', domain: 'admin', description: 'Per-club member, content, message, and admission counts.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.content.list', domain: 'admin', description: 'List all content across clubs.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.content.archive', domain: 'admin', description: 'Archive any content (moderation).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
+  { action: 'admin.content.redact', domain: 'admin', description: 'Redact any content (moderation).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
   { action: 'admin.messages.threads', domain: 'admin', description: 'List all message threads across clubs.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.messages.read', domain: 'admin', description: 'Read any message thread.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
+  { action: 'admin.messages.redact', domain: 'admin', description: 'Redact any message (moderation).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
   { action: 'admin.tokens.list', domain: 'admin', description: 'List bearer tokens for any member.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.tokens.revoke', domain: 'admin', description: 'Revoke any member bearer token.', auth: 'superadmin', safety: 'mutating', aiExposed: false },
   { action: 'admin.diagnostics.health', domain: 'admin', description: 'System diagnostics: migrations, RLS, DB size.', auth: 'superadmin', safety: 'read_only', aiExposed: false },

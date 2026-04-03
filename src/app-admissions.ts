@@ -74,22 +74,6 @@ function normalizeAdmissionStatuses(
   return [...new Set(value.map((status) => requireAdmissionStatus(status, 'statuses[]')))];
 }
 
-function requireAdmissionCreateInitialStatus(
-  value: unknown,
-  requireAdmissionStatus: RequireAdmissionStatus,
-  createAppError: CreateAppError,
-): Extract<AdmissionStatus, 'draft' | 'submitted' | 'interview_scheduled'> {
-  if (value === undefined) {
-    return 'submitted';
-  }
-
-  const status = requireAdmissionStatus(value, 'initialStatus');
-  if (status !== 'draft' && status !== 'submitted' && status !== 'interview_scheduled') {
-    throw createAppError(400, 'invalid_input', 'initialStatus must be one of: draft, submitted, interview_scheduled');
-  }
-
-  return status;
-}
 
 export async function handleAdmissionsAction(input: {
   action: string;
@@ -304,39 +288,6 @@ export async function handleAdmissionsAction(input: {
           clubScope,
           results,
         },
-      });
-    }
-
-    case 'admissions.nominate': {
-      const club = requireMembershipOwner(actor, payload.clubId);
-      const admission = await repository.createAdmission?.({
-        actorMemberId: actor.member.id,
-        clubId: club.clubId,
-        applicantMemberId: requireNonEmptyString(payload.applicantMemberId, 'applicantMemberId'),
-        sponsorMemberId: normalizeOptionalString(payload.sponsorMemberId, 'sponsorMemberId'),
-        initialStatus: requireAdmissionCreateInitialStatus(payload.initialStatus, requireAdmissionStatus, createAppError),
-        notes: normalizeOptionalString(payload.notes, 'notes'),
-        intake: normalizeAdmissionIntake(payload.intake, 'intake'),
-        metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
-      });
-
-      if (admission === undefined) {
-        throw createAppError(501, 'not_implemented', 'admissions.nominate is not implemented');
-      }
-
-      if (!admission) {
-        throw createAppError(404, 'not_found', 'Applicant or sponsor not found inside the owner scope');
-      }
-
-      return buildSuccessResponse({
-        action,
-        actor,
-        requestScope: {
-          requestedClubId: admission.clubId,
-          activeClubIds: [admission.clubId],
-        },
-        sharedContext,
-        data: { admission },
       });
     }
 

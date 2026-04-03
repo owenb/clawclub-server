@@ -142,6 +142,42 @@ export async function handleContentAction(input: {
       });
     }
 
+    case 'entities.redact': {
+      const entityId = requireNonEmptyString(payload.entityId, 'entityId');
+      if (!repository.redactEntity) {
+        throw createAppError(501, 'not_implemented', 'entities.redact is not implemented');
+      }
+
+      const result = await repository.redactEntity({
+        actorMemberId: actor.member.id,
+        accessibleClubIds: actor.memberships.map((m) => m.clubId),
+        entityId,
+        reason: typeof payload.reason === 'string' ? payload.reason.trim() || null : null,
+      });
+
+      if (!result) {
+        throw createAppError(404, 'not_found', 'Entity not found inside the actor scope');
+      }
+
+      // Authorization: author or club owner
+      const isAuthor = result.authorMemberId === actor.member.id;
+      const isOwner = actor.memberships.some((m) => m.clubId === result.redaction.clubId && m.role === 'owner');
+      if (!isAuthor && !isOwner) {
+        throw createAppError(403, 'forbidden', 'Only the author or a club owner may redact this entity');
+      }
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope: {
+          requestedClubId: result.redaction.clubId,
+          activeClubIds: [result.redaction.clubId],
+        },
+        sharedContext,
+        data: { redaction: result.redaction },
+      });
+    }
+
     case 'entities.list': {
       const limit = normalizeLimit(payload.limit);
       const kinds = normalizeEntityKinds(payload.kinds);

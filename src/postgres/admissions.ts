@@ -503,7 +503,6 @@ async function readMembers(client: DbClient, input: {
             'slug', n.slug,
             'name', n.name,
             'summary', n.summary,
-            'manifestoMarkdown', n.manifesto_markdown,
             'role', anm.role,
             'status', anm.status,
             'sponsorMemberId', anm.sponsor_member_id,
@@ -540,7 +539,6 @@ export function buildAdmissionsRepository({
   | 'listMemberships'
   | 'listAdmissions'
   | 'listMembershipReviews'
-  | 'createAdmission'
   | 'createMembership'
   | 'transitionMembershipState'
   | 'transitionAdmission'

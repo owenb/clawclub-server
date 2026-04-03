@@ -112,6 +112,42 @@ export async function handleMessageAction(input: {
       });
     }
 
+    case 'messages.redact': {
+      const messageId = requireNonEmptyString(payload.messageId, 'messageId');
+      if (!repository.redactMessage) {
+        throw createAppError(501, 'not_implemented', 'messages.redact is not implemented');
+      }
+
+      const result = await repository.redactMessage({
+        actorMemberId: actor.member.id,
+        accessibleClubIds: actor.memberships.map((m) => m.clubId),
+        messageId,
+        reason: typeof payload.reason === 'string' ? payload.reason.trim() || null : null,
+      });
+
+      if (!result) {
+        throw createAppError(404, 'not_found', 'Message not found inside the actor scope');
+      }
+
+      // Authorization: sender or club owner
+      const isSender = result.senderMemberId === actor.member.id;
+      const isOwner = actor.memberships.some((m) => m.clubId === result.redaction.clubId && m.role === 'owner');
+      if (!isSender && !isOwner) {
+        throw createAppError(403, 'forbidden', 'Only the sender or a club owner may redact this message');
+      }
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope: {
+          requestedClubId: result.redaction.clubId,
+          activeClubIds: [result.redaction.clubId],
+        },
+        sharedContext,
+        data: { redaction: result.redaction },
+      });
+    }
+
     case 'messages.inbox': {
       const limit = normalizeLimit(payload.limit);
       const clubScope = resolveScopedClubs(actor, payload.clubId, requireAccessibleClub, createAppError);

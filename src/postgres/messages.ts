@@ -4,7 +4,7 @@ import type {
   DirectMessageInboxSummary,
   DirectMessageSummary,
   DirectMessageThreadSummary,
-  DirectMessageTranscriptEntry,
+  DirectMessageEntry,
   DirectMessageUpdateReceipt,
   Repository,
   SendDirectMessageInput,
@@ -46,11 +46,11 @@ type DirectMessageUpdateReceiptRow = {
   receipt: DirectMessageUpdateReceipt['receipt'];
 };
 
-type DirectMessageTranscriptRow = {
+type DirectMessageDetailRow = {
   message_id: string;
   thread_id: string;
   sender_member_id: string | null;
-  role: DirectMessageTranscriptEntry['role'];
+  role: DirectMessageEntry['role'];
   message_text: string | null;
   payload: Record<string, unknown> | null;
   created_at: string;
@@ -107,7 +107,7 @@ function mapDirectMessageThreadRow(row: DirectMessageThreadRow): DirectMessageTh
   };
 }
 
-function mapDirectMessageTranscriptRow(row: DirectMessageTranscriptRow): DirectMessageTranscriptEntry {
+function mapDirectMessageDetailRow(row: DirectMessageDetailRow): DirectMessageEntry {
   return {
     messageId: row.message_id,
     threadId: row.thread_id,
@@ -168,12 +168,13 @@ async function listDirectMessageThreads(client: DbClient, actorMemberId: string,
           tm.id as latest_message_id,
           tm.sender_member_id as latest_sender_member_id,
           tm.role as latest_role,
-          tm.message_text as latest_message_text,
+          case when r.id is not null then '[Message redacted]' else tm.message_text end as latest_message_text,
           tm.created_at::text as latest_created_at,
           count(*) over (partition by ts.thread_id)::int as message_count,
           row_number() over (partition by ts.thread_id order by tm.created_at desc, tm.id desc) as row_no
         from thread_scope ts
-        join app.transcript_messages tm on tm.thread_id = ts.thread_id
+        join app.dm_messages tm on tm.thread_id = ts.thread_id
+        left join app.redactions r on r.target_kind = 'dm_message' and r.target_id = tm.id
       )
       select
         mr.thread_id,
@@ -219,7 +220,7 @@ async function listDirectMessageInbox(
         inbox.latest_role,
         inbox.latest_message_text,
         inbox.latest_created_at::text as latest_created_at,
-        (select count(*)::int from app.transcript_messages tm where tm.thread_id = inbox.thread_id) as message_count,
+        (select count(*)::int from app.dm_messages tm where tm.thread_id = inbox.thread_id) as message_count,
         inbox.unread_message_count,
         inbox.unread_update_count,
         inbox.latest_unread_message_created_at::text as latest_unread_message_created_at,
@@ -247,7 +248,7 @@ async function readDirectMessageThread(
   accessibleClubIds: string[],
   threadId: string,
   limit: number,
-): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null> {
+): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageEntry[] } | null> {
   const threadResult = await client.query<DirectMessageThreadRow>(
     `
       with thread_scope as (
@@ -268,12 +269,13 @@ async function readDirectMessageThread(
           tm.id as latest_message_id,
           tm.sender_member_id as latest_sender_member_id,
           tm.role as latest_role,
-          tm.message_text as latest_message_text,
+          case when r.id is not null then '[Message redacted]' else tm.message_text end as latest_message_text,
           tm.created_at::text as latest_created_at,
           count(*) over (partition by ts.thread_id)::int as message_count,
           row_number() over (partition by ts.thread_id order by tm.created_at desc, tm.id desc) as row_no
         from thread_scope ts
-        join app.transcript_messages tm on tm.thread_id = ts.thread_id
+        join app.dm_messages tm on tm.thread_id = ts.thread_id
+        left join app.redactions r on r.target_kind = 'dm_message' and r.target_id = tm.id
       )
       select
         mr.thread_id,
@@ -299,19 +301,21 @@ async function readDirectMessageThread(
     return null;
   }
 
-  const messagesResult = await client.query<DirectMessageTranscriptRow>(
+  const messagesResult = await client.query<DirectMessageDetailRow>(
     `
       select
         tm.id as message_id,
         tm.thread_id,
         tm.sender_member_id,
         tm.role,
-        tm.message_text,
-        tm.payload,
+        case when r.id is not null then '[Message redacted]' else tm.message_text end as message_text,
+        case when r.id is not null then null else tm.payload end as payload,
         tm.created_at::text as created_at,
         tm.in_reply_to_message_id,
         coalesce(receipts.update_receipts, '[]'::jsonb) as update_receipts
-      from app.transcript_messages tm
+      from app.dm_messages tm
+      left join app.redactions r
+        on r.target_kind = 'dm_message' and r.target_id = tm.id
       left join lateral (
         select jsonb_agg(
           jsonb_build_object(
@@ -338,7 +342,7 @@ async function readDirectMessageThread(
         left join app.current_member_update_receipts cmur
           on cmur.member_update_id = mu.id
          and cmur.recipient_member_id = mu.recipient_member_id
-        where mu.transcript_message_id = tm.id
+        where mu.dm_message_id = tm.id
       ) receipts on true
       where tm.thread_id = $1
       order by tm.created_at desc, tm.id desc
@@ -349,7 +353,7 @@ async function readDirectMessageThread(
 
   return {
     thread: mapDirectMessageThreadRow(thread),
-    messages: messagesResult.rows.map(mapDirectMessageTranscriptRow).reverse(),
+    messages: messagesResult.rows.map(mapDirectMessageDetailRow).reverse(),
   };
 }
 
@@ -406,8 +410,8 @@ export function buildMessagesRepository({
 
         const insertedThread = await client.query<{ id: string }>(
           `
-            insert into app.transcript_threads (club_id, kind, created_by_member_id, counterpart_member_id)
-            values ($1, 'dm', $2, $3)
+            insert into app.dm_threads (club_id, kind, created_by_member_id, counterpart_member_id)
+            values ($1, 'conversation', $2, $3)
             on conflict do nothing
             returning id
           `,
@@ -436,7 +440,7 @@ export function buildMessagesRepository({
 
         const messageResult = await client.query<{ id: string; created_at: string }>(
           `
-            insert into app.transcript_messages (thread_id, sender_member_id, role, message_text)
+            insert into app.dm_messages (thread_id, sender_member_id, role, message_text)
             values ($1, $2, 'member', $3)
             returning id, created_at::text
           `,
@@ -462,7 +466,7 @@ export function buildMessagesRepository({
         const updateCount = await appendDirectMessageUpdate(client, {
           recipientMemberId: input.recipientMemberId,
           clubId,
-          transcriptMessageId: message.id,
+          dmMessageId: message.id,
           createdByMemberId: input.actorMemberId,
           payload: {
             kind: 'dm',

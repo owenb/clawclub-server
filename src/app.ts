@@ -10,7 +10,7 @@ import { handleUpdatesAction } from './app-updates.ts';
 import type {
   ActorContext,
   AdmissionStatus,
-  CreateAdmissionNominationInput,
+  TransitionAdmissionInput,
   EntityKind,
   EventRsvpState,
   MembershipState,
@@ -318,7 +318,7 @@ function normalizeOptionalMoneyAmount(value: unknown, field: string): number | n
   return Number(value);
 }
 
-function normalizeAdmissionIntake(value: unknown, field: string): CreateAdmissionNominationInput['intake'] {
+function normalizeAdmissionIntake(value: unknown, field: string): NonNullable<TransitionAdmissionInput['intake']> {
   const payload = value === undefined ? {} : requireObject(value, field);
   const priceValue = payload.price === undefined ? undefined : requireObject(payload.price, `${field}.price`);
 

@@ -137,13 +137,13 @@ export async function readEntitySummary(client: DbClient, entityId: string, enti
         m.handle as author_handle,
         cev.version_no,
         cev.state,
-        cev.title,
-        cev.summary,
-        cev.body,
+        case when rdc.id is not null then '[Redacted]' else cev.title end as title,
+        case when rdc.id is not null then null else cev.summary end as summary,
+        case when rdc.id is not null then null else cev.body end as body,
         cev.effective_at::text as effective_at,
         cev.expires_at::text as expires_at,
         cev.created_at::text as version_created_at,
-        cev.content,
+        case when rdc.id is not null then '{}'::jsonb else cev.content end as content,
         ceve.id as embedding_id,
         ceve.model as embedding_model,
         ceve.dimensions as embedding_dimensions,
@@ -154,6 +154,7 @@ export async function readEntitySummary(client: DbClient, entityId: string, enti
       from app.entities e
       join app.current_entity_versions cev on cev.entity_id = e.id
       left join app.current_entity_version_embeddings ceve on ceve.entity_version_id = cev.id
+      left join app.redactions rdc on rdc.target_kind = 'entity' and rdc.target_id = e.id
       join app.members m on m.id = e.author_member_id
       where e.id = $1
         and e.deleted_at is null
@@ -523,6 +524,10 @@ export function buildEntitiesRepository({
             left join app.current_entity_version_embeddings ceve on ceve.entity_version_id = le.entity_version_id
             join app.members m on m.id = le.author_member_id
             where le.kind = any($2::app.entity_kind[])
+              and not exists (
+                select 1 from app.redactions rdc
+                where rdc.target_kind = 'entity' and rdc.target_id = le.entity_id
+              )
               and (
                 $4::text is null
                 or coalesce(le.title, '') ilike $4 escape '\\'

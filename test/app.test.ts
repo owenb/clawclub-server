@@ -50,7 +50,6 @@ function makeActor(): ActorContext {
         slug: 'alpha',
         name: 'Alpha',
         summary: 'First club',
-        manifestoMarkdown: null,
         role: 'admin',
         status: 'active',
         sponsorMemberId: 'member-2',
@@ -62,7 +61,6 @@ function makeActor(): ActorContext {
         slug: 'beta',
         name: 'Beta',
         summary: 'Second club',
-        manifestoMarkdown: null,
         role: 'owner',
         status: 'active',
         sponsorMemberId: 'member-3',
@@ -94,7 +92,7 @@ function makePendingUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdat
     clubId: 'club-1',
     entityId: 'entity-1',
     entityVersionId: 'entity-version-1',
-    transcriptMessageId: null,
+    dmMessageId: null,
     topic: 'entity.version.published',
     payload: { hello: 'world' },
     createdAt: '2026-03-12T00:00:00Z',
@@ -189,13 +187,13 @@ function makeDeliverySummary(overrides: Partial<DeliverySummary> = {}): Delivery
     clubId: 'club-1',
     recipientMemberId: 'member-1',
     endpointId: 'endpoint-1',
-    topic: 'transcript.message.created',
+    topic: 'dm.message.created',
     payload: { kind: 'dm', threadId: 'thread-1' },
     status: 'sent',
     attemptCount: 1,
     entityId: null,
     entityVersionId: null,
-    transcriptMessageId: 'message-1',
+    dmMessageId: 'message-1',
     scheduledAt: '2026-03-12T00:02:00Z',
     sentAt: '2026-03-12T00:03:00Z',
     failedAt: null,
@@ -298,7 +296,6 @@ function makeClub(overrides: Partial<ClubSummary> = {}): ClubSummary {
     slug: 'alpha',
     name: 'Alpha',
     summary: 'First club',
-    manifestoMarkdown: null,
     archivedAt: null,
     owner: {
       memberId: 'member-1',
@@ -385,7 +382,7 @@ function makeApplication(overrides: Partial<AdmissionSummary> = {}): AdmissionSu
       handle: 'member-one',
     },
     membershipId: 'membership-9',
-    origin: 'owner_nominated',
+    origin: 'member_sponsored',
     intake: {
       kind: 'fit_check',
       price: { amount: 49, currency: 'GBP' },
@@ -547,9 +544,6 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async listAdmissions() {
       return [makeApplication()];
     },
-    async createAdmission() {
-      return makeApplication();
-    },
     async transitionAdmission() {
       return makeApplication({ state: { ...makeApplication().state, status: 'interview_scheduled', versionNo: 2 } });
     },
@@ -697,7 +691,6 @@ test('clubs.create derives superadmin ownership assignment server-side', async (
     slug: 'gamma',
     name: 'Gamma',
     summary: 'Third club',
-    manifestoMarkdown: undefined,
     ownerMemberId: 'member-9',
   });
   assert.equal(result.actor.requestScope.requestedClubId, 'club-9');
@@ -979,62 +972,6 @@ test('admissions.list stays inside owner scope and can filter interview workflow
   });
   assert.equal(result.action, 'admissions.list');
   assert.equal(result.data.results[0]?.state.status, 'interview_scheduled');
-});
-
-test('admissions.nominate captures a sponsored fit-check intake and owner scope server-side', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
-
-  const repository: Repository = {
-    ...makeRepository(),
-    async createAdmission(input) {
-      capturedInput = input as Record<string, unknown>;
-      return makeApplication({
-        admissionId: 'application-9',
-        applicant: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
-        sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
-        state: { ...makeApplication().state, status: 'submitted' },
-      });
-    },
-  };
-
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
-    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'admissions.nominate',
-    payload: {
-      clubId: 'club-2',
-      applicantMemberId: 'member-9',
-      sponsorMemberId: 'member-1',
-      initialStatus: 'submitted',
-      notes: 'Warm intro via sponsor',
-      intake: {
-        kind: 'fit_check',
-        price: { amount: 49, currency: 'gbp' },
-        bookingUrl: 'https://cal.example.test/fit-check',
-        bookedAt: '2026-03-14T10:00:00Z',
-      },
-      metadata: { source: 'operator' },
-    },
-  });
-
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    clubId: 'club-2',
-    applicantMemberId: 'member-9',
-    sponsorMemberId: 'member-1',
-    initialStatus: 'submitted',
-    notes: 'Warm intro via sponsor',
-    intake: {
-      kind: 'fit_check',
-      price: { amount: 49, currency: 'GBP' },
-      bookingUrl: 'https://cal.example.test/fit-check',
-      bookedAt: '2026-03-14T10:00:00Z',
-      completedAt: undefined,
-    },
-    metadata: { source: 'operator' },
-  });
-  assert.equal(result.action, 'admissions.nominate');
-  assert.equal(result.data.admission.admissionId, 'application-9');
 });
 
 test('admissions.transition can append accepted interview state and activate the linked membership', async () => {
@@ -2842,7 +2779,7 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
   assert.equal(result.data.results[0]?.unread.unreadUpdateCount, 3);
 });
 
-test('messages.read scopes thread access server-side and returns transcript entries', async () => {
+test('messages.read scopes thread access server-side and returns DM entries', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -2913,7 +2850,7 @@ test('messages.read scopes thread access server-side and returns transcript entr
               {
                 updateId: 'update-1',
                 recipientMemberId: 'member-1',
-                topic: 'transcript.message.created',
+                topic: 'dm.message.created',
                 createdAt: '2026-03-12T00:01:00Z',
                 receipt: {
                   receiptId: 'receipt-1',
@@ -2936,7 +2873,7 @@ test('messages.read scopes thread access server-side and returns transcript entr
               {
                 updateId: 'update-2',
                 recipientMemberId: 'member-2',
-                topic: 'transcript.message.created',
+                topic: 'dm.message.created',
                 createdAt: '2026-03-12T00:02:00Z',
                 receipt: null,
               },

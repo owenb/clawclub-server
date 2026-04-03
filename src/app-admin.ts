@@ -162,6 +162,29 @@ export async function handleAdminAction(input: {
       });
     }
 
+    case 'admin.content.redact': {
+      requireSuperadmin(actor);
+      const entityId = requireNonEmptyString(payload.entityId, 'entityId');
+      const result = await repository.redactEntity?.({
+        actorMemberId: actor.member.id,
+        accessibleClubIds: [],
+        entityId,
+        reason: typeof payload.reason === 'string' ? payload.reason.trim() || null : null,
+        skipNotification: true,
+      });
+      if (!result) {
+        throw createAppError(404, 'not_found', 'Entity not found');
+      }
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope,
+        sharedContext,
+        data: { redaction: result.redaction },
+      });
+    }
+
     case 'admin.messages.threads': {
       requireSuperadmin(actor);
       const clubId = typeof payload.clubId === 'string' ? payload.clubId.trim() : undefined;
@@ -202,6 +225,29 @@ export async function handleAdminAction(input: {
         requestScope,
         sharedContext,
         data: result,
+      });
+    }
+
+    case 'admin.messages.redact': {
+      requireSuperadmin(actor);
+      const messageId = requireNonEmptyString(payload.messageId, 'messageId');
+      const result = await repository.redactMessage?.({
+        actorMemberId: actor.member.id,
+        accessibleClubIds: [],
+        messageId,
+        reason: typeof payload.reason === 'string' ? payload.reason.trim() || null : null,
+        skipNotification: true,
+      });
+      if (!result) {
+        throw createAppError(404, 'not_found', 'Message not found');
+      }
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope,
+        sharedContext,
+        data: { redaction: result.redaction },
       });
     }
 

@@ -241,8 +241,8 @@ describe('updates', () => {
     assert.ok(Array.isArray(items), 'updates.items should be an array');
     assert.ok(items.length >= 1, 'Bob should have at least one pending update');
 
-    const dmUpdate = items.find((u) => u.topic === 'transcript.message.created');
-    assert.ok(dmUpdate, 'a transcript.message.created update should be present');
+    const dmUpdate = items.find((u) => u.topic === 'dm.message.created');
+    assert.ok(dmUpdate, 'a dm.message.created update should be present');
     assert.ok(dmUpdate.updateId, 'update should have an updateId');
   });
 
@@ -381,7 +381,7 @@ describe('updates/stream', () => {
       await stream.waitForEvents(2); // ready + update
       const update = stream.events[1]!;
       assert.equal(update.event, 'update');
-      assert.equal(update.data.topic, 'transcript.message.created');
+      assert.equal(update.data.topic, 'dm.message.created');
       const payload = update.data.payload as Record<string, unknown>;
       assert.equal(payload.messageText, 'New message (after connect)');
 

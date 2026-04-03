@@ -168,108 +168,7 @@ describe('journey 1: owner-manages outsider admission → full acceptance', () =
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('journey 2: owner-nominated existing member', () => {
-  it('admissions.nominate creates an admission via the API', async () => {
-    const owner = await h.seedOwner('nominate-api-club', 'Nominate API Club');
-    const applicant = await h.seedMember('API Applicant', 'api-applicant');
-
-    const result = await h.apiOk(owner.token, 'admissions.nominate', {
-      clubId: owner.club.id,
-      applicantMemberId: applicant.id,
-      initialStatus: 'submitted',
-    });
-    const adm = admission(result);
-    assert.ok(adm.admissionId, 'admissions.nominate should return an admissionId');
-    assert.equal(adm.origin, 'owner_nominated');
-    assert.equal((adm.applicant as Record<string, unknown>).memberId, applicant.id);
-    assert.equal((adm.state as Record<string, unknown>).status, 'submitted');
-  });
-
-  it('nominated member gains club access after acceptance', async () => {
-    const owner = await h.seedOwner('nominate-club', 'Nominate Club');
-    const applicant = await h.seedMember('Bob Applicant', 'bob-applicant');
-
-    // Create admission via the API
-    const nominateResult = await h.apiOk(owner.token, 'admissions.nominate', {
-      clubId: owner.club.id,
-      applicantMemberId: applicant.id,
-      initialStatus: 'submitted',
-    });
-    const admissionId = (admission(nominateResult)).admissionId as string;
-
-    // Verify it appears in admissions.list
-    const listBody = await h.apiOk(owner.token, 'admissions.list', { clubId: owner.club.id });
-    const found = admissionList(listBody).find((a) => a.admissionId === admissionId);
-    assert.ok(found, 'Nominated admission should appear in admissions.list');
-    assert.equal(found.origin, 'owner_nominated');
-    assert.equal((found.applicant as Record<string, unknown>).memberId, applicant.id);
-    assert.equal((found.state as Record<string, unknown>).status, 'submitted');
-
-    // Member should NOT have access yet
-    const sessionBefore = await h.apiOk(applicant.token, 'session.describe', {});
-    assert.equal(
-      activeMemberships(sessionBefore).some((m) => m.clubId === owner.club.id),
-      false,
-      'Applicant should not have club access before acceptance',
-    );
-
-    // Owner transitions to accepted — should create a membership automatically
-    const afterAccepted = await h.apiOk(owner.token, 'admissions.transition', {
-      admissionId,
-      status: 'accepted',
-    });
-    const acceptedAdmission = admission(afterAccepted);
-    assert.equal((acceptedAdmission.state as Record<string, unknown>).status, 'accepted');
-    assert.ok(
-      acceptedAdmission.membershipId,
-      'Accepted nominated admission should have a linked membershipId',
-    );
-    assert.equal(
-      (acceptedAdmission.applicant as Record<string, unknown>).memberId,
-      applicant.id,
-      'applicant memberId should remain unchanged after acceptance',
-    );
-
-    // Member should now have club access
-    const sessionAfter = await h.apiOk(applicant.token, 'session.describe', {});
-    assert.equal(
-      activeMemberships(sessionAfter).some((m) => m.clubId === owner.club.id),
-      true,
-      'Applicant should have club access after acceptance',
-    );
-  });
-
-  it('issueAccess works for existing-member admission after acceptance', async () => {
-    const owner = await h.seedOwner('nominate-issue-club', 'Nominate Issue Club');
-    const applicant = await h.seedMember('Carol Issue', 'carol-issue');
-
-    const nominateResult = await h.apiOk(owner.token, 'admissions.nominate', {
-      clubId: owner.club.id,
-      applicantMemberId: applicant.id,
-      initialStatus: 'submitted',
-    });
-    const admissionId = (admission(nominateResult)).admissionId as string;
-    await h.apiOk(owner.token, 'admissions.transition', { admissionId, status: 'accepted' });
-
-    const accessBody = await h.apiOk(owner.token, 'admissions.issueAccess', { admissionId });
-    const accessData = accessBody.data as Record<string, unknown>;
-    assert.ok(
-      typeof accessData.bearerToken === 'string' && accessData.bearerToken.length > 0,
-      'issueAccess returns a bearer token',
-    );
-
-    const sessionBody = await h.apiOk(accessData.bearerToken as string, 'session.describe', {});
-    assert.equal(
-      activeMemberships(sessionBody).some((m) => m.clubId === owner.club.id),
-      true,
-      'The issued token grants access to the club',
-    );
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-describe('journey 3: member-sponsored outsider admission', () => {
+describe('journey 2: member-sponsored outsider admission', () => {
   it('owner sees sponsored admission, accepts it, and can issue access', async () => {
     const owner = await h.seedOwner('sponsor-club', 'Sponsor Club');
     const sponsor = await h.seedClubMember(owner.club.id, 'Dave Sponsor', 'dave-sponsor', {
@@ -327,21 +226,13 @@ describe('journey 3: member-sponsored outsider admission', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('journey 4: admissions.list shows unified view', () => {
-  it('nominated, sponsored, and self-applied admissions all appear in list', async () => {
+describe('journey 3: admissions.list shows unified view', () => {
+  it('sponsored and self-applied admissions both appear in list', async () => {
     const owner = await h.seedOwner('unified-list-club', 'Unified List Club');
     const sponsor = await h.seedClubMember(owner.club.id, 'Frank Sponsor', 'frank-sponsor', {
       sponsorId: owner.id,
     });
-    const nominee = await h.seedMember('Grace Nominee', 'grace-nominee');
 
-    // Nominate via API; sponsor + outsider via SQL (sponsor is LLM-gated, outsider uses PoW)
-    const nominateResult = await h.apiOk(owner.token, 'admissions.nominate', {
-      clubId: owner.club.id,
-      applicantMemberId: nominee.id,
-      initialStatus: 'submitted',
-    });
-    const nominatedId = (admission(nominateResult)).admissionId as string;
     const sponsoredId = await seedSponsoredAdmission(owner.club.id, sponsor.id, {
       name: 'Hank Outsider',
       email: 'hank.outsider@example.com',
@@ -353,14 +244,13 @@ describe('journey 4: admissions.list shows unified view', () => {
       email: 'isla.cold@example.com',
     });
 
-    // admissions.list should include all three
+    // admissions.list should include both
     const listBody = await h.apiOk(owner.token, 'admissions.list', {
       clubId: owner.club.id,
       limit: 20,
     });
     const ids = admissionList(listBody).map((a) => a.admissionId as string);
 
-    assert.ok(ids.includes(nominatedId), 'Nominated admission should be in list');
     assert.ok(ids.includes(sponsoredId), 'Sponsored admission should be in list');
     assert.ok(ids.includes(outsiderId), 'Self-applied outsider admission should be in list');
 
@@ -371,7 +261,6 @@ describe('journey 4: admissions.list shows unified view', () => {
       limit: 20,
     });
     const submittedIds = admissionList(submittedBody).map((a) => a.admissionId as string);
-    assert.ok(submittedIds.includes(nominatedId), 'Nominated (submitted) in submitted filter');
     assert.ok(submittedIds.includes(sponsoredId), 'Sponsored (submitted) in submitted filter');
     assert.ok(submittedIds.includes(outsiderId), 'Self-applied (submitted) in submitted filter');
 
@@ -382,7 +271,6 @@ describe('journey 4: admissions.list shows unified view', () => {
       limit: 20,
     });
     const draftIds = admissionList(draftBody).map((a) => a.admissionId as string);
-    assert.ok(!draftIds.includes(nominatedId), 'Nominated (submitted) not in draft filter');
     assert.ok(!draftIds.includes(sponsoredId), 'Sponsored (submitted) not in draft filter');
     assert.ok(!draftIds.includes(outsiderId), 'Self-applied (submitted) not in draft filter');
   });
@@ -390,7 +278,7 @@ describe('journey 4: admissions.list shows unified view', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('journey 5: non-owner cannot use owner admission actions', () => {
+describe('journey 4: non-owner cannot use owner admission actions', () => {
   it('regular member cannot call admissions.list', async () => {
     const owner = await h.seedOwner('auth-adm-club', 'Auth Admission Club');
     const regularMember = await h.seedClubMember(owner.club.id, 'Ivan Regular', 'ivan-regular', {

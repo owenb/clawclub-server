@@ -48,7 +48,7 @@ export function buildAdminRepository({
             (select count(*) from app.members where state = 'active')::text as total_members,
             (select count(*) from app.clubs where archived_at is null)::text as total_clubs,
             (select count(*) from app.entities)::text as total_entities,
-            (select count(*) from app.transcript_messages)::text as total_messages,
+            (select count(*) from app.dm_messages)::text as total_messages,
             (select count(*) from app.admissions)::text as total_admissions,
             coalesce((
               select jsonb_agg(jsonb_build_object(
@@ -225,8 +225,8 @@ export function buildAdminRepository({
               (select count(*) from app.entities e where e.club_id = n.id)::text as entity_count,
               (
                 select count(*)
-                from app.transcript_messages tm
-                join app.transcript_threads tt on tt.id = tm.thread_id
+                from app.dm_messages tm
+                join app.dm_threads tt on tt.id = tm.thread_id
                 where tt.club_id = n.id
               )::text as message_count,
               coalesce((
@@ -432,12 +432,12 @@ export function buildAdminRepository({
                 ) dp
                 join app.members m on m.id = dp.participant_member_id
               ), '[]'::jsonb) as participants,
-              (select count(*) from app.transcript_messages tm where tm.thread_id = tt.id)::text as message_count,
-              (select max(tm.created_at)::text from app.transcript_messages tm where tm.thread_id = tt.id) as latest_message_at
-            from app.transcript_threads tt
+              (select count(*) from app.dm_messages tm where tm.thread_id = tt.id)::text as message_count,
+              (select max(tm.created_at)::text from app.dm_messages tm where tm.thread_id = tt.id) as latest_message_at
+            from app.dm_threads tt
             join app.clubs n on n.id = tt.club_id
             where ($1::app.short_id is null or tt.club_id = $1)
-            order by (select max(tm.created_at) from app.transcript_messages tm where tm.thread_id = tt.id) desc nulls last, tt.id desc
+            order by (select max(tm.created_at) from app.dm_messages tm where tm.thread_id = tt.id) desc nulls last, tt.id desc
             limit $2 offset $3
           `,
           [clubId ?? null, limit, offset],
@@ -483,9 +483,9 @@ export function buildAdminRepository({
                 ) dp
                 join app.members m on m.id = dp.participant_member_id
               ), '[]'::jsonb) as participants,
-              (select count(*) from app.transcript_messages tm where tm.thread_id = tt.id)::text as message_count,
-              (select max(tm.created_at)::text from app.transcript_messages tm where tm.thread_id = tt.id) as latest_message_at
-            from app.transcript_threads tt
+              (select count(*) from app.dm_messages tm where tm.thread_id = tt.id)::text as message_count,
+              (select max(tm.created_at)::text from app.dm_messages tm where tm.thread_id = tt.id) as latest_message_at
+            from app.dm_threads tt
             join app.clubs n on n.id = tt.club_id
             where tt.id = $1
             limit 1
@@ -518,7 +518,7 @@ export function buildAdminRepository({
               tm.payload,
               tm.created_at::text as created_at,
               tm.in_reply_to_message_id
-            from app.transcript_messages tm
+            from app.dm_messages tm
             where tm.thread_id = $1
             order by tm.created_at desc, tm.id desc
             limit $2

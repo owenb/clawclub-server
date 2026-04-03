@@ -539,8 +539,6 @@ Returns in `data`:
 }
 ```
 
-**`admissions.nominate`** — `clubId` (required), `applicantMemberId` (required), `sponsorMemberId` (optional), `initialStatus` (optional: `draft`/`submitted`/`interview_scheduled`), `notes` (optional), `intake` (optional object with `kind`, `price`, `bookingUrl`, `bookedAt`, `completedAt`), `metadata` (optional). Owner nominates an existing member for the club. Creates an admission with `origin: owner_nominated`.
-
 ### Memberships (owner only)
 
 **`memberships.list`** — `clubId` (optional), `status` (optional), `limit` (optional). Returns membership summaries with member info, sponsor info, role, state, and metadata.
@@ -758,12 +756,7 @@ All paths into a club go through the unified admissions model. There are three o
 3. On acceptance, the system auto-creates the member, private contacts, profile, and membership
 4. The owner issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
 
-**Path 2: Owner-nominated (an existing member is put forward by the owner)**
-1. The club owner creates an admission via `admissions.nominate` with the existing member's ID
-2. The admission moves through the workflow via `admissions.transition`
-3. On acceptance, the membership goes active
-
-**Path 3: Self-applied (self-service, no account needed)**
+**Path 2: Self-applied (self-service, no account needed)**
 1. Call `admissions.challenge` to get a PoW puzzle and the list of public clubs
 2. Collect full name, email, socials, chosen club, and reason
 3. Solve the PoW and submit via `admissions.apply`

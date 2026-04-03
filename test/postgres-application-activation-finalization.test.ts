@@ -83,7 +83,7 @@ test('postgres repository transition to accepted creates membership for existing
             membership_id: 'membership-new',
             linked_membership_status: 'active',
             linked_membership_accepted_covenant_at: null,
-            origin: 'owner_nominated',
+            origin: 'member_sponsored',
             intake_kind: 'fit_check',
             intake_price_amount: '49.00',
             intake_price_currency: 'GBP',
@@ -122,5 +122,5 @@ test('postgres repository transition to accepted creates membership for existing
   assert.ok(result);
   assert.equal(result?.state.status, 'accepted');
   assert.equal(result?.membershipId, 'membership-new');
-  assert.equal(result?.origin, 'owner_nominated');
+  assert.equal(result?.origin, 'member_sponsored');
 });

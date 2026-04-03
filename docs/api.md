@@ -272,11 +272,6 @@ Self-applied and member-sponsored admissions include an `admissionDetails` objec
 - multiple sponsorships for the same outsider are allowed and are a signal
 - creates an admission with `origin: member_sponsored`
 
-### `admissions.nominate`
-
-- owner nominates an existing member for a club
-- creates an admission with `origin: owner_nominated`
-
 ### `members.search`
 
 - `query` is required

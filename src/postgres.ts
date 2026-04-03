@@ -9,6 +9,7 @@ import { buildProfileRepository } from './postgres/profile.ts';
 import { buildPlatformRepository } from './postgres/platform.ts';
 import { buildTokenRepository } from './postgres/tokens.ts';
 import { buildQuotaRepository } from './postgres/quotas.ts';
+import { buildRedactionsRepository } from './postgres/redactions.ts';
 import { buildUpdatesRepository } from './postgres/updates.ts';
 import type { DbClient } from './postgres/shared.ts';
 
@@ -22,7 +23,6 @@ type ActorRow = {
   slug: string | null;
   club_name: string | null;
   club_summary: string | null;
-  manifesto_markdown: string | null;
   role: MembershipSummary['role'] | null;
   status: MembershipSummary['status'] | null;
   sponsor_member_id: string | null;
@@ -108,7 +108,6 @@ function mapActor(rows: ActorRow[]): ActorContext | null {
         slug: row.slug as string,
         name: row.club_name as string,
         summary: row.club_summary,
-        manifestoMarkdown: row.manifesto_markdown,
         role: row.role as MembershipSummary['role'],
         status: row.status as MembershipSummary['status'],
         sponsorMemberId: row.sponsor_member_id,
@@ -130,7 +129,6 @@ async function readActorByMemberId(client: DbClient, memberId: string): Promise<
         n.slug,
         n.name as club_name,
         n.summary as club_summary,
-        n.manifesto_markdown,
         anm.role,
         anm.status,
         anm.sponsor_member_id,
@@ -207,6 +205,7 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
     ...buildMessagesRepository({ pool, applyActorContext, withActorContext }),
     ...buildPlatformRepository({ pool, applyActorContext, withActorContext }),
     ...buildQuotaRepository({ pool, withActorContext }),
+    ...buildRedactionsRepository({ pool, applyActorContext }),
     ...buildUpdatesRepository({ pool, applyActorContext }),
     ...buildAdminRepository({ pool, applyActorContext, withActorContext }),
 

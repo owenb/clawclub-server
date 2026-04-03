@@ -86,17 +86,30 @@ export async function handlePlatformAction(input: {
 
     case 'clubs.create': {
       requireSuperadmin(actor);
-      const club = await repository.createClub?.({
-        actorMemberId: actor.member.id,
-        slug: requireNonEmptyString(payload.slug, 'slug'),
-        name: requireNonEmptyString(payload.name, 'name'),
-        summary: normalizeOptionalString(payload.summary, 'summary'),
-        manifestoMarkdown: normalizeOptionalString(payload.manifestoMarkdown, 'manifestoMarkdown'),
-        ownerMemberId: requireNonEmptyString(payload.ownerMemberId, 'ownerMemberId'),
-      });
+      const slug = requireNonEmptyString(payload.slug, 'slug');
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+        throw createAppError(400, 'invalid_input', 'slug must use lowercase letters, numbers, and single hyphens');
+      }
+
+      let club: Awaited<ReturnType<NonNullable<typeof repository.createClub>>>;
+      try {
+        club = await repository.createClub?.({
+          actorMemberId: actor.member.id,
+          slug,
+          name: requireNonEmptyString(payload.name, 'name'),
+          summary: requireNonEmptyString(payload.summary, 'summary'),
+          ownerMemberId: requireNonEmptyString(payload.ownerMemberId, 'ownerMemberId'),
+        }) ?? null;
+      } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === '23505' &&
+            'constraint' in error && typeof error.constraint === 'string' && error.constraint.includes('slug')) {
+          throw createAppError(409, 'slug_conflict', 'A club with that slug already exists');
+        }
+        throw error;
+      }
 
       if (!club) {
-        throw createAppError(404, 'not_found', 'Owner member not found for club create');
+        throw createAppError(404, 'not_found', 'Owner member not found or not active');
       }
 
       return buildSuccessResponse({

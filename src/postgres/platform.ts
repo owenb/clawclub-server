@@ -13,7 +13,6 @@ type ClubRow = {
   slug: string;
   name: string;
   summary: string | null;
-  manifesto_markdown: string | null;
   archived_at: string | null;
   owner_member_id: string;
   owner_public_name: string;
@@ -30,7 +29,6 @@ function mapClubRow(row: ClubRow): ClubSummary {
     slug: row.slug,
     name: row.name,
     summary: row.summary,
-    manifestoMarkdown: row.manifesto_markdown,
     archivedAt: row.archived_at,
     owner: {
       memberId: row.owner_member_id,
@@ -54,7 +52,6 @@ async function listClubs(client: DbClient, includeArchived: boolean): Promise<Cl
         n.slug,
         n.name,
         n.summary,
-        n.manifesto_markdown,
         n.archived_at::text,
         owner.owner_member_id as owner_member_id,
         m.public_name as owner_public_name,
@@ -84,7 +81,6 @@ async function readClubSummary(client: DbClient, clubId: string): Promise<ClubSu
         n.slug,
         n.name,
         n.summary,
-        n.manifesto_markdown,
         n.archived_at::text,
         owner.owner_member_id as owner_member_id,
         m.public_name as owner_public_name,
@@ -138,10 +134,9 @@ export function buildPlatformRepository({
                 slug,
                 name,
                 summary,
-                owner_member_id,
-                manifesto_markdown
+                owner_member_id
               )
-              select $1, $2, $3, om.id, $5
+              select $1, $2, $3, om.id
               from owner_member om
               returning id as club_id
             ), owner_version as (
@@ -151,13 +146,13 @@ export function buildPlatformRepository({
                 version_no,
                 created_by_member_id
               )
-              select club_id, $4, 1, $6
+              select club_id, $4, 1, $5
               from inserted_club
             )
             select club_id
             from inserted_club
           `,
-          [input.slug, input.name, input.summary ?? null, input.ownerMemberId, input.manifestoMarkdown ?? null, input.actorMemberId],
+          [input.slug, input.name, input.summary, input.ownerMemberId, input.actorMemberId],
         );
 
         const clubId = clubResult.rows[0]?.club_id;

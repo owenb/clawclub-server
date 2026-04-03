@@ -6,7 +6,6 @@ export type MembershipSummary = {
   slug: string;
   name: string;
   summary: string | null;
-  manifestoMarkdown: string | null;
   role: 'owner' | 'admin' | 'member';
   status: 'active';
   sponsorMemberId: string | null;
@@ -118,26 +117,6 @@ export type AdmissionSummary = {
   createdAt: string;
 };
 
-export type CreateAdmissionNominationInput = {
-  actorMemberId: string;
-  clubId: string;
-  applicantMemberId: string;
-  sponsorMemberId?: string | null;
-  initialStatus: Extract<AdmissionStatus, 'draft' | 'submitted' | 'interview_scheduled'>;
-  notes?: string | null;
-  intake: {
-    kind?: 'fit_check' | 'advice_call' | 'other';
-    price?: {
-      amount?: number | null;
-      currency?: string | null;
-    };
-    bookingUrl?: string | null;
-    bookedAt?: string | null;
-    completedAt?: string | null;
-  };
-  metadata: Record<string, unknown>;
-};
-
 export type CreateAdmissionSponsorInput = {
   actorMemberId: string;
   clubId: string;
@@ -196,7 +175,6 @@ export type ClubSummary = {
   slug: string;
   name: string;
   summary: string | null;
-  manifestoMarkdown: string | null;
   archivedAt: string | null;
   owner: {
     memberId: string;
@@ -215,8 +193,7 @@ export type CreateClubInput = {
   actorMemberId: string;
   slug: string;
   name: string;
-  summary?: string | null;
-  manifestoMarkdown?: string | null;
+  summary: string;
   ownerMemberId: string;
 };
 
@@ -253,7 +230,7 @@ export type PendingUpdate = {
   clubId: string;
   entityId: string | null;
   entityVersionId: string | null;
-  transcriptMessageId: string | null;
+  dmMessageId: string | null;
   topic: string;
   payload: Record<string, unknown>;
   createdAt: string;
@@ -588,7 +565,7 @@ export type DirectMessageUpdateReceipt = {
   } | null;
 };
 
-export type DirectMessageTranscriptEntry = {
+export type DirectMessageEntry = {
   messageId: string;
   threadId: string;
   senderMemberId: string | null;
@@ -638,6 +615,15 @@ export type IssueAdmissionAccessInput = {
 export type IssueAdmissionAccessResult = {
   admission: AdmissionSummary;
   bearerToken: string;
+};
+
+export type RedactionResult = {
+  redactionId: string;
+  targetKind: 'dm_message' | 'entity';
+  targetId: string;
+  clubId: string;
+  createdByMemberId: string;
+  createdAt: string;
 };
 
 export type QuotaAllowance = {
@@ -758,7 +744,6 @@ export type Repository = {
     limit: number;
     statuses?: AdmissionStatus[];
   }): Promise<AdmissionSummary[]>;
-  createAdmission?(input: CreateAdmissionNominationInput): Promise<AdmissionSummary | null>;
   transitionAdmission?(input: TransitionAdmissionInput): Promise<AdmissionSummary | null>;
   createAdmissionChallenge?(): Promise<AdmissionChallengeResult>;
   solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<{ success: boolean } | null>;
@@ -813,13 +798,16 @@ export type Repository = {
     accessibleClubIds: string[];
     threadId: string;
     limit: number;
-  }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageTranscriptEntry[] } | null>;
+  }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageEntry[] } | null>;
 
   createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
   listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number }): Promise<MembershipVouchSummary[]>;
   createAdmissionSponsorship(input: CreateAdmissionSponsorInput): Promise<AdmissionSummary>;
   issueAdmissionAccess?(input: IssueAdmissionAccessInput): Promise<IssueAdmissionAccessResult | null>;
   getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;
+
+  redactMessage?(input: { actorMemberId: string; accessibleClubIds: string[]; messageId: string; reason?: string | null; skipNotification?: boolean }): Promise<{ redaction: RedactionResult; senderMemberId: string | null } | null>;
+  redactEntity?(input: { actorMemberId: string; accessibleClubIds: string[]; entityId: string; reason?: string | null; skipNotification?: boolean }): Promise<{ redaction: RedactionResult; authorMemberId: string } | null>;
 
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
   adminListMembers?(input: { actorMemberId: string; limit: number; offset: number }): Promise<AdminMemberSummary[]>;
@@ -828,7 +816,7 @@ export type Repository = {
   adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; offset: number }): Promise<AdminContentSummary[]>;
   adminArchiveEntity?(input: { actorMemberId: string; entityId: string }): Promise<{ entityId: string } | null>;
   adminListThreads?(input: { actorMemberId: string; clubId?: string; limit: number; offset: number }): Promise<AdminThreadSummary[]>;
-  adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<{ thread: AdminThreadSummary; messages: DirectMessageTranscriptEntry[] } | null>;
+  adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] } | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
   adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
   adminGetDiagnostics?(input: { actorMemberId: string }): Promise<AdminDiagnostics>;

@@ -20,20 +20,18 @@ set
 
 select id from app.members where handle = 'owen-barnes' \gset
 
-insert into app.clubs (slug, name, owner_member_id, summary, manifesto_markdown)
+insert into app.clubs (slug, name, owner_member_id, summary)
 values (
   'consciousclaw',
   'ConsciousClaw',
   :'id',
-  'Private relational club for spiritually aligned builders, friends, collaborators, and real-world connection.',
-  'ConsciousClaw is a private members club for aligned people who want real relationship, collaboration, service, and grounded shared reality. It is not public social media and not a dating app. It is a trust-based field for meaningful connection.'
+  'Private relational club for spiritually aligned builders, friends, collaborators, and real-world connection.'
 )
 on conflict (slug) do update
 set
   name = excluded.name,
   owner_member_id = excluded.owner_member_id,
-  summary = excluded.summary,
-  manifesto_markdown = excluded.manifesto_markdown;
+  summary = excluded.summary;
 
 select id as club_id from app.clubs where slug = 'consciousclaw' \gset
 select id as owner_member_id from app.members where handle = 'owen-barnes' \gset

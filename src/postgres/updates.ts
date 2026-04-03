@@ -17,7 +17,7 @@ type PendingUpdateRow = {
   payload: Record<string, unknown> | null;
   entity_id: string | null;
   entity_version_id: string | null;
-  transcript_message_id: string | null;
+  dm_message_id: string | null;
   created_by_member_id: string | null;
   created_at: string;
 };
@@ -43,7 +43,7 @@ function mapPendingUpdateRow(row: PendingUpdateRow): PendingUpdate {
     clubId: row.club_id,
     entityId: row.entity_id,
     entityVersionId: row.entity_version_id,
-    transcriptMessageId: row.transcript_message_id,
+    dmMessageId: row.dm_message_id,
     topic: row.topic,
     payload: row.payload ?? {},
     createdAt: row.created_at,
@@ -83,7 +83,7 @@ export async function listPendingUpdates(
         pmu.payload,
         pmu.entity_id,
         pmu.entity_version_id,
-        pmu.transcript_message_id,
+        pmu.dm_message_id,
         pmu.created_by_member_id,
         pmu.created_at::text
       from app.pending_member_updates pmu
@@ -110,7 +110,7 @@ export async function appendDirectMessageUpdate(
   input: {
     recipientMemberId: string;
     clubId: string;
-    transcriptMessageId: string;
+    dmMessageId: string;
     createdByMemberId: string;
     payload: Record<string, unknown>;
   },
@@ -122,16 +122,16 @@ export async function appendDirectMessageUpdate(
         club_id,
         topic,
         payload,
-        transcript_message_id,
+        dm_message_id,
         created_by_member_id
       )
-      values ($1, $2, 'transcript.message.created', $3::jsonb, $4, $5)
+      values ($1, $2, 'dm.message.created', $3::jsonb, $4, $5)
     `,
     [
       input.recipientMemberId,
       input.clubId,
       JSON.stringify(input.payload),
-      input.transcriptMessageId,
+      input.dmMessageId,
       input.createdByMemberId,
     ],
   );
