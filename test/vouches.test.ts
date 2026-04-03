@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildApp, AppError } from '../src/app.ts';
+import { buildDispatcher } from '../src/app-dispatch.ts';
+import { AppError } from '../src/app.ts';
 import type { MembershipVouchSummary, Repository } from '../src/app-contract.ts';
 import { makeAuthResult, makeRepository } from './fixtures.ts';
 
@@ -24,8 +25,8 @@ test('vouches.create creates a vouch for another member', async () => {
     },
   });
 
-  const app = buildApp({ repository });
-  const result: any = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'vouches.create',
     payload: { clubId: 'club-1', memberId: 'member-2', reason: 'Excellent engineer, shipped the API in a week' },
@@ -44,9 +45,9 @@ test('vouches.create rejects self-vouch at app layer', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'vouches.create',
       payload: { clubId: 'club-1', memberId: 'member-1', reason: 'I vouch for myself' },
@@ -70,9 +71,9 @@ test('vouches.create rejects duplicate vouch (23505 unique violation)', async ()
     },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'vouches.create',
       payload: { clubId: 'club-1', memberId: 'member-2', reason: 'Solid contributor' },
@@ -91,9 +92,9 @@ test('vouches.create rejects missing reason', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'vouches.create',
       payload: { clubId: 'club-1', memberId: 'member-2' },
@@ -112,16 +113,16 @@ test('vouches.create rejects reason exceeding 500 characters', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'vouches.create',
       payload: { clubId: 'club-1', memberId: 'member-2', reason: 'x'.repeat(501) },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 400);
-      assert.match(err.message, /500 characters/);
+      assert.match(err.message, /500 character/);
       return true;
     },
   );
@@ -134,9 +135,9 @@ test('vouches.create returns 404 when target is not in club', async () => {
     async createVouch() { return null; },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'vouches.create',
       payload: { clubId: 'club-1', memberId: 'member-99', reason: 'Great person' },
@@ -156,8 +157,8 @@ test('vouches.list returns vouches for a member', async () => {
     async listVouches() { return [sampleVouch]; },
   });
 
-  const app = buildApp({ repository });
-  const result: any = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'vouches.list',
     payload: { memberId: 'member-2', clubId: 'club-1' },
@@ -175,9 +176,9 @@ test('vouches.create rejects club outside actor scope', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'vouches.create',
       payload: { clubId: 'club-999', memberId: 'member-2', reason: 'Good member' },

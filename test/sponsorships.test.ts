@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildApp } from '../src/app.ts';
+import { buildDispatcher } from '../src/app-dispatch.ts';
 import type { AdmissionSummary } from '../src/app-contract.ts';
 import { makeAuthResult, makeRepository } from './fixtures.ts';
 
@@ -46,8 +46,8 @@ test('admissions.sponsor creates a sponsorship for an outsider', async () => {
     },
   });
 
-  const app = buildApp({ repository });
-  const result: any = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'admissions.sponsor',
     payload: {
@@ -72,9 +72,9 @@ test('admissions.sponsor rejects single-word name', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'admissions.sponsor',
       payload: { clubId: 'club-1', name: 'Jane', email: 'j@x.com', socials: '@j', reason: 'test' },
@@ -93,9 +93,9 @@ test('admissions.sponsor rejects invalid email', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'admissions.sponsor',
       payload: { clubId: 'club-1', name: 'Jane Doe', email: 'nope', socials: '@j', reason: 'test' },
@@ -114,16 +114,16 @@ test('admissions.sponsor rejects reason exceeding 500 characters', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'admissions.sponsor',
       payload: { clubId: 'club-1', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'x'.repeat(501) },
     }),
     (err: any) => {
       assert.equal(err.statusCode, 400);
-      assert.match(err.message, /500 characters/);
+      assert.match(err.message, /500 character/);
       return true;
     },
   );
@@ -135,9 +135,9 @@ test('admissions.sponsor rejects club outside actor scope', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'test-token',
       action: 'admissions.sponsor',
       payload: { clubId: 'club-999', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'test' },
@@ -156,8 +156,8 @@ test('admissions.list returns admissions for accessible clubs', async () => {
     async listAdmissions() { return [sampleAdmission]; },
   });
 
-  const app = buildApp({ repository });
-  const result: any = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'admissions.list',
   });

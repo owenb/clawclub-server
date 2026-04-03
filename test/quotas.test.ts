@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildApp } from '../src/app.ts';
+import { buildDispatcher } from '../src/app-dispatch.ts';
 import type { QuotaAllowance } from '../src/app-contract.ts';
 import { makeAuthResult, makeRepository } from './fixtures.ts';
 
@@ -17,8 +17,8 @@ test('quotas.status returns quota allowances for all clubs', async () => {
     async getQuotaStatus() { return quotas; },
   });
 
-  const app = buildApp({ repository });
-  const result: any = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'quotas.status',
   });

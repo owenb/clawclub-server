@@ -1,5 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { TestHarness } from './harness.ts';
 
 let h: TestHarness;
@@ -77,5 +78,15 @@ describe('smoke', () => {
     // Full schema still sorted
     const names = fullData.actions.map(a => a.action);
     assert.deepEqual(names, [...names].sort());
+  });
+
+  it('GET /api/schema matches committed snapshot', async () => {
+    const { body } = await h.getSchema();
+    const snapshotPath = new URL('../snapshots/api-schema-public.json', import.meta.url).pathname;
+    const snapshot = JSON.parse(readFileSync(snapshotPath, 'utf8'));
+    assert.deepEqual(body.data, snapshot,
+      'Schema output changed. If intentional, regenerate the snapshot:\n' +
+      '  curl -s http://127.0.0.1:8787/api/schema | node -e "process.stdin.pipe(require(\'stream\').pipeline(process.stdin, require(\'fs\').createWriteStream(\'test/snapshots/api-schema-public.json\')))"\n' +
+      'Or run: node --eval "const d=JSON.parse(require(\'fs\').readFileSync(\'/dev/stdin\',\'utf8\')); process.stdout.write(JSON.stringify(d.data,null,2))" < <(curl -s http://127.0.0.1:8787/api/schema) > test/snapshots/api-schema-public.json');
   });
 });

@@ -7,6 +7,7 @@
  *
  * Output is deterministic: actions sorted by name, stable JSON key order.
  */
+import { createHash } from 'node:crypto';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { getRegistry } from './schemas/registry.ts';
 import type { Repository } from './app-contract.ts';
@@ -72,8 +73,14 @@ function buildSchema(aiExposedOnly: boolean): unknown {
   // Sort by action name for deterministic output
   actions.sort((a, b) => a.action.localeCompare(b.action));
 
+  // Compute a content hash from the sorted actions so agents can detect
+  // schema changes with a single comparison, without diffing the full payload.
+  const actionsJson = JSON.stringify(actions);
+  const schemaHash = createHash('sha256').update(actionsJson).digest('hex').slice(0, 16);
+
   return sortKeysDeep({
     version: '1.0',
+    schemaHash,
     actions,
   });
 }

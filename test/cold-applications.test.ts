@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildApp } from '../src/app.ts';
+import { buildDispatcher } from '../src/app-dispatch.ts';
 import { makeRepository } from './fixtures.ts';
 
 const challengeStub = {
@@ -16,8 +16,8 @@ test('admissions.challenge returns a PoW challenge and public club list', async 
     async createAdmissionChallenge() { return challengeStub; },
   };
 
-  const app = buildApp({ repository });
-  const result: any = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result: any = await dispatcher.dispatch({
     bearerToken: null,
     action: 'admissions.challenge',
   });
@@ -34,9 +34,9 @@ test('admissions.apply rejects single-word name', async () => {
     async solveAdmissionChallenge() { return { success: true }; },
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: null,
       action: 'admissions.apply',
       payload: {
@@ -59,9 +59,9 @@ test('admissions.apply rejects invalid email', async () => {
     async solveAdmissionChallenge() { return { success: true }; },
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: null,
       action: 'admissions.apply',
       payload: {
@@ -84,9 +84,9 @@ test('admissions.apply rejects missing socials', async () => {
     async solveAdmissionChallenge() { return { success: true }; },
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: null,
       action: 'admissions.apply',
       payload: {
@@ -108,9 +108,9 @@ test('admissions.apply rejects missing reason', async () => {
     async solveAdmissionChallenge() { return { success: true }; },
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: null,
       action: 'admissions.apply',
       payload: {
@@ -136,8 +136,8 @@ test('admissions.apply forwards all fields to repository', async () => {
     },
   };
 
-  const app = buildApp({ repository });
-  const result: any = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result: any = await dispatcher.dispatch({
     bearerToken: null,
     action: 'admissions.apply',
     payload: {
@@ -161,7 +161,7 @@ test('admissions.apply rejects fields exceeding 500 characters', async () => {
     async solveAdmissionChallenge() { return { success: true }; },
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   const longString = 'x'.repeat(501);
 
   for (const field of ['name', 'email', 'socials', 'reason', 'clubSlug']) {
@@ -173,14 +173,14 @@ test('admissions.apply rejects fields exceeding 500 characters', async () => {
     payload[field] = field === 'name' ? `${'x'.repeat(250)} ${'y'.repeat(250)}` : longString;
 
     await assert.rejects(
-      () => app.handleAction({
+      () => dispatcher.dispatch({
         bearerToken: null,
         action: 'admissions.apply',
         payload,
       }),
       (err: any) => {
         assert.equal(err.statusCode, 400);
-        assert.match(err.message, /500 characters/);
+        assert.match(err.message, /500 character/);
         return true;
       },
       `expected ${field} to be rejected when > 500 chars`,

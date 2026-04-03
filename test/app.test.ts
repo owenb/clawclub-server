@@ -2,21 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AppError,
-  buildApp,
   type ActorContext,
   type AdmissionSummary,
   type AuthResult,
   type CreateEntityInput,
   type BearerTokenSummary,
   type CreatedBearerToken,
-  type ClaimedDelivery,
-  type DeliveryAcknowledgement,
-  type DeliverySummary,
-  type ListDeliveriesInput,
   type DirectMessageSummary,
   type DirectMessageInboxSummary,
   type DirectMessageThreadSummary,
-  type DirectMessageTranscriptEntry,
   type EntitySummary,
   type EventSummary,
   type ListEntitiesInput,
@@ -34,6 +28,7 @@ import {
   type UpdateReceipt,
   type UpdateOwnProfileInput,
 } from '../src/app.ts';
+import { buildDispatcher } from '../src/app-dispatch.ts';
 
 function makeActor(): ActorContext {
   return {
@@ -614,8 +609,8 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
 }
 
 test('session.describe returns the canonical actor session envelope once', async () => {
-  const app = buildApp({ repository: makeRepository() });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository: makeRepository() });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'session.describe',
   });
@@ -644,8 +639,8 @@ test('clubs.list requires superadmin and returns archived flag filter', async ()
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'clubs.list',
     payload: { includeArchived: true },
@@ -674,8 +669,8 @@ test('clubs.create derives superadmin ownership assignment server-side', async (
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'clubs.create',
     payload: {
@@ -712,8 +707,8 @@ test('clubs.assignOwner appends a new owner version via the superadmin surface',
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'clubs.assignOwner',
     payload: {
@@ -742,8 +737,8 @@ test('memberships.list stays inside owner club scope and can filter by status', 
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'memberships.list',
     payload: { clubId: 'club-2', status: 'pending_review', limit: 4 },
@@ -761,10 +756,10 @@ test('memberships.list stays inside owner club scope and can filter by status', 
 });
 
 test('memberships.list rejects admin-only club membership', async () => {
-  const app = buildApp({ repository: makeRepository() });
+  const dispatcher = buildDispatcher({ repository: makeRepository() });
 
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
       action: 'memberships.list',
       payload: { clubId: 'club-1', limit: 4 },
@@ -790,8 +785,8 @@ test('memberships.review defaults to admissions-focused statuses and returns spo
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'memberships.review',
     payload: {
@@ -828,8 +823,8 @@ test('memberships.create derives scope server-side and preserves sponsor semanti
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'memberships.create',
     payload: {
@@ -878,8 +873,8 @@ test('memberships.transition appends a new membership state version inside owner
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'memberships.transition',
     payload: {
@@ -906,7 +901,7 @@ test('memberships.transition rejects admin-only club scope', async () => {
   const actor = makeActor();
   actor.memberships = [actor.memberships[0]!];
 
-  const app = buildApp({
+  const dispatcher = buildDispatcher({
     repository: {
       ...makeRepository(),
       async authenticateBearerToken() {
@@ -927,7 +922,7 @@ test('memberships.transition rejects admin-only club scope', async () => {
   });
 
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
       action: 'memberships.transition',
       payload: {
@@ -957,8 +952,8 @@ test('admissions.list stays inside owner scope and can filter interview workflow
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'admissions.list',
     payload: { clubId: 'club-2', statuses: ['submitted', 'interview_scheduled'], limit: 4 },
@@ -1002,8 +997,8 @@ test('admissions.transition can append accepted interview state and activate the
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'admissions.transition',
     payload: {
@@ -1022,10 +1017,6 @@ test('admissions.transition can append accepted interview state and activate the
     notes: 'Interview complete and accepted',
     accessibleClubIds: ['club-2'],
     intake: {
-      kind: undefined,
-      price: undefined,
-      bookingUrl: undefined,
-      bookedAt: undefined,
       completedAt: '2026-03-14T10:30:00Z',
     },
     metadataPatch: { outcome: 'strong_yes' },
@@ -1051,8 +1042,8 @@ test('admissions.challenge creates a cold application challenge without a bearer
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: null,
     action: 'admissions.challenge',
   });
@@ -1079,8 +1070,8 @@ test('admissions.apply submits a cold application with all required fields', asy
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: null,
     action: 'admissions.apply',
     payload: {
@@ -1181,8 +1172,8 @@ test('members.search narrows scope when a permitted club is requested', async ()
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'members.search',
     payload: {
@@ -1280,8 +1271,8 @@ test('members.list returns active members with scoped membership context', async
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'members.list',
     payload: {
@@ -1375,8 +1366,8 @@ test('profile.get defaults to the actor member id', async () => {
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'profile.get',
   });
@@ -1466,8 +1457,8 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'profile.update',
     payload: {
@@ -1484,11 +1475,6 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     handle: 'member-one-updated',
     displayName: 'Member One Updated',
     tagline: null,
-    summary: undefined,
-    whatIDo: undefined,
-    knownFor: undefined,
-    servicesSummary: undefined,
-    websiteUrl: undefined,
     links: [{ label: 'GitHub', url: 'https://github.com/example' }],
     profile: { homeBase: 'Berlin' },
   });
@@ -1583,8 +1569,8 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
 
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'entities.create',
     payload: {
@@ -1672,8 +1658,8 @@ test('entities.update appends a new version on the shared entity surface', async
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'entities.update',
     payload: {
@@ -1691,8 +1677,6 @@ test('entities.update appends a new version on the shared entity surface', async
     patch: {
       title: 'Hello again',
       summary: null,
-      body: undefined,
-      expiresAt: undefined,
       content: { mood: 'fresh' },
     },
   });
@@ -1763,8 +1747,8 @@ test('entities.archive appends an archived version on the shared entity surface'
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'entities.archive',
     payload: {
@@ -1786,11 +1770,11 @@ test('entities.archive appends an archived version on the shared entity surface'
 });
 
 test('entities.update rejects empty patches', async () => {
-  const app = buildApp({ repository: makeRepository() });
+  const dispatcher = buildDispatcher({ repository: makeRepository() });
 
   await assert.rejects(
     () =>
-      app.handleAction({
+      dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'entities.update',
         payload: {
@@ -1855,11 +1839,11 @@ test('entities.update rejects non-author updates', async () => {
     },
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
 
   await assert.rejects(
     () =>
-      app.handleAction({
+      dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'entities.update',
         payload: {
@@ -1951,8 +1935,8 @@ test('events.create writes the smallest sane event payload', async () => {
 
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'events.create',
     payload: {
@@ -2057,8 +2041,8 @@ test('events.list stays inside accessible scope and forwards optional query', as
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'events.list',
     payload: { clubId: 'club-2', query: 'hetzner', limit: 4 },
@@ -2146,8 +2130,8 @@ test('events.rsvp uses the actor membership in the event club', async () => {
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'events.rsvp',
     payload: { eventEntityId: 'event-1', response: 'yes', note: 'I am in' },
@@ -2207,8 +2191,8 @@ test('entities.list can span accessible clubs and filter by kinds with optional 
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'entities.list',
     payload: {
@@ -2234,7 +2218,7 @@ test('entities.list can span accessible clubs and filter by kinds with optional 
 test('clubs.create rejects non-superadmins', async () => {
   const actor = makeActor();
   actor.globalRoles = [];
-  const app = buildApp({
+  const dispatcher = buildDispatcher({
     repository: {
       ...makeRepository(),
       async authenticateBearerToken() {
@@ -2248,10 +2232,10 @@ test('clubs.create rejects non-superadmins', async () => {
   });
 
   await assert.rejects(
-    () => app.handleAction({
+    () => dispatcher.dispatch({
       bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
       action: 'clubs.create',
-      payload: { slug: 'gamma', name: 'Gamma', ownerMemberId: 'member-9' },
+      payload: { slug: 'gamma', name: 'Gamma', summary: 'Test club', ownerMemberId: 'member-9' },
     }),
     (error: unknown) => {
       assert.ok(error instanceof AppError);
@@ -2263,11 +2247,11 @@ test('clubs.create rejects non-superadmins', async () => {
 });
 
 test('members.search rejects a club outside the actor scope', async () => {
-  const app = buildApp({ repository: makeRepository() });
+  const dispatcher = buildDispatcher({ repository: makeRepository() });
 
   await assert.rejects(
     () =>
-      app.handleAction({
+      dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'members.search',
         payload: {
@@ -2354,11 +2338,11 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     },
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
 
   await assert.rejects(
     () =>
-      app.handleAction({
+      dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'profile.get',
         payload: {
@@ -2375,11 +2359,11 @@ test('profile.get returns 404 when the target member is outside shared scope', a
 });
 
 test('profile.update rejects invalid handles', async () => {
-  const app = buildApp({ repository: makeRepository() });
+  const dispatcher = buildDispatcher({ repository: makeRepository() });
 
   await assert.rejects(
     () =>
-      app.handleAction({
+      dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'profile.update',
         payload: {
@@ -2469,8 +2453,8 @@ test('messages.send picks a shared club, appends the request scope, and returns 
 
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.send',
     payload: {
@@ -2566,11 +2550,11 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
 
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
 
   await assert.rejects(
     () =>
-      app.handleAction({
+      dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'messages.send',
         payload: {
@@ -2657,8 +2641,8 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.list',
     payload: { clubId: 'club-2', limit: 4 },
@@ -2758,8 +2742,8 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.inbox',
     payload: { clubId: 'club-2', limit: 4, unreadOnly: true },
@@ -2887,8 +2871,8 @@ test('messages.read scopes thread access server-side and returns DM entries', as
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.read',
     payload: { threadId: 'thread-1', limit: 2 },
@@ -2910,8 +2894,8 @@ test('messages.read scopes thread access server-side and returns DM entries', as
 });
 
 test('tokens.list returns the actor token inventory', async () => {
-  const app = buildApp({ repository: makeRepository() });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository: makeRepository() });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'tokens.list',
   });
@@ -2999,8 +2983,8 @@ test('tokens.create mints a new bearer token for the actor member', async () => 
 
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'tokens.create',
     payload: {
@@ -3093,8 +3077,8 @@ test('tokens.revoke only revokes actor-owned tokens', async () => {
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'tokens.revoke',
     payload: {
@@ -3132,8 +3116,8 @@ test('updates.list returns the pending update feed with cursor semantics', async
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'updates.list',
     payload: { after: 4, limit: 3 },
@@ -3166,8 +3150,8 @@ test('updates.acknowledge appends receipts and removes items from shared context
     },
   };
 
-  const app = buildApp({ repository });
-  const result = await app.handleAction({
+  const dispatcher = buildDispatcher({ repository });
+  const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'updates.acknowledge',
     payload: {
@@ -3197,11 +3181,11 @@ test('updates.acknowledge returns 404 when an update is outside actor scope', as
     },
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
 
   await assert.rejects(
     () =>
-      app.handleAction({
+      dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'updates.acknowledge',
         payload: {
@@ -3281,11 +3265,11 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
     },
   };
 
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
 
   await assert.rejects(
     () =>
-      app.handleAction({
+      dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'messages.read',
         payload: {
@@ -3302,11 +3286,11 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
 });
 
 test('session.describe rejects unknown bearer tokens', async () => {
-  const app = buildApp({ repository: makeRepository() });
+  const dispatcher = buildDispatcher({ repository: makeRepository() });
 
   await assert.rejects(
     () =>
-      app.handleAction({
+      dispatcher.dispatch({
         bearerToken: 'cc_live_aaaaaaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbb',
         action: 'session.describe',
       }),
