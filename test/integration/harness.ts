@@ -16,15 +16,48 @@ import http from 'node:http';
 import { execSync } from 'node:child_process';
 import { createServer } from '../../src/server.ts';
 import { buildBearerToken } from '../../src/token.ts';
+import { z } from 'zod';
 import { getAction } from '../../src/schemas/registry.ts';
 import {
   authenticatedSuccessEnvelope,
   unauthenticatedSuccessEnvelope,
   errorEnvelope,
+  pollingResponse,
+  sseReadyEvent,
 } from '../../src/schemas/transport.ts';
+import { pendingUpdate } from '../../src/schemas/responses.ts';
 
 // Trigger schema registration by importing the dispatch module
 import '../../src/app-dispatch.ts';
+
+/**
+ * Recursively apply .strict() to all ZodObject schemas in a type tree.
+ * This catches extra/unexpected fields in test responses — Zod strips
+ * unknown keys by default, so without strict mode, extra fields silently pass.
+ */
+function strictify(schema: z.ZodType): z.ZodType {
+  if (schema instanceof z.ZodObject) {
+    const shape = schema.shape;
+    const strictShape: Record<string, z.ZodType> = {};
+    for (const [key, value] of Object.entries(shape)) {
+      strictShape[key] = strictify(value as z.ZodType);
+    }
+    return z.object(strictShape).strict();
+  }
+  if (schema instanceof z.ZodArray) {
+    return z.array(strictify(schema.element));
+  }
+  if (schema instanceof z.ZodNullable) {
+    return strictify(schema.unwrap()).nullable();
+  }
+  if (schema instanceof z.ZodOptional) {
+    return strictify(schema.unwrap()).optional();
+  }
+  // ZodIntersection, ZodUnion, ZodLazy, etc. — pass through as-is.
+  // These are rare in our response schemas and adding full support
+  // would be complex. The main drift vectors are plain objects.
+  return schema;
+}
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
 const DB_NAME = 'clawclub_test';
@@ -315,35 +348,34 @@ export class TestHarness {
 
               // ── Test-enforced contract validation ──
               // Validate every HTTP response against the transport + action schemas.
-              // This catches drift between handler output and the contract layer.
+              // Uses strict mode to catch extra/unexpected fields — Zod strips
+              // unknown keys by default, so without this, drift goes unnoticed.
               if (parsed.ok === true) {
-                // Success: validate envelope shape
                 const def = getAction(action);
                 if (def?.auth === 'none') {
-                  const envResult = unauthenticatedSuccessEnvelope.safeParse(parsed);
+                  const envResult = strictify(unauthenticatedSuccessEnvelope).safeParse(parsed);
                   if (!envResult.success) {
                     reject(new Error(`[contract] ${action} unauthenticated envelope validation failed: ${envResult.error.message}`));
                     return;
                   }
                 } else {
-                  const envResult = authenticatedSuccessEnvelope.safeParse(parsed);
+                  const envResult = strictify(authenticatedSuccessEnvelope).safeParse(parsed);
                   if (!envResult.success) {
                     reject(new Error(`[contract] ${action} authenticated envelope validation failed: ${envResult.error.message}`));
                     return;
                   }
                 }
 
-                // Validate action-specific data against wire.output
+                // Validate action-specific data against wire.output (strict)
                 if (def?.wire?.output) {
-                  const dataResult = def.wire.output.safeParse(parsed.data);
+                  const dataResult = strictify(def.wire.output).safeParse(parsed.data);
                   if (!dataResult.success) {
                     reject(new Error(`[contract] ${action} wire.output validation failed: ${dataResult.error.message}`));
                     return;
                   }
                 }
               } else if (parsed.ok === false) {
-                // Error: validate error envelope
-                const errResult = errorEnvelope.safeParse(parsed);
+                const errResult = strictify(errorEnvelope).safeParse(parsed);
                 if (!errResult.success) {
                   reject(new Error(`[contract] ${action} error envelope validation failed: ${errResult.error.message}`));
                   return;
@@ -451,6 +483,22 @@ export class TestHarness {
           res.on('end', () => {
             try {
               const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+
+              // Validate polling response against transport schema
+              if (parsed.ok === true && parsed.updates) {
+                const result = strictify(pollingResponse).safeParse(parsed);
+                if (!result.success) {
+                  reject(new Error(`[contract] GET /updates polling response validation failed: ${result.error.message}`));
+                  return;
+                }
+              } else if (parsed.ok === false) {
+                const result = strictify(errorEnvelope).safeParse(parsed);
+                if (!result.success) {
+                  reject(new Error(`[contract] GET /updates error envelope validation failed: ${result.error.message}`));
+                  return;
+                }
+              }
+
               resolve({ status: res.statusCode ?? 0, body: parsed });
             } catch (error) {
               reject(error);
@@ -513,7 +561,20 @@ export class TestHarness {
             }
             if (data) {
               try {
-                events.push({ event, data: JSON.parse(data), id });
+                const parsed = JSON.parse(data);
+                // Validate SSE events against transport schemas
+                if (event === 'ready') {
+                  const result = strictify(sseReadyEvent).safeParse(parsed);
+                  if (!result.success) {
+                    console.error(`[contract] SSE ready event validation failed: ${result.error.message}`);
+                  }
+                } else if (event === 'update') {
+                  const result = strictify(pendingUpdate).safeParse(parsed);
+                  if (!result.success) {
+                    console.error(`[contract] SSE update event validation failed: ${result.error.message}`);
+                  }
+                }
+                events.push({ event, data: parsed, id });
               } catch { /* ignore non-JSON */ }
             }
             // Check waiters

@@ -48,7 +48,6 @@ export const membershipSummary = z.object({
   slug: z.string(),
   name: z.string(),
   summary: z.string().nullable(),
-  manifestoMarkdown: z.string().nullable().optional(),
   role: membershipRole,
   status: z.literal('active'),
   sponsorMemberId: z.string().nullable(),

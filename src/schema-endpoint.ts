@@ -74,7 +74,6 @@ function buildSchema(aiExposedOnly: boolean): unknown {
 
   return sortKeysDeep({
     version: '1.0',
-    generatedAt: new Date().toISOString(),
     actions,
   });
 }
@@ -82,7 +81,6 @@ function buildSchema(aiExposedOnly: boolean): unknown {
 /**
  * Get the schema payload for the given access level.
  * Caches after first build (schemas don't change at runtime).
- * generatedAt is set once on first call.
  */
 export function getSchemaPayload(full: boolean): unknown {
   if (full) {

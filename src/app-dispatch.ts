@@ -197,7 +197,7 @@ async function dispatchCold(
 
   // Quality gate (cold actions currently don't have quality gates, but support it)
   if (def.qualityGate) {
-    const gate = await runQualityGate(actionName, payload);
+    const gate = await runQualityGate(actionName, parsedInput as Record<string, unknown>);
     if (!gate.pass) {
       throw new AppError(422, 'quality_check_failed', (gate as { pass: false; feedback: string }).feedback);
     }
@@ -241,9 +241,9 @@ async function dispatchAuthenticated(
   // Parse
   const parsedInput = parseActionInput(def, payload);
 
-  // Quality gate (runs on raw payload, after auth, before execution)
+  // Quality gate (runs on parsed/normalized input, after auth, before execution)
   if (def.qualityGate) {
-    const gate = await runQualityGate(actionName, payload);
+    const gate = await runQualityGate(actionName, parsedInput as Record<string, unknown>);
     if (!gate.pass) {
       throw new AppError(422, 'quality_check_failed', (gate as { pass: false; feedback: string }).feedback);
     }

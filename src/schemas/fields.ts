@@ -51,11 +51,12 @@ export const admissionOrigin = z.enum(['self_applied', 'member_sponsored', 'owne
 // ── Scalar field builders ────────────────────────────────
 
 /**
- * Wire: limit is an optional integer 1–20.
- * The server clamps out-of-range values silently rather than rejecting them.
+ * Wire: limit is an optional integer.
+ * The server clamps to 1–20 and defaults to 8.
+ * Wire schema accepts any integer to match actual acceptance behavior.
  */
-export const wireLimit = z.number().int().min(1).max(20).optional()
-  .describe('Max results (1–20, default 8). Out-of-range values are clamped.');
+export const wireLimit = z.number().int().optional()
+  .describe('Max results (default 8). Clamped to 1–20 by the server.');
 
 /**
  * Parse: clamps to 1–20, defaults to 8.
@@ -107,15 +108,16 @@ export const parsePatchString = z.string()
   .nullable()
   .optional();
 
-/** Wire: required non-empty string */
-export const wireRequiredString = z.string().min(1);
+/** Wire: required string. Server trims whitespace and rejects empty results. */
+export const wireRequiredString = z.string()
+  .describe('Required. Server trims whitespace; whitespace-only strings are rejected.');
 
 /** Parse: required non-empty string, trimmed */
 export const parseRequiredString = z.string().trim().min(1);
 
-/** Wire: string capped at 500 characters */
-export const wireBoundedString = z.string().min(1).max(500)
-  .describe('Required, max 500 characters.');
+/** Wire: string capped at 500 characters. Server trims whitespace. */
+export const wireBoundedString = z.string().max(500)
+  .describe('Required, max 500 characters. Server trims whitespace; whitespace-only strings are rejected.');
 
 /** Parse: string capped at 500 characters, trimmed */
 export const parseBoundedString = z.string().trim().min(1).max(500);
@@ -131,12 +133,12 @@ export const parseOptionalRecord = z.record(z.unknown()).optional().default({});
 export const wireRequiredRecord = z.record(z.unknown());
 
 /**
- * Wire: handle format (lowercase alphanumeric with single hyphens)
+ * Wire: handle format (lowercase alphanumeric with single hyphens).
+ * Server trims whitespace and normalizes empty string to null.
+ * After normalization, non-null values must match /^[a-z0-9]+(-[a-z0-9]+)*$/.
  */
-export const wireHandle = z.string()
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Must use lowercase letters, numbers, and single hyphens')
-  .nullable().optional()
-  .describe('Lowercase alphanumeric with single hyphens. Omit to leave unchanged, null to clear.');
+export const wireHandle = z.string().nullable().optional()
+  .describe('Lowercase alphanumeric with hyphens. Omit to leave unchanged, null or empty to clear. Server trims and validates format.');
 
 /** Parse: validates handle format */
 export const parseHandle = z.string()
@@ -150,10 +152,11 @@ export const parseHandle = z.string()
   );
 
 /**
- * Wire: full name (at least two words)
+ * Wire: full name (at least two words).
+ * Server trims whitespace and normalizes internal whitespace.
  */
-export const wireFullName = z.string().min(1).max(500)
-  .describe('Full name (first and last name required, max 500 chars).');
+export const wireFullName = z.string().max(500)
+  .describe('Full name (first and last name required, max 500 chars). Server trims whitespace.');
 
 /**
  * Parse: normalizes whitespace, validates at least two words.
@@ -167,10 +170,11 @@ export const parseFullName = z.string().trim().min(1).max(500)
   );
 
 /**
- * Wire: email address
+ * Wire: email address.
+ * Server trims, lowercases, and validates contains @.
  */
-export const wireEmail = z.string().min(1).max(500)
-  .describe('Email address (must contain @, max 500 chars).');
+export const wireEmail = z.string().max(500)
+  .describe('Email address (must contain @, max 500 chars). Server trims and lowercases.');
 
 /**
  * Parse: lowercases, validates contains @.
@@ -262,11 +266,11 @@ export const wireOptionalBoolean = z.boolean().optional()
   .describe('Optional boolean flag.');
 
 /**
- * Wire: slug format (same as handle)
+ * Wire: slug format (same as handle).
+ * Server trims and validates format after trimming.
  */
 export const wireSlug = z.string()
-  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Must use lowercase letters, numbers, and single hyphens')
-  .describe('URL-safe slug (lowercase alphanumeric with hyphens).');
+  .describe('URL-safe slug (lowercase alphanumeric with hyphens). Server trims and validates format.');
 
 /** Parse: validates slug format */
 export const parseSlug = z.string().trim()

@@ -65,7 +65,7 @@ Every authenticated success response includes `"ok": true` and an `actor` envelo
         "slug": "og-club",
         "name": "OG Club",
         "summary": "For the originals.",
-        "manifestoMarkdown": "...",
+        "summary": "...",
         "role": "member",
         "status": "active",
         "sponsorMemberId": "abc456",
@@ -127,8 +127,8 @@ Returns:
         "clubId": "net1",
         "entityId": null,
         "entityVersionId": null,
-        "transcriptMessageId": "msg1",
-        "topic": "transcript.message.created",
+        "dmMessageId": "msg1",
+        "topic": "dm.message.created",
         "payload": { "kind": "dm", "threadId": "t1", "messageId": "msg1", "senderMemberId": "abc456", "senderPublicName": "Alex", "messageText": "Hey!" },
         "createdAt": "2026-04-02T12:00:00Z",
         "createdByMemberId": "abc456"
@@ -179,7 +179,7 @@ while (true) {
 
 | Topic | Trigger | Key payload fields |
 |---|---|---|
-| `transcript.message.created` | A DM is sent to the member | `kind`, `threadId`, `messageId`, `senderMemberId`, `senderPublicName`, `messageText` |
+| `dm.message.created` | A DM is sent to the member | `kind`, `threadId`, `messageId`, `senderMemberId`, `senderPublicName`, `messageText` |
 | `entity.version.published` | An entity or event is created or updated | `kind`, `entityId`, `entityVersionId`, `entityKind`, `state`, `author`, `title`, `summary`, `body` |
 | `entity.version.archived` | An entity is archived | Same fields as published, with `state: "archived"` |
 
@@ -374,7 +374,7 @@ Optimized for relevance, not engagement. Quality over quantity. Clarity over hyp
 
 ## Club-specific guidance
 
-Each club exposes `summary` and `manifestoMarkdown` in `session.describe`. Use these for tone and content judgment.
+Each club exposes `summary` in `session.describe`. Use this for tone and content judgment.
 
 ## Media
 
