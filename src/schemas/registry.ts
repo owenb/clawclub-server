@@ -71,6 +71,9 @@ export type HandlerContext = {
   requireMembershipOwner: (clubId: string) => MembershipSummary;
   requireSuperadmin: () => void;
   resolveScopedClubs: (clubId?: string) => MembershipSummary[];
+
+  /** Check that a repository capability exists at runtime. Throws 501 if missing. */
+  requireCapability: (capability: RepositoryCapability) => void;
 };
 
 /**

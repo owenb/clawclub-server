@@ -333,6 +333,7 @@ const admissionsList: ActionDefinition = {
     const { clubId, statuses, limit } = input as AdmissionsListInput;
     const clubScope = resolveOwnerClubs(ctx, clubId);
     const clubIds = clubScope.map(c => c.clubId);
+    ctx.requireCapability('listAdmissions');
 
     const results = await ctx.repository.listAdmissions!({
       actorMemberId: ctx.actor.member.id,
@@ -401,6 +402,7 @@ const admissionsTransition: ActionDefinition = {
     const accessibleClubIds = ctx.actor.memberships
       .filter(m => m.role === 'owner')
       .map(m => m.clubId);
+    ctx.requireCapability('transitionAdmission');
 
     const admission = await ctx.repository.transitionAdmission!({
       actorMemberId: ctx.actor.member.id,
@@ -527,6 +529,8 @@ const admissionsIssueAccess: ActionDefinition = {
     if (accessibleClubIds.length === 0) {
       throw new AppError(403, 'forbidden', 'This member does not currently own any clubs');
     }
+
+    ctx.requireCapability('issueAdmissionAccess');
 
     const result = await ctx.repository.issueAdmissionAccess!({
       actorMemberId: ctx.actor.member.id,

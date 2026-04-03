@@ -2,10 +2,11 @@ import http from 'node:http';
 import type net from 'node:net';
 import { URL } from 'node:url';
 import { Pool } from 'pg';
-import { AppError, buildApp, type Repository } from './app.ts';
+import { AppError, type Repository } from './app.ts';
+import { buildDispatcher } from './app-dispatch.ts';
+import { getAction } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
-import { runQualityGate } from './quality-gate.ts';
 
 type ColdAdmissionAction = 'admissions.challenge' | 'admissions.apply';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
@@ -186,7 +187,9 @@ function writeSseComment(response: http.ServerResponse, comment: string) {
 }
 
 function isColdAdmissionAction(value: unknown): value is ColdAdmissionAction {
-  return value === 'admissions.challenge' || value === 'admissions.apply';
+  if (typeof value !== 'string') return false;
+  const def = getAction(value);
+  return def?.auth === 'none' && (value === 'admissions.challenge' || value === 'admissions.apply');
 }
 
 function getClientIp(request: http.IncomingMessage, trustProxy: boolean): string {
@@ -283,7 +286,7 @@ export function createServer(options: {
   };
   const coldAdmissionRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
   const activeStreams = new Map<string, number>();
-  const app = buildApp({ repository });
+  const dispatcher = buildDispatcher({ repository });
   const sockets = new Set<net.Socket>();
 
   const server = http.createServer(async (request, response) => {
@@ -503,6 +506,8 @@ export function createServer(options: {
 
     try {
       const body = await readJsonBody(request);
+
+      // Rate-limit cold admission actions by IP (before dispatch)
       if (isColdAdmissionAction(body.action)) {
         const clientIp = getClientIp(request, trustProxy);
         const key = `${body.action}:${clientIp}`;
@@ -512,15 +517,9 @@ export function createServer(options: {
         }
       }
 
-      const actionStr = typeof body.action === 'string' ? body.action : '';
-      const inputPayload = (body.input ?? {}) as Record<string, unknown>;
-
-      const gate = await runQualityGate(actionStr, inputPayload);
-      if (!gate.pass) {
-        throw new AppError(422, 'quality_check_failed', (gate as { pass: false; feedback: string }).feedback);
-      }
-
-      const result = await app.handleAction({
+      // Unified dispatch: auth, parse, quality gate, execute, envelope assembly
+      // are all handled inside the dispatcher based on the action contract.
+      const result = await dispatcher.dispatch({
         bearerToken: getBearerToken(request),
         action: body.action,
         payload: body.input,

@@ -189,6 +189,7 @@ const entitiesArchive: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { entityId } = input as { entityId: string };
+    ctx.requireCapability('archiveEntity');
 
     const entity = await ctx.repository.archiveEntity!({
       actorMemberId: ctx.actor.member.id,
@@ -241,6 +242,7 @@ const entitiesRedact: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { entityId, reason } = input as { entityId: string; reason: string | null };
+    ctx.requireCapability('redactEntity');
 
     const result = await ctx.repository.redactEntity!({
       actorMemberId: ctx.actor.member.id,

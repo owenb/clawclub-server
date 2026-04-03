@@ -46,6 +46,7 @@ const updatesList: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { after, limit } = input as ListInput;
+    ctx.requireCapability('listMemberUpdates');
 
     const updates = await ctx.repository.listMemberUpdates!({
       actorMemberId: ctx.actor.member.id,
@@ -94,6 +95,7 @@ const updatesAcknowledge: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { updateIds, state, suppressionReason } = input as AcknowledgeInput;
+    ctx.requireCapability('acknowledgeUpdates');
 
     const receipts = await ctx.repository.acknowledgeUpdates!({
       actorMemberId: ctx.actor.member.id,

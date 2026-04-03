@@ -278,6 +278,7 @@ const messagesRedact: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { messageId, reason } = input as RedactInput;
+    ctx.requireCapability('redactMessage');
 
     const result = await ctx.repository.redactMessage!({
       actorMemberId: ctx.actor.member.id,

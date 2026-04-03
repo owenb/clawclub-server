@@ -78,6 +78,7 @@ const clubsList: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('listClubs');
     const { includeArchived } = input as ClubsListInput;
 
     const clubs = await ctx.repository.listClubs!({
@@ -134,6 +135,7 @@ const clubsCreate: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('createClub');
     const { slug, name, summary, ownerMemberId } = input as ClubsCreateInput;
 
     let club: Awaited<ReturnType<NonNullable<typeof ctx.repository.createClub>>>;
@@ -191,6 +193,7 @@ const clubsArchive: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('archiveClub');
     const { clubId } = input as { clubId: string };
 
     const club = await ctx.repository.archiveClub!({
@@ -238,6 +241,7 @@ const clubsAssignOwner: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('assignClubOwner');
     const { clubId, ownerMemberId } = input as { clubId: string; ownerMemberId: string };
 
     const club = await ctx.repository.assignClubOwner!({

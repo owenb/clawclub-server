@@ -44,6 +44,7 @@ const adminOverviewAction: ActionDefinition = {
 
   async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminGetOverview');
     const overview = await ctx.repository.adminGetOverview!({ actorMemberId: ctx.actor.member.id });
     return { data: { overview } };
   },
@@ -83,6 +84,7 @@ const adminMembersList: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminListMembers');
     const { limit, offset } = input as AdminMembersListInput;
 
     const members = await ctx.repository.adminListMembers!({
@@ -122,6 +124,7 @@ const adminMembersGet: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminGetMember');
     const { memberId } = input as { memberId: string };
 
     const member = await ctx.repository.adminGetMember!({
@@ -164,6 +167,7 @@ const adminClubsStats: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminGetClubStats');
     const { clubId } = input as { clubId: string };
 
     const stats = await ctx.repository.adminGetClubStats!({
@@ -219,6 +223,7 @@ const adminContentList: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminListContent');
     const { clubId, kind, limit, offset } = input as AdminContentListInput;
 
     const content = await ctx.repository.adminListContent!({
@@ -260,6 +265,7 @@ const adminContentArchive: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminArchiveEntity');
     const { entityId } = input as { entityId: string };
 
     const result = await ctx.repository.adminArchiveEntity!({
@@ -304,6 +310,7 @@ const adminContentRedact: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('redactEntity');
     const { entityId, reason } = input as { entityId: string; reason: string | null };
 
     const result = await ctx.repository.redactEntity!({
@@ -358,6 +365,7 @@ const adminMessagesThreads: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminListThreads');
     const { clubId, limit, offset } = input as AdminMessagesThreadsInput;
 
     const threads = await ctx.repository.adminListThreads!({
@@ -408,6 +416,7 @@ const adminMessagesRead: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminReadThread');
     const { threadId, limit } = input as AdminMessagesReadInput;
 
     const result = await ctx.repository.adminReadThread!({
@@ -453,6 +462,7 @@ const adminMessagesRedact: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('redactMessage');
     const { messageId, reason } = input as { messageId: string; reason: string | null };
 
     const result = await ctx.repository.redactMessage!({
@@ -497,6 +507,7 @@ const adminTokensList: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminListMemberTokens');
     const { memberId } = input as { memberId: string };
 
     const tokens = await ctx.repository.adminListMemberTokens!({
@@ -537,6 +548,7 @@ const adminTokensRevoke: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminRevokeMemberToken');
     const { memberId, tokenId } = input as { memberId: string; tokenId: string };
 
     const token = await ctx.repository.adminRevokeMemberToken!({
@@ -576,6 +588,7 @@ const adminDiagnosticsHealth: ActionDefinition = {
 
   async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    ctx.requireCapability('adminGetDiagnostics');
     const diagnostics = await ctx.repository.adminGetDiagnostics!({ actorMemberId: ctx.actor.member.id });
     return { data: { diagnostics } };
   },
