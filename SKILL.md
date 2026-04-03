@@ -498,7 +498,7 @@ Error codes: `self_vouch` (400), `duplicate_vouch` (409), `not_found` (404 if ta
 
 **`vouches.list`** — `memberId` (required), `clubId` (optional), `limit` (optional). Returns `{ memberId, results: VouchSummary[] }`.
 
-### Admissions — sponsor and nominate
+### Admissions — sponsor and self-apply
 
 **`admissions.sponsor`** — `clubId` (required), `name` (required, full name), `email` (required), `socials` (required), `reason` (required, max 500 chars). An existing member sponsors an outsider for admission. No PoW required. Creates an admission with `origin: member_sponsored`.
 
@@ -748,7 +748,7 @@ Many club-scoped list/search responses also include `clubScope`, which echoes th
 
 ## How someone joins a club
 
-All paths into a club go through the unified admissions model. There are three origins:
+All paths into a club go through the unified admissions model. There are two origins:
 
 **Path 1: Member-sponsored (an existing member sponsors an outsider)**
 1. An existing member uses `admissions.sponsor` to recommend the outsider

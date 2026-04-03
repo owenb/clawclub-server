@@ -17,7 +17,7 @@ Current action families (see `src/action-manifest.ts` for the canonical list):
 - `clubs.*` — club management (superadmin)
 - `members.*` — member search and directory
 - `memberships.*` — membership lifecycle (owner)
-- `admissions.*` — unified admissions workflow (self-applied, member-sponsored, owner-nominated)
+- `admissions.*` — unified admissions workflow (self-applied, member-sponsored)
 - `profile.*` — member profile read/update
 - `entities.*` — posts, opportunities, services, asks
 - `events.*` — events and RSVPs
@@ -235,7 +235,7 @@ Use this first. It resolves:
 
 ### `admissionDetails` on admission summaries
 
-Self-applied and member-sponsored admissions include an `admissionDetails` object on the `AdmissionSummary` response from `admissions.list` and `admissions.transition`. This contains the applicant's `socials` and `reason` fields. For owner-nominated admissions, `admissionDetails` defaults to `{}`.
+Self-applied and member-sponsored admissions include an `admissionDetails` object on the `AdmissionSummary` response from `admissions.list` and `admissions.transition`. This contains the applicant's `socials` and `reason` fields.
 
 ### `admissions.challenge` / `admissions.apply`
 
