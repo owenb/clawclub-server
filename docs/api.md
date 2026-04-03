@@ -92,7 +92,6 @@ Content-Type: application/json
         "slug": "smoke-club",
         "name": "Smoke Club",
         "summary": "Schema smoke test",
-        "manifestoMarkdown": null,
         "role": "member",
         "status": "active",
         "sponsorMemberId": "...",

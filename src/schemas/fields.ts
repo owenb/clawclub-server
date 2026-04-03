@@ -245,10 +245,10 @@ export const wireMoneyAmount = z.number().min(0).nullable().optional()
 export const parseMoneyAmount = z.number().min(0).nullable().optional();
 
 /**
- * Wire: 3-letter ISO currency code
+ * Wire: 3-letter ISO currency code. Server uppercases before validating.
  */
-export const wireCurrencyCode = z.string().regex(/^[A-Z]{3}$/, 'Must be a 3-letter ISO currency code').nullable().optional()
-  .describe('3-letter ISO currency code (uppercase) or null.');
+export const wireCurrencyCode = z.string().nullable().optional()
+  .describe('3-letter ISO currency code (e.g. "USD" or "usd"). Server uppercases. Null to clear.');
 
 /**
  * Parse: uppercases and validates

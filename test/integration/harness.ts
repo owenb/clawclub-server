@@ -511,6 +511,37 @@ export class TestHarness {
     });
   }
 
+  async getSchema(
+    token?: string,
+    params: { full?: boolean } = {},
+  ): Promise<{ status: number; body: Record<string, unknown> }> {
+    const qs = new URLSearchParams();
+    if (params.full) qs.set('full', '1');
+    const path = `/api/schema${qs.toString() ? `?${qs}` : ''}`;
+    const headers: Record<string, string> = {};
+    if (token) headers['authorization'] = `Bearer ${token}`;
+
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        { hostname: '127.0.0.1', port: this.port, path, method: 'GET', headers },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => {
+            try {
+              const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+              resolve({ status: res.statusCode ?? 0, body: parsed });
+            } catch (error) {
+              reject(error);
+            }
+          });
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
   /**
    * Connect to the SSE stream and collect events until `done` resolves or timeout.
    * Returns parsed SSE events as { event, data, id? } objects.
@@ -529,6 +560,7 @@ export class TestHarness {
     const path = `/updates/stream${qs.toString() ? `?${qs}` : ''}`;
 
     const events: Array<{ event: string; data: Record<string, unknown>; id?: string }> = [];
+    const sseValidationErrors: string[] = [];
     const waiters: Array<{ target: number; resolve: () => void }> = [];
 
     const headers: Record<string, string> = { authorization: `Bearer ${token}` };
@@ -562,16 +594,16 @@ export class TestHarness {
             if (data) {
               try {
                 const parsed = JSON.parse(data);
-                // Validate SSE events against transport schemas
+                // Validate SSE events against transport schemas (strict — fails test on drift)
                 if (event === 'ready') {
                   const result = strictify(sseReadyEvent).safeParse(parsed);
                   if (!result.success) {
-                    console.error(`[contract] SSE ready event validation failed: ${result.error.message}`);
+                    sseValidationErrors.push(`[contract] SSE ready event validation failed: ${result.error.message}`);
                   }
                 } else if (event === 'update') {
                   const result = strictify(pendingUpdate).safeParse(parsed);
                   if (!result.success) {
-                    console.error(`[contract] SSE update event validation failed: ${result.error.message}`);
+                    sseValidationErrors.push(`[contract] SSE update event validation failed: ${result.error.message}`);
                   }
                 }
                 events.push({ event, data: parsed, id });
@@ -595,7 +627,12 @@ export class TestHarness {
       events,
       close: () => req.destroy(),
       waitForEvents(count: number, timeoutMs = 5000): Promise<void> {
-        if (events.length >= count) return Promise.resolve();
+        const checkErrors = () => {
+          if (sseValidationErrors.length > 0) {
+            throw new Error(sseValidationErrors.join('\n'));
+          }
+        };
+        if (events.length >= count) { checkErrors(); return Promise.resolve(); }
         return new Promise((resolve, reject) => {
           const waiter = { target: count, resolve };
           waiters.push(waiter);
@@ -605,7 +642,7 @@ export class TestHarness {
             reject(new Error(`Timed out waiting for ${count} events (got ${events.length})`));
           }, timeoutMs);
           const origResolve = waiter.resolve;
-          waiter.resolve = () => { clearTimeout(timer); origResolve(); };
+          waiter.resolve = () => { clearTimeout(timer); checkErrors(); origResolve(); };
         });
       },
     };
