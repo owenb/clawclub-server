@@ -478,13 +478,15 @@ export function buildAdmissionsRepository({
             }
 
             // Create membership for the new member
+            // For self-applied outsiders with no sponsor, use the accepting owner as sponsor
+            const sponsorId = admission.sponsor_member_id ?? input.actorMemberId;
             const membershipResult = await client.query<{ id: string }>(
               `
                 insert into app.club_memberships (club_id, member_id, sponsor_member_id, role, status)
                 values ($1, $2, $3, 'member', 'active')
                 returning id
               `,
-              [admission.club_id, newMemberId, admission.sponsor_member_id],
+              [admission.club_id, newMemberId, sponsorId],
             );
 
             const newMembershipId = membershipResult.rows[0]?.id;
@@ -522,13 +524,14 @@ export function buildAdmissionsRepository({
             let membershipId = admission.current_membership_id;
 
             if (!membershipId) {
+              const existingSponsorId = admission.sponsor_member_id ?? input.actorMemberId;
               const membershipResult = await client.query<{ id: string }>(
                 `
                   insert into app.club_memberships (club_id, member_id, sponsor_member_id, role, status)
                   values ($1, $2, $3, 'member', 'active')
                   returning id
                 `,
-                [admission.club_id, admission.applicant_member_id, admission.sponsor_member_id],
+                [admission.club_id, admission.applicant_member_id, existingSponsorId],
               );
 
               membershipId = membershipResult.rows[0]?.id ?? null;
