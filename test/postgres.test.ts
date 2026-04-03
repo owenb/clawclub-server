@@ -1341,7 +1341,7 @@ test('postgres repository lists current membership projections for owner scope',
   assert.deepEqual(calls[2]?.params, [['club-2'], 'pending_review', 5]);
 });
 
-test('postgres repository lists applications with interview metadata inside owner scope', async () => {
+test('postgres repository lists admissions with interview metadata inside owner scope', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
   const client = {
@@ -1349,15 +1349,18 @@ test('postgres repository lists applications with interview metadata inside owne
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('from app.current_applications ca')) {
+      if (sql.includes('from app.current_admissions ca')) {
         return {
           rows: [{
-            application_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
-            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-9', path: 'sponsored',
+            admission_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
+            applicant_email: null, applicant_name: null,
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-9',
+            linked_membership_status: null, linked_membership_accepted_covenant_at: null,
+            origin: 'owner_nominated',
             intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
             intake_booked_at: '2026-03-14T10:00:00Z', intake_completed_at: null,
             status: 'submitted', notes: 'Warm intro via sponsor', version_no: 1, version_created_at: '2026-03-12T00:00:00Z', version_created_by_member_id: 'member-1',
-            metadata: { source: 'operator' }, created_at: '2026-03-12T00:00:00Z',
+            admission_details: null, metadata: { source: 'operator' }, created_at: '2026-03-12T00:00:00Z',
           }], rowCount: 1,
         };
       }
@@ -1367,10 +1370,10 @@ test('postgres repository lists applications with interview metadata inside owne
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const results = await repository.listApplications({ actorMemberId: 'member-1', clubIds: ['club-2'], limit: 5, statuses: ['submitted'] });
+  const results = await repository.listAdmissions({ actorMemberId: 'member-1', clubIds: ['club-2'], limit: 5, statuses: ['submitted'] });
 
   assert.equal(results.length, 1);
-  assert.equal(results[0]?.applicationId, 'application-9');
+  assert.equal(results[0]?.admissionId, 'application-9');
   assert.equal(results[0]?.intake.kind, 'fit_check');
   assert.equal(results[0]?.intake.price.amount, 49);
   assert.deepEqual(calls[2]?.params, [['club-2'], ['submitted'], 5]);
@@ -1416,7 +1419,7 @@ test('postgres repository lists admissions review context with sponsor load and 
   assert.deepEqual(calls[2]?.params, [['club-2'], ['pending_review'], 5]);
 });
 
-test('postgres repository creates an application with interview intake details and reloads current projection', async () => {
+test('postgres repository creates an admission with interview intake details and reloads current projection', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
   const client = {
@@ -1426,19 +1429,20 @@ test('postgres repository creates an application with interview intake details a
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
       if (sql.includes('from app.accessible_club_memberships anm') && sql.includes("and anm.role = 'owner'")) return { rows: [{ membership_id: 'membership-owner' }], rowCount: 1 };
       if (sql.includes('from app.current_club_memberships cnm') && sql.includes('and cnm.member_id = $2') && sql.includes("and cnm.status = 'active'")) return { rows: [{ member_id: 'member-1' }], rowCount: 1 };
-      if (sql.includes('select cnm.id as membership_id') && sql.includes('where cnm.id = $1')) return { rows: [{ membership_id: 'membership-9' }], rowCount: 1 };
-      if (sql.includes('insert into app.applications') && sql.includes('where app.member_is_active($2)')) {
-        return { rows: [{ application_id: 'application-9' }], rowCount: 1 };
+      if (sql.includes('insert into app.admissions') && sql.includes('where app.member_is_active($2)')) {
+        return { rows: [{ admission_id: 'application-9' }], rowCount: 1 };
       }
-      if (sql.includes('from app.current_applications ca') && sql.includes('where ca.id = $1')) {
+      if (sql.includes('from app.current_admissions ca') && sql.includes('where ca.id = $1')) {
         return {
           rows: [{
-            application_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
-            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-9', path: 'sponsored',
+            admission_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
+            applicant_email: null, applicant_name: null,
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: null,
+            linked_membership_status: null, linked_membership_accepted_covenant_at: null, origin: 'owner_nominated',
             intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
             intake_booked_at: '2026-03-14T10:00:00Z', intake_completed_at: null,
             status: 'submitted', notes: 'Warm intro via sponsor', version_no: 1, version_created_at: '2026-03-12T00:00:00Z', version_created_by_member_id: 'member-1',
-            metadata: { source: 'operator' }, created_at: '2026-03-12T00:00:00Z',
+            admission_details: null, metadata: { source: 'operator' }, created_at: '2026-03-12T00:00:00Z',
           }], rowCount: 1,
         };
       }
@@ -1448,13 +1452,11 @@ test('postgres repository creates an application with interview intake details a
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const application = await repository.createApplication({
+  const application = await repository.createAdmission({
     actorMemberId: 'member-1',
     clubId: 'club-2',
     applicantMemberId: 'member-9',
     sponsorMemberId: 'member-1',
-    membershipId: 'membership-9',
-    path: 'sponsored',
     initialStatus: 'submitted',
     notes: 'Warm intro via sponsor',
     intake: { kind: 'fit_check', price: { amount: 49, currency: 'GBP' }, bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' },
@@ -1462,14 +1464,12 @@ test('postgres repository creates an application with interview intake details a
   });
 
   assert.ok(application);
-  assert.equal(application?.applicationId, 'application-9');
-  assert.match(calls[5]?.sql ?? '', /insert into app\.applications/);
-  assert.deepEqual(calls[5]?.params, [
+  assert.equal(application?.admissionId, 'application-9');
+  assert.match(calls[4]?.sql ?? '', /insert into app\.admissions/);
+  assert.deepEqual(calls[4]?.params, [
     'club-2',
     'member-9',
     'member-1',
-    'membership-9',
-    'sponsored',
     '{"source":"operator"}',
     'submitted',
     'Warm intro via sponsor',
@@ -1484,7 +1484,7 @@ test('postgres repository creates an application with interview intake details a
   assert.equal(calls.at(-1)?.sql, 'commit');
 });
 
-test('postgres repository appends application state transitions and reloads current projection', async () => {
+test('postgres repository appends admission state transitions and reloads current projection', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
   const client = {
@@ -1492,36 +1492,41 @@ test('postgres repository appends application state transitions and reloads curr
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('from app.current_applications ca') && sql.includes('join app.accessible_club_memberships owner_scope')) {
+      if (sql.includes('from app.current_admissions ca') && sql.includes('join app.accessible_club_memberships owner_scope')) {
         return {
           rows: [{
-            application_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', current_status: 'interview_scheduled', current_version_no: 2,
-            current_version_id: 'appver-2', current_metadata: { source: 'operator' }, current_intake_kind: 'fit_check', current_intake_price_amount: '49.00',
+            admission_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9',
+            applicant_name: null, applicant_email: null,
+            current_status: 'interview_scheduled', current_version_no: 2,
+            current_version_id: 'appver-2', current_metadata: { source: 'operator' },
+            current_admission_details: null,
+            current_intake_kind: 'fit_check', current_intake_price_amount: '49.00',
             current_intake_price_currency: 'GBP', current_intake_booking_url: 'https://cal.example.test/fit-check', current_intake_booked_at: '2026-03-14T10:00:00Z',
             current_intake_completed_at: null, current_membership_id: 'membership-9',
+            sponsor_member_id: 'member-1',
           }], rowCount: 1,
         };
       }
-      if (sql.includes('select cnm.id as membership_id') && sql.includes('where cnm.id = $1')) return { rows: [{ membership_id: 'membership-10' }], rowCount: 1 };
-      if (sql.includes('update app.applications a')) return { rows: [], rowCount: 1 };
-      if (sql.includes('insert into app.application_versions')) return { rows: [], rowCount: 1 };
+      if (sql.includes('update app.admissions a')) return { rows: [], rowCount: 1 };
+      if (sql.includes('insert into app.admission_versions')) return { rows: [], rowCount: 1 };
       if (sql.includes('from app.current_club_memberships cnm') && sql.includes('current_state_version_id')) {
         return {
-          rows: [{ membership_id: 'membership-10', current_status: 'pending_review', current_version_no: 2, current_state_version_id: 'state-2' }],
+          rows: [{ membership_id: 'membership-9', current_status: 'pending_review', current_version_no: 2, current_state_version_id: 'state-2' }],
           rowCount: 1,
         };
       }
       if (sql.includes('insert into app.club_membership_state_versions')) return { rows: [], rowCount: 1 };
-      if (sql.includes('from app.current_applications ca') && sql.includes('where ca.id = $1')) {
+      if (sql.includes('from app.current_admissions ca') && sql.includes('where ca.id = $1')) {
         return {
           rows: [{
-            application_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
-            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-10',
-            linked_membership_status: 'active', linked_membership_accepted_covenant_at: null, path: 'sponsored',
+            admission_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9', applicant_public_name: 'Member Nine', applicant_handle: 'member-nine',
+            applicant_email: null, applicant_name: null,
+            sponsor_member_id: 'member-1', sponsor_public_name: 'Member One', sponsor_handle: 'member-one', membership_id: 'membership-9',
+            linked_membership_status: 'active', linked_membership_accepted_covenant_at: null, origin: 'owner_nominated',
             intake_kind: 'fit_check', intake_price_amount: '49.00', intake_price_currency: 'GBP', intake_booking_url: 'https://cal.example.test/fit-check',
             intake_booked_at: '2026-03-14T10:00:00Z', intake_completed_at: '2026-03-14T10:30:00Z',
             status: 'accepted', notes: 'Strong yes', version_no: 3, version_created_at: '2026-03-14T10:30:00Z', version_created_by_member_id: 'member-1',
-            metadata: { source: 'operator', outcome: 'strong_yes' }, created_at: '2026-03-12T00:00:00Z',
+            admission_details: null, metadata: { source: 'operator', outcome: 'strong_yes' }, created_at: '2026-03-12T00:00:00Z',
           }], rowCount: 1,
         };
       }
@@ -1531,31 +1536,21 @@ test('postgres repository appends application state transitions and reloads curr
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const application = await repository.transitionApplication({
+  const application = await repository.transitionAdmission({
     actorMemberId: 'member-1',
-    applicationId: 'application-9',
+    admissionId: 'application-9',
     nextStatus: 'accepted',
     notes: 'Strong yes',
     accessibleClubIds: ['club-2'],
     intake: { completedAt: '2026-03-14T10:30:00Z' },
-    membershipId: 'membership-10',
-    activateMembership: true,
-    activationReason: 'Interview complete and approved',
     metadataPatch: { outcome: 'strong_yes' },
   });
 
   assert.ok(application);
   assert.equal(application?.state.status, 'accepted');
-  assert.deepEqual(application?.activation, {
-    linkedMembershipId: 'membership-10',
-    membershipStatus: 'active',
-    acceptedCovenantAt: null,
-    readyForActivation: false,
-  });
-  assert.deepEqual(calls[3]?.params, ['membership-10', 'club-2', 'member-9']);
-  assert.deepEqual(calls[4]?.params, ['application-9', 'membership-10', '{"source":"operator","outcome":"strong_yes"}']);
-  assert.deepEqual(calls[5]?.params, ['application-9', 'accepted', 'Strong yes', 'fit_check', '49.00', 'GBP', 'https://cal.example.test/fit-check', '2026-03-14T10:00:00Z', '2026-03-14T10:30:00Z', 3, 'appver-2', 'member-1']);
-  assert.deepEqual(calls[7]?.params, ['membership-10', 'Interview complete and approved', 3, 'state-2', 'member-1']);
+  assert.equal(application?.origin, 'owner_nominated');
+  assert.deepEqual(calls[3]?.params, ['application-9', '{"source":"operator","outcome":"strong_yes"}']);
+  assert.deepEqual(calls[4]?.params, ['application-9', 'accepted', 'Strong yes', 'fit_check', '49.00', 'GBP', 'https://cal.example.test/fit-check', '2026-03-14T10:00:00Z', '2026-03-14T10:30:00Z', 3, 'appver-2', 'member-1']);
 });
 
 test('postgres repository appends membership state transitions and reloads current projection', async () => {

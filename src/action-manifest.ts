@@ -11,9 +11,9 @@ export type ActionSpec = {
 };
 
 export const ACTION_MANIFEST: ActionSpec[] = [
-  // Cold applications (unauthenticated)
-  { action: 'applications.challenge', domain: 'cold-applications', description: 'Request a proof-of-work challenge for a cold application.', auth: 'none', safety: 'mutating', aiExposed: false },
-  { action: 'applications.solve', domain: 'cold-applications', description: 'Submit a solved proof-of-work challenge to create a cold application.', auth: 'none', safety: 'mutating', aiExposed: false },
+  // Cold admissions (unauthenticated)
+  { action: 'admissions.challenge', domain: 'cold-admissions', description: 'Request a proof-of-work challenge for a cold admission.', auth: 'none', safety: 'mutating', aiExposed: false },
+  { action: 'admissions.apply', domain: 'cold-admissions', description: 'Submit a solved proof-of-work challenge to create a cold admission.', auth: 'none', safety: 'mutating', aiExposed: false },
 
   // Session
   { action: 'session.describe', domain: 'platform', description: 'Resolve the current member session, accessible clubs, and any pending update context.', auth: 'member', safety: 'read_only', aiExposed: true },
@@ -39,15 +39,15 @@ export const ACTION_MANIFEST: ActionSpec[] = [
   { action: 'memberships.transition', domain: 'admissions', description: 'Change a membership status (activate, pause, revoke).', auth: 'owner', safety: 'mutating', aiExposed: false },
   { action: 'vouches.create', domain: 'admissions', description: 'Vouch for another member in a shared club with a concrete reason.', auth: 'member', safety: 'mutating', aiExposed: true },
   { action: 'vouches.list', domain: 'admissions', description: 'List vouches for a member in accessible clubs.', auth: 'member', safety: 'read_only', aiExposed: true },
-  { action: 'sponsorships.create', domain: 'sponsorships', description: 'Recommend an outsider for admission to a club.', auth: 'member', safety: 'mutating', aiExposed: true },
-  { action: 'sponsorships.list', domain: 'sponsorships', description: 'List sponsorship recommendations. Owners see all; members see their own.', auth: 'member', safety: 'read_only', aiExposed: true },
+  { action: 'admissions.sponsor', domain: 'admissions', description: 'Recommend an outsider for admission to a club.', auth: 'member', safety: 'mutating', aiExposed: true },
   { action: 'members.search', domain: 'admissions', description: 'Search for members by name, skill, or interests.', auth: 'member', safety: 'read_only', aiExposed: true },
   { action: 'members.list', domain: 'admissions', description: 'List members in accessible clubs.', auth: 'member', safety: 'read_only', aiExposed: false },
 
-  // Applications
-  { action: 'applications.list', domain: 'admissions', description: 'List applications in owner-managed clubs.', auth: 'owner', safety: 'read_only', aiExposed: true },
-  { action: 'applications.create', domain: 'admissions', description: 'Create a new admissions application.', auth: 'owner', safety: 'mutating', aiExposed: true },
-  { action: 'applications.transition', domain: 'admissions', description: 'Advance an application through the admissions workflow.', auth: 'owner', safety: 'mutating', aiExposed: true },
+  // Admissions
+  { action: 'admissions.list', domain: 'admissions', description: 'List admissions in owner-managed clubs.', auth: 'owner', safety: 'read_only', aiExposed: true },
+  { action: 'admissions.nominate', domain: 'admissions', description: 'Create a new admission nomination.', auth: 'owner', safety: 'mutating', aiExposed: true },
+  { action: 'admissions.transition', domain: 'admissions', description: 'Advance an admission through the admissions workflow.', auth: 'owner', safety: 'mutating', aiExposed: true },
+  { action: 'admissions.issueAccess', domain: 'admissions', description: 'Issue a bearer token for an admission applicant.', auth: 'owner', safety: 'mutating', aiExposed: false },
 
   // Profile
   { action: 'profile.get', domain: 'profile', description: 'Read a member profile. Omit memberId for the current actor.', auth: 'member', safety: 'read_only', aiExposed: true },
@@ -78,7 +78,7 @@ export const ACTION_MANIFEST: ActionSpec[] = [
   { action: 'admin.overview', domain: 'admin', description: 'Platform-wide stats overview.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.members.list', domain: 'admin', description: 'List all members with pagination.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.members.get', domain: 'admin', description: 'Get full member detail with all memberships.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
-  { action: 'admin.clubs.stats', domain: 'admin', description: 'Per-club member, content, message, and application counts.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
+  { action: 'admin.clubs.stats', domain: 'admin', description: 'Per-club member, content, message, and admission counts.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.content.list', domain: 'admin', description: 'List all content across clubs.', auth: 'superadmin', safety: 'read_only', aiExposed: false },
   { action: 'admin.content.archive', domain: 'admin', description: 'Archive any content (moderation).', auth: 'superadmin', safety: 'mutating', aiExposed: false },
   { action: 'admin.messages.threads', domain: 'admin', description: 'List all message threads across clubs.', auth: 'superadmin', safety: 'read_only', aiExposed: false },

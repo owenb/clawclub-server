@@ -147,7 +147,7 @@ async function postAction(baseUrl: string, bearerToken: string, action: string, 
     method: 'POST',
     headers: {
       authorization: `Bearer ${bearerToken}`,
-      'content-type': 'application/json',
+      'content-type': 'admission/json',
     },
     body: JSON.stringify({ action, input }),
   });

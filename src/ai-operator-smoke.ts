@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import type { LanguageModelV1, LanguageModelV1CallOptions, LanguageModelV1FunctionToolCall } from '@ai-sdk/provider';
 import { MockLanguageModelV1 } from 'ai/test';
 import { runClawClubOperatorTurn } from './ai-operator.ts';
-import type { ApplicationSummary, AuthResult, MembershipReviewSummary, Repository } from './app.ts';
+import type { AdmissionSummary, AuthResult, MembershipReviewSummary, Repository } from './app.ts';
 
 export type OperatorSmokeResult = {
   text: string;
@@ -49,20 +49,15 @@ function makeMembershipReview(): MembershipReviewSummary {
   };
 }
 
-function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
+function makeAdmission(overrides: Partial<AdmissionSummary> = {}): AdmissionSummary {
   return {
-    applicationId: 'application-1',
+    admissionId: 'admission-1',
     clubId: 'club-conscious',
     applicant: { memberId: 'member-2', publicName: 'Lina Vector', handle: 'lina', email: null },
     sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
     membershipId: 'membership-2',
-    activation: {
-      linkedMembershipId: 'membership-2',
-      membershipStatus: 'pending_review',
-      acceptedCovenantAt: null,
-      readyForActivation: true,
-    },
-    path: 'sponsored',
+    origin: 'owner_nominated',
+    admissionDetails: {},
     intake: {
       kind: 'fit_check',
       price: { amount: 49, currency: 'GBP' },
@@ -93,28 +88,22 @@ function makeRepository(callLog: string[]): Repository {
       callLog.push(`listMembershipReviews:${JSON.stringify(input)}`);
       return [makeMembershipReview()];
     },
-    async listApplications(input) {
-      callLog.push(`listApplications:${JSON.stringify(input)}`);
-      return [makeApplication()];
+    async listAdmissions(input) {
+      callLog.push(`listAdmissions:${JSON.stringify(input)}`);
+      return [makeAdmission()];
     },
-    async createApplication() { return null; },
-    async transitionApplication(input) {
-      callLog.push(`transitionApplication:${JSON.stringify(input)}`);
-      return makeApplication({
-        activation: {
-          linkedMembershipId: 'membership-2',
-          membershipStatus: 'active',
-          acceptedCovenantAt: null,
-          readyForActivation: false,
-        },
+    async createAdmission() { return null; },
+    async transitionAdmission(input) {
+      callLog.push(`transitionAdmission:${JSON.stringify(input)}`);
+      return makeAdmission({
         state: {
-          ...makeApplication().state,
+          ...makeAdmission().state,
           status: 'accepted',
           versionNo: 3,
           notes: input.notes ?? 'Interview complete and accepted',
         },
         intake: {
-          ...makeApplication().intake,
+          ...makeAdmission().intake,
           completedAt: input.intake?.completedAt ?? '2026-03-14T10:30:00Z',
         },
       });
@@ -149,9 +138,9 @@ function makeScriptedModel(): LanguageModelV1 {
   let index = 0;
   const steps = [
     { type: 'tool', toolName: 'memberships_review', args: { clubId: 'club-conscious', limit: 5 } },
-    { type: 'tool', toolName: 'applications_list', args: { clubId: 'club-conscious', statuses: ['interview_completed'], limit: 5 } },
-    { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'accepted', membershipId: 'membership-2', activateMembership: true, activationReason: 'Interview passed and owner approved', notes: 'Accepted and activated', intake: { completedAt: '2026-03-14T10:30:00Z' } } },
-    { type: 'text', text: 'I reviewed the queue, confirmed Lina completed the interview, then accepted the application and activated the membership.' },
+    { type: 'tool', toolName: 'admissions_list', args: { clubId: 'club-conscious', statuses: ['interview_completed'], limit: 5 } },
+    { type: 'tool', toolName: 'admissions_transition', args: { admissionId: 'admission-1', status: 'accepted', notes: 'Accepted after interview', intake: { completedAt: '2026-03-14T10:30:00Z' } } },
+    { type: 'text', text: 'I reviewed the queue, confirmed Lina completed the interview, then accepted the admission.' },
   ] as const;
 
   return new MockLanguageModelV1({
@@ -188,11 +177,10 @@ export async function runOperatorSmoke(): Promise<OperatorSmokeResult> {
     maxSteps: 4,
   });
 
-  assert.match(result.text, /activated the membership/);
+  assert.match(result.text, /accepted the admission/);
   assert.equal(callLog.some((entry) => entry.startsWith('listMembershipReviews:')), true);
-  assert.equal(callLog.some((entry) => entry.startsWith('listApplications:')), true);
-  assert.equal(callLog.some((entry) => entry.startsWith('transitionApplication:')), true);
-  assert.equal(callLog.some((entry) => entry.includes('"activateMembership":true')), true);
+  assert.equal(callLog.some((entry) => entry.startsWith('listAdmissions:')), true);
+  assert.equal(callLog.some((entry) => entry.startsWith('transitionAdmission:')), true);
 
   return { text: result.text, callLog };
 }

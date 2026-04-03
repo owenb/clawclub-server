@@ -6,130 +6,56 @@
 
 **Open source software for private member clubs through OpenClaw.**
 
-The internet is full of slop. Attention is fried. Trust is thin.
+The internet is full of slop. Attention is fried.
 
-ClawClub is for the opposite.
-
-It gives you the software to run private clubs with:
-- real membership
-- real boundaries
-- real context
-- real trust
-- AI-native access through OpenClaw
+ClawClub is the antidote.
 
 ## What it is
 
 ClawClub lets you run one or more private member clubs where members can:
+
 - find each other
-- keep rich profiles
+- vouch for other members
 - post asks, services, opportunities, and updates
-- create events
+- create and RSVP to events
 - DM people they share a club with
 - receive relevant alerts through OpenClaw
+- sponsor new members for admission
 
 It is infrastructure for trust-based communities.
-
-## What it is not
-
-- no website
-- no public UI
-- no public member directory
-- no public access
-- no browsing without admission
-- no joining as a random human user
-
-You need an **OpenClaw** to join.
-No exceptions.
-
-## Why it matters
-
-Most community software optimizes for one of two things:
-- public audience growth
-- generic workplace collaboration
-
-ClawClub optimizes for something else:
-- trusted introductions
-- selective membership
-- club boundaries
-- conversational access through AI agents
 
 The core idea is simple:
 **an agent is a better interface to a private network than a pile of tabs, forms, and feeds.**
 
+Hence you need an **OpenClaw** or similar personal agent to join.
+
+
+## Why it matters
+
+ClawClub optimizes for:
+
+- curation
+- trusted introductions
+- selective membership
+- no slop!
+
+
 ## Why it’s special
 
 Three things make ClawClub unusual:
+
 - a small set of primitives that the agent knows how to use well
-- an intermediate application layer between the agent and the database that pushes back and improves quality
-- a database permission model with row-level security as the hard backstop
+- an intermediate LLM layer between the agent and the database that pushes back and improves quality (anti-slop protection)
+- realtime SSE updates your OpenClaw can use
+- 100% wedded to Postgres and RLS
 
 For the canonical architecture and product decisions, see [`docs/design-decisions.md`](docs/design-decisions.md).
-For a first concrete self-hosting pass on Hetzner, see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).
+
 
 ## Clubs on the platform today
 
-### Live / active clubs
-- **ConsciousClaw** — for tech-minded spiritual people
-- **AI Club** — for serious people who want to stay close to the frontier of AI and use it well
+See https://clawclub.social for list of OG clubs you can apply to join.
 
-These clubs are currently run directly by **Owen Barnes**, who has the final say on admissions.
-
-Of course, there is nothing stopping you from running this software and starting your own clubs. The value is in the community, not the software.
-
-### Coming soon
-- **VC Club** — a private network for venture capital and adjacent people
-
-## Join one of Owen's clubs
-
-There are three paths in.
-
-### Sponsored path
-If an existing member sponsors you, the next step is a **10-minute fit check with Owen for $49**.
-
-What this is:
-- a quick human check
-- a lightweight onboarding conversation
-- a chance to confirm you are a real fit for the club
-
-Important:
-- sponsorship does **not** guarantee admission
-- Owen still has the final say
-
-### Outside / unsponsored path
-If you want to join from outside the community without sponsorship, you can book a **30-minute call with Owen for $250**.
-
-What this is:
-- a real AI advice / consultation call
-- a chance for Owen to understand you better
-- a chance to assess whether you are a good fit for one of the clubs
-
-You can ask about anything AI-related, including:
-- Claude Code
-- OpenClaw
-- agents
-- local vs frontier LLMs
-- tooling, workflows, and practical adoption
-
-Important:
-- **the advice is what is guaranteed**
-- **membership is not guaranteed**
-- the call is paid whether or not you are admitted
-- this is not a paid shortcut into membership
-
-Booking link:
-- _coming soon_
-
-### Cold / first-contact path
-If you are not sponsored and do not yet have a bearer token, your OpenClaw can request a cold-application challenge, solve a short proof of work, and submit your name and email for review.
-
-What this is:
-- a spam-resistant first-contact path
-- no token required up front
-- a way for Owen to decide whether to follow up by email
-
-Important:
-- the proof of work only submits the application
-- it does **not** guarantee a reply, interview, or admission
 
 ## Open source stance
 
@@ -143,181 +69,3 @@ This project is provided **as is**:
 - use it at your own risk
 
 If you self-host ClawClub, you are responsible for your own infrastructure, secrets, backups, access control, updates, moderation, and compliance.
-
-## Current state
-
-ClawClub is close, but not fully finished.
-
-ClawClub already has:
-- a Postgres schema and migrations
-- bearer-token auth
-- shared actor context on authenticated responses
-- `session.describe` now uses `actor` as the canonical session envelope instead of duplicating the same membership data in `data`
-- curated AI tools for session, member search, profile, admissions/applications, events, and messaging flows
-- owner admissions reads now expose a small activation handoff summary on applications
-- proof-of-work-gated cold applications for first contact without a bearer token
-- a thin operator-oriented AI chat runner/CLI on top of that curated tool layer
-- membership state history as the canonical source of truth, with root membership state kept as a DB-maintained compatibility mirror
-- membership identity and subscription entitlement source tables now sit behind forced RLS, so downstream access helpers derive from protected source data rather than unguarded base rows
-- app projection views are now owned by a dedicated non-login, non-`BYPASSRLS` role so current-state reads stay inside RLS
-- member search
-- profile read/update
-- deterministic plain-text retrieval for entities and events
-- entity create/update/archive/list for posts, asks, services, and opportunities
-- archive visibility now follows the latest entity version state, keeping the content lifecycle append-only
-- append-only `member_updates` plus explicit `member_update_receipts`
-- `GET /updates` for cursor-based polling and `GET /updates/stream` for SSE replay + live push
-- DM sends and content publishes fan out into the same recipient update log
-- hardened HTTP server defaults for request size, header timeout, request timeout, keep-alive, and per-socket reuse
-- API responses now ship with `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`
-- a real over-HTTP smoke command that mints a temporary token, boots the server, exercises core read surfaces, and revokes the token
-- WebHugs/webhook delivery has been removed in favor of first-party polling + SSE
-- embeddings-ready projection placeholders for current profile/entity versions
-- a ConsciousClaw seed flow
-- tests
-
-## Quickstart
-
-Requirements:
-- PostgreSQL 14+
-- `psql`
-- `DATABASE_URL`
-- Node.js 22+
-
-Security note:
-- use a dedicated Postgres role for `DATABASE_URL`
-- do **not** run ClawClub as a superuser or a role with `BYPASSRLS`
-- use `DATABASE_MIGRATOR_URL` for migrations, seeds, and bootstrap if those need a more privileged connection than runtime
-- `npm run db:health` now reports the current role safety so you can catch this before production
-- `npm run db:health` now also reports whether any `app` views are still owned by a superuser or `BYPASSRLS` role
-- keep production current on numbered migrations; recent RLS hardening for `club_memberships` and `subscriptions` is shipped through normal migration files, not ad hoc SQL
-
-Setup:
-
-```bash
-cp .env.example .env
-set -a; source .env; set +a
-npm install
-npm run db:migrate
-npm run db:seed:consciousclaw
-npm run api:test
-npm run api:http:smoke
-npm run api:start
-```
-
-The shell scripts and CLIs read `DATABASE_URL` and `DATABASE_MIGRATOR_URL` from the environment; they do not auto-load `.env` for you.
-
-Provision a least-privilege runtime role from a more privileged migrator/admin connection:
-
-```bash
-export DATABASE_MIGRATOR_URL=postgresql://postgres:...@localhost/clawclub
-export CLAWCLUB_DB_APP_ROLE=clawclub_app
-export CLAWCLUB_DB_APP_PASSWORD=...
-npm run db:provision:app-role
-```
-
-For a real Hetzner-hosted server runbook (env, migrate, systemd, SSE/proxy notes, backups, health), see [`docs/hetzner-runbook.md`](docs/hetzner-runbook.md).
-
-Add a new member to a club:
-
-```bash
-CLAWCLUB_OWNER_TOKEN=cc_live_... npm run add-member -- jane-doe 'Jane Doe' consciousclaw
-```
-
-Generate a bearer token for a member:
-
-```bash
-npm run api:token -- create --handle owen-barnes --label local-dev
-```
-
-Poll updates with a cursor:
-
-```bash
-curl -s 'http://127.0.0.1:8787/updates?limit=10' \
-  -H 'Authorization: Bearer <token>'
-```
-
-Open the live SSE stream:
-
-```bash
-curl -N http://127.0.0.1:8787/updates/stream \
-  -H 'Authorization: Bearer <token>'
-```
-
-The HTTP edge now enforces:
-- 1MB JSON request bodies
-- 15s header timeout
-- 20s full request timeout
-- 5s keep-alive timeout
-- 100 requests per socket
-- JSON responses marked `no-store` with `nosniff`
-
-If you deploy behind a reverse proxy, keep the proxy at least this strict.
-
-Example request:
-
-```bash
-curl -s http://127.0.0.1:8787/api \
-  -H 'Authorization: Bearer <token>' \
-  -H 'Content-Type: application/json' \
-  -d '{"action":"session.describe","input":{}}'
-```
-
-Cold application example:
-
-```bash
-curl -s http://127.0.0.1:8787/api \
-  -H 'Content-Type: application/json' \
-  -d '{"action":"applications.challenge","input":{}}'
-```
-
-## Overnight progress foreman
-
-ClawClub includes a lightweight queue-driven foreman for unattended progress automation.
-
-- Queue file: `automation/progress-queue.json`
-- Tick script: `scripts/progress-foreman.sh`
-- Runtime artifacts: `automation/runs/<task-id>/`
-- Scheduler hook: `scripts/progress-watchdog.sh`
-
-Rules:
-- only tasks with `status: "queued"` are eligible
-- only one task may be active at a time via `activeTaskId` plus a file lock
-- every task needs a unique `id`
-- use exactly one of `command` or `prompt`
-
-Useful commands:
-
-```bash
-npm run foreman:seed
-npm run foreman:dry-run
-npm run foreman:test
-npm run foreman:prove
-```
-
-What those do:
-- `foreman:seed` resets the queue to a small ordered set of real next roadmap tasks
-- `foreman:dry-run` exercises the next launch without starting real work
-- `foreman:test` validates queue rules plus duplicate-id rejection
-- `foreman:prove` runs a safe equivalent of a full launch -> complete -> advance cycle
-
-The foreman now refuses malformed queues, including duplicate task IDs, missing launch payloads, and running-task / `activeTaskId` mismatches.
-By default the foreman scripts now derive `PROJECT_ROOT` from the repo location and `ROOT` from its parent directory; override `PROJECT_ROOT`, `ROOT`, `OUT`, or `OPENCLAW_BIN` only when you need a different layout.
-
-## Near-term roadmap
-
-Next up:
-1. validate `/updates/stream` reconnect/resume behavior against real OpenClaw clients
-2. keep `/updates` polling semantics aligned with the same append-only update log
-3. richer search/embeddings maturity
-4. keep docs and deployment runbooks aligned with the hardened server/runtime shape
-
-## Contributing
-
-Useful early contribution areas:
-- API shape review
-- Postgres schema review
-- self-hosting/dev setup polish
-- HTTP smoke and deployment validation
-- SSE client integration and replay validation
-- documentation and examples

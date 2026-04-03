@@ -2,23 +2,26 @@ import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 import {
   AppError,
-  type ApplicationStatus,
-  type ApplicationSummary,
-  type ColdApplicationChallengeResult,
-  type CreateApplicationInput,
+  type AdmissionStatus,
+  type AdmissionSummary,
+  type AdmissionChallengeResult,
+  type CreateAdmissionNominationInput,
+  type IssueAdmissionAccessInput,
+  type IssueAdmissionAccessResult,
   type MembershipState,
   type Repository,
-  type SolveColdApplicationChallengeInput,
-  type TransitionApplicationInput,
+  type SolveAdmissionChallengeInput,
+  type TransitionAdmissionInput,
 } from '../app.ts';
+import { buildBearerToken } from '../token.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
 
 const COLD_APPLICATION_DIFFICULTY = 7;
 const COLD_APPLICATION_CHALLENGE_TTL_MS = 60 * 60 * 1000;
 
-type ApplicationRow = {
-  application_id: string;
+type AdmissionRow = {
+  admission_id: string;
   club_id: string;
   applicant_member_id: string | null;
   applicant_public_name: string | null;
@@ -31,26 +34,26 @@ type ApplicationRow = {
   membership_id: string | null;
   linked_membership_status: MembershipState | null;
   linked_membership_accepted_covenant_at: string | null;
-  path: 'sponsored' | 'outside' | 'cold';
+  origin: 'self_applied' | 'member_sponsored' | 'owner_nominated';
   intake_kind: 'fit_check' | 'advice_call' | 'other';
   intake_price_amount: string | number | null;
   intake_price_currency: string | null;
   intake_booking_url: string | null;
   intake_booked_at: string | null;
   intake_completed_at: string | null;
-  status: ApplicationStatus;
+  status: AdmissionStatus;
   notes: string | null;
   version_no: number;
   version_created_at: string;
   version_created_by_member_id: string | null;
-  application_details: Record<string, unknown> | null;
+  admission_details: Record<string, unknown> | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
 };
 
-function mapApplicationRow(row: ApplicationRow): ApplicationSummary {
+function mapAdmissionRow(row: AdmissionRow): AdmissionSummary {
   return {
-    applicationId: row.application_id,
+    admissionId: row.admission_id,
     clubId: row.club_id,
     applicant: {
       memberId: row.applicant_member_id,
@@ -66,13 +69,7 @@ function mapApplicationRow(row: ApplicationRow): ApplicationSummary {
         }
       : null,
     membershipId: row.membership_id,
-    activation: {
-      linkedMembershipId: row.membership_id,
-      membershipStatus: row.linked_membership_status,
-      acceptedCovenantAt: row.linked_membership_accepted_covenant_at,
-      readyForActivation: row.status === 'accepted' && row.membership_id !== null && row.linked_membership_status === 'pending_review',
-    },
-    path: row.path,
+    origin: row.origin,
     intake: {
       kind: row.intake_kind,
       price: {
@@ -90,25 +87,25 @@ function mapApplicationRow(row: ApplicationRow): ApplicationSummary {
       createdAt: row.version_created_at,
       createdByMemberId: row.version_created_by_member_id,
     },
-    applicationDetails: row.application_details ?? {},
+    admissionDetails: row.admission_details ?? {},
     metadata: row.metadata ?? {},
     createdAt: row.created_at,
   };
 }
 
-async function readApplications(client: DbClient, input: {
+async function readAdmissions(client: DbClient, input: {
   clubIds: string[];
   limit: number;
-  statuses?: ApplicationStatus[];
-}): Promise<ApplicationSummary[]> {
+  statuses?: AdmissionStatus[];
+}): Promise<AdmissionSummary[]> {
   if (input.clubIds.length === 0) {
     return [];
   }
 
-  const result = await client.query<ApplicationRow>(
+  const result = await client.query<AdmissionRow>(
     `
       select
-        ca.id as application_id,
+        ca.id as admission_id,
         ca.club_id,
         ca.applicant_member_id,
         ca.applicant_email,
@@ -121,7 +118,7 @@ async function readApplications(client: DbClient, input: {
         ca.membership_id,
         cnm.status as linked_membership_status,
         cnm.accepted_covenant_at::text as linked_membership_accepted_covenant_at,
-        ca.path,
+        ca.origin,
         ca.intake_kind,
         ca.intake_price_amount,
         ca.intake_price_currency,
@@ -133,10 +130,10 @@ async function readApplications(client: DbClient, input: {
         ca.version_no,
         ca.version_created_at::text as version_created_at,
         ca.version_created_by_member_id,
-        ca.application_details,
+        ca.admission_details,
         ca.metadata,
         ca.created_at::text as created_at
-      from app.current_applications ca
+      from app.current_admissions ca
       left join app.members applicant on applicant.id = ca.applicant_member_id
       left join app.members sponsor on sponsor.id = ca.sponsor_member_id
       left join app.current_club_memberships cnm on cnm.id = ca.membership_id
@@ -148,14 +145,14 @@ async function readApplications(client: DbClient, input: {
     [input.clubIds, input.statuses ?? null, input.limit],
   );
 
-  return result.rows.map(mapApplicationRow);
+  return result.rows.map(mapAdmissionRow);
 }
 
-async function readApplicationSummary(client: DbClient, applicationId: string): Promise<ApplicationSummary | null> {
-  const result = await client.query<ApplicationRow>(
+async function readAdmissionSummary(client: DbClient, admissionId: string): Promise<AdmissionSummary | null> {
+  const result = await client.query<AdmissionRow>(
     `
       select
-        ca.id as application_id,
+        ca.id as admission_id,
         ca.club_id,
         ca.applicant_member_id,
         ca.applicant_email,
@@ -168,7 +165,7 @@ async function readApplicationSummary(client: DbClient, applicationId: string): 
         ca.membership_id,
         cnm.status as linked_membership_status,
         cnm.accepted_covenant_at::text as linked_membership_accepted_covenant_at,
-        ca.path,
+        ca.origin,
         ca.intake_kind,
         ca.intake_price_amount,
         ca.intake_price_currency,
@@ -180,23 +177,23 @@ async function readApplicationSummary(client: DbClient, applicationId: string): 
         ca.version_no,
         ca.version_created_at::text as version_created_at,
         ca.version_created_by_member_id,
-        ca.application_details,
+        ca.admission_details,
         ca.metadata,
         ca.created_at::text as created_at
-      from app.current_applications ca
+      from app.current_admissions ca
       left join app.members applicant on applicant.id = ca.applicant_member_id
       left join app.members sponsor on sponsor.id = ca.sponsor_member_id
       left join app.current_club_memberships cnm on cnm.id = ca.membership_id
       where ca.id = $1
       limit 1
     `,
-    [applicationId],
+    [admissionId],
   );
 
-  return result.rows[0] ? mapApplicationRow(result.rows[0]) : null;
+  return result.rows[0] ? mapAdmissionRow(result.rows[0]) : null;
 }
 
-export function buildApplicationsRepository({
+export function buildAdmissionsRepository({
   pool,
   applyActorContext,
   withActorContext,
@@ -206,18 +203,19 @@ export function buildApplicationsRepository({
   withActorContext: WithActorContext;
 }): Pick<
   Repository,
-  | 'listApplications'
-  | 'createApplication'
-  | 'transitionApplication'
-  | 'createColdApplicationChallenge'
-  | 'solveColdApplicationChallenge'
+  | 'listAdmissions'
+  | 'createAdmission'
+  | 'transitionAdmission'
+  | 'createAdmissionChallenge'
+  | 'solveAdmissionChallenge'
+  | 'issueAdmissionAccess'
 > {
   return {
-    async listApplications({ actorMemberId, clubIds, limit, statuses }) {
-      return withActorContext(pool, actorMemberId, clubIds, (client) => readApplications(client, { clubIds, limit, statuses }));
+    async listAdmissions({ actorMemberId, clubIds, limit, statuses }) {
+      return withActorContext(pool, actorMemberId, clubIds, (client) => readAdmissions(client, { clubIds, limit, statuses }));
     },
 
-    async createApplication(input: CreateApplicationInput): Promise<ApplicationSummary | null> {
+    async createAdmission(input: CreateAdmissionNominationInput): Promise<AdmissionSummary | null> {
       const client = await pool.connect();
       try {
         await client.query('begin');
@@ -240,11 +238,6 @@ export function buildApplicationsRepository({
           return null;
         }
 
-        const path = input.path;
-        if (path === 'sponsored' && !input.sponsorMemberId) {
-          throw new AppError(400, 'invalid_application', 'Sponsored applications require sponsorMemberId');
-        }
-
         const sponsorResult = input.sponsorMemberId
           ? await client.query<{ member_id: string }>(
               `
@@ -264,42 +257,22 @@ export function buildApplicationsRepository({
           return null;
         }
 
-        const membershipResult = input.membershipId
-          ? await client.query<{ membership_id: string }>(
-              `
-                select cnm.id as membership_id
-                from app.current_club_memberships cnm
-                where cnm.id = $1
-                  and cnm.club_id = $2
-                  and cnm.member_id = $3
-                limit 1
-              `,
-              [input.membershipId, input.clubId, input.applicantMemberId],
-            )
-          : { rows: [] };
-
-        if (input.membershipId && !membershipResult.rows[0]) {
-          await client.query('rollback');
-          return null;
-        }
-
-        const applicationResult = await client.query<{ application_id: string }>(
+        const admissionResult = await client.query<{ admission_id: string }>(
           `
             with inserted as (
-              insert into app.applications (
+              insert into app.admissions (
                 club_id,
                 applicant_member_id,
                 sponsor_member_id,
-                membership_id,
-                path,
+                origin,
                 metadata
               )
-              select $1, $2, $3, $4, $5, $6::jsonb
+              select $1, $2, $3, 'owner_nominated'::text, $4::jsonb
               where app.member_is_active($2)
-              returning id as application_id
+              returning id as admission_id
             ), version_insert as (
-              insert into app.application_versions (
-                application_id,
+              insert into app.admission_versions (
+                admission_id,
                 status,
                 notes,
                 intake_kind,
@@ -312,32 +285,30 @@ export function buildApplicationsRepository({
                 created_by_member_id
               )
               select
-                application_id,
+                admission_id,
+                $5,
+                $6,
                 $7,
                 $8,
                 $9,
                 $10,
                 $11,
                 $12,
-                $13,
-                $14,
                 1,
-                $15
+                $13
               from inserted
             )
-            select application_id
+            select admission_id
             from inserted
           `,
           [
             input.clubId,
             input.applicantMemberId,
             input.sponsorMemberId ?? null,
-            input.membershipId ?? null,
-            input.path,
             JSON.stringify(input.metadata ?? {}),
             input.initialStatus,
             input.notes ?? null,
-            input.intake.kind ?? (path === 'sponsored' ? 'fit_check' : 'advice_call'),
+            input.intake.kind ?? 'fit_check',
             input.intake.price?.amount ?? null,
             input.intake.price?.currency ?? 'GBP',
             input.intake.bookingUrl ?? null,
@@ -347,14 +318,14 @@ export function buildApplicationsRepository({
           ],
         );
 
-        const applicationId = applicationResult.rows[0]?.application_id;
-        if (!applicationId) {
+        const admissionId = admissionResult.rows[0]?.admission_id;
+        if (!admissionId) {
           await client.query('rollback');
           return null;
         }
 
         await client.query('commit');
-        return await withActorContext(pool, input.actorMemberId, [input.clubId], (scopedClient) => readApplicationSummary(scopedClient, applicationId));
+        return await withActorContext(pool, input.actorMemberId, [input.clubId], (scopedClient) => readAdmissionSummary(scopedClient, admissionId));
       } catch (error) {
         await client.query('rollback');
         throw error;
@@ -363,20 +334,23 @@ export function buildApplicationsRepository({
       }
     },
 
-    async transitionApplication(input: TransitionApplicationInput): Promise<ApplicationSummary | null> {
+    async transitionAdmission(input: TransitionAdmissionInput): Promise<AdmissionSummary | null> {
       const client = await pool.connect();
       try {
         await client.query('begin');
         await applyActorContext(client, input.actorMemberId, input.accessibleClubIds);
 
-        const applicationResult = await client.query<{
-          application_id: string;
+        const admissionResult = await client.query<{
+          admission_id: string;
           club_id: string;
           applicant_member_id: string | null;
-          current_status: ApplicationStatus;
+          applicant_name: string | null;
+          applicant_email: string | null;
+          current_status: AdmissionStatus;
           current_version_no: number;
           current_version_id: string;
           current_metadata: Record<string, unknown> | null;
+          current_admission_details: Record<string, unknown> | null;
           current_intake_kind: 'fit_check' | 'advice_call' | 'other';
           current_intake_price_amount: string | number | null;
           current_intake_price_currency: string | null;
@@ -384,24 +358,29 @@ export function buildApplicationsRepository({
           current_intake_booked_at: string | null;
           current_intake_completed_at: string | null;
           current_membership_id: string | null;
+          sponsor_member_id: string | null;
         }>(
           `
             select
-              ca.id as application_id,
+              ca.id as admission_id,
               ca.club_id,
               ca.applicant_member_id,
+              ca.applicant_name,
+              ca.applicant_email,
               ca.status as current_status,
               ca.version_no as current_version_no,
               ca.version_id as current_version_id,
               ca.metadata as current_metadata,
+              ca.admission_details as current_admission_details,
               ca.intake_kind as current_intake_kind,
               ca.intake_price_amount as current_intake_price_amount,
               ca.intake_price_currency as current_intake_price_currency,
               ca.intake_booking_url as current_intake_booking_url,
               ca.intake_booked_at::text as current_intake_booked_at,
               ca.intake_completed_at::text as current_intake_completed_at,
-              ca.membership_id as current_membership_id
-            from app.current_applications ca
+              ca.membership_id as current_membership_id,
+              ca.sponsor_member_id
+            from app.current_admissions ca
             join app.accessible_club_memberships owner_scope
               on owner_scope.club_id = ca.club_id
              and owner_scope.member_id = $1
@@ -410,70 +389,37 @@ export function buildApplicationsRepository({
               and ca.club_id = any($3::app.short_id[])
             limit 1
           `,
-          [input.actorMemberId, input.applicationId, input.accessibleClubIds],
+          [input.actorMemberId, input.admissionId, input.accessibleClubIds],
         );
 
-        const application = applicationResult.rows[0];
-        if (!application) {
+        const admission = admissionResult.rows[0];
+        if (!admission) {
           await client.query('rollback');
           return null;
         }
 
-        if (input.membershipId !== undefined && input.membershipId !== null) {
-          const membershipResult = await client.query<{ membership_id: string }>(
-            `
-              select cnm.id as membership_id
-              from app.current_club_memberships cnm
-              where cnm.id = $1
-                and cnm.club_id = $2
-                and cnm.member_id = $3
-              limit 1
-            `,
-            [input.membershipId, application.club_id, application.applicant_member_id],
-          );
-
-          if (!membershipResult.rows[0]) {
-            await client.query('rollback');
-            return null;
-          }
-        }
-
         const mergedMetadata = {
-          ...(application.current_metadata ?? {}),
+          ...(admission.current_metadata ?? {}),
           ...(input.metadataPatch ?? {}),
         };
 
-        const resolvedMembershipId = input.membershipId === undefined ? application.current_membership_id : input.membershipId;
-        const resolvedCompletedAt = input.intake?.completedAt === undefined ? application.current_intake_completed_at : input.intake.completedAt;
+        const resolvedCompletedAt = input.intake?.completedAt === undefined ? admission.current_intake_completed_at : input.intake.completedAt;
 
-        if (input.activateMembership) {
-          if (input.nextStatus !== 'accepted') {
-            throw new AppError(409, 'activation_requires_accepted_application', 'Membership activation requires the application status to be accepted');
-          }
-
-          if (!resolvedMembershipId) {
-            throw new AppError(409, 'activation_requires_membership', 'Membership activation requires a linked membership');
-          }
-
-          if (!resolvedCompletedAt) {
-            throw new AppError(409, 'activation_requires_completed_interview', 'Membership activation requires interview completion metadata');
-          }
-        }
-
+        // Update admission metadata
         await client.query(
           `
-            update app.applications a
-            set membership_id = $2,
-                metadata = $3::jsonb
+            update app.admissions a
+            set metadata = $2::jsonb
             where a.id = $1
           `,
-          [application.application_id, resolvedMembershipId, JSON.stringify(mergedMetadata)],
+          [admission.admission_id, JSON.stringify(mergedMetadata)],
         );
 
+        // Insert new admission version
         await client.query(
           `
-            insert into app.application_versions (
-              application_id,
+            insert into app.admission_versions (
+              admission_id,
               status,
               notes,
               intake_kind,
@@ -489,81 +435,181 @@ export function buildApplicationsRepository({
             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           `,
           [
-            application.application_id,
+            admission.admission_id,
             input.nextStatus,
             input.notes ?? null,
-            input.intake?.kind ?? application.current_intake_kind,
-            input.intake?.price?.amount === undefined ? application.current_intake_price_amount : input.intake.price.amount,
-            input.intake?.price?.currency === undefined ? application.current_intake_price_currency : input.intake.price.currency,
-            input.intake?.bookingUrl === undefined ? application.current_intake_booking_url : input.intake.bookingUrl,
-            input.intake?.bookedAt === undefined ? application.current_intake_booked_at : input.intake.bookedAt,
+            input.intake?.kind ?? admission.current_intake_kind,
+            input.intake?.price?.amount === undefined ? admission.current_intake_price_amount : input.intake.price.amount,
+            input.intake?.price?.currency === undefined ? admission.current_intake_price_currency : input.intake.price.currency,
+            input.intake?.bookingUrl === undefined ? admission.current_intake_booking_url : input.intake.bookingUrl,
+            input.intake?.bookedAt === undefined ? admission.current_intake_booked_at : input.intake.bookedAt,
             resolvedCompletedAt,
-            Number(application.current_version_no) + 1,
-            application.current_version_id,
+            Number(admission.current_version_no) + 1,
+            admission.current_version_id,
             input.actorMemberId,
           ],
         );
 
-        if (input.activateMembership) {
-          const membershipResult = await client.query<{
-            membership_id: string;
-            current_status: MembershipState;
-            current_version_no: number;
-            current_state_version_id: string;
-          }>(
-            `
-              select
-                cnm.id as membership_id,
-                cnm.status as current_status,
-                cnm.state_version_no as current_version_no,
-                cnm.state_version_id as current_state_version_id
-              from app.current_club_memberships cnm
-              join app.accessible_club_memberships owner_scope
-                on owner_scope.club_id = cnm.club_id
-               and owner_scope.member_id = $1
-               and owner_scope.role = 'owner'
-              where cnm.id = $2
-                and cnm.club_id = any($3::app.short_id[])
-              limit 1
-            `,
-            [input.actorMemberId, resolvedMembershipId, input.accessibleClubIds],
-          );
+        // Handle acceptance: finalize membership for the applicant
+        if (input.nextStatus === 'accepted') {
+          const isOutsider = admission.applicant_member_id === null;
 
-          const membership = membershipResult.rows[0];
-          if (!membership) {
-            await client.query('rollback');
-            return null;
+          if (isOutsider) {
+            // Outsider admission: create a member from the admission data via security definer
+            const displayName = admission.applicant_name ?? 'New Member';
+            const email = admission.applicant_email;
+            if (!email) {
+              throw new AppError(409, 'admission_missing_email', 'Cannot accept an outsider admission without an email address');
+            }
+
+            const memberResult = await client.query<{ member_id: string }>(
+              `select member_id from app.create_member_from_admission($1, $2, $3, $4::jsonb)`,
+              [
+                admission.applicant_name ?? displayName,
+                email,
+                displayName,
+                JSON.stringify(admission.current_admission_details ?? {}),
+              ],
+            );
+
+            const newMemberId = memberResult.rows[0]?.member_id;
+            if (!newMemberId) {
+              throw new AppError(500, 'member_creation_failed', 'Failed to create member from admission');
+            }
+
+            // Create membership for the new member
+            const membershipResult = await client.query<{ id: string }>(
+              `
+                insert into app.club_memberships (club_id, member_id, sponsor_member_id, role, status)
+                values ($1, $2, $3, 'member', 'active')
+                returning id
+              `,
+              [admission.club_id, newMemberId, admission.sponsor_member_id],
+            );
+
+            const newMembershipId = membershipResult.rows[0]?.id;
+            if (!newMembershipId) {
+              throw new AppError(500, 'membership_creation_failed', 'Failed to create membership for admitted member');
+            }
+
+            // Create membership state version
+            await client.query(
+              `
+                insert into app.club_membership_state_versions (
+                  membership_id,
+                  status,
+                  reason,
+                  version_no,
+                  created_by_member_id
+                )
+                values ($1, 'active', 'Admitted from accepted admission', 1, $2)
+              `,
+              [newMembershipId, input.actorMemberId],
+            );
+
+            // Link admission to the new member and membership
+            await client.query(
+              `
+                update app.admissions
+                set applicant_member_id = $2,
+                    membership_id = $3
+                where id = $1
+              `,
+              [admission.admission_id, newMemberId, newMembershipId],
+            );
+          } else {
+            // Existing member admission: create membership if not already linked
+            let membershipId = admission.current_membership_id;
+
+            if (!membershipId) {
+              const membershipResult = await client.query<{ id: string }>(
+                `
+                  insert into app.club_memberships (club_id, member_id, sponsor_member_id, role, status)
+                  values ($1, $2, $3, 'member', 'active')
+                  returning id
+                `,
+                [admission.club_id, admission.applicant_member_id, admission.sponsor_member_id],
+              );
+
+              membershipId = membershipResult.rows[0]?.id ?? null;
+              if (!membershipId) {
+                throw new AppError(500, 'membership_creation_failed', 'Failed to create membership for admitted member');
+              }
+
+              // Create membership state version
+              await client.query(
+                `
+                  insert into app.club_membership_state_versions (
+                    membership_id,
+                    status,
+                    reason,
+                    version_no,
+                    created_by_member_id
+                  )
+                  values ($1, 'active', 'Admitted from accepted admission', 1, $2)
+                `,
+                [membershipId, input.actorMemberId],
+              );
+
+              // Link admission to the membership
+              await client.query(
+                `
+                  update app.admissions
+                  set membership_id = $2
+                  where id = $1
+                `,
+                [admission.admission_id, membershipId],
+              );
+            } else {
+              // Membership already linked — activate it if pending
+              const membershipCheck = await client.query<{
+                membership_id: string;
+                current_status: MembershipState;
+                current_version_no: number;
+                current_state_version_id: string;
+              }>(
+                `
+                  select
+                    cnm.id as membership_id,
+                    cnm.status as current_status,
+                    cnm.state_version_no as current_version_no,
+                    cnm.state_version_id as current_state_version_id
+                  from app.current_club_memberships cnm
+                  where cnm.id = $1
+                  limit 1
+                `,
+                [membershipId],
+              );
+
+              const membership = membershipCheck.rows[0];
+              if (membership && membership.current_status !== 'active') {
+                await client.query(
+                  `
+                    insert into app.club_membership_state_versions (
+                      membership_id,
+                      status,
+                      reason,
+                      version_no,
+                      supersedes_state_version_id,
+                      created_by_member_id
+                    )
+                    values ($1, 'active', 'Admitted from accepted admission', $2, $3, $4)
+                  `,
+                  [
+                    membership.membership_id,
+                    Number(membership.current_version_no) + 1,
+                    membership.current_state_version_id,
+                    input.actorMemberId,
+                  ],
+                );
+              }
+            }
           }
-
-          if (membership.current_status !== 'pending_review') {
-            throw new AppError(409, 'membership_not_ready_for_activation', 'Only pending-review memberships can be activated through this flow');
-          }
-
-          await client.query(
-            `
-              insert into app.club_membership_state_versions (
-                membership_id,
-                status,
-                reason,
-                version_no,
-                supersedes_state_version_id,
-                created_by_member_id
-              )
-              values ($1, 'active', $2, $3, $4, $5)
-            `,
-            [
-              membership.membership_id,
-              input.activationReason ?? input.notes ?? 'Activated from accepted application',
-              Number(membership.current_version_no) + 1,
-              membership.current_state_version_id,
-              input.actorMemberId,
-            ],
-          );
         }
 
         await client.query('commit');
         return await withActorContext(pool, input.actorMemberId, input.accessibleClubIds, (scopedClient) =>
-          readApplicationSummary(scopedClient, application.application_id),
+          readAdmissionSummary(scopedClient, admission.admission_id),
         );
       } catch (error) {
         await client.query('rollback');
@@ -573,16 +619,16 @@ export function buildApplicationsRepository({
       }
     },
 
-    async createColdApplicationChallenge(): Promise<ColdApplicationChallengeResult> {
+    async createAdmissionChallenge(): Promise<AdmissionChallengeResult> {
       const challengeResult = await pool.query<{ challenge_id: string; expires_at: string }>(
         `select challenge_id, expires_at from app.create_cold_application_challenge($1, $2)`,
         [COLD_APPLICATION_DIFFICULTY, COLD_APPLICATION_CHALLENGE_TTL_MS],
       );
-      const challenge = requireReturnedRow(challengeResult.rows[0], 'Cold application challenge was not created');
+      const challenge = requireReturnedRow(challengeResult.rows[0], 'Admission challenge was not created');
 
       const expiresAt = Date.parse(challenge.expires_at);
       if (!Number.isFinite(expiresAt)) {
-        throw new AppError(500, 'invalid_data', 'Cold application challenge expiry was not returned');
+        throw new AppError(500, 'invalid_data', 'Admission challenge expiry was not returned');
       }
 
       const clubsResult = await pool.query<{ slug: string; name: string; summary: string | null }>(
@@ -597,8 +643,8 @@ export function buildApplicationsRepository({
       };
     },
 
-    async solveColdApplicationChallenge(
-      input: SolveColdApplicationChallengeInput,
+    async solveAdmissionChallenge(
+      input: SolveAdmissionChallengeInput,
     ): Promise<{ success: boolean } | null> {
       const client = await pool.connect();
 
@@ -633,17 +679,17 @@ export function buildApplicationsRepository({
           throw new AppError(400, 'invalid_proof', 'The submitted proof does not meet the difficulty requirement');
         }
 
-        const applicationDetails = JSON.stringify({
+        const admissionDetails = JSON.stringify({
           socials: input.socials,
           reason: input.reason,
         });
 
-        const applicationResult = await client.query<{ application_id: string }>(
-          `select application_id from app.consume_cold_application_challenge($1, $2, $3, $4, $5::jsonb)`,
-          [input.challengeId, input.clubSlug, input.name, input.email, applicationDetails],
+        const admissionResult = await client.query<{ admission_id: string }>(
+          `select admission_id from app.consume_admission_challenge($1, $2, $3, $4, $5::jsonb)`,
+          [input.challengeId, input.clubSlug, input.name, input.email, admissionDetails],
         );
 
-        if (!applicationResult.rows[0]) {
+        if (!admissionResult.rows[0]) {
           await client.query('rollback');
           return null;
         }
@@ -659,6 +705,70 @@ export function buildApplicationsRepository({
       } finally {
         client.release();
       }
+    },
+
+    async issueAdmissionAccess(input: IssueAdmissionAccessInput): Promise<IssueAdmissionAccessResult | null> {
+      return withActorContext(pool, input.actorMemberId, input.accessibleClubIds, async (client) => {
+        // Look up the accepted admission within owner scope
+        const admissionResult = await client.query<{
+          admission_id: string;
+          applicant_member_id: string | null;
+          status: AdmissionStatus;
+        }>(
+          `
+            select
+              ca.id as admission_id,
+              ca.applicant_member_id,
+              ca.status
+            from app.current_admissions ca
+            join app.accessible_club_memberships owner_scope
+              on owner_scope.club_id = ca.club_id
+             and owner_scope.member_id = $1
+             and owner_scope.role = 'owner'
+            where ca.id = $2
+              and ca.club_id = any($3::app.short_id[])
+            limit 1
+          `,
+          [input.actorMemberId, input.admissionId, input.accessibleClubIds],
+        );
+
+        const admission = admissionResult.rows[0];
+        if (!admission) {
+          return null;
+        }
+
+        if (admission.status !== 'accepted') {
+          throw new AppError(409, 'admission_not_accepted', 'Access can only be issued for accepted admissions');
+        }
+
+        if (!admission.applicant_member_id) {
+          throw new AppError(409, 'admission_not_finalized', 'Admission has no linked member — acceptance may not have completed');
+        }
+
+        // Create a bearer token for the accepted member via security definer (bypasses self-insert RLS)
+        const token = buildBearerToken();
+        await client.query(
+          `select app.issue_admission_access($1, $2, $3, $4, $5::jsonb)`,
+          [
+            token.tokenId,
+            admission.applicant_member_id,
+            input.label ?? 'Issued from admission acceptance',
+            token.tokenHash,
+            JSON.stringify({ source: 'admission', admissionId: input.admissionId }),
+          ],
+        );
+
+        // Read the full admission summary for the response
+        const summary = await readAdmissionSummary(client, input.admissionId);
+        if (!summary) {
+          return null;
+        }
+
+        return {
+          admission: summary,
+          bearerToken: token.bearerToken,
+        };
+      });
     },
   };
 }

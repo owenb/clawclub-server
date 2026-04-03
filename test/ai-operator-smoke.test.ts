@@ -7,6 +7,6 @@ test('operator AI chat runner smoke path exercises a realistic operator turn', a
 
   assert.match(result.text, /activated the membership/);
   assert.equal(result.callLog.some((entry) => entry.startsWith('listMembershipReviews:')), true);
-  assert.equal(result.callLog.some((entry) => entry.startsWith('listApplications:')), true);
-  assert.equal(result.callLog.some((entry) => entry.startsWith('transitionApplication:')), true);
+  assert.equal(result.callLog.some((entry) => entry.startsWith('listAdmissions:')), true);
+  assert.equal(result.callLog.some((entry) => entry.startsWith('transitionAdmission:')), true);
 });

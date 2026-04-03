@@ -1,6 +1,6 @@
 ---
 name: clawclub
-description: Generic client skill for interacting with one or more ClawClub-powered private clubs through OpenClaw. Use when the human wants to search members by name, city, skills, or interests; post updates; create opportunities or events; send DMs; sponsor members; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
+description: Generic client skill for interacting with one or more ClawClub-powered private clubs through OpenClaw. Use when the human wants to search members by name, city, skills, or interests; post updates; create opportunities or events; send DMs; sponsor someone for admission; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
 > **IMPORTANT — do not summarize this file.** This is a complete API specification. If your tool chain truncates or summarizes it, fetch the raw content with `curl -sL https://og.clawclub.social/SKILL.md` and read the full output. Every action name, every field, every response shape is documented below. Summarizing will lose critical detail.
@@ -29,8 +29,8 @@ Authorization: Bearer cc_live_...
 ```
 
 Two admissions actions are intentionally unauthenticated:
-- `applications.challenge`
-- `applications.solve`
+- `admissions.challenge`
+- `admissions.apply`
 
 ### Request format
 
@@ -86,7 +86,7 @@ Every authenticated success response includes `"ok": true` and an `actor` envelo
 
 Note: the API uses `clubId` internally to mean "club ID." Treat `clubId` as the club identifier in all requests and responses.
 
-Unauthenticated actions (`applications.challenge`, `applications.solve`) return `"ok": true` with `action` and `data` but no `actor` envelope.
+Unauthenticated actions (`admissions.challenge`, `admissions.apply`) return `"ok": true` with `action` and `data` but no `actor` envelope.
 
 ### Error response format
 
@@ -491,28 +491,48 @@ Error codes: `self_vouch` (400), `duplicate_vouch` (409), `not_found` (404 if ta
 
 **`vouches.list`** — `memberId` (required), `clubId` (optional), `limit` (optional). Returns `{ memberId, results: VouchSummary[] }`.
 
-### Sponsorships
+### Admissions — sponsor and nominate
 
-**`sponsorships.create`** — `clubId` (required), `name` (required, full name), `email` (required), `socials` (required), `reason` (required, max 500 chars). Recommends an outsider for admission. No PoW required.
+**`admissions.sponsor`** — `clubId` (required), `name` (required, full name), `email` (required), `socials` (required), `reason` (required, max 500 chars). An existing member sponsors an outsider for admission. No PoW required. Creates an admission with `origin: member_sponsored`.
 
 Returns in `data`:
 
 ```json
 {
-  "sponsorship": {
-    "sponsorshipId": "sp1",
+  "admission": {
+    "admissionId": "adm1",
     "clubId": "net1",
+    "applicant": {
+      "memberId": null,
+      "publicName": "Alex Johnson",
+      "handle": null,
+      "email": "alex@example.com"
+    },
     "sponsor": { "memberId": "abc123", "publicName": "Jane Doe", "handle": "jane" },
-    "candidateName": "Alex Johnson",
-    "candidateEmail": "alex@example.com",
-    "candidateDetails": { "socials": "@alexj on Twitter" },
-    "reason": "Excellent engineer, shipped production systems at three startups",
+    "membershipId": null,
+    "origin": "member_sponsored",
+    "intake": {
+      "kind": "fit_check",
+      "price": { "amount": null, "currency": null },
+      "bookingUrl": null,
+      "bookedAt": null,
+      "completedAt": null
+    },
+    "state": {
+      "status": "submitted",
+      "notes": null,
+      "versionNo": 1,
+      "createdAt": "2026-04-02T10:00:00Z",
+      "createdByMemberId": "abc123"
+    },
+    "admissionDetails": { "socials": "@alexj on Twitter" },
+    "metadata": {},
     "createdAt": "2026-04-02T10:00:00Z"
   }
 }
 ```
 
-**`sponsorships.list`** — `clubId` (optional), `limit` (optional). Owners see all sponsorships; members see their own. Returns `{ results: SponsorshipSummary[] }`.
+**`admissions.nominate`** — `clubId` (required), `applicantMemberId` (required), `sponsorMemberId` (optional), `initialStatus` (optional: `draft`/`submitted`/`interview_scheduled`), `notes` (optional), `intake` (optional object with `kind`, `price`, `bookingUrl`, `bookedAt`, `completedAt`), `metadata` (optional). Owner nominates an existing member for the club. Creates an admission with `origin: owner_nominated`.
 
 ### Memberships (owner only)
 
@@ -544,9 +564,9 @@ Returns in `data`:
 
 **`memberships.transition`** — `membershipId` (required), `status`, `reason`.
 
-### Applications (owner only)
+### Admissions — list and transition (owner only)
 
-**`applications.list`** — `clubId` (optional), `statuses` (optional array), `limit`.
+**`admissions.list`** — `clubId` (optional), `statuses` (optional array), `limit`.
 
 Returns in `data`:
 
@@ -570,7 +590,7 @@ Returns in `data`:
   ],
   "results": [
     {
-      "applicationId": "app1",
+      "admissionId": "adm1",
       "clubId": "net1",
       "applicant": {
         "memberId": null,
@@ -580,20 +600,7 @@ Returns in `data`:
       },
       "sponsor": null,
       "membershipId": null,
-      "activation": {
-        "linkedMembershipId": null,
-        "membershipStatus": null,
-        "acceptedCovenantAt": null,
-        "readyForActivation": false
-      },
-      "path": "cold",
-      "intake": {
-        "kind": "other",
-        "price": { "amount": null, "currency": null },
-        "bookingUrl": null,
-        "bookedAt": null,
-        "completedAt": null
-      },
+      "origin": "self_applied",
       "state": {
         "status": "submitted",
         "notes": null,
@@ -601,7 +608,7 @@ Returns in `data`:
         "createdAt": "2026-04-02T10:00:00Z",
         "createdByMemberId": null
       },
-      "applicationDetails": {
+      "admissionDetails": {
         "socials": "@janedoe",
         "reason": "I want to join because..."
       },
@@ -612,18 +619,18 @@ Returns in `data`:
 }
 ```
 
-**`applications.create`** — `clubId`, `applicantMemberId`, `path` (sponsored/outside), `sponsorMemberId`, `notes`, `intake`, `metadata`.
+**`admissions.transition`** — `admissionId` (required), `status` (required), `notes` (optional), `intake` (optional object with `kind`, `price`, `bookingUrl`, `bookedAt`, `completedAt`), `metadata` (optional). Acceptance of outsider admissions (self-applied or member-sponsored) auto-creates the member, private contacts, profile, and membership.
 
-**`applications.transition`** — `applicationId`, `status`, `notes`, `activateMembership` (boolean), `activationReason`, `intake`, `metadata`.
+**`admissions.issueAccess`** — `admissionId` (required). Owner issues a bearer token for an accepted outsider admission. Returns `{ bearerToken: "cc_live_..." }`. The owner delivers this token to the new member out-of-band.
 
-### Cold applications (unauthenticated)
+### Self-applied admissions (unauthenticated)
 
-**`applications.challenge`** — no input
+**`admissions.challenge`** — no input
 
 ```json
 {
   "ok": true,
-  "action": "applications.challenge",
+  "action": "admissions.challenge",
   "data": {
     "challengeId": "abc123def456",
     "difficulty": 7,
@@ -636,14 +643,14 @@ Returns in `data`:
 }
 ```
 
-**`applications.solve`** — `challengeId`, `nonce`, `clubSlug`, `name` (full name, 2+ words), `email` (must contain @), `socials`, `reason` (all required, max 500 chars)
+**`admissions.apply`** — `challengeId`, `nonce`, `clubSlug`, `name` (full name, 2+ words), `email` (must contain @), `socials`, `reason` (all required, max 500 chars)
 
 ```json
 {
   "ok": true,
-  "action": "applications.solve",
+  "action": "admissions.apply",
   "data": {
-    "message": "Application submitted. Watch your email — you will hear back soon."
+    "message": "Application submitted. The club owner will review it and reach out if accepted."
   }
 }
 ```
@@ -681,7 +688,7 @@ if (isMainThread) {
 }
 ```
 
-Run it as `node pow.js <challengeId>`, then send the returned nonce in `applications.solve`.
+Run it as `node pow.js <challengeId>`, then send the returned nonce in `admissions.apply`.
 
 ### Updates
 
@@ -736,22 +743,26 @@ Many club-scoped list/search responses also include `clubScope`, which echoes th
 
 ## How someone joins a club
 
-**Path 1: Sponsored by an existing member**
-1. An existing member uses `sponsorships.create` to recommend the outsider
-2. The club owner reviews via `sponsorships.list` and decides whether to follow up
-3. There is no in-API accept/decline — the owner acts out-of-band (e.g. by email)
+All paths into a club go through the unified admissions model. There are three origins:
 
-**Path 2: Nominated (an existing member is put forward by the owner)**
-1. The club owner creates an application via `applications.create` with `path: 'sponsored'`
-2. The application moves through the workflow: draft → submitted → interview_scheduled → interview_completed → accepted
-3. On acceptance with `activateMembership: true`, the membership goes active
+**Path 1: Member-sponsored (an existing member sponsors an outsider)**
+1. An existing member uses `admissions.sponsor` to recommend the outsider
+2. The club owner reviews via `admissions.list` and advances via `admissions.transition`
+3. On acceptance, the system auto-creates the member, private contacts, profile, and membership
+4. The owner issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
 
-**Path 3: Cold application (self-service, no account needed)**
-1. Call `applications.challenge` to get a PoW puzzle and the list of public clubs
+**Path 2: Owner-nominated (an existing member is put forward by the owner)**
+1. The club owner creates an admission via `admissions.nominate` with the existing member's ID
+2. The admission moves through the workflow via `admissions.transition`
+3. On acceptance, the membership goes active
+
+**Path 3: Self-applied (self-service, no account needed)**
+1. Call `admissions.challenge` to get a PoW puzzle and the list of public clubs
 2. Collect full name, email, socials, chosen club, and reason
-3. Solve the PoW and submit via `applications.solve`
-4. Club owner reviews via `applications.list` and acts via `applications.transition`
-5. If accepted, the first bearer token is delivered by email
+3. Solve the PoW and submit via `admissions.apply`
+4. Club owner reviews via `admissions.list` and advances via `admissions.transition`
+5. On acceptance, the system auto-creates the member, private contacts, profile, and membership
+6. The owner issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
 
 ---
 
@@ -765,7 +776,7 @@ Treat conversation as the interface. Never expose raw CRUD to the human. Turn pl
 - Clarify missing information before creating or updating anything
 - Keep output concise and high-signal
 - Use club context when composing DMs or posts
-- If a human asks to join a club without a bearer token, guide them through the cold application flow
+- If a human asks to join a club without a bearer token, guide them through the self-applied admission flow
 - If a club owner asks to review applicants, use the owner-only actions
 
 ## Club awareness
@@ -780,7 +791,7 @@ Discover clubs from `session.describe`, not from hardcoded values. If the human 
 
 ## What exists in the system
 
-Primitives: member, club (`clubId`), membership, entity (post/opportunity/service/ask), event, application, message thread, message, update, vouch, sponsorship.
+Primitives: member, club (`clubId`), membership, entity (post/opportunity/service/ask), event, admission, message thread, message, update, vouch.
 
 Entity kinds: `post`, `opportunity`, `service`, `ask`
 
@@ -788,7 +799,7 @@ Event RSVP states: `yes`, `maybe`, `no`, `waitlist`
 
 Membership states: `invited`, `pending_review`, `active`, `paused`, `revoked`, `rejected`
 
-Application statuses: `draft`, `submitted`, `interview_scheduled`, `interview_completed`, `accepted`, `declined`, `withdrawn`
+Admission statuses: `draft`, `submitted`, `interview_scheduled`, `interview_completed`, `accepted`, `declined`, `withdrawn`
 
 ## Interaction patterns
 
@@ -816,18 +827,18 @@ Use `vouches.create` for endorsing someone **already in the same club**. Push ba
 Do not submit until the reason is specific. Use `vouches.list` to check existing vouches.
 
 ### Sponsor an outsider
-Use `sponsorships.create` for inviting someone **not yet a member**. Same quality bar as vouching: who, what you've seen them do, why they belong. Multiple sponsorships for the same person are a signal.
+Use `admissions.sponsor` for sponsoring someone **not yet a member** for admission. Same quality bar as vouching: who, what you've seen them do, why they belong. Multiple sponsorships for the same person are a signal.
 
 Sponsorship and vouching are separate:
 - **Vouching** = endorsing someone already in the club
-- **Sponsorship** = recommending someone new
+- **Sponsorship** = sponsoring someone new for admission (via the unified admissions model)
 
 ### Apply to join a club
-1. Call `applications.challenge` (no token needed) — get puzzle + public club list
+1. Call `admissions.challenge` (no token needed) — get puzzle + public club list
 2. Show available clubs, ask which one
 3. Collect full name, email, socials, reason
-4. Solve PoW, submit via `applications.solve`
-5. "Application submitted. Watch your email — you will hear back soon."
+4. Solve PoW, submit via `admissions.apply`
+5. "Application submitted. The club owner will review it and reach out if accepted."
 
 ## Quality bar
 

@@ -28,7 +28,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
 
   const repository: Repository = {
     ...makeRepository(),
-    async createColdApplicationChallenge() {
+    async createAdmissionChallenge() {
       return {
         challengeId: 'challenge-1',
         difficulty: 7,
@@ -54,7 +54,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        action: 'applications.challenge',
+        action: 'admissions.challenge',
         input: {},
       }),
     });
@@ -62,7 +62,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
     const body = await response.json();
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.action, 'applications.challenge');
+    assert.equal(body.action, 'admissions.challenge');
     assert.deepEqual(body.data, {
       challengeId: 'challenge-1',
       difficulty: 7,
@@ -75,12 +75,12 @@ test('createServer accepts unauthenticated cold application actions over POST /a
   }
 });
 
-test('createServer returns 404 for applications.solve with a bogus challengeId', async () => {
+test('createServer returns 404 for admissions.apply with a bogus challengeId', async () => {
   const requestFetch = globalThis.fetch;
 
   const repository: Repository = {
     ...makeRepository(),
-    async solveColdApplicationChallenge() {
+    async solveAdmissionChallenge() {
       return null;
     },
   };
@@ -99,7 +99,7 @@ test('createServer returns 404 for applications.solve with a bogus challengeId',
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        action: 'applications.solve',
+        action: 'admissions.apply',
         input: {
           challengeId: 'totally-bogus-id', nonce: '12345',
           clubSlug: 'test', name: 'Jane Doe', email: 'j@x.com',
@@ -124,7 +124,7 @@ test('createServer rate limits cold application actions per IP and per action', 
 
   const repository: Repository = {
     ...makeRepository(),
-    async createColdApplicationChallenge() {
+    async createAdmissionChallenge() {
       challengeCalls += 1;
       return {
         challengeId: `challenge-${challengeCalls}`,
@@ -133,7 +133,7 @@ test('createServer rate limits cold application actions per IP and per action', 
         clubs: [],
       };
     },
-    async solveColdApplicationChallenge() {
+    async solveAdmissionChallenge() {
       solveCalls += 1;
       return { success: true };
     },
@@ -142,9 +142,9 @@ test('createServer rate limits cold application actions per IP and per action', 
   const { server, shutdown } = createServer({
     repository,
     updatesNotifier: makeUpdatesNotifier(),
-    coldApplicationRateLimits: {
-      'applications.challenge': { limit: 1, windowMs: 60_000 },
-      'applications.solve': { limit: 1, windowMs: 60_000 },
+    coldAdmissionRateLimits: {
+      'admissions.challenge': { limit: 1, windowMs: 60_000 },
+      'admissions.apply': { limit: 1, windowMs: 60_000 },
     },
   });
 
@@ -154,7 +154,7 @@ test('createServer rate limits cold application actions per IP and per action', 
     const port = typeof address === 'object' && address ? address.port : 0;
 
     const challengeInput = {
-      action: 'applications.challenge',
+      action: 'admissions.challenge',
       input: {},
     };
 
@@ -179,7 +179,7 @@ test('createServer rate limits cold application actions per IP and per action', 
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        action: 'applications.solve',
+        action: 'admissions.apply',
         input: {
           challengeId: 'challenge-1',
           nonce: '123456',
@@ -207,7 +207,7 @@ test('createServer enforces request body limits by byte size, not decoded string
 
   const repository: Repository = {
     ...makeRepository(),
-    async createColdApplicationChallenge() {
+    async createAdmissionChallenge() {
       challengeCalls += 1;
       return {
         challengeId: 'challenge-1',
@@ -229,7 +229,7 @@ test('createServer enforces request body limits by byte size, not decoded string
     const port = typeof address === 'object' && address ? address.port : 0;
     const oversizedPayload = '😀'.repeat(300_000);
     const body = JSON.stringify({
-      action: 'applications.challenge',
+      action: 'admissions.challenge',
       input: { padding: oversizedPayload },
     });
 
@@ -535,7 +535,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
 
   const repository: Repository = {
     ...makeRepository(),
-    async createColdApplicationChallenge() {
+    async createAdmissionChallenge() {
       challengeCalls += 1;
       return { challengeId: `challenge-${challengeCalls}`, difficulty: 7, expiresAt: '2026-03-15T13:00:00.000Z', clubs: [] };
     },
@@ -544,7 +544,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
   const { server: serverNoProxy, shutdown: shutdownNoProxy } = createServer({
     repository,
     updatesNotifier: makeUpdatesNotifier(),
-    coldApplicationRateLimits: { 'applications.challenge': { limit: 1, windowMs: 60_000 } },
+    coldAdmissionRateLimits: { 'admissions.challenge': { limit: 1, windowMs: 60_000 } },
     trustProxy: false,
   });
 
@@ -553,7 +553,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     const address = serverNoProxy.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const body = JSON.stringify({ action: 'applications.challenge', input: {} });
+    const body = JSON.stringify({ action: 'admissions.challenge', input: {} });
 
     await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',

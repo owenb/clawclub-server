@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { AppError } from '../src/app.ts';
-import { buildApplicationsRepository } from '../src/postgres/applications.ts';
+import { buildAdmissionsRepository } from '../src/postgres/admission-queries.ts';
 
 function buildRepository(client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>; release: () => void }) {
-  return buildApplicationsRepository({
+  return buildAdmissionsRepository({
     pool: {
       connect: async () => client,
       query: async (sql: string, params?: unknown[]) => client.query(sql, params),
@@ -56,7 +56,7 @@ test('postgres applications repository creates a cold application challenge', as
   };
 
   const repository = buildRepository(client);
-  const result = await repository.createColdApplicationChallenge?.();
+  const result = await repository.createAdmissionChallenge?.();
 
   assert.equal(result?.challengeId, 'challenge-1');
   assert.equal(result?.difficulty, 7);
@@ -96,8 +96,8 @@ test('postgres applications repository verifies a solved cold application challe
         };
       }
 
-      if (sql.includes('from app.consume_cold_application_challenge(')) {
-        return { rows: [{ application_id: 'application-1' }], rowCount: 1 };
+      if (sql.includes('from app.consume_admission_challenge(')) {
+        return { rows: [{ admission_id: 'application-1' }], rowCount: 1 };
       }
 
       throw new Error(`Unexpected query: ${sql}`);
@@ -106,7 +106,7 @@ test('postgres applications repository verifies a solved cold application challe
   };
 
   const repository = buildRepository(client);
-  const result = await repository.solveColdApplicationChallenge?.({
+  const result = await repository.solveAdmissionChallenge?.({
     challengeId,
     nonce,
     clubSlug: 'alpha',
@@ -120,15 +120,16 @@ test('postgres applications repository verifies a solved cold application challe
 
   const getCall = calls.find((call) => call.sql.includes('from app.get_cold_application_challenge('));
   assert.deepEqual(getCall?.params, [challengeId]);
-  const consumeCall = calls.find((call) => call.sql.includes('from app.consume_cold_application_challenge('));
+  const consumeCall = calls.find((call) => call.sql.includes('from app.consume_admission_challenge('));
   assert.ok(consumeCall);
   assert.equal(consumeCall?.params?.[0], challengeId);
   assert.equal(consumeCall?.params?.[1], 'alpha');
   assert.equal(consumeCall?.params?.[2], 'Jane Doe');
   assert.equal(consumeCall?.params?.[3], 'jane@example.com');
-  const applicationDetails = JSON.parse(consumeCall?.params?.[4] as string);
-  assert.equal(applicationDetails.socials, '@janedoe');
-  assert.equal(applicationDetails.reason, 'Love the community');
+  const admissionDetailsStr = consumeCall?.params?.[4] as string;
+  const admissionDetails = JSON.parse(admissionDetailsStr);
+  assert.equal(admissionDetails.socials, '@janedoe');
+  assert.equal(admissionDetails.reason, 'Love the community');
 });
 
 test('postgres applications repository rejects invalid proof for cold applications', async () => {
@@ -159,7 +160,7 @@ test('postgres applications repository rejects invalid proof for cold applicatio
 
   const repository = buildRepository(client);
   await assert.rejects(
-    () => repository.solveColdApplicationChallenge?.({
+    () => repository.solveAdmissionChallenge?.({
       challengeId,
       nonce: 'definitely-not-valid',
       clubSlug: 'alpha',

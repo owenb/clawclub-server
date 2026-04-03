@@ -71,7 +71,7 @@ export type MembershipReviewSummary = MembershipAdminSummary & {
   vouches: MembershipVouchSummary[];
 };
 
-export type ApplicationStatus =
+export type AdmissionStatus =
   | 'draft'
   | 'submitted'
   | 'interview_scheduled'
@@ -80,8 +80,8 @@ export type ApplicationStatus =
   | 'declined'
   | 'withdrawn';
 
-export type ApplicationSummary = {
-  applicationId: string;
+export type AdmissionSummary = {
+  admissionId: string;
   clubId: string;
   applicant: {
     memberId: string | null;
@@ -95,13 +95,7 @@ export type ApplicationSummary = {
     handle: string | null;
   } | null;
   membershipId: string | null;
-  activation: {
-    linkedMembershipId: string | null;
-    membershipStatus: MembershipState | null;
-    acceptedCovenantAt: string | null;
-    readyForActivation: boolean;
-  };
-  path: 'sponsored' | 'outside' | 'cold';
+  origin: 'self_applied' | 'member_sponsored' | 'owner_nominated';
   intake: {
     kind: 'fit_check' | 'advice_call' | 'other';
     price: {
@@ -113,25 +107,23 @@ export type ApplicationSummary = {
     completedAt: string | null;
   };
   state: {
-    status: ApplicationStatus;
+    status: AdmissionStatus;
     notes: string | null;
     versionNo: number;
     createdAt: string;
     createdByMemberId: string | null;
   };
-  applicationDetails: Record<string, unknown>;
+  admissionDetails: Record<string, unknown>;
   metadata: Record<string, unknown>;
   createdAt: string;
 };
 
-export type CreateApplicationInput = {
+export type CreateAdmissionNominationInput = {
   actorMemberId: string;
   clubId: string;
   applicantMemberId: string;
   sponsorMemberId?: string | null;
-  membershipId?: string | null;
-  path: 'sponsored' | 'outside' | 'cold';
-  initialStatus: Extract<ApplicationStatus, 'draft' | 'submitted' | 'interview_scheduled'>;
+  initialStatus: Extract<AdmissionStatus, 'draft' | 'submitted' | 'interview_scheduled'>;
   notes?: string | null;
   intake: {
     kind?: 'fit_check' | 'advice_call' | 'other';
@@ -146,7 +138,16 @@ export type CreateApplicationInput = {
   metadata: Record<string, unknown>;
 };
 
-export type SolveColdApplicationChallengeInput = {
+export type CreateAdmissionSponsorInput = {
+  actorMemberId: string;
+  clubId: string;
+  candidateName: string;
+  candidateEmail: string;
+  candidateDetails: Record<string, unknown>;
+  reason: string;
+};
+
+export type SolveAdmissionChallengeInput = {
   challengeId: string;
   nonce: string;
   clubSlug: string;
@@ -156,17 +157,17 @@ export type SolveColdApplicationChallengeInput = {
   reason: string;
 };
 
-export type ColdApplicationChallengeResult = {
+export type AdmissionChallengeResult = {
   challengeId: string;
   difficulty: number;
   expiresAt: string;
   clubs: Array<{ slug: string; name: string; summary: string | null }>;
 };
 
-export type TransitionApplicationInput = {
+export type TransitionAdmissionInput = {
   actorMemberId: string;
-  applicationId: string;
-  nextStatus: ApplicationStatus;
+  admissionId: string;
+  nextStatus: AdmissionStatus;
   notes?: string | null;
   accessibleClubIds: string[];
   intake?: {
@@ -179,9 +180,6 @@ export type TransitionApplicationInput = {
     bookedAt?: string | null;
     completedAt?: string | null;
   };
-  membershipId?: string | null;
-  activateMembership?: boolean;
-  activationReason?: string | null;
   metadataPatch?: Record<string, unknown>;
 };
 
@@ -629,28 +627,16 @@ export type CreateVouchInput = {
   reason: string;
 };
 
-export type SponsorshipSummary = {
-  sponsorshipId: string;
-  clubId: string;
-  sponsor: {
-    memberId: string;
-    publicName: string;
-    handle: string | null;
-  };
-  candidateName: string;
-  candidateEmail: string;
-  candidateDetails: Record<string, unknown>;
-  reason: string;
-  createdAt: string;
+export type IssueAdmissionAccessInput = {
+  actorMemberId: string;
+  admissionId: string;
+  accessibleClubIds: string[];
+  label?: string | null;
 };
 
-export type CreateSponsorshipInput = {
-  actorMemberId: string;
-  clubId: string;
-  candidateName: string;
-  candidateEmail: string;
-  candidateDetails: Record<string, unknown>;
-  reason: string;
+export type IssueAdmissionAccessResult = {
+  admission: AdmissionSummary;
+  bearerToken: string;
 };
 
 export type QuotaAllowance = {
@@ -666,7 +652,7 @@ export type AdminOverview = {
   totalClubs: number;
   totalEntities: number;
   totalMessages: number;
-  totalApplications: number;
+  totalAdmissions: number;
   recentMembers: Array<{
     memberId: string;
     publicName: string;
@@ -712,7 +698,7 @@ export type AdminClubStats = {
   memberCounts: Record<string, number>;
   entityCount: number;
   messageCount: number;
-  applicationCounts: Record<string, number>;
+  admissionCounts: Record<string, number>;
 };
 
 export type AdminContentSummary = {
@@ -765,16 +751,16 @@ export type Repository = {
     limit: number;
     status?: MembershipState;
   }): Promise<MembershipAdminSummary[]>;
-  listApplications?(input: {
+  listAdmissions?(input: {
     actorMemberId: string;
     clubIds: string[];
     limit: number;
-    statuses?: ApplicationStatus[];
-  }): Promise<ApplicationSummary[]>;
-  createApplication?(input: CreateApplicationInput): Promise<ApplicationSummary | null>;
-  transitionApplication?(input: TransitionApplicationInput): Promise<ApplicationSummary | null>;
-  createColdApplicationChallenge?(): Promise<ColdApplicationChallengeResult>;
-  solveColdApplicationChallenge?(input: SolveColdApplicationChallengeInput): Promise<{ success: boolean } | null>;
+    statuses?: AdmissionStatus[];
+  }): Promise<AdmissionSummary[]>;
+  createAdmission?(input: CreateAdmissionNominationInput): Promise<AdmissionSummary | null>;
+  transitionAdmission?(input: TransitionAdmissionInput): Promise<AdmissionSummary | null>;
+  createAdmissionChallenge?(): Promise<AdmissionChallengeResult>;
+  solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<{ success: boolean } | null>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: {
@@ -829,8 +815,8 @@ export type Repository = {
 
   createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
   listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number }): Promise<MembershipVouchSummary[]>;
-  createSponsorship(input: CreateSponsorshipInput): Promise<SponsorshipSummary>;
-  listSponsorships(input: { actorMemberId: string; clubIds: string[]; limit: number }): Promise<SponsorshipSummary[]>;
+  createAdmissionSponsorship(input: CreateAdmissionSponsorInput): Promise<AdmissionSummary>;
+  issueAdmissionAccess?(input: IssueAdmissionAccessInput): Promise<IssueAdmissionAccessResult | null>;
   getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;
 
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;

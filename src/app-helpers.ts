@@ -35,10 +35,10 @@ export type RequireInteger = (value: unknown, field: string) => number;
 export type RequireObject = (value: unknown, field: string) => Record<string, unknown>;
 export type IsEntityKind = (value: unknown) => value is EntityKind;
 export type RequireMembershipState = (value: unknown, field: string) => import('./app-contract.ts').MembershipState;
-export type RequireApplicationStatus = (value: unknown, field: string) => import('./app-contract.ts').ApplicationStatus;
-export type RequireApplicationPath = (value: unknown, field: string) => 'sponsored' | 'outside';
-export type NormalizeApplicationIntake = (value: unknown, field: string) => import('./app-contract.ts').CreateApplicationInput['intake'];
-export type NormalizeApplicationMetadataPatch = (value: unknown, field: string) => Record<string, unknown> | undefined;
+export type RequireAdmissionStatus = (value: unknown, field: string) => import('./app-contract.ts').AdmissionStatus;
+export type RequireBoundedString = (value: unknown, field: string, maxLength: number) => string;
+export type NormalizeAdmissionIntake = (value: unknown, field: string) => import('./app-contract.ts').CreateAdmissionNominationInput['intake'];
+export type NormalizeAdmissionMetadataPatch = (value: unknown, field: string) => Record<string, unknown> | undefined;
 
 export function resolveScopedClubs(
   actor: ActorContext,

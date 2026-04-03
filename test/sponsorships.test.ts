@@ -1,35 +1,55 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../src/app.ts';
-import type { SponsorshipSummary } from '../src/app-contract.ts';
+import type { AdmissionSummary } from '../src/app-contract.ts';
 import { makeAuthResult, makeRepository } from './fixtures.ts';
 
-const sampleSponsorship: SponsorshipSummary = {
-  sponsorshipId: 'sp-1',
+const sampleAdmission: AdmissionSummary = {
+  admissionId: 'admission-1',
   clubId: 'club-1',
+  applicant: {
+    memberId: null,
+    publicName: 'Jane Doe',
+    handle: null,
+    email: 'jane@example.com',
+  },
   sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
-  candidateName: 'Jane Doe',
-  candidateEmail: 'jane@example.com',
-  candidateDetails: { socials: '@janedoe' },
-  reason: 'Excellent engineer, built production systems at scale',
+  membershipId: null,
+  origin: 'member_sponsored',
+  intake: {
+    kind: 'other',
+    price: { amount: null, currency: null },
+    bookingUrl: null,
+    bookedAt: null,
+    completedAt: null,
+  },
+  state: {
+    status: 'submitted',
+    notes: 'Sponsored admission created by member',
+    versionNo: 1,
+    createdAt: '2026-04-02T00:00:00Z',
+    createdByMemberId: 'member-1',
+  },
+  admissionDetails: { socials: '@janedoe' },
+  metadata: {},
   createdAt: '2026-04-02T00:00:00Z',
 };
 
-test('sponsorships.create creates a sponsorship for an outsider', async () => {
+test('admissions.sponsor creates a sponsorship for an outsider', async () => {
   let capturedInput: any = null;
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
-    async createSponsorship(input) {
+    async createAdmissionSponsorship(input) {
       capturedInput = input;
-      return sampleSponsorship;
+      return sampleAdmission;
     },
   });
 
   const app = buildApp({ repository });
   const result: any = await app.handleAction({
     bearerToken: 'test-token',
-    action: 'sponsorships.create',
+    action: 'admissions.sponsor',
     payload: {
       clubId: 'club-1',
       name: 'Jane Doe',
@@ -39,14 +59,14 @@ test('sponsorships.create creates a sponsorship for an outsider', async () => {
     },
   });
 
-  assert.equal(result.action, 'sponsorships.create');
-  assert.equal(result.data.sponsorship.sponsorshipId, 'sp-1');
+  assert.equal(result.action, 'admissions.sponsor');
+  assert.equal(result.data.admission.admissionId, 'admission-1');
   assert.equal(capturedInput.candidateName, 'Jane Doe');
   assert.equal(capturedInput.candidateEmail, 'jane@example.com');
   assert.equal(capturedInput.reason, 'Excellent engineer, built production systems at scale');
 });
 
-test('sponsorships.create rejects single-word name', async () => {
+test('admissions.sponsor rejects single-word name', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -56,7 +76,7 @@ test('sponsorships.create rejects single-word name', async () => {
   await assert.rejects(
     () => app.handleAction({
       bearerToken: 'test-token',
-      action: 'sponsorships.create',
+      action: 'admissions.sponsor',
       payload: { clubId: 'club-1', name: 'Jane', email: 'j@x.com', socials: '@j', reason: 'test' },
     }),
     (err: any) => {
@@ -67,7 +87,7 @@ test('sponsorships.create rejects single-word name', async () => {
   );
 });
 
-test('sponsorships.create rejects invalid email', async () => {
+test('admissions.sponsor rejects invalid email', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -77,7 +97,7 @@ test('sponsorships.create rejects invalid email', async () => {
   await assert.rejects(
     () => app.handleAction({
       bearerToken: 'test-token',
-      action: 'sponsorships.create',
+      action: 'admissions.sponsor',
       payload: { clubId: 'club-1', name: 'Jane Doe', email: 'nope', socials: '@j', reason: 'test' },
     }),
     (err: any) => {
@@ -88,7 +108,7 @@ test('sponsorships.create rejects invalid email', async () => {
   );
 });
 
-test('sponsorships.create rejects reason exceeding 500 characters', async () => {
+test('admissions.sponsor rejects reason exceeding 500 characters', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -98,7 +118,7 @@ test('sponsorships.create rejects reason exceeding 500 characters', async () => 
   await assert.rejects(
     () => app.handleAction({
       bearerToken: 'test-token',
-      action: 'sponsorships.create',
+      action: 'admissions.sponsor',
       payload: { clubId: 'club-1', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'x'.repeat(501) },
     }),
     (err: any) => {
@@ -109,7 +129,7 @@ test('sponsorships.create rejects reason exceeding 500 characters', async () => 
   );
 });
 
-test('sponsorships.create rejects club outside actor scope', async () => {
+test('admissions.sponsor rejects club outside actor scope', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -119,7 +139,7 @@ test('sponsorships.create rejects club outside actor scope', async () => {
   await assert.rejects(
     () => app.handleAction({
       bearerToken: 'test-token',
-      action: 'sponsorships.create',
+      action: 'admissions.sponsor',
       payload: { clubId: 'club-999', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'test' },
     }),
     (err: any) => {
@@ -129,20 +149,20 @@ test('sponsorships.create rejects club outside actor scope', async () => {
   );
 });
 
-test('sponsorships.list returns sponsorships for accessible clubs', async () => {
+test('admissions.list returns admissions for accessible clubs', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
-    async listSponsorships() { return [sampleSponsorship]; },
+    async listAdmissions() { return [sampleAdmission]; },
   });
 
   const app = buildApp({ repository });
   const result: any = await app.handleAction({
     bearerToken: 'test-token',
-    action: 'sponsorships.list',
+    action: 'admissions.list',
   });
 
-  assert.equal(result.action, 'sponsorships.list');
+  assert.equal(result.action, 'admissions.list');
   assert.equal(result.data.results.length, 1);
-  assert.equal(result.data.results[0].candidateName, 'Jane Doe');
+  assert.equal(result.data.results[0].applicant.publicName, 'Jane Doe');
 });

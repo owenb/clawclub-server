@@ -20,10 +20,9 @@ Approved action namespaces (canonical list in `src/action-manifest.ts`):
 - `events.*`
 - `messages.*`
 - `updates.*`
-- `applications.*`
+- `admissions.*`
 - `memberships.*`
 - `vouches.*`
-- `sponsorships.*`
 - `tokens.*`
 - `quotas.*`
 - `clubs.*`
@@ -31,7 +30,7 @@ Approved action namespaces (canonical list in `src/action-manifest.ts`):
 
 ## Security and permissions
 
-- bearer token identifies the actor
+- bearer token identifies the actor - no usernames or passwords
 - actor scope is always resolved server-side
 - the app layer provides orchestration and validation
 - Postgres RLS is the hard boundary
@@ -56,7 +55,7 @@ The default rule is:
 This applies to:
 - profile versions
 - entity versions
-- application versions
+- admission versions
 - membership state versions
 - club owner versions
 - transcript history
@@ -71,7 +70,7 @@ For important mutable state, use one of two shapes:
 2. append-only event table + current view
 
 Examples:
-- profiles, entities, applications, membership state, ownership: shape 1
+- profiles, entities, admissions, membership state, ownership: shape 1
 - transcript messages, RSVPs, member updates, update receipts: shape 2
 
 ## Identity and IDs
@@ -89,13 +88,13 @@ Examples:
 - one active vouch per (actor, target) pair per club, enforced by partial unique index
 - self-vouching prevented by DB CHECK constraint
 - vouches surface in `vouches.list` (any member) and `memberships.review` (owners)
-- sponsorship is a separate domain: existing member recommends outsider for admission via `sponsorships.create`
-- sponsorships are stored in a dedicated `app.sponsorships` table, not routed through applications
-- multiple sponsorships for the same outsider are allowed — the count is a signal
-- there is no in-API accept/decline for sponsorships; the owner acts out-of-band
+- admissions are the unified model for all paths into a club, with three origins:
+  - `self_applied` — unauthenticated, proof-of-work gated; `admissions.challenge` returns a PoW challenge plus publicly listed clubs; `admissions.apply` collects full name, email, socials, club slug, and reason; private clubs accept applications by slug but don't appear in the public list; completing the PoW does not mint auth
+  - `member_sponsored` — an existing member sponsors an outsider for admission via `admissions.sponsor`; no PoW required, trust comes from the sponsoring member; multiple sponsorships for the same outsider are allowed and are a signal
+  - `owner_nominated` — an owner nominates an existing member for a club via `admissions.nominate`
+- on acceptance of outsider admissions (self-applied or member-sponsored): the system auto-creates the member, private contacts, profile, and membership
+- the owner issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
 - DMs require at least one shared club
-- warm application path is `sponsored` (internal nomination of existing members)
-- cold application path is unauthenticated and proof-of-work gated; `applications.challenge` takes no input and returns a PoW challenge plus publicly listed clubs; `applications.solve` collects full name, email, socials, club slug, and reason; private clubs accept applications by slug but don't appear in the public list; completing the PoW does not mint auth — the first bearer token is delivered out-of-band by email
 
 ## Search and content
 
@@ -157,15 +156,18 @@ Polling and SSE are two views of the same underlying update log, not separate sy
 
 ## Current implementation milestones
 
-Already landed (50 actions, see `src/action-manifest.ts` for the full list):
+Already landed (see `src/action-manifest.ts` for the full list):
 - bearer-token auth with optional expiry
 - shared actor context with RLS enforcement
 - `session.describe`
 - superadmin club lifecycle: `clubs.list/create/archive/assignOwner`
 - `members.search`, `members.list`
 - `memberships.list/review/create/transition`
-- `applications.list/create/transition`
-- `applications.challenge/solve` (cold, unauthenticated)
+- `admissions.list/transition` (owner manages all admissions)
+- `admissions.challenge/apply` (self-applied, unauthenticated)
+- `admissions.sponsor` (member sponsors outsider)
+- `admissions.nominate` (owner nominates existing member)
+- `admissions.issueAccess` (owner issues bearer token for accepted outsider)
 - `profile.get/update`
 - `entities.create/update/archive/list`
 - `events.create/list/rsvp`
@@ -173,11 +175,10 @@ Already landed (50 actions, see `src/action-manifest.ts` for the full list):
 - `updates.list/acknowledge`
 - `tokens.list/create/revoke`
 - `vouches.create/list`: peer endorsement within a shared club
-- `sponsorships.create/list`: member recommends outsider for admission
 - `quotas.status`: per-club daily write quota usage and limits
 - `admin.*` (11 actions): platform overview, member/club/content/message inspection, token management, diagnostics
 - per-club daily write quotas on entities.create, events.create, messages.send
-- append-only membership/application/entity history
+- append-only membership/admission/entity history
 - SSE and polling over the same update log
 - AI operator with manifest-driven tool exposure and read-only mode
 - action manifest as single source of truth for action metadata

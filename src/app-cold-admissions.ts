@@ -1,5 +1,5 @@
 import type { Repository } from './app.ts';
-import type { SolveColdApplicationChallengeInput } from './app-contract.ts';
+import type { SolveAdmissionChallengeInput } from './app-contract.ts';
 import type { CreateAppError, RequireNonEmptyString } from './app-helpers.ts';
 
 const MAX_FIELD_LENGTH = 500;
@@ -31,7 +31,7 @@ function normalizeApplicantFullName(value: unknown, requireNonEmptyString: Requi
   return words.join(' ');
 }
 
-export async function handleColdApplicationAction(input: {
+export async function handleColdAdmissionAction(input: {
   action: string;
   payload: Record<string, unknown>;
   repository: Repository;
@@ -47,12 +47,12 @@ export async function handleColdApplicationAction(input: {
   } = input;
 
   switch (action) {
-    case 'applications.challenge': {
-      if (!repository.createColdApplicationChallenge) {
-        throw createAppError(500, 'not_supported', 'Cold application challenges are not configured');
+    case 'admissions.challenge': {
+      if (!repository.createAdmissionChallenge) {
+        throw createAppError(500, 'not_supported', 'Cold admission challenges are not configured');
       }
 
-      const challenge = await repository.createColdApplicationChallenge();
+      const challenge = await repository.createAdmissionChallenge();
 
       return {
         action,
@@ -65,12 +65,12 @@ export async function handleColdApplicationAction(input: {
       };
     }
 
-    case 'applications.solve': {
-      if (!repository.solveColdApplicationChallenge) {
-        throw createAppError(500, 'not_supported', 'Cold application challenges are not configured');
+    case 'admissions.apply': {
+      if (!repository.solveAdmissionChallenge) {
+        throw createAppError(500, 'not_supported', 'Cold admission challenges are not configured');
       }
 
-      const solved = await repository.solveColdApplicationChallenge({
+      const solved = await repository.solveAdmissionChallenge({
         challengeId: requireBoundedString(payload.challengeId, 'challengeId', requireNonEmptyString, createAppError),
         nonce: requireBoundedString(payload.nonce, 'nonce', requireNonEmptyString, createAppError),
         clubSlug: requireBoundedString(payload.clubSlug, 'clubSlug', requireNonEmptyString, createAppError),
@@ -78,7 +78,7 @@ export async function handleColdApplicationAction(input: {
         email: normalizeApplicantEmail(payload.email, requireNonEmptyString, createAppError),
         socials: requireBoundedString(payload.socials, 'socials', requireNonEmptyString, createAppError),
         reason: requireBoundedString(payload.reason, 'reason', requireNonEmptyString, createAppError),
-      } satisfies SolveColdApplicationChallengeInput);
+      } satisfies SolveAdmissionChallengeInput);
 
       if (!solved) {
         throw createAppError(404, 'not_found', 'Requested challenge was not found or the club does not exist');
@@ -87,7 +87,7 @@ export async function handleColdApplicationAction(input: {
       return {
         action,
         data: {
-          message: 'Application submitted. Watch your email — you will hear back soon.',
+          message: 'Admission submitted. The club owner will review your request.',
         },
       };
     }

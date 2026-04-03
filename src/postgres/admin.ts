@@ -36,7 +36,7 @@ export function buildAdminRepository({
           total_clubs: string;
           total_entities: string;
           total_messages: string;
-          total_applications: string;
+          total_admissions: string;
           recent_members: Array<{
             memberId: string;
             publicName: string;
@@ -49,7 +49,7 @@ export function buildAdminRepository({
             (select count(*) from app.clubs where archived_at is null)::text as total_clubs,
             (select count(*) from app.entities)::text as total_entities,
             (select count(*) from app.transcript_messages)::text as total_messages,
-            (select count(*) from app.applications)::text as total_applications,
+            (select count(*) from app.admissions)::text as total_admissions,
             coalesce((
               select jsonb_agg(jsonb_build_object(
                 'memberId', m.id,
@@ -73,7 +73,7 @@ export function buildAdminRepository({
           totalClubs: Number(row.total_clubs),
           totalEntities: Number(row.total_entities),
           totalMessages: Number(row.total_messages),
-          totalApplications: Number(row.total_applications),
+          totalAdmissions: Number(row.total_admissions),
           recentMembers: row.recent_members,
         };
       });
@@ -205,7 +205,7 @@ export function buildAdminRepository({
           member_counts: Record<string, number>;
           entity_count: string;
           message_count: string;
-          application_counts: Record<string, number>;
+          admission_counts: Record<string, number>;
         }>(
           `
             select
@@ -233,12 +233,12 @@ export function buildAdminRepository({
                 select jsonb_object_agg(status::text, cnt)
                 from (
                   select av.status, count(*)::int as cnt
-                  from app.applications a
-                  join app.current_application_versions av on av.application_id = a.id
+                  from app.admissions a
+                  join app.current_admission_versions av on av.admission_id = a.id
                   where a.club_id = n.id
                   group by av.status
                 ) s
-              ), '{}'::jsonb) as application_counts
+              ), '{}'::jsonb) as admission_counts
             from app.clubs n
             where n.id = $1
             limit 1
@@ -259,7 +259,7 @@ export function buildAdminRepository({
           memberCounts: row.member_counts,
           entityCount: Number(row.entity_count),
           messageCount: Number(row.message_count),
-          applicationCounts: row.application_counts,
+          admissionCounts: row.admission_counts,
         };
       });
     },

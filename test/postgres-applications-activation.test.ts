@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPostgresRepository } from '../src/postgres.ts';
 
-test('postgres repository lists applications with derived activation state from linked memberships', async () => {
+test('postgres repository lists admissions with derived membership state from linked memberships', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
   const client = {
@@ -17,21 +17,23 @@ test('postgres repository lists applications with derived activation state from 
         return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
       }
 
-      if (sql.includes('from app.current_applications ca')) {
+      if (sql.includes('from app.current_admissions ca')) {
         return {
           rows: [{
-            application_id: 'application-9',
+            admission_id: 'application-9',
             club_id: 'club-2',
             applicant_member_id: 'member-9',
             applicant_public_name: 'Member Nine',
             applicant_handle: 'member-nine',
+            applicant_email: null,
+            applicant_name: null,
             sponsor_member_id: 'member-1',
             sponsor_public_name: 'Member One',
             sponsor_handle: 'member-one',
             membership_id: 'membership-10',
             linked_membership_status: 'pending_review',
             linked_membership_accepted_covenant_at: null,
-            path: 'sponsored',
+            origin: 'owner_nominated',
             intake_kind: 'fit_check',
             intake_price_amount: '49.00',
             intake_price_currency: 'GBP',
@@ -43,6 +45,7 @@ test('postgres repository lists applications with derived activation state from 
             version_no: 3,
             version_created_at: '2026-03-14T10:30:00Z',
             version_created_by_member_id: 'member-1',
+            admission_details: null,
             metadata: { source: 'operator' },
             created_at: '2026-03-12T00:00:00Z',
           }],
@@ -56,19 +59,15 @@ test('postgres repository lists applications with derived activation state from 
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const applications = await repository.listApplications({
+  const admissions = await repository.listAdmissions({
     actorMemberId: 'member-1',
     clubIds: ['club-2'],
     limit: 5,
     statuses: ['accepted'],
   });
 
-  assert.equal(applications[0]?.applicationId, 'application-9');
-  assert.deepEqual(applications[0]?.activation, {
-    linkedMembershipId: 'membership-10',
-    membershipStatus: 'pending_review',
-    acceptedCovenantAt: null,
-    readyForActivation: true,
-  });
+  assert.equal(admissions[0]?.admissionId, 'application-9');
+  assert.equal(admissions[0]?.membershipId, 'membership-10');
+  assert.equal(admissions[0]?.origin, 'owner_nominated');
   assert.match(calls[2]?.sql ?? '', /left join app\.current_club_memberships cnm on cnm\.id = ca\.membership_id/);
 });

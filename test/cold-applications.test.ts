@@ -10,16 +10,16 @@ const challengeStub = {
   clubs: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }],
 };
 
-test('applications.challenge returns a PoW challenge and public club list', async () => {
+test('admissions.challenge returns a PoW challenge and public club list', async () => {
   const repository = {
     ...makeRepository(),
-    async createColdApplicationChallenge() { return challengeStub; },
+    async createAdmissionChallenge() { return challengeStub; },
   };
 
   const app = buildApp({ repository });
   const result: any = await app.handleAction({
     bearerToken: null,
-    action: 'applications.challenge',
+    action: 'admissions.challenge',
   });
 
   assert.equal(result.data.challengeId, 'c1');
@@ -28,17 +28,17 @@ test('applications.challenge returns a PoW challenge and public club list', asyn
   assert.equal(result.data.clubs[0].slug, 'alpha');
 });
 
-test('applications.solve rejects single-word name', async () => {
+test('admissions.apply rejects single-word name', async () => {
   const repository = {
     ...makeRepository(),
-    async solveColdApplicationChallenge() { return { success: true }; },
+    async solveAdmissionChallenge() { return { success: true }; },
   };
 
   const app = buildApp({ repository });
   await assert.rejects(
     () => app.handleAction({
       bearerToken: null,
-      action: 'applications.solve',
+      action: 'admissions.apply',
       payload: {
         challengeId: 'c1', nonce: '123',
         clubSlug: 'alpha', name: 'Jane',
@@ -53,17 +53,17 @@ test('applications.solve rejects single-word name', async () => {
   );
 });
 
-test('applications.solve rejects invalid email', async () => {
+test('admissions.apply rejects invalid email', async () => {
   const repository = {
     ...makeRepository(),
-    async solveColdApplicationChallenge() { return { success: true }; },
+    async solveAdmissionChallenge() { return { success: true }; },
   };
 
   const app = buildApp({ repository });
   await assert.rejects(
     () => app.handleAction({
       bearerToken: null,
-      action: 'applications.solve',
+      action: 'admissions.apply',
       payload: {
         challengeId: 'c1', nonce: '123',
         clubSlug: 'alpha', name: 'Jane Doe',
@@ -78,17 +78,17 @@ test('applications.solve rejects invalid email', async () => {
   );
 });
 
-test('applications.solve rejects missing socials', async () => {
+test('admissions.apply rejects missing socials', async () => {
   const repository = {
     ...makeRepository(),
-    async solveColdApplicationChallenge() { return { success: true }; },
+    async solveAdmissionChallenge() { return { success: true }; },
   };
 
   const app = buildApp({ repository });
   await assert.rejects(
     () => app.handleAction({
       bearerToken: null,
-      action: 'applications.solve',
+      action: 'admissions.apply',
       payload: {
         challengeId: 'c1', nonce: '123',
         clubSlug: 'alpha', name: 'Jane Doe',
@@ -102,17 +102,17 @@ test('applications.solve rejects missing socials', async () => {
   );
 });
 
-test('applications.solve rejects missing reason', async () => {
+test('admissions.apply rejects missing reason', async () => {
   const repository = {
     ...makeRepository(),
-    async solveColdApplicationChallenge() { return { success: true }; },
+    async solveAdmissionChallenge() { return { success: true }; },
   };
 
   const app = buildApp({ repository });
   await assert.rejects(
     () => app.handleAction({
       bearerToken: null,
-      action: 'applications.solve',
+      action: 'admissions.apply',
       payload: {
         challengeId: 'c1', nonce: '123',
         clubSlug: 'alpha', name: 'Jane Doe',
@@ -126,11 +126,11 @@ test('applications.solve rejects missing reason', async () => {
   );
 });
 
-test('applications.solve forwards all fields to repository', async () => {
+test('admissions.apply forwards all fields to repository', async () => {
   let capturedInput: any = null;
   const repository = {
     ...makeRepository(),
-    async solveColdApplicationChallenge(input: any) {
+    async solveAdmissionChallenge(input: any) {
       capturedInput = input;
       return { success: true };
     },
@@ -139,7 +139,7 @@ test('applications.solve forwards all fields to repository', async () => {
   const app = buildApp({ repository });
   const result: any = await app.handleAction({
     bearerToken: null,
-    action: 'applications.solve',
+    action: 'admissions.apply',
     payload: {
       challengeId: 'c1', nonce: '123',
       clubSlug: 'alpha', name: '  Jane   Doe  ',
@@ -147,7 +147,7 @@ test('applications.solve forwards all fields to repository', async () => {
     },
   });
 
-  assert.equal(result.data.message, 'Application submitted. Watch your email — you will hear back soon.');
+  assert.equal(result.data.message, 'Admission submitted. The club owner will review your request.');
   assert.equal(capturedInput.name, 'Jane Doe');
   assert.equal(capturedInput.email, 'jane@example.com');
   assert.equal(capturedInput.socials, '@janedoe on twitter');
@@ -155,10 +155,10 @@ test('applications.solve forwards all fields to repository', async () => {
   assert.equal(capturedInput.clubSlug, 'alpha');
 });
 
-test('applications.solve rejects fields exceeding 500 characters', async () => {
+test('admissions.apply rejects fields exceeding 500 characters', async () => {
   const repository = {
     ...makeRepository(),
-    async solveColdApplicationChallenge() { return { success: true }; },
+    async solveAdmissionChallenge() { return { success: true }; },
   };
 
   const app = buildApp({ repository });
@@ -175,7 +175,7 @@ test('applications.solve rejects fields exceeding 500 characters', async () => {
     await assert.rejects(
       () => app.handleAction({
         bearerToken: null,
-        action: 'applications.solve',
+        action: 'admissions.apply',
         payload,
       }),
       (err: any) => {

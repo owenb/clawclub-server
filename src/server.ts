@@ -6,7 +6,7 @@ import { AppError, buildApp, type Repository } from './app.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
 
-type ColdApplicationAction = 'applications.challenge' | 'applications.solve';
+type ColdAdmissionAction = 'admissions.challenge' | 'admissions.apply';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
 type FixedWindowRateLimitState = { count: number; resetAt: number };
 
@@ -22,12 +22,12 @@ export const DEFAULT_SERVER_LIMITS = {
   maxStreamsPerMember: 3,
 } as const;
 
-export const DEFAULT_COLD_APPLICATION_RATE_LIMITS: Record<ColdApplicationAction, FixedWindowRateLimit> = {
-  'applications.challenge': {
+export const DEFAULT_COLD_APPLICATION_RATE_LIMITS: Record<ColdAdmissionAction, FixedWindowRateLimit> = {
+  'admissions.challenge': {
     limit: 10,
     windowMs: 60 * 60 * 1000,
   },
-  'applications.solve': {
+  'admissions.apply': {
     limit: 30,
     windowMs: 60 * 60 * 1000,
   },
@@ -159,7 +159,7 @@ function normalizeUpdatesAfter(value: string | null): number | null {
 
 function writeJson(response: http.ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
-    'content-type': 'application/json; charset=utf-8',
+    'content-type': 'admission/json; charset=utf-8',
     'cache-control': 'no-store, no-cache, max-age=0',
     pragma: 'no-cache',
     'x-content-type-options': 'nosniff',
@@ -180,8 +180,8 @@ function writeSseComment(response: http.ServerResponse, comment: string) {
   response.write(`: ${comment}\n\n`);
 }
 
-function isColdApplicationAction(value: unknown): value is ColdApplicationAction {
-  return value === 'applications.challenge' || value === 'applications.solve';
+function isColdAdmissionAction(value: unknown): value is ColdAdmissionAction {
+  return value === 'admissions.challenge' || value === 'admissions.apply';
 }
 
 function getClientIp(request: http.IncomingMessage, trustProxy: boolean): string {
@@ -263,7 +263,7 @@ function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
 export function createServer(options: {
   repository?: Repository;
   updatesNotifier?: MemberUpdateNotifier;
-  coldApplicationRateLimits?: Partial<Record<ColdApplicationAction, FixedWindowRateLimit>>;
+  coldAdmissionRateLimits?: Partial<Record<ColdAdmissionAction, FixedWindowRateLimit>>;
   trustProxy?: boolean;
 } = {}) {
   const trustProxy = options.trustProxy ?? (process.env.TRUST_PROXY === '1');
@@ -272,11 +272,11 @@ export function createServer(options: {
   const repository = options.repository ?? createPostgresRepository({ pool: pool! });
   const updatesNotifier = options.updatesNotifier
     ?? (databaseUrl ? createPostgresMemberUpdateNotifier(databaseUrl) : createTimeoutOnlyNotifier());
-  const coldApplicationRateLimits: Record<ColdApplicationAction, FixedWindowRateLimit> = {
-    'applications.challenge': options.coldApplicationRateLimits?.['applications.challenge'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['applications.challenge'],
-    'applications.solve': options.coldApplicationRateLimits?.['applications.solve'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['applications.solve'],
+  const coldAdmissionRateLimits: Record<ColdAdmissionAction, FixedWindowRateLimit> = {
+    'admissions.challenge': options.coldAdmissionRateLimits?.['admissions.challenge'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.challenge'],
+    'admissions.apply': options.coldAdmissionRateLimits?.['admissions.apply'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.apply'],
   };
-  const coldApplicationRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
+  const coldAdmissionRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
   const activeStreams = new Map<string, number>();
   const app = buildApp({ repository });
   const sockets = new Set<net.Socket>();
@@ -486,11 +486,11 @@ export function createServer(options: {
 
     try {
       const body = await readJsonBody(request);
-      if (isColdApplicationAction(body.action)) {
+      if (isColdAdmissionAction(body.action)) {
         const clientIp = getClientIp(request, trustProxy);
         const key = `${body.action}:${clientIp}`;
 
-        if (!consumeFixedWindowRateLimit(coldApplicationRateLimitBuckets, key, coldApplicationRateLimits[body.action])) {
+        if (!consumeFixedWindowRateLimit(coldAdmissionRateLimitBuckets, key, coldAdmissionRateLimits[body.action])) {
           throw new AppError(429, 'rate_limited', `Too many ${body.action} requests from this IP`);
         }
       }

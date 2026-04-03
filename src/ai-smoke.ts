@@ -4,7 +4,7 @@ import type { LanguageModelV1, LanguageModelV1CallOptions, LanguageModelV1Functi
 import { MockLanguageModelV1 } from 'ai/test';
 import { generateClawClubChatText, type CanonicalClawClubToolName } from './ai.ts';
 import type {
-  ApplicationSummary,
+  AdmissionSummary,
   AuthResult,
   DirectMessageInboxSummary,
   DirectMessageSummary,
@@ -130,20 +130,15 @@ function makeMembershipReview(): MembershipReviewSummary {
   };
 }
 
-function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
+function makeAdmission(overrides: Partial<AdmissionSummary> = {}): AdmissionSummary {
   return {
-    applicationId: 'application-1',
+    admissionId: 'admission-1',
     clubId: 'club-conscious',
     applicant: { memberId: 'member-7', publicName: 'Lina Vector', handle: 'lina', email: null },
     sponsor: { memberId: 'member-1', publicName: 'Owen', handle: 'owen' },
     membershipId: null,
-    activation: {
-      linkedMembershipId: null,
-      membershipStatus: null,
-      acceptedCovenantAt: null,
-      readyForActivation: false,
-    },
-    path: 'sponsored',
+    origin: 'owner_nominated',
+    admissionDetails: {},
     intake: {
       kind: 'fit_check',
       price: { amount: 49, currency: 'GBP' },
@@ -320,49 +315,42 @@ function makeRepository(callLog: string[]): Repository {
       callLog.push(`listMembershipReviews:${JSON.stringify(input)}`);
       return [makeMembershipReview()];
     },
-    async listApplications(input) {
-      callLog.push(`listApplications:${JSON.stringify(input)}`);
-      return [makeApplication()];
+    async listAdmissions(input) {
+      callLog.push(`listAdmissions:${JSON.stringify(input)}`);
+      return [makeAdmission()];
     },
-    async createApplication(input) {
-      callLog.push(`createApplication:${JSON.stringify(input)}`);
-      return makeApplication();
+    async createAdmission(input) {
+      callLog.push(`createAdmission:${JSON.stringify(input)}`);
+      return makeAdmission();
     },
-    async transitionApplication(input) {
-      callLog.push(`transitionApplication:${JSON.stringify(input)}`);
-      if (input.activateMembership) {
-        return makeApplication({
-          membershipId: input.membershipId ?? 'membership-1',
-          activation: {
-            linkedMembershipId: input.membershipId ?? 'membership-1',
-            membershipStatus: 'active',
-            acceptedCovenantAt: null,
-            readyForActivation: false,
-          },
+    async transitionAdmission(input) {
+      callLog.push(`transitionAdmission:${JSON.stringify(input)}`);
+      if (input.nextStatus === 'accepted') {
+        return makeAdmission({
           state: {
-            ...makeApplication().state,
+            ...makeAdmission().state,
             status: 'accepted',
             versionNo: 3,
             notes: input.notes ?? 'Interview complete and accepted',
           },
           intake: {
-            ...makeApplication().intake,
+            ...makeAdmission().intake,
             completedAt: input.intake?.completedAt ?? '2026-03-14T10:30:00Z',
           },
         });
       }
 
-      return makeApplication({
+      return makeAdmission({
         state: {
-          ...makeApplication().state,
+          ...makeAdmission().state,
           status: 'interview_scheduled',
           versionNo: 2,
           notes: input.notes ?? 'Interview booked',
         },
         intake: {
-          ...makeApplication().intake,
-          bookingUrl: input.intake?.bookingUrl ?? makeApplication().intake.bookingUrl,
-          bookedAt: input.intake?.bookedAt ?? makeApplication().intake.bookedAt,
+          ...makeAdmission().intake,
+          bookingUrl: input.intake?.bookingUrl ?? makeAdmission().intake.bookingUrl,
+          bookedAt: input.intake?.bookedAt ?? makeAdmission().intake.bookedAt,
         },
       });
     },
@@ -483,20 +471,19 @@ const smokeScenarios: SmokeScenario[] = [
   },
   {
     name: 'admissions operator flow',
-    prompt: 'Review pending admissions, check submitted applications, book Lina for interview, then accept and activate her membership once the interview is complete.',
+    prompt: 'Review pending admissions, check submitted admissions, book Lina for interview, then accept and activate her membership once the interview is complete.',
     steps: [
       { type: 'tool', toolName: 'memberships_review', args: { clubId: 'club-conscious', limit: 5 } },
-      { type: 'tool', toolName: 'applications_list', args: { clubId: 'club-conscious', statuses: ['submitted'], limit: 5 } },
-      { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'interview_scheduled', notes: 'Booked fit check', intake: { bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' } } },
-      { type: 'tool', toolName: 'applications_transition', args: { applicationId: 'application-1', status: 'accepted', notes: 'Interview complete and accepted', membershipId: 'membership-1', activateMembership: true, activationReason: 'Interview passed and owner approved', intake: { completedAt: '2026-03-14T10:30:00Z' } } },
-      { type: 'text', text: 'Lina looks clean all the way through. I reviewed the queue, scheduled the interview, then accepted the application and activated the linked membership.' },
+      { type: 'tool', toolName: 'admissions_list', args: { clubId: 'club-conscious', statuses: ['submitted'], limit: 5 } },
+      { type: 'tool', toolName: 'admissions_transition', args: { admissionId: 'admission-1', status: 'interview_scheduled', notes: 'Booked fit check', intake: { bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' } } },
+      { type: 'tool', toolName: 'admissions_transition', args: { admissionId: 'admission-1', status: 'accepted', notes: 'Interview complete and accepted', intake: { completedAt: '2026-03-14T10:30:00Z' } } },
+      { type: 'text', text: 'Lina looks clean all the way through. I reviewed the queue, scheduled the interview, then accepted the admission.' },
     ],
     assert: ({ text, callLog }) => {
-      assert.match(text, /activated the linked membership/);
+      assert.match(text, /accepted the admission/);
       assert.equal(callLog.some((entry) => entry.startsWith('listMembershipReviews:')), true);
-      assert.equal(callLog.some((entry) => entry.startsWith('listApplications:')), true);
-      assert.equal(callLog.filter((entry) => entry.startsWith('transitionApplication:')).length, 2);
-      assert.equal(callLog.some((entry) => entry.includes('"activateMembership":true')), true);
+      assert.equal(callLog.some((entry) => entry.startsWith('listAdmissions:')), true);
+      assert.equal(callLog.filter((entry) => entry.startsWith('transitionAdmission:')).length, 2);
     },
   },
   {

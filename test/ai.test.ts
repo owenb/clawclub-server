@@ -7,7 +7,7 @@ import {
   createClawClubOpenAIProvider,
   listCanonicalClawClubTools,
 } from '../src/ai.ts';
-import type { ApplicationSummary, MembershipReviewSummary, Repository } from '../src/app.ts';
+import type { AdmissionSummary, MembershipReviewSummary, Repository } from '../src/app.ts';
 import { makeAuthResult, makeRepository as makeBaseRepository } from './fixtures.ts';
 
 function makeMembershipReview(): MembershipReviewSummary {
@@ -44,34 +44,29 @@ function makeMembershipReview(): MembershipReviewSummary {
   };
 }
 
-function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
+function makeApplication(overrides: Partial<AdmissionSummary> = {}): AdmissionSummary {
   return {
-    applicationId: 'application-1',
+    admissionId: 'application-1',
     clubId: 'club-1',
     applicant: { memberId: 'member-2', publicName: 'Member Two', handle: 'member-two', email: null },
     sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
     membershipId: null,
-    activation: {
-      linkedMembershipId: null,
-      membershipStatus: null,
-      acceptedCovenantAt: null,
-      readyForActivation: false,
-    },
-    path: 'sponsored',
+    origin: 'owner_nominated' as const,
     intake: {
-      kind: 'fit_check',
+      kind: 'fit_check' as const,
       price: { amount: 49, currency: 'GBP' },
       bookingUrl: 'https://cal.example.test/fit-check',
       bookedAt: '2026-03-14T10:00:00Z',
       completedAt: null,
     },
     state: {
-      status: 'submitted',
+      status: 'submitted' as const,
       notes: 'Warm intro',
       versionNo: 1,
       createdAt: '2026-03-12T00:00:00Z',
       createdByMemberId: 'member-1',
     },
+    admissionDetails: {},
     metadata: {},
     createdAt: '2026-03-12T00:00:00Z',
     ...overrides,
@@ -93,9 +88,10 @@ test('listCanonicalClawClubTools exposes the curated chat-facing tool set only',
   assert.deepEqual(
     tools.map((tool) => tool.name).sort(),
     [
-      'applications_create',
-      'applications_list',
-      'applications_transition',
+      'admissions_list',
+      'admissions_nominate',
+      'admissions_sponsor',
+      'admissions_transition',
       'entities_archive',
       'entities_create',
       'entities_list',
@@ -110,8 +106,6 @@ test('listCanonicalClawClubTools exposes the curated chat-facing tool set only',
       'profile_get',
       'profile_update',
       'session_describe',
-      'sponsorships_create',
-      'sponsorships_list',
       'vouches_create',
       'vouches_list',
     ],
@@ -163,7 +157,7 @@ test('buildClawClubAiTools forwards tool execution through the existing app/auth
   assert.equal(result?.data.results[0]?.memberId, 'member-2');
 });
 
-test('applications tools stay small and operator-ready through the curated layer', async () => {
+test('admissions tools stay small and operator-ready through the curated layer', async () => {
   let reviewInput: Record<string, unknown> | null = null;
   let listInput: Record<string, unknown> | null = null;
   let createInput: Record<string, unknown> | null = null;
@@ -174,15 +168,15 @@ test('applications tools stay small and operator-ready through the curated layer
       reviewInput = input as Record<string, unknown>;
       return [makeMembershipReview()];
     },
-    async listApplications(input) {
+    async listAdmissions(input) {
       listInput = input as Record<string, unknown>;
       return [makeApplication()];
     },
-    async createApplication(input) {
+    async createAdmission(input) {
       createInput = input as Record<string, unknown>;
       return makeApplication();
     },
-    async transitionApplication(input) {
+    async transitionAdmission(input) {
       transitionInput = input as Record<string, unknown>;
       return makeApplication({
         state: {
@@ -196,20 +190,18 @@ test('applications tools stay small and operator-ready through the curated layer
 
   const tools = buildClawClubAiTools({ repository, bearerToken: 'cc_live_test' });
   const reviewResult = await tools.memberships_review.execute?.({ clubId: 'club-1', limit: 5 }, { toolCallId: 'tool-call-review', messages: [] });
-  const listResult = await tools.applications_list.execute?.({ clubId: 'club-1', statuses: ['submitted'], limit: 5 }, { toolCallId: 'tool-call-list', messages: [] });
-  const createResult = await tools.applications_create.execute?.({
+  const listResult = await tools.admissions_list.execute?.({ clubId: 'club-1', statuses: ['submitted'], limit: 5 }, { toolCallId: 'tool-call-list', messages: [] });
+  const createResult = await tools.admissions_nominate.execute?.({
     clubId: 'club-1',
     applicantMemberId: 'member-2',
     sponsorMemberId: 'member-1',
-    path: 'sponsored',
     notes: 'Warm intro',
     intake: { kind: 'fit_check', price: { amount: 49, currency: 'gbp' } },
   }, { toolCallId: 'tool-call-create', messages: [] });
-  const transitionResult = await tools.applications_transition.execute?.({
-    applicationId: 'application-1',
+  const transitionResult = await tools.admissions_transition.execute?.({
+    admissionId: 'application-1',
     status: 'interview_scheduled',
     notes: 'Call booked',
-    activateMembership: false,
     intake: { bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z' },
     metadata: { outcome: 'strong_yes' },
   }, { toolCallId: 'tool-call-transition', messages: [] });
@@ -231,8 +223,6 @@ test('applications tools stay small and operator-ready through the curated layer
     clubId: 'club-1',
     applicantMemberId: 'member-2',
     sponsorMemberId: 'member-1',
-    membershipId: undefined,
-    path: 'sponsored',
     initialStatus: 'submitted',
     notes: 'Warm intro',
     intake: { kind: 'fit_check', price: { amount: 49, currency: 'GBP' }, bookingUrl: undefined, bookedAt: undefined, completedAt: undefined },
@@ -240,21 +230,18 @@ test('applications tools stay small and operator-ready through the curated layer
   });
   assert.deepEqual(transitionInput, {
     actorMemberId: 'member-1',
-    applicationId: 'application-1',
+    admissionId: 'application-1',
     nextStatus: 'interview_scheduled',
     notes: 'Call booked',
     accessibleClubIds: ['club-1'],
     intake: { kind: undefined, price: undefined, bookingUrl: 'https://cal.example.test/fit-check', bookedAt: '2026-03-14T10:00:00Z', completedAt: undefined },
-    membershipId: undefined,
-    activateMembership: false,
-    activationReason: undefined,
     metadataPatch: { outcome: 'strong_yes' },
   });
   assert.equal(reviewResult?.action, 'memberships.review');
-  assert.equal(listResult?.action, 'applications.list');
-  assert.equal(createResult?.action, 'applications.create');
-  assert.equal(transitionResult?.action, 'applications.transition');
-  assert.equal(transitionResult?.data.application.state.versionNo, 2);
+  assert.equal(listResult?.action, 'admissions.list');
+  assert.equal(createResult?.action, 'admissions.nominate');
+  assert.equal(transitionResult?.action, 'admissions.transition');
+  assert.equal(transitionResult?.data.admission.state.versionNo, 2);
 });
 
 test('profile_update tool preserves targeted patch semantics instead of exposing raw CRUD', async () => {
@@ -347,12 +334,12 @@ test('buildClawClubAiTools readOnly mode excludes mutating tools', () => {
   const readOnlyNames = Object.keys(readOnlyTools);
 
   assert.ok(allNames.includes('messages_send'), 'full mode includes mutating tools');
-  assert.ok(allNames.includes('applications_create'), 'full mode includes mutating tools');
+  assert.ok(allNames.includes('admissions_nominate'), 'full mode includes mutating tools');
   assert.ok(allNames.includes('entities_create'), 'full mode includes mutating tools');
 
   assert.ok(!readOnlyNames.includes('messages_send'), 'readOnly excludes messages_send');
-  assert.ok(!readOnlyNames.includes('applications_create'), 'readOnly excludes applications_create');
-  assert.ok(!readOnlyNames.includes('applications_transition'), 'readOnly excludes applications_transition');
+  assert.ok(!readOnlyNames.includes('admissions_nominate'), 'readOnly excludes admissions_nominate');
+  assert.ok(!readOnlyNames.includes('admissions_transition'), 'readOnly excludes admissions_transition');
   assert.ok(!readOnlyNames.includes('profile_update'), 'readOnly excludes profile_update');
   assert.ok(!readOnlyNames.includes('entities_create'), 'readOnly excludes entities_create');
   assert.ok(!readOnlyNames.includes('entities_archive'), 'readOnly excludes entities_archive');
@@ -385,12 +372,12 @@ test('action manifest covers exactly the set of handled actions', async () => {
   const handlerFiles = [
     '../src/app-admin.ts',
     '../src/app-admissions.ts',
-    '../src/app-cold-applications.ts',
+    '../src/app-cold-admissions.ts',
     '../src/app-content.ts',
     '../src/app-messages.ts',
     '../src/app-platform.ts',
     '../src/app-profile.ts',
-    '../src/app-sponsorships.ts',
+    
     '../src/app-updates.ts',
   ];
 

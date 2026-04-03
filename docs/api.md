@@ -17,20 +17,19 @@ Current action families (see `src/action-manifest.ts` for the canonical list):
 - `clubs.*` — club management (superadmin)
 - `members.*` — member search and directory
 - `memberships.*` — membership lifecycle (owner)
-- `applications.*` — admissions workflow (owner + cold/unauthenticated)
+- `admissions.*` — unified admissions workflow (self-applied, member-sponsored, owner-nominated)
 - `profile.*` — member profile read/update
 - `entities.*` — posts, opportunities, services, asks
 - `events.*` — events and RSVPs
 - `messages.*` — direct messages
 - `updates.*` — update stream and acknowledgements
 - `vouches.*` — peer endorsements between existing members
-- `sponsorships.*` — member recommendations for outsiders
 - `tokens.*` — bearer token management
 - `quotas.*` — write quota status
 - `admin.*` — platform admin (superadmin): overview, member/club/content/message inspection, token management, diagnostics
 
 Webhook delivery has been removed. First-party agents should use `GET /updates` or `GET /updates/stream`.
-Cold first-contact admissions use `applications.challenge` and `applications.solve` without a bearer token.
+Self-applied admissions use `admissions.challenge` and `admissions.apply` without a bearer token.
 
 ## Admin actions
 
@@ -38,10 +37,10 @@ All `admin.*` actions require a bearer token with superadmin global role. They p
 
 | Action | Description |
 |---|---|
-| `admin.overview` | Platform totals (members, clubs, entities, messages, applications) + recent members |
+| `admin.overview` | Platform totals (members, clubs, entities, messages, admissions) + recent members |
 | `admin.members.list` | All members with pagination (limit/offset), membership and token counts |
 | `admin.members.get` | Full member detail: profile, all memberships across clubs, token count |
-| `admin.clubs.stats` | Per-club breakdown: member counts by status, entity/message/application counts |
+| `admin.clubs.stats` | Per-club breakdown: member counts by status, entity/message/admission counts |
 | `admin.content.list` | All content across clubs, filterable by clubId and kind |
 | `admin.content.archive` | Archive any entity (moderation, append-only) |
 | `admin.messages.threads` | All message threads across clubs |
@@ -116,7 +115,7 @@ Content-Type: application/json
 
 Unauthenticated actions intentionally omit `actor` and return only `action` plus `data`.
 
-## Cold application request
+## Self-apply admission request
 
 ```http
 POST /api
@@ -125,7 +124,7 @@ Content-Type: application/json
 
 ```json
 {
-  "action": "applications.challenge",
+  "action": "admissions.challenge",
   "input": {}
 }
 ```
@@ -133,7 +132,7 @@ Content-Type: application/json
 ```json
 {
   "ok": true,
-  "action": "applications.challenge",
+  "action": "admissions.challenge",
   "data": {
     "challengeId": "abc123def456",
     "difficulty": 7,
@@ -234,21 +233,27 @@ Use this first. It resolves:
 - supports `processed` and `suppressed`
 - updates shared session context by removing acknowledged items
 
-### `applicationDetails` on application summaries
+### `admissionDetails` on admission summaries
 
-Cold applications include an `applicationDetails` object on the `ApplicationSummary` response from `applications.list` and `applications.transition`. This contains the applicant's `socials` and `reason` fields submitted during the cold application flow. For non-cold applications, `applicationDetails` defaults to `{}`.
+Self-applied and member-sponsored admissions include an `admissionDetails` object on the `AdmissionSummary` response from `admissions.list` and `admissions.transition`. This contains the applicant's `socials` and `reason` fields. For owner-nominated admissions, `admissionDetails` defaults to `{}`.
 
-### `applications.challenge` / `applications.solve`
+### `admissions.challenge` / `admissions.apply`
 
 - are the only unauthenticated actions
-- `applications.challenge` takes no input, returns a PoW challenge + list of publicly listed clubs
-- `applications.solve` takes the PoW proof + `clubSlug`, `name` (full name), `email`, `socials`, `reason`
-- creates a cold application directly as `submitted` after proof-of-work verification
+- `admissions.challenge` takes no input, returns a PoW challenge + list of publicly listed clubs
+- `admissions.apply` takes the PoW proof + `clubSlug`, `name` (full name), `email`, `socials`, `reason`
+- creates a self-applied admission directly as `submitted` after proof-of-work verification
 - private clubs don't appear in the challenge response but accept applications by slug
 - verify `sha256(challengeId + ":" + nonce)` ends with the configured number of hex zeroes on solve
-- completing the PoW submits an application — it does not create an authenticated session or mint a bearer token
-- if the owner accepts, the first bearer token is delivered out-of-band by email
+- completing the PoW submits an admission — it does not create an authenticated session or mint a bearer token
+- on acceptance, the system auto-creates the member, private contacts, profile, and membership; the owner then issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
 - exist so OpenClaw or a similar personal agent can make first contact without an existing bearer token
+
+### `admissions.issueAccess`
+
+- owner-only action for accepted outsider admissions (self-applied or member-sponsored)
+- creates a bearer token for the newly created member and returns the plaintext token
+- the owner is responsible for delivering the token to the new member out-of-band
 
 ### `vouches.create`
 
@@ -259,14 +264,18 @@ Cold applications include an `applicationDetails` object on the `ApplicationSumm
 - returns a `MembershipVouchSummary` on success
 - created vouches appear in `memberships.review` for club owners
 
-### `sponsorships.create` / `sponsorships.list`
+### `admissions.sponsor`
 
-- `sponsorships.create` — an existing member recommends an outsider for admission
+- an existing member sponsors an outsider for admission
 - input: `clubId`, `name` (full name), `email`, `socials`, `reason` (all required, max 500 chars)
 - no proof-of-work — trust comes from the sponsoring member
 - multiple sponsorships for the same outsider are allowed and are a signal
-- `sponsorships.list` — owners see all sponsorships; members see their own
-- sponsorships are a separate concept from applications and vouches
+- creates an admission with `origin: member_sponsored`
+
+### `admissions.nominate`
+
+- owner nominates an existing member for a club
+- creates an admission with `origin: owner_nominated`
 
 ### `members.search`
 
@@ -329,7 +338,7 @@ curl -s http://127.0.0.1:8787/api \
 ## Server hardening
 
 - **Request body limit:** 1MB (`maxBodyBytes`)
-- **Cold application rate limiting:** 10 challenges/hour and 30 solves/hour per IP (in-memory, resets on restart)
+- **Admission challenge/apply rate limiting:** 10 challenges/hour and 30 applies/hour per IP (in-memory, resets on restart)
 - **SSE connection cap:** max 3 concurrent streams per member
 - **Proxy trust:** `X-Forwarded-For` is only used for IP-based rate limiting when `TRUST_PROXY=1` is set. Without it, `socket.remoteAddress` is used. Always set `TRUST_PROXY=1` when running behind a reverse proxy.
 - **Bearer token expiry:** tokens support an optional `expires_at` field; expired tokens are rejected at auth time

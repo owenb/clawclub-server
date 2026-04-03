@@ -318,16 +318,16 @@ async function seedRlsFixture(client: PoolClient) {
 
   await setActorContext(client, ownerId);
 
-  const applicationId = (await client.query<{ id: string }>(
+  const admissionId = (await client.query<{ id: string }>(
     `
-      insert into app.applications (
+      insert into app.admissions (
         club_id,
         applicant_member_id,
         sponsor_member_id,
-        path,
+        origin,
         metadata
       )
-      values ($1, $2, $3, 'outside', '{}'::jsonb)
+      values ($1, $2, $3, 'owner_nominated', '{}'::jsonb)
       returning id
     `,
     [club1Id, outsiderId, ownerId],
@@ -335,8 +335,8 @@ async function seedRlsFixture(client: PoolClient) {
 
   await client.query(
     `
-      insert into app.application_versions (
-        application_id,
+      insert into app.admission_versions (
+        admission_id,
         status,
         notes,
         intake_kind,
@@ -345,7 +345,7 @@ async function seedRlsFixture(client: PoolClient) {
       )
       values ($1, 'submitted', 'Outside applicant under review', 'advice_call', 1, $2)
     `,
-    [applicationId, ownerId],
+    [admissionId, ownerId],
   );
 
   return {
@@ -368,7 +368,7 @@ async function seedRlsFixture(client: PoolClient) {
     club1EntityId,
     club2EntityId,
     threadId,
-    applicationId,
+    admissionId,
   };
 }
 
@@ -565,7 +565,7 @@ test('RLS restricts subscription writes to superadmin scope and blocks ordinary 
   });
 });
 
-test('RLS keeps cold application tables inaccessible and only permits the cold application definer entrypoints', async () => {
+test('RLS keeps cold admission tables inaccessible and only permits the cold admission definer entrypoints', async () => {
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
@@ -576,7 +576,7 @@ test('RLS keeps cold application tables inaccessible and only permits the cold a
     await assert.rejects(
       () => client.query(
         `
-          insert into app.cold_application_challenges (difficulty, expires_at)
+          insert into app.admission_challenges (difficulty, expires_at)
           values (1, now() + interval '1 day')
         `,
       ),
@@ -592,13 +592,13 @@ test('RLS keeps cold application tables inaccessible and only permits the cold a
 
     // Direct read of challenges table returns nothing (RLS blocks)
     const hiddenChallenge = await client.query<{ visible_count: string }>(
-      `select count(*)::text as visible_count from app.cold_application_challenges where id = $1`,
+      `select count(*)::text as visible_count from app.admission_challenges where id = $1`,
       [createdChallenge.rows[0]?.challenge_id],
     );
 
     // Direct delete of challenges is blocked by RLS
     const blockedDelete = await client.query<{ id: string }>(
-      `delete from app.cold_application_challenges where id = $1 returning id`,
+      `delete from app.admission_challenges where id = $1 returning id`,
       [createdChallenge.rows[0]?.challenge_id],
     );
 
@@ -613,26 +613,102 @@ test('RLS keeps cold application tables inaccessible and only permits the cold a
       `select slug from app.list_publicly_listed_clubs()`,
     );
 
-    // Security definer function consumes the challenge and creates an application
-    const consumedChallenge = await client.query<{ application_id: string }>(
-      `select application_id from app.consume_cold_application_challenge($1, $2, $3, $4, $5::jsonb)`,
+    // Security definer function consumes the challenge and creates an admission
+    const consumedChallenge = await client.query<{ admission_id: string }>(
+      `select admission_id from app.consume_admission_challenge($1, $2, $3, $4, $5::jsonb)`,
       [createdChallenge.rows[0]?.challenge_id, fixture.club1Slug, 'Seeded Applicant', 'seeded@example.com', '{"socials":"@seeded","reason":"testing"}'],
     );
 
-    // Direct read of applications table returns nothing (RLS blocks)
+    // Direct read of admissions table returns nothing (RLS blocks)
     const hiddenInsertedApplication = await client.query<{ visible_count: string }>(
-      `select count(*)::text as visible_count from app.current_applications where id = $1`,
-      [consumedChallenge.rows[0]?.application_id],
+      `select count(*)::text as visible_count from app.current_admissions where id = $1`,
+      [consumedChallenge.rows[0]?.admission_id],
     );
 
     assert.equal(typeof createdChallenge.rows[0]?.challenge_id, 'string');
-    assert.equal(typeof consumedChallenge.rows[0]?.application_id, 'string');
+    assert.equal(typeof consumedChallenge.rows[0]?.admission_id, 'string');
     assert.equal(hiddenChallenge.rows[0]?.visible_count, '0');
     assert.equal(blockedDelete.rowCount, 0);
     assert.equal(visibleChallenge.rows[0]?.challenge_id, createdChallenge.rows[0]?.challenge_id);
     assert.equal(visibleChallenge.rows[0]?.difficulty, 1);
     assert.ok(publicClubs.rows.length >= 0);
     assert.equal(hiddenInsertedApplication.rows[0]?.visible_count, '0');
+  });
+});
+
+test('outsider acceptance via create_member_from_admission creates member, contacts, profile, and membership', async () => {
+  await withIsolatedClient(async (client, roleName) => {
+    const fixture = await seedRlsFixture(client);
+    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
+
+    // Create a cold admission as the cold application definer
+    await client.query(`select set_config('app.actor_member_id', '', true)`);
+    const createdChallenge = await client.query<{ challenge_id: string }>(
+      `select challenge_id from app.create_cold_application_challenge($1, $2)`,
+      [1, 60 * 60 * 1000],
+    );
+    const consumed = await client.query<{ admission_id: string }>(
+      `select admission_id from app.consume_admission_challenge($1, $2, $3, $4, $5::jsonb)`,
+      [createdChallenge.rows[0]!.challenge_id, fixture.club1Slug, 'Jane Outsider', 'jane@example.com', '{"socials":"@jane","reason":"Want to join"}'],
+    );
+    const admissionId = consumed.rows[0]!.admission_id;
+
+    // Switch to club owner context
+    await setActorContext(client, fixture.ownerId);
+
+    // Verify owner can see the admission
+    const ownerVisible = await client.query<{ visible_count: string }>(
+      `select count(*)::text as visible_count from app.current_admissions where id = $1`,
+      [admissionId],
+    );
+    assert.equal(ownerVisible.rows[0]?.visible_count, '1');
+
+    // Create member from admission via security definer
+    const memberResult = await client.query<{ member_id: string }>(
+      `select member_id from app.create_member_from_admission($1, $2, $3, $4::jsonb)`,
+      ['Jane Outsider', 'jane@example.com', 'Jane Outsider', '{"socials":"@jane"}'],
+    );
+    const newMemberId = memberResult.rows[0]!.member_id;
+    assert.equal(typeof newMemberId, 'string');
+    assert.equal(newMemberId.length, 12);
+
+    // Verify member was created
+    const memberCheck = await client.query<{ public_name: string; state: string }>(
+      `select public_name, state from app.members where id = $1`,
+      [newMemberId],
+    );
+    assert.equal(memberCheck.rows[0]?.public_name, 'Jane Outsider');
+    assert.equal(memberCheck.rows[0]?.state, 'active');
+
+    // Verify private contacts were created
+    const contactCheck = await client.query<{ email: string }>(
+      `select email from app.member_private_contacts where member_id = $1`,
+      [newMemberId],
+    );
+    assert.equal(contactCheck.rows[0]?.email, 'jane@example.com');
+
+    // Verify profile version was created with socials but NOT reason
+    const profileCheck = await client.query<{ display_name: string; profile: Record<string, unknown> }>(
+      `select display_name, profile from app.member_profile_versions where member_id = $1 and version_no = 1`,
+      [newMemberId],
+    );
+    assert.equal(profileCheck.rows[0]?.display_name, 'Jane Outsider');
+    assert.equal(typeof profileCheck.rows[0]?.profile?.socials, 'string');
+    assert.equal(profileCheck.rows[0]?.profile?.reason, undefined, 'reason should NOT be in profile');
+
+    // Issue access token via security definer
+    await client.query(
+      `select app.issue_admission_access($1, $2, $3, $4, $5::jsonb)`,
+      ['tk23456789ab', newMemberId, 'Outsider first token', 'fakehash123456', '{"source":"admission"}'],
+    );
+
+    // Verify token was created for the new member
+    const tokenCheck = await client.query<{ member_id: string; label: string }>(
+      `select member_id, label from app.member_bearer_tokens where id = 'tk23456789ab'`,
+      [],
+    );
+    assert.equal(tokenCheck.rows[0]?.member_id, newMemberId);
+    assert.equal(tokenCheck.rows[0]?.label, 'Outsider first token');
   });
 });
 
@@ -847,7 +923,7 @@ test('RLS blocks transcript reads for same-club members who are not participants
   });
 });
 
-test('RLS only exposes application-linked outsider member data to owners and related actors', async () => {
+test('RLS only exposes admission-linked outsider member data to owners and related actors', async () => {
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
@@ -869,13 +945,13 @@ test('RLS only exposes application-linked outsider member data to owners and rel
       `,
       [fixture.outsiderId],
     );
-    const applicationBlocked = await client.query<{ visible_count: string }>(
+    const admissionBlocked = await client.query<{ visible_count: string }>(
       `
         select count(*)::text as visible_count
-        from app.applications
+        from app.admissions
         where id = $1
       `,
-      [fixture.applicationId],
+      [fixture.admissionId],
     );
 
     await setActorContext(client, fixture.ownerId);
@@ -896,24 +972,24 @@ test('RLS only exposes application-linked outsider member data to owners and rel
       `,
       [fixture.outsiderId],
     );
-    const applicationVisible = await client.query<{ visible_count: string }>(
+    const admissionVisible = await client.query<{ visible_count: string }>(
       `
         select count(*)::text as visible_count
-        from app.applications
+        from app.admissions
         where id = $1
       `,
-      [fixture.applicationId],
+      [fixture.admissionId],
     );
 
     assert.equal(memberBlocked.rows[0]?.visible_count, '0');
     assert.equal(profileBlocked.rows[0]?.visible_count, '0');
-    assert.equal(applicationBlocked.rows[0]?.visible_count, '0');
+    assert.equal(admissionBlocked.rows[0]?.visible_count, '0');
     assert.deepEqual(
       memberVisible.rows.map((row) => row.id).sort(),
       [fixture.outsiderId, fixture.pendingCandidateId].sort(),
     );
     assert.equal(profileVisible.rows[0]?.visible_count, '1');
-    assert.equal(applicationVisible.rows[0]?.visible_count, '1');
+    assert.equal(admissionVisible.rows[0]?.visible_count, '1');
   });
 });
 

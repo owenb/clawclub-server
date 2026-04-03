@@ -4,7 +4,7 @@ import {
   AppError,
   buildApp,
   type ActorContext,
-  type ApplicationSummary,
+  type AdmissionSummary,
   type AuthResult,
   type CreateEntityInput,
   type BearerTokenSummary,
@@ -368,9 +368,9 @@ function makeMembershipReview(overrides: Partial<MembershipReviewSummary> = {}):
   };
 }
 
-function makeApplication(overrides: Partial<ApplicationSummary> = {}): ApplicationSummary {
+function makeApplication(overrides: Partial<AdmissionSummary> = {}): AdmissionSummary {
   return {
-    applicationId: 'application-1',
+    admissionId: 'application-1',
     clubId: 'club-2',
     applicant: {
       memberId: 'member-9',
@@ -384,13 +384,7 @@ function makeApplication(overrides: Partial<ApplicationSummary> = {}): Applicati
       handle: 'member-one',
     },
     membershipId: 'membership-9',
-    activation: {
-      linkedMembershipId: 'membership-9',
-      membershipStatus: 'pending_review',
-      acceptedCovenantAt: null,
-      readyForActivation: false,
-    },
-    path: 'sponsored',
+    origin: 'owner_nominated',
     intake: {
       kind: 'fit_check',
       price: { amount: 49, currency: 'GBP' },
@@ -549,13 +543,13 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async listMemberships() {
       return [makeMembershipAdmin()];
     },
-    async listApplications() {
+    async listAdmissions() {
       return [makeApplication()];
     },
-    async createApplication() {
+    async createAdmission() {
       return makeApplication();
     },
-    async transitionApplication() {
+    async transitionAdmission() {
       return makeApplication({ state: { ...makeApplication().state, status: 'interview_scheduled', versionNo: 2 } });
     },
     async createMembership() {
@@ -958,12 +952,12 @@ test('memberships.transition rejects admin-only club scope', async () => {
   );
 });
 
-test('applications.list stays inside owner scope and can filter interview workflow statuses', async () => {
+test('admissions.list stays inside owner scope and can filter interview workflow statuses', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async listApplications(input) {
+    async listAdmissions(input) {
       capturedInput = input as Record<string, unknown>;
       return [makeApplication({ state: { ...makeApplication().state, status: 'interview_scheduled', versionNo: 2 } })];
     },
@@ -972,7 +966,7 @@ test('applications.list stays inside owner scope and can filter interview workfl
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'applications.list',
+    action: 'admissions.list',
     payload: { clubId: 'club-2', statuses: ['submitted', 'interview_scheduled'], limit: 4 },
   });
 
@@ -982,19 +976,19 @@ test('applications.list stays inside owner scope and can filter interview workfl
     limit: 4,
     statuses: ['submitted', 'interview_scheduled'],
   });
-  assert.equal(result.action, 'applications.list');
+  assert.equal(result.action, 'admissions.list');
   assert.equal(result.data.results[0]?.state.status, 'interview_scheduled');
 });
 
-test('applications.create captures a sponsored fit-check intake and owner scope server-side', async () => {
+test('admissions.nominate captures a sponsored fit-check intake and owner scope server-side', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async createApplication(input) {
+    async createAdmission(input) {
       capturedInput = input as Record<string, unknown>;
       return makeApplication({
-        applicationId: 'application-9',
+        admissionId: 'application-9',
         applicant: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
         sponsor: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
         state: { ...makeApplication().state, status: 'submitted' },
@@ -1005,13 +999,11 @@ test('applications.create captures a sponsored fit-check intake and owner scope 
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'applications.create',
+    action: 'admissions.nominate',
     payload: {
       clubId: 'club-2',
       applicantMemberId: 'member-9',
       sponsorMemberId: 'member-1',
-      membershipId: 'membership-9',
-      path: 'sponsored',
       initialStatus: 'submitted',
       notes: 'Warm intro via sponsor',
       intake: {
@@ -1029,8 +1021,6 @@ test('applications.create captures a sponsored fit-check intake and owner scope 
     clubId: 'club-2',
     applicantMemberId: 'member-9',
     sponsorMemberId: 'member-1',
-    membershipId: 'membership-9',
-    path: 'sponsored',
     initialStatus: 'submitted',
     notes: 'Warm intro via sponsor',
     intake: {
@@ -1042,16 +1032,16 @@ test('applications.create captures a sponsored fit-check intake and owner scope 
     },
     metadata: { source: 'operator' },
   });
-  assert.equal(result.action, 'applications.create');
-  assert.equal(result.data.application.applicationId, 'application-9');
+  assert.equal(result.action, 'admissions.nominate');
+  assert.equal(result.data.admission.admissionId, 'application-9');
 });
 
-test('applications.transition can append accepted interview state and activate the linked membership', async () => {
+test('admissions.transition can append accepted interview state and activate the linked membership', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async transitionApplication(input) {
+    async transitionAdmission(input) {
       capturedInput = input as Record<string, unknown>;
       return makeApplication({
         state: {
@@ -1062,12 +1052,6 @@ test('applications.transition can append accepted interview state and activate t
           createdByMemberId: 'member-1',
         },
         membershipId: 'membership-10',
-        activation: {
-          linkedMembershipId: 'membership-10',
-          membershipStatus: 'active',
-          acceptedCovenantAt: null,
-          readyForActivation: false,
-        },
         intake: {
           kind: 'fit_check',
           price: { amount: 49, currency: 'GBP' },
@@ -1083,14 +1067,11 @@ test('applications.transition can append accepted interview state and activate t
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'applications.transition',
+    action: 'admissions.transition',
     payload: {
-      applicationId: 'application-9',
+      admissionId: 'application-9',
       status: 'accepted',
       notes: 'Interview complete and accepted',
-      membershipId: 'membership-10',
-      activateMembership: true,
-      activationReason: 'Interview passed and owner approved',
       intake: { completedAt: '2026-03-14T10:30:00Z' },
       metadata: { outcome: 'strong_yes' },
     },
@@ -1098,7 +1079,7 @@ test('applications.transition can append accepted interview state and activate t
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    applicationId: 'application-9',
+    admissionId: 'application-9',
     nextStatus: 'accepted',
     notes: 'Interview complete and accepted',
     accessibleClubIds: ['club-2'],
@@ -1109,29 +1090,20 @@ test('applications.transition can append accepted interview state and activate t
       bookedAt: undefined,
       completedAt: '2026-03-14T10:30:00Z',
     },
-    membershipId: 'membership-10',
-    activateMembership: true,
-    activationReason: 'Interview passed and owner approved',
     metadataPatch: { outcome: 'strong_yes' },
   });
-  assert.equal(result.action, 'applications.transition');
-  assert.equal(result.data.application.state.versionNo, 3);
-  assert.equal(result.data.application.membershipId, 'membership-10');
-  assert.deepEqual(result.data.application.activation, {
-    linkedMembershipId: 'membership-10',
-    membershipStatus: 'active',
-    acceptedCovenantAt: null,
-    readyForActivation: false,
-  });
+  assert.equal(result.action, 'admissions.transition');
+  assert.equal(result.data.admission.state.versionNo, 3);
+  assert.equal(result.data.admission.membershipId, 'membership-10');
 });
 
-test('applications.challenge creates a cold application challenge without a bearer token', async () => {
+test('admissions.challenge creates a cold application challenge without a bearer token', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken() {
       throw new Error('authenticateBearerToken should not run for cold application actions');
     },
-    async createColdApplicationChallenge() {
+    async createAdmissionChallenge() {
       return {
         challengeId: 'challenge-1',
         difficulty: 7,
@@ -1144,10 +1116,10 @@ test('applications.challenge creates a cold application challenge without a bear
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: null,
-    action: 'applications.challenge',
+    action: 'admissions.challenge',
   });
 
-  assert.equal(result.action, 'applications.challenge');
+  assert.equal(result.action, 'admissions.challenge');
   assert.equal(result.data.challengeId, 'challenge-1');
   assert.equal(result.data.difficulty, 7);
   assert.equal(result.data.clubs.length, 1);
@@ -1155,7 +1127,7 @@ test('applications.challenge creates a cold application challenge without a bear
   assert.equal('actor' in result, false);
 });
 
-test('applications.solve submits a cold application with all required fields', async () => {
+test('admissions.apply submits a cold application with all required fields', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -1163,7 +1135,7 @@ test('applications.solve submits a cold application with all required fields', a
     async authenticateBearerToken() {
       throw new Error('authenticateBearerToken should not run for cold application actions');
     },
-    async solveColdApplicationChallenge(input) {
+    async solveAdmissionChallenge(input) {
       capturedInput = input as Record<string, unknown>;
       return { success: true };
     },
@@ -1172,7 +1144,7 @@ test('applications.solve submits a cold application with all required fields', a
   const app = buildApp({ repository });
   const result = await app.handleAction({
     bearerToken: null,
-    action: 'applications.solve',
+    action: 'admissions.apply',
     payload: {
       challengeId: 'challenge-1',
       nonce: '183729471',
@@ -1193,8 +1165,8 @@ test('applications.solve submits a cold application with all required fields', a
     socials: '@janedoe',
     reason: 'Love the community',
   });
-  assert.equal(result.action, 'applications.solve');
-  assert.equal(result.data.message, 'Application submitted. Watch your email — you will hear back soon.');
+  assert.equal(result.action, 'admissions.apply');
+  assert.equal(result.data.message, 'Admission submitted. The club owner will review your request.');
   assert.equal('actor' in result, false);
 });
 

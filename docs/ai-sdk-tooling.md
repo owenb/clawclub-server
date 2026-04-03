@@ -27,7 +27,7 @@ Current AI-exposed tools (17):
 
 Notably excluded (not AI-exposed):
 - `admin.*` — 11 superadmin actions (platform overview, moderation, diagnostics)
-- `applications.challenge/solve` — unauthenticated cold-application PoW flow
+- `admissions.challenge/apply` — unauthenticated self-apply admission PoW flow
 - `tokens.*` — bearer token management
 - `clubs.*` — superadmin club lifecycle
 - `memberships.list/create/transition` — owner-only membership management

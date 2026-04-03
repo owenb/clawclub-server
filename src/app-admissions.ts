@@ -1,20 +1,22 @@
-import type { Repository, RequestScope, SharedResponseContext } from './app.ts';
-import type { ActorContext, ApplicationStatus, MembershipState } from './app-contract.ts';
+import type { Repository, SharedResponseContext } from './app.ts';
+import type { ActorContext, AdmissionStatus, MembershipState } from './app-contract.ts';
 import type {
   BuildSuccessResponse,
   CreateAppError,
-  NormalizeApplicationIntake,
-  NormalizeApplicationMetadataPatch,
+  NormalizeAdmissionIntake,
+  NormalizeAdmissionMetadataPatch,
   NormalizeLimit,
   NormalizeOptionalString,
   RequireAccessibleClub,
-  RequireApplicationPath,
-  RequireApplicationStatus,
+  RequireAdmissionStatus,
+  RequireBoundedString,
   RequireMembershipOwner,
   RequireMembershipState,
   RequireNonEmptyString,
   RequireObject,
 } from './app-helpers.ts';
+
+const MAX_FIELD_LENGTH = 500;
 
 function normalizeMembershipReviewStatuses(
   value: unknown,
@@ -56,11 +58,11 @@ function requireMembershipCreateInitialStatus(value: unknown, createAppError: Cr
   return value;
 }
 
-function normalizeApplicationStatuses(
+function normalizeAdmissionStatuses(
   value: unknown,
-  requireApplicationStatus: RequireApplicationStatus,
+  requireAdmissionStatus: RequireAdmissionStatus,
   createAppError: CreateAppError,
-): ApplicationStatus[] | undefined {
+): AdmissionStatus[] | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -69,19 +71,19 @@ function normalizeApplicationStatuses(
     throw createAppError(400, 'invalid_input', 'statuses must be a non-empty array when provided');
   }
 
-  return [...new Set(value.map((status) => requireApplicationStatus(status, 'statuses[]')))];
+  return [...new Set(value.map((status) => requireAdmissionStatus(status, 'statuses[]')))];
 }
 
-function requireApplicationCreateInitialStatus(
+function requireAdmissionCreateInitialStatus(
   value: unknown,
-  requireApplicationStatus: RequireApplicationStatus,
+  requireAdmissionStatus: RequireAdmissionStatus,
   createAppError: CreateAppError,
-): Extract<ApplicationStatus, 'draft' | 'submitted' | 'interview_scheduled'> {
+): Extract<AdmissionStatus, 'draft' | 'submitted' | 'interview_scheduled'> {
   if (value === undefined) {
     return 'submitted';
   }
 
-  const status = requireApplicationStatus(value, 'initialStatus');
+  const status = requireAdmissionStatus(value, 'initialStatus');
   if (status !== 'draft' && status !== 'submitted' && status !== 'interview_scheduled') {
     throw createAppError(400, 'invalid_input', 'initialStatus must be one of: draft, submitted, interview_scheduled');
   }
@@ -102,10 +104,9 @@ export async function handleAdmissionsAction(input: {
   requireAccessibleClub: RequireAccessibleClub;
   requireMembershipOwner: RequireMembershipOwner;
   requireMembershipState: RequireMembershipState;
-  requireApplicationStatus: RequireApplicationStatus;
-  requireApplicationPath: RequireApplicationPath;
-  normalizeApplicationIntake: NormalizeApplicationIntake;
-  normalizeApplicationMetadataPatch: NormalizeApplicationMetadataPatch;
+  requireAdmissionStatus: RequireAdmissionStatus;
+  normalizeAdmissionIntake: NormalizeAdmissionIntake;
+  normalizeAdmissionMetadataPatch: NormalizeAdmissionMetadataPatch;
   requireNonEmptyString: RequireNonEmptyString;
   requireObject: RequireObject;
 }): Promise<unknown | null> {
@@ -114,15 +115,14 @@ export async function handleAdmissionsAction(input: {
     actor,
     buildSuccessResponse,
     createAppError,
-    normalizeApplicationIntake,
-    normalizeApplicationMetadataPatch,
+    normalizeAdmissionIntake,
+    normalizeAdmissionMetadataPatch,
     normalizeLimit,
     normalizeOptionalString,
     payload,
     repository,
     requireAccessibleClub,
-    requireApplicationPath,
-    requireApplicationStatus,
+    requireAdmissionStatus,
     requireMembershipOwner,
     requireMembershipState,
     requireNonEmptyString,
@@ -264,7 +264,7 @@ export async function handleAdmissionsAction(input: {
       });
     }
 
-    case 'applications.list': {
+    case 'admissions.list': {
       const limit = normalizeLimit(payload.limit);
       let clubScope = actor.memberships.filter((membership) => membership.role === 'owner');
 
@@ -276,9 +276,9 @@ export async function handleAdmissionsAction(input: {
         throw createAppError(403, 'forbidden', 'This member does not currently own any clubs');
       }
 
-      const statuses = normalizeApplicationStatuses(payload.statuses, requireApplicationStatus, createAppError);
+      const statuses = normalizeAdmissionStatuses(payload.statuses, requireAdmissionStatus, createAppError);
       const clubIds = clubScope.map((club) => club.clubId);
-      const results = await repository.listApplications?.({
+      const results = await repository.listAdmissions?.({
         actorMemberId: actor.member.id,
         clubIds,
         limit,
@@ -286,7 +286,7 @@ export async function handleAdmissionsAction(input: {
       });
 
       if (!results) {
-        throw createAppError(501, 'not_implemented', 'applications.list is not implemented');
+        throw createAppError(501, 'not_implemented', 'admissions.list is not implemented');
       }
 
       return buildSuccessResponse({
@@ -307,73 +307,157 @@ export async function handleAdmissionsAction(input: {
       });
     }
 
-    case 'applications.create': {
+    case 'admissions.nominate': {
       const club = requireMembershipOwner(actor, payload.clubId);
-      const application = await repository.createApplication?.({
+      const admission = await repository.createAdmission?.({
         actorMemberId: actor.member.id,
         clubId: club.clubId,
         applicantMemberId: requireNonEmptyString(payload.applicantMemberId, 'applicantMemberId'),
         sponsorMemberId: normalizeOptionalString(payload.sponsorMemberId, 'sponsorMemberId'),
-        membershipId: normalizeOptionalString(payload.membershipId, 'membershipId'),
-        path: requireApplicationPath(payload.path, 'path'),
-        initialStatus: requireApplicationCreateInitialStatus(payload.initialStatus, requireApplicationStatus, createAppError),
+        initialStatus: requireAdmissionCreateInitialStatus(payload.initialStatus, requireAdmissionStatus, createAppError),
         notes: normalizeOptionalString(payload.notes, 'notes'),
-        intake: normalizeApplicationIntake(payload.intake, 'intake'),
+        intake: normalizeAdmissionIntake(payload.intake, 'intake'),
         metadata: payload.metadata === undefined ? {} : requireObject(payload.metadata, 'metadata'),
       });
 
-      if (application === undefined) {
-        throw createAppError(501, 'not_implemented', 'applications.create is not implemented');
+      if (admission === undefined) {
+        throw createAppError(501, 'not_implemented', 'admissions.nominate is not implemented');
       }
 
-      if (!application) {
-        throw createAppError(404, 'not_found', 'Applicant, sponsor, or membership not found inside the owner scope');
+      if (!admission) {
+        throw createAppError(404, 'not_found', 'Applicant or sponsor not found inside the owner scope');
       }
 
       return buildSuccessResponse({
         action,
         actor,
         requestScope: {
-          requestedClubId: application.clubId,
-          activeClubIds: [application.clubId],
+          requestedClubId: admission.clubId,
+          activeClubIds: [admission.clubId],
         },
         sharedContext,
-        data: { application },
+        data: { admission },
       });
     }
 
-    case 'applications.transition': {
-      const applicationId = requireNonEmptyString(payload.applicationId, 'applicationId');
-      const application = await repository.transitionApplication?.({
+    case 'admissions.transition': {
+      const admissionId = requireNonEmptyString(payload.admissionId, 'admissionId');
+      const admission = await repository.transitionAdmission?.({
         actorMemberId: actor.member.id,
-        applicationId,
-        nextStatus: requireApplicationStatus(payload.status, 'status'),
+        admissionId,
+        nextStatus: requireAdmissionStatus(payload.status, 'status'),
         notes: normalizeOptionalString(payload.notes, 'notes'),
         accessibleClubIds: actor.memberships.filter((item) => item.role === 'owner').map((item) => item.clubId),
-        intake: payload.intake === undefined ? undefined : normalizeApplicationIntake(payload.intake, 'intake'),
-        membershipId: payload.membershipId === undefined ? undefined : normalizeOptionalString(payload.membershipId, 'membershipId'),
-        activateMembership: payload.activateMembership === true,
-        activationReason: normalizeOptionalString(payload.activationReason, 'activationReason'),
-        metadataPatch: normalizeApplicationMetadataPatch(payload.metadata, 'metadata'),
+        intake: payload.intake === undefined ? undefined : normalizeAdmissionIntake(payload.intake, 'intake'),
+        metadataPatch: normalizeAdmissionMetadataPatch(payload.metadata, 'metadata'),
       });
 
-      if (application === undefined) {
-        throw createAppError(501, 'not_implemented', 'applications.transition is not implemented');
+      if (admission === undefined) {
+        throw createAppError(501, 'not_implemented', 'admissions.transition is not implemented');
       }
 
-      if (!application) {
-        throw createAppError(404, 'not_found', 'Application not found inside the owner scope');
+      if (!admission) {
+        throw createAppError(404, 'not_found', 'Admission not found inside the owner scope');
       }
 
       return buildSuccessResponse({
         action,
         actor,
         requestScope: {
-          requestedClubId: application.clubId,
-          activeClubIds: [application.clubId],
+          requestedClubId: admission.clubId,
+          activeClubIds: [admission.clubId],
         },
         sharedContext,
-        data: { application },
+        data: { admission },
+      });
+    }
+
+    case 'admissions.sponsor': {
+      const club = requireAccessibleClub(actor, payload.clubId);
+
+      const name = requireNonEmptyString(payload.name, 'name');
+      const nameWords = name.split(/\s+/).filter((w) => w.length > 0);
+      if (nameWords.length < 2) {
+        throw createAppError(400, 'invalid_input', 'name must be a full name (first and last name)');
+      }
+      if (name.length > MAX_FIELD_LENGTH) {
+        throw createAppError(400, 'invalid_input', `name must be at most ${MAX_FIELD_LENGTH} characters`);
+      }
+      const candidateName = nameWords.join(' ');
+
+      const email = requireNonEmptyString(payload.email, 'email').toLowerCase();
+      if (!email.includes('@')) {
+        throw createAppError(400, 'invalid_input', 'email must look like an email address');
+      }
+      if (email.length > MAX_FIELD_LENGTH) {
+        throw createAppError(400, 'invalid_input', `email must be at most ${MAX_FIELD_LENGTH} characters`);
+      }
+
+      const socials = requireNonEmptyString(payload.socials, 'socials');
+      if (socials.length > MAX_FIELD_LENGTH) {
+        throw createAppError(400, 'invalid_input', `socials must be at most ${MAX_FIELD_LENGTH} characters`);
+      }
+
+      const reason = requireNonEmptyString(payload.reason, 'reason');
+      if (reason.length > MAX_FIELD_LENGTH) {
+        throw createAppError(400, 'invalid_input', `reason must be at most ${MAX_FIELD_LENGTH} characters`);
+      }
+
+      const admission = await repository.createAdmissionSponsorship({
+        actorMemberId: actor.member.id,
+        clubId: club.clubId,
+        candidateName,
+        candidateEmail: email,
+        candidateDetails: { socials },
+        reason,
+      });
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope: {
+          requestedClubId: club.clubId,
+          activeClubIds: [club.clubId],
+        },
+        sharedContext,
+        data: { admission },
+      });
+    }
+
+    case 'admissions.issueAccess': {
+      const admissionId = requireNonEmptyString(payload.admissionId, 'admissionId');
+      const accessibleClubIds = actor.memberships.filter((item) => item.role === 'owner').map((item) => item.clubId);
+
+      if (accessibleClubIds.length === 0) {
+        throw createAppError(403, 'forbidden', 'This member does not currently own any clubs');
+      }
+
+      const result = await repository.issueAdmissionAccess?.({
+        actorMemberId: actor.member.id,
+        admissionId,
+        accessibleClubIds,
+      });
+
+      if (result === undefined) {
+        throw createAppError(501, 'not_implemented', 'admissions.issueAccess is not implemented');
+      }
+
+      if (!result) {
+        throw createAppError(404, 'not_found', 'Admission not found inside the owner scope');
+      }
+
+      return buildSuccessResponse({
+        action,
+        actor,
+        requestScope: {
+          requestedClubId: result.admission.clubId,
+          activeClubIds: [result.admission.clubId],
+        },
+        sharedContext,
+        data: {
+          admission: result.admission,
+          bearerToken: result.bearerToken,
+        },
       });
     }
 

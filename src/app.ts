@@ -1,17 +1,16 @@
 import { KNOWN_ACTIONS } from './action-manifest.ts';
 import { handleAdminAction } from './app-admin.ts';
 import { handleAdmissionsAction } from './app-admissions.ts';
-import { handleColdApplicationAction } from './app-cold-applications.ts';
+import { handleColdAdmissionAction } from './app-cold-admissions.ts';
 import { handleContentAction } from './app-content.ts';
 import { handleMessageAction } from './app-messages.ts';
 import { handleProfileAction } from './app-profile.ts';
 import { handlePlatformAction } from './app-platform.ts';
-import { handleSponsorshipAction } from './app-sponsorships.ts';
 import { handleUpdatesAction } from './app-updates.ts';
 import type {
   ActorContext,
-  ApplicationStatus,
-  CreateApplicationInput,
+  AdmissionStatus,
+  CreateAdmissionNominationInput,
   EntityKind,
   EventRsvpState,
   MembershipState,
@@ -190,7 +189,7 @@ function requireMembershipState(value: unknown, field: string): MembershipState 
   return value;
 }
 
-function isApplicationStatus(value: unknown): value is ApplicationStatus {
+function isAdmissionStatus(value: unknown): value is AdmissionStatus {
   return value === 'draft'
     || value === 'submitted'
     || value === 'interview_scheduled'
@@ -200,8 +199,8 @@ function isApplicationStatus(value: unknown): value is ApplicationStatus {
     || value === 'withdrawn';
 }
 
-function requireApplicationStatus(value: unknown, field: string): ApplicationStatus {
-  if (!isApplicationStatus(value)) {
+function requireAdmissionStatus(value: unknown, field: string): AdmissionStatus {
+  if (!isAdmissionStatus(value)) {
     throw new AppError(400, 'invalid_input', `${field} must be one of: draft, submitted, interview_scheduled, interview_completed, accepted, declined, withdrawn`);
   }
 
@@ -281,15 +280,7 @@ function normalizeTokenCreateInput(payload: Record<string, unknown>): { label: s
   };
 }
 
-function requireApplicationPath(value: unknown, field: string): 'sponsored' | 'outside' {
-  if (value !== 'sponsored' && value !== 'outside') {
-    throw new AppError(400, 'invalid_input', `${field} must be one of: sponsored, outside`);
-  }
-
-  return value;
-}
-
-function requireApplicationIntakeKind(value: unknown, field: string): 'fit_check' | 'advice_call' | 'other' {
+function requireAdmissionIntakeKind(value: unknown, field: string): 'fit_check' | 'advice_call' | 'other' {
   if (value !== 'fit_check' && value !== 'advice_call' && value !== 'other') {
     throw new AppError(400, 'invalid_input', `${field} must be one of: fit_check, advice_call, other`);
   }
@@ -327,12 +318,12 @@ function normalizeOptionalMoneyAmount(value: unknown, field: string): number | n
   return Number(value);
 }
 
-function normalizeApplicationIntake(value: unknown, field: string): CreateApplicationInput['intake'] {
+function normalizeAdmissionIntake(value: unknown, field: string): CreateAdmissionNominationInput['intake'] {
   const payload = value === undefined ? {} : requireObject(value, field);
   const priceValue = payload.price === undefined ? undefined : requireObject(payload.price, `${field}.price`);
 
   return {
-    kind: payload.kind === undefined ? undefined : requireApplicationIntakeKind(payload.kind, `${field}.kind`),
+    kind: payload.kind === undefined ? undefined : requireAdmissionIntakeKind(payload.kind, `${field}.kind`),
     price: priceValue === undefined
       ? undefined
       : {
@@ -345,7 +336,7 @@ function normalizeApplicationIntake(value: unknown, field: string): CreateApplic
   };
 }
 
-function normalizeApplicationMetadataPatch(value: unknown, field: string): Record<string, unknown> | undefined {
+function normalizeAdmissionMetadataPatch(value: unknown, field: string): Record<string, unknown> | undefined {
   return value === undefined ? undefined : requireObject(value, field);
 }
 
@@ -378,15 +369,15 @@ export function buildApp({ repository }: { repository: Repository }) {
     }) {
       const action = requireNonEmptyString(input.action, 'action');
       const payload = (input.payload ?? {}) as Record<string, unknown>;
-      const coldApplicationResponse = await handleColdApplicationAction({
+      const coldAdmissionResponse = await handleColdAdmissionAction({
         action,
         payload,
         repository,
         createAppError: (status, code, message) => new AppError(status, code, message),
         requireNonEmptyString,
       });
-      if (coldApplicationResponse) {
-        return coldApplicationResponse;
+      if (coldAdmissionResponse) {
+        return coldAdmissionResponse;
       }
 
       const bearerToken = requireNonEmptyString(input.bearerToken, 'Authorization bearer token');
@@ -412,10 +403,9 @@ export function buildApp({ repository }: { repository: Repository }) {
         requireAccessibleClub,
         requireMembershipOwner,
         requireMembershipState,
-        requireApplicationStatus,
-        requireApplicationPath,
-        normalizeApplicationIntake,
-        normalizeApplicationMetadataPatch,
+        requireAdmissionStatus,
+        normalizeAdmissionIntake,
+        normalizeAdmissionMetadataPatch,
         requireNonEmptyString,
         requireObject,
       });
@@ -493,22 +483,6 @@ export function buildApp({ repository }: { repository: Repository }) {
       });
       if (messageResponse) {
         return messageResponse;
-      }
-
-      const sponsorshipResponse = await handleSponsorshipAction({
-        action,
-        payload,
-        actor,
-        sharedContext,
-        repository,
-        buildSuccessResponse,
-        createAppError: (status, code, message) => new AppError(status, code, message),
-        normalizeLimit,
-        requireAccessibleClub,
-        requireNonEmptyString,
-      });
-      if (sponsorshipResponse) {
-        return sponsorshipResponse;
       }
 
       const platformResponse = await handlePlatformAction({
