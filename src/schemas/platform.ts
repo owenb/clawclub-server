@@ -58,8 +58,6 @@ const clubsList: ActionDefinition = {
   safety: 'read_only',
   aiExposed: false,
 
-  requiredCapability: 'listClubs',
-
   wire: {
     input: z.object({
       includeArchived: wireOptionalBoolean.describe('Include archived clubs'),
@@ -78,10 +76,9 @@ const clubsList: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    ctx.requireCapability('listClubs');
     const { includeArchived } = input as ClubsListInput;
 
-    const clubs = await ctx.repository.listClubs!({
+    const clubs = await ctx.repository.listClubs?.({
       actorMemberId: ctx.actor.member.id,
       includeArchived,
     });

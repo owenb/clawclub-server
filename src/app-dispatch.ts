@@ -29,7 +29,6 @@ import type {
 } from './app-contract.ts';
 import {
   getAction,
-  getKnownActions,
   parseActionInput,
   type ActionDefinition,
   type ActionResult,
@@ -169,9 +168,6 @@ export function buildDispatcher({ repository }: { repository: Repository }) {
       // 2. Look up contract
       const def = getAction(actionName);
       if (!def) {
-        if (getKnownActions().has(actionName)) {
-          throw new AppError(501, 'not_implemented', `Action ${actionName} is registered but not handled`);
-        }
         throw new AppError(400, 'unknown_action', `Unsupported action: ${actionName}`);
       }
 

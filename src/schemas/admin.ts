@@ -215,7 +215,7 @@ const adminContentList: ActionDefinition = {
   parse: {
     input: z.object({
       clubId: parseRequiredString.optional(),
-      kind: entityKind.optional(),
+      kind: entityKind.optional().catch(undefined),
       limit: parseLimit,
       offset: parseOffset,
     }),
@@ -318,6 +318,7 @@ const adminContentRedact: ActionDefinition = {
       accessibleClubIds: [],
       entityId,
       reason,
+      skipNotification: true,
     });
 
     if (!result) {
@@ -470,6 +471,7 @@ const adminMessagesRedact: ActionDefinition = {
       accessibleClubIds: [],
       messageId,
       reason,
+      skipNotification: true,
     });
 
     if (!result) {
