@@ -7,6 +7,7 @@ import { buildDispatcher } from './app-dispatch.ts';
 import { getAction } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
+import { getSchemaPayload, resolveSchemaAccess } from './schema-endpoint.ts';
 
 type ColdAdmissionAction = 'admissions.challenge' | 'admissions.apply';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
@@ -493,12 +494,31 @@ export function createServer(options: {
       return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/schema') {
+      try {
+        const full = await resolveSchemaAccess(
+          getBearerToken(request),
+          url.searchParams.get('full'),
+          repository,
+        );
+        const schema = getSchemaPayload(full);
+        writeJson(response, 200, { ok: true, data: schema });
+      } catch (error) {
+        console.error(error);
+        writeJson(response, 500, {
+          ok: false,
+          error: { code: 'internal_error', message: 'Unexpected server error' },
+        });
+      }
+      return;
+    }
+
     if (request.method !== 'POST' || url.pathname !== '/api') {
       writeJson(response, 404, {
         ok: false,
         error: {
           code: 'not_found',
-          message: 'Only GET /updates, GET /updates/stream, and POST /api are supported',
+          message: 'Only GET /updates, GET /updates/stream, GET /api/schema, and POST /api are supported',
         },
       });
       return;
