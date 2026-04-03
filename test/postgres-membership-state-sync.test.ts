@@ -20,13 +20,13 @@ test('club membership root status and left_at mirror the latest state version', 
     await client.query('begin');
 
     const ownerId = (await client.query<{ id: string }>(
-      `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-      [`Mirror Owner ${suffix}`, `auth|mirror-owner-${suffix}`, `mirror-owner-${suffix}`],
+      `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+      [`Mirror Owner ${suffix}`, `mirror-owner-${suffix}`],
     )).rows[0]!.id;
 
     const memberId = (await client.query<{ id: string }>(
-      `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-      [`Mirror Member ${suffix}`, `auth|mirror-member-${suffix}`, `mirror-member-${suffix}`],
+      `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+      [`Mirror Member ${suffix}`, `mirror-member-${suffix}`],
     )).rows[0]!.id;
 
     await client.query(

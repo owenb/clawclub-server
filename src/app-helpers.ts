@@ -36,9 +36,48 @@ export type RequireObject = (value: unknown, field: string) => Record<string, un
 export type IsEntityKind = (value: unknown) => value is EntityKind;
 export type RequireMembershipState = (value: unknown, field: string) => import('./app-contract.ts').MembershipState;
 export type RequireAdmissionStatus = (value: unknown, field: string) => import('./app-contract.ts').AdmissionStatus;
-export type RequireBoundedString = (value: unknown, field: string, maxLength: number) => string;
 export type NormalizeAdmissionIntake = (value: unknown, field: string) => import('./app-contract.ts').CreateAdmissionNominationInput['intake'];
 export type NormalizeAdmissionMetadataPatch = (value: unknown, field: string) => Record<string, unknown> | undefined;
+
+const CANDIDATE_FIELD_MAX_LENGTH = 500;
+
+export function requireBoundedString(
+  value: unknown,
+  field: string,
+  requireNonEmptyString: RequireNonEmptyString,
+  createAppError: CreateAppError,
+): string {
+  const str = requireNonEmptyString(value, field);
+  if (str.length > CANDIDATE_FIELD_MAX_LENGTH) {
+    throw createAppError(400, 'invalid_input', `${field} must be at most ${CANDIDATE_FIELD_MAX_LENGTH} characters`);
+  }
+  return str;
+}
+
+export function normalizeCandidateEmail(
+  value: unknown,
+  requireNonEmptyString: RequireNonEmptyString,
+  createAppError: CreateAppError,
+): string {
+  const email = requireBoundedString(value, 'email', requireNonEmptyString, createAppError).toLowerCase();
+  if (!email.includes('@')) {
+    throw createAppError(400, 'invalid_input', 'email must look like an email address');
+  }
+  return email;
+}
+
+export function normalizeCandidateFullName(
+  value: unknown,
+  requireNonEmptyString: RequireNonEmptyString,
+  createAppError: CreateAppError,
+): string {
+  const name = requireBoundedString(value, 'name', requireNonEmptyString, createAppError);
+  const words = name.split(/\s+/).filter((w) => w.length > 0);
+  if (words.length < 2) {
+    throw createAppError(400, 'invalid_input', 'name must be a full name (first and last name)');
+  }
+  return words.join(' ');
+}
 
 export function resolveScopedClubs(
   actor: ActorContext,

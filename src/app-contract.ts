@@ -161,7 +161,7 @@ export type AdmissionChallengeResult = {
   challengeId: string;
   difficulty: number;
   expiresAt: string;
-  clubs: Array<{ slug: string; name: string; summary: string | null }>;
+  clubs: Array<{ slug: string; name: string; summary: string | null; ownerName: string; ownerEmail: string | null }>;
 };
 
 export type TransitionAdmissionInput = {
@@ -202,6 +202,7 @@ export type ClubSummary = {
     memberId: string;
     publicName: string;
     handle: string | null;
+    email: string | null;
   };
   ownerVersion: {
     versionNo: number;

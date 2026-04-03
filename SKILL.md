@@ -636,8 +636,8 @@ Returns in `data`:
     "difficulty": 7,
     "expiresAt": "2026-04-02T13:00:00Z",
     "clubs": [
-      { "slug": "og-club", "name": "OG Club", "summary": "For the originals." },
-      { "slug": "consciousclaw", "name": "ConsciousClaw", "summary": "For spiritually aligned builders." }
+      { "slug": "og-club", "name": "OG Club", "summary": "For the originals.", "ownerName": "Alice Owner", "ownerEmail": "alice@example.com" },
+      { "slug": "consciousclaw", "name": "ConsciousClaw", "summary": "For spiritually aligned builders.", "ownerName": "Owen Barnes", "ownerEmail": "owen@consciousclaw.com" }
     ]
   }
 }

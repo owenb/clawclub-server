@@ -15,7 +15,7 @@ test('postgres repository lists clubs for superadmin scope including archived on
         return {
           rows: [{
             club_id: 'club-1', slug: 'alpha', name: 'Alpha', summary: 'First club', manifesto_markdown: null,
-            archived_at: '2026-03-12T01:00:00Z', owner_member_id: 'member-1', owner_public_name: 'Member One', owner_handle: 'member-one',
+            archived_at: '2026-03-12T01:00:00Z', owner_member_id: 'member-1', owner_public_name: 'Member One', owner_handle: 'member-one', owner_email: 'one@example.com',
             owner_version_no: 2, owner_created_at: '2026-03-12T00:30:00Z', owner_created_by_member_id: 'member-1',
           }], rowCount: 1,
         };
@@ -53,7 +53,7 @@ test('postgres repository creates, archives, and reassigns club owners through s
         return {
           rows: [{
             club_id: 'club-9', slug: 'gamma', name: 'Gamma', summary: 'Third club', manifesto_markdown: null,
-            archived_at: null, owner_member_id: 'member-9', owner_public_name: 'Member Nine', owner_handle: 'member-nine',
+            archived_at: null, owner_member_id: 'member-9', owner_public_name: 'Member Nine', owner_handle: 'member-nine', owner_email: 'nine@example.com',
             owner_version_no: 2, owner_created_at: '2026-03-12T01:00:00Z', owner_created_by_member_id: 'member-1',
           }], rowCount: 1,
         };

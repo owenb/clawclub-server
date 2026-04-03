@@ -304,6 +304,7 @@ function makeClub(overrides: Partial<ClubSummary> = {}): ClubSummary {
       memberId: 'member-1',
       publicName: 'Member One',
       handle: 'member-one',
+      email: 'one@example.com',
     },
     ownerVersion: {
       versionNo: 1,

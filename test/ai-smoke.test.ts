@@ -17,7 +17,7 @@ test('AI SDK smoke harness runs curated tool flows end-to-end through src/ai.ts'
       'event retrieval + create',
     ],
   );
-  assert.match(result.scenarios[1]?.text ?? '', /activated the linked membership/);
+  assert.match(result.scenarios[1]?.text ?? '', /accepted the admission/);
   assert.match(result.scenarios[2]?.text ?? '', /Ava Builder/);
   assert.equal(result.scenarios[4]?.callLog.some((entry) => entry.startsWith('sendDirectMessage:')), true);
   assert.equal(result.scenarios[5]?.callLog.some((entry) => entry.includes('"query":"Hetzner operator"')), true);

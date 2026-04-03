@@ -1,22 +1,22 @@
 import type { Repository, SharedResponseContext } from './app.ts';
 import type { ActorContext, AdmissionStatus, MembershipState } from './app-contract.ts';
-import type {
-  BuildSuccessResponse,
-  CreateAppError,
-  NormalizeAdmissionIntake,
-  NormalizeAdmissionMetadataPatch,
-  NormalizeLimit,
-  NormalizeOptionalString,
-  RequireAccessibleClub,
-  RequireAdmissionStatus,
-  RequireBoundedString,
-  RequireMembershipOwner,
-  RequireMembershipState,
-  RequireNonEmptyString,
-  RequireObject,
+import {
+  normalizeCandidateEmail,
+  normalizeCandidateFullName,
+  requireBoundedString,
+  type BuildSuccessResponse,
+  type CreateAppError,
+  type NormalizeAdmissionIntake,
+  type NormalizeAdmissionMetadataPatch,
+  type NormalizeLimit,
+  type NormalizeOptionalString,
+  type RequireAccessibleClub,
+  type RequireAdmissionStatus,
+  type RequireMembershipOwner,
+  type RequireMembershipState,
+  type RequireNonEmptyString,
+  type RequireObject,
 } from './app-helpers.ts';
-
-const MAX_FIELD_LENGTH = 500;
 
 function normalizeMembershipReviewStatuses(
   value: unknown,
@@ -374,40 +374,16 @@ export async function handleAdmissionsAction(input: {
 
     case 'admissions.sponsor': {
       const club = requireAccessibleClub(actor, payload.clubId);
-
-      const name = requireNonEmptyString(payload.name, 'name');
-      const nameWords = name.split(/\s+/).filter((w) => w.length > 0);
-      if (nameWords.length < 2) {
-        throw createAppError(400, 'invalid_input', 'name must be a full name (first and last name)');
-      }
-      if (name.length > MAX_FIELD_LENGTH) {
-        throw createAppError(400, 'invalid_input', `name must be at most ${MAX_FIELD_LENGTH} characters`);
-      }
-      const candidateName = nameWords.join(' ');
-
-      const email = requireNonEmptyString(payload.email, 'email').toLowerCase();
-      if (!email.includes('@')) {
-        throw createAppError(400, 'invalid_input', 'email must look like an email address');
-      }
-      if (email.length > MAX_FIELD_LENGTH) {
-        throw createAppError(400, 'invalid_input', `email must be at most ${MAX_FIELD_LENGTH} characters`);
-      }
-
-      const socials = requireNonEmptyString(payload.socials, 'socials');
-      if (socials.length > MAX_FIELD_LENGTH) {
-        throw createAppError(400, 'invalid_input', `socials must be at most ${MAX_FIELD_LENGTH} characters`);
-      }
-
-      const reason = requireNonEmptyString(payload.reason, 'reason');
-      if (reason.length > MAX_FIELD_LENGTH) {
-        throw createAppError(400, 'invalid_input', `reason must be at most ${MAX_FIELD_LENGTH} characters`);
-      }
+      const candidateName = normalizeCandidateFullName(payload.name, requireNonEmptyString, createAppError);
+      const candidateEmail = normalizeCandidateEmail(payload.email, requireNonEmptyString, createAppError);
+      const socials = requireBoundedString(payload.socials, 'socials', requireNonEmptyString, createAppError);
+      const reason = requireBoundedString(payload.reason, 'reason', requireNonEmptyString, createAppError);
 
       const admission = await repository.createAdmissionSponsorship({
         actorMemberId: actor.member.id,
         clubId: club.clubId,
         candidateName,
-        candidateEmail: email,
+        candidateEmail,
         candidateDetails: { socials },
         reason,
       });

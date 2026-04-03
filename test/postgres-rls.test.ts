@@ -76,38 +76,38 @@ async function seedRlsFixture(client: PoolClient) {
   const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
   const ownerId = (await client.query<{ id: string }>(
-    `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-    [`Owner ${suffix}`, `auth|owner-${suffix}`, `owner-${suffix}`],
+    `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+    [`Owner ${suffix}`, `owner-${suffix}`],
   )).rows[0]!.id;
 
   const memberAId = (await client.query<{ id: string }>(
-    `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-    [`Member A ${suffix}`, `auth|member-a-${suffix}`, `member-a-${suffix}`],
+    `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+    [`Member A ${suffix}`, `member-a-${suffix}`],
   )).rows[0]!.id;
 
   const memberBId = (await client.query<{ id: string }>(
-    `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-    [`Member B ${suffix}`, `auth|member-b-${suffix}`, `member-b-${suffix}`],
+    `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+    [`Member B ${suffix}`, `member-b-${suffix}`],
   )).rows[0]!.id;
 
   const memberCId = (await client.query<{ id: string }>(
-    `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-    [`Member C ${suffix}`, `auth|member-c-${suffix}`, `member-c-${suffix}`],
+    `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+    [`Member C ${suffix}`, `member-c-${suffix}`],
   )).rows[0]!.id;
 
   const unpaidMemberId = (await client.query<{ id: string }>(
-    `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-    [`Unpaid Member ${suffix}`, `auth|unpaid-${suffix}`, `unpaid-${suffix}`],
+    `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+    [`Unpaid Member ${suffix}`, `unpaid-${suffix}`],
   )).rows[0]!.id;
 
   const pendingCandidateId = (await client.query<{ id: string }>(
-    `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-    [`Pending Candidate ${suffix}`, `auth|pending-${suffix}`, `pending-${suffix}`],
+    `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+    [`Pending Candidate ${suffix}`, `pending-${suffix}`],
   )).rows[0]!.id;
 
   const outsiderId = (await client.query<{ id: string }>(
-    `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-    [`Outsider ${suffix}`, `auth|outsider-${suffix}`, `outsider-${suffix}`],
+    `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+    [`Outsider ${suffix}`, `outsider-${suffix}`],
   )).rows[0]!.id;
 
   await client.query(
@@ -243,13 +243,12 @@ async function seedRlsFixture(client: PoolClient) {
         status,
         amount,
         currency,
-        current_period_start,
         current_period_end
       )
       values
-        ($1, $2, 'active', 25, 'GBP', now(), now() + interval '30 days'),
-        ($3, $4, 'active', 25, 'GBP', now(), now() + interval '30 days'),
-        ($5, $6, 'active', 25, 'GBP', now(), now() + interval '30 days')
+        ($1, $2, 'active', 25, 'GBP', now() + interval '30 days'),
+        ($3, $4, 'active', 25, 'GBP', now() + interval '30 days'),
+        ($5, $6, 'active', 25, 'GBP', now() + interval '30 days')
     `,
     [memberAMembershipId, memberAId, memberBMembershipId, memberBId, memberCMembershipId, memberCId],
   );
@@ -491,10 +490,9 @@ test('RLS restricts subscription writes to superadmin scope and blocks ordinary 
             status,
             amount,
             currency,
-            current_period_start,
             current_period_end
           )
-          values ($1, $2, 'active', 25, 'GBP', now(), now() + interval '30 days')
+          values ($1, $2, 'active', 25, 'GBP', now() + interval '30 days')
         `,
         [fixture.unpaidMembershipId, fixture.unpaidMemberId],
       ),
@@ -529,10 +527,9 @@ test('RLS restricts subscription writes to superadmin scope and blocks ordinary 
           status,
           amount,
           currency,
-          current_period_start,
           current_period_end
         )
-        values ($1, $2, 'active', 25, 'GBP', now(), now() + interval '30 days')
+        values ($1, $2, 'active', 25, 'GBP', now() + interval '30 days')
         returning id
       `,
       [fixture.unpaidMembershipId, fixture.unpaidMemberId],
@@ -565,7 +562,7 @@ test('RLS restricts subscription writes to superadmin scope and blocks ordinary 
   });
 });
 
-test('RLS keeps cold admission tables inaccessible and only permits the cold admission definer entrypoints', async () => {
+test('RLS keeps admission challenge tables inaccessible and only permits the admission definer entrypoints', async () => {
   await withIsolatedClient(async (client, roleName) => {
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
@@ -586,7 +583,7 @@ test('RLS keeps cold admission tables inaccessible and only permits the cold adm
 
     // Security definer function creates a challenge successfully
     const createdChallenge = await client.query<{ challenge_id: string }>(
-      `select challenge_id from app.create_cold_application_challenge($1, $2)`,
+      `select challenge_id from app.create_admission_challenge($1, $2)`,
       [1, 60 * 60 * 1000],
     );
 
@@ -604,7 +601,7 @@ test('RLS keeps cold admission tables inaccessible and only permits the cold adm
 
     // Security definer function can read the challenge
     const visibleChallenge = await client.query<{ challenge_id: string; difficulty: number }>(
-      `select challenge_id, difficulty from app.get_cold_application_challenge($1)`,
+      `select challenge_id, difficulty from app.get_admission_challenge($1)`,
       [createdChallenge.rows[0]?.challenge_id],
     );
 
@@ -641,10 +638,10 @@ test('outsider acceptance via create_member_from_admission creates member, conta
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
 
-    // Create a cold admission as the cold application definer
+    // Create an admission as the admission definer
     await client.query(`select set_config('app.actor_member_id', '', true)`);
     const createdChallenge = await client.query<{ challenge_id: string }>(
-      `select challenge_id from app.create_cold_application_challenge($1, $2)`,
+      `select challenge_id from app.create_admission_challenge($1, $2)`,
       [1, 60 * 60 * 1000],
     );
     const consumed = await client.query<{ admission_id: string }>(

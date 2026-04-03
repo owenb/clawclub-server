@@ -1,35 +1,6 @@
 import type { Repository } from './app.ts';
 import type { SolveAdmissionChallengeInput } from './app-contract.ts';
-import type { CreateAppError, RequireNonEmptyString } from './app-helpers.ts';
-
-const MAX_FIELD_LENGTH = 500;
-
-function requireBoundedString(value: unknown, field: string, requireNonEmptyString: RequireNonEmptyString, createAppError: CreateAppError): string {
-  const str = requireNonEmptyString(value, field);
-  if (str.length > MAX_FIELD_LENGTH) {
-    throw createAppError(400, 'invalid_input', `${field} must be at most ${MAX_FIELD_LENGTH} characters`);
-  }
-  return str;
-}
-
-function normalizeApplicantEmail(value: unknown, requireNonEmptyString: RequireNonEmptyString, createAppError: CreateAppError): string {
-  const email = requireBoundedString(value, 'email', requireNonEmptyString, createAppError).toLowerCase();
-  if (!email.includes('@')) {
-    throw createAppError(400, 'invalid_input', 'email must look like an email address');
-  }
-
-  return email;
-}
-
-function normalizeApplicantFullName(value: unknown, requireNonEmptyString: RequireNonEmptyString, createAppError: CreateAppError): string {
-  const name = requireBoundedString(value, 'name', requireNonEmptyString, createAppError);
-  const words = name.split(/\s+/).filter((w) => w.length > 0);
-  if (words.length < 2) {
-    throw createAppError(400, 'invalid_input', 'name must be a full name (first and last name)');
-  }
-
-  return words.join(' ');
-}
+import { normalizeCandidateEmail, normalizeCandidateFullName, requireBoundedString, type CreateAppError, type RequireNonEmptyString } from './app-helpers.ts';
 
 export async function handleColdAdmissionAction(input: {
   action: string;
@@ -74,8 +45,8 @@ export async function handleColdAdmissionAction(input: {
         challengeId: requireBoundedString(payload.challengeId, 'challengeId', requireNonEmptyString, createAppError),
         nonce: requireBoundedString(payload.nonce, 'nonce', requireNonEmptyString, createAppError),
         clubSlug: requireBoundedString(payload.clubSlug, 'clubSlug', requireNonEmptyString, createAppError),
-        name: normalizeApplicantFullName(payload.name, requireNonEmptyString, createAppError),
-        email: normalizeApplicantEmail(payload.email, requireNonEmptyString, createAppError),
+        name: normalizeCandidateFullName(payload.name, requireNonEmptyString, createAppError),
+        email: normalizeCandidateEmail(payload.email, requireNonEmptyString, createAppError),
         socials: requireBoundedString(payload.socials, 'socials', requireNonEmptyString, createAppError),
         reason: requireBoundedString(payload.reason, 'reason', requireNonEmptyString, createAppError),
       } satisfies SolveAdmissionChallengeInput);

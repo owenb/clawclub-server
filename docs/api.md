@@ -138,7 +138,7 @@ Content-Type: application/json
     "difficulty": 7,
     "expiresAt": "2026-03-15T13:00:00.000Z",
     "clubs": [
-      { "slug": "alpha-club", "name": "Alpha Club", "summary": "A club for builders" }
+      { "slug": "alpha-club", "name": "Alpha Club", "summary": "A club for builders", "ownerName": "Alice Owner", "ownerEmail": "alice@example.com" }
     ]
   }
 }

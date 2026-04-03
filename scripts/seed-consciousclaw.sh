@@ -9,37 +9,31 @@ DATABASE_URL="$(require_migrator_database_url)"
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
 
-insert into app.members (public_name, auth_subject, handle, metadata)
+insert into app.members (public_name, handle)
 values (
   'Owen Barnes',
-  'auth|owen-barnes',
-  'owen-barnes',
-  jsonb_build_object('seed', 'consciousclaw')
+  'owen-barnes'
 )
 on conflict (handle) do update
 set
-  public_name = excluded.public_name,
-  auth_subject = excluded.auth_subject,
-  metadata = app.members.metadata || excluded.metadata;
+  public_name = excluded.public_name;
 
 select id from app.members where handle = 'owen-barnes' \gset
 
-insert into app.clubs (slug, name, owner_member_id, summary, manifesto_markdown, config)
+insert into app.clubs (slug, name, owner_member_id, summary, manifesto_markdown)
 values (
   'consciousclaw',
   'ConsciousClaw',
   :'id',
   'Private relational club for spiritually aligned builders, friends, collaborators, and real-world connection.',
-  'ConsciousClaw is a private members club for aligned people who want real relationship, collaboration, service, and grounded shared reality. It is not public social media and not a dating app. It is a trust-based field for meaningful connection.',
-  jsonb_build_object('seed', 'consciousclaw')
+  'ConsciousClaw is a private members club for aligned people who want real relationship, collaboration, service, and grounded shared reality. It is not public social media and not a dating app. It is a trust-based field for meaningful connection.'
 )
 on conflict (slug) do update
 set
   name = excluded.name,
   owner_member_id = excluded.owner_member_id,
   summary = excluded.summary,
-  manifesto_markdown = excluded.manifesto_markdown,
-  config = app.clubs.config || excluded.config;
+  manifesto_markdown = excluded.manifesto_markdown;
 
 select id as club_id from app.clubs where slug = 'consciousclaw' \gset
 select id as owner_member_id from app.members where handle = 'owen-barnes' \gset

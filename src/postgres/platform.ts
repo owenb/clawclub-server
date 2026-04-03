@@ -18,6 +18,7 @@ type ClubRow = {
   owner_member_id: string;
   owner_public_name: string;
   owner_handle: string | null;
+  owner_email: string | null;
   owner_version_no: number;
   owner_created_at: string;
   owner_created_by_member_id: string | null;
@@ -35,6 +36,7 @@ function mapClubRow(row: ClubRow): ClubSummary {
       memberId: row.owner_member_id,
       publicName: row.owner_public_name,
       handle: row.owner_handle,
+      email: row.owner_email,
     },
     ownerVersion: {
       versionNo: Number(row.owner_version_no),
@@ -57,12 +59,14 @@ async function listClubs(client: DbClient, includeArchived: boolean): Promise<Cl
         owner.member_id as owner_member_id,
         m.public_name as owner_public_name,
         m.handle as owner_handle,
+        mpc.email as owner_email,
         owner.version_no as owner_version_no,
         owner.created_at::text as owner_created_at,
         owner.created_by_member_id as owner_created_by_member_id
       from app.clubs n
       join app.current_club_owners owner on owner.club_id = n.id
       join app.members m on m.id = owner.owner_member_id
+      left join app.member_private_contacts mpc on mpc.member_id = m.id
       where ($1::boolean = true or n.archived_at is null)
       order by n.archived_at asc nulls first, n.name asc, n.id asc
     `,
@@ -85,12 +89,14 @@ async function readClubSummary(client: DbClient, clubId: string): Promise<ClubSu
         owner.member_id as owner_member_id,
         m.public_name as owner_public_name,
         m.handle as owner_handle,
+        mpc.email as owner_email,
         owner.version_no as owner_version_no,
         owner.created_at::text as owner_created_at,
         owner.created_by_member_id as owner_created_by_member_id
       from app.clubs n
       join app.current_club_owners owner on owner.club_id = n.id
       join app.members m on m.id = owner.owner_member_id
+      left join app.member_private_contacts mpc on mpc.member_id = m.id
       where n.id = $1
       limit 1
     `,

@@ -6,6 +6,7 @@ import {
   type AdmissionSummary,
   type AdmissionChallengeResult,
   type CreateAdmissionNominationInput,
+  type CreateAdmissionSponsorInput,
   type IssueAdmissionAccessInput,
   type IssueAdmissionAccessResult,
   type MembershipState,
@@ -209,6 +210,7 @@ export function buildAdmissionsRepository({
   | 'createAdmissionChallenge'
   | 'solveAdmissionChallenge'
   | 'issueAdmissionAccess'
+  | 'createAdmissionSponsorship'
 > {
   return {
     async listAdmissions({ actorMemberId, clubIds, limit, statuses }) {
@@ -624,7 +626,7 @@ export function buildAdmissionsRepository({
 
     async createAdmissionChallenge(): Promise<AdmissionChallengeResult> {
       const challengeResult = await pool.query<{ challenge_id: string; expires_at: string }>(
-        `select challenge_id, expires_at from app.create_cold_application_challenge($1, $2)`,
+        `select challenge_id, expires_at from app.create_admission_challenge($1, $2)`,
         [COLD_APPLICATION_DIFFICULTY, COLD_APPLICATION_CHALLENGE_TTL_MS],
       );
       const challenge = requireReturnedRow(challengeResult.rows[0], 'Admission challenge was not created');
@@ -634,15 +636,15 @@ export function buildAdmissionsRepository({
         throw new AppError(500, 'invalid_data', 'Admission challenge expiry was not returned');
       }
 
-      const clubsResult = await pool.query<{ slug: string; name: string; summary: string | null }>(
-        `select slug, name, summary from app.list_publicly_listed_clubs()`,
+      const clubsResult = await pool.query<{ slug: string; name: string; summary: string | null; owner_name: string; owner_email: string | null }>(
+        `select slug, name, summary, owner_name, owner_email from app.list_publicly_listed_clubs()`,
       );
 
       return {
         challengeId: challenge.challenge_id,
         difficulty: COLD_APPLICATION_DIFFICULTY,
         expiresAt: new Date(expiresAt).toISOString(),
-        clubs: clubsResult.rows,
+        clubs: clubsResult.rows.map((r) => ({ slug: r.slug, name: r.name, summary: r.summary, ownerName: r.owner_name, ownerEmail: r.owner_email })),
       };
     },
 
@@ -655,7 +657,7 @@ export function buildAdmissionsRepository({
         await client.query('begin');
 
         const challengeResult = await client.query<{ challenge_id: string; difficulty: number; expires_at: string }>(
-          `select challenge_id, difficulty, expires_at from app.get_cold_application_challenge($1)`,
+          `select challenge_id, difficulty, expires_at from app.get_admission_challenge($1)`,
           [input.challengeId],
         );
 
@@ -668,7 +670,7 @@ export function buildAdmissionsRepository({
         const expiresAt = Date.parse(challenge.expires_at);
         if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
           await client.query(
-            `select app.delete_cold_application_challenge($1)`,
+            `select app.delete_admission_challenge($1)`,
             [input.challengeId],
           );
           await client.query('commit');
@@ -770,6 +772,85 @@ export function buildAdmissionsRepository({
         return {
           admission: summary,
           bearerToken: token.bearerToken,
+        };
+      });
+    },
+
+    async createAdmissionSponsorship(input: CreateAdmissionSponsorInput): Promise<AdmissionSummary> {
+      return withActorContext(pool, input.actorMemberId, [input.clubId], async (client) => {
+        const result = await client.query<{
+          admission_id: string;
+          club_id: string;
+          sponsor_member_id: string;
+          sponsor_public_name: string;
+          sponsor_handle: string | null;
+          created_at: string;
+        }>(
+          `
+            with inserted_admission as (
+              insert into app.admissions (club_id, sponsor_member_id, origin, applicant_email, applicant_name, admission_details)
+              values ($1, $2, 'member_sponsored', $3, $4, $5::jsonb)
+              returning id, club_id, sponsor_member_id, created_at
+            )
+            select
+              ia.id as admission_id,
+              ia.club_id,
+              ia.sponsor_member_id,
+              m.public_name as sponsor_public_name,
+              m.handle as sponsor_handle,
+              ia.created_at::text as created_at
+            from inserted_admission ia
+            join app.members m on m.id = ia.sponsor_member_id
+          `,
+          [input.clubId, input.actorMemberId, input.candidateEmail, input.candidateName, JSON.stringify({ ...input.candidateDetails, reason: input.reason })],
+        );
+
+        const row = result.rows[0];
+        if (!row) {
+          throw new AppError(500, 'invalid_data', 'Admission row was not returned after insert');
+        }
+
+        await client.query(
+          `
+            insert into app.admission_versions (admission_id, status, notes, version_no, created_by_member_id)
+            values ($1, 'submitted', 'Sponsored admission created by member', 1, $2)
+          `,
+          [row.admission_id, input.actorMemberId],
+        );
+
+        return {
+          admissionId: row.admission_id,
+          clubId: row.club_id,
+          applicant: {
+            memberId: null,
+            publicName: input.candidateName,
+            handle: null,
+            email: input.candidateEmail,
+          },
+          sponsor: {
+            memberId: row.sponsor_member_id,
+            publicName: row.sponsor_public_name,
+            handle: row.sponsor_handle,
+          },
+          membershipId: null,
+          origin: 'member_sponsored',
+          intake: {
+            kind: 'other',
+            price: { amount: null, currency: null },
+            bookingUrl: null,
+            bookedAt: null,
+            completedAt: null,
+          },
+          state: {
+            status: 'submitted',
+            notes: 'Sponsored admission created by member',
+            versionNo: 1,
+            createdAt: row.created_at,
+            createdByMemberId: input.actorMemberId,
+          },
+          admissionDetails: { ...input.candidateDetails, reason: input.reason },
+          metadata: {},
+          createdAt: row.created_at,
         };
       });
     },

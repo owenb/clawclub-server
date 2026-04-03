@@ -14,7 +14,6 @@ import {
   type TransitionMembershipInput,
 } from '../app.ts';
 import { buildAdmissionsRepository as buildAdmissionQueriesRepository } from './admission-queries.ts';
-import { buildAdmissionSponsorRepository } from './admission-sponsor.ts';
 import { buildContainsLikePattern, normalizeSearchQuery } from './search.ts';
 import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
 
@@ -545,11 +544,12 @@ export function buildAdmissionsRepository({
   | 'createMembership'
   | 'transitionMembershipState'
   | 'transitionAdmission'
+  | 'issueAdmissionAccess'
+  | 'createAdmissionSponsorship'
   | 'searchMembers'
   | 'listMembers'
   | 'createVouch'
   | 'listVouches'
-  | 'createAdmissionSponsorship'
 > {
   const admissionQueriesRepository = buildAdmissionQueriesRepository({
     pool,
@@ -557,14 +557,8 @@ export function buildAdmissionsRepository({
     withActorContext,
   });
 
-  const sponsorshipRepository = buildAdmissionSponsorRepository({
-    pool,
-    withActorContext,
-  });
-
   return {
     ...admissionQueriesRepository,
-    ...sponsorshipRepository,
 
     async listMemberships({ actorMemberId, clubIds, limit, status }) {
       return withActorContext(pool, actorMemberId, clubIds, (client) => readMemberships(client, { clubIds, limit, status }));

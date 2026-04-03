@@ -6,12 +6,12 @@ set -euo pipefail
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
 
-insert into app.members (public_name, auth_subject, handle)
-values ('Smoke Owner', 'auth|smoke-owner', 'smoke-owner')
+insert into app.members (public_name, handle)
+values ('Smoke Owner', 'smoke-owner')
 returning id as owner_id \gset
 
-insert into app.members (public_name, auth_subject, handle)
-values ('Smoke Member', 'auth|smoke-member', 'smoke-member')
+insert into app.members (public_name, handle)
+values ('Smoke Member', 'smoke-member')
 returning id as member_id \gset
 
 insert into app.clubs (slug, name, owner_member_id, summary)

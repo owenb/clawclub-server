@@ -11,10 +11,10 @@ function buildRepository(client: { query: (sql: string, params?: unknown[]) => P
       query: async (sql: string, params?: unknown[]) => client.query(sql, params),
     } as any,
     applyActorContext: async () => {
-      throw new Error('applyActorContext should not be called for cold application flows');
+      throw new Error('applyActorContext should not be called for admission flows');
     },
     withActorContext: async () => {
-      throw new Error('withActorContext should not be called for cold application flows');
+      throw new Error('withActorContext should not be called for admission flows');
     },
   });
 }
@@ -34,7 +34,7 @@ function findValidNonce(challengeId: string, difficulty: number): string {
   }
 }
 
-test('postgres applications repository creates a cold application challenge', async () => {
+test('admissions repository creates a admission challenge', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   const expiresAt = '2026-03-20T12:00:00.000Z';
 
@@ -42,12 +42,12 @@ test('postgres applications repository creates a cold application challenge', as
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
 
-      if (sql.includes('from app.create_cold_application_challenge(')) {
+      if (sql.includes('from app.create_admission_challenge(')) {
         return { rows: [{ challenge_id: 'challenge-1', expires_at: expiresAt }], rowCount: 1 };
       }
 
       if (sql.includes('from app.list_publicly_listed_clubs()')) {
-        return { rows: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club' }], rowCount: 1 };
+        return { rows: [{ slug: 'alpha', name: 'Alpha Club', summary: 'A test club', owner_name: 'Alice Owner', owner_email: 'alice@example.com' }], rowCount: 1 };
       }
 
       throw new Error(`Unexpected query: ${sql}`);
@@ -63,14 +63,16 @@ test('postgres applications repository creates a cold application challenge', as
   assert.equal(result?.expiresAt, expiresAt);
   assert.equal(result?.clubs.length, 1);
   assert.equal(result?.clubs[0].slug, 'alpha');
+  assert.equal(result?.clubs[0].ownerName, 'Alice Owner');
+  assert.equal(result?.clubs[0].ownerEmail, 'alice@example.com');
 
-  const challengeCall = calls.find((call) => call.sql.includes('from app.create_cold_application_challenge('));
+  const challengeCall = calls.find((call) => call.sql.includes('from app.create_admission_challenge('));
   assert.deepEqual(challengeCall?.params, [7, 60 * 60 * 1000]);
   const clubsCall = calls.find((call) => call.sql.includes('from app.list_publicly_listed_clubs()'));
   assert.ok(clubsCall);
 });
 
-test('postgres applications repository verifies a solved cold application challenge', async () => {
+test('admissions repository verifies a solved admission challenge', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   const challengeId = 'challenge-1';
   const difficulty = 1;
@@ -85,7 +87,7 @@ test('postgres applications repository verifies a solved cold application challe
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes('from app.get_cold_application_challenge(')) {
+      if (sql.includes('from app.get_admission_challenge(')) {
         return {
           rows: [{
             challenge_id: challengeId,
@@ -118,7 +120,7 @@ test('postgres applications repository verifies a solved cold application challe
 
   assert.deepEqual(result, { success: true });
 
-  const getCall = calls.find((call) => call.sql.includes('from app.get_cold_application_challenge('));
+  const getCall = calls.find((call) => call.sql.includes('from app.get_admission_challenge('));
   assert.deepEqual(getCall?.params, [challengeId]);
   const consumeCall = calls.find((call) => call.sql.includes('from app.consume_admission_challenge('));
   assert.ok(consumeCall);
@@ -132,7 +134,7 @@ test('postgres applications repository verifies a solved cold application challe
   assert.equal(admissionDetails.reason, 'Love the community');
 });
 
-test('postgres applications repository rejects invalid proof for cold applications', async () => {
+test('admissions repository rejects invalid proof for admissions', async () => {
   const challengeId = 'challenge-2';
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
@@ -142,7 +144,7 @@ test('postgres applications repository rejects invalid proof for cold applicatio
         return { rows: [], rowCount: 0 };
       }
 
-      if (sql.includes('from app.get_cold_application_challenge(')) {
+      if (sql.includes('from app.get_admission_challenge(')) {
         return {
           rows: [{
             challenge_id: challengeId,

@@ -6,12 +6,12 @@ set -euo pipefail
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
 
-insert into app.members (public_name, auth_subject, handle)
+insert into app.members (public_name, handle)
 values
-  ('Pressure Owner', 'auth|pressure-owner', 'pressure-owner'),
-  ('Pressure Sponsor', 'auth|pressure-sponsor', 'pressure-sponsor'),
-  ('Pressure Member', 'auth|pressure-member', 'pressure-member'),
-  ('Pressure Lapsed', 'auth|pressure-lapsed', 'pressure-lapsed')
+  ('Pressure Owner', 'pressure-owner'),
+  ('Pressure Sponsor', 'pressure-sponsor'),
+  ('Pressure Member', 'pressure-member'),
+  ('Pressure Lapsed', 'pressure-lapsed')
 returning id, handle;
 
 select id from app.members where handle = 'pressure-owner' \gset

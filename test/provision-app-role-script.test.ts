@@ -81,8 +81,8 @@ async function assertProvisionedRoleWorks({
     await client.query('begin');
 
     const ownerId = (await client.query<{ id: string }>(
-      `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-      [`Provision Owner ${suffix}`, `auth|provision-owner-${suffix}`, `provision-owner-${suffix}`],
+      `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+      [`Provision Owner ${suffix}`, `provision-owner-${suffix}`],
     )).rows[0]!.id;
 
     await client.query(

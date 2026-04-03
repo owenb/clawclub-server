@@ -37,11 +37,10 @@ fi
 echo "Creating member '$handle' ($public_name)..."
 
 psql "$database_url" -v ON_ERROR_STOP=1 -v handle="$handle" -v public_name="$public_name" <<'SQL'
-insert into app.members (public_name, auth_subject, handle, metadata)
-values (:'public_name', 'auth|' || :'handle', :'handle', '{}')
+insert into app.members (public_name, handle)
+values (:'public_name', :'handle')
 on conflict (handle) do update
-set public_name = excluded.public_name,
-    auth_subject = excluded.auth_subject;
+set public_name = excluded.public_name;
 SQL
 
 member_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v handle="$handle" \
@@ -85,8 +84,8 @@ echo ""
 echo "Creating comped subscription for membership $membership_id..."
 
 psql "$database_url" -v ON_ERROR_STOP=1 -v membership_id="$membership_id" -v owner_member_id="$owner_member_id" <<'SQL'
-insert into app.subscriptions (membership_id, payer_member_id, status, billing_interval, amount, currency, metadata)
-values (:'membership_id', :'owner_member_id', 'active', 'month', 0, 'GBP', '{"comped": true, "reason": "Added via add-member script"}')
+insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency)
+values (:'membership_id', :'owner_member_id', 'active', 0, 'GBP')
 on conflict do nothing;
 SQL
 

@@ -20,13 +20,13 @@ test('club owner root column mirrors owner history and rejects direct updates', 
     await client.query('begin');
 
     const originalOwnerId = (await client.query<{ id: string }>(
-      `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-      [`Original Owner ${suffix}`, `auth|original-owner-${suffix}`, `original-owner-${suffix}`],
+      `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+      [`Original Owner ${suffix}`, `original-owner-${suffix}`],
     )).rows[0]!.id;
 
     const nextOwnerId = (await client.query<{ id: string }>(
-      `insert into app.members (public_name, auth_subject, handle) values ($1, $2, $3) returning id`,
-      [`Next Owner ${suffix}`, `auth|next-owner-${suffix}`, `next-owner-${suffix}`],
+      `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+      [`Next Owner ${suffix}`, `next-owner-${suffix}`],
     )).rows[0]!.id;
 
     await client.query(
