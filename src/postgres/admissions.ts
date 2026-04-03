@@ -669,6 +669,14 @@ export function buildAdmissionsRepository({
           [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
         );
 
+        // Create comped subscription via security definer so the membership appears in accessible_club_memberships
+        if (input.initialStatus === 'active') {
+          await client.query(
+            `select app.create_comped_subscription($1, $2)`,
+            [membershipId, input.actorMemberId],
+          );
+        }
+
         await client.query('commit');
         return await withActorContext(pool, input.actorMemberId, [input.clubId], (scopedClient) => readMembershipAdminSummary(scopedClient, membershipId));
       } catch (error) {
@@ -747,6 +755,20 @@ export function buildAdmissionsRepository({
             input.actorMemberId,
           ],
         );
+
+        // Ensure a comped subscription exists when transitioning to active
+        if (input.nextStatus === 'active') {
+          const hasSubscription = await client.query<{ has_sub: boolean }>(
+            `select app.membership_has_live_subscription($1) as has_sub`,
+            [membership.membership_id],
+          );
+          if (!hasSubscription.rows[0]?.has_sub) {
+            await client.query(
+              `select app.create_comped_subscription($1, $2)`,
+              [membership.membership_id, input.actorMemberId],
+            );
+          }
+        }
 
         await client.query('commit');
         return await withActorContext(pool, input.actorMemberId, input.accessibleClubIds, (scopedClient) =>

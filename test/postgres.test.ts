@@ -1573,6 +1573,8 @@ test('postgres repository appends membership state transitions and reloads curre
       if (sql.includes('insert into app.club_membership_state_versions')) {
         return { rows: [], rowCount: 1 };
       }
+      if (sql.includes('membership_has_live_subscription')) return { rows: [{ has_sub: false }], rowCount: 1 };
+      if (sql.includes('create_comped_subscription')) return { rows: [], rowCount: 1 };
       if (sql.includes('where cnm.id = $1')) {
         return {
           rows: [{
