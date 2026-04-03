@@ -485,7 +485,7 @@ export class TestHarness {
               const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
 
               // Validate polling response against transport schema
-              if (parsed.ok === true && parsed.updates) {
+              if (parsed.ok === true) {
                 const result = strictify(pollingResponse).safeParse(parsed);
                 if (!result.success) {
                   reject(new Error(`[contract] GET /updates polling response validation failed: ${result.error.message}`));

@@ -51,4 +51,31 @@ describe('smoke', () => {
     const { body: body2 } = await h.getSchema();
     assert.deepEqual(body, body2);
   });
+
+  it('GET /api/schema?full=1 requires superadmin auth', async () => {
+    const owner = await h.seedOwner('schemaclub', 'SchemaClub');
+    const admin = await h.seedSuperadmin('Schema Admin', 'schema-admin');
+    const adminToken = await h.createToken(admin.id, 'schema-test');
+
+    // Non-superadmin with ?full=1 gets public schema (same as default)
+    const { body: publicBody } = await h.getSchema();
+    const { body: ownerBody } = await h.getSchema(owner.token, { full: true });
+    const publicActions = (publicBody.data as { actions: unknown[] }).actions;
+    const ownerActions = (ownerBody.data as { actions: unknown[] }).actions;
+    assert.deepEqual(ownerActions, publicActions, 'non-superadmin ?full=1 should return public schema');
+
+    // Superadmin with ?full=1 gets all actions
+    const { status, body: fullBody } = await h.getSchema(adminToken, { full: true });
+    assert.equal(status, 200);
+    const fullData = fullBody.data as { actions: Array<{ action: string; aiExposed: boolean }> };
+    assert.ok(fullData.actions.length > publicActions.length, 'full schema should have more actions than public');
+
+    // Full schema includes non-aiExposed actions
+    const nonExposed = fullData.actions.filter(a => !a.aiExposed);
+    assert.ok(nonExposed.length > 0, 'full schema should include non-aiExposed actions');
+
+    // Full schema still sorted
+    const names = fullData.actions.map(a => a.action);
+    assert.deepEqual(names, [...names].sort());
+  });
 });
