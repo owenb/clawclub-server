@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { buildApp, type Repository } from './app.ts';
 import { AI_EXPOSED_ACTIONS } from './action-manifest.ts';
 
-export const CLAWCLUB_OPENAI_MODEL = 'gpt-5.4';
+export const CLAWCLUB_OPENAI_MODEL = 'gpt-5-nano';
 
 export type ClawClubAiRuntime = {
   repository: Repository;

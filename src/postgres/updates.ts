@@ -163,14 +163,14 @@ export async function appendEntityVersionUpdates(
       )
       select
         anm.member_id,
-        $1,
+        $1::app.short_id,
         $2,
         $3::jsonb,
         $4,
         $5,
         $6
       from app.accessible_club_memberships anm
-      where anm.club_id = $1
+      where anm.club_id = $1::app.short_id
         and anm.member_id <> $6
     `,
     [
