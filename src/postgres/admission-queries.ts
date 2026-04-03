@@ -261,53 +261,50 @@ export function buildAdmissionsRepository({
 
         const admissionResult = await client.query<{ admission_id: string }>(
           `
-            with inserted as (
-              insert into app.admissions (
-                club_id,
-                applicant_member_id,
-                sponsor_member_id,
-                origin,
-                metadata
-              )
-              select $1, $2, $3, 'owner_nominated'::text, $4::jsonb
-              where app.member_is_active($2)
-              returning id as admission_id
-            ), version_insert as (
-              insert into app.admission_versions (
-                admission_id,
-                status,
-                notes,
-                intake_kind,
-                intake_price_amount,
-                intake_price_currency,
-                intake_booking_url,
-                intake_booked_at,
-                intake_completed_at,
-                version_no,
-                created_by_member_id
-              )
-              select
-                admission_id,
-                $5,
-                $6,
-                $7,
-                $8,
-                $9,
-                $10,
-                $11,
-                $12,
-                1,
-                $13
-              from inserted
+            insert into app.admissions (
+              club_id,
+              applicant_member_id,
+              sponsor_member_id,
+              origin,
+              metadata
             )
-            select admission_id
-            from inserted
+            select $1, $2, $3, 'owner_nominated'::text, $4::jsonb
+            where app.member_is_active($2)
+            returning id as admission_id
           `,
           [
             input.clubId,
             input.applicantMemberId,
             input.sponsorMemberId ?? null,
             JSON.stringify(input.metadata ?? {}),
+          ],
+        );
+
+        const admissionId = admissionResult.rows[0]?.admission_id;
+        if (!admissionId) {
+          await client.query('rollback');
+          return null;
+        }
+
+        await client.query(
+          `
+            insert into app.admission_versions (
+              admission_id,
+              status,
+              notes,
+              intake_kind,
+              intake_price_amount,
+              intake_price_currency,
+              intake_booking_url,
+              intake_booked_at,
+              intake_completed_at,
+              version_no,
+              created_by_member_id
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1, $10)
+          `,
+          [
+            admissionId,
             input.initialStatus,
             input.notes ?? null,
             input.intake.kind ?? 'fit_check',
@@ -319,12 +316,6 @@ export function buildAdmissionsRepository({
             input.actorMemberId,
           ],
         );
-
-        const admissionId = admissionResult.rows[0]?.admission_id;
-        if (!admissionId) {
-          await client.query('rollback');
-          return null;
-        }
 
         await client.query('commit');
         return await withActorContext(pool, input.actorMemberId, [input.clubId], (scopedClient) => readAdmissionSummary(scopedClient, admissionId));

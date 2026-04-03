@@ -145,14 +145,18 @@ function normalizeUpdatesLimit(value: string | null): number {
   return Math.min(Math.max(parsed, 1), 20);
 }
 
-function normalizeUpdatesAfter(value: string | null): number | null {
+function normalizeUpdatesAfter(value: string | null): number | 'latest' | null {
   if (value === null || value.trim().length === 0) {
     return null;
   }
 
+  if (value.trim().toLowerCase() === 'latest') {
+    return 'latest';
+  }
+
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new AppError(400, 'invalid_input', 'after must be a non-negative integer');
+    throw new AppError(400, 'invalid_input', 'after must be a non-negative integer or "latest"');
   }
 
   return parsed;
@@ -301,10 +305,15 @@ export function createServer(options: {
           throw new Error('Repository does not implement listMemberUpdates');
         }
 
+        const afterRaw = normalizeUpdatesAfter(url.searchParams.get('after'));
+        const after = afterRaw === 'latest' && repository.getLatestStreamSeq
+          ? await repository.getLatestStreamSeq({ actorMemberId: auth.actor.member.id })
+          : afterRaw === 'latest' ? null : afterRaw;
+
         const updates = await repository.listMemberUpdates({
           actorMemberId: auth.actor.member.id,
           limit: normalizeUpdatesLimit(url.searchParams.get('limit')),
-          after: normalizeUpdatesAfter(url.searchParams.get('after')),
+          after,
         });
 
         writeJson(response, 200, {
@@ -383,10 +392,16 @@ export function createServer(options: {
           DEFAULT_SERVER_LIMITS.updatesStreamLimit,
         );
         const lastEventId = request.headers['last-event-id'];
-        const after = normalizeUpdatesAfter(
+        const afterRaw = normalizeUpdatesAfter(
           url.searchParams.get('after')
           ?? (typeof lastEventId === 'string' ? lastEventId : null),
         );
+
+        const latestStreamSeq = repository.getLatestStreamSeq
+          ? await repository.getLatestStreamSeq({ actorMemberId: memberId })
+          : null;
+
+        const after = afterRaw === 'latest' ? latestStreamSeq : afterRaw;
 
         response.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
@@ -405,6 +420,7 @@ export function createServer(options: {
           member: auth.actor.member,
           requestScope: auth.requestScope,
           nextAfter: after,
+          latestStreamSeq,
         });
 
         let cursor = after;

@@ -291,7 +291,7 @@ export function buildUpdatesRepository({
 }: {
   pool: Pool;
   applyActorContext: ApplyActorContext;
-}): Pick<Repository, 'listMemberUpdates' | 'acknowledgeUpdates'> {
+}): Pick<Repository, 'listMemberUpdates' | 'getLatestStreamSeq' | 'acknowledgeUpdates'> {
   return {
     async listMemberUpdates({ actorMemberId, limit, after }): Promise<MemberUpdates> {
       const client = await pool.connect();
@@ -302,6 +302,27 @@ export function buildUpdatesRepository({
         const updates = await listPendingUpdates(client, actorMemberId, limit, after ?? null);
         await client.query('commit');
         return updates;
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async getLatestStreamSeq({ actorMemberId }): Promise<number | null> {
+      const client = await pool.connect();
+
+      try {
+        await client.query('begin');
+        await applyActorContext(client, actorMemberId, []);
+        const result = await client.query<{ latest: string | null }>(
+          `select max(stream_seq)::text as latest from app.member_updates where recipient_member_id = $1`,
+          [actorMemberId],
+        );
+        await client.query('commit');
+        const val = result.rows[0]?.latest;
+        return val !== null && val !== undefined ? Number(val) : null;
       } catch (error) {
         await client.query('rollback');
         throw error;

@@ -382,7 +382,7 @@ export class TestHarness {
 
   async getUpdates(
     token: string,
-    params: { limit?: number; after?: number } = {},
+    params: { limit?: number; after?: number | 'latest' } = {},
   ): Promise<{ status: number; body: Record<string, unknown> }> {
     const qs = new URLSearchParams();
     if (params.limit !== undefined) qs.set('limit', String(params.limit));
@@ -414,5 +414,92 @@ export class TestHarness {
       req.on('error', reject);
       req.end();
     });
+  }
+
+  /**
+   * Connect to the SSE stream and collect events until `done` resolves or timeout.
+   * Returns parsed SSE events as { event, data, id? } objects.
+   */
+  connectStream(
+    token: string,
+    params: { after?: number | 'latest'; limit?: number; lastEventId?: string } = {},
+  ): {
+    events: Array<{ event: string; data: Record<string, unknown>; id?: string }>;
+    close: () => void;
+    waitForEvents: (count: number, timeoutMs?: number) => Promise<void>;
+  } {
+    const qs = new URLSearchParams();
+    if (params.after !== undefined) qs.set('after', String(params.after));
+    if (params.limit !== undefined) qs.set('limit', String(params.limit));
+    const path = `/updates/stream${qs.toString() ? `?${qs}` : ''}`;
+
+    const events: Array<{ event: string; data: Record<string, unknown>; id?: string }> = [];
+    const waiters: Array<{ target: number; resolve: () => void }> = [];
+
+    const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+    if (params.lastEventId) headers['last-event-id'] = params.lastEventId;
+
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port: this.port,
+        path,
+        method: 'GET',
+        headers,
+      },
+      (res) => {
+        let buffer = '';
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString('utf8');
+          // Parse complete SSE messages (terminated by double newline)
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop()!; // keep incomplete part
+          for (const part of parts) {
+            if (!part.trim() || part.trim().startsWith(':')) continue;
+            let event = 'message';
+            let data = '';
+            let id: string | undefined;
+            for (const line of part.split('\n')) {
+              if (line.startsWith('event: ')) event = line.slice(7);
+              else if (line.startsWith('data: ')) data += line.slice(6);
+              else if (line.startsWith('id: ')) id = line.slice(4);
+            }
+            if (data) {
+              try {
+                events.push({ event, data: JSON.parse(data), id });
+              } catch { /* ignore non-JSON */ }
+            }
+            // Check waiters
+            for (const w of [...waiters]) {
+              if (events.length >= w.target) {
+                waiters.splice(waiters.indexOf(w), 1);
+                w.resolve();
+              }
+            }
+          }
+        });
+      },
+    );
+    req.on('error', () => {}); // swallow errors on abort
+    req.end();
+
+    return {
+      events,
+      close: () => req.destroy(),
+      waitForEvents(count: number, timeoutMs = 5000): Promise<void> {
+        if (events.length >= count) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+          const waiter = { target: count, resolve };
+          waiters.push(waiter);
+          const timer = setTimeout(() => {
+            const idx = waiters.indexOf(waiter);
+            if (idx !== -1) waiters.splice(idx, 1);
+            reject(new Error(`Timed out waiting for ${count} events (got ${events.length})`));
+          }, timeoutMs);
+          const origResolve = waiter.resolve;
+          waiter.resolve = () => { clearTimeout(timer); origResolve(); };
+        });
+      },
+    };
   }
 }

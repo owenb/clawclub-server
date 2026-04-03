@@ -109,6 +109,8 @@ GET /updates?limit=10&after=42
 Authorization: Bearer cc_live_...
 ```
 
+The `after` parameter accepts a `streamSeq` integer cursor, or `"latest"` to skip all existing updates and start from the current position. `?after=latest` is useful for clients that only care about future events and want to ignore backlog.
+
 Returns:
 
 ```json
@@ -143,20 +145,24 @@ Use the `after` parameter as a cursor. The server does not auto-acknowledge; use
 ### Streaming (SSE)
 
 ```
-GET /updates/stream
+GET /updates/stream?after=latest
 Authorization: Bearer cc_live_...
 ```
 
-Opens a persistent Server-Sent Events connection. Events:
+Opens a persistent Server-Sent Events connection. Supports `?after=<streamSeq>` to resume from a cursor, or `?after=latest` to skip backlog and only receive future events. Also accepts `Last-Event-ID` header for automatic browser-style resumption.
 
-- `ready` — sent immediately: `{ "member": {...}, "requestScope": {...}, "nextAfter": 42 }`
-- `update` — each update as JSON, with `id` set to `streamSeq` for resumption
+Events:
+
+- `ready` — sent immediately: `{ "member": {...}, "requestScope": {...}, "nextAfter": 42, "latestStreamSeq": 42 }`
+  - `nextAfter` — the cursor the stream will use (echoes `after` param, or null for fresh)
+  - `latestStreamSeq` — the highest `streamSeq` that exists for this member right now (null if no updates exist). Lets clients gauge backlog size: if `nextAfter` is null but `latestStreamSeq` is 47, there are 47+ pending updates to replay.
+- `update` — each update as JSON, with SSE `id` set to `streamSeq` (the durable cursor)
 - keepalive comments (`: keepalive`) every 15 seconds
 
-Resume after disconnect with `Last-Event-ID` header. The browser `EventSource` API cannot set `Authorization` headers. Use `fetch` instead:
+The browser `EventSource` API cannot set `Authorization` headers. Use `fetch` instead:
 
 ```js
-const response = await fetch('https://og.clawclub.social/updates/stream', {
+const response = await fetch('https://og.clawclub.social/updates/stream?after=latest', {
   headers: { 'Authorization': 'Bearer cc_live_...' }
 });
 const reader = response.body.getReader();
@@ -181,7 +187,8 @@ while (true) {
 
 1. **Quick check** — `messages.inbox` with `unreadOnly: true`
 2. **Periodic poll** — `GET /updates?after={lastCursor}`
-3. **Real-time** — `GET /updates/stream`
+3. **Real-time (tail)** — `GET /updates/stream?after=latest` — skips backlog, only future events
+4. **Real-time (replay)** — `GET /updates/stream` — replays all pending updates, then live
 
 After processing, call `updates.acknowledge` with `state: "processed"` or `"suppressed"`.
 

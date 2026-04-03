@@ -57,51 +57,8 @@ async function seedOutsiderAdmission(
 }
 
 /**
- * Insert an owner-nominated existing-member admission directly via SQL.
- *
- * NOTE: admissions.nominate via the API has a known P0 bug — the CTE that inserts both
- * the admission row and its initial version in one statement fails with an RLS violation
- * on admission_versions. PostgreSQL evaluates the admission_versions WITH CHECK by querying
- * app.admissions, but the CTE-inserted admission row is not visible to that sub-query at
- * check time, causing the policy to reject the insert.
- *
- * Use this SQL helper as the workaround in tests until the bug is fixed.
- */
-async function seedNominatedAdmission(
-  clubId: string,
-  applicantMemberId: string,
-  sponsorMemberId: string | null = null,
-): Promise<string> {
-  const rows = await h.sql<{ admission_id: string }>(
-    `
-      with ins as (
-        insert into app.admissions (club_id, applicant_member_id, sponsor_member_id, origin, metadata)
-        values ($1, $2, $3, 'owner_nominated', '{}'::jsonb)
-        returning id as admission_id
-      ),
-      ver as (
-        insert into app.admission_versions (admission_id, status, version_no, created_by_member_id)
-        select admission_id, 'submitted', 1, $2
-        from ins
-      )
-      select admission_id from ins
-    `,
-    [clubId, applicantMemberId, sponsorMemberId],
-  );
-  const admissionId = rows[0]?.admission_id;
-  assert.ok(admissionId, 'seedNominatedAdmission: failed to insert admission row');
-  return admissionId;
-}
-
-/**
  * Insert a member-sponsored outsider admission directly via SQL.
- *
- * NOTE: admissions.sponsor via the API has a known P0 bug. After inserting the admission row
- * (using withActorContext as the sponsoring member), the code inserts into admission_versions.
- * The RLS policy for admission_versions requires actor_is_club_owner — but the sponsoring
- * member is NOT an owner, so no policy allows the insert. The action always returns 500.
- *
- * Use this SQL helper as the workaround in tests until the bug is fixed.
+ * Useful in the non-LLM suite since admissions.sponsor is LLM-gated.
  */
 async function seedSponsoredAdmission(
   clubId: string,
@@ -212,34 +169,33 @@ describe('journey 1: owner-manages outsider admission → full acceptance', () =
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('journey 2: owner-nominated existing member', () => {
-  /**
-   * KNOWN P0 BUG: admissions.nominate via the API fails with 500 (RLS violation on
-   * admission_versions). The CTE that inserts both the admission row and its first version in
-   * one statement is rejected because the RLS WITH CHECK on admission_versions queries
-   * app.admissions — but at check time, the CTE-inserted admission row is not visible to that
-   * sub-query. This test documents the current broken behaviour.
-   *
-   * Workaround: use seedNominatedAdmission() in other tests.
-   */
-  it('admissions.nominate returns 500 due to P0 RLS bug in CTE insert (known bug)', async () => {
-    const owner = await h.seedOwner('nominate-bug-club', 'Nominate Bug Club');
-    const applicant = await h.seedMember('Bug Applicant', 'bug-applicant');
+  it('admissions.nominate creates an admission via the API', async () => {
+    const owner = await h.seedOwner('nominate-api-club', 'Nominate API Club');
+    const applicant = await h.seedMember('API Applicant', 'api-applicant');
 
-    const err = await h.apiErr(owner.token, 'admissions.nominate', {
+    const result = await h.apiOk(owner.token, 'admissions.nominate', {
       clubId: owner.club.id,
       applicantMemberId: applicant.id,
       initialStatus: 'submitted',
     });
-    assert.equal(err.status, 500);
-    assert.equal(err.code, 'internal_error');
+    const adm = admission(result);
+    assert.ok(adm.admissionId, 'admissions.nominate should return an admissionId');
+    assert.equal(adm.origin, 'owner_nominated');
+    assert.equal((adm.applicant as Record<string, unknown>).memberId, applicant.id);
+    assert.equal((adm.state as Record<string, unknown>).status, 'submitted');
   });
 
   it('nominated member gains club access after acceptance', async () => {
     const owner = await h.seedOwner('nominate-club', 'Nominate Club');
     const applicant = await h.seedMember('Bob Applicant', 'bob-applicant');
 
-    // Seed admission via SQL (workaround for P0 bug in admissions.nominate)
-    const admissionId = await seedNominatedAdmission(owner.club.id, applicant.id);
+    // Create admission via the API
+    const nominateResult = await h.apiOk(owner.token, 'admissions.nominate', {
+      clubId: owner.club.id,
+      applicantMemberId: applicant.id,
+      initialStatus: 'submitted',
+    });
+    const admissionId = (admission(nominateResult)).admissionId as string;
 
     // Verify it appears in admissions.list
     const listBody = await h.apiOk(owner.token, 'admissions.list', { clubId: owner.club.id });
@@ -283,29 +239,23 @@ describe('journey 2: owner-nominated existing member', () => {
     );
   });
 
-  /**
-   * KNOWN P0 BUG: issueAccess for an already-existing member admission currently SUCCEEDS
-   * (returns a new bearer token) rather than returning a clear error or being a no-op. This
-   * means the same existing member can be issued multiple separate bearer tokens via the
-   * admissions flow — unintended behaviour. The test documents the current reality.
-   */
-  it('issueAccess succeeds for existing-member admission (P0 bug: should reject or be idempotent)', async () => {
+  it('issueAccess works for existing-member admission after acceptance', async () => {
     const owner = await h.seedOwner('nominate-issue-club', 'Nominate Issue Club');
     const applicant = await h.seedMember('Carol Issue', 'carol-issue');
 
-    const admissionId = await seedNominatedAdmission(owner.club.id, applicant.id);
+    const nominateResult = await h.apiOk(owner.token, 'admissions.nominate', {
+      clubId: owner.club.id,
+      applicantMemberId: applicant.id,
+      initialStatus: 'submitted',
+    });
+    const admissionId = (admission(nominateResult)).admissionId as string;
     await h.apiOk(owner.token, 'admissions.transition', { admissionId, status: 'accepted' });
 
-    // issueAccess currently returns a new bearer token for the existing member.
-    // This is the documented P0 bug — it should either:
-    //   a) return a 4xx (e.g. member already has access, no fresh token needed), or
-    //   b) be clearly idempotent (return the same token each time).
-    // For now, we assert it succeeds and the returned token grants club access.
     const accessBody = await h.apiOk(owner.token, 'admissions.issueAccess', { admissionId });
     const accessData = accessBody.data as Record<string, unknown>;
     assert.ok(
       typeof accessData.bearerToken === 'string' && accessData.bearerToken.length > 0,
-      'issueAccess returns a bearer token even for existing-member admissions (P0 bug)',
+      'issueAccess returns a bearer token',
     );
 
     const sessionBody = await h.apiOk(accessData.bearerToken as string, 'session.describe', {});
@@ -326,7 +276,8 @@ describe('journey 3: member-sponsored outsider admission', () => {
       sponsorId: owner.id,
     });
 
-    // Seed a sponsored admission via SQL (workaround for admissions.sponsor RLS bug)
+    // Seed a sponsored admission via SQL (admissions.sponsor is LLM-gated,
+    // so the non-LLM suite cannot call it directly)
     const admissionId = await seedSponsoredAdmission(owner.club.id, sponsor.id, {
       name: 'Eve Outsider',
       email: 'eve.outsider@example.com',
@@ -384,8 +335,13 @@ describe('journey 4: admissions.list shows unified view', () => {
     });
     const nominee = await h.seedMember('Grace Nominee', 'grace-nominee');
 
-    // Create all three admission types via SQL (workaround for P0 bugs in nominate/sponsor actions)
-    const nominatedId = await seedNominatedAdmission(owner.club.id, nominee.id);
+    // Nominate via API; sponsor + outsider via SQL (sponsor is LLM-gated, outsider uses PoW)
+    const nominateResult = await h.apiOk(owner.token, 'admissions.nominate', {
+      clubId: owner.club.id,
+      applicantMemberId: nominee.id,
+      initialStatus: 'submitted',
+    });
+    const nominatedId = (admission(nominateResult)).admissionId as string;
     const sponsoredId = await seedSponsoredAdmission(owner.club.id, sponsor.id, {
       name: 'Hank Outsider',
       email: 'hank.outsider@example.com',

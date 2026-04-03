@@ -229,27 +229,22 @@ describe('admin.content (LLM-gated)', () => {
 // ── Admissions Sponsor (gated: admissions.sponsor) ──────────────────────────
 
 describe('admissions.sponsor (LLM-gated)', () => {
-  /**
-   * KNOWN P0 BUG: admissions.sponsor via the API fails with 500 (RLS violation on
-   * admission_versions). After inserting the admission row (using withActorContext as the
-   * sponsoring member), the code inserts into admission_versions. However, the only non-cold
-   * INSERT policy on admission_versions requires actor_is_club_owner — but the sponsor is not
-   * an owner. No policy allows a regular club member to insert into admission_versions.
-   */
-  it('admissions.sponsor returns 500 due to P0 RLS gap on admission_versions (known bug)', async () => {
-    const owner = await h.seedOwner('llm-sponsor-bug-club', 'LLM Sponsor Bug Club');
-    const sponsor = await h.seedClubMember(owner.club.id, 'Bug Sponsor', 'llm-bug-sponsor', {
+  it('member sponsors an outsider for admission', async () => {
+    const owner = await h.seedOwner('llm-sponsor-club', 'LLM Sponsor Club');
+    const sponsor = await h.seedClubMember(owner.club.id, 'Sponsor Member', 'llm-sponsor-member', {
       sponsorId: owner.id,
     });
 
-    const err = await h.apiErr(sponsor.token, 'admissions.sponsor', {
+    const result = await h.apiOk(sponsor.token, 'admissions.sponsor', {
       clubId: owner.club.id,
       name: 'Jane Morrison',
       email: 'jane.morrison@greenfield.io',
       socials: '@janemorrison',
       reason: 'I have worked with Jane for three years at Greenfield building the carbon tracking platform. She designed the data ingestion pipeline that processes 2 million records daily and mentored two junior engineers to production readiness. She would be a strong fit for this club because she brings deep technical expertise in exactly the B2B SaaS infrastructure space that several members work in.',
     });
-    assert.equal(err.status, 500);
-    assert.equal(err.code, 'internal_error');
+    const adm = (result.data as Record<string, unknown>).admission as Record<string, unknown>;
+    assert.ok(adm.admissionId, 'admissions.sponsor should return an admissionId');
+    assert.equal(adm.origin, 'member_sponsored');
+    assert.equal((adm.sponsor as Record<string, unknown>).memberId, sponsor.id);
   });
 });

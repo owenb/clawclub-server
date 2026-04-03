@@ -296,4 +296,139 @@ describe('updates', () => {
     assert.ok(Array.isArray(items), 'updates.items should be an array');
     assert.ok(items.length >= 1, 'Bob should have at least one pending update from the DM');
   });
+
+  it('GET /updates?after=latest returns no backlog', async () => {
+    const owner = await h.seedOwner('upd-club-5', 'UpdClub5');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice Latest', 'alice-upd-5', { sponsorId: owner.id });
+    const bob = await h.seedClubMember(owner.club.id, 'Bob Latest', 'bob-upd-5', { sponsorId: owner.id });
+
+    // Create some backlog
+    await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Backlog message 1',
+    });
+    await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Backlog message 2',
+    });
+
+    // Verify backlog exists with normal polling
+    const { body: normalBody } = await h.getUpdates(bob.token, { limit: 10 });
+    const normalItems = ((normalBody.updates as Record<string, unknown>).items as unknown[]);
+    assert.ok(normalItems.length >= 2, 'should have backlog without after=latest');
+
+    // With after=latest, should get no items (we're caught up to "now")
+    const { status, body } = await h.getUpdates(bob.token, { after: 'latest', limit: 10 });
+    assert.equal(status, 200);
+    assert.equal(body.ok, true);
+    const items = ((body.updates as Record<string, unknown>).items as unknown[]);
+    assert.equal(items.length, 0, 'after=latest should skip existing backlog');
+  });
+});
+
+// ── SSE Stream ───────────────────────────────────────────────────────────────
+
+describe('updates/stream', () => {
+  it('ready event includes latestStreamSeq', async () => {
+    const owner = await h.seedOwner('sse-club-1', 'SSEClub1');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice SSE', 'alice-sse-1', { sponsorId: owner.id });
+    const bob = await h.seedClubMember(owner.club.id, 'Bob SSE', 'bob-sse-1', { sponsorId: owner.id });
+
+    // Send a DM so there's a known streamSeq
+    await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'SSE test message',
+    });
+
+    const stream = h.connectStream(bob.token);
+    try {
+      await stream.waitForEvents(1); // ready event
+      const ready = stream.events[0]!;
+      assert.equal(ready.event, 'ready');
+      assert.ok('latestStreamSeq' in ready.data, 'ready should include latestStreamSeq');
+      assert.equal(typeof ready.data.latestStreamSeq, 'number');
+    } finally {
+      stream.close();
+    }
+  });
+
+  it('after=latest skips backlog and only receives future events', async () => {
+    const owner = await h.seedOwner('sse-club-2', 'SSEClub2');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice Tail', 'alice-sse-2', { sponsorId: owner.id });
+    const bob = await h.seedClubMember(owner.club.id, 'Bob Tail', 'bob-sse-2', { sponsorId: owner.id });
+
+    // Create backlog before connecting
+    await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Old message (backlog)',
+    });
+
+    // Connect with after=latest — should skip backlog
+    const stream = h.connectStream(bob.token, { after: 'latest' });
+    try {
+      await stream.waitForEvents(1); // ready event
+      const ready = stream.events[0]!;
+      assert.equal(ready.event, 'ready');
+      assert.ok(ready.data.latestStreamSeq !== null, 'should have a latestStreamSeq');
+      assert.equal(ready.data.nextAfter, ready.data.latestStreamSeq, 'nextAfter should equal latestStreamSeq for after=latest');
+
+      // Send a new DM — this one should arrive on the stream
+      await h.apiOk(alice.token, 'messages.send', {
+        recipientMemberId: bob.id,
+        messageText: 'New message (after connect)',
+      });
+
+      await stream.waitForEvents(2); // ready + update
+      const update = stream.events[1]!;
+      assert.equal(update.event, 'update');
+      assert.equal(update.data.topic, 'transcript.message.created');
+      const payload = update.data.payload as Record<string, unknown>;
+      assert.equal(payload.messageText, 'New message (after connect)');
+
+      // The old backlog message should NOT have appeared
+      const updateEvents = stream.events.filter((e) => e.event === 'update');
+      assert.equal(updateEvents.length, 1, 'should only have the new message, not the backlog');
+    } finally {
+      stream.close();
+    }
+  });
+
+  it('stream delivers DM updates in real-time', async () => {
+    const owner = await h.seedOwner('sse-club-3', 'SSEClub3');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice RT', 'alice-sse-3', { sponsorId: owner.id });
+    const bob = await h.seedClubMember(owner.club.id, 'Bob RT', 'bob-sse-3', { sponsorId: owner.id });
+
+    // Connect from a clean state with after=latest
+    const stream = h.connectStream(bob.token, { after: 'latest' });
+    try {
+      await stream.waitForEvents(1); // ready
+
+      // Send two DMs
+      await h.apiOk(alice.token, 'messages.send', {
+        recipientMemberId: bob.id,
+        messageText: 'First real-time',
+      });
+      await h.apiOk(alice.token, 'messages.send', {
+        recipientMemberId: bob.id,
+        messageText: 'Second real-time',
+      });
+
+      await stream.waitForEvents(3); // ready + 2 updates
+      const updates = stream.events.filter((e) => e.event === 'update');
+      assert.equal(updates.length, 2);
+      assert.equal((updates[0]!.data.payload as Record<string, unknown>).messageText, 'First real-time');
+      assert.equal((updates[1]!.data.payload as Record<string, unknown>).messageText, 'Second real-time');
+
+      // streamSeq should be monotonically increasing
+      const seq0 = updates[0]!.data.streamSeq as number;
+      const seq1 = updates[1]!.data.streamSeq as number;
+      assert.ok(seq1 > seq0, 'streamSeq should be monotonically increasing');
+
+      // id should match streamSeq
+      assert.equal(updates[0]!.id, String(seq0));
+      assert.equal(updates[1]!.id, String(seq1));
+    } finally {
+      stream.close();
+    }
+  });
 });

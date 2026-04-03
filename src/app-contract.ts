@@ -798,6 +798,7 @@ export type Repository = {
     limit: number;
     after?: number | null;
   }): Promise<MemberUpdates>;
+  getLatestStreamSeq?(input: { actorMemberId: string }): Promise<number | null>;
   acknowledgeUpdates?(input: AcknowledgeUpdatesInput): Promise<UpdateReceipt[]>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
   listDirectMessageThreads(input: { actorMemberId: string; clubIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
