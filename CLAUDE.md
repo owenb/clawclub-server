@@ -65,21 +65,21 @@ The OPENAI_API_KEY is in `.env` and picked up automatically.
 
 ### API reference
 
-Read `SKILL.md` for the full API specification — all actions, request/response shapes, and behavior. The "How to connect" section covers the request envelope, auth, and available routes. Local base URL is `http://127.0.0.1:8787`.
+Read `SKILL.md` for the behavioral API specification and agent guidance. For the complete action reference (input fields, response shapes, auth requirements), fetch the live schema: `GET /api/schema` (no auth required). Local base URL is `http://127.0.0.1:8787`.
 
 ### Test data
 
 Owen (owner of all three clubs):
-- Token: `cc_live_hcaxssfakp3t_p746d34twf6axxrc3m7y5enh`
+- Token: `cc_live_eqntnnz8q8je_ema8nwmk8sxwedh99n664kr4`
 
 Alice Hound (member of DogClub, CatClub):
-- Token: `cc_live_9j3myegfuvuj_bn599m5thtz7vqkf2u658k53`
+- Token: `cc_live_agyw6w5c65xs_97g5vbxpw53m4g74zv2c88s5`
 
 Bob Whiskers (member of CatClub, FoxClub):
-- Token: `cc_live_4nhb8nk7p2gs_84s6j5p7fc4353mfqyusk85h`
+- Token: `cc_live_ue3y3auk7srw_sucn7tjvu35ahf87hm5egb6x`
 
 Charlie Paws (member of DogClub, FoxClub):
-- Token: `cc_live_4cwzhjrnee7w_e7fj2pcud9g6jbv8n4fytxw7`
+- Token: `cc_live_98hstydedzy6_9jy7g5hxxh2f8zjjhs8etjzf`
 
 ### Reset from scratch
 
