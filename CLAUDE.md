@@ -32,6 +32,10 @@ DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_dev" npm run
 
 The OPENAI_API_KEY is in `.env` and picked up automatically.
 
+### API reference
+
+Read `SKILL.md` for the full API specification — all actions, request/response shapes, and behavior. The "How to connect" section covers the request envelope, auth, and available routes. Local base URL is `http://127.0.0.1:8787`.
+
 ### Test data
 
 Owen (owner of all three clubs):

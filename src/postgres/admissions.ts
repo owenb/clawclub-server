@@ -804,10 +804,10 @@ export function buildAdmissionsRepository({
         }>(
           `
             insert into app.edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id)
-            select $1, 'vouched_for', $2, $3, $4, $2
+            select $1::app.short_id, 'vouched_for', $2::app.short_id, $3::app.short_id, $4, $2::app.short_id
             where exists (
               select 1 from app.accessible_club_memberships anm
-              where anm.member_id = $3 and anm.club_id = $1
+              where anm.member_id = $3::app.short_id and anm.club_id = $1::app.short_id
             )
             returning
               id,
