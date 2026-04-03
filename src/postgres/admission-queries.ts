@@ -511,6 +511,15 @@ export function buildAdmissionsRepository({
               [newMembershipId, input.actorMemberId],
             );
 
+            // Create comped subscription so the membership appears in accessible_club_memberships
+            await client.query(
+              `
+                insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency)
+                values ($1, $2, 'active', 0, 'GBP')
+              `,
+              [newMembershipId, input.actorMemberId],
+            );
+
             // Link admission to the new member and membership
             await client.query(
               `
@@ -552,6 +561,15 @@ export function buildAdmissionsRepository({
                     created_by_member_id
                   )
                   values ($1, 'active', 'Admitted from accepted admission', 1, $2)
+                `,
+                [membershipId, input.actorMemberId],
+              );
+
+              // Create comped subscription so the membership appears in accessible_club_memberships
+              await client.query(
+                `
+                  insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency)
+                  values ($1, $2, 'active', 0, 'GBP')
                 `,
                 [membershipId, input.actorMemberId],
               );
@@ -606,6 +624,21 @@ export function buildAdmissionsRepository({
                     membership.current_state_version_id,
                     input.actorMemberId,
                   ],
+                );
+              }
+
+              // Ensure a live subscription exists so the membership appears in accessible_club_memberships
+              const hasSubscription = await client.query<{ has_sub: boolean }>(
+                `select app.membership_has_live_subscription($1) as has_sub`,
+                [membershipId],
+              );
+              if (!hasSubscription.rows[0]?.has_sub) {
+                await client.query(
+                  `
+                    insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency)
+                    values ($1, $2, 'active', 0, 'GBP')
+                  `,
+                  [membershipId, input.actorMemberId],
                 );
               }
             }
