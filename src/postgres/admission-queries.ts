@@ -511,12 +511,9 @@ export function buildAdmissionsRepository({
               [newMembershipId, input.actorMemberId],
             );
 
-            // Create comped subscription so the membership appears in accessible_club_memberships
+            // Create comped subscription via security definer so the membership appears in accessible_club_memberships
             await client.query(
-              `
-                insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency)
-                values ($1, $2, 'active', 0, 'GBP')
-              `,
+              `select app.create_comped_subscription($1, $2)`,
               [newMembershipId, input.actorMemberId],
             );
 
@@ -565,12 +562,9 @@ export function buildAdmissionsRepository({
                 [membershipId, input.actorMemberId],
               );
 
-              // Create comped subscription so the membership appears in accessible_club_memberships
+              // Create comped subscription via security definer so the membership appears in accessible_club_memberships
               await client.query(
-                `
-                  insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency)
-                  values ($1, $2, 'active', 0, 'GBP')
-                `,
+                `select app.create_comped_subscription($1, $2)`,
                 [membershipId, input.actorMemberId],
               );
 
@@ -634,10 +628,7 @@ export function buildAdmissionsRepository({
               );
               if (!hasSubscription.rows[0]?.has_sub) {
                 await client.query(
-                  `
-                    insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency)
-                    values ($1, $2, 'active', 0, 'GBP')
-                  `,
+                  `select app.create_comped_subscription($1, $2)`,
                   [membershipId, input.actorMemberId],
                 );
               }

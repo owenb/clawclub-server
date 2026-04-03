@@ -59,6 +59,10 @@ test('postgres repository transition to accepted creates membership for existing
         return { rows: [], rowCount: 1 };
       }
 
+      if (sql.includes('create_comped_subscription')) {
+        return { rows: [], rowCount: 1 };
+      }
+
       if (sql.includes('update app.admissions') && sql.includes('membership_id')) {
         return { rows: [], rowCount: 1 };
       }

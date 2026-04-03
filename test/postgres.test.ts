@@ -1517,7 +1517,7 @@ test('postgres repository appends admission state transitions and reloads curren
       }
       if (sql.includes('insert into app.club_membership_state_versions')) return { rows: [], rowCount: 1 };
       if (sql.includes('membership_has_live_subscription')) return { rows: [{ has_sub: false }], rowCount: 1 };
-      if (sql.includes('insert into app.subscriptions')) return { rows: [], rowCount: 1 };
+      if (sql.includes('create_comped_subscription')) return { rows: [], rowCount: 1 };
       if (sql.includes('from app.current_admissions ca') && sql.includes('where ca.id = $1')) {
         return {
           rows: [{
