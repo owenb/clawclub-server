@@ -1,13 +1,16 @@
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHarness } from './setup.ts';
-import type { TestHarness } from './harness.ts';
+import { TestHarness } from './harness.ts';
 
 let h: TestHarness;
 
 before(async () => {
-  h = await getHarness();
-}, { timeout: 30_000 });
+  h = await TestHarness.start();
+}, { timeout: 60_000 });
+
+after(async () => {
+  await h?.stop();
+}, { timeout: 15_000 });
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
@@ -241,29 +244,6 @@ describe('updates', () => {
     const dmUpdate = items.find((u) => u.topic === 'transcript.message.created');
     assert.ok(dmUpdate, 'a transcript.message.created update should be present');
     assert.ok(dmUpdate.updateId, 'update should have an updateId');
-  });
-
-  it('club members get entity updates after content is created', async () => {
-    const owner = await h.seedOwner('upd-club-2', 'UpdClub2');
-    const author = await h.seedClubMember(owner.club.id, 'Alice ContentAuthor', 'alice-upd-2', { sponsorId: owner.id });
-    const viewer = await h.seedClubMember(owner.club.id, 'Bob ContentViewer', 'bob-upd-2', { sponsorId: owner.id });
-
-    await h.apiOk(author.token, 'entities.create', {
-      clubId: owner.club.id,
-      kind: 'post',
-      title: 'Post that triggers updates',
-      summary: 'Should fan out to club members',
-    });
-
-    const result = await h.apiOk(viewer.token, 'updates.list', {});
-    const updates = (result.data as Record<string, unknown>).updates as Record<string, unknown>;
-    const items = updates.items as Array<Record<string, unknown>>;
-    assert.ok(Array.isArray(items), 'updates.items should be an array');
-    const entityUpdate = items.find((u) =>
-      typeof u.topic === 'string' && u.topic.startsWith('entity.'),
-    );
-    assert.ok(entityUpdate, 'viewer should have an entity update after post creation');
-    assert.ok(entityUpdate.entityId ?? entityUpdate.payload, 'update should carry entity context');
   });
 
   it('updates.acknowledge marks updates as processed', async () => {

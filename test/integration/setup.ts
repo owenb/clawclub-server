@@ -1,32 +1,27 @@
 /**
- * Shared test harness instance.
- * All integration test files import this module to get the same harness.
- * The harness is started once on first import and stopped via process exit.
+ * Shared test harness accessor.
+ *
+ * When tests are run via run.ts (recommended), the harness is set on globalThis
+ * before any test files import this module. When run individually, creates one.
  */
 
 import { TestHarness } from './harness.ts';
 
-let instance: TestHarness | null = null;
-let startPromise: Promise<TestHarness> | null = null;
+let fallback: TestHarness | null = null;
+let fallbackPromise: Promise<TestHarness> | null = null;
 
 export async function getHarness(): Promise<TestHarness> {
-  if (instance) return instance;
+  // @ts-ignore
+  const global = globalThis.__clawclub_test_harness as TestHarness | null;
+  if (global) return global;
 
-  if (!startPromise) {
-    startPromise = TestHarness.start().then((h) => {
-      instance = h;
-
-      // Clean up on process exit
-      process.on('beforeExit', async () => {
-        if (instance) {
-          await instance.stop();
-          instance = null;
-        }
-      });
-
+  // Fallback: create a harness for standalone file execution
+  if (fallback) return fallback;
+  if (!fallbackPromise) {
+    fallbackPromise = TestHarness.start().then((h) => {
+      fallback = h;
       return h;
     });
   }
-
-  return startPromise;
+  return fallbackPromise;
 }

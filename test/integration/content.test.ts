@@ -1,13 +1,16 @@
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHarness } from './setup.ts';
-import type { TestHarness } from './harness.ts';
+import { TestHarness } from './harness.ts';
 
 let h: TestHarness;
 
 before(async () => {
-  h = await getHarness();
-}, { timeout: 30_000 });
+  h = await TestHarness.start();
+}, { timeout: 60_000 });
+
+after(async () => {
+  await h?.stop();
+}, { timeout: 15_000 });
 
 // ── Entities ──────────────────────────────────────────────────────────────────
 
@@ -19,15 +22,14 @@ describe('entities', () => {
     const created = await h.apiOk(author.token, 'entities.create', {
       clubId: owner.club.id,
       kind: 'post',
-      title: 'Hello World',
-      summary: 'A test post',
-      body: 'Some body text',
+      title: 'Three things I learned running a bakery for 10 years',
+      body: 'First, never underestimate the importance of sourcing flour locally — it changed our margins by 30% and gave us a story customers cared about. Second, hiring for attitude over skill in food service pays off every time. Third, social media is overrated for local businesses; our best marketing was always free samples on Saturday mornings.',
     });
     const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
     assert.ok(entity.entityId, 'entity should have entityId');
     assert.equal(entity.kind, 'post');
     const version = entity.version as Record<string, unknown>;
-    assert.equal(version.title, 'Hello World');
+    assert.equal(version.title, 'Three things I learned running a bakery for 10 years');
     assert.equal(version.state, 'published');
 
     const list = await h.apiOk(author.token, 'entities.list', { clubId: owner.club.id });
@@ -44,8 +46,8 @@ describe('entities', () => {
     const created = await h.apiOk(author.token, 'entities.create', {
       clubId: owner.club.id,
       kind: 'post',
-      title: 'Shared Post',
-      summary: 'Visible to all members',
+      title: 'How we cut onboarding time from two weeks to three days',
+      body: 'We rewrote our onboarding guide as a series of small tasks instead of a wall of documentation. Each task had a clear deliverable and a mentor assigned. New hires started contributing to real tickets by day three. The key was making expectations explicit rather than implicit.',
     });
     const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
 
@@ -67,7 +69,8 @@ describe('entities', () => {
     await h.apiOk(author.token, 'entities.create', {
       clubId: owner.club.id,
       kind: 'post',
-      title: 'Private Post',
+      title: 'Why we moved our entire backend from REST to event sourcing',
+      body: 'After two years of fighting eventual consistency bugs in our REST API, we committed to event sourcing. The migration took four months, but now we have a complete audit trail, easy replay, and our data integrity issues have dropped to near zero. Here is what we did step by step.',
     });
 
     // Outsider requesting the specific club should be forbidden
@@ -82,27 +85,29 @@ describe('entities', () => {
     const created = await h.apiOk(author.token, 'entities.create', {
       clubId: owner.club.id,
       kind: 'post',
-      title: 'Original Title',
+      title: 'Lessons from scaling our Postgres database to 500 million rows',
+      body: 'Partitioning by date, aggressive vacuuming, and connection pooling with PgBouncer were the three biggest wins. We went from 12-second query times to under 200 milliseconds on our heaviest dashboard without upgrading hardware.',
     });
     const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
     const entityId = entity.entityId as string;
 
     const updated = await h.apiOk(author.token, 'entities.update', {
       entityId,
-      title: 'Updated Title',
-      summary: 'Now with a summary',
+      title: 'Updated: Lessons from scaling Postgres to 500 million rows',
+      summary: 'Partitioning, vacuuming, and connection pooling deep dive with real numbers',
+      body: 'Partitioning by date was the single biggest win — it reduced our slowest query from 12 seconds to 180 milliseconds. We partition by month and auto-create future partitions via a cron job. Aggressive vacuuming (every 2 hours on hot tables) keeps bloat under control. PgBouncer in transaction mode handles connection pooling with minimal config.',
     });
     const updatedEntity = (updated.data as Record<string, unknown>).entity as Record<string, unknown>;
     const updatedVersion = updatedEntity.version as Record<string, unknown>;
-    assert.equal(updatedVersion.title, 'Updated Title');
-    assert.equal(updatedVersion.summary, 'Now with a summary');
+    assert.equal(updatedVersion.title, 'Updated: Lessons from scaling Postgres to 500 million rows');
+    assert.equal(updatedVersion.summary, 'Partitioning, vacuuming, and connection pooling deep dive with real numbers');
 
     const list = await h.apiOk(author.token, 'entities.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = results.find((e) => e.entityId === entityId) as Record<string, unknown> | undefined;
     assert.ok(found, 'updated entity should appear in list');
     const foundVersion = found!.version as Record<string, unknown>;
-    assert.equal(foundVersion.title, 'Updated Title');
+    assert.equal(foundVersion.title, 'Updated: Lessons from scaling Postgres to 500 million rows');
   });
 
   it('author archives the post and it disappears from list', async () => {
@@ -112,7 +117,8 @@ describe('entities', () => {
     const created = await h.apiOk(author.token, 'entities.create', {
       clubId: owner.club.id,
       kind: 'post',
-      title: 'To Be Archived',
+      title: 'How we automated our entire deployment pipeline in one sprint',
+      body: 'We replaced our manual deployment checklist with a GitHub Actions workflow that runs tests, builds the Docker image, deploys to staging, runs smoke tests, and promotes to production. Total time from merge to live went from 45 minutes of manual work to 8 minutes fully automated.',
     });
     const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
     const entityId = entity.entityId as string;
@@ -129,12 +135,33 @@ describe('entities', () => {
     const owner = await h.seedOwner('entity-club-kinds', 'EntityClubKinds');
     const author = await h.seedClubMember(owner.club.id, 'Hal Kinds', 'hal-entity-kinds', { sponsorId: owner.id });
 
+    const kindPayloads: Record<string, { title: string; body: string }> = {
+      post: {
+        title: 'Three patterns for building reliable event-driven systems',
+        body: 'After building event-driven systems for six years, three patterns consistently prove their worth. The outbox pattern ensures you never lose data when the broker is down. Idempotent consumers with deduplication keys prevent double-processing. Dead-letter queues with automated replay handle transient failures gracefully.',
+      },
+      opportunity: {
+        title: 'Part-time backend engineer for climate data startup',
+        body: 'We are building carbon tracking tools for small manufacturers. Looking for a backend engineer comfortable with TypeScript and PostgreSQL, 15-20 hours per week for 3 months. Remote-friendly, paid engagement. DM me or email jobs@example.com to start a conversation.',
+      },
+      service: {
+        title: 'PostgreSQL performance audits for SaaS teams',
+        body: 'I review your PostgreSQL setup, identify slow queries, missing indexes, and RLS bottlenecks. Typical engagement is one week: I instrument your workload, produce a prioritized findings report, and pair with your team to implement the top fixes. Previous clients include three YC-backed companies.',
+      },
+      ask: {
+        title: 'Looking for introductions to seed-stage climate tech investors in the UK',
+        body: 'We are raising a pre-seed round (targeting £500k) for our carbon tracking platform aimed at small UK manufacturers. We have 8 paying customers and £30k MRR. Ideal investors are climate-focused funds or angels with manufacturing sector experience. Happy to share our deck — DM me here or email founders@example.com and I will send it over.',
+      },
+    };
+
     const kinds = ['post', 'opportunity', 'service', 'ask'] as const;
     for (const kind of kinds) {
+      const payload = kindPayloads[kind];
       const created = await h.apiOk(author.token, 'entities.create', {
         clubId: owner.club.id,
         kind,
-        title: `A ${kind} entity`,
+        title: payload.title,
+        body: payload.body,
       });
       const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
       assert.equal(entity.kind, kind, `entity should have kind=${kind}`);
@@ -163,8 +190,8 @@ describe('events', () => {
 
     const created = await h.apiOk(member.token, 'events.create', {
       clubId: owner.club.id,
-      title: 'Monthly Meetup',
-      summary: 'Come hang out',
+      title: 'Monthly founders breakfast — May edition',
+      summary: 'Casual breakfast at The Table in Shoreditch. We will go around the room and each share one thing we are stuck on and one thing working well. Bring your own coffee order, food is covered.',
       startsAt: '2026-05-01T18:00:00Z',
       endsAt: '2026-05-01T20:00:00Z',
       timezone: 'UTC',
@@ -173,8 +200,7 @@ describe('events', () => {
     assert.ok(event.entityId, 'event should have entityId');
     assert.ok(event.entityVersionId, 'event should have entityVersionId');
     const version = event.version as Record<string, unknown>;
-    assert.equal(version.title, 'Monthly Meetup');
-    assert.equal(version.summary, 'Come hang out');
+    assert.equal(version.title, 'Monthly founders breakfast — May edition');
     assert.ok(version.startsAt, 'startsAt should be present');
     assert.ok(version.endsAt, 'endsAt should be present');
     assert.equal(version.timezone, 'UTC');
@@ -192,8 +218,11 @@ describe('events', () => {
 
     const created = await h.apiOk(organizer.token, 'events.create', {
       clubId: owner.club.id,
-      title: 'RSVP Test Event',
+      title: 'RSVP test event: design review and feedback session',
+      summary: 'We will review the latest design mockups for the member dashboard, collect feedback, and prioritise the next sprint of UI work. Bring your laptop if you want to follow along in Figma. We will meet on Zoom — link will be shared with confirmed attendees the day before.',
       startsAt: '2026-06-15T10:00:00Z',
+      endsAt: '2026-06-15T11:30:00Z',
+      timezone: 'Europe/London',
     });
     const event = (created.data as Record<string, unknown>).event as Record<string, unknown>;
     const eventEntityId = event.entityId as string;
@@ -216,8 +245,11 @@ describe('events', () => {
 
     const created = await h.apiOk(creator.token, 'events.create', {
       clubId: owner.club.id,
-      title: 'Visible Event',
-      summary: 'Everyone should see this',
+      title: 'Open office hours: ask me anything about fundraising',
+      summary: 'I raised a $2M seed round last year and am happy to share what I learned. Drop in with questions about pitch decks, term sheets, investor outreach, or anything else related to early-stage fundraising. Held on Zoom — link will be shared with RSVPs.',
+      startsAt: '2026-07-01T14:00:00Z',
+      endsAt: '2026-07-01T15:30:00Z',
+      timezone: 'Europe/London',
     });
     const event = (created.data as Record<string, unknown>).event as Record<string, unknown>;
 
@@ -233,9 +265,9 @@ describe('events', () => {
 
     const created = await h.apiOk(member.token, 'events.create', {
       clubId: owner.club.id,
-      title: 'Full Fields Event',
-      summary: 'An event with all fields',
-      body: 'Join us for a great time.',
+      title: 'Full-day workshop: building production-ready APIs with TypeScript and Postgres',
+      summary: 'Hands-on workshop covering schema design, connection pooling, RLS policies, and deployment. We will build a complete API from scratch by the end of the day.',
+      body: 'This is a full-day intensive workshop for backend engineers who want to level up their API skills. We will cover schema design with row-level security, connection pooling with PgBouncer, testing strategies, and zero-downtime deployments. Lunch and snacks provided.',
       startsAt: '2026-07-10T09:00:00Z',
       endsAt: '2026-07-10T17:00:00Z',
       timezone: 'America/New_York',
@@ -249,9 +281,7 @@ describe('events', () => {
     assert.ok(event.createdAt, 'should have createdAt');
 
     const version = event.version as Record<string, unknown>;
-    assert.equal(version.title, 'Full Fields Event');
-    assert.equal(version.summary, 'An event with all fields');
-    assert.equal(version.body, 'Join us for a great time.');
+    assert.equal(version.title, 'Full-day workshop: building production-ready APIs with TypeScript and Postgres');
     assert.ok(version.startsAt, 'startsAt should be present');
     assert.ok(version.endsAt, 'endsAt should be present');
     assert.equal(version.timezone, 'America/New_York');

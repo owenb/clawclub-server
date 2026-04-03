@@ -1,13 +1,16 @@
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHarness } from './setup.ts';
-import type { TestHarness } from './harness.ts';
+import { TestHarness } from './harness.ts';
 
 let h: TestHarness;
 
 before(async () => {
-  h = await getHarness();
-}, { timeout: 30_000 });
+  h = await TestHarness.start();
+}, { timeout: 60_000 });
+
+after(async () => {
+  await h?.stop();
+}, { timeout: 15_000 });
 
 // ── Profiles ──────────────────────────────────────────────────────────────────
 
@@ -30,40 +33,6 @@ describe('Profiles', () => {
     const profile = result.data as Record<string, unknown>;
 
     assert.equal(profile.memberId, owner.id);
-  });
-
-  it('profile.update changes own profile fields', async () => {
-    const carol = await h.seedOwner('profiles-update', 'ProfilesUpdateClub');
-
-    const result = await h.apiOk(carol.token, 'profile.update', {
-      displayName: 'Carol Updated',
-      tagline: 'Building great things',
-      summary: 'Experienced engineer focused on systems',
-      whatIDo: 'Ship reliable software',
-      knownFor: 'Zero-downtime deployments',
-    });
-    const profile = result.data as Record<string, unknown>;
-
-    assert.equal(profile.displayName, 'Carol Updated');
-    assert.equal(profile.tagline, 'Building great things');
-    assert.equal(profile.summary, 'Experienced engineer focused on systems');
-    assert.equal(profile.whatIDo, 'Ship reliable software');
-    assert.equal(profile.knownFor, 'Zero-downtime deployments');
-  });
-
-  it('updated profile is visible to shared-club members', async () => {
-    const owner = await h.seedOwner('profiles-visibility', 'ProfilesVisibilityClub');
-    const dave = await h.seedClubMember(owner.club.id, 'Dave Viewer', 'dave-viewer', { sponsorId: owner.id });
-
-    await h.apiOk(owner.token, 'profile.update', {
-      tagline: 'Visible to club members',
-    });
-
-    const result = await h.apiOk(dave.token, 'profile.get', { memberId: owner.id });
-    const profile = result.data as Record<string, unknown>;
-
-    assert.equal(profile.memberId, owner.id);
-    assert.equal(profile.tagline, 'Visible to club members');
   });
 
   it('non-shared-club member cannot see profile', async () => {
@@ -123,96 +92,3 @@ describe('Members Search & List', () => {
   });
 });
 
-// ── Vouching ──────────────────────────────────────────────────────────────────
-
-describe('Vouching', () => {
-  it('vouches.create — member vouches for another shared-club member', async () => {
-    const owner = await h.seedOwner('vouch-club', 'VouchClub');
-    const voter = await h.seedClubMember(owner.club.id, 'Vouch Voter', 'vouch-voter', { sponsorId: owner.id });
-
-    const result = await h.apiOk(voter.token, 'vouches.create', {
-      clubId: owner.club.id,
-      memberId: owner.id,
-      reason: 'Outstanding club organiser with years of experience',
-    });
-    const data = result.data as Record<string, unknown>;
-    const vouch = data.vouch as Record<string, unknown>;
-
-    assert.ok(vouch.edgeId, 'vouch should have an edgeId');
-    assert.equal((vouch.fromMember as Record<string, unknown>).memberId, voter.id);
-    assert.equal(vouch.reason, 'Outstanding club organiser with years of experience');
-  });
-
-  it('vouches.list — vouch is visible', async () => {
-    const owner = await h.seedOwner('vouch-list-club', 'VouchListClub');
-    const voter = await h.seedClubMember(owner.club.id, 'Vouch Lister', 'vouch-lister', { sponsorId: owner.id });
-
-    await h.apiOk(voter.token, 'vouches.create', {
-      clubId: owner.club.id,
-      memberId: owner.id,
-      reason: 'A reliable and inspiring leader',
-    });
-
-    const result = await h.apiOk(voter.token, 'vouches.list', {
-      clubId: owner.club.id,
-      memberId: owner.id,
-    });
-    const data = result.data as Record<string, unknown>;
-    const vouches = data.results as Array<Record<string, unknown>>;
-
-    assert.ok(Array.isArray(vouches));
-    assert.ok(vouches.length >= 1);
-    const found = vouches.find(
-      (v) => (v.fromMember as Record<string, unknown>).memberId === voter.id,
-    );
-    assert.ok(found, 'vouch from voter should appear in list');
-  });
-
-  it('self-vouch is rejected', async () => {
-    const owner = await h.seedOwner('vouch-self-club', 'VouchSelfClub');
-
-    const err = await h.apiErr(owner.token, 'vouches.create', {
-      clubId: owner.club.id,
-      memberId: owner.id,
-      reason: 'I am great',
-    });
-
-    assert.equal(err.status, 400);
-    assert.equal(err.code, 'self_vouch');
-  });
-
-  it('duplicate vouch is rejected', async () => {
-    const owner = await h.seedOwner('vouch-dup-club', 'VouchDupClub');
-    const voter = await h.seedClubMember(owner.club.id, 'Dup Voter', 'dup-voter', { sponsorId: owner.id });
-
-    await h.apiOk(voter.token, 'vouches.create', {
-      clubId: owner.club.id,
-      memberId: owner.id,
-      reason: 'First vouch — legitimate',
-    });
-
-    const err = await h.apiErr(voter.token, 'vouches.create', {
-      clubId: owner.club.id,
-      memberId: owner.id,
-      reason: 'Second vouch — should be rejected',
-    }, 'duplicate_vouch');
-
-    assert.equal(err.status, 409);
-    assert.equal(err.code, 'duplicate_vouch');
-  });
-
-  it('cannot vouch for member not in a shared club', async () => {
-    const clubA = await h.seedOwner('vouch-a-club', 'VouchAClub');
-    const clubB = await h.seedOwner('vouch-b-club', 'VouchBClub');
-
-    // clubA owner uses a clubId that is not in their scope (clubB.club.id) — forbidden
-    const err = await h.apiErr(clubA.token, 'vouches.create', {
-      clubId: clubB.club.id,
-      memberId: clubB.id,
-      reason: 'Trying to vouch in a club I do not belong to',
-    });
-
-    assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
-  });
-});

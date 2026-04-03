@@ -1,13 +1,16 @@
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHarness } from './setup.ts';
-import type { TestHarness } from './harness.ts';
+import { TestHarness } from './harness.ts';
 
 let h: TestHarness;
 
 before(async () => {
-  h = await getHarness();
-}, { timeout: 30_000 });
+  h = await TestHarness.start();
+}, { timeout: 60_000 });
+
+after(async () => {
+  await h?.stop();
+}, { timeout: 15_000 });
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

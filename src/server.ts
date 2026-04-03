@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { AppError, buildApp, type Repository } from './app.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
+import { runQualityGate } from './quality-gate.ts';
 
 type ColdAdmissionAction = 'admissions.challenge' | 'admissions.apply';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
@@ -493,6 +494,14 @@ export function createServer(options: {
         if (!consumeFixedWindowRateLimit(coldAdmissionRateLimitBuckets, key, coldAdmissionRateLimits[body.action])) {
           throw new AppError(429, 'rate_limited', `Too many ${body.action} requests from this IP`);
         }
+      }
+
+      const actionStr = typeof body.action === 'string' ? body.action : '';
+      const inputPayload = (body.input ?? {}) as Record<string, unknown>;
+
+      const gate = await runQualityGate(actionStr, inputPayload);
+      if (!gate.pass) {
+        throw new AppError(422, 'quality_check_failed', (gate as { pass: false; feedback: string }).feedback);
       }
 
       const result = await app.handleAction({

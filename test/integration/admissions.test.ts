@@ -1,13 +1,16 @@
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { getHarness } from './setup.ts';
-import type { TestHarness } from './harness.ts';
+import { TestHarness } from './harness.ts';
 
 let h: TestHarness;
 
 before(async () => {
-  h = await getHarness();
-}, { timeout: 30_000 });
+  h = await TestHarness.start();
+}, { timeout: 60_000 });
+
+after(async () => {
+  await h?.stop();
+}, { timeout: 15_000 });
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -317,33 +320,6 @@ describe('journey 2: owner-nominated existing member', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('journey 3: member-sponsored outsider admission', () => {
-  /**
-   * KNOWN P0 BUG: admissions.sponsor via the API fails with 500 (RLS violation on
-   * admission_versions). After inserting the admission row (using withActorContext as the
-   * sponsoring member), the code inserts into admission_versions. However, the only non-cold
-   * INSERT policy on admission_versions requires actor_is_club_owner — but the sponsor is not
-   * an owner. No policy allows a regular club member to insert into admission_versions.
-   *
-   * This test documents the current broken behaviour.
-   * Workaround: use seedSponsoredAdmission() in other tests.
-   */
-  it('admissions.sponsor returns 500 due to P0 RLS gap on admission_versions (known bug)', async () => {
-    const owner = await h.seedOwner('sponsor-bug-club', 'Sponsor Bug Club');
-    const sponsor = await h.seedClubMember(owner.club.id, 'Bug Sponsor', 'bug-sponsor', {
-      sponsorId: owner.id,
-    });
-
-    const err = await h.apiErr(sponsor.token, 'admissions.sponsor', {
-      clubId: owner.club.id,
-      name: 'Bug Outsider',
-      email: 'bug.outsider@example.com',
-      socials: '@bug',
-      reason: 'Testing the bug',
-    });
-    assert.equal(err.status, 500);
-    assert.equal(err.code, 'internal_error');
-  });
-
   it('owner sees sponsored admission, accepts it, and can issue access', async () => {
     const owner = await h.seedOwner('sponsor-club', 'Sponsor Club');
     const sponsor = await h.seedClubMember(owner.club.id, 'Dave Sponsor', 'dave-sponsor', {

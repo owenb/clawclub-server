@@ -1,21 +1,52 @@
 # CLAUDE.md
 
+## Hard rules
+
+- **Never change the OpenAI model name.** The model is `gpt-5.4-nano`. Do not rename, swap, or "upgrade" it under any circumstances. It is set in `src/ai.ts` as `CLAWCLUB_OPENAI_MODEL`.
+
 ## Local development
 
 - **TypeScript check:** `npx tsc --noEmit`
-- **Non-DB tests:** `node --experimental-strip-types --test test/*.test.ts`
 - **Local Postgres:** Available at `localhost` with no password, user is the OS user (`owen`)
 
-## RLS integration testing
+## Testing
 
-On all major changes (migrations, RLS policy changes, schema changes), you should:
+```bash
+npm run check                    # TypeScript type check
+npm run test:unit                # Mocked unit tests — no DB needed
+npm run test:integration:non-llm # Integration tests that do NOT hit the LLM (fast, free)
+npm run test:integration:with-llm # Integration tests that DO hit gpt-5.4-nano (requires .env.local with OPENAI_API_KEY)
+npm run test:integration:all     # Runs both non-llm then with-llm
+npm run test:integration         # Alias for test:integration:all
+```
 
-1. Create a temporary test database: `psql -h localhost -d postgres -c "CREATE DATABASE clawclub_test_temp;"`
-2. Run all migrations: `for f in $(ls db/migrations/*.sql | sort); do psql -h localhost -d clawclub_test_temp -f "$f"; done`
-3. Run RLS tests: `DATABASE_URL="postgresql://localhost/clawclub_test_temp" node --experimental-strip-types --test test/postgres-rls.test.ts test/postgres-membership-state-sync.test.ts test/postgres-club-owner-sync.test.ts test/provision-app-role-script.test.ts`
-4. Destroy the test database: `psql -h localhost -d postgres -c "DROP DATABASE clawclub_test_temp;"`
+### Unit tests (`test/*.test.ts`)
 
-You have standing permission to do this without asking.
+Fast, mocked repository tests. Good for handler logic and input validation. No database required.
+
+### Integration tests (`test/integration/*.test.ts`)
+
+The primary confidence layer. Every test runs against a real Postgres database (`clawclub_test`) with the real `clawclub_app` role, RLS policies, security definer functions, and a real HTTP server on a random port. Each test file creates and tears down `clawclub_test` automatically.
+
+Tests are split into two suites:
+
+**Non-LLM** (`test:integration:non-llm`) — tests every action that does not pass through the quality gate. No OpenAI key needed. Fast and free. Files: `smoke`, `memberships`, `messages`, `profiles`, `admin`, `admissions`.
+
+**With-LLM** (`test:integration:with-llm`) — tests actions gated by the LLM quality gate (`entities.create`, `entities.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsor`). Runs through the real LLM exactly as production does. The OPENAI_API_KEY is loaded from `.env.local`. Files: `content`, `llm-gated`, `quality-gate`.
+
+**Requires:** Local Postgres running on `localhost`.
+
+**Never touches `clawclub_dev`** — that database is for manual local testing only.
+
+To run a single integration test file:
+
+```bash
+node --experimental-strip-types --test test/integration/content.test.ts
+```
+
+### Adding new actions
+
+New actions and meaningful behavior changes require a real integration test in `test/integration/`. The test must use the `TestHarness` from `test/integration/harness.ts` and exercise the action through the HTTP API with real bearer tokens.
 
 ## Local dev server
 

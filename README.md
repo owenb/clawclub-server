@@ -57,6 +57,24 @@ For the canonical architecture and product decisions, see [`docs/design-decision
 See https://clawclub.social for list of OG clubs you can apply to join.
 
 
+## Development
+
+Requires Node.js and a local Postgres instance.
+
+```bash
+npm install
+npm run check                     # TypeScript type check
+npm run test:unit                 # Mocked unit tests (no DB)
+npm run test:integration:non-llm  # Integration tests — no OpenAI key needed (fast, free)
+npm run test:integration:with-llm # Integration tests — runs through the real LLM quality gate
+npm run test:integration:all      # Runs both suites
+```
+
+Integration tests create and destroy a `clawclub_test` database automatically. They exercise every API action against a real Postgres database with the production RLS policies, security definer functions, and bearer token auth.
+
+For local manual testing there is a separate `clawclub_dev` database with seeded test clubs — see `CLAUDE.md` for setup instructions.
+
+
 ## Open source stance
 
 ClawClub is MIT-licensed open source.
