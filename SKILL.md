@@ -198,475 +198,50 @@ After processing, call `updates.acknowledge` with `state: "processed"` or `"supp
 
 Always start with `session.describe` to resolve the member, their memberships, and club scope.
 
-### Session
+### Live action reference
 
-**`session.describe`** — no input required
+For the complete action reference — input fields, response shapes, auth requirements, and descriptions — fetch the live schema:
 
-Returns `{}` in `data`. The useful information is in the `actor` envelope (member, roles, memberships, club scope).
-
-### Members
-
-**`members.search`** — `query` (required), `clubId` (optional), `limit` (optional, 1-20)
-
-Returns in `data`:
-
-```json
-{
-  "query": "Chris",
-  "limit": 8,
-  "clubScope": [...],
-  "results": [
-    {
-      "memberId": "abc123",
-      "publicName": "Chris Smith",
-      "displayName": "Chris",
-      "handle": "chris-smith",
-      "tagline": "Builder and engineer",
-      "summary": "Full-stack engineer based in London...",
-      "whatIDo": "Backend systems, API design",
-      "knownFor": "Reliable delivery, clear communication",
-      "servicesSummary": "Architecture consulting",
-      "websiteUrl": "https://chrissmith.dev",
-      "sharedClubs": [{ "id": "net1", "slug": "og-club", "name": "OG Club" }]
-    }
-  ]
-}
+```
+GET /api/schema
 ```
 
-**`members.list`** — `clubId` (optional), `limit` (optional, 1-20)
+This endpoint is unauthenticated and returns JSON Schema for all AI-exposed actions. The schema is always in sync with the server because it's generated from the same Zod schemas that validate requests at runtime.
 
-Returns the same profile summary fields as `members.search`, plus `memberships` on each member. Many club-scoped list/search responses also include `clubScope`, which echoes the clubs actually used for the query.
+Action families:
+- `session.*` — session context
+- `members.*` — member search and directory
+- `memberships.*` — membership lifecycle (owner)
+- `admissions.*` — unified admissions workflow (self-applied, member-sponsored)
+- `profile.*` — member profile read/update
+- `entities.*` — posts, opportunities, services, asks
+- `events.*` — events and RSVPs
+- `messages.*` — direct messages
+- `updates.*` — update stream and acknowledgements
+- `vouches.*` — peer endorsements between existing members
+- `tokens.*` — bearer token management
+- `quotas.*` — write quota status
 
-```json
-{
-  "limit": 20,
-  "clubScope": [
-    {
-      "membershipId": "mem1",
-      "clubId": "net1",
-      "slug": "og-club",
-      "name": "OG Club",
-      "summary": "For the originals.",
-      "manifestoMarkdown": null,
-      "role": "member",
-      "status": "active",
-      "sponsorMemberId": null,
-      "joinedAt": "2026-03-01T10:00:00Z"
-    }
-  ],
-  "results": [
-    {
-      "memberId": "abc123",
-      "publicName": "Chris Smith",
-      "displayName": "Chris",
-      "handle": "chris-smith",
-      "tagline": "Builder and engineer",
-      "summary": "Full-stack engineer based in London...",
-      "whatIDo": "Backend systems, API design",
-      "knownFor": "Reliable delivery, clear communication",
-      "servicesSummary": "Architecture consulting",
-      "websiteUrl": "https://chrissmith.dev",
-      "memberships": [
-        {
-          "membershipId": "mem1",
-          "clubId": "net1",
-          "slug": "og-club",
-          "name": "OG Club",
-          "summary": "For the originals.",
-          "manifestoMarkdown": null,
-          "role": "member",
-          "status": "active",
-          "sponsorMemberId": null,
-          "joinedAt": "2026-03-01T10:00:00Z"
-        }
-      ]
-    }
-  ]
-}
-```
+### `clubId` behavior
 
-### Profile
+The API uses `clubId` to identify a club. When omitted on read actions, the server uses all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). Write actions (`entities.create`, `events.create`) always require `clubId`. `messages.send` accepts optional `clubId` to disambiguate.
 
-**`profile.get`** — `memberId` (optional; omit for the current actor)
+### `body` vs `content`
 
-Returns in `data`:
-
-```json
-{
-  "profile": {
-    "memberId": "abc123",
-    "publicName": "Jane Doe",
-    "handle": "jane",
-    "displayName": "Jane",
-    "tagline": "Product engineer",
-    "summary": "Building tools for trust-based communities...",
-    "whatIDo": "Product strategy and backend architecture",
-    "knownFor": "Clear thinking, shipping fast",
-    "servicesSummary": "Consulting on community platforms",
-    "websiteUrl": "https://jane.dev",
-    "links": [{ "label": "GitHub", "url": "https://github.com/jane" }],
-    "profile": { "homeBase": "London", "interests": ["AI", "community"] },
-    "version": { "id": "v1", "versionNo": 3, "createdAt": "2026-03-20T10:00:00Z", "createdByMemberId": "abc123", "embedding": null },
-    "sharedClubs": [{ "id": "net1", "slug": "og-club", "name": "OG Club" }]
-  }
-}
-```
-
-**`profile.update`** — at least one field required: `handle` (lowercase, hyphens), `displayName`, `tagline`, `summary`, `whatIDo`, `knownFor`, `servicesSummary`, `websiteUrl`, `links` (array of `{ label, url }`), `profile` (freeform JSON object)
-
-Returns the updated profile in the same shape as `profile.get`.
-
-### Entities (posts, opportunities, services, asks)
-
-**`entities.create`** — `clubId` (required), `kind` (`post`/`opportunity`/`service`/`ask`, required), `title`, `summary`, `body`, `expiresAt`, `content` (all optional). Subject to daily quota.
-
-Returns in `data`:
-
-```json
-{
-  "entity": {
-    "entityId": "ent1",
-    "entityVersionId": "ev1",
-    "clubId": "net1",
-    "kind": "post",
-    "author": { "memberId": "abc123", "publicName": "Jane Doe", "handle": "jane" },
-    "version": {
-      "versionNo": 1,
-      "state": "published",
-      "title": "I'm in London this week",
-      "summary": null,
-      "body": "Anyone around for coffee?",
-      "effectiveAt": "2026-04-02T10:00:00Z",
-      "expiresAt": null,
-      "createdAt": "2026-04-02T10:00:00Z",
-      "content": {},
-      "embedding": null
-    },
-    "createdAt": "2026-04-02T10:00:00Z"
-  }
-}
-```
-
-**`entities.update`** — `entityId` (required), plus fields to change: `title`, `summary`, `body`, `expiresAt`, `content`. Same response shape.
-
-**`entities.archive`** — `entityId` (required). Same response shape with `state: "archived"`.
-
-**`entities.list`** — `clubId` (optional), `kinds` (optional array), `query` (optional search text), `limit` (optional). Returns `{ results: EntitySummary[] }`.
-
-### Events
-
-**`events.create`** — `clubId` (required), `title`, `summary`, `body`, `startsAt`, `endsAt`, `timezone`, `recurrenceRule`, `capacity` (integer), `expiresAt`, `content` (all optional). Subject to daily quota.
-
-Returns in `data`:
-
-```json
-{
-  "event": {
-    "entityId": "evt1",
-    "entityVersionId": "ev1",
-    "clubId": "net1",
-    "author": { "memberId": "abc123", "publicName": "Jane Doe", "handle": "jane" },
-    "version": {
-      "versionNo": 1,
-      "state": "published",
-      "title": "Friday dinner",
-      "summary": null,
-      "body": "Casual dinner in Soho",
-      "startsAt": "2026-04-04T19:00:00Z",
-      "endsAt": "2026-04-04T21:00:00Z",
-      "timezone": "Europe/London",
-      "recurrenceRule": null,
-      "capacity": 8,
-      "effectiveAt": "2026-04-02T10:00:00Z",
-      "expiresAt": null,
-      "createdAt": "2026-04-02T10:00:00Z",
-      "content": {}
-    },
-    "rsvps": {
-      "viewerResponse": null,
-      "counts": { "yes": 0, "maybe": 0, "no": 0, "waitlist": 0 },
-      "attendees": []
-    },
-    "createdAt": "2026-04-02T10:00:00Z"
-  }
-}
-```
-
-**`events.list`** — `clubId` (optional), `query` (optional), `limit` (optional). Returns `{ results: EventSummary[] }`.
-
-**`events.rsvp`** — `eventEntityId` (required), `response` (`yes`/`maybe`/`no`/`waitlist`), `note` (optional). Returns the updated event.
-
-### Messages
-
-**`messages.send`** — `recipientMemberId` (required), `messageText` (required), `clubId` (optional). Subject to daily quota.
-
-Returns in `data`:
-
-```json
-{
-  "message": {
-    "threadId": "t1",
-    "clubId": "net1",
-    "senderMemberId": "abc123",
-    "recipientMemberId": "abc456",
-    "messageId": "msg1",
-    "messageText": "Hey, want to grab coffee?",
-    "createdAt": "2026-04-02T12:00:00Z",
-    "updateCount": 1
-  }
-}
-```
-
-**`messages.list`** — `clubId` (optional), `limit` (optional). Returns thread summaries:
-
-```json
-{
-  "results": [
-    {
-      "threadId": "t1",
-      "clubId": "net1",
-      "counterpartMemberId": "abc456",
-      "counterpartPublicName": "Alex",
-      "counterpartHandle": "alex",
-      "latestMessage": {
-        "messageId": "msg1",
-        "senderMemberId": "abc123",
-        "role": "member",
-        "messageText": "Hey, want to grab coffee?",
-        "createdAt": "2026-04-02T12:00:00Z"
-      },
-      "messageCount": 5
-    }
-  ]
-}
-```
-
-**`messages.inbox`** — `clubId` (optional), `unreadOnly` (optional boolean), `limit` (optional). Same as `messages.list` plus:
-
-```json
-{
-  "unread": {
-    "hasUnread": true,
-    "unreadMessageCount": 2,
-    "unreadUpdateCount": 2,
-    "latestUnreadMessageCreatedAt": "2026-04-02T12:00:00Z"
-  }
-}
-```
-
-**`messages.read`** — `threadId` (required), `limit` (optional). Returns:
-
-```json
-{
-  "thread": { "threadId": "t1", "clubId": "net1", "counterpartMemberId": "abc456", "counterpartPublicName": "Alex", "counterpartHandle": "alex", "latestMessage": {...}, "messageCount": 5 },
-  "messages": [
-    {
-      "messageId": "msg1",
-      "threadId": "t1",
-      "senderMemberId": "abc123",
-      "role": "member",
-      "messageText": "Hey!",
-      "payload": {},
-      "createdAt": "2026-04-02T12:00:00Z",
-      "inReplyToMessageId": null,
-      "updateReceipts": []
-    }
-  ]
-}
-```
-
-### Vouches
-
-**`vouches.create`** — `clubId` (required), `memberId` (required, the person being vouched for), `reason` (required, max 500 chars). One active vouch per member pair per club. Self-vouching is not allowed.
-
-Returns in `data`:
-
-```json
-{
-  "vouch": {
-    "edgeId": "e1",
-    "fromMember": { "memberId": "abc123", "publicName": "Jane Doe", "handle": "jane" },
-    "reason": "Built the event system in two weeks, hasn't gone down once",
-    "metadata": {},
-    "createdAt": "2026-04-02T10:00:00Z",
-    "createdByMemberId": "abc123"
-  }
-}
-```
-
-Error codes: `self_vouch` (400), `duplicate_vouch` (409), `not_found` (404 if target not in club).
-
-**`vouches.list`** — `memberId` (required), `clubId` (optional), `limit` (optional). Returns `{ memberId, results: VouchSummary[] }`.
-
-### Admissions — sponsor and self-apply
-
-**`admissions.sponsor`** — `clubId` (required), `name` (required, full name), `email` (required), `socials` (required), `reason` (required, max 500 chars). An existing member sponsors an outsider for admission. No PoW required. Creates an admission with `origin: member_sponsored`.
-
-Returns in `data`:
-
-```json
-{
-  "admission": {
-    "admissionId": "adm1",
-    "clubId": "net1",
-    "applicant": {
-      "memberId": null,
-      "publicName": "Alex Johnson",
-      "handle": null,
-      "email": "alex@example.com"
-    },
-    "sponsor": { "memberId": "abc123", "publicName": "Jane Doe", "handle": "jane" },
-    "membershipId": null,
-    "origin": "member_sponsored",
-    "intake": {
-      "kind": "fit_check",
-      "price": { "amount": null, "currency": null },
-      "bookingUrl": null,
-      "bookedAt": null,
-      "completedAt": null
-    },
-    "state": {
-      "status": "submitted",
-      "notes": null,
-      "versionNo": 1,
-      "createdAt": "2026-04-02T10:00:00Z",
-      "createdByMemberId": "abc123"
-    },
-    "admissionDetails": { "socials": "@alexj on Twitter" },
-    "metadata": {},
-    "createdAt": "2026-04-02T10:00:00Z"
-  }
-}
-```
-
-### Memberships (owner only)
-
-**`memberships.list`** — `clubId` (optional), `status` (optional), `limit` (optional). Returns membership summaries with member info, sponsor info, role, state, and metadata.
-
-**`memberships.review`** — `clubId` (optional), `statuses` (optional array, defaults to `["invited", "pending_review"]`), `limit` (optional). Returns memberships with sponsor stats and vouches:
-
-```json
-{
-  "results": [
-    {
-      "membershipId": "mem1",
-      "clubId": "net1",
-      "member": { "memberId": "abc456", "publicName": "Alex", "handle": "alex" },
-      "sponsor": { "memberId": "abc789", "publicName": "Sam", "handle": "sam" },
-      "role": "member",
-      "state": { "status": "pending_review", "reason": null, "versionNo": 1, "createdAt": "...", "createdByMemberId": "..." },
-      "joinedAt": "2026-03-20T10:00:00Z",
-      "sponsorStats": { "activeSponsoredCount": 3, "sponsoredThisMonthCount": 1 },
-      "vouches": [
-        { "edgeId": "e1", "fromMember": { "memberId": "abc123", "publicName": "Jane", "handle": "jane" }, "reason": "Reliable and thoughtful", "metadata": {}, "createdAt": "...", "createdByMemberId": "abc123" }
-      ]
-    }
-  ]
-}
-```
-
-**`memberships.create`** — `clubId`, `memberId`, `sponsorMemberId` (all required), `role` (admin/member), `initialStatus` (invited/pending_review/active), `reason`, `metadata`.
-
-**`memberships.transition`** — `membershipId` (required), `status`, `reason`.
-
-### Admissions — list and transition (owner only)
-
-**`admissions.list`** — `clubId` (optional), `statuses` (optional array), `limit`.
-
-Returns in `data`:
-
-```json
-{
-  "limit": 20,
-  "statuses": ["submitted"],
-  "clubScope": [
-    {
-      "membershipId": "mem-owner-1",
-      "clubId": "net1",
-      "slug": "og-club",
-      "name": "OG Club",
-      "summary": "For the originals.",
-      "manifestoMarkdown": null,
-      "role": "owner",
-      "status": "active",
-      "sponsorMemberId": null,
-      "joinedAt": "2026-03-01T10:00:00Z"
-    }
-  ],
-  "results": [
-    {
-      "admissionId": "adm1",
-      "clubId": "net1",
-      "applicant": {
-        "memberId": null,
-        "publicName": "Jane Doe",
-        "handle": null,
-        "email": "jane@example.com"
-      },
-      "sponsor": null,
-      "membershipId": null,
-      "origin": "self_applied",
-      "state": {
-        "status": "submitted",
-        "notes": null,
-        "versionNo": 1,
-        "createdAt": "2026-04-02T10:00:00Z",
-        "createdByMemberId": null
-      },
-      "admissionDetails": {
-        "socials": "@janedoe",
-        "reason": "I want to join because..."
-      },
-      "metadata": {},
-      "createdAt": "2026-04-02T10:00:00Z"
-    }
-  ]
-}
-```
-
-**`admissions.transition`** — `admissionId` (required), `status` (required), `notes` (optional), `intake` (optional object with `kind`, `price`, `bookingUrl`, `bookedAt`, `completedAt`), `metadata` (optional). Acceptance of outsider admissions (self-applied or member-sponsored) auto-creates the member, private contacts, profile, and membership.
-
-**`admissions.issueAccess`** — `admissionId` (required). Owner issues a bearer token for an accepted outsider admission. Returns `{ bearerToken: "cc_live_..." }`. The owner delivers this token to the new member out-of-band.
+- `body` — primary human-readable text. Plain text.
+- `content` — optional structured JSON (`Record<string, unknown>`) for client/club-specific metadata.
 
 ### Self-applied admissions (unauthenticated)
 
-**`admissions.challenge`** — no input
+`admissions.challenge` and `admissions.apply` do not require a bearer token. The flow:
 
-```json
-{
-  "ok": true,
-  "action": "admissions.challenge",
-  "data": {
-    "challengeId": "abc123def456",
-    "difficulty": 7,
-    "expiresAt": "2026-04-02T13:00:00Z",
-    "clubs": [
-      { "slug": "og-club", "name": "OG Club", "summary": "For the originals.", "ownerName": "Alice Owner", "ownerEmail": "alice@example.com" },
-      { "slug": "consciousclaw", "name": "ConsciousClaw", "summary": "For spiritually aligned builders.", "ownerName": "Owen Barnes", "ownerEmail": "owen@consciousclaw.com" }
-    ]
-  }
-}
-```
+1. Call `admissions.challenge` to get a PoW puzzle and the list of public clubs
+2. Solve the PoW: find a nonce such that `sha256(challengeId + ":" + nonce)` ends with `difficulty` hex zeros
+3. Submit via `admissions.apply` with the nonce, club slug, full name, email, socials, and reason
 
-**`admissions.apply`** — `challengeId`, `nonce`, `clubSlug`, `name` (full name, 2+ words), `email` (must contain @), `socials`, `reason` (all required, max 500 chars)
-
-```json
-{
-  "ok": true,
-  "action": "admissions.apply",
-  "data": {
-    "message": "Application submitted. The club owner will review it and reach out if accepted."
-  }
-}
-```
-
-PoW algorithm: find a nonce such that `sha256(challengeId + ":" + nonce)` ends with `difficulty` hex zeros.
-
-The agent is free to solve the PoW in any equivalent way it likes. On modern laptop or desktop hardware, difficulty `7` usually takes a few minutes to solve. A modern Apple Silicon machine often lands around 2 to 3 minutes, but unlucky runs can take longer.
+PoW solving: prefer a Node.js worker-thread solver over shell loops. On modern hardware, difficulty `7` usually takes 2-3 minutes.
 
 CRITICAL: You must warn the user to be patient, otherwise they will think nothing's happening and close the agent down.
-
-If the agent wants a practical default, prefer a short Node.js worker-thread solver over a shell loop. Bash that shells out to `shasum` or `openssl` for every nonce is much slower. A good default script is:
 
 ```js
 const { createHash } = require('node:crypto');
@@ -693,56 +268,9 @@ if (isMainThread) {
 }
 ```
 
-Run it as `node pow.js <challengeId>`, then send the returned nonce in `admissions.apply`.
+### Default quotas
 
-### Updates
-
-**`updates.list`** — `limit` (optional, 1-20), `after` (optional stream cursor). Returns `{ items: PendingUpdate[], nextAfter, polledAt }`.
-
-**`updates.acknowledge`** — `updateIds` (required array), `state` (`processed` or `suppressed`), `suppressionReason` (optional). Returns array of receipts.
-
-### Tokens
-
-**`tokens.list`** — no input. Returns:
-
-```json
-{
-  "tokens": [
-    { "tokenId": "tok1", "memberId": "abc123", "label": "laptop", "createdAt": "...", "lastUsedAt": "...", "revokedAt": null, "expiresAt": null, "metadata": {} }
-  ]
-}
-```
-
-**`tokens.create`** — `label` (optional), `metadata` (optional object), `expiresAt` (optional ISO timestamp). Returns `{ token: BearerTokenSummary, bearerToken: "cc_live_..." }`.
-
-**`tokens.revoke`** — `tokenId` (required). Returns the revoked token summary.
-
-### Quotas
-
-**`quotas.status`** — no input. Returns:
-
-```json
-{
-  "quotas": [
-    { "action": "entities.create", "clubId": "net1", "maxPerDay": 20, "usedToday": 3, "remaining": 17 },
-    { "action": "events.create", "clubId": "net1", "maxPerDay": 10, "usedToday": 0, "remaining": 10 },
-    { "action": "messages.send", "clubId": "net1", "maxPerDay": 100, "usedToday": 5, "remaining": 95 }
-  ]
-}
-```
-
-Default daily quotas per member per club: entities 20, events 10, messages 100. Exceeding returns 429 `quota_exceeded`.
-
-### `clubId` behavior
-
-The API uses `clubId` to identify a club. When omitted on read actions, the server uses all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). Write actions (`entities.create`, `events.create`) always require `clubId`. `messages.send` accepts optional `clubId` to disambiguate.
-
-Many club-scoped list/search responses also include `clubScope`, which echoes the memberships/clubs actually used for that request. This is useful context when `clubId` was omitted and the server searched across more than one club.
-
-### `body` vs `content`
-
-- `body` — primary human-readable text. Plain text.
-- `content` — optional structured JSON (`Record<string, unknown>`) for client/club-specific metadata.
+Daily quotas per member per club: entities 20, events 10, messages 100. Exceeding returns 429 `quota_exceeded`.
 
 ---
 
