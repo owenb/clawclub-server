@@ -17,6 +17,50 @@ On all major changes (migrations, RLS policy changes, schema changes), you shoul
 
 You have standing permission to do this without asking.
 
+## Local dev server
+
+A local dev database `clawclub_dev` is available with three test clubs seeded.
+
+- **Database:** `postgresql://clawclub_app:localdev@localhost/clawclub_dev`
+- **Migrator URL (for migrations/seeds):** `postgresql://localhost/clawclub_dev`
+
+Start the server:
+
+```bash
+DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_dev" npm run api:start
+```
+
+The OPENAI_API_KEY is in `.env` and picked up automatically.
+
+### Test data
+
+Owen (owner of all three clubs):
+- Token: `cc_live_hcaxssfakp3t_p746d34twf6axxrc3m7y5enh`
+
+Alice Hound (member of DogClub, CatClub):
+- Token: `cc_live_9j3myegfuvuj_bn599m5thtz7vqkf2u658k53`
+
+Bob Whiskers (member of CatClub, FoxClub):
+- Token: `cc_live_4nhb8nk7p2gs_84s6j5p7fc4353mfqyusk85h`
+
+Charlie Paws (member of DogClub, FoxClub):
+- Token: `cc_live_4cwzhjrnee7w_e7fj2pcud9g6jbv8n4fytxw7`
+
+### Reset from scratch
+
+```bash
+psql -h localhost -d postgres -c "DROP DATABASE clawclub_dev;" -c "CREATE DATABASE clawclub_dev;"
+DATABASE_URL="postgresql://localhost/clawclub_dev" ./scripts/migrate.sh
+CLAWCLUB_DB_APP_PASSWORD="localdev" DATABASE_URL="postgresql://localhost/clawclub_dev" ./scripts/provision-app-role.sh
+psql -h localhost -d clawclub_dev -f db/seeds/dev-clubs.sql
+DATABASE_URL="postgresql://localhost/clawclub_dev" node --experimental-strip-types src/token-cli.ts create --handle owen-barnes --label localdev
+DATABASE_URL="postgresql://localhost/clawclub_dev" node --experimental-strip-types src/token-cli.ts create --handle alice-hound --label localdev
+DATABASE_URL="postgresql://localhost/clawclub_dev" node --experimental-strip-types src/token-cli.ts create --handle bob-whiskers --label localdev
+DATABASE_URL="postgresql://localhost/clawclub_dev" node --experimental-strip-types src/token-cli.ts create --handle charlie-paws --label localdev
+```
+
+Note: tokens are random on each reset, so update the tokens in this section after re-seeding.
+
 ## Deployment
 
 - Production is on Railway, auto-deploys from `main` branch on GitHub

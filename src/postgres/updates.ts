@@ -166,12 +166,12 @@ export async function appendEntityVersionUpdates(
         $1::app.short_id,
         $2,
         $3::jsonb,
-        $4,
-        $5,
-        $6
+        $4::app.short_id,
+        $5::app.short_id,
+        $6::app.short_id
       from app.accessible_club_memberships anm
       where anm.club_id = $1::app.short_id
-        and anm.member_id <> $6
+        and anm.member_id <> $6::text
     `,
     [
       input.clubId,
