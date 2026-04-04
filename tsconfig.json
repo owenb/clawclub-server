@@ -13,5 +13,5 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/ai-smoke.ts", "src/ai-operator-smoke.ts"]
+  "exclude": []
 }

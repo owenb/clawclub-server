@@ -809,18 +809,18 @@ test('postgres repository stitches current update receipt state into DM reads', 
   };
 
   const repository = createPostgresRepository({ pool: pool as any });
-  const transcript = await repository.readDirectMessageThread({
+  const result = await repository.readDirectMessageThread({
     actorMemberId: 'member-1',
     accessibleClubIds: ['club-2'],
     threadId: 'thread-1',
     limit: 5,
   });
 
-  assert.ok(transcript);
-  assert.equal(transcript?.thread.threadId, 'thread-1');
-  assert.equal(transcript?.messages.length, 2);
-  assert.equal(transcript?.messages.find((message) => message.messageId === 'message-1')?.updateReceipts[0]?.receipt?.state, 'processed');
-  assert.equal(transcript?.messages.find((message) => message.messageId === 'message-2')?.updateReceipts[0]?.recipientMemberId, 'member-2');
+  assert.ok(result);
+  assert.equal(result?.thread.threadId, 'thread-1');
+  assert.equal(result?.messages.length, 2);
+  assert.equal(result?.messages.find((message) => message.messageId === 'message-1')?.updateReceipts[0]?.receipt?.state, 'processed');
+  assert.equal(result?.messages.find((message) => message.messageId === 'message-2')?.updateReceipts[0]?.recipientMemberId, 'member-2');
   assert.equal(calls[0]?.sql, 'begin');
   assert.match(calls[1]?.sql ?? '', /set_config\('app\.actor_member_id'/);
   assert.deepEqual(calls[1]?.params, ['member-1']);

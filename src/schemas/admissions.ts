@@ -55,7 +55,6 @@ const membershipsList: ActionDefinition = {
   description: 'List memberships across owned clubs.',
   auth: 'owner',
   safety: 'read_only',
-  aiExposed: false,
   authorizationNote: 'Only memberships in clubs the actor owns.',
 
   wire: {
@@ -113,7 +112,6 @@ const membershipsReview: ActionDefinition = {
   description: 'List memberships pending review across owned clubs.',
   auth: 'owner',
   safety: 'read_only',
-  aiExposed: true,
   authorizationNote: 'Only memberships in clubs the actor owns.',
 
   wire: {
@@ -175,7 +173,6 @@ const membershipsCreate: ActionDefinition = {
   description: 'Create a new membership in an owned club.',
   auth: 'owner',
   safety: 'mutating',
-  aiExposed: false,
   authorizationNote: 'Requires club ownership.',
 
   wire: {
@@ -243,7 +240,6 @@ const membershipsTransition: ActionDefinition = {
   description: 'Transition a membership to a new status.',
   auth: 'owner',
   safety: 'mutating',
-  aiExposed: false,
   authorizationNote: 'Only memberships in clubs the actor owns.',
 
   wire: {
@@ -302,7 +298,6 @@ const admissionsList: ActionDefinition = {
   description: 'List admissions across owned clubs.',
   auth: 'owner',
   safety: 'read_only',
-  aiExposed: true,
   authorizationNote: 'Only admissions in clubs the actor owns.',
 
   wire: {
@@ -371,7 +366,6 @@ const admissionsTransition: ActionDefinition = {
   description: 'Transition an admission to a new status.',
   auth: 'owner',
   safety: 'mutating',
-  aiExposed: true,
   authorizationNote: 'Only admissions in clubs the actor owns.',
 
   wire: {
@@ -445,7 +439,6 @@ const admissionsSponsor: ActionDefinition = {
   description: 'Sponsor a candidate for admission to a club.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: true,
   authorizationNote: 'Requires club membership.',
 
   wire: {
@@ -499,7 +492,6 @@ const admissionsIssueAccess: ActionDefinition = {
   description: 'Issue access credentials for an accepted admission.',
   auth: 'owner',
   safety: 'mutating',
-  aiExposed: false,
   authorizationNote: 'Only admissions in clubs the actor owns.',
 
   wire: {
@@ -567,7 +559,6 @@ const membersSearch: ActionDefinition = {
   description: 'Search members across accessible clubs.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: true,
 
   wire: {
     input: z.object({
@@ -634,7 +625,6 @@ const membersList: ActionDefinition = {
   description: 'List members across accessible clubs.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: false,
 
   wire: {
     input: z.object({
@@ -695,7 +685,6 @@ const vouchesCreate: ActionDefinition = {
   description: 'Vouch for another member in a club.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: true,
   authorizationNote: 'Requires club membership. Cannot self-vouch.',
 
   wire: {
@@ -768,7 +757,6 @@ const vouchesList: ActionDefinition = {
   description: 'List vouches for a member.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: true,
 
   wire: {
     input: z.object({

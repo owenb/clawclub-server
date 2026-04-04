@@ -18,7 +18,7 @@
     "api:token": "node --experimental-strip-types src/token-cli.ts",
     "api:http:smoke": "node --experimental-strip-types src/http-smoke.ts",
     "test:unit": "node --experimental-strip-types --test test/*.test.ts",
-    "test:integration:non-llm": "for f in test/integration/smoke.test.ts test/integration/memberships.test.ts test/integration/messages.test.ts test/integration/profiles.test.ts test/integration/admin.test.ts test/integration/admissions.test.ts; do node --experimental-strip-types --test \"$f\" || exit 1; done",
+    "test:integration:non-llm": "for f in test/integration/smoke.test.ts test/integration/memberships.test.ts test/integration/messages.test.ts test/integration/profiles.test.ts test/integration/admin.test.ts test/integration/admissions.test.ts test/integration/redaction.test.ts; do node --experimental-strip-types --test \"$f\" || exit 1; done",
     "test:integration:with-llm": "set -a && . ./.env.local && set +a && for f in test/integration/content.test.ts test/integration/llm-gated.test.ts test/integration/quality-gate.test.ts; do node --experimental-strip-types --test \"$f\" || exit 1; done",
     "test:integration:all": "npm run test:integration:non-llm && npm run test:integration:with-llm",
     "test:integration": "npm run test:integration:all",

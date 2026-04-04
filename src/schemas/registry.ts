@@ -4,7 +4,7 @@
  * Each action is defined in a domain module (session.ts, entities.ts, etc.)
  * and assembled here into a single registry. The registry is the single
  * source of truth for:
- *   - Action metadata (description, auth, safety, aiExposed)
+ *   - Action metadata (description, auth, safety)
  *   - Wire schemas (input/output shapes for docs and schema endpoint)
  *   - Parse schemas (runtime normalization with transforms/defaults)
  *   - Handler functions
@@ -116,7 +116,6 @@ export type ActionDefinition = {
   description: string;
   auth: ActionAuth;
   safety: ActionSafety;
-  aiExposed: boolean;
   authorizationNote?: string;
 
   wire: {
@@ -173,11 +172,6 @@ export function getRegistry(): ReadonlyMap<string, ActionDefinition> {
 /** Look up a single action definition */
 export function getAction(action: string): ActionDefinition | undefined {
   return registry.get(action);
-}
-
-/** Get the set of known action names (for unknown action detection) */
-export function getKnownActions(): ReadonlySet<string> {
-  return new Set(registry.keys());
 }
 
 // ── Parse helper ─────────────────────────────────────────

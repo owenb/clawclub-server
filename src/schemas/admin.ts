@@ -29,7 +29,6 @@ const adminOverviewAction: ActionDefinition = {
   description: 'Get platform-wide overview statistics.',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   requiredCapability: 'adminGetOverview',
 
@@ -63,7 +62,6 @@ const adminMembersList: ActionDefinition = {
   description: 'List all members with summary info.',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   requiredCapability: 'adminListMembers',
 
@@ -105,7 +103,6 @@ const adminMembersGet: ActionDefinition = {
   description: 'Get detailed info for a single member.',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   requiredCapability: 'adminGetMember',
 
@@ -148,7 +145,6 @@ const adminClubsStats: ActionDefinition = {
   description: 'Get statistics for a single club.',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   requiredCapability: 'adminGetClubStats',
 
@@ -198,7 +194,6 @@ const adminContentList: ActionDefinition = {
   description: 'List content across all clubs with optional filters.',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   requiredCapability: 'adminListContent',
 
@@ -246,7 +241,6 @@ const adminContentArchive: ActionDefinition = {
   description: 'Archive an entity as superadmin.',
   auth: 'superadmin',
   safety: 'mutating',
-  aiExposed: false,
 
   requiredCapability: 'adminArchiveEntity',
 
@@ -289,7 +283,6 @@ const adminContentRedact: ActionDefinition = {
   description: 'Redact an entity as superadmin.',
   auth: 'superadmin',
   safety: 'mutating',
-  aiExposed: false,
 
   requiredCapability: 'redactEntity',
 
@@ -343,7 +336,6 @@ const adminMessagesThreads: ActionDefinition = {
   description: 'List DM threads across the platform.',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   requiredCapability: 'adminListThreads',
 
@@ -393,7 +385,6 @@ const adminMessagesRead: ActionDefinition = {
   description: 'Read a DM thread as superadmin.',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   requiredCapability: 'adminReadThread',
 
@@ -442,7 +433,6 @@ const adminMessagesRedact: ActionDefinition = {
   description: 'Redact a DM message as superadmin.',
   auth: 'superadmin',
   safety: 'mutating',
-  aiExposed: false,
 
   requiredCapability: 'redactMessage',
 
@@ -490,7 +480,6 @@ const adminTokensList: ActionDefinition = {
   description: 'List bearer tokens for a specific member.',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   requiredCapability: 'adminListMemberTokens',
 
@@ -529,7 +518,6 @@ const adminTokensRevoke: ActionDefinition = {
   description: 'Revoke a bearer token for a specific member.',
   auth: 'superadmin',
   safety: 'mutating',
-  aiExposed: false,
 
   requiredCapability: 'adminRevokeMemberToken',
 
@@ -575,7 +563,6 @@ const adminDiagnosticsHealth: ActionDefinition = {
   description: 'Get platform diagnostics and health status.',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   requiredCapability: 'adminGetDiagnostics',
 

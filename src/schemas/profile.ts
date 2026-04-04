@@ -20,7 +20,6 @@ const profileGet: ActionDefinition = {
   description: 'Read a member profile. Omit memberId for the current actor.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: true,
 
   wire: {
     input: z.object({
@@ -73,7 +72,6 @@ const profileUpdate: ActionDefinition = {
   description: 'Update the current actor profile.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: true,
   authorizationNote: 'Updates own profile only.',
 
   wire: {

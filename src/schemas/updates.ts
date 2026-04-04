@@ -25,8 +25,6 @@ const updatesList: ActionDefinition = {
   description: 'List pending updates for the current member.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: false,
-
   requiredCapability: 'listMemberUpdates',
 
   wire: {
@@ -72,8 +70,6 @@ const updatesAcknowledge: ActionDefinition = {
   description: 'Acknowledge one or more updates.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: false,
-
   requiredCapability: 'acknowledgeUpdates',
 
   wire: {

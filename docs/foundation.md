@@ -14,7 +14,7 @@ The system still revolves around two strong axes:
    - sponsor and owner history are append-only
    - content, events, messages, and update fanout live inside club boundaries
 
-That split drives the schema: global tables such as `members`, `member_profile_versions`, and `member_bearer_tokens`, plus club tables such as `clubs`, `club_memberships`, `entities`, `events`, `transcript_*`, and `member_updates`.
+That split drives the schema: global tables such as `members`, `member_profile_versions`, and `member_bearer_tokens`, plus club tables such as `clubs`, `club_memberships`, `entities`, `events`, `dm_*`, and `member_updates`.
 
 ## Current foundation
 
@@ -23,7 +23,7 @@ That split drives the schema: global tables such as `members`, `member_profile_v
 - Postgres auth and RLS as the hard permission boundary
 - RLS-protected membership/subscription source rows feeding scope helpers
 - `current_*`, `live_*`, and `pending_*` views owned by a dedicated non-login, non-`BYPASSRLS` role
-- app-layer orchestration in `src/app.ts` plus `src/app-admissions.ts`, `src/app-content.ts`, `src/app-messages.ts`, `src/app-profile.ts`, `src/app-platform.ts`, and `src/app-updates.ts`
+- app-layer orchestration via registry-driven dispatch in `src/app-dispatch.ts` with action contracts in `src/schemas/*.ts`
 - repository/auth seams in `src/postgres.ts` plus the domain modules under `src/postgres/`
 
 ## Versioning stance

@@ -18,7 +18,7 @@ Four HTTP surfaces:
 | Surface | Purpose |
 |---|---|
 | `POST {baseUrl}/api` | Action calls |
-| `GET {baseUrl}/api/schema` | Live action reference (input/output schemas) |
+| `GET {baseUrl}/api/schema` | Live action reference (full input/output schemas) |
 | `GET {baseUrl}/updates` | Poll the pending update feed |
 | `GET {baseUrl}/updates/stream` | SSE replay + live push |
 
@@ -34,15 +34,15 @@ Two admissions actions are intentionally unauthenticated: `admissions.challenge`
 
 ### Action reference
 
-**Before making any action calls, fetch the live schema:**
+**Before making action calls, fetch the live schema:**
 
 ```
 GET {baseUrl}/api/schema
 ```
 
-This unauthenticated endpoint returns the complete action reference — every action name, every input field, every response shape, auth requirements, and descriptions. The schema is always in sync with the server because it's generated from the same code that validates requests at runtime.
+This unauthenticated endpoint returns the canonical action contract for every public action: action names, auth requirements, full input schemas, full output schemas, and descriptions. It is generated from the same code that validates requests at runtime.
 
-The response includes a `schemaHash` — a content hash of the schema. Cache the schema locally and refetch only when the hash changes.
+The response includes a `schemaHash` — a content hash of the current schema. Cache per base URL for the current session. If you fetch again and the hash changed, replace your cache.
 
 ### Request format
 
@@ -58,7 +58,7 @@ Authorization: Bearer cc_live_...
 
 ### Response format
 
-**Authenticated success:** `"ok": true` with an `actor` envelope containing the member identity, roles, club memberships, request scope, and pending update context. The `data` field contains the action-specific response — its shape is defined in the schema endpoint.
+**Authenticated success:** `"ok": true` with an `actor` envelope containing the member identity, roles, club memberships, request scope, and pending update context. The `data` field contains the action-specific response.
 
 **Unauthenticated success** (cold admissions only): `"ok": true` with `action` and `data` but no `actor` envelope.
 
@@ -111,9 +111,10 @@ After processing, call `updates.acknowledge` with `state: "processed"` or `"supp
 
 ## Available actions
 
-Always start with `session.describe` to resolve the member, their memberships, and club scope. Then fetch `GET {baseUrl}/api/schema` for the full input/output reference.
+If you already have a bearer token, start with `session.describe` to resolve the member, their memberships, and club scope. Then fetch `GET {baseUrl}/api/schema` for the live input/output contract.
 
-Action families:
+Public action families:
+- `admissions.challenge` / `admissions.apply` — unauthenticated self-serve join flow
 - `session.*` — session context
 - `members.*` — member search and directory
 - `memberships.*` — membership lifecycle (owner)
@@ -124,8 +125,8 @@ Action families:
 - `messages.*` — direct messages
 - `updates.*` — update stream and acknowledgements
 - `vouches.*` — peer endorsements between existing members
+- `quotas.*` — quota usage checks
 - `tokens.*` — bearer token management
-- `quotas.*` — write quota status
 
 ### `clubId` behavior
 
@@ -207,7 +208,7 @@ Treat conversation as the interface. Never expose raw CRUD to the human. Turn pl
 
 - Start by calling `session.describe` to resolve the actor, memberships, and club scope
 - Fetch `GET {baseUrl}/api/schema` to learn the available actions and their input/output shapes
-- Clarify missing information before creating or updating anything
+- Clarify missing information before creating or updating anything when the intent is not already specific enough to publish or send
 - Keep output concise and high-signal
 - Use club context when composing DMs or posts
 - If a human asks to join a club without a bearer token, guide them through the self-applied admission flow
@@ -246,11 +247,26 @@ If one club, default. If multiple, ask. Keep posts concise.
 ### Create an opportunity
 Ask: what, when, where, remote/in-person, paid/unpaid, duration, why recommend it.
 
+## When To Clarify First
+
+Some actions are structurally valid long before they are conversationally ready. The schema tells you what JSON is accepted. This section tells you when to slow down and ask follow-up questions before calling the action.
+
+### `entities.create`
+
+Treat this as publish-now, not draft-save.
+
+- `post` — do not publish generic filler or a body with no concrete point
+- `opportunity` — ask for what it is, who it is for, how to engage, and compensation/budget or an explicit note that it is negotiable or voluntary
+- `service` — ask what is offered, who it is for, and how to engage
+- `ask` — ask for enough context that someone can tell whether they can help
+
+If the user is vague, ask one or two focused questions before posting.
+
 ### Create an event
-Ask: what, city, date/time, duration, who it's for.
+Treat `events.create` as publish-ready, not a draft save. Ask for: what it is called, when it starts, enough description for someone to decide whether to attend, and timezone if the time could be ambiguous.
 
 ### DM a member
-Use club context. Keep messages clear and human. Do not reveal private memberships.
+Use club context. Keep messages clear and human. If the recipient or club context is ambiguous, clarify before sending. Do not reveal private memberships.
 
 ### Vouch for a member
 Use `vouches.create` for endorsing someone **already in the same club**. Push back on vague reasons. A good vouch includes:
@@ -266,6 +282,18 @@ Use `admissions.sponsor` for sponsoring someone **not yet a member** for admissi
 Sponsorship and vouching are separate:
 - **Vouching** = endorsing someone already in the club
 - **Sponsorship** = sponsoring someone new for admission (via the unified admissions model)
+
+### `profile.update`
+
+Short factual changes are fine. Push back only when the human is asking you to invent vague marketing copy. Ask for concrete wording when fields like `tagline`, `summary`, `whatIDo`, `knownFor`, or `servicesSummary` would otherwise become generic filler.
+
+### `quotas.status`
+
+Use this when the human asks how much posting, event, or messaging allowance is left, or after a 429 `quota_exceeded` response.
+
+### `updates.list` / `updates.acknowledge`
+
+Use polling or SSE to notice new activity, then call `updates.acknowledge` after you process it so pending updates do not accumulate indefinitely.
 
 ### Apply to join a club
 1. Call `admissions.challenge` (no token needed) — get puzzle + public club list

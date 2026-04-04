@@ -22,7 +22,7 @@ Each update row carries:
 - club id
 - topic
 - payload
-- optional entity / entity version / transcript message linkage
+- optional entity / entity version / DM message linkage
 - monotonic `stream_seq`
 
 That makes polling and SSE two read modes over the same log rather than two different systems.

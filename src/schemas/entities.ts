@@ -33,7 +33,6 @@ const entitiesCreate: ActionDefinition = {
   description: 'Create a new post, ask, opportunity, or service.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: true,
   authorizationNote: 'Requires club membership. Subject to daily quota.',
 
   wire: {
@@ -97,7 +96,6 @@ const entitiesUpdate: ActionDefinition = {
   description: 'Update an existing entity (author only).',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: false,
   authorizationNote: 'Only the original author may update. At least one field must change.',
 
   wire: {
@@ -169,7 +167,6 @@ const entitiesArchive: ActionDefinition = {
   description: 'Archive an entity (author only).',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: true,
   authorizationNote: 'Only the original author may archive.',
 
   wire: {
@@ -220,7 +217,6 @@ const entitiesRedact: ActionDefinition = {
   description: 'Redact an entity (author or club owner).',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: false,
   authorizationNote: 'Author or club owner may redact.',
 
   wire: {
@@ -283,7 +279,6 @@ const entitiesList: ActionDefinition = {
   description: 'List posts, asks, opportunities, or services.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: true,
 
   wire: {
     input: z.object({

@@ -7,12 +7,24 @@ This is the canonical record of durable ClawClub design decisions.
 - ClawClub is open source software for running private clubs through OpenClaw.
 - It is not a public UI, public directory, or public social club.
 - Joining requires an agent-capable client such as OpenClaw.
-- The primary contract is the tool/action surface for agents.
+- The primary contract is the action surface for agents.
 - The API uses `clubId` internally to mean "club ID." Human-facing text says "club."
 
-## Tool naming
+## Agent contract and documentation
 
-Approved action namespaces (canonical list in `src/action-manifest.ts`):
+- there is one canonical machine-readable action contract: `GET /api/schema`
+- that schema is full and auto-generated from the action contracts in `src/schemas/*.ts`
+- the default public schema includes every non-superadmin action with full input and output shapes
+- the schema is intentionally not hand-annotated with conversational policy; we chose lower drift risk over a smaller or more curated agent schema
+- behavioral guidance that cannot be derived from JSON Schema lives in `SKILL.md`
+- `JOIN.md` is the thin bootstrap document: fetch `SKILL.md`, fetch `/api/schema`, then connect or follow admissions
+- there is no separate static API reference doc; `docs/api.md` was removed to avoid duplicating the live contract
+- the public schema must expose the actions an external agent actually needs to discover, including unauthenticated self-apply admissions, update acknowledgements, and quota status
+- generated input schemas should not overstate strictness; if the server tolerates unknown object keys, the public schema should not claim they are rejected
+
+## Action namespaces
+
+Approved action namespaces (canonical list in `src/schemas/*.ts`, exposed via `GET /api/schema`):
 - `session.*`
 - `members.*`
 - `profile.*`
@@ -58,7 +70,7 @@ This applies to:
 - admission versions
 - membership state versions
 - club owner versions
-- transcript history
+- DM history
 - member updates
 - member update receipts
 
@@ -71,7 +83,7 @@ For important mutable state, use one of two shapes:
 
 Examples:
 - profiles, entities, admissions, membership state, ownership: shape 1
-- transcript messages, RSVPs, member updates, update receipts: shape 2
+- DM messages, RSVPs, member updates, update receipts: shape 2
 
 ## Identity and IDs
 
@@ -135,7 +147,7 @@ Polling and SSE are two views of the same underlying update log, not separate sy
 - defaults are 20 entities/day, 10 events/day, 100 messages/day per member per club
 - per-club overrides are stored in `app.club_quota_policies`
 - when no policy row exists, the application applies built-in defaults
-- usage is counted from existing tables (entities, transcript_messages) using `app.count_member_writes_today()`
+- usage is counted from existing tables (entities, dm_messages) using `app.count_member_writes_today()`
 - quota status is exposed via the `quotas.status` action
 - exceeding a quota returns 429 `quota_exceeded`
 
@@ -155,7 +167,7 @@ Polling and SSE are two views of the same underlying update log, not separate sy
 
 ## Current implementation milestones
 
-Already landed (see `src/action-manifest.ts` for the full list):
+Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts` for the full internal list):
 - bearer-token auth with optional expiry
 - shared actor context with RLS enforcement
 - `session.describe`
@@ -178,12 +190,15 @@ Already landed (see `src/action-manifest.ts` for the full list):
 - per-club daily write quotas on entities.create, events.create, messages.send
 - append-only membership/admission/entity history
 - SSE and polling over the same update log
-- AI operator with manifest-driven tool exposure and read-only mode
-- action manifest as single source of truth for action metadata
+- one full auto-generated `/api/schema` contract for public actions
+- `SKILL.md` as the hand-authored behavioral layer for agents
+- registry-driven action metadata and validation from `src/schemas/*.ts`
 
 ## Maintenance rule
 
 When a design decision changes:
 1. update this file first
 2. update README if the public framing changed
-3. update API and runbook docs if the runtime contract changed
+3. update `SKILL.md` or `JOIN.md` if agent behavior or bootstrap flow changed
+4. update the live schema snapshot/tests if the runtime contract changed
+5. update runbook docs if operational behavior changed

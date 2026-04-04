@@ -29,7 +29,7 @@ function redaction(result: Record<string, unknown>) {
 // ── Message Redaction ──────────────────────────────────────────────────────────
 
 describe('messages.redact', () => {
-  it('sender redacts own message — transcript shows placeholder', async () => {
+  it('sender redacts own message — thread shows placeholder', async () => {
     const owner = await h.seedOwner('msg-redact-sender', 'Msg Redact Sender Club');
     const alice = await h.seedClubMember(owner.club.id, 'Alice MsgRedact', 'alice-msg-redact', { sponsorId: owner.id });
     const bob = await h.seedClubMember(owner.club.id, 'Bob MsgRedact', 'bob-msg-redact', { sponsorId: owner.id });

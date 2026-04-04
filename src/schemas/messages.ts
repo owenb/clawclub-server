@@ -30,7 +30,6 @@ const messagesSend: ActionDefinition = {
   description: 'Send a direct message to another member.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: true,
 
   wire: {
     input: z.object({
@@ -84,7 +83,6 @@ const messagesList: ActionDefinition = {
   description: 'List DM threads.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: false,
 
   wire: {
     input: z.object({
@@ -139,7 +137,6 @@ const messagesRead: ActionDefinition = {
   description: 'Read a DM thread.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: true,
 
   wire: {
     input: z.object({
@@ -162,22 +159,22 @@ const messagesRead: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { threadId, limit } = input as ReadInput;
 
-    const transcript = await ctx.repository.readDirectMessageThread({
+    const result = await ctx.repository.readDirectMessageThread({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map((club) => club.clubId),
       threadId,
       limit,
     });
 
-    if (!transcript) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Thread not found inside the actor scope');
     }
 
     return {
-      data: transcript,
+      data: result,
       requestScope: {
-        requestedClubId: transcript.thread.clubId,
-        activeClubIds: [transcript.thread.clubId],
+        requestedClubId: result.thread.clubId,
+        activeClubIds: [result.thread.clubId],
       },
     };
   },
@@ -197,7 +194,6 @@ const messagesInbox: ActionDefinition = {
   description: 'List DM inbox with unread counts.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: true,
 
   wire: {
     input: z.object({
@@ -256,7 +252,6 @@ const messagesRedact: ActionDefinition = {
   description: 'Redact a DM (sender or club owner).',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: false,
   authorizationNote: 'Sender or club owner may redact.',
 
   wire: {

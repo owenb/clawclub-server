@@ -22,7 +22,6 @@ const admissionsChallenge: ActionDefinition = {
   description: 'Request a proof-of-work challenge for a cold admission.',
   auth: 'none',
   safety: 'mutating',
-  aiExposed: false,
 
   wire: {
     input: z.object({}),
@@ -66,7 +65,6 @@ const admissionsApply: ActionDefinition = {
   description: 'Submit a solved proof-of-work challenge to create a cold admission.',
   auth: 'none',
   safety: 'mutating',
-  aiExposed: false,
 
   wire: {
     input: z.object({

@@ -1,14 +1,365 @@
 {
   "actions": [
     {
+      "action": "admissions.apply",
+      "auth": "none",
+      "description": "Submit a solved proof-of-work challenge to create a cold admission.",
+      "domain": "cold-admissions",
+      "input": {
+        "properties": {
+          "challengeId": {
+            "description": "Challenge ID from admissions.challenge",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "clubSlug": {
+            "description": "Slug of the club to apply to",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address (must contain @, max 500 chars). Server trims and lowercases.",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "name": {
+            "description": "Full name (first and last name required, max 500 chars). Server trims whitespace.",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "nonce": {
+            "description": "Nonce that solves the PoW",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why do you want to join?",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "socials": {
+            "description": "Social media handles or URLs",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "required": [
+          "challengeId",
+          "nonce",
+          "clubSlug",
+          "name",
+          "email",
+          "socials",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "admissions.challenge",
+      "auth": "none",
+      "description": "Request a proof-of-work challenge for a cold admission.",
+      "domain": "cold-admissions",
+      "input": {
+        "properties": {},
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "challengeId": {
+            "type": "string"
+          },
+          "clubs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "ownerEmail": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "ownerName": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "slug",
+                "name",
+                "summary",
+                "ownerName",
+                "ownerEmail"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "difficulty": {
+            "type": "number"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "challengeId",
+          "difficulty",
+          "expiresAt",
+          "clubs"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "admissions.issueAccess",
+      "auth": "owner",
+      "authorizationNote": "Only admissions in clubs the actor owns.",
+      "description": "Issue access credentials for an accepted admission.",
+      "domain": "admissions",
+      "input": {
+        "properties": {
+          "admissionId": {
+            "description": "Admission to issue access for",
+            "type": "string"
+          }
+        },
+        "required": [
+          "admissionId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "admission": {
+            "additionalProperties": false,
+            "properties": {
+              "admissionDetails": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "admissionId": {
+                "type": "string"
+              },
+              "applicant": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle",
+                  "email"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "intake": {
+                "additionalProperties": false,
+                "properties": {
+                  "bookedAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "bookingUrl": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "completedAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "fit_check",
+                      "advice_call",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  "price": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "amount": {
+                        "nullable": true,
+                        "type": "number"
+                      },
+                      "currency": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "amount",
+                      "currency"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "price",
+                  "bookingUrl",
+                  "bookedAt",
+                  "completedAt"
+                ],
+                "type": "object"
+              },
+              "membershipId": {
+                "nullable": true,
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "origin": {
+                "enum": [
+                  "self_applied",
+                  "member_sponsored",
+                  "owner_nominated"
+                ],
+                "type": "string"
+              },
+              "sponsor": {
+                "additionalProperties": false,
+                "nullable": true,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "state": {
+                "additionalProperties": false,
+                "properties": {
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "createdByMemberId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "notes": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "draft",
+                      "submitted",
+                      "interview_scheduled",
+                      "interview_completed",
+                      "accepted",
+                      "declined",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "status",
+                  "notes",
+                  "versionNo",
+                  "createdAt",
+                  "createdByMemberId"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "admissionId",
+              "clubId",
+              "applicant",
+              "sponsor",
+              "membershipId",
+              "origin",
+              "intake",
+              "state",
+              "admissionDetails",
+              "metadata",
+              "createdAt"
+            ],
+            "type": "object"
+          },
+          "bearerToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "admission",
+          "bearerToken"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "admissions.list",
-      "aiExposed": true,
       "auth": "owner",
       "authorizationNote": "Only admissions in clubs the actor owns.",
       "description": "List admissions across owned clubs.",
       "domain": "admissions",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Restrict to one owned club",
@@ -311,13 +662,11 @@
     },
     {
       "action": "admissions.sponsor",
-      "aiExposed": true,
       "auth": "member",
       "authorizationNote": "Requires club membership.",
       "description": "Sponsor a candidate for admission to a club.",
       "domain": "admissions",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Club to sponsor into",
@@ -553,20 +902,17 @@
     },
     {
       "action": "admissions.transition",
-      "aiExposed": true,
       "auth": "owner",
       "authorizationNote": "Only admissions in clubs the actor owns.",
       "description": "Transition an admission to a new status.",
       "domain": "admissions",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "admissionId": {
             "description": "Admission to transition",
             "type": "string"
           },
           "intake": {
-            "additionalProperties": false,
             "description": "Intake details. All fields optional.",
             "properties": {
               "bookedAt": {
@@ -588,7 +934,6 @@
                 "type": "string"
               },
               "price": {
-                "additionalProperties": false,
                 "properties": {
                   "amount": {
                     "description": "Non-negative amount or null.",
@@ -837,13 +1182,11 @@
     },
     {
       "action": "entities.archive",
-      "aiExposed": true,
       "auth": "member",
       "authorizationNote": "Only the original author may archive.",
       "description": "Archive an entity (author only).",
       "domain": "content",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "entityId": {
             "description": "Entity to archive",
@@ -1014,13 +1357,11 @@
     },
     {
       "action": "entities.create",
-      "aiExposed": true,
       "auth": "member",
       "authorizationNote": "Requires club membership. Subject to daily quota.",
       "description": "Create a new post, ask, opportunity, or service.",
       "domain": "content",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "body": {
             "$ref": "#/properties/title",
@@ -1224,12 +1565,10 @@
     },
     {
       "action": "entities.list",
-      "aiExposed": true,
       "auth": "member",
       "description": "List posts, asks, opportunities, or services.",
       "domain": "content",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Restrict to one club",
@@ -1496,14 +1835,279 @@
       "safety": "read_only"
     },
     {
+      "action": "entities.redact",
+      "auth": "member",
+      "authorizationNote": "Author or club owner may redact.",
+      "description": "Redact an entity (author or club owner).",
+      "domain": "content",
+      "input": {
+        "properties": {
+          "entityId": {
+            "description": "Entity to redact",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for redaction",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "redaction": {
+            "additionalProperties": false,
+            "properties": {
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "createdByMemberId": {
+                "type": "string"
+              },
+              "redactionId": {
+                "type": "string"
+              },
+              "targetId": {
+                "type": "string"
+              },
+              "targetKind": {
+                "enum": [
+                  "dm_message",
+                  "entity"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "redactionId",
+              "targetKind",
+              "targetId",
+              "clubId",
+              "createdByMemberId",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "redaction"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "entities.update",
+      "auth": "member",
+      "authorizationNote": "Only the original author may update. At least one field must change.",
+      "description": "Update an existing entity (author only).",
+      "domain": "content",
+      "input": {
+        "properties": {
+          "body": {
+            "$ref": "#/properties/title",
+            "description": "New body text"
+          },
+          "content": {
+            "additionalProperties": {},
+            "description": "New structured metadata",
+            "type": "object"
+          },
+          "entityId": {
+            "description": "Entity to update",
+            "type": "string"
+          },
+          "expiresAt": {
+            "$ref": "#/properties/title",
+            "description": "New expiration timestamp"
+          },
+          "summary": {
+            "$ref": "#/properties/title",
+            "description": "New summary"
+          },
+          "title": {
+            "description": "New title",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "entity": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "entityId": {
+                "type": "string"
+              },
+              "entityVersionId": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "post",
+                  "opportunity",
+                  "service",
+                  "ask"
+                ],
+                "type": "string"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "content": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  },
+                  "embedding": {
+                    "additionalProperties": false,
+                    "nullable": true,
+                    "properties": {
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "dimensions": {
+                        "type": "number"
+                      },
+                      "embeddingId": {
+                        "type": "string"
+                      },
+                      "metadata": {
+                        "additionalProperties": {},
+                        "type": "object"
+                      },
+                      "model": {
+                        "type": "string"
+                      },
+                      "sourceText": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "embeddingId",
+                      "model",
+                      "dimensions",
+                      "sourceText",
+                      "metadata",
+                      "createdAt"
+                    ],
+                    "type": "object"
+                  },
+                  "expiresAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "draft",
+                      "published",
+                      "archived"
+                    ],
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "title": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "versionNo",
+                  "state",
+                  "title",
+                  "summary",
+                  "body",
+                  "effectiveAt",
+                  "expiresAt",
+                  "createdAt",
+                  "content",
+                  "embedding"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "entityId",
+              "entityVersionId",
+              "clubId",
+              "kind",
+              "author",
+              "version",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "entity"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "events.create",
-      "aiExposed": true,
       "auth": "member",
       "authorizationNote": "Requires club membership. Subject to daily quota.",
       "description": "Create a new event.",
       "domain": "content",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "body": {
             "$ref": "#/properties/title",
@@ -1783,12 +2387,10 @@
     },
     {
       "action": "events.list",
-      "aiExposed": true,
       "auth": "member",
       "description": "List upcoming events.",
       "domain": "content",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Restrict to one club",
@@ -2100,12 +2702,10 @@
     },
     {
       "action": "events.rsvp",
-      "aiExposed": true,
       "auth": "member",
       "description": "RSVP to an event.",
       "domain": "content",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "eventEntityId": {
             "description": "Event entity ID",
@@ -2356,13 +2956,167 @@
       "safety": "mutating"
     },
     {
+      "action": "members.list",
+      "auth": "member",
+      "description": "List members across accessible clubs.",
+      "domain": "admissions",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Restrict to one club",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "clubScope": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "type": "string"
+                },
+                "joinedAt": {
+                  "type": "string"
+                },
+                "membershipId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "enum": [
+                    "owner",
+                    "admin",
+                    "member"
+                  ],
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "sponsorMemberId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "active"
+                  ],
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "membershipId",
+                "clubId",
+                "slug",
+                "name",
+                "summary",
+                "role",
+                "status",
+                "sponsorMemberId",
+                "joinedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "displayName": {
+                  "type": "string"
+                },
+                "handle": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "knownFor": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "memberId": {
+                  "type": "string"
+                },
+                "memberships": {
+                  "items": {
+                    "$ref": "#/properties/clubScope/items"
+                  },
+                  "type": "array"
+                },
+                "publicName": {
+                  "type": "string"
+                },
+                "servicesSummary": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "tagline": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "websiteUrl": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "whatIDo": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "memberId",
+                "publicName",
+                "displayName",
+                "handle",
+                "tagline",
+                "summary",
+                "whatIDo",
+                "knownFor",
+                "servicesSummary",
+                "websiteUrl",
+                "memberships"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "limit",
+          "clubScope",
+          "results"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
       "action": "members.search",
-      "aiExposed": true,
       "auth": "member",
       "description": "Search members across accessible clubs.",
       "domain": "admissions",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Restrict to one club",
@@ -2542,14 +3296,405 @@
       "safety": "read_only"
     },
     {
+      "action": "memberships.create",
+      "auth": "owner",
+      "authorizationNote": "Requires club ownership.",
+      "description": "Create a new membership in an owned club.",
+      "domain": "admissions",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Club to add membership in",
+            "type": "string"
+          },
+          "initialStatus": {
+            "default": "invited",
+            "description": "Initial status",
+            "enum": [
+              "invited",
+              "pending_review",
+              "active"
+            ],
+            "type": "string"
+          },
+          "memberId": {
+            "description": "Member to add",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {},
+            "description": "Additional metadata",
+            "type": "object"
+          },
+          "reason": {
+            "description": "Reason for creation",
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "default": "member",
+            "description": "Role (member or admin)",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "type": "string"
+          },
+          "sponsorMemberId": {
+            "description": "Sponsoring member",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubId",
+          "memberId",
+          "sponsorMemberId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "membership": {
+            "additionalProperties": false,
+            "properties": {
+              "acceptedCovenantAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "joinedAt": {
+                "type": "string"
+              },
+              "member": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "membershipId": {
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "role": {
+                "enum": [
+                  "owner",
+                  "admin",
+                  "member"
+                ],
+                "type": "string"
+              },
+              "sponsor": {
+                "allOf": [
+                  {
+                    "$ref": "#/properties/membership/properties/member"
+                  }
+                ],
+                "nullable": true
+              },
+              "state": {
+                "additionalProperties": false,
+                "properties": {
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "createdByMemberId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "reason": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "invited",
+                      "pending_review",
+                      "active",
+                      "paused",
+                      "revoked",
+                      "rejected"
+                    ],
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason",
+                  "versionNo",
+                  "createdAt",
+                  "createdByMemberId"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "membershipId",
+              "clubId",
+              "member",
+              "sponsor",
+              "role",
+              "state",
+              "joinedAt",
+              "acceptedCovenantAt",
+              "metadata"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "membership"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "memberships.list",
+      "auth": "owner",
+      "authorizationNote": "Only memberships in clubs the actor owns.",
+      "description": "List memberships across owned clubs.",
+      "domain": "admissions",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Restrict to one owned club",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Filter by membership status",
+            "enum": [
+              "invited",
+              "pending_review",
+              "active",
+              "paused",
+              "revoked",
+              "rejected"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "clubScope": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "type": "string"
+                },
+                "joinedAt": {
+                  "type": "string"
+                },
+                "membershipId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "enum": [
+                    "owner",
+                    "admin",
+                    "member"
+                  ],
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "sponsorMemberId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "active"
+                  ],
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "membershipId",
+                "clubId",
+                "slug",
+                "name",
+                "summary",
+                "role",
+                "status",
+                "sponsorMemberId",
+                "joinedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "acceptedCovenantAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "clubId": {
+                  "type": "string"
+                },
+                "joinedAt": {
+                  "type": "string"
+                },
+                "member": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "membershipId": {
+                  "type": "string"
+                },
+                "metadata": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "role": {
+                  "$ref": "#/properties/clubScope/items/properties/role"
+                },
+                "sponsor": {
+                  "allOf": [
+                    {
+                      "$ref": "#/properties/results/items/properties/member"
+                    }
+                  ],
+                  "nullable": true
+                },
+                "state": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "createdByMemberId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "reason": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "status": {
+                      "$ref": "#/properties/status"
+                    },
+                    "versionNo": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "reason",
+                    "versionNo",
+                    "createdAt",
+                    "createdByMemberId"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "membershipId",
+                "clubId",
+                "member",
+                "sponsor",
+                "role",
+                "state",
+                "joinedAt",
+                "acceptedCovenantAt",
+                "metadata"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "invited",
+              "pending_review",
+              "active",
+              "paused",
+              "revoked",
+              "rejected"
+            ],
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "limit",
+          "status",
+          "clubScope",
+          "results"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
       "action": "memberships.review",
-      "aiExposed": true,
       "auth": "owner",
       "authorizationNote": "Only memberships in clubs the actor owns.",
       "description": "List memberships pending review across owned clubs.",
       "domain": "admissions",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Restrict to one owned club",
@@ -2821,13 +3966,167 @@
       "safety": "read_only"
     },
     {
+      "action": "memberships.transition",
+      "auth": "owner",
+      "authorizationNote": "Only memberships in clubs the actor owns.",
+      "description": "Transition a membership to a new status.",
+      "domain": "admissions",
+      "input": {
+        "properties": {
+          "membershipId": {
+            "description": "Membership to transition",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for transition",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "description": "Target status",
+            "enum": [
+              "invited",
+              "pending_review",
+              "active",
+              "paused",
+              "revoked",
+              "rejected"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "membershipId",
+          "status"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "membership": {
+            "additionalProperties": false,
+            "properties": {
+              "acceptedCovenantAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "joinedAt": {
+                "type": "string"
+              },
+              "member": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "membershipId": {
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "role": {
+                "enum": [
+                  "owner",
+                  "admin",
+                  "member"
+                ],
+                "type": "string"
+              },
+              "sponsor": {
+                "allOf": [
+                  {
+                    "$ref": "#/properties/membership/properties/member"
+                  }
+                ],
+                "nullable": true
+              },
+              "state": {
+                "additionalProperties": false,
+                "properties": {
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "createdByMemberId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "reason": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "invited",
+                      "pending_review",
+                      "active",
+                      "paused",
+                      "revoked",
+                      "rejected"
+                    ],
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason",
+                  "versionNo",
+                  "createdAt",
+                  "createdByMemberId"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "membershipId",
+              "clubId",
+              "member",
+              "sponsor",
+              "role",
+              "state",
+              "joinedAt",
+              "acceptedCovenantAt",
+              "metadata"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "membership"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "messages.inbox",
-      "aiExposed": true,
       "auth": "member",
       "description": "List DM inbox with unread counts.",
       "domain": "messages",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Restrict to one club",
@@ -3019,13 +4318,173 @@
       "safety": "read_only"
     },
     {
+      "action": "messages.list",
+      "auth": "member",
+      "description": "List DM threads.",
+      "domain": "messages",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Restrict to one club",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "clubScope": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "type": "string"
+                },
+                "joinedAt": {
+                  "type": "string"
+                },
+                "membershipId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "enum": [
+                    "owner",
+                    "admin",
+                    "member"
+                  ],
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "sponsorMemberId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "active"
+                  ],
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "membershipId",
+                "clubId",
+                "slug",
+                "name",
+                "summary",
+                "role",
+                "status",
+                "sponsorMemberId",
+                "joinedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "type": "string"
+                },
+                "counterpartHandle": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "counterpartMemberId": {
+                  "type": "string"
+                },
+                "counterpartPublicName": {
+                  "type": "string"
+                },
+                "latestMessage": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "messageId": {
+                      "type": "string"
+                    },
+                    "messageText": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "role": {
+                      "enum": [
+                        "member",
+                        "agent",
+                        "system"
+                      ],
+                      "type": "string"
+                    },
+                    "senderMemberId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "messageId",
+                    "senderMemberId",
+                    "role",
+                    "messageText",
+                    "createdAt"
+                  ],
+                  "type": "object"
+                },
+                "messageCount": {
+                  "type": "number"
+                },
+                "threadId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "threadId",
+                "clubId",
+                "counterpartMemberId",
+                "counterpartPublicName",
+                "counterpartHandle",
+                "latestMessage",
+                "messageCount"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "limit",
+          "clubScope",
+          "results"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
       "action": "messages.read",
-      "aiExposed": true,
       "auth": "member",
       "description": "Read a DM thread.",
       "domain": "messages",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "limit": {
             "description": "Max results (default 8). Clamped to 1–20 by the server.",
@@ -3237,13 +4696,81 @@
       "safety": "read_only"
     },
     {
+      "action": "messages.redact",
+      "auth": "member",
+      "authorizationNote": "Sender or club owner may redact.",
+      "description": "Redact a DM (sender or club owner).",
+      "domain": "messages",
+      "input": {
+        "properties": {
+          "messageId": {
+            "description": "Message to redact",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for redaction",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "redaction": {
+            "additionalProperties": false,
+            "properties": {
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "createdByMemberId": {
+                "type": "string"
+              },
+              "redactionId": {
+                "type": "string"
+              },
+              "targetId": {
+                "type": "string"
+              },
+              "targetKind": {
+                "enum": [
+                  "dm_message",
+                  "entity"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "redactionId",
+              "targetKind",
+              "targetId",
+              "clubId",
+              "createdByMemberId",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "redaction"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "messages.send",
-      "aiExposed": true,
       "auth": "member",
       "description": "Send a direct message to another member.",
       "domain": "messages",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Restrict to one club",
@@ -3317,12 +4844,10 @@
     },
     {
       "action": "profile.get",
-      "aiExposed": true,
       "auth": "member",
       "description": "Read a member profile. Omit memberId for the current actor.",
       "domain": "profile",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "memberId": {
             "description": "Target member ID. Omit for own profile.",
@@ -3488,13 +5013,11 @@
     },
     {
       "action": "profile.update",
-      "aiExposed": true,
       "auth": "member",
       "authorizationNote": "Updates own profile only.",
       "description": "Update the current actor profile.",
       "domain": "profile",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "displayName": {
             "description": "Display name (cannot be empty if provided).",
@@ -3699,13 +5222,62 @@
       "safety": "mutating"
     },
     {
+      "action": "quotas.status",
+      "auth": "member",
+      "description": "Get quota usage for the current member across accessible clubs.",
+      "domain": "platform",
+      "input": {
+        "properties": {},
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "quotas": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "clubId": {
+                  "type": "string"
+                },
+                "maxPerDay": {
+                  "type": "number"
+                },
+                "remaining": {
+                  "type": "number"
+                },
+                "usedToday": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "action",
+                "clubId",
+                "maxPerDay",
+                "usedToday",
+                "remaining"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "quotas"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
       "action": "session.describe",
-      "aiExposed": true,
       "auth": "member",
       "description": "Resolve the current member session, accessible clubs, and any pending update context.",
       "domain": "platform",
       "input": {
-        "additionalProperties": false,
         "properties": {},
         "type": "object"
       },
@@ -3717,14 +5289,449 @@
       "safety": "read_only"
     },
     {
+      "action": "tokens.create",
+      "auth": "member",
+      "description": "Create a new bearer token.",
+      "domain": "platform",
+      "input": {
+        "properties": {
+          "expiresAt": {
+            "$ref": "#/properties/label",
+            "description": "ISO 8601 expiration timestamp"
+          },
+          "label": {
+            "description": "Human-readable label",
+            "nullable": true,
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {},
+            "description": "Freeform metadata",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "bearerToken": {
+            "type": "string"
+          },
+          "token": {
+            "additionalProperties": false,
+            "properties": {
+              "createdAt": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "label": {
+                "nullable": true,
+                "type": "string"
+              },
+              "lastUsedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "memberId": {
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "revokedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "tokenId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tokenId",
+              "memberId",
+              "label",
+              "createdAt",
+              "lastUsedAt",
+              "revokedAt",
+              "expiresAt",
+              "metadata"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "token",
+          "bearerToken"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "tokens.list",
+      "auth": "member",
+      "description": "List bearer tokens for the current member.",
+      "domain": "platform",
+      "input": {
+        "properties": {},
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "tokens": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "label": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "lastUsedAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "memberId": {
+                  "type": "string"
+                },
+                "metadata": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "revokedAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "tokenId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tokenId",
+                "memberId",
+                "label",
+                "createdAt",
+                "lastUsedAt",
+                "revokedAt",
+                "expiresAt",
+                "metadata"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tokens"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
+      "action": "tokens.revoke",
+      "auth": "member",
+      "description": "Revoke a bearer token.",
+      "domain": "platform",
+      "input": {
+        "properties": {
+          "tokenId": {
+            "description": "Token to revoke",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tokenId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "additionalProperties": false,
+            "properties": {
+              "createdAt": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "label": {
+                "nullable": true,
+                "type": "string"
+              },
+              "lastUsedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "memberId": {
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "revokedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "tokenId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tokenId",
+              "memberId",
+              "label",
+              "createdAt",
+              "lastUsedAt",
+              "revokedAt",
+              "expiresAt",
+              "metadata"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "updates.acknowledge",
+      "auth": "member",
+      "description": "Acknowledge one or more updates.",
+      "domain": "updates",
+      "input": {
+        "properties": {
+          "state": {
+            "description": "Receipt state (default: processed)",
+            "enum": [
+              "processed",
+              "suppressed"
+            ],
+            "type": "string"
+          },
+          "suppressionReason": {
+            "description": "Reason for suppression",
+            "nullable": true,
+            "type": "string"
+          },
+          "updateIds": {
+            "description": "Non-empty array of update IDs.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "updateIds"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "receipts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "createdByMemberId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "receiptId": {
+                  "type": "string"
+                },
+                "recipientMemberId": {
+                  "type": "string"
+                },
+                "state": {
+                  "enum": [
+                    "processed",
+                    "suppressed"
+                  ],
+                  "type": "string"
+                },
+                "supersedesReceiptId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "suppressionReason": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "updateId": {
+                  "type": "string"
+                },
+                "versionNo": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "receiptId",
+                "updateId",
+                "recipientMemberId",
+                "clubId",
+                "state",
+                "suppressionReason",
+                "versionNo",
+                "supersedesReceiptId",
+                "createdAt",
+                "createdByMemberId"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "receipts"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "updates.list",
+      "auth": "member",
+      "description": "List pending updates for the current member.",
+      "domain": "updates",
+      "input": {
+        "properties": {
+          "after": {
+            "description": "Stream sequence cursor (null or omit to start from beginning)",
+            "nullable": true,
+            "type": "integer"
+          },
+          "limit": {
+            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "updates": {
+            "additionalProperties": false,
+            "properties": {
+              "items": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "createdByMemberId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "dmMessageId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "entityId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "entityVersionId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "payload": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "recipientMemberId": {
+                      "type": "string"
+                    },
+                    "streamSeq": {
+                      "type": "number"
+                    },
+                    "topic": {
+                      "type": "string"
+                    },
+                    "updateId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "updateId",
+                    "streamSeq",
+                    "recipientMemberId",
+                    "clubId",
+                    "entityId",
+                    "entityVersionId",
+                    "dmMessageId",
+                    "topic",
+                    "payload",
+                    "createdAt",
+                    "createdByMemberId"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "nextAfter": {
+                "nullable": true,
+                "type": "number"
+              },
+              "polledAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "items",
+              "nextAfter",
+              "polledAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "updates"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
       "action": "vouches.create",
-      "aiExposed": true,
       "auth": "member",
       "authorizationNote": "Requires club membership. Cannot self-vouch.",
       "description": "Vouch for another member in a club.",
       "domain": "admissions",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Club context",
@@ -3812,12 +5819,10 @@
     },
     {
       "action": "vouches.list",
-      "aiExposed": true,
       "auth": "member",
       "description": "List vouches for a member.",
       "domain": "admissions",
       "input": {
-        "additionalProperties": false,
         "properties": {
           "clubId": {
             "description": "Restrict to one club",
@@ -3908,6 +5913,6 @@
       "safety": "read_only"
     }
   ],
-  "schemaHash": "c13c3e07dec0e979",
+  "schemaHash": "1a0700741efc96ee",
   "version": "1.0"
 }

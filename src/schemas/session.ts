@@ -10,7 +10,6 @@ const sessionDescribe: ActionDefinition = {
   description: 'Resolve the current member session, accessible clubs, and any pending update context.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: true,
 
   wire: {
     input: z.object({}),

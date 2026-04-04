@@ -24,29 +24,61 @@ describe('smoke', () => {
     assert.equal(memberships[0].role, 'owner');
   });
 
-  it('GET /api/schema returns deterministic aiExposed action schemas', async () => {
+  it('GET /api/schema returns deterministic non-superadmin action schemas', async () => {
     const { status, body } = await h.getSchema();
     assert.equal(status, 200);
     assert.equal(body.ok, true);
 
-    const data = body.data as { version: string; actions: Array<{ action: string; aiExposed: boolean; input: unknown; output: unknown }> };
+    const data = body.data as {
+      version: string;
+      actions: Array<{
+        action: string;
+        auth: string;
+        input: unknown;
+        output: unknown;
+      }>;
+    };
     assert.equal(data.version, '1.0');
     assert.ok(data.actions.length > 0, 'schema should have actions');
 
-    // All returned actions must be aiExposed
+    // No superadmin actions in public schema
     for (const a of data.actions) {
-      assert.equal(a.aiExposed, true, `${a.action} should be aiExposed`);
+      assert.notEqual(a.auth, 'superadmin', `${a.action} should not be superadmin`);
       assert.ok(a.input, `${a.action} should have input schema`);
       assert.ok(a.output, `${a.action} should have output schema`);
+    }
+
+    // No aiExposed field in schema output
+    for (const a of data.actions) {
+      assert.equal('aiExposed' in (a as Record<string, unknown>), false, `${a.action} should not have aiExposed`);
     }
 
     // Actions must be sorted by name (deterministic)
     const names = data.actions.map(a => a.action);
     assert.deepEqual(names, [...names].sort());
 
-    // Verify a known action is present
+    // Public schema should have exactly 36 non-superadmin actions
+    assert.equal(data.actions.length, 36, 'public schema should have 36 actions');
+
+    // Verify key actions are present — including ones that were previously hidden
     assert.ok(names.includes('session.describe'), 'should include session.describe');
     assert.ok(names.includes('entities.create'), 'should include entities.create');
+    assert.ok(names.includes('entities.update'), 'should include entities.update');
+    assert.ok(names.includes('admissions.challenge'), 'should include admissions.challenge');
+    assert.ok(names.includes('updates.acknowledge'), 'should include updates.acknowledge');
+    assert.ok(names.includes('memberships.list'), 'should include memberships.list');
+    assert.ok(names.includes('memberships.create'), 'should include memberships.create');
+    assert.ok(names.includes('memberships.transition'), 'should include memberships.transition');
+    assert.ok(names.includes('admissions.issueAccess'), 'should include admissions.issueAccess');
+    assert.ok(names.includes('members.list'), 'should include members.list');
+    assert.ok(names.includes('tokens.list'), 'should include tokens.list');
+    assert.ok(names.includes('messages.list'), 'should include messages.list');
+    assert.ok(names.includes('messages.redact'), 'should include messages.redact');
+    assert.ok(names.includes('entities.redact'), 'should include entities.redact');
+
+    // No clubs.* or admin.* in public schema
+    assert.ok(!names.some(n => n.startsWith('clubs.')), 'should not include clubs.*');
+    assert.ok(!names.some(n => n.startsWith('admin.')), 'should not include admin.*');
 
     // Verify a second call returns identical output (cached, stable)
     const { body: body2 } = await h.getSchema();
@@ -68,15 +100,22 @@ describe('smoke', () => {
     // Superadmin with ?full=1 gets all actions
     const { status, body: fullBody } = await h.getSchema(adminToken, { full: true });
     assert.equal(status, 200);
-    const fullData = fullBody.data as { actions: Array<{ action: string; aiExposed: boolean }> };
-    assert.ok(fullData.actions.length > publicActions.length, 'full schema should have more actions than public');
+    const fullData = fullBody.data as { actions: Array<{ action: string; auth: string }> };
 
-    // Full schema includes non-aiExposed actions
-    const nonExposed = fullData.actions.filter(a => !a.aiExposed);
-    assert.ok(nonExposed.length > 0, 'full schema should include non-aiExposed actions');
+    // Full schema should have all 53 actions
+    assert.equal(fullData.actions.length, 53, 'full schema should have 53 actions');
+    assert.equal(publicActions.length, 36, 'public schema should have 36 actions');
+
+    // Full schema includes superadmin actions
+    const superadminActions = fullData.actions.filter(a => a.auth === 'superadmin');
+    assert.equal(superadminActions.length, 17, 'full schema should have 17 superadmin actions');
+
+    // Full schema includes clubs.* and admin.*
+    const names = fullData.actions.map(a => a.action);
+    assert.ok(names.some(n => n.startsWith('clubs.')), 'full schema should include clubs.*');
+    assert.ok(names.some(n => n.startsWith('admin.')), 'full schema should include admin.*');
 
     // Full schema still sorted
-    const names = fullData.actions.map(a => a.action);
     assert.deepEqual(names, [...names].sort());
   });
 

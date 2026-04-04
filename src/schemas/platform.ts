@@ -23,7 +23,6 @@ const quotasStatus: ActionDefinition = {
   description: 'Get quota usage for the current member across accessible clubs.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: false,
 
   wire: {
     input: z.object({}),
@@ -56,7 +55,6 @@ const clubsList: ActionDefinition = {
   description: 'List all clubs (superadmin only).',
   auth: 'superadmin',
   safety: 'read_only',
-  aiExposed: false,
 
   wire: {
     input: z.object({
@@ -107,7 +105,6 @@ const clubsCreate: ActionDefinition = {
   description: 'Create a new club (superadmin only).',
   auth: 'superadmin',
   safety: 'mutating',
-  aiExposed: false,
 
   requiredCapability: 'createClub',
 
@@ -171,7 +168,6 @@ const clubsArchive: ActionDefinition = {
   description: 'Archive a club (superadmin only).',
   auth: 'superadmin',
   safety: 'mutating',
-  aiExposed: false,
 
   requiredCapability: 'archiveClub',
 
@@ -217,7 +213,6 @@ const clubsAssignOwner: ActionDefinition = {
   description: 'Assign a new owner to a club (superadmin only).',
   auth: 'superadmin',
   safety: 'mutating',
-  aiExposed: false,
 
   requiredCapability: 'assignClubOwner',
 
@@ -266,7 +261,6 @@ const tokensList: ActionDefinition = {
   description: 'List bearer tokens for the current member.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: false,
 
   wire: {
     input: z.object({}),
@@ -300,7 +294,6 @@ const tokensCreate: ActionDefinition = {
   description: 'Create a new bearer token.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: false,
 
   wire: {
     input: z.object({
@@ -341,7 +334,6 @@ const tokensRevoke: ActionDefinition = {
   description: 'Revoke a bearer token.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: false,
 
   wire: {
     input: z.object({

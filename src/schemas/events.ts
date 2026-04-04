@@ -36,7 +36,6 @@ const eventsCreate: ActionDefinition = {
   description: 'Create a new event.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: true,
   authorizationNote: 'Requires club membership. Subject to daily quota.',
 
   wire: {
@@ -105,7 +104,6 @@ const eventsList: ActionDefinition = {
   description: 'List upcoming events.',
   auth: 'member',
   safety: 'read_only',
-  aiExposed: true,
 
   wire: {
     input: z.object({
@@ -162,7 +160,6 @@ const eventsRsvp: ActionDefinition = {
   description: 'RSVP to an event.',
   auth: 'member',
   safety: 'mutating',
-  aiExposed: true,
 
   wire: {
     input: z.object({

@@ -88,8 +88,8 @@ describe('messages', () => {
     const threadId = sentMessage.threadId as string;
     const messageId = sentMessage.messageId as string;
 
-    const transcript = await h.apiOk(alice.token, 'messages.read', { threadId });
-    const data = transcript.data as Record<string, unknown>;
+    const readResult = await h.apiOk(alice.token, 'messages.read', { threadId });
+    const data = readResult.data as Record<string, unknown>;
 
     const thread = data.thread as Record<string, unknown>;
     assert.ok(thread, 'messages.read should return a thread summary');
@@ -101,7 +101,7 @@ describe('messages', () => {
     assert.ok(Array.isArray(messages), 'messages should be an array');
     assert.ok(messages.length >= 1, 'at least one message should be in the thread');
     const msg = messages.find((m) => m.messageId === messageId);
-    assert.ok(msg, 'the sent message should appear in the transcript');
+    assert.ok(msg, 'the sent message should appear in the thread');
     assert.equal(msg.senderMemberId, alice.id);
     assert.equal(msg.messageText, 'First message in thread.');
   });
@@ -177,8 +177,8 @@ describe('messages', () => {
     assert.equal(msg2.senderMemberId, owner.id);
 
     // Both messages visible in thread
-    const transcript = await h.apiOk(alice.token, 'messages.read', { threadId });
-    const messages = (transcript.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    const readResult = await h.apiOk(alice.token, 'messages.read', { threadId });
+    const messages = (readResult.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
     assert.ok(messages.length >= 2, 'thread should have at least two messages');
     const texts = messages.map((m) => m.messageText);
     assert.ok(texts.includes('Hi owner, question about the club!'));
@@ -212,8 +212,8 @@ describe('messages', () => {
     assert.equal(((r3.data as Record<string, unknown>).message as Record<string, unknown>).threadId, threadId);
 
     // Read full thread
-    const transcript = await h.apiOk(alice.token, 'messages.read', { threadId });
-    const messages = (transcript.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    const readResult = await h.apiOk(alice.token, 'messages.read', { threadId });
+    const messages = (readResult.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
     assert.equal(messages.length, 3, 'thread should have exactly 3 messages');
     assert.deepEqual(
       messages.map((m) => m.messageText),

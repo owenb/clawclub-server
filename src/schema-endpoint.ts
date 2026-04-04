@@ -1,9 +1,9 @@
 /**
  * GET /api/schema — self-describing API schema endpoint.
  *
- * Serves the public contract for all actions from the registry.
- * Default (unauthenticated): only aiExposed actions.
- * With superadmin auth + ?full=1: all actions.
+ * Serves the full auto-generated contract for actions from the registry.
+ * Default (unauthenticated): all non-superadmin actions.
+ * With superadmin auth + ?full=1: all actions including superadmin.
  *
  * Output is deterministic: actions sorted by name, stable JSON key order.
  */
@@ -18,7 +18,6 @@ type SchemaAction = {
   description: string;
   auth: string;
   safety: string;
-  aiExposed: boolean;
   authorizationNote?: string;
   input: unknown;
   output: unknown;
@@ -42,15 +41,36 @@ function sortKeysDeep(value: unknown): unknown {
   return value;
 }
 
-let cachedPublicSchema: unknown = null;
-let cachedFullSchema: unknown = null;
+const schemaCache = new Map<string, unknown>();
 
-function buildSchema(aiExposedOnly: boolean): unknown {
+function relaxInputSchema(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(relaxInputSchema);
+  }
+
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const next: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(obj)) {
+      if (key === 'additionalProperties' && child === false) {
+        continue;
+      }
+      next[key] = relaxInputSchema(child);
+    }
+    return next;
+  }
+
+  return value;
+}
+
+function buildSchema(includeSuperadmin: boolean): unknown {
   const registry = getRegistry();
   const actions: SchemaAction[] = [];
 
   for (const [, def] of registry) {
-    if (aiExposedOnly && !def.aiExposed) continue;
+    if (!includeSuperadmin && def.auth === 'superadmin') continue;
+
+    const inputSchema = relaxInputSchema(zodToJsonSchema(def.wire.input, { target: 'openApi3' }));
 
     const entry: SchemaAction = {
       action: def.action,
@@ -58,8 +78,7 @@ function buildSchema(aiExposedOnly: boolean): unknown {
       description: def.description,
       auth: def.auth,
       safety: def.safety,
-      aiExposed: def.aiExposed,
-      input: zodToJsonSchema(def.wire.input, { target: 'openApi3' }),
+      input: inputSchema,
       output: zodToJsonSchema(def.wire.output, { target: 'openApi3' }),
     };
 
@@ -90,17 +109,15 @@ function buildSchema(aiExposedOnly: boolean): unknown {
  * Caches after first build (schemas don't change at runtime).
  */
 export function getSchemaPayload(full: boolean): unknown {
-  if (full) {
-    if (!cachedFullSchema) {
-      cachedFullSchema = buildSchema(false);
-    }
-    return cachedFullSchema;
+  const cacheKey = full ? 'full' : 'public';
+  const cached = schemaCache.get(cacheKey);
+  if (cached) {
+    return cached;
   }
 
-  if (!cachedPublicSchema) {
-    cachedPublicSchema = buildSchema(true);
-  }
-  return cachedPublicSchema;
+  const built = buildSchema(full);
+  schemaCache.set(cacheKey, built);
+  return built;
 }
 
 /**
