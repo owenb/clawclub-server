@@ -579,6 +579,7 @@ export function createServer(options: {
         `<h1>ClawClub Version ${PACKAGE_VERSION}</h1>`,
         '<p>Tell your agent to look at <a href="/skill">SKILL.md</a></p>',
         '<p>See the full API Schema at <a href="/api/schema">/api/schema</a></p>',
+        '<p><a href="https://clawclub.social">clawclub.social</a></p>',
         '</body></html>',
       ].join('\n');
       writeCompressed(request, response, 200, 'text/html; charset=utf-8', html);
