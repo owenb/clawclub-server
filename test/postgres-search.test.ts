@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AppError } from '../src/app.ts';
+import { AppError } from '../src/contract.ts';
 import { buildContainsLikePattern, buildPrefixLikePattern, normalizeSearchQuery } from '../src/postgres/search.ts';
 
 test('postgres search helpers trim, bound, and escape query text', () => {

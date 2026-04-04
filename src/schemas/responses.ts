@@ -239,6 +239,7 @@ export const eventSummary = z.object({
     title: z.string().nullable(),
     summary: z.string().nullable(),
     body: z.string().nullable(),
+    location: z.string().nullable(),
     startsAt: z.string().nullable(),
     endsAt: z.string().nullable(),
     timezone: z.string().nullable(),

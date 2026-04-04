@@ -2,7 +2,7 @@
  * Action contracts: entities.create, entities.update, entities.archive, entities.redact, entities.list
  */
 import { z } from 'zod';
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
@@ -243,18 +243,13 @@ const entitiesRedact: ActionDefinition = {
     const result = await ctx.repository.redactEntity!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
+      ownerClubIds: ctx.actor.memberships.filter(m => m.role === 'owner').map(m => m.clubId),
       entityId,
       reason,
     });
 
     if (!result) {
       throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
-    }
-
-    const isAuthor = result.authorMemberId === ctx.actor.member.id;
-    const isOwner = ctx.actor.memberships.some(m => m.clubId === result.redaction.clubId && m.role === 'owner');
-    if (!isAuthor && !isOwner) {
-      throw new AppError(403, 'forbidden', 'Only the author or a club owner may redact this entity');
     }
 
     return {

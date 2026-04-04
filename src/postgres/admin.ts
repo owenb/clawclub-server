@@ -3,8 +3,8 @@ import type {
   AdminContentSummary,
   EntityKind,
   Repository,
-} from '../app.ts';
-import type { ApplyActorContext, WithActorContext } from './shared.ts';
+} from '../contract.ts';
+import type { ApplyActorContext, WithActorContext } from './helpers.ts';
 
 export function buildAdminRepository({
   pool,

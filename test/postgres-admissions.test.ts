@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { AppError } from '../src/app.ts';
-import { buildAdmissionsRepository } from '../src/postgres/admission-queries.ts';
+import { AppError } from '../src/contract.ts';
+import { buildAdmissionWorkflowRepository } from '../src/postgres/admissions.ts';
 
 function buildRepository(client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>; release: () => void }) {
-  return buildAdmissionsRepository({
+  return buildAdmissionWorkflowRepository({
     pool: {
       connect: async () => client,
       query: async (sql: string, params?: unknown[]) => client.query(sql, params),

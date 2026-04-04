@@ -2,7 +2,7 @@
  * Action contracts: events.create, events.list, events.rsvp
  */
 import { z } from 'zod';
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
@@ -18,10 +18,11 @@ import { registerActions, type ActionDefinition, type HandlerContext, type Actio
 
 type EventCreateInput = {
   clubId: string;
-  title: string | null;
-  summary: string | null;
+  title: string;
+  summary: string;
+  location: string;
   body: string | null;
-  startsAt: string | null;
+  startsAt: string;
   endsAt: string | null;
   timezone: string | null;
   recurrenceRule: string | null;
@@ -41,10 +42,11 @@ const eventsCreate: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe('Club to create event in'),
-      title: wireOptionalString.describe('Event title'),
-      summary: wireOptionalString.describe('Event summary'),
-      body: wireOptionalString.describe('Event description'),
-      startsAt: wireOptionalString.describe('ISO 8601 start time'),
+      title: wireRequiredString.describe('Event title'),
+      summary: wireRequiredString.describe('Event summary'),
+      location: wireRequiredString.describe('Event location (e.g. venue name, address, "Google Meet", "Online")'),
+      body: wireOptionalString.describe('Extended description (optional)'),
+      startsAt: wireRequiredString.describe('ISO 8601 start time'),
       endsAt: wireOptionalString.describe('ISO 8601 end time'),
       timezone: wireOptionalString.describe('IANA timezone (e.g. Europe/London)'),
       recurrenceRule: wireOptionalString.describe('Recurrence rule'),
@@ -58,10 +60,11 @@ const eventsCreate: ActionDefinition = {
   parse: {
     input: z.object({
       clubId: parseRequiredString,
-      title: parseTrimmedNullableString.default(null),
-      summary: parseTrimmedNullableString.default(null),
+      title: parseRequiredString,
+      summary: parseRequiredString,
+      location: parseRequiredString,
       body: parseTrimmedNullableString.default(null),
-      startsAt: parseTrimmedNullableString.default(null),
+      startsAt: parseRequiredString,
       endsAt: parseTrimmedNullableString.default(null),
       timezone: parseTrimmedNullableString.default(null),
       recurrenceRule: parseTrimmedNullableString.default(null),
@@ -76,6 +79,20 @@ const eventsCreate: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { clubId, ...fields } = input as EventCreateInput;
     const club = ctx.requireAccessibleClub(clubId);
+
+    const start = new Date(fields.startsAt);
+    if (isNaN(start.getTime())) {
+      throw new AppError(400, 'invalid_input', 'startsAt must be a valid ISO 8601 timestamp');
+    }
+    if (fields.endsAt) {
+      const end = new Date(fields.endsAt);
+      if (isNaN(end.getTime())) {
+        throw new AppError(400, 'invalid_input', 'endsAt must be a valid ISO 8601 timestamp');
+      }
+      if (end <= start) {
+        throw new AppError(400, 'invalid_input', 'endsAt must be after startsAt');
+      }
+    }
 
     const event = await ctx.repository.createEvent({
       authorMemberId: ctx.actor.member.id,

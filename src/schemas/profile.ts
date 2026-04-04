@@ -2,7 +2,7 @@
  * Action contracts: profile.get, profile.update
  */
 import { z } from 'zod';
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, wirePatchString, parsePatchString,

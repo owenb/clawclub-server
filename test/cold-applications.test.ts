@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDispatcher } from '../src/app-dispatch.ts';
+import { buildDispatcher } from '../src/dispatch.ts';
 import { makeRepository } from './fixtures.ts';
 
 const challengeStub = {

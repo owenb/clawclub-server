@@ -115,6 +115,13 @@ export const wireRequiredString = z.string()
 /** Parse: required non-empty string, trimmed */
 export const parseRequiredString = z.string().trim().min(1);
 
+/** Wire: message text with a bounded max length */
+export const wireMessageText = z.string().max(5000)
+  .describe('Required, max 5000 characters. Server trims whitespace; whitespace-only strings are rejected.');
+
+/** Parse: message text, trimmed, max 5000 characters */
+export const parseMessageText = z.string().trim().min(1).max(5000);
+
 /** Wire: string capped at 500 characters. Server trims whitespace. */
 export const wireBoundedString = z.string().max(500)
   .describe('Required, max 500 characters. Server trims whitespace; whitespace-only strings are rejected.');

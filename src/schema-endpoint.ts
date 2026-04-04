@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { getRegistry } from './schemas/registry.ts';
-import type { Repository } from './app-contract.ts';
+import type { Repository } from './contract.ts';
 
 type SchemaAction = {
   action: string;

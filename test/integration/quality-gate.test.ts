@@ -108,32 +108,47 @@ describe('quality gate: entities.update', () => {
 // ── events.create ───────────────────────────────────────────────────────────
 
 describe('quality gate: events.create', () => {
-  it('rejects an event with no start time', async () => {
+  it('rejects an event missing required fields (no startsAt)', async () => {
     const owner = await h.seedOwner('qg-event-1', 'QG Event Club 1');
     const err = await h.apiErr(owner.token, 'events.create', {
       clubId: owner.club.id,
       title: 'Meetup',
       summary: 'Come hang out.',
-    }, 'quality_check_failed');
-    assert.equal(err.status, 422);
+      location: 'Online',
+    }, 'invalid_input');
+    assert.equal(err.status, 400);
   });
 
-  it('rejects an event with no description', async () => {
+  it('rejects an event missing required fields (no summary)', async () => {
     const owner = await h.seedOwner('qg-event-2', 'QG Event Club 2');
     const err = await h.apiErr(owner.token, 'events.create', {
       clubId: owner.club.id,
       title: 'Meetup',
+      location: 'Online',
+      startsAt: '2026-05-15T18:00:00Z',
+    }, 'invalid_input');
+    assert.equal(err.status, 400);
+  });
+
+  it('rejects a generic filler summary via quality gate', async () => {
+    const owner = await h.seedOwner('qg-event-2b', 'QG Event Club 2b');
+    const err = await h.apiErr(owner.token, 'events.create', {
+      clubId: owner.club.id,
+      title: 'Meetup',
+      summary: 'Come hang out.',
+      location: 'Online',
       startsAt: '2026-05-15T18:00:00Z',
     }, 'quality_check_failed');
     assert.equal(err.status, 422);
   });
 
-  it('passes an event with title, start time, and description', async () => {
+  it('passes an event with title, start time, location, and summary', async () => {
     const owner = await h.seedOwner('qg-event-3', 'QG Event Club 3');
     const result = await h.apiOk(owner.token, 'events.create', {
       clubId: owner.club.id,
       title: 'Monthly founders breakfast — May edition',
       summary: 'Casual breakfast at The Table in Shoreditch. We will go around the table and each share one thing we are stuck on and one thing that is working. Bring your own coffee order, food is covered.',
+      location: 'The Table, 83 Southwark Street, London SE1',
       startsAt: '2026-05-15T08:30:00Z',
       endsAt: '2026-05-15T10:00:00Z',
       timezone: 'Europe/London',

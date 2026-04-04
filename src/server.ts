@@ -2,8 +2,8 @@ import http from 'node:http';
 import type net from 'node:net';
 import { URL } from 'node:url';
 import { Pool } from 'pg';
-import { AppError, type Repository } from './app.ts';
-import { buildDispatcher } from './app-dispatch.ts';
+import { AppError, type Repository } from './contract.ts';
+import { buildDispatcher } from './dispatch.ts';
 import { getAction } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
@@ -166,7 +166,7 @@ function normalizeUpdatesAfter(value: string | null): number | 'latest' | null {
 
 function writeJson(response: http.ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, {
-    'content-type': 'admission/json; charset=utf-8',
+    'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store, no-cache, max-age=0',
     pragma: 'no-cache',
     'x-content-type-options': 'nosniff',
@@ -277,7 +277,15 @@ export function createServer(options: {
 } = {}) {
   const trustProxy = options.trustProxy ?? (process.env.TRUST_PROXY === '1');
   const databaseUrl = process.env.DATABASE_URL;
-  const pool = options.repository ? null : new Pool({ connectionString: databaseUrl ?? (() => { throw new Error('DATABASE_URL must be set'); })() });
+  const pool = options.repository ? null : new Pool({
+    connectionString: databaseUrl ?? (() => { throw new Error('DATABASE_URL must be set'); })(),
+    max: Number(process.env.DB_POOL_MAX ?? 20),
+    idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_TIMEOUT_MS ?? 30_000),
+    connectionTimeoutMillis: Number(process.env.DB_POOL_CONNECTION_TIMEOUT_MS ?? 5_000),
+  });
+  if (pool) {
+    pool.on('error', (err) => { console.error('Unexpected database pool error:', err); });
+  }
   const repository = options.repository ?? createPostgresRepository({ pool: pool! });
   const updatesNotifier = options.updatesNotifier
     ?? (databaseUrl ? createPostgresMemberUpdateNotifier(databaseUrl) : createTimeoutOnlyNotifier());

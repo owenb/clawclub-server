@@ -220,6 +220,57 @@ describe('messages', () => {
       ['Message 1', 'Message 2', 'Message 3'],
     );
   });
+
+  it('self-message returns 400', async () => {
+    const owner = await h.seedOwner('msg-self', 'MsgSelf');
+    const err = await h.apiErr(owner.token, 'messages.send', {
+      recipientMemberId: owner.id,
+      messageText: 'Hello me',
+    });
+    assert.equal(err.status, 400);
+  });
+
+  it('omitting clubId with multiple shared clubs returns 400', async () => {
+    // Create first club with owner
+    const owner = await h.seedOwner('msg-multi-1', 'MsgMulti1');
+    // Create second club with the same owner
+    const club2 = await h.seedClub('msg-multi-2', 'MsgMulti2', owner.id);
+    // Create alice as a member and add her to both clubs
+    const alice = await h.seedClubMember(owner.club.id, 'Alice Multi', 'alice-multi-club', { sponsorId: owner.id });
+    await h.seedMembership(club2.id, alice.id, { sponsorId: owner.id });
+
+    const err = await h.apiErr(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Which club?',
+    });
+    assert.equal(err.status, 400);
+    assert.match(err.message, /clubId/);
+  });
+
+  it('explicit clubId with multiple shared clubs succeeds', async () => {
+    const owner = await h.seedOwner('msg-multi-ok-1', 'MsgMultiOk1');
+    const club2 = await h.seedClub('msg-multi-ok-2', 'MsgMultiOk2', owner.id);
+    const alice = await h.seedClubMember(owner.club.id, 'Alice MultiOk', 'alice-multi-ok', { sponsorId: owner.id });
+    await h.seedMembership(club2.id, alice.id, { sponsorId: owner.id });
+
+    const result = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      clubId: owner.club.id,
+      messageText: 'Explicit club',
+    });
+    const message = (result.data as Record<string, unknown>).message as Record<string, unknown>;
+    assert.equal(message.clubId, owner.club.id);
+  });
+
+  it('oversized messageText returns 400', async () => {
+    const owner = await h.seedOwner('msg-long', 'MsgLong');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice Long', 'alice-long', { sponsorId: owner.id });
+    const err = await h.apiErr(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'x'.repeat(5001),
+    });
+    assert.equal(err.status, 400);
+  });
 });
 
 // ── Updates ───────────────────────────────────────────────────────────────────

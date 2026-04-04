@@ -5,7 +5,7 @@
  * They use handleCold instead of handle.
  */
 import { z } from 'zod';
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 import {
   wireBoundedString, parseBoundedString,
   wireFullName, parseFullName,

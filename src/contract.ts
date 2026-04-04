@@ -1,3 +1,14 @@
+export class AppError extends Error {
+  statusCode: number;
+  code: string;
+
+  constructor(statusCode: number, code: string, message: string) {
+    super(message);
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
 export type MembershipState = 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected';
 
 export type MembershipSummary = {
@@ -419,6 +430,7 @@ export type EventSummary = {
     title: string | null;
     summary: string | null;
     body: string | null;
+    location: string | null;
     startsAt: string | null;
     endsAt: string | null;
     timezone: string | null;
@@ -448,10 +460,11 @@ export type EventSummary = {
 export type CreateEventInput = {
   authorMemberId: string;
   clubId: string;
-  title: string | null;
-  summary: string | null;
+  title: string;
+  summary: string;
+  location: string;
   body: string | null;
-  startsAt: string | null;
+  startsAt: string;
   endsAt: string | null;
   timezone: string | null;
   recurrenceRule: string | null;
@@ -806,8 +819,8 @@ export type Repository = {
   issueAdmissionAccess?(input: IssueAdmissionAccessInput): Promise<IssueAdmissionAccessResult | null>;
   getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;
 
-  redactMessage?(input: { actorMemberId: string; accessibleClubIds: string[]; messageId: string; reason?: string | null; skipNotification?: boolean }): Promise<{ redaction: RedactionResult; senderMemberId: string | null } | null>;
-  redactEntity?(input: { actorMemberId: string; accessibleClubIds: string[]; entityId: string; reason?: string | null; skipNotification?: boolean }): Promise<{ redaction: RedactionResult; authorMemberId: string } | null>;
+  redactMessage?(input: { actorMemberId: string; accessibleClubIds: string[]; ownerClubIds: string[]; messageId: string; reason?: string | null; skipNotification?: boolean; skipAuthCheck?: boolean }): Promise<{ redaction: RedactionResult; senderMemberId: string | null } | null>;
+  redactEntity?(input: { actorMemberId: string; accessibleClubIds: string[]; ownerClubIds: string[]; entityId: string; reason?: string | null; skipNotification?: boolean; skipAuthCheck?: boolean }): Promise<{ redaction: RedactionResult; authorMemberId: string } | null>;
 
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
   adminListMembers?(input: { actorMemberId: string; limit: number; offset: number }): Promise<AdminMemberSummary[]>;

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDispatcher } from '../src/app-dispatch.ts';
-import type { AdmissionSummary } from '../src/app-contract.ts';
+import { buildDispatcher } from '../src/dispatch.ts';
+import type { AdmissionSummary } from '../src/contract.ts';
 import { makeAuthResult, makeRepository } from './fixtures.ts';
 
 const sampleAdmission: AdmissionSummary = {

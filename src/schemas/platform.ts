@@ -2,7 +2,7 @@
  * Action contracts: quotas.status, clubs.list, clubs.create, clubs.archive, clubs.assignOwner, tokens.list, tokens.create, tokens.revoke
  */
 import { z } from 'zod';
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,

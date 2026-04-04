@@ -27,8 +27,8 @@ import {
   type Repository,
   type UpdateReceipt,
   type UpdateOwnProfileInput,
-} from '../src/app.ts';
-import { buildDispatcher } from '../src/app-dispatch.ts';
+} from '../src/contract.ts';
+import { buildDispatcher } from '../src/dispatch.ts';
 
 function makeActor(): ActorContext {
   return {
@@ -1942,6 +1942,8 @@ test('events.create writes the smallest sane event payload', async () => {
     payload: {
       clubId: 'club-2',
       title: 'Supper club',
+      summary: 'Monthly supper club in Hackney',
+      location: 'Hackney, London',
       startsAt: '2026-03-20T19:00:00Z',
       endsAt: '2026-03-20T21:00:00Z',
       timezone: 'UTC',
@@ -1954,7 +1956,8 @@ test('events.create writes the smallest sane event payload', async () => {
     authorMemberId: 'member-1',
     clubId: 'club-2',
     title: 'Supper club',
-    summary: null,
+    summary: 'Monthly supper club in Hackney',
+    location: 'Hackney, London',
     body: null,
     startsAt: '2026-03-20T19:00:00Z',
     endsAt: '2026-03-20T21:00:00Z',

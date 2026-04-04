@@ -5,10 +5,10 @@ import type {
   CreatedBearerToken,
   Repository,
   RevokeBearerTokenInput,
-} from '../app.ts';
+} from '../contract.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import { buildBearerToken } from '../token.ts';
-import type { WithActorContext } from './shared.ts';
+import type { WithActorContext } from './helpers.ts';
 
 type BearerTokenRow = {
   token_id: string;

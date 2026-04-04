@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, DEFAULT_SERVER_LIMITS } from '../src/server.ts';
-import type { Repository } from '../src/app.ts';
+import type { Repository } from '../src/contract.ts';
 import { makeAuthResult, makePendingUpdate, makeRepository, makeUpdatesNotifier } from './fixtures.ts';
 
 test('createServer applies hardened HTTP server limits', async () => {

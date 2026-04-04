@@ -130,7 +130,7 @@ Public action families:
 
 ### `clubId` behavior
 
-When omitted on read actions, the server searches all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). Write actions (`entities.create`, `events.create`) always require `clubId`. `messages.send` accepts optional `clubId` to disambiguate.
+When omitted on read actions, the server searches all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). Write actions (`entities.create`, `events.create`) always require `clubId`. `messages.send` accepts optional `clubId` — if sender and recipient share exactly one club, the server infers it; if they share multiple clubs, `clubId` is required (400 error otherwise).
 
 ### `body` vs `content`
 
@@ -266,7 +266,7 @@ If the user is vague, ask one or two focused questions before posting.
 Treat `events.create` as publish-ready, not a draft save. Ask for: what it is called, when it starts, enough description for someone to decide whether to attend, and timezone if the time could be ambiguous.
 
 ### DM a member
-Use club context. Keep messages clear and human. If the recipient or club context is ambiguous, clarify before sending. Do not reveal private memberships.
+Use club context. Keep messages clear and human. Do not reveal private memberships. Never send a message to the user themselves. If the sender and recipient share multiple clubs, ask which club context to use before sending — the server requires an explicit `clubId` when multiple clubs are shared.
 
 ### Vouch for a member
 Use `vouches.create` for endorsing someone **already in the same club**. Push back on vague reasons. A good vouch includes:

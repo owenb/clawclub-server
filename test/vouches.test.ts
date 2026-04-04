@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDispatcher } from '../src/app-dispatch.ts';
-import { AppError } from '../src/app.ts';
-import type { MembershipVouchSummary, Repository } from '../src/app-contract.ts';
+import { buildDispatcher } from '../src/dispatch.ts';
+import { AppError } from '../src/contract.ts';
+import type { MembershipVouchSummary, Repository } from '../src/contract.ts';
 import { makeAuthResult, makeRepository } from './fixtures.ts';
 
 const sampleVouch: MembershipVouchSummary = {

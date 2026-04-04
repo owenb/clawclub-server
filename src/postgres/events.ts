@@ -1,17 +1,18 @@
 import type { Pool } from 'pg';
 import { enforceQuota } from './quotas.ts';
-import type {
-  CreateEventInput,
-  EventRsvpState,
-  EventSummary,
-  ListEventsInput,
-  Repository,
-  RsvpEventInput,
-} from '../app.ts';
+import {
+  AppError,
+  type CreateEventInput,
+  type EventRsvpState,
+  type EventSummary,
+  type ListEventsInput,
+  type Repository,
+  type RsvpEventInput,
+} from '../contract.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import { buildContainsLikePattern, buildPrefixLikePattern, normalizeSearchQuery } from './search.ts';
 import { appendEntityVersionUpdates } from './updates.ts';
-import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
+import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
 import { buildEntityUpdatePayload } from './entities.ts';
 
 type EventRsvpAttendeeRow = {
@@ -36,6 +37,7 @@ type EventRow = {
   title: string | null;
   summary: string | null;
   body: string | null;
+  location: string | null;
   starts_at: string | null;
   ends_at: string | null;
   timezone: string | null;
@@ -70,6 +72,7 @@ function mapEventRow(row: EventRow): EventSummary {
       title: row.title,
       summary: row.summary,
       body: row.body,
+      location: row.location,
       startsAt: row.starts_at,
       endsAt: row.ends_at,
       timezone: row.timezone,
@@ -119,6 +122,7 @@ async function readEventSummaries(client: DbClient, actorMemberId: string, entit
           cev.title,
           cev.summary,
           cev.body,
+          cev.location,
           cev.starts_at::text as starts_at,
           cev.ends_at::text as ends_at,
           cev.timezone,
@@ -220,6 +224,7 @@ async function readEventSummary(client: DbClient, actorMemberId: string, entityI
           cev.title,
           cev.summary,
           cev.body,
+          cev.location,
           cev.starts_at::text as starts_at,
           cev.ends_at::text as ends_at,
           cev.timezone,
@@ -329,10 +334,10 @@ export function buildEventsRepository({
         const versionResult = await client.query<{ id: string }>(
           `
             insert into app.entity_versions (
-              entity_id, version_no, state, title, summary, body, starts_at, ends_at, timezone,
+              entity_id, version_no, state, title, summary, body, location, starts_at, ends_at, timezone,
               recurrence_rule, capacity, expires_at, content, created_by_member_id
             )
-            values ($1, 1, 'published', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
+            values ($1, 1, 'published', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)
             returning id
           `,
           [
@@ -340,6 +345,7 @@ export function buildEventsRepository({
             input.title,
             input.summary,
             input.body,
+            input.location,
             input.startsAt,
             input.endsAt,
             input.timezone,
@@ -371,6 +377,7 @@ export function buildEventsRepository({
             title: event.version.title,
             summary: event.version.summary,
             body: event.version.body,
+            location: event.version.location,
             effectiveAt: event.version.effectiveAt,
             expiresAt: event.version.expiresAt,
             content: event.version.content,
@@ -383,8 +390,11 @@ export function buildEventsRepository({
         });
         await client.query('commit');
         return event;
-      } catch (error) {
+      } catch (error: any) {
         await client.query('rollback');
+        if (error?.code === '23514' && error?.constraint === 'entity_versions_check') {
+          throw new AppError(400, 'invalid_input', 'endsAt must be after startsAt');
+        }
         throw error;
       } finally {
         client.release();

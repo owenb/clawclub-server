@@ -1,17 +1,18 @@
 import type { Pool } from 'pg';
 import { enforceQuota } from './quotas.ts';
-import type {
-  DirectMessageInboxSummary,
-  DirectMessageSummary,
-  DirectMessageThreadSummary,
-  DirectMessageEntry,
-  DirectMessageUpdateReceipt,
-  Repository,
-  SendDirectMessageInput,
-} from '../app.ts';
+import {
+  AppError,
+  type DirectMessageInboxSummary,
+  type DirectMessageSummary,
+  type DirectMessageThreadSummary,
+  type DirectMessageEntry,
+  type DirectMessageUpdateReceipt,
+  type Repository,
+  type SendDirectMessageInput,
+} from '../contract.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import { appendDirectMessageUpdate } from './updates.ts';
-import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
+import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
 
 type DirectMessageRow = {
   thread_id: string;
@@ -395,16 +396,21 @@ export function buildMessagesRepository({
             from shared_scope
             where ($4::app.short_id is null or club_id = $4)
             order by club_id asc
-            limit 1
           `,
           [input.actorMemberId, input.accessibleClubIds, input.recipientMemberId, input.clubId ?? null],
         );
 
-        const clubId = scopeResult.rows[0]?.club_id;
-        if (!clubId) {
+        if (scopeResult.rows.length === 0) {
           await client.query('rollback');
           return null;
         }
+
+        if (!input.clubId && scopeResult.rows.length > 1) {
+          await client.query('rollback');
+          throw new AppError(400, 'invalid_input', 'Sender and recipient share multiple clubs. Provide clubId to specify which club context to use.');
+        }
+
+        const clubId = scopeResult.rows[0]!.club_id;
 
         await enforceQuota(client, input.actorMemberId, clubId, 'messages.send');
 

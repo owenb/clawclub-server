@@ -144,6 +144,32 @@ describe('messages.redact', () => {
 
     assert.equal(redaction(first).redactionId, redaction(second).redactionId);
   });
+
+  it('forbidden messages.redact does not persist redaction', async () => {
+    const owner = await h.seedOwner('msg-redact-no-persist', 'Msg Redact No Persist Club');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice NoPersist', 'alice-no-persist-redact', { sponsorId: owner.id });
+    const bob = await h.seedClubMember(owner.club.id, 'Bob NoPersist', 'bob-no-persist-redact', { sponsorId: owner.id });
+
+    // Alice sends a message to Bob
+    const sendResult = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'This should survive a forbidden redaction attempt',
+    });
+    const msg = (sendResult.data as Record<string, unknown>).message as Record<string, unknown>;
+    const msgId = msg.messageId as string;
+    const threadId = msg.threadId as string;
+
+    // Bob (recipient, not sender, not owner) tries to redact — should get 403
+    const err = await h.apiErr(bob.token, 'messages.redact', { messageId: msgId });
+    assert.equal(err.status, 403);
+
+    // Verify the message is still visible and not redacted
+    const thread = await h.apiOk(alice.token, 'messages.read', { threadId });
+    const messages = (thread.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    const originalMsg = messages.find((m) => m.messageId === msgId);
+    assert.ok(originalMsg, 'message should still exist');
+    assert.equal(originalMsg.messageText, 'This should survive a forbidden redaction attempt');
+  });
 });
 
 // ── Entity Redaction ───────────────────────────────────────────────────────────
@@ -220,6 +246,34 @@ describe('entities.redact', () => {
     });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
+  });
+
+  it('forbidden entities.redact does not persist redaction', async () => {
+    const owner = await h.seedOwner('entity-redact-no-persist', 'Entity Redact No Persist Club');
+    const author = await h.seedClubMember(owner.club.id, 'Author NoPersist', 'author-no-persist-entity', { sponsorId: owner.id });
+    const bystander = await h.seedClubMember(owner.club.id, 'Bystander NoPersist', 'bystander-no-persist-entity', { sponsorId: owner.id });
+
+    const [entity] = await h.sql<{ id: string }>(
+      `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
+      [owner.club.id, author.id],
+    );
+    await h.sql(
+      `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
+       values ($1, 1, 'published', 'Survives forbidden redaction', 'This content should persist', $2)`,
+      [entity!.id, author.id],
+    );
+
+    // Bystander (not author, not owner) tries to redact — should get 403
+    const err = await h.apiErr(bystander.token, 'entities.redact', {
+      entityId: entity!.id,
+    });
+    assert.equal(err.status, 403);
+
+    // Verify the entity is still visible and not redacted
+    const list = await h.apiOk(author.token, 'entities.list', { clubId: owner.club.id });
+    const items = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    const found = items.find((e) => (e as Record<string, unknown>).entityId === entity!.id);
+    assert.ok(found, 'entity should still appear in listings after forbidden redaction attempt');
   });
 
   it('redacted entity filtered from updates feed', async () => {

@@ -5,7 +5,7 @@
  * admin.diagnostics.health
  */
 import { z } from 'zod';
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
@@ -309,9 +309,11 @@ const adminContentRedact: ActionDefinition = {
     const result = await ctx.repository.redactEntity!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: [],
+      ownerClubIds: [],
       entityId,
       reason,
       skipNotification: true,
+      skipAuthCheck: true,
     });
 
     if (!result) {
@@ -459,9 +461,11 @@ const adminMessagesRedact: ActionDefinition = {
     const result = await ctx.repository.redactMessage!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: [],
+      ownerClubIds: [],
       messageId,
       reason,
       skipNotification: true,
+      skipAuthCheck: true,
     });
 
     if (!result) {

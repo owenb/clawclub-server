@@ -5,8 +5,8 @@ import type {
   CreateClubInput,
   ClubSummary,
   Repository,
-} from '../app.ts';
-import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
+} from '../contract.ts';
+import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
 
 type ClubRow = {
   club_id: string;

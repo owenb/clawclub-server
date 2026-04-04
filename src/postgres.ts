@@ -1,9 +1,10 @@
 import { Pool, type PoolClient } from 'pg';
-import { type ActorContext, type AuthResult, type MembershipSummary, type Repository } from './app.ts';
+import { type ActorContext, type AuthResult, type MembershipSummary, type Repository } from './contract.ts';
 import { hashTokenSecret, parseBearerToken } from './token.ts';
 import { buildAdminRepository } from './postgres/admin.ts';
-import { buildAdmissionsRepository } from './postgres/admissions.ts';
-import { buildContentRepository } from './postgres/content.ts';
+import { buildMembershipRepository } from './postgres/membership.ts';
+import { buildEntitiesRepository } from './postgres/entities.ts';
+import { buildEventsRepository } from './postgres/events.ts';
 import { buildMessagesRepository } from './postgres/messages.ts';
 import { buildProfileRepository } from './postgres/profile.ts';
 import { buildPlatformRepository } from './postgres/platform.ts';
@@ -11,7 +12,7 @@ import { buildTokenRepository } from './postgres/tokens.ts';
 import { buildQuotaRepository } from './postgres/quotas.ts';
 import { buildRedactionsRepository } from './postgres/redactions.ts';
 import { buildUpdatesRepository } from './postgres/updates.ts';
-import type { DbClient } from './postgres/shared.ts';
+import type { DbClient } from './postgres/helpers.ts';
 
 type ActorRow = {
   member_id: string;
@@ -198,9 +199,10 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
       };
     },
 
-    ...buildAdmissionsRepository({ pool, applyActorContext, withActorContext }),
+    ...buildMembershipRepository({ pool, applyActorContext, withActorContext }),
     ...buildProfileRepository({ pool, applyActorContext, withActorContext }),
-    ...buildContentRepository({ pool, applyActorContext, withActorContext }),
+    ...buildEntitiesRepository({ pool, applyActorContext, withActorContext }),
+    ...buildEventsRepository({ pool, applyActorContext, withActorContext }),
     ...buildTokenRepository({ pool, withActorContext }),
     ...buildMessagesRepository({ pool, applyActorContext, withActorContext }),
     ...buildPlatformRepository({ pool, applyActorContext, withActorContext }),

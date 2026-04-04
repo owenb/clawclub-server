@@ -2110,8 +2110,9 @@
       "input": {
         "properties": {
           "body": {
-            "$ref": "#/properties/title",
-            "description": "Event description"
+            "description": "Extended description (optional)",
+            "nullable": true,
+            "type": "string"
           },
           "capacity": {
             "description": "Max attendees",
@@ -2129,37 +2130,44 @@
             "type": "object"
           },
           "endsAt": {
-            "$ref": "#/properties/title",
+            "$ref": "#/properties/body",
             "description": "ISO 8601 end time"
           },
           "expiresAt": {
-            "$ref": "#/properties/title",
+            "$ref": "#/properties/body",
             "description": "ISO 8601 expiration"
           },
+          "location": {
+            "description": "Event location (e.g. venue name, address, \"Google Meet\", \"Online\")",
+            "type": "string"
+          },
           "recurrenceRule": {
-            "$ref": "#/properties/title",
+            "$ref": "#/properties/body",
             "description": "Recurrence rule"
           },
           "startsAt": {
-            "$ref": "#/properties/title",
-            "description": "ISO 8601 start time"
+            "description": "ISO 8601 start time",
+            "type": "string"
           },
           "summary": {
-            "$ref": "#/properties/title",
-            "description": "Event summary"
+            "description": "Event summary",
+            "type": "string"
           },
           "timezone": {
-            "$ref": "#/properties/title",
+            "$ref": "#/properties/body",
             "description": "IANA timezone (e.g. Europe/London)"
           },
           "title": {
             "description": "Event title",
-            "nullable": true,
             "type": "string"
           }
         },
         "required": [
-          "clubId"
+          "clubId",
+          "title",
+          "summary",
+          "location",
+          "startsAt"
         ],
         "type": "object"
       },
@@ -2317,6 +2325,10 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "location": {
+                    "nullable": true,
+                    "type": "string"
+                  },
                   "recurrenceRule": {
                     "nullable": true,
                     "type": "string"
@@ -2353,6 +2365,7 @@
                   "title",
                   "summary",
                   "body",
+                  "location",
                   "startsAt",
                   "endsAt",
                   "timezone",
@@ -2627,6 +2640,10 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "location": {
+                      "nullable": true,
+                      "type": "string"
+                    },
                     "recurrenceRule": {
                       "nullable": true,
                       "type": "string"
@@ -2663,6 +2680,7 @@
                     "title",
                     "summary",
                     "body",
+                    "location",
                     "startsAt",
                     "endsAt",
                     "timezone",
@@ -2887,6 +2905,10 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "location": {
+                    "nullable": true,
+                    "type": "string"
+                  },
                   "recurrenceRule": {
                     "nullable": true,
                     "type": "string"
@@ -2923,6 +2945,7 @@
                   "title",
                   "summary",
                   "body",
+                  "location",
                   "startsAt",
                   "endsAt",
                   "timezone",
@@ -4778,6 +4801,7 @@
           },
           "messageText": {
             "description": "Message text",
+            "maxLength": 5000,
             "type": "string"
           },
           "recipientMemberId": {
@@ -5913,6 +5937,6 @@
       "safety": "read_only"
     }
   ],
-  "schemaHash": "1a0700741efc96ee",
+  "schemaHash": "21a8ff5bd9893f40",
   "version": "1.0"
 }

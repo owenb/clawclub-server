@@ -192,9 +192,10 @@ describe('events', () => {
       clubId: owner.club.id,
       title: 'Monthly founders breakfast — May edition',
       summary: 'Casual breakfast at The Table in Shoreditch. We will go around the room and each share one thing we are stuck on and one thing working well. Bring your own coffee order, food is covered.',
+      location: 'The Table, 83 Southwark Street, London SE1',
       startsAt: '2026-05-01T18:00:00Z',
       endsAt: '2026-05-01T20:00:00Z',
-      timezone: 'UTC',
+      timezone: 'Europe/London',
     });
     const event = (created.data as Record<string, unknown>).event as Record<string, unknown>;
     assert.ok(event.entityId, 'event should have entityId');
@@ -203,7 +204,7 @@ describe('events', () => {
     assert.equal(version.title, 'Monthly founders breakfast — May edition');
     assert.ok(version.startsAt, 'startsAt should be present');
     assert.ok(version.endsAt, 'endsAt should be present');
-    assert.equal(version.timezone, 'UTC');
+    assert.equal(version.timezone, 'Europe/London');
 
     const list = await h.apiOk(member.token, 'events.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
@@ -219,7 +220,8 @@ describe('events', () => {
     const created = await h.apiOk(organizer.token, 'events.create', {
       clubId: owner.club.id,
       title: 'RSVP test event: design review and feedback session',
-      summary: 'We will review the latest design mockups for the member dashboard, collect feedback, and prioritise the next sprint of UI work. Bring your laptop if you want to follow along in Figma. We will meet on Zoom — link will be shared with confirmed attendees the day before.',
+      summary: 'We will review the latest design mockups for the member dashboard, collect feedback, and prioritise the next sprint of UI work. Bring your laptop if you want to follow along in Figma. Link will be shared with confirmed attendees the day before.',
+      location: 'Zoom',
       startsAt: '2026-06-15T10:00:00Z',
       endsAt: '2026-06-15T11:30:00Z',
       timezone: 'Europe/London',
@@ -246,7 +248,8 @@ describe('events', () => {
     const created = await h.apiOk(creator.token, 'events.create', {
       clubId: owner.club.id,
       title: 'Open office hours: ask me anything about fundraising',
-      summary: 'I raised a $2M seed round last year and am happy to share what I learned. Drop in with questions about pitch decks, term sheets, investor outreach, or anything else related to early-stage fundraising. Held on Zoom — link will be shared with RSVPs.',
+      summary: 'I raised a $2M seed round last year and am happy to share what I learned. Drop in with questions about pitch decks, term sheets, investor outreach, or anything else related to early-stage fundraising. Link will be shared with RSVPs.',
+      location: 'Google Meet',
       startsAt: '2026-07-01T14:00:00Z',
       endsAt: '2026-07-01T15:30:00Z',
       timezone: 'Europe/London',
@@ -268,6 +271,7 @@ describe('events', () => {
       title: 'Full-day workshop: building production-ready APIs with TypeScript and Postgres',
       summary: 'Hands-on workshop covering schema design, connection pooling, RLS policies, and deployment. We will build a complete API from scratch by the end of the day.',
       body: 'This is a full-day intensive workshop for backend engineers who want to level up their API skills. We will cover schema design with row-level security, connection pooling with PgBouncer, testing strategies, and zero-downtime deployments. Lunch and snacks provided.',
+      location: 'WeWork, 115 Broadway, New York, NY 10006',
       startsAt: '2026-07-10T09:00:00Z',
       endsAt: '2026-07-10T17:00:00Z',
       timezone: 'America/New_York',

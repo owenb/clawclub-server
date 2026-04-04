@@ -2,9 +2,10 @@
  * Action contracts: messages.send, messages.list, messages.read, messages.inbox, messages.redact
  */
 import { z } from 'zod';
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
+  wireMessageText, parseMessageText,
   wireOptionalString, parseTrimmedNullableString,
   wireLimit, parseLimit,
   wireOptionalBoolean,
@@ -35,7 +36,7 @@ const messagesSend: ActionDefinition = {
     input: z.object({
       recipientMemberId: wireRequiredString.describe('Recipient member ID'),
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
-      messageText: wireRequiredString.describe('Message text'),
+      messageText: wireMessageText.describe('Message text'),
     }),
     output: z.object({ message: directMessageSummary }),
   },
@@ -44,12 +45,16 @@ const messagesSend: ActionDefinition = {
     input: z.object({
       recipientMemberId: parseRequiredString,
       clubId: parseRequiredString.optional(),
-      messageText: parseRequiredString,
+      messageText: parseMessageText,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { recipientMemberId, clubId, messageText } = input as SendInput;
+
+    if (recipientMemberId === ctx.actor.member.id) {
+      throw new AppError(400, 'invalid_input', 'Cannot send a message to yourself');
+    }
 
     const message = await ctx.repository.sendDirectMessage({
       actorMemberId: ctx.actor.member.id,
@@ -278,19 +283,13 @@ const messagesRedact: ActionDefinition = {
     const result = await ctx.repository.redactMessage!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map((m) => m.clubId),
+      ownerClubIds: ctx.actor.memberships.filter((m) => m.role === 'owner').map((m) => m.clubId),
       messageId,
       reason,
     });
 
     if (!result) {
       throw new AppError(404, 'not_found', 'Message not found inside the actor scope');
-    }
-
-    // Authorization: sender or club owner
-    const isSender = result.senderMemberId === ctx.actor.member.id;
-    const isOwner = ctx.actor.memberships.some((m) => m.clubId === result.redaction.clubId && m.role === 'owner');
-    if (!isSender && !isOwner) {
-      throw new AppError(403, 'forbidden', 'Only the sender or a club owner may redact this message');
     }
 
     return {

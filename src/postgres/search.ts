@@ -1,4 +1,4 @@
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 
 const MAX_QUERY_LENGTH = 120;
 const LIKE_META_CHARACTERS = /[%_\\]/g;

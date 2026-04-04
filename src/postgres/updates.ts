@@ -5,8 +5,8 @@ import type {
   PendingUpdate,
   Repository,
   UpdateReceipt,
-} from '../app.ts';
-import type { ApplyActorContext, DbClient } from './shared.ts';
+} from '../contract.ts';
+import type { ApplyActorContext, DbClient } from './helpers.ts';
 
 type PendingUpdateRow = {
   update_id: string;

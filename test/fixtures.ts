@@ -4,7 +4,7 @@ import type {
   MembershipSummary,
   PendingUpdate,
   Repository,
-} from '../src/app.ts';
+} from '../src/contract.ts';
 import type { MemberUpdateNotifier } from '../src/member-updates-notifier.ts';
 
 export function makeActor(overrides: {

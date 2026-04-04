@@ -2,7 +2,7 @@
  * Action contracts: updates.list, updates.acknowledge
  */
 import { z } from 'zod';
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 import {
   wireLimit, parseLimit,
   wireUpdateIds, parseUpdateIds,

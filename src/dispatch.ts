@@ -1,7 +1,7 @@
 /**
  * Unified action dispatcher.
  *
- * Replaces the sequential handler chain in app.ts with a registry-based
+ * Replaces the sequential handler chain with a registry-based
  * dispatch. All actions are looked up in the contract registry. The pipeline is:
  *
  *   1. Identify action (look up contract in registry)
@@ -19,14 +19,14 @@
  * since it requires IP-level context that doesn't belong in the action layer.
  */
 
-import { AppError } from './app.ts';
+import { AppError } from './contract.ts';
 import type {
   ActorContext,
   MembershipSummary,
   Repository,
   RequestScope,
   SharedResponseContext,
-} from './app-contract.ts';
+} from './contract.ts';
 import {
   getAction,
   parseActionInput,
@@ -48,7 +48,7 @@ import './schemas/messages.ts';
 import './schemas/platform.ts';
 import './schemas/updates.ts';
 import './schemas/admin.ts';
-import './schemas/admissions.ts';
+import './schemas/membership.ts';
 
 // ── Authorization helpers ────────────────────────────────
 

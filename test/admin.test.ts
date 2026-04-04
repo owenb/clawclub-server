@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from '../src/server.ts';
-import type { Repository } from '../src/app.ts';
+import type { Repository } from '../src/contract.ts';
 import { makeAdminAuthResult, makeAuthResult, makeRepository, makeUpdatesNotifier } from './fixtures.ts';
 
 function makeNonAdminAuthResult() {

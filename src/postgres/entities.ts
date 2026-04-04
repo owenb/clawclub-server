@@ -7,13 +7,13 @@ import type {
   ListEntitiesInput,
   Repository,
   UpdateEntityInput,
-} from '../app.ts';
+} from '../contract.ts';
 import { enforceQuota } from './quotas.ts';
-import { mapEmbeddingProjectionRow } from './projections.ts';
+import { mapEmbeddingProjectionRow } from './helpers.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import { buildContainsLikePattern, buildPrefixLikePattern, normalizeSearchQuery } from './search.ts';
 import { appendEntityVersionUpdates } from './updates.ts';
-import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
+import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
 
 type EntityRow = EmbeddingProjectionRow & {
   entity_id: string;
@@ -96,6 +96,7 @@ export function buildEntityUpdatePayload(input: {
   effectiveAt: string;
   expiresAt: string | null;
   content: Record<string, unknown>;
+  location?: string | null;
   startsAt?: string | null;
   endsAt?: string | null;
   timezone?: string | null;
@@ -116,6 +117,7 @@ export function buildEntityUpdatePayload(input: {
     effectiveAt: input.effectiveAt,
     expiresAt: input.expiresAt,
     content: input.content,
+    location: input.location ?? null,
     startsAt: input.startsAt ?? null,
     endsAt: input.endsAt ?? null,
     timezone: input.timezone ?? null,

@@ -28,7 +28,7 @@ import {
 import { pendingUpdate } from '../../src/schemas/responses.ts';
 
 // Trigger schema registration by importing the dispatch module
-import '../../src/app-dispatch.ts';
+import '../../src/dispatch.ts';
 
 /**
  * Recursively apply .strict() to all ZodObject schemas in a type tree.

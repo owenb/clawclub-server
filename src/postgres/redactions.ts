@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
-import type { RedactionResult, Repository } from '../app.ts';
-import type { ApplyActorContext, DbClient } from './shared.ts';
+import { AppError, type RedactionResult, type Repository } from '../contract.ts';
+import type { ApplyActorContext, DbClient } from './helpers.ts';
 
 type RedactionRow = {
   id: string;
@@ -111,6 +111,16 @@ export function buildRedactionsRepository({
           return null;
         }
 
+        // Authorization: sender or club owner (skipped for admin paths)
+        if (!input.skipAuthCheck) {
+          const isSender = msg.sender_member_id === input.actorMemberId;
+          const isOwner = input.ownerClubIds.includes(msg.club_id);
+          if (!isSender && !isOwner) {
+            await client.query('rollback');
+            throw new AppError(403, 'forbidden', 'Only the sender or a club owner may redact this message');
+          }
+        }
+
         // Insert redaction (idempotent via ON CONFLICT)
         const result = await client.query<RedactionRow>(
           `
@@ -169,6 +179,16 @@ export function buildRedactionsRepository({
         if (!entity) {
           await client.query('rollback');
           return null;
+        }
+
+        // Authorization: author or club owner (skipped for admin paths)
+        if (!input.skipAuthCheck) {
+          const isAuthor = entity.author_member_id === input.actorMemberId;
+          const isOwner = input.ownerClubIds.includes(entity.club_id);
+          if (!isAuthor && !isOwner) {
+            await client.query('rollback');
+            throw new AppError(403, 'forbidden', 'Only the author or a club owner may redact this entity');
+          }
         }
 
         // Insert redaction (idempotent via ON CONFLICT)

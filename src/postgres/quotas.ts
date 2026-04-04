@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
-import type { QuotaAllowance, Repository } from '../app-contract.ts';
-import { AppError } from '../app.ts';
-import type { DbClient, WithActorContext } from './shared.ts';
+import type { QuotaAllowance, Repository } from '../contract.ts';
+import { AppError } from '../contract.ts';
+import type { DbClient, WithActorContext } from './helpers.ts';
 
 const QUOTA_ACTIONS = ['entities.create', 'events.create', 'messages.send'] as const;
 

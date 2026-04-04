@@ -11,14 +11,14 @@
  *   - Quality gate and capability requirements
  */
 import { z } from 'zod';
-import { AppError } from '../app.ts';
+import { AppError } from '../contract.ts';
 import type {
   ActorContext,
   MembershipSummary,
   Repository,
   RequestScope,
   SharedResponseContext,
-} from '../app-contract.ts';
+} from '../contract.ts';
 
 // ── Auth and safety types ────────────────────────────────
 

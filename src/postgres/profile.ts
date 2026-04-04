@@ -1,8 +1,8 @@
 import type { Pool } from 'pg';
-import { AppError, type ActorContext, type EmbeddingProjectionRow, type MemberProfile, type Repository, type UpdateOwnProfileInput } from '../app.ts';
-import { mapEmbeddingProjectionRow } from './projections.ts';
+import { AppError, type ActorContext, type EmbeddingProjectionRow, type MemberProfile, type Repository, type UpdateOwnProfileInput } from '../contract.ts';
+import { mapEmbeddingProjectionRow } from './helpers.ts';
 import { requireReturnedRow } from './query-guards.ts';
-import type { ApplyActorContext, DbClient, WithActorContext } from './shared.ts';
+import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
 
 type ProfileRow = EmbeddingProjectionRow & {
   member_id: string;

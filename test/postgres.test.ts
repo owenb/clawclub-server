@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AppError } from '../src/app.ts';
+import { AppError } from '../src/contract.ts';
 import { createPostgresRepository } from '../src/postgres.ts';
 
 test('postgres repository lists clubs for superadmin scope including archived ones on request', async () => {
