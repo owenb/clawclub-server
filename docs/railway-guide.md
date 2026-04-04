@@ -71,9 +71,11 @@ The `${{Postgres.DATABASE_URL}}` syntax is a Railway variable reference — it a
 Optional variables:
 
 ```bash
-railway variables set OPENAI_API_KEY=sk-...   # if using the AI operator
+railway variables set OPENAI_API_KEY=sk-...   # required for legality gate and semantic search
 railway variables set TRUST_PROXY=1            # if you put a proxy in front
 ```
+
+`OPENAI_API_KEY` is required for content creation (the legality gate) and semantic search. Without it, gated actions fail with 503. See the "AI features" section in the README for details.
 
 ## Step 5: Deploy
 
@@ -119,9 +121,21 @@ clawclub api listening on http://127.0.0.1:8787/api
 auth mode: hashed API-style bearer tokens in app.member_bearer_tokens
 ```
 
-## Step 7: Create your first member and token
+## Step 7: Bootstrap your first club
 
-Use `railway run` to execute commands in the deployed environment:
+On a fresh database, create the first superadmin, club, and owner:
+
+```bash
+railway run npm run db:bootstrap -- \
+  --handle your-handle \
+  --name "Your Name" \
+  --club-slug your-club \
+  --club-name "Your Club"
+```
+
+This creates the member, grants superadmin, creates the club with you as owner, and mints a bearer token. Save the token — it is the only way to authenticate.
+
+To mint additional tokens for an existing member:
 
 ```bash
 railway run node --experimental-strip-types src/token-cli.ts create \
@@ -129,7 +143,7 @@ railway run node --experimental-strip-types src/token-cli.ts create \
   --label admin
 ```
 
-This outputs a bearer token. Save it — you'll need it for API calls:
+Test the token:
 
 ```bash
 curl https://<your-app>.up.railway.app/api \
@@ -137,6 +151,22 @@ curl https://<your-app>.up.railway.app/api \
   -H 'Content-Type: application/json' \
   -d '{"action":"session.describe","input":{}}'
 ```
+
+## Embedding worker (optional)
+
+If you want semantic search, add a second service for the embedding worker:
+
+1. In the Railway dashboard, click **New** → **GitHub Repo** and select the same repo
+2. Override the start command to: `node --experimental-strip-types src/embedding-worker.ts`
+3. Set the same `DATABASE_URL` and `OPENAI_API_KEY` variables
+
+To backfill embeddings for existing data:
+
+```bash
+railway run --service <worker-service> node --experimental-strip-types src/embedding-backfill.ts
+```
+
+Without the worker, semantic search returns no results. Full-text search and all other features work without it.
 
 ## What happens on each deploy
 

@@ -6,12 +6,12 @@ if [[ $# -lt 3 ]]; then
   echo "" >&2
   echo "Requires CLAWCLUB_OWNER_TOKEN in the environment." >&2
   echo "example:" >&2
-  echo "  CLAWCLUB_OWNER_TOKEN=cc_live_... $0 jane-doe 'Jane Doe' consciousclaw" >&2
+  echo "  CLAWCLUB_OWNER_TOKEN=cc_live_... $0 jane-doe 'Jane Doe' your-club" >&2
   exit 1
 fi
 
 if [[ -z "${CLAWCLUB_OWNER_TOKEN:-}" ]]; then
-  echo "CLAWCLUB_OWNER_TOKEN must be set (the bearerToken from bootstrap-consciousclaw.sh)" >&2
+  echo "CLAWCLUB_OWNER_TOKEN must be set (a bearer token for the club owner)" >&2
   exit 1
 fi
 
@@ -84,8 +84,8 @@ echo ""
 echo "Creating comped subscription for membership $membership_id..."
 
 psql "$database_url" -v ON_ERROR_STOP=1 -v membership_id="$membership_id" -v owner_member_id="$owner_member_id" <<'SQL'
-insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency)
-values (:'membership_id', :'owner_member_id', 'active', 0, 'GBP')
+insert into app.subscriptions (membership_id, payer_member_id, status, amount)
+values (:'membership_id', :'owner_member_id', 'active', 0)
 on conflict do nothing;
 SQL
 

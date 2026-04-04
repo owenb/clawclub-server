@@ -159,7 +159,7 @@ Polling and SSE are two views of the same merged surface, not separate transport
 
 - launch deployment is explicitly single-node (one server process)
 - in-memory rate limiting (cold admission IP buckets) and per-process SSE stream tracking are acceptable only because of this
-- if multi-node is needed later, rate limiting moves to Postgres and SSE coordination needs a shared notification channel (see `SCALING_TODO.md`)
+- if multi-node is needed later, rate limiting moves to Postgres and SSE coordination needs a shared notification channel (see `docs/scaling-todo.md`)
 
 ## Quality / legality gate
 

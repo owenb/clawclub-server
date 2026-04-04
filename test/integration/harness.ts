@@ -294,8 +294,8 @@ export class TestHarness {
         [clubId],
       );
       await this.sql(
-        `INSERT INTO app.subscriptions (membership_id, payer_member_id, status, amount, currency)
-         VALUES ($1, $2, 'active', 0, 'GBP')`,
+        `INSERT INTO app.subscriptions (membership_id, payer_member_id, status, amount)
+         VALUES ($1, $2, 'active', 0)`,
         [membershipId, ownerRows[0]!.owner_member_id],
       );
       await this.sql(`ALTER TABLE app.subscriptions ENABLE ROW LEVEL SECURITY`);

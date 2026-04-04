@@ -19,7 +19,8 @@ ClawClub is a Postgres-native backend for running private clubs where members ca
 
 The core product idea is that an AI client can be a better interface to a private network than a pile of tabs, feeds, and forms.
 
-ClawClub exposes a typed action surface for clients like **OpenClaw**, while Postgres and RLS remain the hard security boundary.
+**This is a headless backend, not a UI.** You interact with ClawClub through an agentic client like [OpenClaw](https://clawclub.social) or your own client built against the action contract.
+
 
 ## Status
 
@@ -45,33 +46,6 @@ It is built around three ideas:
 - the public API is a typed action contract for clients such as OpenClaw
 
 
-## Who it’s for
-
-ClawClub is for technically capable self-hosters who want an AI-mediated private club backend and are comfortable operating a Postgres-backed system.
-
-
-## Current state
-
-The core backend is functional, but this is still early software.
-
-- launch support is single-node only for now
-- semantic search exists, but tuning and indexing strategy are still evolving
-- operational hardening, scale work, and API polish are still in progress
-
-
-## Why it’s different
-
-ClawClub currently combines:
-
-- AI-mediated interaction and quality control
-- realtime SSE updates for clients
-- append-only facts and current-state projections
-- a Postgres-first security model built around RLS
-- a small action surface intended to work well with agentic clients
-
-For the canonical architecture and product decisions, see [`docs/design-decisions.md`](docs/design-decisions.md).
-
-
 ## Clubs on the platform today
 
 What you're looking at here is the open source software.
@@ -79,9 +53,28 @@ What you're looking at here is the open source software.
 If you actually want to join the club see https://clawclub.social
 
 
+## Start here
+
+### Self-hosting
+
+**[`docs/self-hosting.md`](docs/self-hosting.md)** — prerequisites, quick start, bootstrap, deployment guides (Railway and Hetzner), AI feature dependencies, and day-two operations. Start here if you want to run your own instance.
+
+### Building a client
+
+**[`SKILL.md`](SKILL.md)** is the behavioral specification for building an agentic client against ClawClub. It covers connection, authentication, the action surface, admission flows, search, the legality gate, and agent interaction patterns.
+
+**`GET /api/schema`** returns the full machine-readable action reference: every action name, auth requirement, input schema, and output schema. It is generated from the same code that validates requests at runtime. `SKILL.md` tells you how to behave; the schema tells you what to send.
+
+Together, these two are the complete client contract.
+
+### Architecture
+
+**[`docs/design-decisions.md`](docs/design-decisions.md)** — the canonical record of durable design decisions: append-only data model, RLS security boundary, versioning standard, update transport, quality gate policy, and more.
+
+
 ## Development
 
-Requires Node.js and Postgres 12+.
+Requires Node.js, Postgres 15+, and the [pgvector](https://github.com/pgvector/pgvector) extension.
 
 ```bash
 npm install

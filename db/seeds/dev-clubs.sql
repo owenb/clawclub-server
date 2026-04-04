@@ -66,9 +66,9 @@ insert into app.club_membership_state_versions (membership_id, status, reason, v
   (:'alice_dog_mid', 'active', 'seed', 1, :'owen_id'),
   (:'alice_cat_mid', 'active', 'seed', 1, :'owen_id')
 on conflict do nothing;
-insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency) values
-  (:'alice_dog_mid', :'owen_id', 'active', 0, 'GBP'),
-  (:'alice_cat_mid', :'owen_id', 'active', 0, 'GBP')
+insert into app.subscriptions (membership_id, payer_member_id, status, amount) values
+  (:'alice_dog_mid', :'owen_id', 'active', 0),
+  (:'alice_cat_mid', :'owen_id', 'active', 0)
 on conflict do nothing;
 
 -- Bob: member of CatClub and FoxClub
@@ -82,9 +82,9 @@ insert into app.club_membership_state_versions (membership_id, status, reason, v
   (:'bob_cat_mid', 'active', 'seed', 1, :'owen_id'),
   (:'bob_fox_mid', 'active', 'seed', 1, :'owen_id')
 on conflict do nothing;
-insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency) values
-  (:'bob_cat_mid', :'owen_id', 'active', 0, 'GBP'),
-  (:'bob_fox_mid', :'owen_id', 'active', 0, 'GBP')
+insert into app.subscriptions (membership_id, payer_member_id, status, amount) values
+  (:'bob_cat_mid', :'owen_id', 'active', 0),
+  (:'bob_fox_mid', :'owen_id', 'active', 0)
 on conflict do nothing;
 
 -- Charlie: member of DogClub and FoxClub
@@ -98,9 +98,9 @@ insert into app.club_membership_state_versions (membership_id, status, reason, v
   (:'charlie_dog_mid', 'active', 'seed', 1, :'owen_id'),
   (:'charlie_fox_mid', 'active', 'seed', 1, :'owen_id')
 on conflict do nothing;
-insert into app.subscriptions (membership_id, payer_member_id, status, amount, currency) values
-  (:'charlie_dog_mid', :'owen_id', 'active', 0, 'GBP'),
-  (:'charlie_fox_mid', :'owen_id', 'active', 0, 'GBP')
+insert into app.subscriptions (membership_id, payer_member_id, status, amount) values
+  (:'charlie_dog_mid', :'owen_id', 'active', 0),
+  (:'charlie_fox_mid', :'owen_id', 'active', 0)
 on conflict do nothing;
 
 commit;

@@ -1,0 +1,27 @@
+[Unit]
+Description=ClawClub Embedding Worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/clawclub
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/clawclub/clawclub.env
+ExecStart=/usr/bin/node --experimental-strip-types src/embedding-worker.ts
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/clawclub/embedding-worker.log
+StandardError=append:/var/log/clawclub/embedding-worker.log
+
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+ReadWritePaths=/var/log/clawclub
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
