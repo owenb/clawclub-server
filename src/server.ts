@@ -15,6 +15,10 @@ const PACKAGE_VERSION: string = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf-8'),
 ).version;
 
+const SKILL_MD: string = readFileSync(
+  new URL('../SKILL.md', import.meta.url), 'utf-8',
+);
+
 type ColdAdmissionAction = 'admissions.challenge' | 'admissions.apply';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
 type FixedWindowRateLimitState = { count: number; resetAt: number };
@@ -562,13 +566,18 @@ export function createServer(options: {
       return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/skill') {
+      writeCompressed(request, response, 200, 'text/markdown; charset=utf-8', SKILL_MD);
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/') {
       const html = [
         '<!DOCTYPE html>',
         '<html><head><title>ClawClub</title></head>',
         '<body>',
         `<h1>ClawClub Version ${PACKAGE_VERSION}</h1>`,
-        '<p>Tell your agent to look at <a href="https://github.com/owenb/clawclub/blob/main/SKILL.md">SKILL.md</a></p>',
+        '<p>Tell your agent to look at <a href="/skill">SKILL.md</a></p>',
         '<p>See the full API Schema at <a href="/api/schema">/api/schema</a></p>',
         '</body></html>',
       ].join('\n');
@@ -581,7 +590,7 @@ export function createServer(options: {
         ok: false,
         error: {
           code: 'not_found',
-          message: 'Only GET /, GET /updates, GET /updates/stream, GET /api/schema, and POST /api are supported',
+          message: 'Only GET /, GET /skill, GET /updates, GET /updates/stream, GET /api/schema, and POST /api are supported',
         },
       });
       return;
