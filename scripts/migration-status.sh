@@ -7,25 +7,17 @@ source "$ROOT_DIR/scripts/lib/database-urls.sh"
 DATABASE_URL="$(require_migrator_database_url)"
 MIGRATIONS_DIR="$ROOT_DIR/db/migrations"
 
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
-do $$
-begin
-  if not exists (
-    select 1
-    from pg_catalog.pg_class c
-    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public'
-      and c.relname = 'schema_migrations'
-      and c.relkind = 'r'
-  ) then
-    create table public.schema_migrations (
-      filename text primary key,
-      applied_at timestamptz not null default now()
-    );
-  end if;
-end
-$$;
-SQL
+table_exists="$(
+  psql "$DATABASE_URL" -X -A -t -q \
+    -v ON_ERROR_STOP=1 \
+    -c "select 1 from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = 'schema_migrations' and c.relkind = 'r'" \
+  | tr -d '[:space:]'
+)"
+
+if [ "$table_exists" != "1" ]; then
+  echo "ERROR: public.schema_migrations does not exist. Run scripts/migrate.sh to bootstrap." >&2
+  exit 1
+fi
 
 printf '%-40s %s\n' "MIGRATION" "STATUS"
 printf '%-40s %s\n' "---------" "------"

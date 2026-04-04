@@ -31,15 +31,6 @@ export const sharedClubRef = z.object({
   name: z.string(),
 });
 
-export const embeddingProjectionSummary = z.object({
-  embeddingId: z.string(),
-  model: z.string(),
-  dimensions: z.number(),
-  sourceText: z.string(),
-  metadata: z.record(z.unknown()),
-  createdAt: z.string(),
-});
-
 // ── Membership ───────────────────────────────────────────
 
 export const membershipSummary = z.object({
@@ -125,18 +116,37 @@ export const admissionSummary = z.object({
   createdAt: z.string(),
 });
 
+const admissionClubSummary = z.object({
+  slug: z.string(),
+  name: z.string(),
+  summary: z.string().nullable(),
+  ownerName: z.string(),
+  admissionPolicy: z.string(),
+});
+
 export const admissionChallengeResult = z.object({
   challengeId: z.string(),
   difficulty: z.number(),
   expiresAt: z.string(),
-  clubs: z.array(z.object({
-    slug: z.string(),
-    name: z.string(),
-    summary: z.string().nullable(),
-    ownerName: z.string(),
-    ownerEmail: z.string().nullable(),
-  })),
+  maxAttempts: z.number(),
+  club: admissionClubSummary,
 });
+
+export const admissionApplyResult = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('accepted'),
+    message: z.string(),
+  }),
+  z.object({
+    status: z.literal('needs_revision'),
+    feedback: z.string(),
+    attemptsRemaining: z.number(),
+  }),
+  z.object({
+    status: z.literal('attempts_exhausted'),
+    message: z.string(),
+  }),
+]);
 
 // ── Members ──────────────────────────────────────────────
 
@@ -188,7 +198,6 @@ export const memberProfile = z.object({
     versionNo: z.number().nullable(),
     createdAt: z.string().nullable(),
     createdByMemberId: z.string().nullable(),
-    embedding: embeddingProjectionSummary.nullable(),
   }),
   sharedClubs: z.array(sharedClubRef),
 });
@@ -211,7 +220,6 @@ export const entitySummary = z.object({
     expiresAt: z.string().nullable(),
     createdAt: z.string(),
     content: z.record(z.unknown()),
-    embedding: embeddingProjectionSummary.nullable(),
   }),
   createdAt: z.string(),
 });
@@ -356,6 +364,7 @@ export const quotaAllowance = z.object({
 export const pendingUpdate = z.object({
   updateId: z.string(),
   streamSeq: z.number(),
+  source: z.enum(['activity', 'inbox']),
   recipientMemberId: z.string(),
   clubId: z.string(),
   entityId: z.string().nullable(),
@@ -382,7 +391,7 @@ export const updateReceipt = z.object({
 
 export const memberUpdates = z.object({
   items: z.array(pendingUpdate),
-  nextAfter: z.number().nullable(),
+  nextAfter: z.string().nullable(),
   polledAt: z.string(),
 });
 

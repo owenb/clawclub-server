@@ -101,36 +101,50 @@ Examples:
 - self-vouching prevented by DB CHECK constraint
 - vouches surface in `vouches.list` (any member) and `memberships.review` (owners)
 - admissions are the unified model for all paths into a club, with two origins:
-  - `self_applied` — unauthenticated, proof-of-work gated; `admissions.challenge` returns a PoW challenge plus publicly listed clubs; `admissions.apply` collects full name, email, socials, club slug, and reason; private clubs accept applications by slug but don't appear in the public list; completing the PoW does not mint auth
+  - `self_applied` — unauthenticated, proof-of-work gated; `admissions.challenge` takes a `clubSlug` and returns a PoW challenge plus the club's admission policy; `admissions.apply` takes `challengeId`, `nonce`, `name`, `email`, `socials`, and `application` (a free-text response to the club's admission policy); completing the PoW does not mint auth
   - `member_sponsored` — an existing member sponsors an outsider for admission via `admissions.sponsor`; no PoW required, trust comes from the sponsoring member; multiple sponsorships for the same outsider are allowed and are a signal
 - on acceptance of outsider admissions (self-applied or member-sponsored): the system auto-creates the member, private contacts, profile, and membership
 - the owner issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
 - DMs require at least one shared club
 
-## Search and content
+## Search and discovery
 
 - primary entity kinds are `post`, `ask`, `service`, `opportunity`, and `event`
 - expired entities auto-hide
-- deterministic retrieval should stay explicit until semantic search is real
-- query text should be escaped and bounded before SQL matching
+- three search/discovery actions with explicit retrieval modes:
+  - `members.fullTextSearch`: PostgreSQL full-text search (tsvector/tsquery) with handle/name prefix boosting
+  - `members.findViaEmbedding`: semantic search via OpenAI embedding similarity
+  - `entities.findViaEmbedding`: semantic entity search via OpenAI embedding similarity
+- no full-text search on entities (semantic only)
+- lexical and semantic search are separate actions; no hybrid fallback
+- embedding infrastructure is separate from domain data:
+  - artifacts stored in dedicated tables (`embeddings_member_profile_artifacts`, `embeddings_entity_artifacts`)
+  - async job queue (`embeddings_jobs`) with lease-based claiming
+  - code-configured embedding profiles in `src/ai.ts` (model, dimensions, source version)
+  - worker processes jobs independently; write path succeeds even if embeddings are unavailable
+  - query-time embedding calls return clean 503 if OpenAI is unavailable
+- embedding metadata is not exposed in normal API responses (profile.get, entities.list)
 
 ## Update transport
 
 ClawClub no longer ships any outbound webhook delivery transport.
 
 The canonical model is:
-- `member_updates` as the append-only recipient update log
-- `member_update_receipts` as append-only acknowledgement history
-- `GET /updates` as polling/replay
-- `GET /updates/stream` as SSE replay + live push
+- `club_activity` as the append-only club-wide activity log
+- `member_updates` as the append-only targeted inbox log
+- `club_activity_cursors` as per-member activity read position
+- `member_update_receipts` as append-only acknowledgement history for inbox items
+- `GET /updates` as a merged polling/replay surface
+- `GET /updates/stream` as merged SSE replay + live push
 
 Rules:
 - the database is the source of truth, not the socket
 - delivery semantics are at-least-once
-- clients reconnect normally and replay from `streamSeq`
-- acknowledgements are explicit and transport-independent
+- clients reconnect normally and replay from an opaque cursor
+- acknowledgements are explicit and transport-independent for inbox items
+- club-wide activity is cursor-tracked, not explicitly acknowledged
 
-Polling and SSE are two views of the same underlying update log, not separate systems.
+Polling and SSE are two views of the same merged surface, not separate transports, but that surface now combines two different underlying systems: club activity and targeted inbox updates.
 
 ## Alerts and acknowledgement
 
@@ -140,6 +154,24 @@ Polling and SSE are two views of the same underlying update log, not separate sy
   - `processed`
   - `suppressed`
 - suppression reason is free text
+
+## Launch topology
+
+- launch deployment is explicitly single-node (one server process)
+- in-memory rate limiting (cold admission IP buckets) and per-process SSE stream tracking are acceptable only because of this
+- if multi-node is needed later, rate limiting moves to Postgres and SSE coordination needs a shared notification channel (see `SCALING_TODO.md`)
+
+## Quality / legality gate
+
+- actions that create or modify published content pass through an LLM gate before execution
+- gated actions: `entities.create`, `entities.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsor`
+- cold applications (`admissions.apply`) pass through a separate admission completeness gate
+- the gate must return an explicit PASS for the action to proceed
+- if the gate cannot run (missing API key, provider outage, provider error), the action fails with 503 `gate_unavailable`
+- if the LLM returns anything other than PASS or ILLEGAL, the action fails with 422 `gate_rejected`
+- the gate is a legality boundary, not a quality suggestion — content that was not explicitly cleared is not published
+- clearly illegal content (`ILLEGAL:` responses) returns 422 `illegal_content`
+- gate results (including failures) are logged to `app.llm_usage_log` for operational visibility
 
 ## Write quotas
 
@@ -172,7 +204,8 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - shared actor context with RLS enforcement
 - `session.describe`
 - superadmin club lifecycle: `clubs.list/create/archive/assignOwner`
-- `members.search`, `members.list`
+- `members.fullTextSearch`, `members.findViaEmbedding`, `members.list`
+- `entities.findViaEmbedding`
 - `memberships.list/review/create/transition`
 - `admissions.list/transition` (owner manages all admissions)
 - `admissions.challenge/apply` (self-applied, unauthenticated)

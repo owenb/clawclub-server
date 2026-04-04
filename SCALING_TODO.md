@@ -29,66 +29,22 @@ Deferred: forced expiration creates bad agent UX. Tokens remain indefinite until
 
 ---
 
-## 6. LLM Cost Tracking & Budget Enforcement
-**Effort: 2-3 hours | Impact: Prevents runaway AI spend, gives per-club visibility**
+## ~~6. LLM Cost Tracking & Budget Enforcement~~ DONE (tracking); budget enforcement deferred
 
-### Context
-Six actions trigger quality gates via `gpt-5.4-nano`: `entities.create`, `entities.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsor`. The `generateText()` result includes `usage.promptTokens` and `usage.completionTokens` but these are currently discarded. No cost tracking, no budget limits. Model is fixed — do not change it.
+**What was built:**
+- Migration `0066_llm_usage_log.sql`: `app.llm_usage_log` table with `gate_status` enum (`passed`/`rejected`/`skipped`), nullable token columns, `skip_reason`, `provider_error_code`, `requested_club_id` (nullable for cross-club actions like `profile.update`). RLS: superadmin-only reads. Inserts via security definer function.
+- `quality-gate.ts`: legality-only gate. `QualityGateResult` uses `status: 'passed' | 'rejected' | 'rejected_illegal' | 'failed'`. Missing API key or provider errors return `{ status: 'failed' }` which dispatch logs and then rejects with 503 `gate_unavailable`.
+- `dispatch.ts`: logs every gate attempt (fire-and-forget) via `repository.logLlmUsage()`, including failures. Gate failures (missing key, provider error) are logged then propagated as 503 errors — gated actions do not proceed.
+- `postgres/llm.ts`: `buildLlmRepository` with `logLlmUsage` implementation.
+- `contract.ts`: `LogLlmUsageInput`, `ResponseNotice` types, `logLlmUsage?` on Repository.
 
-### What needs building
+**Deliberate policy**: quality/legality gates fail closed. If the LLM does not return an explicit PASS, the content is not published. Missing API key, provider outage, or ambiguous output all block the action with a 503.
 
-**New table: `app.llm_usage_log`**
-```sql
-CREATE TABLE app.llm_usage_log (
-    id app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id app.short_id NOT NULL,
-    member_id app.short_id NOT NULL,
-    action_name text NOT NULL,
-    model text NOT NULL,
-    prompt_tokens integer NOT NULL,
-    completion_tokens integer NOT NULL,
-    quality_gate_pass boolean NOT NULL,
-    created_at timestamptz DEFAULT now() NOT NULL
-);
-
-CREATE INDEX llm_usage_log_club_created_idx
-    ON app.llm_usage_log (club_id, created_at DESC);
-```
-
-**New table: `app.club_llm_budgets`**
-```sql
-CREATE TABLE app.club_llm_budgets (
-    id app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id app.short_id NOT NULL UNIQUE,
-    max_tokens_per_day integer NOT NULL DEFAULT 500000,
-    max_tokens_per_month integer NOT NULL DEFAULT 10000000,
-    created_at timestamptz DEFAULT now() NOT NULL,
-    updated_at timestamptz DEFAULT now() NOT NULL
-);
-```
-
-**Changes to `quality-gate.ts`:**
-1. After `generateText()`, read `result.usage.promptTokens` and `result.usage.completionTokens`
-2. Write to `llm_usage_log` (fire-and-forget INSERT, don't block the response on logging)
-3. Before calling `generateText()`, check club's remaining budget:
-   ```sql
-   SELECT coalesce(sum(prompt_tokens + completion_tokens), 0) as used_today
-   FROM app.llm_usage_log
-   WHERE club_id = $1 AND created_at >= current_date
-   ```
-4. If budget exhausted: **fail open** — skip the quality gate, return `{ pass: true }`. Don't block members from posting because the AI budget ran out. The quality gate is a safety net, not a hard requirement.
-
-**New quota action: `quotas.status` extension:**
-- Include LLM budget status alongside existing write quotas
-- Show `llmTokensUsedToday`, `llmTokensRemainingToday`, `llmTokensUsedThisMonth`
-
-**Default budgets (generous for launch):**
-- 500k tokens/day per club (~$0.05-0.50/day depending on model pricing)
-- 10M tokens/month per club
-
-**Monitoring:**
-- Superadmin action `admin.llm.usage` to see per-club usage over time
-- Alert threshold: club exceeding 80% of monthly budget (logged, not yet emailed)
+**Still to build (when usage data informs sensible defaults):**
+- `club_llm_budgets` table with per-club daily/monthly token caps
+- Budget check before `generateText()` — block gated actions with 503 if budget exhausted (fail-closed, same as provider outage)
+- `admin.llm.usage` superadmin action
+- `quotas.status` extension to include LLM budget
 
 ---
 
@@ -97,6 +53,10 @@ CREATE TABLE app.club_llm_budgets (
 
 ### Context
 Currently only cold admission actions (challenge, apply) are rate-limited, using in-memory fixed-window buckets keyed by IP. Authenticated actions have no per-member request rate limiting — only per-action daily quotas on content creation. In-memory buckets don't survive restarts and don't work across multiple server instances.
+
+**Launch topology is single-node.** The in-memory rate limiting and per-process SSE stream tracking are acceptable for launch because only one server process runs. This section describes the path to Postgres-backed rate limiting for when multi-node becomes necessary.
+
+Do not conflate this item with SSE stream coordination. Request rate limiting and long-lived stream accounting are related, but not the same problem. The current SSE cap exists to stop one member from opening an absurd number of streams on a single process; global stream accounting is a separate future item.
 
 ### What needs building
 
@@ -115,7 +75,7 @@ CREATE TABLE app.rate_limit_buckets (
 - Per-member read actions (list, search, get): 120 requests/minute
 - Per-member write actions (create, update, send): 60 requests/minute
 - Per-IP unauthenticated: 30 requests/minute (replaces current in-memory buckets)
-- SSE streams: already limited to 3 per member (keep as-is)
+- SSE streams: keep the current per-process cap of 3 for single-node launch; once there is more than one app node, solve global stream accounting separately instead of stuffing streams into request rate buckets
 
 **Implementation:**
 - `consumeRateLimit(client, key, windowMs, maxRequests)` function
@@ -128,6 +88,11 @@ CREATE TABLE app.rate_limit_buckets (
 - One fewer infrastructure dependency
 - Rate limit checks are a single upsert — fast enough at our scale
 - If we later need Redis for other reasons (caching, queues), we can migrate rate limiting then
+
+**When this becomes urgent:**
+- before introducing a second app instance
+- before exposing the API to traffic patterns where authenticated abuse matters more than simple per-action quotas
+- when operators need predictable `429` behaviour across restarts rather than best-effort in-memory protection
 
 ---
 
@@ -181,66 +146,17 @@ CREATE INDEX audit_log_action_idx ON app.audit_log (action_name, created_at DESC
 
 ---
 
-## 9. Cursor Pagination for Admin Queries
-**Effort: 1-2 hours | Impact: Prevents linear degradation on deep pages**
-
-### Context
-`adminListMembers`, `adminListContent`, and `adminListThreads` all use `LIMIT/OFFSET` pagination. OFFSET scans and discards all preceding rows — at offset 10,000, Postgres reads 10,020 rows and throws away 10,000. This degrades linearly with page depth.
-
-### Fix
-Switch to keyset/cursor pagination:
-```sql
--- Instead of:
-ORDER BY created_at DESC, id DESC LIMIT $1 OFFSET $2
-
--- Use:
-WHERE (created_at, id) < ($cursor_created_at, $cursor_id)
-ORDER BY created_at DESC, id DESC LIMIT $1
-```
-
-Return the last row's `(created_at, id)` as the cursor for the next page.
-
-**Files to change:**
-- `src/postgres/admin.ts`: `adminListMembers` (line 104), `adminListContent` (line 300), `adminListThreads` (line 441)
-- `src/schemas/admin.ts`: add `cursor` input parameter and `nextCursor` output field
-- `src/contract.ts`: update types
+## ~~9. Cursor Pagination for Admin Queries~~ DONE
+All three admin list queries (`adminListMembers`, `adminListContent`, `adminListThreads`) now use keyset/cursor pagination with opaque base64url-encoded cursors instead of OFFSET. Responses include `nextCursor` for the next page. Prevents linear degradation at deep page depths.
 
 ---
 
-## 10. LATERAL Subquery Optimisation in Membership Review
-**Effort: 1 hour | Impact: Prevents slow owner review screen at scale**
+## ~~10. LATERAL Subquery Optimisation in Membership Review~~ DONE
+Both LATERAL subqueries (sponsor stats, vouches) in `readMembershipReviews` (membership.ts) replaced with pre-aggregated CTEs. Now runs 2 scans per query instead of 2N subqueries per row.
 
-### Context
-`readMembershipReviews` (admissions.ts:303-366) runs two LATERAL subqueries per row:
-1. Sponsor stats: counts active sponsored members and sponsored-this-month for each sponsor
-2. Vouches: aggregates all active vouches for each member
+**Current posture:** good enough for launch unless owner review becomes a high-traffic workflow in a very large club.
 
-At 10k+ memberships in a single club, this executes 10k+ subqueries.
-
-### Options
-
-**Option A: Materialised aggregates (recommended for first pass)**
-Pre-compute sponsor stats as a CTE instead of LATERAL:
-```sql
-WITH sponsor_stats AS (
-    SELECT
-        sponsor_member_id,
-        club_id,
-        count(*) FILTER (WHERE status = 'active')::int AS active_sponsored_count,
-        count(*) FILTER (WHERE date_trunc('month', joined_at) = date_trunc('month', now()))::int AS sponsored_this_month_count
-    FROM app.current_club_memberships
-    WHERE club_id = ANY($1::app.short_id[])
-      AND sponsor_member_id IS NOT NULL
-    GROUP BY sponsor_member_id, club_id
-)
-```
-Then JOIN instead of LATERAL. Same for vouches — aggregate all vouches for the club in one pass, then join.
-
-**Option B: Materialised view (if query frequency warrants it)**
-Create `app.sponsor_stats_mv` refreshed periodically. Only needed if this query runs very frequently (unlikely — it's an owner-only review screen).
-
-### When to do this
-Monitor query time. If `readMembershipReviews` exceeds 200ms p95 in production, apply Option A.
+**If this screen gets slow later:** the next optimisation is not another round of micro-indexing. First select the limited review set, then compute sponsor/vouch aggregates only for the visible member/sponsor IDs rather than pre-aggregating across the full club scope before `LIMIT`.
 
 ---
 
@@ -281,81 +197,33 @@ If `stream_seq` generation becomes a bottleneck under high write concurrency, sw
 
 ---
 
-## 12. Member Discovery for Agents (Replaces Full Member Lists)
-**Effort: 1-2 days across phases | Impact: Core feature for agent UX at scale**
+## ~~12. Member Discovery & Semantic Search~~ DONE (v2 greenfield rebuild)
+**Fully rebuilt in migration 0069. Old ILIKE search, polymorphic embeddings table, and legacy actions removed.**
 
-### Context
-The current `members.list` action returns up to 20 members per call. With thousands of members in a club, pulling the full list into an agent's context is neither practical nor useful — it would consume the agent's context window and produce poor results. Agents need targeted discovery, not enumeration.
+### What was built (v2 architecture):
+- **`members.fullTextSearch`**: Real PostgreSQL FTS (tsvector/tsquery + GIN index) with handle/name prefix boosting. Replaces old ILIKE-based `members.search`.
+- **`members.findViaEmbedding`**: Semantic member discovery via OpenAI embedding similarity. Replaces old `members.discover`.
+- **`entities.findViaEmbedding`**: Semantic entity search via OpenAI embedding similarity. New action.
+- **Separate artifact tables**: `embeddings_member_profile_artifacts` and `embeddings_entity_artifacts` (not polymorphic).
+- **Shared job queue**: `embeddings_jobs` with lease-based claiming, failure_kind distinction (config vs work), and safe release for outages.
+- **Code-configured profiles**: `EMBEDDING_PROFILES` in `src/ai.ts` — model, dimensions, source_version per surface.
+- **Worker and backfill**: `embedding-worker.ts` and `embedding-backfill.ts` rewritten for new artifact tables.
+- **Embedding metadata removed from API responses**: profile.get and entities.list no longer expose embedding internals.
+- **All legacy dropped**: old `app.embeddings` table, views, functions, `members.search`, `members.discover`, `members.findSimilar`.
 
-### Current state
-- `members.list` — returns up to 20 members, ordered alphabetically. No cursor pagination. Useful for tiny clubs, useless for large ones.
-- `members.search` — keyword search via ILIKE across 8 text columns. Works for exact name lookups but can't handle semantic queries like "find someone who knows about architecture" or "who's similar to this member".
-- Embeddings table exists with profile embeddings stored as `double precision[]` arrays. No similarity search is implemented.
+**Current launch posture:** acceptable without ANN indexing if clubs are modest and search scope stays reasonably tight. Searches are already club-scoped, so total rows in the whole database matter less than the number of embedding artifacts a single query actually needs to rank.
 
-### What needs building
+**Do not overclaim:** pgvector is in use, but that does not mean semantic search is already scale-hardened. At the moment the system has real embedding infrastructure, not yet the final indexing/query shape for very large searchable scopes.
 
-**Phase 1: pgvector + similarity search**
+**Next scale step (not a launch blocker):**
+- add pgvector ANN indexes (`HNSW` or `IVFFlat`) on the artifact tables when p95 latency or searchable artifact counts justify it
+- rewrite search to fetch nearest artifact candidates first, then join/group into final member/entity results
+- benchmark on realistic club-sized datasets rather than synthetic whole-database totals
 
-Add pgvector extension and migrate embedding storage:
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-
-ALTER TABLE app.embeddings ADD COLUMN embedding_vector vector;
--- Backfill from existing double precision[] arrays:
--- UPDATE app.embeddings SET embedding_vector = embedding::vector;
-
-CREATE INDEX embeddings_profile_vector_idx
-    ON app.embeddings USING hnsw (embedding_vector vector_cosine_ops)
-    WHERE member_profile_version_id IS NOT NULL;
-
-CREATE INDEX embeddings_entity_vector_idx
-    ON app.embeddings USING hnsw (embedding_vector vector_cosine_ops)
-    WHERE entity_version_id IS NOT NULL;
-```
-
-**Phase 2: New actions for agent-friendly member discovery**
-
-`members.find_similar` — given a member ID, find members with similar profiles:
-```
-Input:  { memberId: string, clubId?: string, limit: 1-20 }
-Output: { results: MemberSearchResult[], similarity: number[] }
-```
-Implementation: look up the member's latest profile embedding, run cosine similarity against all profile embeddings in accessible clubs, return top N.
-
-`members.discover` — semantic search powered by LLM-generated query embedding:
-```
-Input:  { query: string, clubId?: string, limit: 1-20 }
-Output: { results: MemberSearchResult[] }
-```
-Implementation: generate an embedding for the query string using the same model that generated profile embeddings, then run cosine similarity against all profile embeddings in accessible clubs.
-
-This replaces the need to dump full member lists. An agent asking "who in the club knows about sustainable architecture?" gets a ranked list of relevant members, not a 2000-row dump.
-
-**Phase 3: Improve `members.search` for exact lookups**
-
-Add `pg_trgm` GIN indexes for fast ILIKE on name/handle fields:
-```sql
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
-CREATE INDEX members_public_name_trgm_idx
-    ON app.members USING GIN (public_name gin_trgm_ops);
-CREATE INDEX members_handle_trgm_idx
-    ON app.members USING GIN (handle gin_trgm_ops);
-CREATE INDEX member_profiles_display_name_trgm_idx
-    ON app.member_profile_versions USING GIN (display_name gin_trgm_ops);
-```
-
-This keeps the existing `members.search` action working for "find John Smith" queries but makes it fast at scale. No full-text search (tsvector) needed — trigram indexes handle fuzzy name matching, vector search handles semantic discovery.
-
-**Phase 4: Automatic embedding generation**
-
-Currently embeddings must be created externally. Add a trigger or post-commit hook:
-- When `member_profile_versions` gets a new row, queue embedding generation
-- When `entity_versions` gets a new row, queue embedding generation
-- Use the same model and dimensions consistently
-- Store via existing `app.embeddings` table
-
-This can be a simple polling worker that checks for profiles/entities without embeddings, rather than a full job queue system.
+**When to do this:**
+- when semantic search latency becomes noticeable in real usage
+- when one search scope starts approaching hundreds of thousands of searchable artifacts
+- before marketing semantic search as heavily scale-hardened
 
 ---
 
@@ -408,3 +276,76 @@ Must implement:
 - Stripe Machine Payments Protocol for agent-initiated micro-payments
 - Metered billing tied to LLM usage per club
 - Multi-currency support beyond what the club owner sets
+
+---
+
+## 14. Database Sharding: Identity Plane / Club Plane Split
+**Effort: Weeks | Impact: Path to hundreds of thousands of clubs**
+
+### Context
+The current single-database architecture handles launch comfortably. If ClawClub takes off, the intended long-term shape is:
+
+- **club-scoped canonical writes**
+- **member-scoped cross-club reads**
+- **a central query/control plane for first-class cross-club UX**
+- **club shards for truth**
+
+This is no longer just an “identity plane” split. The central system must become a **query/control plane** that owns:
+
+- authentication and bearer tokens
+- member identity and profiles
+- global roles
+- `club_routing`
+- `member_club_access`
+- a narrow set of first-class cross-club projections
+
+Canonical club data stays in the **club data plane**, sharded by `club_id`.
+
+Important consequences:
+
+- We should **not** force `clubId` onto core member-facing read surfaces purely for sharding convenience.
+- We should make only a few cross-club experiences first-class at first:
+  - unified inbox / notifications
+  - cross-club events index (“Are any events going on tonight?”)
+  - cross-club activity index (“What happened while I was away?”)
+- We should **not** reintroduce per-member fanout for club activity. `club_activity` should be written once on the club shard, then projected centrally as a club-scoped fact and filtered by `member_club_access` at read time.
+- `updates.list` now merges two sources (`activity` and `inbox`); only inbox is explicitly ackable, and `updates.acknowledge` should be forgiving of activity IDs.
+
+The durable reference for this plan is now:
+
+- [docs/horizontal-scaling-plan.md](docs/horizontal-scaling-plan.md)
+
+---
+
+## 15. Global SSE Stream Accounting & Slow-Client Handling — DEFERRED UNTIL MULTI-NODE / REAL LOAD
+**Effort: 1-2 days | Impact: Prevents per-member stream explosion and slow-client memory drag**
+
+### Context
+`GET /updates/stream` is already on a sound foundation:
+- replay state lives in Postgres cursors, not in process memory
+- live wakeups come from PostgreSQL `LISTEN/NOTIFY`
+- reconnecting to a different node is not a correctness problem because the stream can replay from its cursor
+
+That means multi-node does **not** immediately require a new pub/sub system.
+
+The first real gap is narrower:
+- `maxStreamsPerMember` is currently enforced by an in-memory map, so in multi-node it becomes "3 per member per node", not "3 total"
+- stream pressure from slow clients is still a per-process concern
+- operational visibility into who is holding streams open is minimal
+
+### What to build later
+- decide whether the limit is global per member, per device, or per client session
+- replace the in-memory stream counter with shared leases/registrations (Postgres table is acceptable; Redis only if it already exists for other reasons)
+- record basic stream metadata: member, node/process id, opened_at, last_seen_at
+- expire stale leases aggressively so dead sockets do not permanently consume capacity
+- add simple slow-client protection/observability rather than letting buffered writes grow silently
+
+### What not to do
+- do not replace SSE just because a second app node exists
+- do not introduce a dedicated event bus before there is evidence Postgres `LISTEN/NOTIFY` is the bottleneck
+- do not mix stream accounting into normal HTTP request rate limiting
+
+### When to do this
+- before adding a second app instance behind a load balancer
+- when reconnect storms or browser tab duplication can bypass the intended per-member stream cap
+- when memory or buffered-response behaviour suggests slow readers are becoming an operational issue

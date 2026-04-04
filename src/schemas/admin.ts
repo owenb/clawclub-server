@@ -10,9 +10,23 @@ import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   wireLimit, parseLimit,
-  wireOffset, parseOffset,
+  wireCursor, parseCursor,
   entityKind,
 } from './fields.ts';
+
+function encodeAdminCursor(createdAt: string, id: string): string {
+  return Buffer.from(JSON.stringify([createdAt, id])).toString('base64url');
+}
+
+function decodeAdminCursor(cursor: string): { createdAt: string; id: string } {
+  try {
+    const [createdAt, id] = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+    if (typeof createdAt !== 'string' || typeof id !== 'string') throw new Error();
+    return { createdAt, id };
+  } catch {
+    throw new AppError(400, 'invalid_input', 'Invalid pagination cursor');
+  }
+}
 import {
   adminOverview, adminMemberSummary, adminMemberDetail,
   adminClubStats, adminContentSummary, adminThreadSummary,
@@ -53,7 +67,7 @@ const adminOverviewAction: ActionDefinition = {
 
 type AdminMembersListInput = {
   limit: number;
-  offset: number;
+  cursor: string | null;
 };
 
 const adminMembersList: ActionDefinition = {
@@ -68,30 +82,34 @@ const adminMembersList: ActionDefinition = {
   wire: {
     input: z.object({
       limit: wireLimit,
-      offset: wireOffset,
+      cursor: wireCursor,
     }),
-    output: z.object({ members: z.array(adminMemberSummary) }),
+    output: z.object({ members: z.array(adminMemberSummary), nextCursor: z.string().nullable() }),
   },
 
   parse: {
     input: z.object({
       limit: parseLimit,
-      offset: parseOffset,
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     ctx.requireCapability('adminListMembers');
-    const { limit, offset } = input as AdminMembersListInput;
+    const { limit, cursor: rawCursor } = input as AdminMembersListInput;
+    const cursor = rawCursor ? decodeAdminCursor(rawCursor) : null;
 
     const members = await ctx.repository.adminListMembers!({
       actorMemberId: ctx.actor.member.id,
       limit,
-      offset,
+      cursor,
     });
 
-    return { data: { members } };
+    const last = members[members.length - 1];
+    const nextCursor = last ? encodeAdminCursor(last.createdAt, last.memberId) : null;
+
+    return { data: { members, nextCursor } };
   },
 };
 
@@ -185,7 +203,7 @@ type AdminContentListInput = {
   clubId?: string;
   kind?: 'post' | 'opportunity' | 'service' | 'ask';
   limit: number;
-  offset: number;
+  cursor: string | null;
 };
 
 const adminContentList: ActionDefinition = {
@@ -202,9 +220,9 @@ const adminContentList: ActionDefinition = {
       clubId: wireRequiredString.optional().describe('Filter by club'),
       kind: entityKind.optional().describe('Filter by entity kind'),
       limit: wireLimit,
-      offset: wireOffset,
+      cursor: wireCursor,
     }),
-    output: z.object({ content: z.array(adminContentSummary) }),
+    output: z.object({ content: z.array(adminContentSummary), nextCursor: z.string().nullable() }),
   },
 
   parse: {
@@ -212,24 +230,28 @@ const adminContentList: ActionDefinition = {
       clubId: parseRequiredString.optional(),
       kind: entityKind.optional().catch(undefined),
       limit: parseLimit,
-      offset: parseOffset,
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     ctx.requireCapability('adminListContent');
-    const { clubId, kind, limit, offset } = input as AdminContentListInput;
+    const { clubId, kind, limit, cursor: rawCursor } = input as AdminContentListInput;
+    const cursor = rawCursor ? decodeAdminCursor(rawCursor) : null;
 
     const content = await ctx.repository.adminListContent!({
       actorMemberId: ctx.actor.member.id,
       clubId,
       kind,
       limit,
-      offset,
+      cursor,
     });
 
-    return { data: { content } };
+    const last = content[content.length - 1];
+    const nextCursor = last ? encodeAdminCursor(last.createdAt, last.entityId) : null;
+
+    return { data: { content, nextCursor } };
   },
 };
 
@@ -329,7 +351,7 @@ const adminContentRedact: ActionDefinition = {
 type AdminMessagesThreadsInput = {
   clubId?: string;
   limit: number;
-  offset: number;
+  cursor: string | null;
 };
 
 const adminMessagesThreads: ActionDefinition = {
@@ -345,32 +367,36 @@ const adminMessagesThreads: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.optional().describe('Filter by club'),
       limit: wireLimit,
-      offset: wireOffset,
+      cursor: wireCursor,
     }),
-    output: z.object({ threads: z.array(adminThreadSummary) }),
+    output: z.object({ threads: z.array(adminThreadSummary), nextCursor: z.string().nullable() }),
   },
 
   parse: {
     input: z.object({
       clubId: parseRequiredString.optional(),
       limit: parseLimit,
-      offset: parseOffset,
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     ctx.requireCapability('adminListThreads');
-    const { clubId, limit, offset } = input as AdminMessagesThreadsInput;
+    const { clubId, limit, cursor: rawCursor } = input as AdminMessagesThreadsInput;
+    const cursor = rawCursor ? decodeAdminCursor(rawCursor) : null;
 
     const threads = await ctx.repository.adminListThreads!({
       actorMemberId: ctx.actor.member.id,
       clubId,
       limit,
-      offset,
+      cursor,
     });
 
-    return { data: { threads } };
+    const last = threads[threads.length - 1];
+    const nextCursor = last ? encodeAdminCursor(last.latestMessageAt, last.threadId) : null;
+
+    return { data: { threads, nextCursor } };
   },
 };
 
@@ -587,9 +613,40 @@ const adminDiagnosticsHealth: ActionDefinition = {
   },
 };
 
+// ── admissions.clubs (superadmin internal discovery) ────
+
+const admissionsClubs: ActionDefinition = {
+  action: 'admissions.clubs',
+  domain: 'admin',
+  description: 'List publicly visible clubs (internal discovery only).',
+  auth: 'superadmin',
+  safety: 'read_only',
+
+  wire: {
+    input: z.object({}),
+    output: z.object({
+      clubs: z.array(z.object({
+        slug: z.string(),
+        name: z.string(),
+      })),
+    }),
+  },
+
+  parse: {
+    input: z.object({}),
+  },
+
+  async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    const result = await ctx.repository.listPubliclyVisibleClubs!();
+    return { data: result };
+  },
+};
+
 registerActions([
   adminOverviewAction, adminMembersList, adminMembersGet,
   adminClubsStats, adminContentList, adminContentArchive, adminContentRedact,
   adminMessagesThreads, adminMessagesRead, adminMessagesRedact,
   adminTokensList, adminTokensRevoke, adminDiagnosticsHealth,
+  admissionsClubs,
 ]);

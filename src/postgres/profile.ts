@@ -1,10 +1,10 @@
 import type { Pool } from 'pg';
-import { AppError, type ActorContext, type EmbeddingProjectionRow, type MemberProfile, type Repository, type UpdateOwnProfileInput } from '../contract.ts';
-import { mapEmbeddingProjectionRow } from './helpers.ts';
+import { AppError, type ActorContext, type MemberProfile, type Repository, type UpdateOwnProfileInput } from '../contract.ts';
 import { requireReturnedRow } from './query-guards.ts';
+import { enqueueEmbeddingJob } from './embeddings.ts';
 import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
 
-type ProfileRow = EmbeddingProjectionRow & {
+type ProfileRow = {
   member_id: string;
   public_name: string;
   handle: string | null;
@@ -43,7 +43,6 @@ function mapProfileRow(row: ProfileRow): MemberProfile {
       versionNo: row.version_no,
       createdAt: row.version_created_at,
       createdByMemberId: row.version_created_by_member_id,
-      embedding: mapEmbeddingProjectionRow(row),
     },
     sharedClubs: row.shared_clubs ?? [],
   };
@@ -75,17 +74,10 @@ async function readMemberProfile(client: DbClient, targetMemberId: string): Prom
         cmp.version_no,
         cmp.created_at::text as version_created_at,
         cmp.created_by_member_id as version_created_by_member_id,
-        cpve.id as embedding_id,
-        cpve.model as embedding_model,
-        cpve.dimensions as embedding_dimensions,
-        cpve.source_text as embedding_source_text,
-        cpve.metadata as embedding_metadata,
-        cpve.created_at::text as embedding_created_at,
         jsonb_agg(distinct jsonb_build_object('id', n.id, 'slug', n.slug, 'name', n.name))
           filter (where n.id is not null) as shared_clubs
       from app.members m
       left join app.current_member_profiles cmp on cmp.member_id = m.id
-      left join app.current_profile_version_embeddings cpve on cpve.member_profile_version_id = cmp.id
       left join target_scope ts on true
       left join app.clubs n on n.id = ts.club_id and n.archived_at is null
       where m.id = $1
@@ -94,8 +86,7 @@ async function readMemberProfile(client: DbClient, targetMemberId: string): Prom
         m.id, m.public_name, m.handle,
         cmp.display_name, cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
         cmp.services_summary, cmp.website_url, cmp.links, cmp.profile,
-        cmp.id, cmp.version_no, cmp.created_at, cmp.created_by_member_id,
-        cpve.id, cpve.model, cpve.dimensions, cpve.source_text, cpve.metadata, cpve.created_at
+        cmp.id, cmp.version_no, cmp.created_at, cmp.created_by_member_id
     `,
     [targetMemberId],
   );
@@ -167,13 +158,14 @@ export function buildProfileRepository({
           'Actor member row disappeared during profile update',
         );
 
-        await client.query(
+        const versionResult = await client.query<{ id: string }>(
           `
             insert into app.member_profile_versions (
               member_id, version_no, display_name, tagline, summary, what_i_do, known_for,
               services_summary, website_url, links, profile, created_by_member_id
             )
             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12)
+            returning id
           `,
           [
             actor.member.id,
@@ -190,6 +182,10 @@ export function buildProfileRepository({
             actor.member.id,
           ],
         );
+        const createdVersion = versionResult.rows[0];
+        if (createdVersion) {
+          await enqueueEmbeddingJob(client, 'member_profile', createdVersion.id);
+        }
 
         await client.query('commit');
       } catch (error) {

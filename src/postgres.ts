@@ -12,6 +12,8 @@ import { buildTokenRepository } from './postgres/tokens.ts';
 import { buildQuotaRepository } from './postgres/quotas.ts';
 import { buildRedactionsRepository } from './postgres/redactions.ts';
 import { buildUpdatesRepository } from './postgres/updates.ts';
+import { buildLlmRepository } from './postgres/llm.ts';
+import { buildEmbeddingsRepository } from './postgres/embeddings.ts';
 import type { DbClient } from './postgres/helpers.ts';
 
 type ActorRow = {
@@ -210,6 +212,8 @@ export function createPostgresRepository({ pool }: { pool: Pool }): Repository {
     ...buildRedactionsRepository({ pool, applyActorContext }),
     ...buildUpdatesRepository({ pool, applyActorContext }),
     ...buildAdminRepository({ pool, applyActorContext, withActorContext }),
+    ...buildLlmRepository({ pool }),
+    ...buildEmbeddingsRepository({ pool, withActorContext }),
 
   };
 }

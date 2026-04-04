@@ -111,8 +111,8 @@ test('postgres repository updates an entity only when the actor is the author in
         return { rows: [{ id: 'entity-version-2' }], rowCount: 1 };
       }
 
-      if (sql.includes('insert into app.member_updates (')) {
-        return { rows: [], rowCount: 2 };
+      if (sql.includes('insert into app.club_activity (')) {
+        return { rows: [], rowCount: 1 };
       }
 
       if (sql.includes('from app.entities e') && sql.includes('and ($2::app.short_id is null or cev.id = $2)')) {
@@ -134,16 +134,14 @@ test('postgres repository updates an entity only when the actor is the author in
             expires_at: null,
             version_created_at: '2026-03-14T12:00:00Z',
             content: { mood: 'fresher' },
-            embedding_id: null,
-            embedding_model: null,
-            embedding_dimensions: null,
-            embedding_source_text: null,
-            embedding_metadata: null,
-            embedding_created_at: null,
             entity_created_at: '2026-03-12T00:00:00Z',
           }],
           rowCount: 1,
         };
+      }
+
+      if (sql.includes('embeddings_enqueue_job')) {
+        return { rows: [], rowCount: 0 };
       }
 
       throw new Error(`Unexpected query: ${sql}`);
@@ -217,8 +215,8 @@ test('postgres repository archives an entity by appending an archived version wi
         return { rows: [{ id: 'entity-version-3' }], rowCount: 1 };
       }
 
-      if (sql.includes('insert into app.member_updates (')) {
-        return { rows: [], rowCount: 2 };
+      if (sql.includes('insert into app.club_activity (')) {
+        return { rows: [], rowCount: 1 };
       }
 
       throw new Error(`Unexpected query: ${sql}`);
@@ -490,124 +488,6 @@ test('postgres repository lists active members with scoped membership context', 
   assert.equal(results[0]?.memberships[0]?.clubId, 'club-2');
   assert.match(calls[2]?.sql ?? '', /join app\.accessible_club_memberships anm/);
   assert.deepEqual(calls[2]?.params, [['club-2'], 5]);
-});
-
-test('postgres repository searchMembers requires every query token across searchable fields and ranks deterministically', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
-  const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
-        return { rows: [], rowCount: 0 };
-      }
-
-      if (sql.includes("set_config('app.actor_member_id'")) {
-        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      }
-
-      if (sql.includes('with scope as (') && sql.includes('from tokens t') && sql.includes('cmp.tagline')) {
-        return {
-          rows: [
-            {
-              member_id: 'member-3',
-              public_name: 'Zara Stone',
-              display_name: 'Zara Stone',
-              handle: 'zara-stone',
-              tagline: 'Designer',
-              summary: 'Helps communities feel coherent',
-              what_i_do: 'Design systems',
-              known_for: 'Community rituals',
-              services_summary: 'Advisory',
-              website_url: null,
-              shared_clubs: [{ id: 'club-2', slug: 'beta', name: 'Beta' }],
-            },
-            {
-              member_id: 'member-2',
-              public_name: 'Chris Stone',
-              display_name: 'Chris Stone',
-              handle: 'chris-stone',
-              tagline: 'Builder',
-              summary: 'Backend and AI builder for small trusted clubs',
-              what_i_do: 'Backend AI builder',
-              known_for: 'Shipping fast',
-              services_summary: 'Architecture help',
-              website_url: 'https://example.test/chris',
-              shared_clubs: [{ id: 'club-2', slug: 'beta', name: 'Beta' }],
-            },
-            {
-              member_id: 'member-4',
-              public_name: 'Stone Chris',
-              display_name: 'Stone Chris',
-              handle: 'stone-chris',
-              tagline: 'Generalist',
-              summary: 'Builder who works across product and ops',
-              what_i_do: 'Operations',
-              known_for: 'Calm execution',
-              services_summary: 'Fractional ops',
-              website_url: null,
-              shared_clubs: [{ id: 'club-2', slug: 'beta', name: 'Beta' }],
-            },
-          ],
-          rowCount: 3,
-        };
-      }
-
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const results = await repository.searchMembers({
-    actorMemberId: 'member-1',
-    clubIds: ['club-2'],
-    query: 'Chris builder',
-    limit: 2,
-  });
-
-  assert.deepEqual(results.map((result) => result.memberId), ['member-2', 'member-4']);
-  assert.match(calls[2]?.sql ?? '', /from tokens t/);
-  assert.match(calls[2]?.sql ?? '', /cmp\.summary/);
-  assert.deepEqual(calls[2]?.params, [['club-2'], '%Chris builder%', ['chris', 'builder'], 25]);
-});
-
-test('postgres repository searchMembers escapes LIKE metacharacters before querying shared-member search', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
-  const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-
-      if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
-        return { rows: [], rowCount: 0 };
-      }
-
-      if (sql.includes("set_config('app.actor_member_id'")) {
-        return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      }
-
-      if (sql.includes('with scope as (') && sql.includes('from tokens t') && sql.includes('cmp.services_summary')) {
-        return { rows: [], rowCount: 0 };
-      }
-
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const results = await repository.searchMembers({
-    actorMemberId: 'member-1',
-    clubIds: ['club-2'],
-    query: '100% builder_',
-    limit: 2,
-  });
-
-  assert.deepEqual(results, []);
-  assert.match(calls[2]?.sql ?? '', /ilike \$2 escape '\\'/);
-  assert.deepEqual(calls[2]?.params, [['club-2'], '%100\\% builder\\_%', ['100', 'builder'], 25]);
 });
 
 test('postgres repository projects actor scope into the db session before dm reads', async () => {
@@ -948,6 +828,10 @@ test('postgres repository creates and revokes hashed bearer tokens without retur
         };
       }
 
+      if (sql.includes('count(*)') && sql.includes('member_bearer_tokens')) {
+        return { rows: [{ count: '0' }], rowCount: 1 };
+      }
+
       throw new Error(`Unexpected query: ${sql}`);
     },
     release() {},
@@ -973,12 +857,14 @@ test('postgres repository creates and revokes hashed bearer tokens without retur
   assert.match(created.bearerToken, /^cc_live_[23456789abcdefghjkmnpqrstuvwxyz]{12}_[23456789abcdefghjkmnpqrstuvwxyz]{24}$/);
   assert.equal(calls.filter((call) => call.sql === 'begin').length, 1);
   assert.equal(calls.filter((call) => call.sql === 'commit').length, 1);
-  assert.match(calls[2]?.sql ?? '', /insert into app\.member_bearer_tokens/);
-  assert.equal((calls[2]?.params?.[0] as string).length, 12);
-  assert.equal(calls[2]?.params?.[1], 'member-1');
-  assert.equal(calls[2]?.params?.[2], 'laptop');
-  assert.equal(typeof calls[2]?.params?.[3], 'string');
-  assert.notEqual(calls[2]?.params?.[3], created.bearerToken);
+  // calls[2] = token count check, calls[3] = INSERT
+  assert.match(calls[2]?.sql ?? '', /count\(\*\).*member_bearer_tokens/);
+  assert.match(calls[3]?.sql ?? '', /insert into app\.member_bearer_tokens/);
+  assert.equal((calls[3]?.params?.[0] as string).length, 12);
+  assert.equal(calls[3]?.params?.[1], 'member-1');
+  assert.equal(calls[3]?.params?.[2], 'laptop');
+  assert.equal(typeof calls[3]?.params?.[3], 'string');
+  assert.notEqual(calls[3]?.params?.[3], created.bearerToken);
 
   const revoked = await repository.revokeBearerToken({
     actorMemberId: 'member-1',
@@ -1003,6 +889,10 @@ test('postgres repository createBearerToken throws a missing_row AppError when i
 
       if (sql.includes("set_config('app.actor_member_id'")) {
         return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('count(*)') && sql.includes('member_bearer_tokens')) {
+        return { rows: [{ count: '0' }], rowCount: 1 };
       }
 
       if (sql.includes('insert into app.member_bearer_tokens')) {

@@ -57,13 +57,14 @@ describe('smoke', () => {
     const names = data.actions.map(a => a.action);
     assert.deepEqual(names, [...names].sort());
 
-    // Public schema should have exactly 36 non-superadmin actions
-    assert.equal(data.actions.length, 36, 'public schema should have 36 actions');
+    // Public schema should have exactly 38 non-superadmin actions (admissions.clubs moved to superadmin)
+    assert.equal(data.actions.length, 38, 'public schema should have 38 actions');
 
     // Verify key actions are present — including ones that were previously hidden
     assert.ok(names.includes('session.describe'), 'should include session.describe');
     assert.ok(names.includes('entities.create'), 'should include entities.create');
     assert.ok(names.includes('entities.update'), 'should include entities.update');
+    assert.ok(!names.includes('admissions.clubs'), 'admissions.clubs should NOT be in public schema');
     assert.ok(names.includes('admissions.challenge'), 'should include admissions.challenge');
     assert.ok(names.includes('updates.acknowledge'), 'should include updates.acknowledge');
     assert.ok(names.includes('memberships.list'), 'should include memberships.list');
@@ -102,13 +103,13 @@ describe('smoke', () => {
     assert.equal(status, 200);
     const fullData = fullBody.data as { actions: Array<{ action: string; auth: string }> };
 
-    // Full schema should have all 53 actions
-    assert.equal(fullData.actions.length, 53, 'full schema should have 53 actions');
-    assert.equal(publicActions.length, 36, 'public schema should have 36 actions');
+    // Full schema should have all 56 actions (admissions.clubs is now superadmin)
+    assert.equal(fullData.actions.length, 56, 'full schema should have 56 actions');
+    assert.equal(publicActions.length, 38, 'public schema should have 38 actions');
 
-    // Full schema includes superadmin actions
+    // Full schema includes superadmin actions (17 original + admissions.clubs = 18)
     const superadminActions = fullData.actions.filter(a => a.auth === 'superadmin');
-    assert.equal(superadminActions.length, 17, 'full schema should have 17 superadmin actions');
+    assert.equal(superadminActions.length, 18, 'full schema should have 18 superadmin actions');
 
     // Full schema includes clubs.* and admin.*
     const names = fullData.actions.map(a => a.action);

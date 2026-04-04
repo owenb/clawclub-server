@@ -50,11 +50,11 @@ describe('Profiles', () => {
 // ── Members Search & List ─────────────────────────────────────────────────────
 
 describe('Members Search & List', () => {
-  it('members.search finds members by name in shared clubs', async () => {
+  it('members.fullTextSearch finds members by name in shared clubs', async () => {
     const owner = await h.seedOwner('search-club', 'SearchClub');
     await h.seedClubMember(owner.club.id, 'Findable Person', 'findable-person', { sponsorId: owner.id });
 
-    const result = await h.apiOk(owner.token, 'members.search', { query: 'Findable' });
+    const result = await h.apiOk(owner.token, 'members.fullTextSearch', { query: 'Findable' });
     const data = result.data as Record<string, unknown>;
     const members = data.results as Array<Record<string, unknown>>;
 

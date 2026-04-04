@@ -1,6 +1,7 @@
 import type { Pool } from 'pg';
 import { AppError, type RedactionResult, type Repository } from '../contract.ts';
 import type { ApplyActorContext, DbClient } from './helpers.ts';
+import { appendClubActivity } from './updates.ts';
 
 type RedactionRow = {
   id: string;
@@ -204,27 +205,23 @@ export function buildRedactionsRepository({
 
         const redaction = result.rows[0]!;
 
-        // Notify all club members except actor (skipped for admin/superadmin redactions)
+        // Notify club via club_activity (skipped for admin/superadmin redactions)
         if (input.skipNotification) {
           await client.query('commit');
           return { redaction: mapRedactionRow(redaction), authorMemberId: entity.author_member_id };
         }
 
-        const recipientsResult = await client.query<{ member_id: string }>(
-          `
-            select member_id from app.accessible_club_memberships
-            where club_id = $1 and member_id <> $2::text
-          `,
-          [entity.club_id, input.actorMemberId],
-        );
-
-        await appendRedactionUpdate(client, {
+        await appendClubActivity(client, {
           clubId: entity.club_id,
-          targetKind: 'entity',
-          targetId: input.entityId,
-          redactionId: redaction.id,
+          topic: 'entity.redacted',
+          payload: {
+            kind: 'redaction',
+            targetKind: 'entity',
+            targetId: input.entityId,
+            redactionId: redaction.id,
+          },
+          entityId: input.entityId,
           createdByMemberId: input.actorMemberId,
-          recipientMemberIds: recipientsResult.rows.map((r) => r.member_id),
         });
 
         await client.query('commit');

@@ -583,10 +583,22 @@ test('RLS keeps admission challenge tables inaccessible and only permits the adm
     );
     await client.query('rollback to savepoint bad_cold_challenge_insert');
 
-    // Security definer function creates a challenge successfully
+    // Security definer: list admission-eligible clubs
+    const eligibleClubs = await client.query<{ slug: string }>(
+      `select slug from app.list_admission_eligible_clubs()`,
+    );
+
+    // Security definer: get a specific admission-eligible club
+    const eligibleClub = await client.query<{ club_id: string }>(
+      `select club_id from app.get_admission_eligible_club($1)`,
+      [fixture.club1Slug],
+    );
+
+    // Security definer: create a challenge bound to a club (new 7-param signature)
+    const clubId = eligibleClub.rows[0]?.club_id ?? fixture.club1Id;
     const createdChallenge = await client.query<{ challenge_id: string }>(
-      `select challenge_id from app.create_admission_challenge($1, $2)`,
-      [1, 60 * 60 * 1000],
+      `select challenge_id from app.create_admission_challenge($1, $2, $3, $4, $5, $6, $7)`,
+      [1, 60 * 60 * 1000, clubId, 'Test policy', 'Test Club', 'A test club', 'Owner'],
     );
 
     // Direct read of challenges table returns nothing (RLS blocks)
@@ -602,20 +614,38 @@ test('RLS keeps admission challenge tables inaccessible and only permits the adm
     );
 
     // Security definer function can read the challenge
-    const visibleChallenge = await client.query<{ challenge_id: string; difficulty: number }>(
-      `select challenge_id, difficulty from app.get_admission_challenge($1)`,
+    const visibleChallenge = await client.query<{ challenge_id: string; difficulty: number; club_id: string }>(
+      `select challenge_id, difficulty, club_id from app.get_admission_challenge($1)`,
       [createdChallenge.rows[0]?.challenge_id],
     );
 
-    // Security definer function can list publicly listed clubs
+    // Security definer function can list publicly listed clubs (unchanged)
     const publicClubs = await client.query<{ slug: string }>(
       `select slug from app.list_publicly_listed_clubs()`,
     );
 
-    // Security definer function consumes the challenge and creates an admission
+    // Security definer: count admission attempts (should be 0)
+    const attemptCount = await client.query<{ count_admission_attempts: number }>(
+      `select app.count_admission_attempts($1) as count_admission_attempts`,
+      [createdChallenge.rows[0]?.challenge_id],
+    );
+
+    // Security definer: record an admission attempt
+    await client.query(
+      `select app.record_admission_attempt($1, $2, $3, $4, $5, $6::jsonb, $7::app.quality_gate_status, $8, $9)`,
+      [createdChallenge.rows[0]?.challenge_id, clubId, 1, 'Test Applicant', 'test@example.com', '{"socials":"@test","application":"testing"}', 'rejected', 'Missing city.', 'Test policy'],
+    );
+
+    // Security definer: check club admission eligible
+    const clubEligible = await client.query<{ eligible: boolean }>(
+      `select eligible from app.check_club_admission_eligible($1)`,
+      [clubId],
+    );
+
+    // Security definer function consumes the challenge and creates an admission (new 4-param signature)
     const consumedChallenge = await client.query<{ admission_id: string }>(
-      `select admission_id from app.consume_admission_challenge($1, $2, $3, $4, $5::jsonb)`,
-      [createdChallenge.rows[0]?.challenge_id, fixture.club1Slug, 'Seeded Applicant', 'seeded@example.com', '{"socials":"@seeded","reason":"testing"}'],
+      `select admission_id from app.consume_admission_challenge($1, $2, $3, $4::jsonb)`,
+      [createdChallenge.rows[0]?.challenge_id, 'Seeded Applicant', 'seeded@example.com', '{"socials":"@seeded","application":"testing"}'],
     );
 
     // Direct read of admissions table returns nothing (RLS blocks)
@@ -624,14 +654,25 @@ test('RLS keeps admission challenge tables inaccessible and only permits the adm
       [consumedChallenge.rows[0]?.admission_id],
     );
 
+    // Direct read of admission_attempts returns nothing (RLS blocks)
+    const hiddenAttempts = await client.query<{ visible_count: string }>(
+      `select count(*)::text as visible_count from app.admission_attempts where challenge_id = $1`,
+      [createdChallenge.rows[0]?.challenge_id],
+    );
+
     assert.equal(typeof createdChallenge.rows[0]?.challenge_id, 'string');
     assert.equal(typeof consumedChallenge.rows[0]?.admission_id, 'string');
     assert.equal(hiddenChallenge.rows[0]?.visible_count, '0');
     assert.equal(blockedDelete.rowCount, 0);
     assert.equal(visibleChallenge.rows[0]?.challenge_id, createdChallenge.rows[0]?.challenge_id);
     assert.equal(visibleChallenge.rows[0]?.difficulty, 1);
+    assert.equal(visibleChallenge.rows[0]?.club_id, clubId);
     assert.ok(publicClubs.rows.length >= 0);
+    assert.ok(eligibleClubs.rows.length >= 0);
+    assert.equal(attemptCount.rows[0]?.count_admission_attempts, 0);
+    assert.ok(typeof clubEligible.rows[0]?.eligible === 'boolean');
     assert.equal(hiddenInsertedApplication.rows[0]?.visible_count, '0');
+    assert.equal(hiddenAttempts.rows[0]?.visible_count, '0');
   });
 });
 
@@ -640,15 +681,15 @@ test('outsider acceptance via create_member_from_admission creates member, conta
     const fixture = await seedRlsFixture(client);
     await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
 
-    // Create an admission as the admission definer
+    // Create an admission as the admission definer (new club-bound signatures)
     await client.query(`select set_config('app.actor_member_id', '', true)`);
     const createdChallenge = await client.query<{ challenge_id: string }>(
-      `select challenge_id from app.create_admission_challenge($1, $2)`,
-      [1, 60 * 60 * 1000],
+      `select challenge_id from app.create_admission_challenge($1, $2, $3, $4, $5, $6, $7)`,
+      [1, 60 * 60 * 1000, fixture.club1Id, 'Test policy', 'Test Club', 'A test club', 'Owner'],
     );
     const consumed = await client.query<{ admission_id: string }>(
-      `select admission_id from app.consume_admission_challenge($1, $2, $3, $4, $5::jsonb)`,
-      [createdChallenge.rows[0]!.challenge_id, fixture.club1Slug, 'Jane Outsider', 'jane@example.com', '{"socials":"@jane","reason":"Want to join"}'],
+      `select admission_id from app.consume_admission_challenge($1, $2, $3, $4::jsonb)`,
+      [createdChallenge.rows[0]!.challenge_id, 'Jane Outsider', 'jane@example.com', '{"socials":"@jane","application":"Want to join"}'],
     );
     const admissionId = consumed.rows[0]!.admission_id;
 

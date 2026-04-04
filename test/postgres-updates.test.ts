@@ -1,20 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildUpdatesRepository } from '../src/postgres/updates.ts';
+import { buildUpdatesRepository, encodeUpdatesCursor, decodeUpdatesCursor } from '../src/postgres/updates.ts';
 
 test('postgres updates repository lists pending updates with a cursor', async () => {
-  const calls: Array<{ sql: string; params?: unknown[] }> = [];
-
   const client = {
-    async query(sql: string, params?: unknown[]) {
-      calls.push({ sql, params });
-
+    async query(sql: string, _params?: unknown[]) {
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') {
         return { rows: [], rowCount: 0 };
       }
 
       if (sql.includes("set_config('app.actor_member_id'")) {
         return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
+      }
+
+      if (sql.includes('from app.club_activity ca')) {
+        return { rows: [], rowCount: 0 };
       }
 
       if (sql.includes('from app.pending_member_updates pmu')) {
@@ -52,17 +52,20 @@ test('postgres updates repository lists pending updates with a cursor', async ()
     },
   });
 
+  const afterCursor = encodeUpdatesCursor({ a: 0, i: 4 });
   const updates = await repository.listMemberUpdates?.({
     actorMemberId: 'member-1',
+    clubIds: ['club-1'],
     limit: 5,
-    after: 4,
+    after: afterCursor,
   });
 
   assert.equal(updates?.items[0]?.updateId, 'update-1');
   assert.equal(updates?.items[0]?.streamSeq, 7);
-  assert.equal(updates?.nextAfter, 7);
   assert.equal(updates?.polledAt, '2026-03-14T11:05:00Z');
-  assert.deepEqual(calls[2]?.params, ['member-1', 4, 5]);
+  assert.ok(updates?.nextAfter);
+  const nextCursor = decodeUpdatesCursor(updates!.nextAfter!);
+  assert.equal(nextCursor.i, 7);
 });
 
 test('postgres updates repository acknowledges updates idempotently', async () => {

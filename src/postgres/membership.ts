@@ -3,7 +3,6 @@ import {
   AppError,
   type CreateMembershipInput,
   type CreateVouchInput,
-  type MemberSearchResult,
   type MembershipAdminSummary,
   type MembershipReviewSummary,
   type MembershipState,
@@ -14,22 +13,7 @@ import {
   type TransitionMembershipInput,
 } from '../contract.ts';
 import { buildAdmissionWorkflowRepository } from './admissions.ts';
-import { buildContainsLikePattern, normalizeSearchQuery } from './search.ts';
 import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
-
-type SearchRow = {
-  member_id: string;
-  public_name: string;
-  display_name: string;
-  handle: string | null;
-  tagline: string | null;
-  summary: string | null;
-  what_i_do: string | null;
-  known_for: string | null;
-  services_summary: string | null;
-  website_url: string | null;
-  shared_clubs: Array<{ id: string; slug: string; name: string }> | null;
-};
 
 type MembershipVouchRow = {
   edge_id: string;
@@ -82,66 +66,6 @@ type MemberListRow = {
   memberships: MembershipSummary[] | null;
 };
 
-function normalizeSearchText(value: string | null | undefined): string {
-  return (value ?? '').trim().toLowerCase();
-}
-
-function tokenizeSearchQuery(query: string): string[] {
-  return [...new Set(
-    normalizeSearchText(query)
-      .split(/[^a-z0-9]+/)
-      .filter((token) => token.length > 0),
-  )];
-}
-
-function scoreMemberSearchRow(row: SearchRow, query: string, tokens: string[]): number {
-  const normalizedQuery = normalizeSearchText(query);
-  const publicName = normalizeSearchText(row.public_name);
-  const displayName = normalizeSearchText(row.display_name);
-  const handle = normalizeSearchText(row.handle);
-  const tagline = normalizeSearchText(row.tagline);
-  const summary = normalizeSearchText(row.summary);
-  const whatIDo = normalizeSearchText(row.what_i_do);
-  const knownFor = normalizeSearchText(row.known_for);
-  const servicesSummary = normalizeSearchText(row.services_summary);
-
-  const primaryFields = [displayName, publicName, handle];
-  const secondaryFields = [tagline, whatIDo, knownFor, servicesSummary, summary];
-
-  let score = 0;
-
-  for (const field of primaryFields) {
-    if (!field) continue;
-    if (field === normalizedQuery) score += 120;
-    else if (field.startsWith(normalizedQuery)) score += 80;
-    else if (field.includes(normalizedQuery)) score += 40;
-  }
-
-  for (const field of secondaryFields) {
-    if (!field) continue;
-    if (field === normalizedQuery) score += 40;
-    else if (field.startsWith(normalizedQuery)) score += 24;
-    else if (field.includes(normalizedQuery)) score += 12;
-  }
-
-  for (const token of tokens) {
-    for (const field of primaryFields) {
-      if (!field) continue;
-      if (field === token) score += 36;
-      else if (field.startsWith(token)) score += 20;
-      else if (field.includes(token)) score += 10;
-    }
-
-    for (const field of secondaryFields) {
-      if (!field) continue;
-      if (field === token) score += 12;
-      else if (field.startsWith(token)) score += 8;
-      else if (field.includes(token)) score += 4;
-    }
-  }
-
-  return score;
-}
 
 function mapMembershipVouchRow(row: MembershipVouchRow): MembershipVouchSummary {
   return {
@@ -302,6 +226,41 @@ async function readMembershipReviews(client: DbClient, input: {
 
   const result = await client.query<MembershipReviewRow>(
     `
+      with sponsor_stats as (
+        select
+          sponsored.sponsor_member_id,
+          sponsored.club_id,
+          count(*) filter (where sponsored.status = 'active')::int as active_sponsored_count,
+          count(*) filter (where date_trunc('month', sponsored.joined_at) = date_trunc('month', now()))::int as sponsored_this_month_count
+        from app.current_club_memberships sponsored
+        where sponsored.club_id = any($1::app.short_id[])
+          and sponsored.sponsor_member_id is not null
+        group by sponsored.sponsor_member_id, sponsored.club_id
+      ),
+      vouch_agg as (
+        select
+          e.club_id,
+          e.to_member_id,
+          jsonb_agg(
+            jsonb_build_object(
+              'edge_id', e.id,
+              'from_member_id', fm.id,
+              'from_public_name', fm.public_name,
+              'from_handle', fm.handle,
+              'reason', e.reason,
+              'metadata', e.metadata,
+              'created_at', e.created_at::text,
+              'created_by_member_id', e.created_by_member_id
+            )
+            order by e.created_at desc, e.id desc
+          ) as vouches
+        from app.edges e
+        join app.members fm on fm.id = e.from_member_id
+        where e.club_id = any($1::app.short_id[])
+          and e.kind = 'vouched_for'
+          and e.archived_at is null
+        group by e.club_id, e.to_member_id
+      )
       select
         cnm.id as membership_id,
         cnm.club_id,
@@ -320,41 +279,14 @@ async function readMembershipReviews(client: DbClient, input: {
         cnm.joined_at::text as joined_at,
         cnm.accepted_covenant_at::text as accepted_covenant_at,
         cnm.metadata,
-        coalesce(sponsor_stats.active_sponsored_count, 0) as sponsor_active_sponsored_count,
-        coalesce(sponsor_stats.sponsored_this_month_count, 0) as sponsor_sponsored_this_month_count,
-        coalesce(vouches.vouches, '[]'::jsonb) as vouches
+        coalesce(ss.active_sponsored_count, 0) as sponsor_active_sponsored_count,
+        coalesce(ss.sponsored_this_month_count, 0) as sponsor_sponsored_this_month_count,
+        coalesce(va.vouches, '[]'::jsonb) as vouches
       from app.current_club_memberships cnm
       join app.members m on m.id = cnm.member_id
       left join app.members sponsor on sponsor.id = cnm.sponsor_member_id
-      left join lateral (
-        select
-          count(*) filter (where sponsored.status = 'active')::int as active_sponsored_count,
-          count(*) filter (where date_trunc('month', sponsored.joined_at) = date_trunc('month', now()))::int as sponsored_this_month_count
-        from app.current_club_memberships sponsored
-        where sponsored.club_id = cnm.club_id
-          and sponsored.sponsor_member_id = cnm.sponsor_member_id
-      ) sponsor_stats on cnm.sponsor_member_id is not null
-      left join lateral (
-        select jsonb_agg(
-          jsonb_build_object(
-            'edge_id', e.id,
-            'from_member_id', fm.id,
-            'from_public_name', fm.public_name,
-            'from_handle', fm.handle,
-            'reason', e.reason,
-            'metadata', e.metadata,
-            'created_at', e.created_at::text,
-            'created_by_member_id', e.created_by_member_id
-          )
-          order by e.created_at desc, e.id desc
-        ) as vouches
-        from app.edges e
-        join app.members fm on fm.id = e.from_member_id
-        where e.club_id = cnm.club_id
-          and e.kind = 'vouched_for'
-          and e.to_member_id = cnm.member_id
-          and e.archived_at is null
-      ) vouches on true
+      left join sponsor_stats ss on ss.sponsor_member_id = cnm.sponsor_member_id and ss.club_id = cnm.club_id
+      left join vouch_agg va on va.to_member_id = cnm.member_id and va.club_id = cnm.club_id
       where cnm.club_id = any($1::app.short_id[])
         and cnm.status = any($2::app.membership_state[])
       order by cnm.club_id asc, cnm.state_created_at desc, cnm.id asc
@@ -364,112 +296,6 @@ async function readMembershipReviews(client: DbClient, input: {
   );
 
   return result.rows.map(mapMembershipReviewRow);
-}
-
-async function readMemberSearch(client: DbClient, input: {
-  clubIds: string[];
-  query: string;
-  limit: number;
-}): Promise<MemberSearchResult[]> {
-  if (input.clubIds.length === 0) {
-    return [];
-  }
-
-  const trimmedQuery = normalizeSearchQuery(input.query);
-  if (trimmedQuery === null) {
-    throw new AppError(400, 'invalid_input', 'query must be a non-empty string');
-  }
-  const tokens = tokenizeSearchQuery(trimmedQuery);
-  const likePattern = buildContainsLikePattern(trimmedQuery);
-  const candidateLimit = Math.min(Math.max(input.limit * 5, 25), 100);
-
-  const result = await client.query<SearchRow>(
-    `
-      with scope as (
-        select unnest($1::text[])::app.short_id as club_id
-      ),
-      tokens as (
-        select unnest($3::text[]) as token
-      )
-      select
-        m.id as member_id,
-        m.public_name,
-        coalesce(cmp.display_name, m.public_name) as display_name,
-        m.handle,
-        cmp.tagline,
-        cmp.summary,
-        cmp.what_i_do,
-        cmp.known_for,
-        cmp.services_summary,
-        cmp.website_url,
-        jsonb_agg(distinct jsonb_build_object('id', n.id, 'slug', n.slug, 'name', n.name))
-          filter (where n.id is not null) as shared_clubs
-      from scope s
-      join app.accessible_club_memberships anm on anm.club_id = s.club_id
-      join app.members m on m.id = anm.member_id and m.state = 'active'
-      left join app.current_member_profiles cmp on cmp.member_id = m.id
-      join app.clubs n on n.id = anm.club_id and n.archived_at is null
-      where (
-        m.public_name ilike $2 escape '\\'
-        or coalesce(cmp.display_name, '') ilike $2 escape '\\'
-        or coalesce(m.handle, '') ilike $2 escape '\\'
-        or coalesce(cmp.tagline, '') ilike $2 escape '\\'
-        or coalesce(cmp.summary, '') ilike $2 escape '\\'
-        or coalesce(cmp.what_i_do, '') ilike $2 escape '\\'
-        or coalesce(cmp.known_for, '') ilike $2 escape '\\'
-        or coalesce(cmp.services_summary, '') ilike $2 escape '\\'
-      )
-        and not exists (
-          select 1
-          from tokens t
-          where not (
-            m.public_name ilike '%' || t.token || '%'
-            or coalesce(cmp.display_name, '') ilike '%' || t.token || '%'
-            or coalesce(m.handle, '') ilike '%' || t.token || '%'
-            or coalesce(cmp.tagline, '') ilike '%' || t.token || '%'
-            or coalesce(cmp.summary, '') ilike '%' || t.token || '%'
-            or coalesce(cmp.what_i_do, '') ilike '%' || t.token || '%'
-            or coalesce(cmp.known_for, '') ilike '%' || t.token || '%'
-            or coalesce(cmp.services_summary, '') ilike '%' || t.token || '%'
-          )
-        )
-      group by
-        m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline, cmp.summary,
-        cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
-      order by display_name asc, m.id asc
-      limit $4
-    `,
-    [input.clubIds, likePattern, tokens, candidateLimit],
-  );
-
-  return result.rows
-    .map((row) => ({ row, score: scoreMemberSearchRow(row, trimmedQuery, tokens) }))
-    .sort((left, right) => {
-      if (right.score !== left.score) {
-        return right.score - left.score;
-      }
-
-      const displayNameComparison = left.row.display_name.localeCompare(right.row.display_name, 'en', { sensitivity: 'base' });
-      if (displayNameComparison !== 0) {
-        return displayNameComparison;
-      }
-
-      return left.row.member_id.localeCompare(right.row.member_id, 'en', { sensitivity: 'base' });
-    })
-    .slice(0, input.limit)
-    .map(({ row }) => ({
-      memberId: row.member_id,
-      publicName: row.public_name,
-      displayName: row.display_name,
-      handle: row.handle,
-      tagline: row.tagline,
-      summary: row.summary,
-      whatIDo: row.what_i_do,
-      knownFor: row.known_for,
-      servicesSummary: row.services_summary,
-      websiteUrl: row.website_url,
-      sharedClubs: row.shared_clubs ?? [],
-    }));
 }
 
 async function readMembers(client: DbClient, input: {
@@ -542,9 +368,9 @@ export function buildMembershipRepository({
   | 'createMembership'
   | 'transitionMembershipState'
   | 'transitionAdmission'
+  | 'listPubliclyVisibleClubs'
   | 'issueAdmissionAccess'
   | 'createAdmissionSponsorship'
-  | 'searchMembers'
   | 'listMembers'
   | 'createVouch'
   | 'listVouches'
@@ -778,10 +604,6 @@ export function buildMembershipRepository({
       } finally {
         client.release();
       }
-    },
-
-    async searchMembers({ actorMemberId, clubIds, query, limit }): Promise<MemberSearchResult[]> {
-      return withActorContext(pool, actorMemberId, clubIds, (client) => readMemberSearch(client, { clubIds, query, limit }));
     },
 
     async listMembers({ actorMemberId, clubIds, limit }) {

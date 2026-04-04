@@ -3,17 +3,17 @@
     {
       "action": "admissions.apply",
       "auth": "none",
-      "description": "Submit a solved proof-of-work challenge to create a cold admission.",
+      "description": "Submit a solved proof-of-work challenge with an application.",
       "domain": "cold-admissions",
       "input": {
         "properties": {
-          "challengeId": {
-            "description": "Challenge ID from admissions.challenge",
-            "maxLength": 500,
+          "application": {
+            "description": "Your application — include all information requested by the club's admission policy",
+            "maxLength": 4000,
             "type": "string"
           },
-          "clubSlug": {
-            "description": "Slug of the club to apply to",
+          "challengeId": {
+            "description": "Challenge ID from admissions.challenge",
             "maxLength": 500,
             "type": "string"
           },
@@ -32,11 +32,6 @@
             "maxLength": 500,
             "type": "string"
           },
-          "reason": {
-            "description": "Why do you want to join?",
-            "maxLength": 500,
-            "type": "string"
-          },
           "socials": {
             "description": "Social media handles or URLs",
             "maxLength": 500,
@@ -46,35 +41,96 @@
         "required": [
           "challengeId",
           "nonce",
-          "clubSlug",
           "name",
           "email",
           "socials",
-          "reason"
+          "application"
         ],
         "type": "object"
       },
       "output": {
-        "additionalProperties": false,
-        "properties": {
-          "message": {
-            "type": "string"
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "accepted"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "message"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "attemptsRemaining": {
+                "type": "number"
+              },
+              "feedback": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "needs_revision"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "feedback",
+              "attemptsRemaining"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "attempts_exhausted"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "message"
+            ],
+            "type": "object"
           }
-        },
-        "required": [
-          "message"
-        ],
-        "type": "object"
+        ]
       },
       "safety": "mutating"
     },
     {
       "action": "admissions.challenge",
       "auth": "none",
-      "description": "Request a proof-of-work challenge for a cold admission.",
+      "description": "Request a proof-of-work challenge bound to a specific club.",
       "domain": "cold-admissions",
       "input": {
-        "properties": {},
+        "properties": {
+          "clubSlug": {
+            "description": "Slug of the club to apply to",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubSlug"
+        ],
         "type": "object"
       },
       "output": {
@@ -83,51 +139,51 @@
           "challengeId": {
             "type": "string"
           },
-          "clubs": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "name": {
-                  "type": "string"
-                },
-                "ownerEmail": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "ownerName": {
-                  "type": "string"
-                },
-                "slug": {
-                  "type": "string"
-                },
-                "summary": {
-                  "nullable": true,
-                  "type": "string"
-                }
+          "club": {
+            "additionalProperties": false,
+            "properties": {
+              "admissionPolicy": {
+                "type": "string"
               },
-              "required": [
-                "slug",
-                "name",
-                "summary",
-                "ownerName",
-                "ownerEmail"
-              ],
-              "type": "object"
+              "name": {
+                "type": "string"
+              },
+              "ownerName": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "summary": {
+                "nullable": true,
+                "type": "string"
+              }
             },
-            "type": "array"
+            "required": [
+              "slug",
+              "name",
+              "summary",
+              "ownerName",
+              "admissionPolicy"
+            ],
+            "type": "object"
           },
           "difficulty": {
             "type": "number"
           },
           "expiresAt": {
             "type": "string"
+          },
+          "maxAttempts": {
+            "type": "number"
           }
         },
         "required": [
           "challengeId",
           "difficulty",
           "expiresAt",
-          "clubs"
+          "maxAttempts",
+          "club"
         ],
         "type": "object"
       },
@@ -920,7 +976,7 @@
               },
               "bookingUrl": {
                 "$ref": "#/properties/notes",
-                "description": "Optional. Empty strings are treated as null."
+                "description": "Optional, max 500 000 characters. Empty strings are treated as null."
               },
               "completedAt": {
                 "$ref": "#/properties/intake/properties/bookingUrl"
@@ -959,6 +1015,7 @@
           },
           "notes": {
             "description": "Notes for the transition",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           },
@@ -1263,40 +1320,6 @@
                   "effectiveAt": {
                     "type": "string"
                   },
-                  "embedding": {
-                    "additionalProperties": false,
-                    "nullable": true,
-                    "properties": {
-                      "createdAt": {
-                        "type": "string"
-                      },
-                      "dimensions": {
-                        "type": "number"
-                      },
-                      "embeddingId": {
-                        "type": "string"
-                      },
-                      "metadata": {
-                        "additionalProperties": {},
-                        "type": "object"
-                      },
-                      "model": {
-                        "type": "string"
-                      },
-                      "sourceText": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "embeddingId",
-                      "model",
-                      "dimensions",
-                      "sourceText",
-                      "metadata",
-                      "createdAt"
-                    ],
-                    "type": "object"
-                  },
                   "expiresAt": {
                     "nullable": true,
                     "type": "string"
@@ -1330,8 +1353,7 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
-                  "embedding"
+                  "content"
                 ],
                 "type": "object"
               }
@@ -1396,6 +1418,7 @@
           },
           "title": {
             "description": "Title",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           }
@@ -1471,40 +1494,6 @@
                   "effectiveAt": {
                     "type": "string"
                   },
-                  "embedding": {
-                    "additionalProperties": false,
-                    "nullable": true,
-                    "properties": {
-                      "createdAt": {
-                        "type": "string"
-                      },
-                      "dimensions": {
-                        "type": "number"
-                      },
-                      "embeddingId": {
-                        "type": "string"
-                      },
-                      "metadata": {
-                        "additionalProperties": {},
-                        "type": "object"
-                      },
-                      "model": {
-                        "type": "string"
-                      },
-                      "sourceText": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "embeddingId",
-                      "model",
-                      "dimensions",
-                      "sourceText",
-                      "metadata",
-                      "createdAt"
-                    ],
-                    "type": "object"
-                  },
                   "expiresAt": {
                     "nullable": true,
                     "type": "string"
@@ -1538,8 +1527,7 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
-                  "embedding"
+                  "content"
                 ],
                 "type": "object"
               }
@@ -1562,6 +1550,236 @@
         "type": "object"
       },
       "safety": "mutating"
+    },
+    {
+      "action": "entities.findViaEmbedding",
+      "auth": "member",
+      "description": "Find entities by natural-language query using embedding similarity.",
+      "domain": "entities",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Restrict to one club",
+            "type": "string"
+          },
+          "kinds": {
+            "description": "Filter by entity kinds",
+            "items": {
+              "enum": [
+                "post",
+                "opportunity",
+                "service",
+                "ask"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "type": "integer"
+          },
+          "query": {
+            "description": "Natural-language search query (max 1000 chars)",
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "clubScope": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "type": "string"
+                },
+                "joinedAt": {
+                  "type": "string"
+                },
+                "membershipId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "enum": [
+                    "owner",
+                    "admin",
+                    "member"
+                  ],
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "sponsorMemberId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "active"
+                  ],
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "membershipId",
+                "clubId",
+                "slug",
+                "name",
+                "summary",
+                "role",
+                "status",
+                "sponsorMemberId",
+                "joinedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "query": {
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "author": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "clubId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "entityId": {
+                  "type": "string"
+                },
+                "entityVersionId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "post",
+                    "opportunity",
+                    "service",
+                    "ask"
+                  ],
+                  "type": "string"
+                },
+                "version": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "body": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "content": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "effectiveAt": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "draft",
+                        "published",
+                        "archived"
+                      ],
+                      "type": "string"
+                    },
+                    "summary": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "title": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "versionNo": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "versionNo",
+                    "state",
+                    "title",
+                    "summary",
+                    "body",
+                    "effectiveAt",
+                    "expiresAt",
+                    "createdAt",
+                    "content"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "entityId",
+                "entityVersionId",
+                "clubId",
+                "kind",
+                "author",
+                "version",
+                "createdAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "query",
+          "limit",
+          "clubScope",
+          "results"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
     },
     {
       "action": "entities.list",
@@ -1594,6 +1812,7 @@
           },
           "query": {
             "description": "Search text",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           }
@@ -1736,40 +1955,6 @@
                     "effectiveAt": {
                       "type": "string"
                     },
-                    "embedding": {
-                      "additionalProperties": false,
-                      "nullable": true,
-                      "properties": {
-                        "createdAt": {
-                          "type": "string"
-                        },
-                        "dimensions": {
-                          "type": "number"
-                        },
-                        "embeddingId": {
-                          "type": "string"
-                        },
-                        "metadata": {
-                          "additionalProperties": {},
-                          "type": "object"
-                        },
-                        "model": {
-                          "type": "string"
-                        },
-                        "sourceText": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "embeddingId",
-                        "model",
-                        "dimensions",
-                        "sourceText",
-                        "metadata",
-                        "createdAt"
-                      ],
-                      "type": "object"
-                    },
                     "expiresAt": {
                       "nullable": true,
                       "type": "string"
@@ -1803,8 +1988,7 @@
                     "effectiveAt",
                     "expiresAt",
                     "createdAt",
-                    "content",
-                    "embedding"
+                    "content"
                   ],
                   "type": "object"
                 }
@@ -1848,6 +2032,7 @@
           },
           "reason": {
             "description": "Reason for redaction",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           }
@@ -1935,6 +2120,7 @@
           },
           "title": {
             "description": "New title",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           }
@@ -2009,40 +2195,6 @@
                   "effectiveAt": {
                     "type": "string"
                   },
-                  "embedding": {
-                    "additionalProperties": false,
-                    "nullable": true,
-                    "properties": {
-                      "createdAt": {
-                        "type": "string"
-                      },
-                      "dimensions": {
-                        "type": "number"
-                      },
-                      "embeddingId": {
-                        "type": "string"
-                      },
-                      "metadata": {
-                        "additionalProperties": {},
-                        "type": "object"
-                      },
-                      "model": {
-                        "type": "string"
-                      },
-                      "sourceText": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "embeddingId",
-                      "model",
-                      "dimensions",
-                      "sourceText",
-                      "metadata",
-                      "createdAt"
-                    ],
-                    "type": "object"
-                  },
                   "expiresAt": {
                     "nullable": true,
                     "type": "string"
@@ -2076,8 +2228,7 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
-                  "embedding"
+                  "content"
                 ],
                 "type": "object"
               }
@@ -2111,6 +2262,7 @@
         "properties": {
           "body": {
             "description": "Extended description (optional)",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           },
@@ -2415,6 +2567,7 @@
           },
           "query": {
             "description": "Search text",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           }
@@ -2731,6 +2884,7 @@
           },
           "note": {
             "description": "Optional note",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           },
@@ -2979,10 +3133,10 @@
       "safety": "mutating"
     },
     {
-      "action": "members.list",
+      "action": "members.findViaEmbedding",
       "auth": "member",
-      "description": "List members across accessible clubs.",
-      "domain": "admissions",
+      "description": "Find members by natural-language query using embedding similarity.",
+      "domain": "members",
       "input": {
         "properties": {
           "clubId": {
@@ -2992,8 +3146,16 @@
           "limit": {
             "description": "Max results (default 8). Clamped to 1–20 by the server.",
             "type": "integer"
+          },
+          "query": {
+            "description": "Natural-language search query (max 1000 chars)",
+            "maxLength": 1000,
+            "type": "string"
           }
         },
+        "required": [
+          "query"
+        ],
         "type": "object"
       },
       "output": {
@@ -3059,6 +3221,9 @@
           "limit": {
             "type": "number"
           },
+          "query": {
+            "type": "string"
+          },
           "results": {
             "items": {
               "additionalProperties": false,
@@ -3077,18 +3242,35 @@
                 "memberId": {
                   "type": "string"
                 },
-                "memberships": {
-                  "items": {
-                    "$ref": "#/properties/clubScope/items"
-                  },
-                  "type": "array"
-                },
                 "publicName": {
                   "type": "string"
                 },
                 "servicesSummary": {
                   "nullable": true,
                   "type": "string"
+                },
+                "sharedClubs": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "slug": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "slug",
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
                 },
                 "summary": {
                   "nullable": true,
@@ -3118,7 +3300,7 @@
                 "knownFor",
                 "servicesSummary",
                 "websiteUrl",
-                "memberships"
+                "sharedClubs"
               ],
               "type": "object"
             },
@@ -3126,6 +3308,7 @@
           }
         },
         "required": [
+          "query",
           "limit",
           "clubScope",
           "results"
@@ -3135,10 +3318,10 @@
       "safety": "read_only"
     },
     {
-      "action": "members.search",
+      "action": "members.fullTextSearch",
       "auth": "member",
-      "description": "Search members across accessible clubs.",
-      "domain": "admissions",
+      "description": "Full-text search for members across accessible clubs using PostgreSQL FTS.",
+      "domain": "members",
       "input": {
         "properties": {
           "clubId": {
@@ -3319,6 +3502,162 @@
       "safety": "read_only"
     },
     {
+      "action": "members.list",
+      "auth": "member",
+      "description": "List members across accessible clubs.",
+      "domain": "members",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Restrict to one club",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "clubScope": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "type": "string"
+                },
+                "joinedAt": {
+                  "type": "string"
+                },
+                "membershipId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "enum": [
+                    "owner",
+                    "admin",
+                    "member"
+                  ],
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "sponsorMemberId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "active"
+                  ],
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "membershipId",
+                "clubId",
+                "slug",
+                "name",
+                "summary",
+                "role",
+                "status",
+                "sponsorMemberId",
+                "joinedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "results": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "displayName": {
+                  "type": "string"
+                },
+                "handle": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "knownFor": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "memberId": {
+                  "type": "string"
+                },
+                "memberships": {
+                  "items": {
+                    "$ref": "#/properties/clubScope/items"
+                  },
+                  "type": "array"
+                },
+                "publicName": {
+                  "type": "string"
+                },
+                "servicesSummary": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "tagline": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "websiteUrl": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "whatIDo": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "memberId",
+                "publicName",
+                "displayName",
+                "handle",
+                "tagline",
+                "summary",
+                "whatIDo",
+                "knownFor",
+                "servicesSummary",
+                "websiteUrl",
+                "memberships"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "limit",
+          "clubScope",
+          "results"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
       "action": "memberships.create",
       "auth": "owner",
       "authorizationNote": "Requires club ownership.",
@@ -3351,6 +3690,7 @@
           },
           "reason": {
             "description": "Reason for creation",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           },
@@ -4002,6 +4342,7 @@
           },
           "reason": {
             "description": "Reason for transition",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           },
@@ -4732,6 +5073,7 @@
           },
           "reason": {
             "description": "Reason for redaction",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           }
@@ -4801,7 +5143,7 @@
           },
           "messageText": {
             "description": "Message text",
-            "maxLength": 5000,
+            "maxLength": 500000,
             "type": "string"
           },
           "recipientMemberId": {
@@ -4954,40 +5296,6 @@
                 "nullable": true,
                 "type": "string"
               },
-              "embedding": {
-                "additionalProperties": false,
-                "nullable": true,
-                "properties": {
-                  "createdAt": {
-                    "type": "string"
-                  },
-                  "dimensions": {
-                    "type": "number"
-                  },
-                  "embeddingId": {
-                    "type": "string"
-                  },
-                  "metadata": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
-                  "model": {
-                    "type": "string"
-                  },
-                  "sourceText": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "embeddingId",
-                  "model",
-                  "dimensions",
-                  "sourceText",
-                  "metadata",
-                  "createdAt"
-                ],
-                "type": "object"
-              },
               "id": {
                 "nullable": true,
                 "type": "string"
@@ -5001,8 +5309,7 @@
               "id",
               "versionNo",
               "createdAt",
-              "createdByMemberId",
-              "embedding"
+              "createdByMemberId"
             ],
             "type": "object"
           },
@@ -5076,6 +5383,7 @@
           },
           "tagline": {
             "description": "Short tagline",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           },
@@ -5164,40 +5472,6 @@
                 "nullable": true,
                 "type": "string"
               },
-              "embedding": {
-                "additionalProperties": false,
-                "nullable": true,
-                "properties": {
-                  "createdAt": {
-                    "type": "string"
-                  },
-                  "dimensions": {
-                    "type": "number"
-                  },
-                  "embeddingId": {
-                    "type": "string"
-                  },
-                  "metadata": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
-                  "model": {
-                    "type": "string"
-                  },
-                  "sourceText": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "embeddingId",
-                  "model",
-                  "dimensions",
-                  "sourceText",
-                  "metadata",
-                  "createdAt"
-                ],
-                "type": "object"
-              },
               "id": {
                 "nullable": true,
                 "type": "string"
@@ -5211,8 +5485,7 @@
               "id",
               "versionNo",
               "createdAt",
-              "createdByMemberId",
-              "embedding"
+              "createdByMemberId"
             ],
             "type": "object"
           },
@@ -5325,6 +5598,7 @@
           },
           "label": {
             "description": "Human-readable label",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           },
@@ -5554,6 +5828,7 @@
           },
           "suppressionReason": {
             "description": "Reason for suppression",
+            "maxLength": 500000,
             "nullable": true,
             "type": "string"
           },
@@ -5649,9 +5924,9 @@
       "input": {
         "properties": {
           "after": {
-            "description": "Stream sequence cursor (null or omit to start from beginning)",
+            "description": "Opaque cursor from previous response (null or omit to start from beginning)",
             "nullable": true,
-            "type": "integer"
+            "type": "string"
           },
           "limit": {
             "description": "Max results (default 8). Clamped to 1–20 by the server.",
@@ -5699,6 +5974,13 @@
                     "recipientMemberId": {
                       "type": "string"
                     },
+                    "source": {
+                      "enum": [
+                        "activity",
+                        "inbox"
+                      ],
+                      "type": "string"
+                    },
                     "streamSeq": {
                       "type": "number"
                     },
@@ -5712,6 +5994,7 @@
                   "required": [
                     "updateId",
                     "streamSeq",
+                    "source",
                     "recipientMemberId",
                     "clubId",
                     "entityId",
@@ -5728,7 +6011,7 @@
               },
               "nextAfter": {
                 "nullable": true,
-                "type": "number"
+                "type": "string"
               },
               "polledAt": {
                 "type": "string"
@@ -5937,6 +6220,6 @@
       "safety": "read_only"
     }
   ],
-  "schemaHash": "21a8ff5bd9893f40",
+  "schemaHash": "2dee76c3ea3e9adf",
   "version": "1.0"
 }

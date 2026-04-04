@@ -2,20 +2,19 @@ import type { Pool } from 'pg';
 import type {
   ArchiveEntityInput,
   CreateEntityInput,
-  EmbeddingProjectionRow,
   EntitySummary,
   ListEntitiesInput,
   Repository,
   UpdateEntityInput,
 } from '../contract.ts';
 import { enforceQuota } from './quotas.ts';
-import { mapEmbeddingProjectionRow } from './helpers.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import { buildContainsLikePattern, buildPrefixLikePattern, normalizeSearchQuery } from './search.ts';
-import { appendEntityVersionUpdates } from './updates.ts';
+import { appendClubActivity } from './updates.ts';
+import { enqueueEmbeddingJob } from './embeddings.ts';
 import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
 
-type EntityRow = EmbeddingProjectionRow & {
+type EntityRow = {
   entity_id: string;
   entity_version_id: string;
   club_id: string;
@@ -73,7 +72,6 @@ export function mapEntityRow(row: EntityRow): EntitySummary {
       expiresAt: row.expires_at,
       createdAt: row.version_created_at,
       content: row.content ?? {},
-      embedding: mapEmbeddingProjectionRow(row),
     },
     createdAt: row.entity_created_at,
   };
@@ -146,16 +144,9 @@ export async function readEntitySummary(client: DbClient, entityId: string, enti
         cev.expires_at::text as expires_at,
         cev.created_at::text as version_created_at,
         case when rdc.id is not null then '{}'::jsonb else cev.content end as content,
-        ceve.id as embedding_id,
-        ceve.model as embedding_model,
-        ceve.dimensions as embedding_dimensions,
-        ceve.source_text as embedding_source_text,
-        ceve.metadata as embedding_metadata,
-        ceve.created_at::text as embedding_created_at,
         e.created_at::text as entity_created_at
       from app.entities e
       join app.current_entity_versions cev on cev.entity_id = e.id
-      left join app.current_entity_version_embeddings ceve on ceve.entity_version_id = cev.id
       left join app.redactions rdc on rdc.target_kind = 'entity' and rdc.target_id = e.id
       join app.members m on m.id = e.author_member_id
       where e.id = $1
@@ -208,7 +199,7 @@ export function buildEntitiesRepository({
           await readEntitySummary(client, entity.id, createdVersion.id),
           'Created entity could not be reloaded',
         );
-        await appendEntityVersionUpdates(client, {
+        await appendClubActivity(client, {
           clubId: summary.clubId,
           entityId: summary.entityId,
           entityVersionId: summary.entityVersionId,
@@ -229,6 +220,7 @@ export function buildEntitiesRepository({
             content: summary.version.content,
           }),
         });
+        await enqueueEmbeddingJob(client, 'entity', createdVersion.id);
         await client.query('commit');
         return summary;
       } catch (error) {
@@ -320,7 +312,7 @@ export function buildEntitiesRepository({
           await readEntitySummary(client, current.entity_id, nextVersion.id),
           'Updated entity could not be reloaded',
         );
-        await appendEntityVersionUpdates(client, {
+        await appendClubActivity(client, {
           clubId: summary.clubId,
           entityId: summary.entityId,
           entityVersionId: summary.entityVersionId,
@@ -341,6 +333,7 @@ export function buildEntitiesRepository({
             content: summary.version.content,
           }),
         });
+        await enqueueEmbeddingJob(client, 'entity', nextVersion.id);
         await client.query('commit');
         return summary;
       } catch (error) {
@@ -451,11 +444,10 @@ export function buildEntitiesRepository({
             expiresAt: current.expires_at,
             createdAt: archivedAt,
             content: current.content ?? {},
-            embedding: null,
           },
           createdAt: current.entity_created_at,
         };
-        await appendEntityVersionUpdates(client, {
+        await appendClubActivity(client, {
           clubId: summary.clubId,
           entityId: summary.entityId,
           entityVersionId: summary.entityVersionId,
@@ -514,16 +506,9 @@ export function buildEntitiesRepository({
               le.expires_at::text as expires_at,
               le.version_created_at::text as version_created_at,
               le.content,
-              ceve.id as embedding_id,
-              ceve.model as embedding_model,
-              ceve.dimensions as embedding_dimensions,
-              ceve.source_text as embedding_source_text,
-              ceve.metadata as embedding_metadata,
-              ceve.created_at::text as embedding_created_at,
               le.entity_created_at::text as entity_created_at
             from scope s
             join app.live_entities le on le.club_id = s.club_id
-            left join app.current_entity_version_embeddings ceve on ceve.entity_version_id = le.entity_version_id
             join app.members m on m.id = le.author_member_id
             where le.kind = any($2::app.entity_kind[])
               and not exists (

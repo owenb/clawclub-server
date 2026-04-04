@@ -30,7 +30,7 @@ type UpdatesResponse = {
   };
   updates: {
     items: unknown[];
-    nextAfter: number | null;
+    nextAfter: string | null;
     polledAt: string;
   };
 };
@@ -147,7 +147,7 @@ async function postAction(baseUrl: string, bearerToken: string, action: string, 
     method: 'POST',
     headers: {
       authorization: `Bearer ${bearerToken}`,
-      'content-type': 'admission/json',
+      'content-type': 'application/json',
     },
     body: JSON.stringify({ action, input }),
   });
@@ -202,7 +202,7 @@ export async function runHttpSmoke(): Promise<{
   const runtimeDatabaseUrl = requireRuntimeDatabaseUrl();
   const setupPool = new Pool({ connectionString: getSetupDatabaseUrl(runtimeDatabaseUrl) });
   const memberHandle = readSmokeHandle();
-  const actions = ['GET /updates', 'GET /updates/stream', 'session.describe', 'members.search', 'profile.get', 'messages.inbox', 'entities.list', 'events.list'];
+  const actions = ['GET /updates', 'GET /updates/stream', 'session.describe', 'members.fullTextSearch', 'profile.get', 'messages.inbox', 'entities.list', 'events.list'];
   let tokenId: string | null = null;
   let shutdown: (() => Promise<void>) | null = null;
 
@@ -224,7 +224,7 @@ export async function runHttpSmoke(): Promise<{
     const updates = await getUpdates(baseUrl, token.bearerToken, 5);
     assert.equal(updates.member.id, memberId);
     assert.ok(Array.isArray(updates.updates.items), 'GET /updates should return an items array');
-    assert.ok(updates.updates.nextAfter === null || Number.isInteger(updates.updates.nextAfter), 'GET /updates should return a numeric nextAfter cursor when present');
+    assert.ok(updates.updates.nextAfter === null || typeof updates.updates.nextAfter === 'string', 'GET /updates should return a string nextAfter cursor when present');
     assert.equal(typeof updates.updates.polledAt, 'string');
     assert.ok(updates.requestScope.activeClubIds.includes(clubId), 'GET /updates should reflect actor club scope');
 
@@ -232,12 +232,12 @@ export async function runHttpSmoke(): Promise<{
 
     const memberQuery = session.actor.member.handle ?? session.actor.member.publicName.split(/\s+/)[0] ?? memberHandle;
 
-    const members = await postAction(baseUrl, token.bearerToken, 'members.search', {
+    const members = await postAction(baseUrl, token.bearerToken, 'members.fullTextSearch', {
       query: memberQuery,
       clubId,
       limit: 5,
     });
-    assert.ok(Array.isArray(members.data?.results), 'members.search should return a results array');
+    assert.ok(Array.isArray(members.data?.results), 'members.fullTextSearch should return a results array');
 
     const profile = await postAction(baseUrl, token.bearerToken, 'profile.get', {});
     assert.equal(profile.data?.memberId, memberId);

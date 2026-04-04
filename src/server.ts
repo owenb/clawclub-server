@@ -3,7 +3,7 @@ import type net from 'node:net';
 import { URL } from 'node:url';
 import { Pool } from 'pg';
 import { AppError, type Repository } from './contract.ts';
-import { buildDispatcher } from './dispatch.ts';
+import { buildDispatcher, type QualityGateFn } from './dispatch.ts';
 import { getAction } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
@@ -147,21 +147,22 @@ function normalizeUpdatesLimit(value: string | null): number {
   return Math.min(Math.max(parsed, 1), 20);
 }
 
-function normalizeUpdatesAfter(value: string | null): number | 'latest' | null {
+function normalizeUpdatesAfter(value: string | null): string | 'latest' | null {
   if (value === null || value.trim().length === 0) {
     return null;
   }
 
-  if (value.trim().toLowerCase() === 'latest') {
+  const trimmed = value.trim();
+  if (trimmed.toLowerCase() === 'latest') {
     return 'latest';
   }
 
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new AppError(400, 'invalid_input', 'after must be a non-negative integer or "latest"');
+  // Validate that it looks like a base64url-encoded cursor
+  if (!/^[A-Za-z0-9_-]+={0,2}$/.test(trimmed)) {
+    throw new AppError(400, 'invalid_input', 'after must be a valid cursor string or "latest"');
   }
 
-  return parsed;
+  return trimmed;
 }
 
 function writeJson(response: http.ServerResponse, statusCode: number, payload: unknown) {
@@ -171,10 +172,10 @@ function writeJson(response: http.ServerResponse, statusCode: number, payload: u
     pragma: 'no-cache',
     'x-content-type-options': 'nosniff',
   });
-  response.end(JSON.stringify(payload, null, 2));
+  response.end(JSON.stringify(payload));
 }
 
-function writeSseEvent(response: http.ServerResponse, event: string, data: unknown, id?: number) {
+function writeSseEvent(response: http.ServerResponse, event: string, data: unknown, id?: string | number) {
   if (id !== undefined) {
     response.write(`id: ${id}\n`);
   }
@@ -239,7 +240,7 @@ function consumeFixedWindowRateLimit(
 
 function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
   return {
-    async waitForUpdate({ timeoutMs, signal }) {
+    async waitForUpdate({ timeoutMs, signal }: { timeoutMs: number; signal?: AbortSignal }) {
       if (signal?.aborted) {
         throw new Error('Update wait aborted');
       }
@@ -273,6 +274,7 @@ export function createServer(options: {
   repository?: Repository;
   updatesNotifier?: MemberUpdateNotifier;
   coldAdmissionRateLimits?: Partial<Record<ColdAdmissionAction, FixedWindowRateLimit>>;
+  qualityGate?: QualityGateFn;
   trustProxy?: boolean;
 } = {}) {
   const trustProxy = options.trustProxy ?? (process.env.TRUST_PROXY === '1');
@@ -282,6 +284,7 @@ export function createServer(options: {
     max: Number(process.env.DB_POOL_MAX ?? 20),
     idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_TIMEOUT_MS ?? 30_000),
     connectionTimeoutMillis: Number(process.env.DB_POOL_CONNECTION_TIMEOUT_MS ?? 5_000),
+    options: `-c statement_timeout=${Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 30_000)}`,
   });
   if (pool) {
     pool.on('error', (err) => { console.error('Unexpected database pool error:', err); });
@@ -295,7 +298,7 @@ export function createServer(options: {
   };
   const coldAdmissionRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
   const activeStreams = new Map<string, number>();
-  const dispatcher = buildDispatcher({ repository });
+  const dispatcher = buildDispatcher({ repository, qualityGate: options.qualityGate });
   const sockets = new Set<net.Socket>();
 
   const server = http.createServer(async (request, response) => {
@@ -317,13 +320,15 @@ export function createServer(options: {
           throw new Error('Repository does not implement listMemberUpdates');
         }
 
+        const clubIds = auth.actor.memberships.map(m => m.clubId);
         const afterRaw = normalizeUpdatesAfter(url.searchParams.get('after'));
-        const after = afterRaw === 'latest' && repository.getLatestStreamSeq
-          ? await repository.getLatestStreamSeq({ actorMemberId: auth.actor.member.id })
+        const after = afterRaw === 'latest' && repository.getLatestCursor
+          ? await repository.getLatestCursor({ actorMemberId: auth.actor.member.id, clubIds })
           : afterRaw === 'latest' ? null : afterRaw;
 
         const updates = await repository.listMemberUpdates({
           actorMemberId: auth.actor.member.id,
+          clubIds,
           limit: normalizeUpdatesLimit(url.searchParams.get('limit')),
           after,
         });
@@ -399,6 +404,7 @@ export function createServer(options: {
         };
         request.on('close', decrementStreams);
 
+        const clubIds = auth.actor.memberships.map(m => m.clubId);
         const limit = Math.min(
           normalizeUpdatesLimit(url.searchParams.get('limit')),
           DEFAULT_SERVER_LIMITS.updatesStreamLimit,
@@ -409,11 +415,11 @@ export function createServer(options: {
           ?? (typeof lastEventId === 'string' ? lastEventId : null),
         );
 
-        const latestStreamSeq = repository.getLatestStreamSeq
-          ? await repository.getLatestStreamSeq({ actorMemberId: memberId })
+        const latestCursor = repository.getLatestCursor
+          ? await repository.getLatestCursor({ actorMemberId: memberId, clubIds })
           : null;
 
-        const after = afterRaw === 'latest' ? latestStreamSeq : afterRaw;
+        const after = afterRaw === 'latest' ? latestCursor : afterRaw;
 
         response.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
@@ -432,29 +438,34 @@ export function createServer(options: {
           member: auth.actor.member,
           requestScope: auth.requestScope,
           nextAfter: after,
-          latestStreamSeq,
+          latestCursor,
         });
 
-        let cursor = after;
+        let cursor: string | null = after ?? null;
 
         while (!abortController.signal.aborted) {
           const updates = await repository.listMemberUpdates({
             actorMemberId: auth.actor.member.id,
+            clubIds,
             limit,
             after: cursor,
           });
 
           if (updates.items.length > 0) {
-            for (const item of updates.items) {
-              writeSseEvent(response, 'update', item, item.streamSeq);
-              cursor = item.streamSeq;
+            for (let idx = 0; idx < updates.items.length; idx++) {
+              const item = updates.items[idx]!;
+              const isLast = idx === updates.items.length - 1;
+              // Attach the compound cursor as id on the last event so Last-Event-ID works on reconnect
+              writeSseEvent(response, 'update', item, isLast ? updates.nextAfter ?? undefined : undefined);
             }
+            cursor = updates.nextAfter;
             continue;
           }
 
           const outcome = await updatesNotifier.waitForUpdate({
             recipientMemberId: auth.actor.member.id,
-            afterStreamSeq: cursor,
+            clubIds,
+            afterStreamSeq: null,
             timeoutMs: DEFAULT_SERVER_LIMITS.updatesStreamHeartbeatMs,
             signal: abortController.signal,
           });
@@ -533,6 +544,18 @@ export function createServer(options: {
     }
 
     try {
+      const contentType = (request.headers['content-type'] ?? '').toLowerCase();
+      if (contentType !== 'application/json' && !contentType.startsWith('application/json;')) {
+        writeJson(response, 415, {
+          ok: false,
+          error: {
+            code: 'unsupported_media_type',
+            message: 'Content-Type must be application/json',
+          },
+        });
+        return;
+      }
+
       const body = await readJsonBody(request);
 
       // Rate-limit cold admission actions by IP (before dispatch)
@@ -545,7 +568,7 @@ export function createServer(options: {
         }
       }
 
-      // Unified dispatch: auth, parse, quality gate, execute, envelope assembly
+      // Unified dispatch: auth, parse, legality gate, execute, envelope assembly
       // are all handled inside the dispatcher based on the action contract.
       const result = await dispatcher.dispatch({
         bearerToken: getBearerToken(request),

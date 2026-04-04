@@ -42,7 +42,7 @@ export type RepositoryCapability =
   | 'redactEntity'
   | 'redactMessage'
   | 'listMemberUpdates'
-  | 'getLatestStreamSeq'
+  | 'getLatestCursor'
   | 'acknowledgeUpdates'
   | 'issueAdmissionAccess'
   | 'adminGetOverview'

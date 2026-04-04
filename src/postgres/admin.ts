@@ -79,7 +79,7 @@ export function buildAdminRepository({
       });
     },
 
-    async adminListMembers({ actorMemberId, limit, offset }) {
+    async adminListMembers({ actorMemberId, limit, cursor }) {
       return withActorContext(pool, actorMemberId, [], async (client) => {
         const result = await client.query<{
           member_id: string;
@@ -100,10 +100,11 @@ export function buildAdminRepository({
               (select count(*) from app.club_memberships nm where nm.member_id = m.id)::text as membership_count,
               (select count(*) from app.member_bearer_tokens mbt where mbt.member_id = m.id and mbt.revoked_at is null)::text as token_count
             from app.members m
+            where ($2::timestamptz is null or (m.created_at, m.id) < ($2::timestamptz, $3::text))
             order by m.created_at desc, m.id desc
-            limit $1 offset $2
+            limit $1
           `,
-          [limit, offset],
+          [limit, cursor?.createdAt ?? null, cursor?.id ?? null],
         );
 
         return result.rows.map((row) => ({
@@ -264,7 +265,7 @@ export function buildAdminRepository({
       });
     },
 
-    async adminListContent({ actorMemberId, clubId, kind, limit, offset }) {
+    async adminListContent({ actorMemberId, clubId, kind, limit, cursor }) {
       return withActorContext(pool, actorMemberId, [], async (client) => {
         const result = await client.query<{
           entity_id: string;
@@ -296,10 +297,11 @@ export function buildAdminRepository({
             join app.current_entity_versions ev on ev.entity_id = e.id
             where ($1::app.short_id is null or e.club_id = $1)
               and ($2::app.entity_kind is null or e.kind = $2)
+              and ($4::timestamptz is null or (e.created_at, e.id) < ($4::timestamptz, $5::text))
             order by e.created_at desc, e.id desc
-            limit $3 offset $4
+            limit $3
           `,
-          [clubId ?? null, kind ?? null, limit, offset],
+          [clubId ?? null, kind ?? null, limit, cursor?.createdAt ?? null, cursor?.id ?? null],
         );
 
         return result.rows.map((row) => ({
@@ -403,7 +405,7 @@ export function buildAdminRepository({
       }
     },
 
-    async adminListThreads({ actorMemberId, clubId, limit, offset }) {
+    async adminListThreads({ actorMemberId, clubId, limit, cursor }) {
       return withActorContext(pool, actorMemberId, [], async (client) => {
         const result = await client.query<{
           thread_id: string;
@@ -414,9 +416,18 @@ export function buildAdminRepository({
           latest_message_at: string;
         }>(
           `
+            with thread_activity as (
+              select
+                tt.id,
+                tt.club_id,
+                (select max(tm.created_at) from app.dm_messages tm where tm.thread_id = tt.id) as latest_message_at,
+                (select count(*) from app.dm_messages tm where tm.thread_id = tt.id)::text as message_count
+              from app.dm_threads tt
+              where ($1::app.short_id is null or tt.club_id = $1)
+            )
             select
-              tt.id as thread_id,
-              tt.club_id,
+              ta.id as thread_id,
+              ta.club_id,
               n.name as club_name,
               coalesce((
                 select jsonb_agg(jsonb_build_object(
@@ -428,19 +439,19 @@ export function buildAdminRepository({
                   select distinct on (p.participant_member_id)
                     p.participant_member_id
                   from app.current_dm_thread_participants p
-                  where p.thread_id = tt.id
+                  where p.thread_id = ta.id
                 ) dp
                 join app.members m on m.id = dp.participant_member_id
               ), '[]'::jsonb) as participants,
-              (select count(*) from app.dm_messages tm where tm.thread_id = tt.id)::text as message_count,
-              (select max(tm.created_at)::text from app.dm_messages tm where tm.thread_id = tt.id) as latest_message_at
-            from app.dm_threads tt
-            join app.clubs n on n.id = tt.club_id
-            where ($1::app.short_id is null or tt.club_id = $1)
-            order by (select max(tm.created_at) from app.dm_messages tm where tm.thread_id = tt.id) desc nulls last, tt.id desc
-            limit $2 offset $3
+              ta.message_count,
+              ta.latest_message_at::text as latest_message_at
+            from thread_activity ta
+            join app.clubs n on n.id = ta.club_id
+            where ($3::timestamptz is null or (ta.latest_message_at, ta.id) < ($3::timestamptz, $4::text))
+            order by ta.latest_message_at desc nulls last, ta.id desc
+            limit $2
           `,
-          [clubId ?? null, limit, offset],
+          [clubId ?? null, limit, cursor?.createdAt ?? null, cursor?.id ?? null],
         );
 
         return result.rows.map((row) => ({

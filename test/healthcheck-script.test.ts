@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +17,7 @@ test('healthcheck script reports migration status and skipped api check without 
   await mkdir(stubDir, { recursive: true });
   await writeFile(
     join(stubDir, 'psql'),
-    '#!/usr/bin/env bash\nif printf "%s\\n" "$*" | grep -q "select current_user, rolsuper, rolbypassrls"; then\necho "runtime_role|f|f"\nelif printf "%s\\n" "$*" | grep -q "from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_roles r on r.oid = c.relowner"; then\necho "0|"\nelif printf "%s\\n" "$*" | grep -q "from pg_proc p join pg_namespace n on n.oid = p.pronamespace join pg_roles r on r.oid = p.proowner"; then\necho "0|"\nelif printf "%s\\n" "$*" | grep -q "relrowsecurity"; then\necho "0|"\nelse\necho applied:0017_membership_state_compatibility_sync\nfi\n',
+    '#!/usr/bin/env bash\nif printf "%s\\n" "$*" | grep -q "select current_user, rolsuper, rolbypassrls"; then\necho "runtime_role|f|f"\nelif printf "%s\\n" "$*" | grep -q "from pg_class c join pg_namespace n on n.oid = c.relnamespace join pg_roles r on r.oid = c.relowner"; then\necho "0|"\nelif printf "%s\\n" "$*" | grep -q "from pg_proc p join pg_namespace n on n.oid = p.pronamespace join pg_roles r on r.oid = p.proowner"; then\necho "0|"\nelif printf "%s\\n" "$*" | grep -q "relrowsecurity"; then\necho "0|"\nelif printf "%s\\n" "$*" | grep -q "pg_catalog.*schema_migrations"; then\necho "1"\nelif printf "%s\\n" "$*" | grep -q "schema_migrations"; then\necho "applied:0017_membership_state_compatibility_sync"\nelse\nexit 0\nfi\n',
     { mode: 0o755 },
   );
 
@@ -58,8 +58,12 @@ elif printf "%s\\n" "$*" | grep -q "from pg_proc p join pg_namespace n on n.oid 
   echo "1|actor_has_club_access:target_club_id app.short_id:postgres"
 elif printf "%s\\n" "$*" | grep -q "relrowsecurity"; then
   echo "1|embeddings:rls=f,force=f"
-else
+elif printf "%s\\n" "$*" | grep -q "pg_catalog.*schema_migrations"; then
+  echo "1"
+elif printf "%s\\n" "$*" | grep -q "schema_migrations"; then
   echo applied:0017_membership_state_compatibility_sync
+else
+  exit 0
 fi
 `,
     { mode: 0o755 },
@@ -68,6 +72,7 @@ fi
   await assert.rejects(
     execFileAsync('./scripts/healthcheck.sh', {
       cwd: repoRoot,
+      maxBuffer: 4 * 1024 * 1024,
       env: {
         ...process.env,
         PATH: `${stubDir}:${process.env.PATH}`,
@@ -78,7 +83,7 @@ fi
     }),
   );
 
-  const log = await execFileAsync('cat', [logFile], { cwd: repoRoot });
-  assert.match(log.stdout, /postgres:\/\/migrator\.test\/clawclub/);
-  assert.match(log.stdout, /postgres:\/\/runtime\.test\/clawclub/);
+  const log = await readFile(logFile, 'utf-8');
+  assert.match(log, /postgres:\/\/migrator\.test\/clawclub/);
+  assert.match(log, /postgres:\/\/runtime\.test\/clawclub/);
 });

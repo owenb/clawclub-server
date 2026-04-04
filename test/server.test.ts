@@ -33,7 +33,8 @@ test('createServer accepts unauthenticated cold application actions over POST /a
         challengeId: 'challenge-1',
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
-        clubs: [{ slug: 'test', name: 'Test', summary: null }],
+        maxAttempts: 5,
+        club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Tell us about yourself.' },
       };
     },
   };
@@ -55,7 +56,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
       },
       body: JSON.stringify({
         action: 'admissions.challenge',
-        input: {},
+        input: { clubSlug: 'test' },
       }),
     });
 
@@ -63,25 +64,23 @@ test('createServer accepts unauthenticated cold application actions over POST /a
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.action, 'admissions.challenge');
-    assert.deepEqual(body.data, {
-      challengeId: 'challenge-1',
-      difficulty: 7,
-      expiresAt: '2026-03-15T13:00:00.000Z',
-      clubs: [{ slug: 'test', name: 'Test', summary: null }],
-    });
+    assert.equal(body.data.challengeId, 'challenge-1');
+    assert.equal(body.data.difficulty, 7);
+    assert.equal(body.data.maxAttempts, 5);
+    assert.equal(body.data.club.slug, 'test');
     assert.equal('actor' in body, false);
   } finally {
     await shutdown();
   }
 });
 
-test('createServer returns 404 for admissions.apply with a bogus challengeId', async () => {
+test('createServer returns accepted for admissions.apply', async () => {
   const requestFetch = globalThis.fetch;
 
   const repository: Repository = {
     ...makeRepository(),
     async solveAdmissionChallenge() {
-      return null;
+      return { status: 'accepted', message: 'Submitted.' };
     },
   };
 
@@ -101,17 +100,17 @@ test('createServer returns 404 for admissions.apply with a bogus challengeId', a
       body: JSON.stringify({
         action: 'admissions.apply',
         input: {
-          challengeId: 'totally-bogus-id', nonce: '12345',
-          clubSlug: 'test', name: 'Jane Doe', email: 'j@x.com',
-          socials: '@j', reason: 'test',
+          challengeId: 'challenge-1', nonce: '12345',
+          name: 'Jane Doe', email: 'j@x.com',
+          socials: '@j', application: 'test',
         },
       }),
     });
 
     const body = await response.json();
-    assert.equal(response.status, 404);
-    assert.equal(body.ok, false);
-    assert.equal(body.error.code, 'not_found');
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.status, 'accepted');
   } finally {
     await shutdown();
   }
@@ -130,12 +129,13 @@ test('createServer rate limits cold application actions per IP and per action', 
         challengeId: `challenge-${challengeCalls}`,
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
-        clubs: [],
+        maxAttempts: 5,
+        club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
     async solveAdmissionChallenge() {
       solveCalls += 1;
-      return { success: true };
+      return { status: 'accepted' as const, message: 'Submitted.' };
     },
   };
 
@@ -155,7 +155,7 @@ test('createServer rate limits cold application actions per IP and per action', 
 
     const challengeInput = {
       action: 'admissions.challenge',
-      input: {},
+      input: { clubSlug: 'test' },
     };
 
     const firstChallenge = await requestFetch(`http://127.0.0.1:${port}/api`, {
@@ -183,11 +183,10 @@ test('createServer rate limits cold application actions per IP and per action', 
         input: {
           challengeId: 'challenge-1',
           nonce: '123456',
-          clubSlug: 'test',
           name: 'Jane Doe',
           email: 'jane@example.com',
           socials: '@jane',
-          reason: 'I want to join',
+          application: 'I want to join',
         },
       }),
     });
@@ -213,7 +212,8 @@ test('createServer enforces request body limits by byte size, not decoded string
         challengeId: 'challenge-1',
         difficulty: 7,
         expiresAt: '2026-03-15T13:00:00.000Z',
-        clubs: [{ slug: 'test', name: 'Test', summary: null }],
+        maxAttempts: 5,
+        club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
   };
@@ -230,7 +230,7 @@ test('createServer enforces request body limits by byte size, not decoded string
     const oversizedPayload = '😀'.repeat(300_000);
     const body = JSON.stringify({
       action: 'admissions.challenge',
-      input: { padding: oversizedPayload },
+      input: { clubSlug: 'test', padding: oversizedPayload },
     });
 
     assert.ok(body.length < DEFAULT_SERVER_LIMITS.maxBodyBytes);
@@ -254,7 +254,7 @@ test('createServer enforces request body limits by byte size, not decoded string
 
 test('createServer serves GET /updates through repository-backed update listing', async () => {
   const requestFetch = globalThis.fetch;
-  let capturedInput: { actorMemberId: string; limit: number; after?: number | null } | null = null;
+  let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
@@ -265,7 +265,7 @@ test('createServer serves GET /updates through repository-backed update listing'
       capturedInput = input;
       return {
         items: [makePendingUpdate()],
-        nextAfter: 1,
+        nextAfter: 'test-cursor',
         polledAt: '2026-03-14T11:05:00Z',
       };
     },
@@ -291,17 +291,16 @@ test('createServer serves GET /updates through repository-backed update listing'
     assert.equal(response.headers.get('cache-control'), 'no-store, no-cache, max-age=0');
     assert.equal(response.headers.get('pragma'), 'no-cache');
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
-    assert.deepEqual(capturedInput, {
-      actorMemberId: 'member-1',
-      limit: 3,
-      after: 0,
-    });
+    assert.equal(capturedInput?.actorMemberId, 'member-1');
+    assert.equal(capturedInput?.limit, 3);
+    assert.equal(capturedInput?.after, '0');
+    assert.ok(Array.isArray(capturedInput?.clubIds));
 
     const body = await response.json();
     assert.equal(body.ok, true);
     assert.equal(body.member.id, 'member-1');
     assert.equal(body.updates.items[0]?.updateId, 'update-1');
-    assert.equal(body.updates.nextAfter, 1);
+    assert.equal(body.updates.nextAfter, 'test-cursor');
     assert.equal(body.updates.polledAt, '2026-03-14T11:05:00Z');
   } finally {
     await shutdown();
@@ -369,7 +368,7 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
 
       return {
         items: [makePendingUpdate({ updateId: 'update-2', streamSeq: 2 })],
-        nextAfter: 2,
+        nextAfter: 'cursor-2',
         polledAt: '2026-03-14T11:05:01Z',
       };
     },
@@ -537,14 +536,17 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     ...makeRepository(),
     async createAdmissionChallenge() {
       challengeCalls += 1;
-      return { challengeId: `challenge-${challengeCalls}`, difficulty: 7, expiresAt: '2026-03-15T13:00:00.000Z', clubs: [] };
+      return {
+        challengeId: `challenge-${challengeCalls}`, difficulty: 7, expiresAt: '2026-03-15T13:00:00.000Z',
+        maxAttempts: 5, club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
+      };
     },
   };
 
   const { server: serverNoProxy, shutdown: shutdownNoProxy } = createServer({
     repository,
     updatesNotifier: makeUpdatesNotifier(),
-    coldAdmissionRateLimits: { 'admissions.challenge': { limit: 1, windowMs: 60_000 } },
+    coldAdmissionRateLimits: { 'admissions.challenge': { limit: 1, windowMs: 60_000 }, 'admissions.apply': { limit: 1, windowMs: 60_000 } },
     trustProxy: false,
   });
 
@@ -553,7 +555,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     const address = serverNoProxy.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const body = JSON.stringify({ action: 'admissions.challenge', input: {} });
+    const body = JSON.stringify({ action: 'admissions.challenge', input: { clubSlug: 'test' } });
 
     await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
@@ -572,5 +574,46 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     assert.equal(secondBody.error.code, 'rate_limited');
   } finally {
     await shutdownNoProxy();
+  }
+});
+
+test('createServer rejects POST /api with wrong content-type and accepts charset variants', async () => {
+  const requestFetch = globalThis.fetch;
+
+  const { server, shutdown } = createServer({
+    repository: makeRepository(),
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const wrongContentType = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify({ action: 'session.describe', input: {} }),
+    });
+    const wrongCtBody = await wrongContentType.json();
+    assert.equal(wrongContentType.status, 415);
+    assert.equal(wrongCtBody.ok, false);
+    assert.equal(wrongCtBody.error.code, 'unsupported_media_type');
+
+    const jsonpType = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/jsonp' },
+      body: JSON.stringify({ action: 'session.describe', input: {} }),
+    });
+    assert.equal(jsonpType.status, 415, 'application/jsonp must not be accepted');
+
+    const withCharset = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ action: 'session.describe', input: {} }),
+    });
+    assert.notEqual(withCharset.status, 415, 'application/json with charset should not be rejected as unsupported media type');
+  } finally {
+    await shutdown();
   }
 });

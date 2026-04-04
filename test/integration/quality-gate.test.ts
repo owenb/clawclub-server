@@ -1,9 +1,9 @@
 /**
- * Quality gate integration tests.
+ * Legality gate integration tests.
  *
  * These tests require OPENAI_API_KEY to be set — the LLM evaluates content
- * and decides whether to pass or reject it. Skip this file when running
- * without a key (npm run test:integration skips it by default).
+ * and decides whether it is legal. Skip this file when running without a key
+ * (npm run test:integration skips it by default).
  *
  * Run with: OPENAI_API_KEY=sk-... node --experimental-strip-types --test test/integration/quality-gate.test.ts
  */
@@ -22,43 +22,45 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-// ── entities.create ─────────────────────────────────────────────────────────
+// ── Legality gate passes legal content ─────────────────────────────────────
 
-describe('quality gate: entities.create', () => {
-  it('rejects a post with no body', async () => {
+describe('legality gate: passes legal content regardless of quality', () => {
+  it('passes a post with no body (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-entity-1', 'QG Entity Club 1');
-    const err = await h.apiErr(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'entities.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Hello',
-    }, 'quality_check_failed');
-    assert.equal(err.status, 422);
-    assert.ok(err.message.length > 10, 'feedback should explain what is missing');
+    });
+    const entity = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+    assert.ok(entity.entityId);
   });
 
-  it('rejects an opportunity missing how to engage', async () => {
+  it('passes a vague opportunity (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-entity-2', 'QG Entity Club 2');
-    const err = await h.apiErr(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'entities.create', {
       clubId: owner.club.id,
       kind: 'opportunity',
       title: 'Great role',
       body: 'Looking for someone.',
-    }, 'quality_check_failed');
-    assert.equal(err.status, 422);
+    });
+    const entity = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+    assert.ok(entity.entityId);
   });
 
-  it('rejects a service that is just a vague placeholder', async () => {
+  it('passes a vague service listing (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-entity-3', 'QG Entity Club 3');
-    const err = await h.apiErr(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'entities.create', {
       clubId: owner.club.id,
       kind: 'service',
       title: 'Consulting',
       body: 'I do consulting.',
-    }, 'quality_check_failed');
-    assert.equal(err.status, 422);
+    });
+    const entity = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+    assert.ok(entity.entityId);
   });
 
-  it('passes a well-formed post with a clear point', async () => {
+  it('passes a well-formed post', async () => {
     const owner = await h.seedOwner('qg-entity-4', 'QG Entity Club 4');
     const result = await h.apiOk(owner.token, 'entities.create', {
       clubId: owner.club.id,
@@ -70,44 +72,76 @@ describe('quality gate: entities.create', () => {
     assert.ok(entity.entityId);
   });
 
-  it('passes a well-formed opportunity with role, audience, and how to engage', async () => {
-    const owner = await h.seedOwner('qg-entity-5', 'QG Entity Club 5');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+  it('passes a generic filler summary in an event (low quality but legal)', async () => {
+    const owner = await h.seedOwner('qg-event-2b', 'QG Event Club 2b');
+    const result = await h.apiOk(owner.token, 'events.create', {
       clubId: owner.club.id,
-      kind: 'opportunity',
-      title: 'Part-time product designer for early-stage climate tech startup',
-      body: 'We are building a carbon tracking tool for small manufacturers. Looking for a product designer who can do 15-20 hrs/week for 3 months, working async with our engineering team. Experience with B2B SaaS preferred but not required. Paid engagement. DM me here or email jobs@example.com to chat.',
+      title: 'Meetup',
+      summary: 'Come hang out.',
+      location: 'Online',
+      startsAt: '2026-05-15T18:00:00Z',
     });
-    const entity = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
-    assert.ok(entity.entityId);
+    const event = (result.data as Record<string, unknown>).event as Record<string, unknown>;
+    assert.ok(event.entityId);
+  });
+
+  it('passes a well-formed event', async () => {
+    const owner = await h.seedOwner('qg-event-3', 'QG Event Club 3');
+    const result = await h.apiOk(owner.token, 'events.create', {
+      clubId: owner.club.id,
+      title: 'Monthly founders breakfast — May edition',
+      summary: 'Casual breakfast at The Table in Shoreditch. We will go around the table and each share one thing we are stuck on and one thing that is working. Bring your own coffee order, food is covered.',
+      location: 'The Table, 83 Southwark Street, London SE1',
+      startsAt: '2026-05-15T08:30:00Z',
+      endsAt: '2026-05-15T10:00:00Z',
+      timezone: 'Europe/London',
+      capacity: 12,
+    });
+    const event = (result.data as Record<string, unknown>).event as Record<string, unknown>;
+    assert.ok(event.entityId);
+  });
+
+  it('passes a generic filler tagline in profile (low quality but legal)', async () => {
+    const owner = await h.seedOwner('qg-profile-1', 'QG Profile Club 1');
+    const result = await h.apiOk(owner.token, 'profile.update', {
+      tagline: 'Experienced professional passionate about excellence',
+    });
+    const profile = result.data as Record<string, unknown>;
+    assert.ok(profile.memberId);
+  });
+
+  it('passes a vague vouch reason (low quality but legal)', async () => {
+    const owner = await h.seedOwner('qg-vouch-1', 'QG Vouch Club 1');
+    const member = await h.seedClubMember(owner.club.id, 'Vouch Target', 'qg-vouch-target-1', { sponsorId: owner.id });
+
+    const result = await h.apiOk(owner.token, 'vouches.create', {
+      clubId: owner.club.id,
+      memberId: member.id,
+      reason: 'Great person, highly recommend!',
+    });
+    const vouch = (result.data as Record<string, unknown>).vouch as Record<string, unknown>;
+    assert.ok(vouch.edgeId);
+  });
+
+  it('passes a generic sponsorship reason (low quality but legal)', async () => {
+    const owner = await h.seedOwner('qg-sponsor-1', 'QG Sponsor Club 1');
+    const member = await h.seedClubMember(owner.club.id, 'Sponsor Member', 'qg-sponsor-member-1', { sponsorId: owner.id });
+
+    const result = await h.apiOk(member.token, 'admissions.sponsor', {
+      clubId: owner.club.id,
+      name: 'Jane Doe',
+      email: 'jane@example.com',
+      socials: '@janedoe',
+      reason: 'Amazing person, would be a great addition to the club!',
+    });
+    const admission = (result.data as Record<string, unknown>).admission as Record<string, unknown>;
+    assert.ok(admission.admissionId);
   });
 });
 
-// ── entities.update ─────────────────────────────────────────────────────────
+// ── Schema validation still catches missing required fields ─────────────────
 
-describe('quality gate: entities.update', () => {
-  it('rejects an update that empties the body to a vague stub', async () => {
-    const owner = await h.seedOwner('qg-update-1', 'QG Update Club 1');
-    // Create a good post first (gate is skipped if no key, but we have one here)
-    const created = await h.apiOk(owner.token, 'entities.create', {
-      clubId: owner.club.id,
-      kind: 'post',
-      title: 'Substantive post to be gutted',
-      body: 'Local food sourcing changed our bakery margins by 30 percent. We switched to a local flour mill and discovered that customers paid a premium because they valued the story. Seasonal menus further reduced waste — we cut food costs by 20 percent in the first quarter after switching.',
-    });
-    const entityId = ((created.data as Record<string, unknown>).entity as Record<string, unknown>).entityId as string;
-
-    const err = await h.apiErr(owner.token, 'entities.update', {
-      entityId,
-      body: 'Updated.',
-    }, 'quality_check_failed');
-    assert.equal(err.status, 422);
-  });
-});
-
-// ── events.create ───────────────────────────────────────────────────────────
-
-describe('quality gate: events.create', () => {
+describe('legality gate: schema validation still applies', () => {
   it('rejects an event missing required fields (no startsAt)', async () => {
     const owner = await h.seedOwner('qg-event-1', 'QG Event Club 1');
     const err = await h.apiErr(owner.token, 'events.create', {
@@ -129,102 +163,103 @@ describe('quality gate: events.create', () => {
     }, 'invalid_input');
     assert.equal(err.status, 400);
   });
+});
 
-  it('rejects a generic filler summary via quality gate', async () => {
-    const owner = await h.seedOwner('qg-event-2b', 'QG Event Club 2b');
-    const err = await h.apiErr(owner.token, 'events.create', {
+// ── Illegal content moderation ─────────────────────────────────────────────
+
+describe('legality gate: rejects clearly illegal content', () => {
+  it('rejects a post soliciting fraud', async () => {
+    const owner = await h.seedOwner('qg-illegal-1', 'QG Illegal Club 1');
+    const err = await h.apiErr(owner.token, 'entities.create', {
       clubId: owner.club.id,
-      title: 'Meetup',
-      summary: 'Come hang out.',
-      location: 'Online',
-      startsAt: '2026-05-15T18:00:00Z',
-    }, 'quality_check_failed');
+      kind: 'post',
+      title: 'Need help with documents',
+      body: 'Looking for someone who can produce convincing forged identity documents. Willing to pay well. Passports, driving licences, or national ID cards — any EU country works.',
+    }, 'illegal_content');
     assert.equal(err.status, 422);
   });
 
-  it('passes an event with title, start time, location, and summary', async () => {
-    const owner = await h.seedOwner('qg-event-3', 'QG Event Club 3');
-    const result = await h.apiOk(owner.token, 'events.create', {
+  it('rejects a service offering drug trafficking', async () => {
+    const owner = await h.seedOwner('qg-illegal-2', 'QG Illegal Club 2');
+    const err = await h.apiErr(owner.token, 'entities.create', {
       clubId: owner.club.id,
-      title: 'Monthly founders breakfast — May edition',
-      summary: 'Casual breakfast at The Table in Shoreditch. We will go around the table and each share one thing we are stuck on and one thing that is working. Bring your own coffee order, food is covered.',
-      location: 'The Table, 83 Southwark Street, London SE1',
-      startsAt: '2026-05-15T08:30:00Z',
-      endsAt: '2026-05-15T10:00:00Z',
-      timezone: 'Europe/London',
-      capacity: 12,
-    });
-    const event = (result.data as Record<string, unknown>).event as Record<string, unknown>;
-    assert.ok(event.entityId);
+      kind: 'service',
+      title: 'Bulk supply available',
+      body: 'I can source cocaine and MDMA in bulk at competitive prices. Discrete shipping anywhere in Europe. Minimum order 50g. DM for a price list.',
+    }, 'illegal_content');
+    assert.equal(err.status, 422);
+  });
+
+  it('rejects a post containing threats of violence', async () => {
+    const owner = await h.seedOwner('qg-illegal-3', 'QG Illegal Club 3');
+    const err = await h.apiErr(owner.token, 'entities.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      title: 'Had enough',
+      body: 'If I see David Chen at the next event I am going to beat him until he cannot walk. This is not a joke. He knows what he did and he is going to pay for it.',
+    }, 'illegal_content');
+    assert.equal(err.status, 422);
   });
 });
 
-// ── profile.update ──────────────────────────────────────────────────────────
-
-describe('quality gate: profile.update', () => {
-  it('rejects generic filler in tagline', async () => {
-    const owner = await h.seedOwner('qg-profile-1', 'QG Profile Club 1');
-    const err = await h.apiErr(owner.token, 'profile.update', {
-      tagline: 'Experienced professional passionate about excellence',
-    }, 'quality_check_failed');
-    assert.equal(err.status, 422);
-  });
-
-  it('passes a specific, substantive profile update', async () => {
-    const owner = await h.seedOwner('qg-profile-2', 'QG Profile Club 2');
-    const result = await h.apiOk(owner.token, 'profile.update', {
-      tagline: 'Backend engineer building carbon tracking tools for small manufacturers',
-      summary: 'I spent 8 years at logistics companies building warehouse management systems, then moved into climate tech. Currently freelance, helping early-stage startups get their data pipelines right.',
-      whatIDo: 'Design and build backend systems in Go and TypeScript. Specialise in event-driven architectures and Postgres-heavy stacks.',
+describe('legality gate: allows legal but edgy content', () => {
+  it('passes a post with heavy profanity but a clear point', async () => {
+    const owner = await h.seedOwner('qg-edgy-1', 'QG Edgy Club 1');
+    const result = await h.apiOk(owner.token, 'entities.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      title: 'Fundraising is broken',
+      body: 'I am so fucking tired of VCs who ghost founders after three meetings. Last month I had two partners at a top-tier firm string me along for six weeks, ask for a full data room, then go silent. No rejection, no feedback, just nothing. This industry runs on bullshit and cowardice. If you are going to pass, just say so.',
     });
-    const profile = result.data as Record<string, unknown>;
-    assert.ok(profile.memberId);
-  });
-});
-
-// ── vouches.create ──────────────────────────────────────────────────────────
-
-describe('quality gate: vouches.create', () => {
-  it('rejects vague praise with no firsthand evidence', async () => {
-    const owner = await h.seedOwner('qg-vouch-1', 'QG Vouch Club 1');
-    const member = await h.seedClubMember(owner.club.id, 'Vouch Target', 'qg-vouch-target-1', { sponsorId: owner.id });
-
-    const err = await h.apiErr(owner.token, 'vouches.create', {
-      clubId: owner.club.id,
-      memberId: member.id,
-      reason: 'Great person, highly recommend!',
-    }, 'quality_check_failed');
-    assert.equal(err.status, 422);
+    const entity = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+    assert.ok(entity.entityId);
   });
 
-  it('passes a vouch with concrete firsthand evidence', async () => {
-    const owner = await h.seedOwner('qg-vouch-2', 'QG Vouch Club 2');
-    const member = await h.seedClubMember(owner.club.id, 'Vouch Target Good', 'qg-vouch-target-2', { sponsorId: owner.id });
-
-    const result = await h.apiOk(owner.token, 'vouches.create', {
+  it('passes a harsh critique of a public figure', async () => {
+    const owner = await h.seedOwner('qg-edgy-2', 'QG Edgy Club 2');
+    const result = await h.apiOk(owner.token, 'entities.create', {
       clubId: owner.club.id,
-      memberId: member.id,
-      reason: 'I worked with Sarah on the Greenfield carbon audit project for 6 months last year. She restructured our entire data pipeline in half the time we estimated, and when the client changed scope mid-project she handled the re-scoping call herself and kept us on track. Extremely sharp and reliable.',
+      kind: 'post',
+      title: 'Why I think Elon Musk is a terrible CEO',
+      body: 'Musk has destroyed Twitter, tanked Tesla stock through distraction, and runs his companies like a narcissist who fires anyone who disagrees with him. The hero worship in tech is embarrassing. He is not a genius — he is a rich man who buys companies and takes credit for other people\'s engineering.',
     });
-    const vouch = (result.data as Record<string, unknown>).vouch as Record<string, unknown>;
-    assert.ok(vouch.edgeId);
+    const entity = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+    assert.ok(entity.entityId);
   });
-});
 
-// ── admissions.sponsor ──────────────────────────────────────────────────────
-
-describe('quality gate: admissions.sponsor', () => {
-  it('rejects a generic sponsorship reason', async () => {
-    const owner = await h.seedOwner('qg-sponsor-1', 'QG Sponsor Club 1');
-    const member = await h.seedClubMember(owner.club.id, 'Sponsor Member', 'qg-sponsor-member-1', { sponsorId: owner.id });
-
-    const err = await h.apiErr(member.token, 'admissions.sponsor', {
+  it('passes a politically extreme but legal opinion', async () => {
+    const owner = await h.seedOwner('qg-edgy-3', 'QG Edgy Club 3');
+    const result = await h.apiOk(owner.token, 'entities.create', {
       clubId: owner.club.id,
-      name: 'Jane Doe',
-      email: 'jane@example.com',
-      socials: '@janedoe',
-      reason: 'Amazing person, would be a great addition to the club!',
-    }, 'quality_check_failed');
-    assert.equal(err.status, 422);
+      kind: 'post',
+      title: 'Abolish all intellectual property law',
+      body: 'Patents and copyright are state-enforced monopolies that strangle innovation and exist only to protect incumbents. Every study shows that patent trolls cost the economy more than patents generate. All IP law should be repealed entirely. Yes, all of it. Software, pharma, music — let the market figure out business models that do not depend on government-granted monopoly rents.',
+    });
+    const entity = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+    assert.ok(entity.entityId);
+  });
+
+  it('passes a sexually suggestive but legal post', async () => {
+    const owner = await h.seedOwner('qg-edgy-4', 'QG Edgy Club 4');
+    const result = await h.apiOk(owner.token, 'entities.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      title: 'Starting a dating app for kink-positive professionals',
+      body: 'I have been working on a dating app specifically for professionals in the kink and sex-positive community. Existing apps are either sleazy or refuse to acknowledge that successful adults have sex lives. Looking for beta testers and a co-founder with mobile experience. The app handles consent negotiation, STI status sharing, and event discovery. DM me if interested.',
+    });
+    const entity = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+    assert.ok(entity.entityId);
+  });
+
+  it('passes a post discussing legal recreational drug use', async () => {
+    const owner = await h.seedOwner('qg-edgy-5', 'QG Edgy Club 5');
+    const result = await h.apiOk(owner.token, 'entities.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      title: 'Microdosing changed how I work',
+      body: 'I have been microdosing psilocybin every three days for six months and the effect on my focus and creativity has been dramatic. I know this is still in a legal grey area in most places, but the research from Johns Hopkins and Imperial College is compelling. Anyone else here experimenting with this? Would love to compare protocols.',
+    });
+    const entity = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+    assert.ok(entity.entityId);
   });
 });

@@ -5,7 +5,12 @@ import { TestHarness } from './harness.ts';
 let h: TestHarness;
 
 before(async () => {
-  h = await TestHarness.start();
+  h = await TestHarness.start({
+    qualityGate: async () => ({
+      status: 'passed',
+      usage: { promptTokens: 0, completionTokens: 0 },
+    }),
+  });
 }, { timeout: 60_000 });
 
 after(async () => {

@@ -309,8 +309,14 @@ describe('entities.redact', () => {
     // Update should be filtered
     const after = await h.apiOk(viewer.token, 'updates.list', {});
     const afterItems = ((after.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
-    assert.ok(!afterItems.some((u) => u.entityId === entity!.id), 'entity update should be filtered after redaction');
-    assert.ok(afterItems.some((u) => u.topic === 'entity.redacted'), 'entity.redacted update should be present');
+    assert.ok(
+      !afterItems.some((u) => u.entityId === entity!.id && u.topic === 'entity.version.published'),
+      'published entity update should be filtered after redaction',
+    );
+    assert.ok(
+      afterItems.some((u) => u.entityId === entity!.id && u.topic === 'entity.redacted'),
+      'entity.redacted update should be present',
+    );
   });
 });
 

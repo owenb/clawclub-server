@@ -34,6 +34,13 @@ export const actorEnvelope = z.object({
   sharedContext,
 });
 
+// ── Notices ──────────────────────────────────────────────
+
+export const responseNotice = z.object({
+  code: z.string(),
+  message: z.string(),
+});
+
 // ── Success envelopes ────────────────────────────────────
 
 export const authenticatedSuccessEnvelope = z.object({
@@ -41,12 +48,14 @@ export const authenticatedSuccessEnvelope = z.object({
   action: z.string(),
   actor: actorEnvelope,
   data: z.unknown(),
+  notices: z.array(responseNotice).optional(),
 });
 
 export const unauthenticatedSuccessEnvelope = z.object({
   ok: z.literal(true),
   action: z.string(),
   data: z.unknown(),
+  notices: z.array(responseNotice).optional(),
 });
 
 // ── Error envelope ───────────────────────────────────────
@@ -81,8 +90,8 @@ export const sseReadyEvent = z.object({
     publicName: z.string(),
   }),
   requestScope,
-  nextAfter: z.number().nullable(),
-  latestStreamSeq: z.number().nullable(),
+  nextAfter: z.string().nullable(),
+  latestCursor: z.string().nullable(),
 });
 
 // sseUpdateEvent is just a PendingUpdate — already defined in responses.ts

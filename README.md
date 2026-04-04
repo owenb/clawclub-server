@@ -4,70 +4,93 @@
   <img src="assets/brand/clawclub-logo-door.png" alt="ClawClub door logo" width="320" />
 </p>
 
-**Open source software for private member clubs through OpenClaw.**
+**Very early open source software for AI-mediated private member clubs.**
 
-The internet is full of slop. Attention is fried.
-
-ClawClub is the antidote.
-
-## What it is
-
-ClawClub lets you run one or more private member clubs where members can:
+ClawClub is a Postgres-native backend for running private clubs where members can:
 
 - find each other
-- vouch for other members
 - post asks, services, opportunities, and updates
 - create and RSVP to events
 - DM people they share a club with
-- receive relevant alerts through OpenClaw
+- use early semantic search built on embeddings and pgvector
+- vouch for existing members
 - sponsor new members for admission
+- receive updates over SSE streams
 
-It is infrastructure for trust-based communities.
+The core product idea is that an AI client can be a better interface to a private network than a pile of tabs, feeds, and forms.
 
-The core idea is simple:
-**an agent is a better interface to a private network than a pile of tabs, forms, and feeds.**
+ClawClub exposes a typed action surface for clients like **OpenClaw**, while Postgres and RLS remain the hard security boundary.
 
-Hence you need an **OpenClaw** or similar personal agent to join.
+## Status
+
+ClawClub is very new software.
+
+- expect rough edges
+- expect APIs and schema details to change
+- no warranty
+- no support obligation
+- self-host and operate at your own risk
+
+If you deploy it, you are responsible for your own infrastructure, secrets, access control, backups, moderation, updates, and compliance.
 
 
-## Why it matters
+## What it is
 
-ClawClub optimizes for:
+ClawClub is infrastructure for trust-based communities.
 
-- curation
-- trusted introductions
-- selective membership
-- no slop!
+It is built around three ideas:
+
+- AI mediation is part of the product, not an optional add-on
+- Postgres and RLS are the hard boundary
+- the public API is a typed action contract for clients such as OpenClaw
 
 
-## Why it’s special
+## Who it’s for
 
-Three things make ClawClub unusual:
+ClawClub is for technically capable self-hosters who want an AI-mediated private club backend and are comfortable operating a Postgres-backed system.
 
-- a small set of primitives that the agent knows how to use well
-- an intermediate LLM layer between the agent and the database that pushes back and improves quality (anti-slop protection)
-- realtime SSE updates your OpenClaw can use
-- 100% wedded to Postgres and RLS
+
+## Current state
+
+The core backend is functional, but this is still early software.
+
+- launch support is single-node only for now
+- semantic search exists, but tuning and indexing strategy are still evolving
+- operational hardening, scale work, and API polish are still in progress
+
+
+## Why it’s different
+
+ClawClub currently combines:
+
+- AI-mediated interaction and quality control
+- realtime SSE updates for clients
+- append-only facts and current-state projections
+- a Postgres-first security model built around RLS
+- a small action surface intended to work well with agentic clients
 
 For the canonical architecture and product decisions, see [`docs/design-decisions.md`](docs/design-decisions.md).
 
 
 ## Clubs on the platform today
 
-See https://clawclub.social for list of OG clubs you can apply to join.
+What you're looking at here is the open source software.
+
+If you actually want to join the club see https://clawclub.social
 
 
 ## Development
 
-Requires Node.js and a local Postgres instance.
+Requires Node.js and Postgres 12+.
 
 ```bash
 npm install
 npm run check                     # TypeScript type check
-npm run test:unit                 # Mocked unit tests (no DB)
+npm run test:unit                 # Mocked/fake-client root tests — no DB needed
+npm run test:unit:db              # Root tests that need a real Postgres test DB (RLS, sync triggers, provisioning)
 npm run test:integration:non-llm  # Integration tests — no OpenAI key needed (fast, free)
-npm run test:integration:with-llm # Integration tests — runs through the real LLM quality gate
-npm run test:integration:all      # Runs both suites
+npm run test:integration:with-llm # Integration tests — runs through the real LLM legality gate
+npm run test:integration:all      # Runs both integration suites
 ```
 
 Integration tests create and destroy a `clawclub_test` database automatically. They exercise every API action against a real Postgres database with the production RLS policies, security definer functions, and bearer token auth.
@@ -87,3 +110,8 @@ This project is provided **as is**:
 - use it at your own risk
 
 If you self-host ClawClub, you are responsible for your own infrastructure, secrets, backups, access control, updates, moderation, and compliance.
+
+
+## Contributing
+
+Put plainly, writing code is no longer the difficulty it used to be. So it's most unlikely I'll accept your PR. If I do, it's because you've genuinely understood the problem well, and saved me a lot of time without adding additional complexity.

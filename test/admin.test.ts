@@ -98,9 +98,8 @@ test('admin.members.list returns paginated member list', async () => {
     async authenticateBearerToken(token) {
       return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
     },
-    async adminListMembers({ limit, offset }) {
+    async adminListMembers({ limit }) {
       assert.equal(limit, 5);
-      assert.equal(offset, 10);
       return [{
         memberId: 'member-1',
         publicName: 'Alice',
@@ -123,12 +122,13 @@ test('admin.members.list returns paginated member list', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.members.list', { limit: 5, offset: 10 });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.members.list', { limit: 5 });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.members.length, 1);
     assert.equal(body.data.members[0].publicName, 'Alice');
     assert.equal(body.data.members[0].membershipCount, 2);
+    assert.equal(typeof body.data.nextCursor, 'string');
   } finally {
     await shutdown();
   }
@@ -299,7 +299,7 @@ test('admin.diagnostics.health returns system diagnostics', async () => {
   }
 });
 
-test('admin.members.list returns 400 for invalid offset', async () => {
+test('admin.members.list returns 400 for invalid cursor', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -320,7 +320,7 @@ test('admin.members.list returns 400 for invalid offset', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.members.list', { limit: 5, offset: -1 });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.members.list', { limit: 5, cursor: 'not-valid-base64-json' });
     assert.equal(response.status, 400);
     assert.equal(body.ok, false);
     assert.equal(body.error.code, 'invalid_input');

@@ -48,6 +48,16 @@ export const messageRole = z.enum(['member', 'agent', 'system']);
 
 export const admissionOrigin = z.enum(['self_applied', 'member_sponsored', 'owner_nominated']);
 
+// ── Shared transforms ───────────────────────────────────
+
+/** Strip null bytes that Postgres rejects with "invalid byte sequence for encoding UTF8: 0x00" */
+function stripNullBytes(s: string): string {
+  return s.replace(/\0/g, '');
+}
+
+/** Zod string base with null bytes stripped. Use as the starting point for all parse string schemas. */
+const safeString = z.string().transform(stripNullBytes);
+
 // ── Scalar field builders ────────────────────────────────
 
 /**
@@ -74,6 +84,13 @@ export const wireOffset = z.number().int().min(0).optional()
 /** Parse: defaults to 0 */
 export const parseOffset = z.number().int().min(0).optional().default(0);
 
+/** Wire: opaque pagination cursor from previous response */
+export const wireCursor = z.string().nullable().optional()
+  .describe('Opaque pagination cursor from previous response. Omit or null for first page.');
+
+/** Parse: trims, nullable, defaults to null */
+export const parseCursor = z.string().trim().min(1).nullable().optional().default(null);
+
 /**
  * Wire: optional string that may be null.
  * Empty strings are treated as null by the server.
@@ -85,9 +102,7 @@ export const wireOptionalString = z.string().max(500_000).nullable().optional()
  * Parse: trims whitespace; empty string → null.
  * Preserves undefined (omitted) vs null (explicit clear) vs string (set).
  */
-export const parseTrimmedNullableString = z.string()
-  .max(500_000)
-  .trim()
+export const parseTrimmedNullableString = safeString.pipe(z.string().max(500_000).trim())
   .transform(s => s === '' ? null : s)
   .nullable()
   .optional();
@@ -103,9 +118,7 @@ export const wirePatchString = z.string().max(500_000).nullable().optional()
  * Parse: patch field preserving three-state: undefined (omit), null (clear), string (set).
  * Does NOT default — preserving undefined is critical for patch semantics.
  */
-export const parsePatchString = z.string()
-  .max(500_000)
-  .trim()
+export const parsePatchString = safeString.pipe(z.string().max(500_000).trim())
   .transform(s => s === '' ? null : s)
   .nullable()
   .optional();
@@ -115,21 +128,28 @@ export const wireRequiredString = z.string()
   .describe('Required. Server trims whitespace; whitespace-only strings are rejected.');
 
 /** Parse: required non-empty string, trimmed */
-export const parseRequiredString = z.string().trim().min(1);
+export const parseRequiredString = safeString.pipe(z.string().trim().min(1));
 
 /** Wire: message text with a bounded max length */
 export const wireMessageText = z.string().max(500_000)
   .describe('Required, max 500 000 characters. Server trims whitespace; whitespace-only strings are rejected.');
 
 /** Parse: message text, trimmed, max 500 000 characters */
-export const parseMessageText = z.string().trim().min(1).max(500_000);
+export const parseMessageText = safeString.pipe(z.string().trim().min(1).max(500_000));
 
 /** Wire: string capped at 500 characters. Server trims whitespace. */
 export const wireBoundedString = z.string().max(500)
   .describe('Required, max 500 characters. Server trims whitespace; whitespace-only strings are rejected.');
 
 /** Parse: string capped at 500 characters, trimmed */
-export const parseBoundedString = z.string().trim().min(1).max(500);
+export const parseBoundedString = safeString.pipe(z.string().trim().min(1).max(500));
+
+/** Wire: application text capped at 4000 characters. Server trims whitespace. */
+export const wireApplicationText = z.string().max(4000)
+  .describe('Required, max 4000 characters. Server trims whitespace; whitespace-only strings are rejected.');
+
+/** Parse: application text capped at 4000 characters, trimmed */
+export const parseApplicationText = safeString.pipe(z.string().trim().min(1).max(4000));
 
 /** Wire: optional JSON object */
 export const wireOptionalRecord = z.record(z.unknown()).optional()
@@ -150,8 +170,7 @@ export const wireHandle = z.string().nullable().optional()
   .describe('Lowercase alphanumeric with hyphens. Omit to leave unchanged, null or empty to clear. Server trims and validates format.');
 
 /** Parse: validates handle format */
-export const parseHandle = z.string()
-  .trim()
+export const parseHandle = safeString.pipe(z.string().trim())
   .transform(s => s === '' ? null : s)
   .nullable()
   .optional()
@@ -171,7 +190,7 @@ export const wireFullName = z.string().max(500)
  * Parse: normalizes whitespace, validates at least two words.
  * Matches normalizeCandidateFullName() behavior.
  */
-export const parseFullName = z.string().trim().min(1).max(500)
+export const parseFullName = safeString.pipe(z.string().trim().min(1).max(500))
   .transform(s => s.split(/\s+/).filter(Boolean).join(' '))
   .refine(
     s => s.split(' ').length >= 2,
@@ -189,7 +208,7 @@ export const wireEmail = z.string().max(500)
  * Parse: lowercases, validates contains @.
  * Matches normalizeCandidateEmail() behavior.
  */
-export const parseEmail = z.string().trim().min(1).max(500)
+export const parseEmail = safeString.pipe(z.string().trim().min(1).max(500))
   .transform(s => s.toLowerCase())
   .refine(s => s.includes('@'), 'Must look like an email address');
 
@@ -262,7 +281,7 @@ export const wireCurrencyCode = z.string().nullable().optional()
 /**
  * Parse: uppercases and validates
  */
-export const parseCurrencyCode = z.string().trim()
+export const parseCurrencyCode = safeString.pipe(z.string().trim())
   .transform(s => s.toUpperCase())
   .refine(s => /^[A-Z]{3}$/.test(s), 'Must be a 3-letter ISO currency code')
   .nullable()
@@ -282,7 +301,7 @@ export const wireSlug = z.string()
   .describe('URL-safe slug (lowercase alphanumeric with hyphens). Server trims and validates format.');
 
 /** Parse: validates slug format */
-export const parseSlug = z.string().trim()
+export const parseSlug = safeString.pipe(z.string().trim())
   .refine(
     s => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s),
     'slug must use lowercase letters, numbers, and single hyphens',
@@ -319,7 +338,7 @@ export const wireUpdateIds = z.array(z.string().min(1)).min(1)
   .describe('Non-empty array of update IDs.');
 
 /** Parse: deduplicates */
-export const parseUpdateIds = z.array(z.string().trim().min(1)).min(1)
+export const parseUpdateIds = z.array(safeString.pipe(z.string().trim().min(1))).min(1)
   .transform(ids => [...new Set(ids)]);
 
 /** Wire: links array for profile */

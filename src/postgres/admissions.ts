@@ -2,9 +2,12 @@ import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 import {
   AppError,
+  type AdmissionApplyResult,
+  type AdmissionChallengeResult,
+  type PubliclyVisibleClubListResult,
   type AdmissionStatus,
   type AdmissionSummary,
-  type AdmissionChallengeResult,
+  type CreateAdmissionChallengeInput,
   type CreateAdmissionSponsorInput,
   type IssueAdmissionAccessInput,
   type IssueAdmissionAccessResult,
@@ -13,12 +16,15 @@ import {
   type SolveAdmissionChallengeInput,
   type TransitionAdmissionInput,
 } from '../contract.ts';
+import { runAdmissionGate, QUALITY_GATE_PROVIDER, type QualityGateResult } from '../quality-gate.ts';
+import { CLAWCLUB_OPENAI_MODEL } from '../ai.ts';
 import { buildBearerToken } from '../token.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
 
 const COLD_APPLICATION_DIFFICULTY = 7;
 const COLD_APPLICATION_CHALLENGE_TTL_MS = 60 * 60 * 1000;
+const MAX_ADMISSION_ATTEMPTS = 5;
 
 type AdmissionRow = {
   admission_id: string;
@@ -205,6 +211,7 @@ export function buildAdmissionWorkflowRepository({
   Repository,
   | 'listAdmissions'
   | 'transitionAdmission'
+  | 'listPubliclyVisibleClubs'
   | 'createAdmissionChallenge'
   | 'solveAdmissionChallenge'
   | 'issueAdmissionAccess'
@@ -527,10 +534,41 @@ export function buildAdmissionWorkflowRepository({
       }
     },
 
-    async createAdmissionChallenge(): Promise<AdmissionChallengeResult> {
+    async listPubliclyVisibleClubs(): Promise<PubliclyVisibleClubListResult> {
+      const result = await pool.query<{ slug: string; name: string }>(
+        `select slug, name from app.list_publicly_listed_clubs()`,
+      );
+      return {
+        clubs: result.rows.map((r) => ({ slug: r.slug, name: r.name })),
+      };
+    },
+
+    async createAdmissionChallenge(input: CreateAdmissionChallengeInput): Promise<AdmissionChallengeResult> {
+      // Look up club and verify eligibility
+      const clubResult = await pool.query<{
+        club_id: string; name: string; summary: string | null;
+        admission_policy: string; owner_name: string;
+      }>(
+        `select club_id, name, summary, admission_policy, owner_name from app.get_admission_eligible_club($1)`,
+        [input.clubSlug],
+      );
+      const club = clubResult.rows[0];
+      if (!club) {
+        throw new AppError(404, 'club_not_found', 'Club not found or is not accepting applications');
+      }
+
+      // Create challenge bound to this club, snapshotting policy + club metadata
       const challengeResult = await pool.query<{ challenge_id: string; expires_at: string }>(
-        `select challenge_id, expires_at from app.create_admission_challenge($1, $2)`,
-        [COLD_APPLICATION_DIFFICULTY, COLD_APPLICATION_CHALLENGE_TTL_MS],
+        `select challenge_id, expires_at from app.create_admission_challenge($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          COLD_APPLICATION_DIFFICULTY,
+          COLD_APPLICATION_CHALLENGE_TTL_MS,
+          club.club_id,
+          club.admission_policy,
+          club.name,
+          club.summary,
+          club.owner_name,
+        ],
       );
       const challenge = requireReturnedRow(challengeResult.rows[0], 'Admission challenge was not created');
 
@@ -539,39 +577,132 @@ export function buildAdmissionWorkflowRepository({
         throw new AppError(500, 'invalid_data', 'Admission challenge expiry was not returned');
       }
 
-      const clubsResult = await pool.query<{ slug: string; name: string; summary: string | null; owner_name: string; owner_email: string | null }>(
-        `select slug, name, summary, owner_name, owner_email from app.list_publicly_listed_clubs()`,
-      );
-
       return {
         challengeId: challenge.challenge_id,
         difficulty: COLD_APPLICATION_DIFFICULTY,
         expiresAt: new Date(expiresAt).toISOString(),
-        clubs: clubsResult.rows.map((r) => ({ slug: r.slug, name: r.name, summary: r.summary, ownerName: r.owner_name, ownerEmail: r.owner_email })),
+        maxAttempts: MAX_ADMISSION_ATTEMPTS,
+        club: {
+          slug: input.clubSlug,
+          name: club.name,
+          summary: club.summary,
+          ownerName: club.owner_name,
+          admissionPolicy: club.admission_policy,
+        },
       };
     },
 
     async solveAdmissionChallenge(
       input: SolveAdmissionChallengeInput,
-    ): Promise<{ success: boolean } | null> {
-      const client = await pool.connect();
+    ): Promise<AdmissionApplyResult> {
+      // ── Phase 1: Validate (transaction) ──────────────────
+      type ChallengeRow = {
+        challenge_id: string; difficulty: number; expires_at: string;
+        club_id: string; policy_snapshot: string;
+        club_name: string; club_summary: string | null; owner_name: string;
+      };
 
+      let challengeData: ChallengeRow;
+      let attemptCount: number;
+
+      {
+        const client = await pool.connect();
+        try {
+          await client.query('begin');
+
+          const challengeResult = await client.query<ChallengeRow>(
+            `select challenge_id, difficulty, expires_at, club_id, policy_snapshot, club_name, club_summary, owner_name
+             from app.get_admission_challenge($1)`,
+            [input.challengeId],
+          );
+
+          const challenge = challengeResult.rows[0];
+          if (!challenge) {
+            await client.query('rollback');
+            throw new AppError(404, 'challenge_not_found', 'Challenge not found');
+          }
+
+          const expiresAt = Date.parse(challenge.expires_at);
+          if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+            await client.query(
+              `select app.delete_admission_challenge($1)`,
+              [input.challengeId],
+            );
+            await client.query('commit');
+            throw new AppError(410, 'challenge_expired', 'This challenge has expired');
+          }
+
+          const hash = createHash('sha256')
+            .update(`${input.challengeId}:${input.nonce}`, 'utf8')
+            .digest('hex');
+          if (!hash.endsWith('0'.repeat(challenge.difficulty))) {
+            await client.query('rollback');
+            throw new AppError(400, 'invalid_proof', 'The submitted proof does not meet the difficulty requirement');
+          }
+
+          // Check club still eligible via security definer (bypasses RLS)
+          const clubCheck = await client.query<{ eligible: boolean }>(
+            `select eligible from app.check_club_admission_eligible($1)`,
+            [challenge.club_id],
+          );
+          if (!clubCheck.rows[0] || !clubCheck.rows[0].eligible) {
+            await client.query(
+              `select app.delete_admission_challenge($1)`,
+              [input.challengeId],
+            );
+            await client.query('commit');
+            throw new AppError(410, 'club_unavailable', 'This club is no longer accepting applications');
+          }
+
+          const countResult = await client.query<{ count_admission_attempts: number }>(
+            `select app.count_admission_attempts($1) as count_admission_attempts`,
+            [input.challengeId],
+          );
+          attemptCount = countResult.rows[0]?.count_admission_attempts ?? 0;
+
+          if (attemptCount >= MAX_ADMISSION_ATTEMPTS) {
+            await client.query(
+              `select app.delete_admission_challenge($1)`,
+              [input.challengeId],
+            );
+            await client.query('commit');
+            return { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' };
+          }
+
+          challengeData = challenge;
+          await client.query('commit');
+        } catch (error) {
+          try { await client.query('rollback'); } catch { /* ignore */ }
+          throw error;
+        } finally {
+          client.release();
+        }
+      }
+
+      // ── Phase 2: LLM gate (no transaction) ──────────────
+      const gateResult = await runAdmissionGate(
+        { name: input.name, email: input.email, socials: input.socials, application: input.application },
+        { name: challengeData.club_name, summary: challengeData.club_summary, admissionPolicy: challengeData.policy_snapshot },
+      );
+
+      // ── Phase 3: Record result (transaction) ─────────────
+      const client = await pool.connect();
       try {
         await client.query('begin');
 
-        const challengeResult = await client.query<{ challenge_id: string; difficulty: number; expires_at: string }>(
-          `select challenge_id, difficulty, expires_at from app.get_admission_challenge($1)`,
+        // Re-lock and re-validate the challenge
+        const recheck = await client.query<ChallengeRow>(
+          `select challenge_id, difficulty, expires_at, club_id, policy_snapshot, club_name, club_summary, owner_name
+           from app.get_admission_challenge($1)`,
           [input.challengeId],
         );
-
-        const challenge = challengeResult.rows[0];
-        if (!challenge) {
+        if (!recheck.rows[0]) {
           await client.query('rollback');
-          return null;
+          throw new AppError(409, 'challenge_consumed', 'Challenge was consumed by a concurrent request');
         }
 
-        const expiresAt = Date.parse(challenge.expires_at);
-        if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+        const recheckExpiry = Date.parse(recheck.rows[0].expires_at);
+        if (!Number.isFinite(recheckExpiry) || recheckExpiry < Date.now()) {
           await client.query(
             `select app.delete_admission_challenge($1)`,
             [input.challengeId],
@@ -580,35 +711,163 @@ export function buildAdmissionWorkflowRepository({
           throw new AppError(410, 'challenge_expired', 'This challenge has expired');
         }
 
-        const hash = createHash('sha256')
-          .update(`${input.challengeId}:${input.nonce}`, 'utf8')
-          .digest('hex');
-        if (!hash.endsWith('0'.repeat(challenge.difficulty))) {
-          throw new AppError(400, 'invalid_proof', 'The submitted proof does not meet the difficulty requirement');
+        // Re-check club still eligible after LLM call (may have been archived/unlisted/policy cleared)
+        const clubRecheck = await client.query<{ eligible: boolean }>(
+          `select eligible from app.check_club_admission_eligible($1)`,
+          [recheck.rows[0].club_id],
+        );
+        if (!clubRecheck.rows[0] || !clubRecheck.rows[0].eligible) {
+          await client.query(
+            `select app.delete_admission_challenge($1)`,
+            [input.challengeId],
+          );
+          await client.query('commit');
+          throw new AppError(410, 'club_unavailable', 'This club is no longer accepting applications');
         }
 
-        const admissionDetails = JSON.stringify({
-          socials: input.socials,
-          reason: input.reason,
-        });
+        // Re-count with live data via security definer
+        const liveCount = await client.query<{ count_admission_attempts: number }>(
+          `select app.count_admission_attempts($1) as count_admission_attempts`,
+          [input.challengeId],
+        );
+        const liveAttemptCount = liveCount.rows[0]?.count_admission_attempts ?? 0;
+        const attemptNo = liveAttemptCount + 1;
 
-        const admissionResult = await client.query<{ admission_id: string }>(
-          `select admission_id from app.consume_admission_challenge($1, $2, $3, $4, $5::jsonb)`,
-          [input.challengeId, input.clubSlug, input.name, input.email, admissionDetails],
+        if (attemptNo > MAX_ADMISSION_ATTEMPTS) {
+          await client.query(
+            `select app.delete_admission_challenge($1)`,
+            [input.challengeId],
+          );
+          await client.query('commit');
+          return { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' };
+        }
+
+        const payload = JSON.stringify({ socials: input.socials, application: input.application });
+
+        if (gateResult.status === 'failed') {
+          // Log the failure before throwing — this is the only visibility into gate outages on the cold path
+          pool.query(
+            `select app.log_llm_usage($1, $2, $3, $4, $5, $6, $7::app.quality_gate_status, $8, $9, $10, $11)`,
+            [
+              null, challengeData.club_id, 'admissions.apply', 'admission_gate',
+              QUALITY_GATE_PROVIDER, CLAWCLUB_OPENAI_MODEL,
+              'skipped', gateResult.reason,
+              null, null,
+              gateResult.providerErrorCode ?? null,
+            ],
+          ).catch((err) => { console.error('Failed to log admission gate failure:', err); });
+
+          await client.query('rollback');
+          throw new AppError(503, 'gate_unavailable', 'Application gate is temporarily unavailable. Please try again later.');
+        }
+
+        const gatePassed = gateResult.status === 'passed';
+        const gateStatus = gateResult.status === 'passed' ? 'passed'
+          : gateResult.status === 'skipped' ? 'skipped'
+          : gateResult.status === 'rejected_illegal' ? 'rejected_illegal'
+          : 'rejected';
+        const gateFeedback = (gateResult.status === 'rejected' || gateResult.status === 'rejected_illegal')
+          ? gateResult.feedback : null;
+
+        // Record the attempt via security definer (bypasses RLS)
+        await client.query(
+          `select app.record_admission_attempt($1, $2, $3, $4, $5, $6::jsonb, $7::app.quality_gate_status, $8, $9)`,
+          [
+            input.challengeId, challengeData.club_id, attemptNo,
+            input.name, input.email, payload,
+            gateStatus, gateFeedback, challengeData.policy_snapshot,
+          ],
         );
 
-        if (!admissionResult.rows[0]) {
-          await client.query('rollback');
-          return null;
+        let result: AdmissionApplyResult;
+        let submittedAdmissionId: string | null = null;
+
+        if (gatePassed) {
+          // Consume challenge and create admission
+          const admissionDetails = JSON.stringify({
+            socials: input.socials,
+            application: input.application,
+          });
+
+          const admissionResult = await client.query<{ admission_id: string }>(
+            `select admission_id from app.consume_admission_challenge($1, $2, $3, $4::jsonb)`,
+            [input.challengeId, input.name, input.email, admissionDetails],
+          );
+
+          if (!admissionResult.rows[0]) {
+            await client.query('rollback');
+            throw new AppError(500, 'admission_creation_failed', 'Failed to create admission');
+          }
+
+          submittedAdmissionId = admissionResult.rows[0].admission_id;
+
+          result = {
+            status: 'accepted',
+            message: `Your application has been submitted. ${challengeData.owner_name} will contact you by email to let you know whether an interview has been scheduled. If you don't hear back, know that there are many other clubs you can join.`,
+          };
+        } else if (attemptNo >= MAX_ADMISSION_ATTEMPTS) {
+          // 5th rejection — exhaust the challenge
+          await client.query(
+            `select app.delete_admission_challenge($1)`,
+            [input.challengeId],
+          );
+          result = {
+            status: 'attempts_exhausted',
+            message: 'You have used all attempts. Please request a new challenge to try again.',
+          };
+        } else {
+          result = {
+            status: 'needs_revision',
+            feedback: gateFeedback!,
+            attemptsRemaining: MAX_ADMISSION_ATTEMPTS - attemptNo,
+          };
         }
 
         await client.query('commit');
-        return { success: true };
-      } catch (error) {
-        await client.query('rollback');
-        if (error && typeof error === 'object' && 'code' in error && error.code === '23514') {
-          return null;
+
+        // Fire-and-forget: notify club owner of new cold application
+        if (submittedAdmissionId) {
+          pool.query(
+            `select app.notify_admission_submitted($1, $2::jsonb, null)`,
+            [
+              challengeData.club_id,
+              JSON.stringify({
+                admissionId: submittedAdmissionId,
+                origin: 'self_applied',
+                applicantName: input.name,
+              }),
+            ],
+          ).catch((err) => {
+            console.error('Failed to notify owner of cold admission:', err);
+          });
         }
+
+        // Fire-and-forget LLM usage log
+        if (gateResult.status !== 'skipped' || gateResult.reason !== 'no_gate_for_action') {
+          const usage = 'usage' in gateResult ? gateResult.usage : null;
+          pool.query(
+            `select app.log_llm_usage($1, $2, $3, $4, $5, $6, $7::app.quality_gate_status, $8, $9, $10, $11)`,
+            [
+              null, // memberId (cold)
+              challengeData.club_id,
+              'admissions.apply',
+              'admission_gate',
+              QUALITY_GATE_PROVIDER,
+              CLAWCLUB_OPENAI_MODEL,
+              gateStatus,
+              null,
+              usage?.promptTokens ?? null,
+              usage?.completionTokens ?? null,
+              null,
+            ],
+          ).catch((err) => {
+            console.error('Failed to log admission gate LLM usage:', err);
+          });
+        }
+
+        return result;
+      } catch (error) {
+        try { await client.query('rollback'); } catch { /* ignore */ }
         throw error;
       } finally {
         client.release();
@@ -719,6 +978,22 @@ export function buildAdmissionWorkflowRepository({
             values ($1, 'submitted', 'Sponsored admission created by member', 1, $2)
           `,
           [row.admission_id, input.actorMemberId],
+        );
+
+        // Notify club owner of new sponsored application
+        await client.query(
+          `select app.notify_admission_submitted($1, $2::jsonb, $3)`,
+          [
+            input.clubId,
+            JSON.stringify({
+              admissionId: row.admission_id,
+              origin: 'member_sponsored',
+              applicantName: input.candidateName,
+              sponsorName: row.sponsor_public_name,
+              sponsorHandle: row.sponsor_handle,
+            }),
+            input.actorMemberId,
+          ],
         );
 
         return {

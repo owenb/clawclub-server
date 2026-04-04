@@ -13,7 +13,8 @@
 
 ```bash
 npm run check                    # TypeScript type check
-npm run test:unit                # Mocked unit tests — no DB needed
+npm run test:unit                # Mocked/fake-client root tests — no DB needed
+npm run test:unit:db             # Root tests that need a real Postgres test DB (RLS, sync triggers, provisioning)
 npm run test:integration:non-llm # Integration tests that do NOT hit the LLM (fast, free)
 npm run test:integration:with-llm # Integration tests that DO hit gpt-5.4-nano (requires .env.local with OPENAI_API_KEY)
 npm run test:integration:all     # Runs both non-llm then with-llm
@@ -22,7 +23,7 @@ npm run test:integration         # Alias for test:integration:all
 
 ### Unit tests (`test/*.test.ts`)
 
-Fast, mocked repository tests. Good for handler logic and input validation. No database required.
+Most root tests use mocked repositories or fake DB clients — fast, no real database needed. Four files (`postgres-rls`, `postgres-club-owner-sync`, `postgres-membership-state-sync`, `provision-app-role-script`) connect to a real Postgres test database and are run separately via `test:unit:db`.
 
 ### Integration tests (`test/integration/*.test.ts`)
 
@@ -30,9 +31,9 @@ The primary confidence layer. Every test runs against a real Postgres database (
 
 Tests are split into two suites:
 
-**Non-LLM** (`test:integration:non-llm`) — tests every action that does not pass through the quality gate. No OpenAI key needed. Fast and free. Files: `smoke`, `memberships`, `messages`, `profiles`, `admin`, `admissions`.
+**Non-LLM** (`test:integration:non-llm`) — tests every action that does not pass through the legality gate. No OpenAI key needed. Fast and free. Files: `smoke`, `memberships`, `messages`, `profiles`, `admin`, `admissions`.
 
-**With-LLM** (`test:integration:with-llm`) — tests actions gated by the LLM quality gate (`entities.create`, `entities.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsor`). Runs through the real LLM exactly as production does. The OPENAI_API_KEY is loaded from `.env.local`. Files: `content`, `llm-gated`, `quality-gate`.
+**With-LLM** (`test:integration:with-llm`) — tests actions gated by the LLM legality gate (`entities.create`, `entities.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsor`). Runs through the real LLM exactly as production does. The OPENAI_API_KEY is loaded from `.env.local`. Files: `content`, `llm-gated`, `quality-gate`.
 
 **Requires:** Local Postgres running on `localhost`.
 

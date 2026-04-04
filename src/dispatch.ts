@@ -5,12 +5,12 @@
  * dispatch. All actions are looked up in the contract registry. The pipeline is:
  *
  *   1. Identify action (look up contract in registry)
- *   2. For auth:none → parse → quality gate → execute
- *      For authenticated → authenticate → parse → quality gate → authorize → execute
+ *   2. For auth:none → parse → legality gate → execute
+ *      For authenticated → authenticate → parse → legality gate → authorize → execute
  *   3. Assemble canonical response envelope
  *
  * Behavioral change from previous code:
- *   - Quality gate now runs AFTER authentication (previously ran before auth,
+ *   - Legality gate now runs AFTER authentication (previously ran before auth,
  *     wasting LLM calls on unauthenticated requests).
  *   - Missing repository capabilities consistently return 501 'not_available'
  *     (previously mixed 500 'not_supported' and 501 'not_implemented').
@@ -22,9 +22,11 @@
 import { AppError } from './contract.ts';
 import type {
   ActorContext,
+  LogLlmUsageInput,
   MembershipSummary,
   Repository,
   RequestScope,
+  ResponseNotice,
   SharedResponseContext,
 } from './contract.ts';
 import {
@@ -36,7 +38,10 @@ import {
   type ColdHandlerContext,
   type RepositoryCapability,
 } from './schemas/registry.ts';
-import { runQualityGate } from './quality-gate.ts';
+import { runQualityGate as defaultRunQualityGate, QUALITY_GATE_PROVIDER, type QualityGateResult } from './quality-gate.ts';
+
+export type QualityGateFn = (action: string, payload: Record<string, unknown>) => Promise<QualityGateResult>;
+import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
 
 // ── Import all schema modules to trigger registration ────
 import './schemas/session.ts';
@@ -106,6 +111,70 @@ function checkCapability(
   }
 }
 
+// ── Legality gate handling ────────────────────────────────
+
+function extractRequestedClubId(payload: Record<string, unknown>): string | null {
+  const clubId = payload.clubId;
+  return typeof clubId === 'string' && clubId.trim().length > 0 ? clubId.trim() : null;
+}
+
+function buildLlmLogEntry(
+  actionName: string,
+  memberId: string | null,
+  requestedClubId: string | null,
+  gate: QualityGateResult,
+): LogLlmUsageInput {
+  const base = {
+    memberId: memberId ?? null,
+    requestedClubId,
+    actionName,
+    provider: QUALITY_GATE_PROVIDER,
+    model: CLAWCLUB_OPENAI_MODEL,
+  };
+
+  if (gate.status === 'skipped') {
+    return {
+      ...base,
+      gateStatus: 'skipped',
+      skipReason: gate.reason,
+      promptTokens: null,
+      completionTokens: null,
+      providerErrorCode: gate.providerErrorCode ?? null,
+    };
+  }
+
+  if (gate.status === 'failed') {
+    return {
+      ...base,
+      gateStatus: 'skipped',
+      skipReason: gate.reason,
+      promptTokens: null,
+      completionTokens: null,
+      providerErrorCode: gate.providerErrorCode ?? null,
+    };
+  }
+
+  return {
+    ...base,
+    gateStatus: gate.status,
+    skipReason: null,
+    promptTokens: gate.usage.promptTokens,
+    completionTokens: gate.usage.completionTokens,
+    providerErrorCode: null,
+  };
+}
+
+function fireAndForgetLlmLog(repository: Repository, entry: LogLlmUsageInput): void {
+  if (!repository.logLlmUsage) return;
+  repository.logLlmUsage(entry).catch((err) => {
+    console.error('Failed to log LLM usage:', err);
+  });
+}
+
+function gateNotices(_gate: QualityGateResult): ResponseNotice[] {
+  return [];
+}
+
 // ── Response envelope assembly ───────────────────────────
 
 function assembleAuthenticatedResponse(
@@ -114,6 +183,7 @@ function assembleAuthenticatedResponse(
   actor: ActorContext,
   defaultRequestScope: RequestScope,
   sharedContext: SharedResponseContext,
+  notices: ResponseNotice[],
 ) {
   // Apply nextMember if handler provided it (profile.update)
   const member = result.nextMember ?? actor.member;
@@ -127,7 +197,7 @@ function assembleAuthenticatedResponse(
     };
   }
 
-  return {
+  const envelope: Record<string, unknown> = {
     action,
     actor: {
       member,
@@ -138,13 +208,25 @@ function assembleAuthenticatedResponse(
     },
     data: result.data,
   };
+
+  if (notices.length > 0) {
+    envelope.notices = notices;
+  }
+
+  return envelope;
 }
 
-function assembleUnauthenticatedResponse(action: string, result: ActionResult) {
-  return {
+function assembleUnauthenticatedResponse(action: string, result: ActionResult, notices: ResponseNotice[]) {
+  const envelope: Record<string, unknown> = {
     action,
     data: result.data,
   };
+
+  if (notices.length > 0) {
+    envelope.notices = notices;
+  }
+
+  return envelope;
 }
 
 // ── Dispatch ─────────────────────────────────────────────
@@ -155,7 +237,8 @@ export type DispatchInput = {
   payload?: unknown;
 };
 
-export function buildDispatcher({ repository }: { repository: Repository }) {
+export function buildDispatcher({ repository, qualityGate }: { repository: Repository; qualityGate?: QualityGateFn }) {
+  const runQualityGate = qualityGate ?? defaultRunQualityGate;
   return {
     async dispatch(input: DispatchInput) {
       // 1. Identify action
@@ -173,10 +256,10 @@ export function buildDispatcher({ repository }: { repository: Repository }) {
 
       // 3. Branch on auth
       if (def.auth === 'none') {
-        return await dispatchCold(def, actionName, payload, repository);
+        return await dispatchCold(def, actionName, payload, repository, runQualityGate);
       }
 
-      return await dispatchAuthenticated(def, actionName, payload, input.bearerToken, repository);
+      return await dispatchAuthenticated(def, actionName, payload, input.bearerToken, repository, runQualityGate);
     },
   };
 }
@@ -186,6 +269,7 @@ async function dispatchCold(
   actionName: string,
   payload: Record<string, unknown>,
   repository: Repository,
+  runQualityGate: QualityGateFn,
 ) {
   // Check capability (safe before auth since cold actions have no auth)
   if (def.requiredCapability) {
@@ -195,12 +279,26 @@ async function dispatchCold(
   // Parse
   const parsedInput = parseActionInput(def, payload);
 
-  // Quality gate (cold actions currently don't have quality gates, but support it)
+  // Legality gate (cold actions currently don't have gates, but support it)
+  let notices: ResponseNotice[] = [];
   if (def.qualityGate) {
     const gate = await runQualityGate(actionName, parsedInput as Record<string, unknown>);
-    if (!gate.pass) {
-      throw new AppError(422, 'quality_check_failed', (gate as { pass: false; feedback: string }).feedback);
+
+    const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
+    if (!(gate.status === 'skipped' && gate.reason === 'no_gate_for_action')) {
+      fireAndForgetLlmLog(repository, buildLlmLogEntry(actionName, null, requestedClubId, gate));
     }
+
+    if (gate.status === 'failed') {
+      throw new AppError(503, 'gate_unavailable', `Content gate unavailable (${gate.reason}). Gated actions cannot proceed.`);
+    }
+    if (gate.status === 'rejected_illegal') {
+      throw new AppError(422, 'illegal_content', gate.feedback);
+    }
+    if (gate.status === 'rejected') {
+      throw new AppError(422, 'gate_rejected', gate.feedback);
+    }
+    notices = gateNotices(gate);
   }
 
   // Execute
@@ -212,7 +310,7 @@ async function dispatchCold(
   const result = await def.handleCold(parsedInput, ctx);
 
   // Assemble unauthenticated envelope
-  return assembleUnauthenticatedResponse(actionName, result);
+  return assembleUnauthenticatedResponse(actionName, result, notices);
 }
 
 async function dispatchAuthenticated(
@@ -221,6 +319,7 @@ async function dispatchAuthenticated(
   payload: Record<string, unknown>,
   bearerToken: string | null,
   repository: Repository,
+  runQualityGate: QualityGateFn,
 ) {
   // Authenticate
   if (typeof bearerToken !== 'string' || bearerToken.trim().length === 0) {
@@ -241,12 +340,26 @@ async function dispatchAuthenticated(
   // Parse
   const parsedInput = parseActionInput(def, payload);
 
-  // Quality gate (runs on parsed/normalized input, after auth, before execution)
+  // Legality gate (runs on parsed/normalized input, after auth, before execution)
+  let notices: ResponseNotice[] = [];
   if (def.qualityGate) {
     const gate = await runQualityGate(actionName, parsedInput as Record<string, unknown>);
-    if (!gate.pass) {
-      throw new AppError(422, 'quality_check_failed', (gate as { pass: false; feedback: string }).feedback);
+
+    const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
+    if (!(gate.status === 'skipped' && gate.reason === 'no_gate_for_action')) {
+      fireAndForgetLlmLog(repository, buildLlmLogEntry(actionName, actor.member.id, requestedClubId, gate));
     }
+
+    if (gate.status === 'failed') {
+      throw new AppError(503, 'gate_unavailable', `Content gate unavailable (${gate.reason}). Gated actions cannot proceed.`);
+    }
+    if (gate.status === 'rejected_illegal') {
+      throw new AppError(422, 'illegal_content', gate.feedback);
+    }
+    if (gate.status === 'rejected') {
+      throw new AppError(422, 'gate_rejected', gate.feedback);
+    }
+    notices = gateNotices(gate);
   }
 
   // Execute
@@ -269,5 +382,5 @@ async function dispatchAuthenticated(
   const result = await def.handle(parsedInput, ctx);
 
   // Assemble authenticated envelope
-  return assembleAuthenticatedResponse(actionName, result, actor, defaultRequestScope, sharedContext);
+  return assembleAuthenticatedResponse(actionName, result, actor, defaultRequestScope, sharedContext, notices);
 }

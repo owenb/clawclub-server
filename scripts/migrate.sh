@@ -51,7 +51,8 @@ for file in "${files[@]}"; do
   fi
 
   echo "apply $name"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
-    -c "insert into public.schema_migrations (filename) values ('${escaped_name}')"
+  {
+    cat "$file"
+    echo "INSERT INTO public.schema_migrations (filename) VALUES ('${escaped_name}');"
+  } | psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction
 done

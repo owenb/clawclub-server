@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildDispatcher } from '../src/dispatch.ts';
 import type { AdmissionSummary } from '../src/contract.ts';
-import { makeAuthResult, makeRepository } from './fixtures.ts';
+import { makeAuthResult, makeRepository, passthroughGate } from './fixtures.ts';
 
 const sampleAdmission: AdmissionSummary = {
   admissionId: 'admission-1',
@@ -46,7 +46,7 @@ test('admissions.sponsor creates a sponsorship for an outsider', async () => {
     },
   });
 
-  const dispatcher = buildDispatcher({ repository });
+  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'admissions.sponsor',
@@ -72,7 +72,7 @@ test('admissions.sponsor rejects single-word name', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository });
+  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -93,7 +93,7 @@ test('admissions.sponsor rejects invalid email', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository });
+  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -114,7 +114,7 @@ test('admissions.sponsor rejects reason exceeding 500 characters', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository });
+  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -135,7 +135,7 @@ test('admissions.sponsor rejects club outside actor scope', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository });
+  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -156,7 +156,7 @@ test('admissions.list returns admissions for accessible clubs', async () => {
     async listAdmissions() { return [sampleAdmission]; },
   });
 
-  const dispatcher = buildDispatcher({ repository });
+  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'admissions.list',

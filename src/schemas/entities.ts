@@ -329,4 +329,141 @@ const entitiesList: ActionDefinition = {
   },
 };
 
-registerActions([entitiesCreate, entitiesUpdate, entitiesArchive, entitiesRedact, entitiesList]);
+// ── entities.findViaEmbedding ──────────────────────────────
+
+type EntitiesFindViaEmbeddingInput = {
+  query: string;
+  clubId?: string;
+  kinds?: string[];
+  limit: number;
+};
+
+const entitiesFindViaEmbedding: ActionDefinition = {
+  action: 'entities.findViaEmbedding',
+  domain: 'entities',
+  description: 'Find entities by natural-language query using embedding similarity.',
+  auth: 'member',
+  safety: 'read_only',
+
+  wire: {
+    input: z.object({
+      query: z.string().max(1000).describe('Natural-language search query (max 1000 chars)'),
+      clubId: wireRequiredString.optional().describe('Restrict to one club'),
+      kinds: z.array(entityKind).optional().describe('Filter by entity kinds'),
+      limit: wireLimit,
+    }),
+    output: z.object({
+      query: z.string(),
+      limit: z.number(),
+      clubScope: z.array(membershipSummary),
+      results: z.array(entitySummary),
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      query: z.string().trim().min(1).max(1000),
+      clubId: parseRequiredString.optional(),
+      kinds: z.array(entityKind).optional(),
+      limit: parseLimit,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { query, clubId, kinds, limit } = input as EntitiesFindViaEmbeddingInput;
+    const { embed } = await import('ai');
+    const { createOpenAI } = await import('@ai-sdk/openai');
+    const { EMBEDDING_PROFILES } = await import('../ai.ts');
+    const { AppError: AppErr } = await import('../contract.ts');
+
+    const profile = EMBEDDING_PROFILES.entity;
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      ctx.repository.logLlmUsage?.({
+        memberId: ctx.actor.member.id,
+        requestedClubId: clubId ?? null,
+        actionName: 'entities.findViaEmbedding',
+        gateName: 'embedding_query',
+        provider: 'openai',
+        model: profile.model,
+        gateStatus: 'skipped',
+        skipReason: 'no_api_key',
+        promptTokens: null,
+        completionTokens: null,
+        providerErrorCode: null,
+      })?.catch(() => {});
+      throw new AppErr(503, 'embedding_unavailable', 'Embedding service is not configured');
+    }
+
+    let clubIds: string[];
+    if (clubId) {
+      clubIds = [ctx.requireAccessibleClub(clubId).clubId];
+    } else {
+      clubIds = ctx.actor.memberships.map(m => m.clubId);
+    }
+
+    if (clubIds.length === 0) {
+      throw new AppErr(403, 'forbidden', 'This member does not currently have access to any clubs');
+    }
+
+    const provider = createOpenAI({ apiKey });
+    const embeddingModel = provider.embedding(profile.model, { dimensions: profile.dimensions });
+
+    let embedding: number[];
+    let usageTokens = 0;
+    try {
+      const result = await embed({ model: embeddingModel, value: query });
+      embedding = result.embedding;
+      usageTokens = result.usage?.tokens ?? 0;
+    } catch (err) {
+      console.error('Embedding provider error in entities.findViaEmbedding:', err);
+      ctx.repository.logLlmUsage?.({
+        memberId: ctx.actor.member.id,
+        requestedClubId: clubId ?? null,
+        actionName: 'entities.findViaEmbedding',
+        gateName: 'embedding_query',
+        provider: 'openai',
+        model: profile.model,
+        gateStatus: 'skipped',
+        skipReason: 'provider_error',
+        promptTokens: null,
+        completionTokens: null,
+        providerErrorCode: err instanceof Error ? err.message.slice(0, 200) : 'unknown',
+      })?.catch(() => {});
+      throw new AppErr(503, 'embedding_unavailable', 'Embedding service is temporarily unavailable');
+    }
+
+    ctx.repository.logLlmUsage?.({
+      memberId: ctx.actor.member.id,
+      requestedClubId: clubId ?? null,
+      actionName: 'entities.findViaEmbedding',
+      gateName: 'embedding_query',
+      provider: 'openai',
+      model: profile.model,
+      gateStatus: 'passed',
+      skipReason: null,
+      promptTokens: usageTokens,
+      completionTokens: 0,
+      providerErrorCode: null,
+    })?.catch(() => {});
+
+    const queryVector = `[${embedding.join(',')}]`;
+
+    const results = await ctx.repository.findEntitiesViaEmbedding({
+      actorMemberId: ctx.actor.member.id,
+      clubIds,
+      queryEmbedding: queryVector,
+      kinds,
+      limit,
+    });
+
+    const clubScope = ctx.actor.memberships.filter(m => clubIds.includes(m.clubId));
+
+    return {
+      data: { query, limit, clubScope, results },
+      requestScope: { requestedClubId: clubId ?? null, activeClubIds: clubIds },
+    };
+  },
+};
+
+registerActions([entitiesCreate, entitiesUpdate, entitiesArchive, entitiesRedact, entitiesList, entitiesFindViaEmbedding]);

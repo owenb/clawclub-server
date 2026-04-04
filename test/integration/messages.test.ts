@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from './harness.ts';
+import { decodeUpdatesCursor } from '../../src/postgres/updates.ts';
 
 let h: TestHarness;
 
@@ -267,7 +268,7 @@ describe('messages', () => {
     const alice = await h.seedClubMember(owner.club.id, 'Alice Long', 'alice-long', { sponsorId: owner.id });
     const err = await h.apiErr(owner.token, 'messages.send', {
       recipientMemberId: alice.id,
-      messageText: 'x'.repeat(5001),
+      messageText: 'x'.repeat(500_001),
     });
     assert.equal(err.status, 400);
   });
@@ -380,12 +381,12 @@ describe('updates', () => {
 // ── SSE Stream ───────────────────────────────────────────────────────────────
 
 describe('updates/stream', () => {
-  it('ready event includes latestStreamSeq', async () => {
+  it('ready event includes latestCursor', async () => {
     const owner = await h.seedOwner('sse-club-1', 'SSEClub1');
     const alice = await h.seedClubMember(owner.club.id, 'Alice SSE', 'alice-sse-1', { sponsorId: owner.id });
     const bob = await h.seedClubMember(owner.club.id, 'Bob SSE', 'bob-sse-1', { sponsorId: owner.id });
 
-    // Send a DM so there's a known streamSeq
+    // Send a DM so there's a known cursor
     await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
       messageText: 'SSE test message',
@@ -396,8 +397,8 @@ describe('updates/stream', () => {
       await stream.waitForEvents(1); // ready event
       const ready = stream.events[0]!;
       assert.equal(ready.event, 'ready');
-      assert.ok('latestStreamSeq' in ready.data, 'ready should include latestStreamSeq');
-      assert.equal(typeof ready.data.latestStreamSeq, 'number');
+      assert.ok('latestCursor' in ready.data, 'ready should include latestCursor');
+      assert.ok(ready.data.latestCursor === null || typeof ready.data.latestCursor === 'string');
     } finally {
       stream.close();
     }
@@ -420,8 +421,8 @@ describe('updates/stream', () => {
       await stream.waitForEvents(1); // ready event
       const ready = stream.events[0]!;
       assert.equal(ready.event, 'ready');
-      assert.ok(ready.data.latestStreamSeq !== null, 'should have a latestStreamSeq');
-      assert.equal(ready.data.nextAfter, ready.data.latestStreamSeq, 'nextAfter should equal latestStreamSeq for after=latest');
+      assert.ok(ready.data.latestCursor !== null, 'should have a latestCursor');
+      assert.equal(ready.data.nextAfter, ready.data.latestCursor, 'nextAfter should equal latestCursor for after=latest');
 
       // Send a new DM — this one should arrive on the stream
       await h.apiOk(alice.token, 'messages.send', {
@@ -475,9 +476,19 @@ describe('updates/stream', () => {
       const seq1 = updates[1]!.data.streamSeq as number;
       assert.ok(seq1 > seq0, 'streamSeq should be monotonically increasing');
 
-      // id should match streamSeq
-      assert.equal(updates[0]!.id, String(seq0));
-      assert.equal(updates[1]!.id, String(seq1));
+      // SSE ids are opaque compound cursors. When present, they should decode
+      // to a position at or beyond the update's source stream seq.
+      assert.ok(typeof updates[1]!.id === 'string', 'last streamed update should carry an SSE id');
+      const cursor1 = decodeUpdatesCursor(updates[1]!.id!);
+      assert.equal(cursor1.i, seq1);
+      assert.equal(cursor1.a, 0);
+
+      if (typeof updates[0]!.id === 'string') {
+        const cursor0 = decodeUpdatesCursor(updates[0]!.id);
+        assert.equal(cursor0.i, seq0);
+        assert.equal(cursor0.a, 0);
+        assert.ok(cursor1.i > cursor0.i, 'compound cursor should advance with later inbox updates');
+      }
     } finally {
       stream.close();
     }

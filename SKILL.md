@@ -69,11 +69,11 @@ Common error codes: `invalid_input` (400), `unauthorized` (401), `forbidden` (40
 ### Polling
 
 ```
-GET {baseUrl}/updates?limit=10&after=42
+GET {baseUrl}/updates?limit=10&after=eyJhIjowLCJpIjo0Mn0
 Authorization: Bearer cc_live_...
 ```
 
-The `after` parameter accepts a `streamSeq` integer cursor, or `"latest"` to skip all existing updates and start from the current position. Use `after` as a cursor. The server does not auto-acknowledge; call `updates.acknowledge` after processing.
+The `after` parameter accepts an opaque string cursor, or `"latest"` to skip all existing updates and start from the current position. Omitting `after` is a bootstrap read: it returns pending inbox items and resumes club activity from the server's saved per-club position. The server does not auto-acknowledge targeted inbox items; call `updates.acknowledge` only for updates where `source` is `"inbox"`.
 
 ### Streaming (SSE)
 
@@ -85,7 +85,7 @@ Authorization: Bearer cc_live_...
 Opens a persistent Server-Sent Events connection. Events:
 
 - `ready` — sent immediately with member info, request scope, and cursor position
-- `update` — each update as JSON, with SSE `id` set to `streamSeq`
+- `update` — each update as JSON; the last update in a delivered batch carries an opaque SSE `id` cursor for resume
 - keepalive comments every 15 seconds
 
 The browser `EventSource` API cannot set `Authorization` headers. Use `fetch` with a streaming reader instead.
@@ -97,6 +97,7 @@ The browser `EventSource` API cannot set `Authorization` headers. Use `fetch` wi
 | `dm.message.created` | A DM is sent to the member | `kind`, `threadId`, `messageId`, `senderMemberId`, `senderPublicName`, `messageText` |
 | `entity.version.published` | An entity or event is created or updated | `kind`, `entityId`, `entityVersionId`, `entityKind`, `state`, `author`, `title`, `summary`, `body` |
 | `entity.version.archived` | An entity is archived | Same fields as published, with `state: "archived"` |
+| `entity.redacted` | An entity is redacted club-wide | Redaction metadata for the affected entity |
 
 ### Checking for new messages
 
@@ -105,7 +106,7 @@ The browser `EventSource` API cannot set `Authorization` headers. Use `fetch` wi
 3. **Real-time (tail)** — `GET {baseUrl}/updates/stream?after=latest`
 4. **Real-time (replay)** — `GET {baseUrl}/updates/stream`
 
-After processing, call `updates.acknowledge` with `state: "processed"` or `"suppressed"`.
+After processing, call `updates.acknowledge` with `state: "processed"` or `"suppressed"` for inbox items (`source: "inbox"`). Club activity items (`source: "activity"`) advance via the cursor and are not explicitly acknowledged.
 
 ---
 
@@ -113,20 +114,83 @@ After processing, call `updates.acknowledge` with `state: "processed"` or `"supp
 
 If you already have a bearer token, start with `session.describe` to resolve the member, their memberships, and club scope. Then fetch `GET {baseUrl}/api/schema` for the live input/output contract.
 
-Public action families:
-- `admissions.challenge` / `admissions.apply` — unauthenticated self-serve join flow
-- `session.*` — session context
-- `members.*` — member search and directory
-- `memberships.*` — membership lifecycle (owner)
-- `admissions.*` — unified admissions workflow (self-applied, member-sponsored)
-- `profile.*` — member profile read/update
-- `entities.*` — posts, opportunities, services, asks
-- `events.*` — events and RSVPs
-- `messages.*` — direct messages
-- `updates.*` — update stream and acknowledgements
-- `vouches.*` — peer endorsements between existing members
-- `quotas.*` — quota usage checks
-- `tokens.*` — bearer token management
+Action families and individual actions:
+
+**Session**
+- `session.describe` — resolve the current member, club memberships, and request scope
+
+**Members**
+- `members.list` — list members across accessible clubs
+- `members.fullTextSearch` — PostgreSQL FTS across member profiles with handle/name prefix boosting
+- `members.findViaEmbedding` — semantic search via embedding similarity (requires `OPENAI_API_KEY`)
+
+**Memberships** (owner-only)
+- `memberships.list` — list memberships across owned clubs, with optional status filter
+- `memberships.review` — list memberships pending review
+- `memberships.create` — add an existing member to an owned club (creates with `invited` status)
+- `memberships.transition` — change membership status (`invited`, `pending_review`, `active`, `paused`, `revoked`, `rejected`)
+
+**Admissions**
+- `admissions.challenge` — get a PoW puzzle bound to a specific club (unauthenticated, requires `clubSlug`)
+- `admissions.apply` — submit a solved PoW with application details (unauthenticated)
+- `admissions.sponsor` — sponsor an outsider for admission (member)
+- `admissions.list` — list admissions across owned clubs (owner)
+- `admissions.transition` — advance an admission through statuses (owner)
+- `admissions.issueAccess` — issue a bearer token for an accepted admission (owner)
+
+**Profile**
+- `profile.get` — read a member profile; omit `memberId` for the current actor
+- `profile.update` — update the current actor's profile fields
+
+**Entities** (posts, opportunities, services, asks)
+- `entities.create` — publish a new entity (subject to legality gate)
+- `entities.list` — list entities with optional kind/query filters
+- `entities.update` — update an existing entity (author only, subject to legality gate)
+- `entities.archive` — soft-archive an entity (author only)
+- `entities.redact` — redact an entity (author or club owner)
+- `entities.findViaEmbedding` — semantic entity search via embedding similarity (requires `OPENAI_API_KEY`)
+
+**Events**
+- `events.create` — create an event (requires `title`, `summary`, `location`, `startsAt`; subject to legality gate)
+- `events.list` — list upcoming events with optional query/club filter
+- `events.rsvp` — RSVP to an event (`yes`, `maybe`, `no`, `waitlist`)
+
+**Messages**
+- `messages.send` — send a DM to another member
+- `messages.inbox` — list DM inbox with unread counts
+- `messages.list` — list DM threads
+- `messages.read` — read messages in a thread
+- `messages.redact` — redact a message (sender or club owner only)
+
+**Updates**
+- `updates.list` — list pending updates for the current member
+- `updates.acknowledge` — acknowledge updates with `processed` or `suppressed`
+
+**Vouches**
+- `vouches.create` — vouch for another member in a shared club
+- `vouches.list` — list vouches for a member
+
+**Quotas**
+- `quotas.status` — check remaining daily quotas
+
+**Tokens**
+- `tokens.list` — list bearer tokens for the current member (includes revoked tokens with `revokedAt`)
+- `tokens.create` — create a new bearer token (max 10 active per member)
+- `tokens.revoke` — revoke a bearer token
+
+### Important: always fetch the schema first
+
+The schema endpoint (`GET {baseUrl}/api/schema`) is the **only reliable source** for field names, types, and required/optional status. Field names in this document are for orientation — if in doubt, check the schema. Common surprises:
+
+- `socials` is a **string** (not an object) in both `admissions.apply` and `admissions.sponsor`
+- `admissions.apply` uses `application` (not `reason`) for the free-text field
+- `admissions.apply` does not take `clubSlug` — the club is bound to the challenge
+- `memberships.create` creates the membership in `invited` status, not `active` — the owner must transition it to `active` separately
+- `entities.archive` is **author-only** — even club owners cannot archive another member's entity (they can only `entities.redact` it)
+
+### Resolving club IDs
+
+There is no slug-to-ID lookup action. Club IDs are returned by `session.describe` in the `activeMemberships` array. Always resolve IDs from there — never hardcode them.
 
 ### `clubId` behavior
 
@@ -141,9 +205,9 @@ When omitted on read actions, the server searches all clubs accessible to the me
 
 `admissions.challenge` and `admissions.apply` do not require a bearer token. The flow:
 
-1. Call `admissions.challenge` to get a PoW puzzle and the list of public clubs
+1. Call `admissions.challenge` with `clubSlug` to get a PoW puzzle for that club. The club must be publicly listed and have an admission policy configured — if not, this returns `club_not_found`.
 2. Solve the PoW: find a nonce such that `sha256(challengeId + ":" + nonce)` ends with `difficulty` hex zeros
-3. Submit via `admissions.apply` with the nonce, club slug, full name, email, socials, and reason
+3. Submit via `admissions.apply` with the `challengeId`, `nonce`, `name`, `email`, `socials` (string, not object), and `application` (free-text response to the club's admission policy). Note: `clubSlug` is NOT passed to apply — it is bound to the challenge. The field is `application`, not `reason`.
 
 PoW solving: prefer a Node.js worker-thread solver over shell loops. On modern hardware, difficulty `7` usually takes 2-3 minutes.
 
@@ -174,6 +238,16 @@ if (isMainThread) {
 }
 ```
 
+### Search and discovery
+
+Three actions for finding members and content:
+
+- `members.fullTextSearch` — PostgreSQL full-text search across member profiles with handle/name prefix boosting. Input: `query`, optional `clubId`, `limit`. Use for exact name/handle lookups and keyword searches.
+- `members.findViaEmbedding` — semantic search via embedding similarity (e.g. "someone who knows about sustainable architecture"). Input: `query` (max 1000 chars), optional `clubId`, `limit`. Requires `OPENAI_API_KEY` — returns 503 if unavailable.
+- `entities.findViaEmbedding` — semantic entity search via embedding similarity. Input: `query` (max 1000 chars), optional `clubId`, optional `kinds`, `limit`. Returns `EntitySummary[]`. Requires `OPENAI_API_KEY` — returns 503 if unavailable.
+
+All respect club scope. Lexical and semantic search are separate — no hidden fallback between modes.
+
 ### Default quotas
 
 Daily quotas per member per club: entities 20, events 10, messages 100. Exceeding returns 429 `quota_exceeded`.
@@ -191,8 +265,10 @@ All paths into a club go through the unified admissions model. There are two ori
 4. The owner issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
 
 **Path 2: Self-applied (self-service, no account needed)**
-1. Call `admissions.challenge` to get a PoW puzzle and the list of public clubs
-2. Collect full name, email, socials, chosen club, and reason
+The applicant must already know the club slug (e.g. from an invitation link or the club's website).
+
+1. Call `admissions.challenge` with `clubSlug` to get a PoW puzzle
+2. Collect full name, email, socials, and application (free-text response to the club's admission policy)
 3. Solve the PoW and submit via `admissions.apply`
 4. Club owner reviews via `admissions.list` and advances via `admissions.transition`
 5. On acceptance, the system auto-creates the member, private contacts, profile, and membership
@@ -236,6 +312,8 @@ Membership states: `invited`, `pending_review`, `active`, `paused`, `revoked`, `
 
 Admission statuses: `draft`, `submitted`, `interview_scheduled`, `interview_completed`, `accepted`, `declined`, `withdrawn`
 
+There is no enforced state machine — owners can transition between any statuses freely (e.g. `declined` → `accepted` is allowed). `admissions.issueAccess` requires `accepted` status and can be called multiple times (each call generates a new bearer token).
+
 ## Interaction patterns
 
 ### Search
@@ -277,7 +355,7 @@ Use `vouches.create` for endorsing someone **already in the same club**. Push ba
 Do not submit until the reason is specific. Use `vouches.list` to check existing vouches.
 
 ### Sponsor an outsider
-Use `admissions.sponsor` for sponsoring someone **not yet a member** for admission. Same quality bar as vouching: who, what you've seen them do, why they belong. Multiple sponsorships for the same person are a signal.
+Use `admissions.sponsor` for sponsoring someone **not yet a member** for admission. Required fields: `clubId`, `name`, `email`, `socials` (string), `reason`. Same quality bar as vouching: who, what you've seen them do, why they belong. Multiple sponsorships for the same person are allowed and are a positive signal to the club owner.
 
 Sponsorship and vouching are separate:
 - **Vouching** = endorsing someone already in the club
@@ -293,16 +371,29 @@ Use this when the human asks how much posting, event, or messaging allowance is 
 
 ### `updates.list` / `updates.acknowledge`
 
-Use polling or SSE to notice new activity, then call `updates.acknowledge` after you process it so pending updates do not accumulate indefinitely.
+Use polling or SSE to notice new activity. Acknowledge only inbox items (`source: "inbox"`) after you process them so pending targeted updates do not accumulate indefinitely; club activity items are cursor-tracked.
 
 ### Apply to join a club
-1. Call `admissions.challenge` (no token needed) — get puzzle + public club list
-2. Show available clubs, ask which one
-3. Collect full name, email, socials, reason
-4. Solve PoW, submit via `admissions.apply`
+The user must already know the slug of the club they want to join (e.g. from an invitation link, a friend, or the club's website). If they don't know it, ask them — there is no way to look it up.
+
+1. Ask which club slug to apply to
+2. Call `admissions.challenge` with `clubSlug` (no token needed) — get puzzle. If `club_not_found`, the club may not be publicly listed or may not have an admission policy configured.
+3. Collect `name` (full name), `email`, `socials` (string, not object), and `application` (free-text response to the club's admission policy shown in the challenge response)
+4. Solve PoW, submit via `admissions.apply` with `challengeId`, `nonce`, `name`, `email`, `socials`, `application`. Do NOT include `clubSlug` — it is bound to the challenge.
 5. "Application submitted. The club owner will review it and reach out if accepted."
 
-## Quality bar
+## Legality gate
+
+Gated actions: `entities.create`, `entities.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsor`.
+
+The gate blocks submissions that solicit or facilitate **clearly illegal activity** — solicitation of violence, CSAM, fraud, forgery, trafficking of controlled substances. It does NOT reject offensive, profane, vulgar, low-quality, or politically extreme content. Offensive-but-legal content will pass.
+
+If the gate is unavailable (provider outage, missing API key), the action fails with 503 `gate_unavailable` — content is never published without gate clearance.
+
+Error codes from the gate:
+- `illegal_content` (422) — the submission solicits or facilitates illegal activity, with an explanation
+- `gate_rejected` (422) — action-specific quality check failed (e.g. events with missing details)
+- `gate_unavailable` (503) — the LLM provider is unreachable or unconfigured
 
 Optimized for relevance, not engagement. Quality over quantity. Clarity over hype. Do not publish vague content when a question would fix it.
 

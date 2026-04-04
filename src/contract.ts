@@ -137,22 +137,43 @@ export type CreateAdmissionSponsorInput = {
   reason: string;
 };
 
-export type SolveAdmissionChallengeInput = {
-  challengeId: string;
-  nonce: string;
-  clubSlug: string;
+export type AdmissionClubSummary = {
+  slug: string;
   name: string;
-  email: string;
-  socials: string;
-  reason: string;
+  summary: string | null;
+  ownerName: string;
+  admissionPolicy: string;
+};
+
+export type PubliclyVisibleClubListResult = {
+  clubs: Array<{ slug: string; name: string }>;
+};
+
+export type CreateAdmissionChallengeInput = {
+  clubSlug: string;
 };
 
 export type AdmissionChallengeResult = {
   challengeId: string;
   difficulty: number;
   expiresAt: string;
-  clubs: Array<{ slug: string; name: string; summary: string | null; ownerName: string; ownerEmail: string | null }>;
+  maxAttempts: number;
+  club: AdmissionClubSummary;
 };
+
+export type SolveAdmissionChallengeInput = {
+  challengeId: string;
+  nonce: string;
+  name: string;
+  email: string;
+  socials: string;
+  application: string;
+};
+
+export type AdmissionApplyResult =
+  | { status: 'accepted'; message: string }
+  | { status: 'needs_revision'; feedback: string; attemptsRemaining: number }
+  | { status: 'attempts_exhausted'; message: string };
 
 export type TransitionAdmissionInput = {
   actorMemberId: string;
@@ -237,6 +258,7 @@ export type RequestScope = {
 export type PendingUpdate = {
   updateId: string;
   streamSeq: number;
+  source: 'activity' | 'inbox';
   recipientMemberId: string;
   clubId: string;
   entityId: string | null;
@@ -254,7 +276,7 @@ export type SharedResponseContext = {
 
 export type MemberUpdates = {
   items: PendingUpdate[];
-  nextAfter: number | null;
+  nextAfter: string | null;
   polledAt: string;
 };
 
@@ -314,24 +336,6 @@ export type ClubMemberSummary = {
   memberships: MembershipSummary[];
 };
 
-export type EmbeddingProjectionSummary = {
-  embeddingId: string;
-  model: string;
-  dimensions: number;
-  sourceText: string;
-  metadata: Record<string, unknown>;
-  createdAt: string;
-};
-
-export type EmbeddingProjectionRow = {
-  embedding_id: string | null;
-  embedding_model: string | null;
-  embedding_dimensions: number | null;
-  embedding_source_text: string | null;
-  embedding_metadata: Record<string, unknown> | null;
-  embedding_created_at: string | null;
-};
-
 export type MemberProfile = {
   memberId: string;
   publicName: string;
@@ -350,7 +354,6 @@ export type MemberProfile = {
     versionNo: number | null;
     createdAt: string | null;
     createdByMemberId: string | null;
-    embedding: EmbeddingProjectionSummary | null;
   };
   sharedClubs: Array<{ id: string; slug: string; name: string }>;
 };
@@ -391,7 +394,6 @@ export type EntitySummary = {
     expiresAt: string | null;
     createdAt: string;
     content: Record<string, unknown>;
-    embedding: EmbeddingProjectionSummary | null;
   };
   createdAt: string;
 };
@@ -758,8 +760,9 @@ export type Repository = {
     statuses?: AdmissionStatus[];
   }): Promise<AdmissionSummary[]>;
   transitionAdmission?(input: TransitionAdmissionInput): Promise<AdmissionSummary | null>;
-  createAdmissionChallenge?(): Promise<AdmissionChallengeResult>;
-  solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<{ success: boolean } | null>;
+  listPubliclyVisibleClubs?(): Promise<PubliclyVisibleClubListResult>;
+  createAdmissionChallenge?(input: CreateAdmissionChallengeInput): Promise<AdmissionChallengeResult>;
+  solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<AdmissionApplyResult>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: {
@@ -768,12 +771,6 @@ export type Repository = {
     limit: number;
     statuses: MembershipState[];
   }): Promise<MembershipReviewSummary[]>;
-  searchMembers(input: {
-    actorMemberId: string;
-    clubIds: string[];
-    query: string;
-    limit: number;
-  }): Promise<MemberSearchResult[]>;
   listMembers(input: {
     actorMemberId: string;
     clubIds: string[];
@@ -793,10 +790,11 @@ export type Repository = {
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
   listMemberUpdates?(input: {
     actorMemberId: string;
+    clubIds: string[];
     limit: number;
-    after?: number | null;
+    after?: string | null;
   }): Promise<MemberUpdates>;
-  getLatestStreamSeq?(input: { actorMemberId: string }): Promise<number | null>;
+  getLatestCursor?(input: { actorMemberId: string; clubIds: string[] }): Promise<string | null>;
   acknowledgeUpdates?(input: AcknowledgeUpdatesInput): Promise<UpdateReceipt[]>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
   listDirectMessageThreads(input: { actorMemberId: string; clubIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
@@ -823,14 +821,57 @@ export type Repository = {
   redactEntity?(input: { actorMemberId: string; accessibleClubIds: string[]; ownerClubIds: string[]; entityId: string; reason?: string | null; skipNotification?: boolean; skipAuthCheck?: boolean }): Promise<{ redaction: RedactionResult; authorMemberId: string } | null>;
 
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
-  adminListMembers?(input: { actorMemberId: string; limit: number; offset: number }): Promise<AdminMemberSummary[]>;
+  adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminMemberSummary[]>;
   adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;
   adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
-  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; offset: number }): Promise<AdminContentSummary[]>;
+  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminContentSummary[]>;
   adminArchiveEntity?(input: { actorMemberId: string; entityId: string }): Promise<{ entityId: string } | null>;
-  adminListThreads?(input: { actorMemberId: string; clubId?: string; limit: number; offset: number }): Promise<AdminThreadSummary[]>;
+  adminListThreads?(input: { actorMemberId: string; clubId?: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminThreadSummary[]>;
   adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] } | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
   adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
   adminGetDiagnostics?(input: { actorMemberId: string }): Promise<AdminDiagnostics>;
+
+  logLlmUsage?(input: LogLlmUsageInput): Promise<void>;
+
+  fullTextSearchMembers(input: {
+    actorMemberId: string;
+    clubIds: string[];
+    query: string;
+    limit: number;
+  }): Promise<MemberSearchResult[]>;
+
+  findMembersViaEmbedding(input: {
+    actorMemberId: string;
+    clubIds: string[];
+    queryEmbedding: string;
+    limit: number;
+  }): Promise<MemberSearchResult[]>;
+
+  findEntitiesViaEmbedding(input: {
+    actorMemberId: string;
+    clubIds: string[];
+    queryEmbedding: string;
+    kinds?: string[];
+    limit: number;
+  }): Promise<EntitySummary[]>;
+};
+
+export type LogLlmUsageInput = {
+  memberId: string | null;
+  requestedClubId: string | null;
+  actionName: string;
+  gateName?: string;
+  provider: string;
+  model: string;
+  gateStatus: 'passed' | 'rejected' | 'rejected_illegal' | 'skipped';
+  skipReason: string | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  providerErrorCode: string | null;
+};
+
+export type ResponseNotice = {
+  code: string;
+  message: string;
 };

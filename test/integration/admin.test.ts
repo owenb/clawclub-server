@@ -411,7 +411,7 @@ describe('admin.members.list', () => {
     await h.seedMember('Listed Member A', 'listed-member-a');
     await h.seedMember('Listed Member B', 'listed-member-b');
 
-    const result = await h.apiOk(admin.token, 'admin.members.list', { limit: 20, offset: 0 });
+    const result = await h.apiOk(admin.token, 'admin.members.list', { limit: 20 });
     const data = result.data as Record<string, unknown>;
     const members = data.members as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(members));
@@ -428,14 +428,14 @@ describe('admin.members.list', () => {
     await h.seedMember('Limit B', 'limit-member-b');
     await h.seedMember('Limit C', 'limit-member-c');
 
-    const result = await h.apiOk(admin.token, 'admin.members.list', { limit: 1, offset: 0 });
+    const result = await h.apiOk(admin.token, 'admin.members.list', { limit: 1 });
     const members = (result.data as Record<string, unknown>).members as Array<Record<string, unknown>>;
     assert.equal(members.length, 1);
   });
 
   it('non-superadmin cannot list members', async () => {
     const member = await h.seedMember('Regular ListM', 'regular-list-members');
-    const err = await h.apiErr(member.token, 'admin.members.list', { limit: 10, offset: 0 });
+    const err = await h.apiErr(member.token, 'admin.members.list', { limit: 10 });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
@@ -519,14 +519,14 @@ describe('admin.content.list', () => {
   it('lists content across clubs', async () => {
     const admin = await h.seedSuperadmin('Admin Content', 'admin-content-list');
 
-    const result = await h.apiOk(admin.token, 'admin.content.list', { limit: 10, offset: 0 });
+    const result = await h.apiOk(admin.token, 'admin.content.list', { limit: 10 });
     const data = result.data as Record<string, unknown>;
     assert.ok(Array.isArray(data.content));
   });
 
   it('non-superadmin cannot list admin content', async () => {
     const member = await h.seedMember('Regular Content', 'regular-content-list');
-    const err = await h.apiErr(member.token, 'admin.content.list', { limit: 10, offset: 0 });
+    const err = await h.apiErr(member.token, 'admin.content.list', { limit: 10 });
     assert.equal(err.status, 403);
   });
 });
@@ -801,10 +801,10 @@ describe('platform authorization', () => {
       ['clubs.archive', { clubId: 'x' }],
       ['clubs.assignOwner', { clubId: 'x', ownerMemberId: 'x' }],
       ['admin.overview', {}],
-      ['admin.members.list', { limit: 1, offset: 0 }],
+      ['admin.members.list', { limit: 1 }],
       ['admin.members.get', { memberId: 'x' }],
       ['admin.clubs.stats', { clubId: 'x' }],
-      ['admin.content.list', { limit: 1, offset: 0 }],
+      ['admin.content.list', { limit: 1 }],
       ['admin.content.archive', { entityId: 'x' }],
       ['admin.messages.threads', { limit: 1 }],
       ['admin.messages.read', { threadId: 'x' }],

@@ -11,7 +11,8 @@ import {
 } from '../contract.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import { buildContainsLikePattern, buildPrefixLikePattern, normalizeSearchQuery } from './search.ts';
-import { appendEntityVersionUpdates } from './updates.ts';
+import { appendClubActivity } from './updates.ts';
+import { enqueueEmbeddingJob } from './embeddings.ts';
 import type { ApplyActorContext, DbClient, WithActorContext } from './helpers.ts';
 import { buildEntityUpdatePayload } from './entities.ts';
 
@@ -361,7 +362,7 @@ export function buildEventsRepository({
           await readEventSummary(client, input.authorMemberId, entityId, createdVersion.id),
           'Created event could not be reloaded',
         );
-        await appendEntityVersionUpdates(client, {
+        await appendClubActivity(client, {
           clubId: event.clubId,
           entityId: event.entityId,
           entityVersionId: event.entityVersionId,
@@ -388,6 +389,7 @@ export function buildEventsRepository({
             capacity: event.version.capacity,
           }),
         });
+        await enqueueEmbeddingJob(client, 'entity', createdVersion.id);
         await client.query('commit');
         return event;
       } catch (error: any) {
@@ -446,75 +448,83 @@ export function buildEventsRepository({
     },
 
     async rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null> {
-      const client = await pool.connect();
-      try {
-        await client.query('begin');
-        await applyActorContext(client, input.actorMemberId, input.accessibleMemberships.map((membership) => membership.clubId));
-        const eventResult = await client.query<{ entity_id: string; club_id: string }>(
-          `
-            select e.id as entity_id, e.club_id
-            from app.entities e
-            where e.id = $1
-              and e.kind = 'event'
-              and e.archived_at is null
-              and e.deleted_at is null
-          `,
-          [input.eventEntityId],
-        );
-        const eventRow = eventResult.rows[0];
-        if (!eventRow) {
-          await client.query('rollback');
-          return null;
-        }
+      // Atomic INSERT ... SELECT computes version_no from the table at insert
+      // time, so concurrent RSVPs get different version numbers. A single retry
+      // covers the narrow first-RSVP race (two inserts both see 0 rows).
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const client = await pool.connect();
+        try {
+          await client.query('begin');
+          await applyActorContext(client, input.actorMemberId, input.accessibleMemberships.map((membership) => membership.clubId));
+          const eventResult = await client.query<{ entity_id: string; club_id: string }>(
+            `
+              select e.id as entity_id, e.club_id
+              from app.entities e
+              where e.id = $1
+                and e.kind = 'event'
+                and e.archived_at is null
+                and e.deleted_at is null
+            `,
+            [input.eventEntityId],
+          );
+          const eventRow = eventResult.rows[0];
+          if (!eventRow) {
+            await client.query('rollback');
+            return null;
+          }
 
-        const membership = input.accessibleMemberships.find((item) => item.clubId === eventRow.club_id);
-        if (!membership) {
-          await client.query('rollback');
-          return null;
-        }
+          const membership = input.accessibleMemberships.find((item) => item.clubId === eventRow.club_id);
+          if (!membership) {
+            await client.query('rollback');
+            return null;
+          }
 
-        const currentResult = await client.query<{ id: string; version_no: number }>(
-          `
-            select id, version_no
-            from app.current_event_rsvps
-            where event_entity_id = $1
-              and membership_id = $2
-          `,
-          [input.eventEntityId, membership.membershipId],
-        );
+          // Advisory lock serializes concurrent RSVPs for the same (event, membership) pair.
+          // hashtext() produces a stable int4 from the composite key.
+          await client.query(
+            `select pg_advisory_xact_lock(hashtext($1 || ':' || $2))`,
+            [input.eventEntityId, membership.membershipId],
+          );
 
-        const current = currentResult.rows[0];
-        await client.query(
-          `
-            insert into app.event_rsvps (
-              event_entity_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id
-            )
-            values ($1, $2, $3, $4, $5, $6, $7)
-          `,
-          [
-            input.eventEntityId,
-            membership.membershipId,
-            input.response,
-            input.note ?? null,
-            (current?.version_no ?? 0) + 1,
-            current?.id ?? null,
+          await client.query(
+            `
+              insert into app.event_rsvps (
+                event_entity_id, membership_id, response, note,
+                version_no, supersedes_rsvp_id, created_by_member_id
+              )
+              select
+                $1::app.short_id, $2::app.short_id, $3::app.rsvp_state, $4::text,
+                coalesce(max(version_no), 0) + 1,
+                (select id from app.event_rsvps where event_entity_id = $1::app.short_id and membership_id = $2::app.short_id order by version_no desc limit 1),
+                $5::app.short_id
+              from app.event_rsvps
+              where event_entity_id = $1::app.short_id and membership_id = $2::app.short_id
+            `,
+            [
+              input.eventEntityId,
+              membership.membershipId,
+              input.response,
+              input.note ?? null,
+              input.actorMemberId,
+            ],
+          );
+
+          await client.query('commit');
+          return await withActorContext(
+            pool,
             input.actorMemberId,
-          ],
-        );
-
-        await client.query('commit');
-        return await withActorContext(
-          pool,
-          input.actorMemberId,
-          input.accessibleMemberships.map((membership) => membership.clubId),
-          (scopedClient) => readEventSummary(scopedClient, input.actorMemberId, input.eventEntityId),
-        );
-      } catch (error) {
-        await client.query('rollback');
-        throw error;
-      } finally {
-        client.release();
+            input.accessibleMemberships.map((membership) => membership.clubId),
+            (scopedClient) => readEventSummary(scopedClient, input.actorMemberId, input.eventEntityId),
+          );
+        } catch (error: any) {
+          await client.query('rollback');
+          if (error?.code === '23505' && attempt === 0) continue;
+          throw error;
+        } finally {
+          client.release();
+        }
       }
+      throw new Error('RSVP retry exhausted');
     },
   };
 }

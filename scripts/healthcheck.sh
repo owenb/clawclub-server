@@ -29,7 +29,8 @@ role_safety="$(printf '%s' "$role_safety" | tr -d '\r' | head -n 1)"
 IFS='|' read -r db_role db_superuser db_bypassrls <<<"$role_safety"
 
 if [[ -z "${db_role:-}" || -z "${db_superuser:-}" || -z "${db_bypassrls:-}" ]]; then
-  echo 'unknown (could not parse role safety check)'
+  echo 'FAIL: could not parse role safety check'
+  healthcheck_failed=1
 elif [[ "$db_superuser" = "t" || "$db_bypassrls" = "t" ]]; then
   echo "unsafe: role=$db_role superuser=$db_superuser bypassrls=$db_bypassrls"
   if [[ "$STRICT_SAFE_DB_ROLE" = "1" ]]; then
@@ -49,7 +50,8 @@ view_owner_safety="$(printf '%s' "$view_owner_safety" | tr -d '\r' | head -n 1)"
 IFS='|' read -r unsafe_view_count unsafe_view_names <<<"$view_owner_safety"
 
 if [[ -z "${unsafe_view_count:-}" ]]; then
-  echo 'unknown (could not parse projection view ownership check)'
+  echo 'FAIL: could not parse projection view ownership check'
+  healthcheck_failed=1
 elif [[ "$unsafe_view_count" != "0" ]]; then
   echo "unsafe: $unsafe_view_count app views owned by superuser or BYPASSRLS role"
   if [[ -n "${unsafe_view_names:-}" ]]; then
@@ -70,7 +72,8 @@ function_owner_safety="$(printf '%s' "$function_owner_safety" | tr -d '\r' | hea
 IFS='|' read -r unsafe_function_count unsafe_function_names <<<"$function_owner_safety"
 
 if [[ -z "${unsafe_function_count:-}" ]]; then
-  echo 'unknown (could not parse security definer ownership check)'
+  echo 'FAIL: could not parse security definer ownership check'
+  healthcheck_failed=1
 elif [[ "$unsafe_function_count" != "0" ]]; then
   echo "unsafe: $unsafe_function_count app security definer functions owned by superuser or BYPASSRLS role"
   if [[ -n "${unsafe_function_names:-}" ]]; then
@@ -91,7 +94,8 @@ rls_coverage="$(printf '%s' "$rls_coverage" | tr -d '\r' | head -n 1)"
 IFS='|' read -r unsafe_table_count unsafe_table_names <<<"$rls_coverage"
 
 if [[ -z "${unsafe_table_count:-}" ]]; then
-  echo 'unknown (could not parse table RLS coverage check)'
+  echo 'FAIL: could not parse table RLS coverage check'
+  healthcheck_failed=1
 elif [[ "$unsafe_table_count" != "0" ]]; then
   echo "unsafe: $unsafe_table_count app tables are missing RLS or FORCE RLS"
   if [[ -n "${unsafe_table_names:-}" ]]; then

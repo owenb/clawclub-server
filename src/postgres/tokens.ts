@@ -1,14 +1,17 @@
 import type { Pool } from 'pg';
-import type {
-  BearerTokenSummary,
-  CreateBearerTokenInput,
-  CreatedBearerToken,
-  Repository,
-  RevokeBearerTokenInput,
+import {
+  AppError,
+  type BearerTokenSummary,
+  type CreateBearerTokenInput,
+  type CreatedBearerToken,
+  type Repository,
+  type RevokeBearerTokenInput,
 } from '../contract.ts';
 import { requireReturnedRow } from './query-guards.ts';
 import { buildBearerToken } from '../token.ts';
 import type { WithActorContext } from './helpers.ts';
+
+const MAX_ACTIVE_TOKENS = 10;
 
 type BearerTokenRow = {
   token_id: string;
@@ -74,6 +77,14 @@ export function buildTokenRepository({
     async createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken> {
       const token = buildBearerToken();
       return withActorContext(pool, input.actorMemberId, [], async (client) => {
+        const countResult = await client.query<{ count: string }>(
+          `select count(*)::text as count from app.member_bearer_tokens where member_id = $1 and revoked_at is null`,
+          [input.actorMemberId],
+        );
+        if (Number(countResult.rows[0]?.count ?? 0) >= MAX_ACTIVE_TOKENS) {
+          throw new AppError(429, 'quota_exceeded', `Maximum ${MAX_ACTIVE_TOKENS} active tokens per member. Revoke unused tokens before creating new ones.`);
+        }
+
         const result = await client.query<BearerTokenRow>(
           `
             insert into app.member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)

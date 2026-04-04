@@ -18,6 +18,7 @@ import { createServer } from '../../src/server.ts';
 import { buildBearerToken } from '../../src/token.ts';
 import { z } from 'zod';
 import { getAction } from '../../src/schemas/registry.ts';
+import type { QualityGateFn } from '../../src/dispatch.ts';
 import {
   authenticatedSuccessEnvelope,
   unauthenticatedSuccessEnvelope,
@@ -110,7 +111,7 @@ export class TestHarness {
     this.dbName = dbName;
   }
 
-  static async start(): Promise<TestHarness> {
+  static async start(options: { qualityGate?: QualityGateFn } = {}): Promise<TestHarness> {
     const dbName = DB_NAME;
     const superuserUrl = `postgresql://localhost/${dbName}`;
     const appUrl = `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbName}`;
@@ -146,7 +147,7 @@ export class TestHarness {
 
     // 5. Start server on random port (using the real app-role pool)
     process.env.DATABASE_URL = appUrl;
-    const serverInstance = createServer();
+    const serverInstance = createServer({ qualityGate: options.qualityGate });
     const port = await new Promise<number>((resolve) => {
       serverInstance.server.listen(0, () => {
         const addr = serverInstance.server.address();

@@ -15,7 +15,7 @@ import { registerActions, type ActionDefinition, type HandlerContext, type Actio
 // ── updates.list ────────────────────────────────────────
 
 type ListInput = {
-  after: number | null;
+  after: string | null;
   limit: number;
 };
 
@@ -29,7 +29,7 @@ const updatesList: ActionDefinition = {
 
   wire: {
     input: z.object({
-      after: z.number().int().nullable().optional().describe('Stream sequence cursor (null or omit to start from beginning)'),
+      after: z.string().nullable().optional().describe('Opaque cursor from previous response (null or omit to start from beginning)'),
       limit: wireLimit,
     }),
     output: z.object({ updates: memberUpdates }),
@@ -37,7 +37,7 @@ const updatesList: ActionDefinition = {
 
   parse: {
     input: z.object({
-      after: z.number().int().nullable().optional().default(null),
+      after: z.string().trim().min(1).nullable().optional().default(null),
       limit: parseLimit,
     }),
   },
@@ -46,8 +46,10 @@ const updatesList: ActionDefinition = {
     const { after, limit } = input as ListInput;
     ctx.requireCapability('listMemberUpdates');
 
+    const clubIds = ctx.actor.memberships.map(m => m.clubId);
     const updates = await ctx.repository.listMemberUpdates!({
       actorMemberId: ctx.actor.member.id,
+      clubIds,
       limit,
       after,
     });
@@ -93,6 +95,8 @@ const updatesAcknowledge: ActionDefinition = {
     const { updateIds, state, suppressionReason } = input as AcknowledgeInput;
     ctx.requireCapability('acknowledgeUpdates');
 
+    // Activity items are cursor-advanced on read, not receipt-acked.
+    // Only forward inbox IDs to the receipt system.
     const receipts = await ctx.repository.acknowledgeUpdates!({
       actorMemberId: ctx.actor.member.id,
       updateIds,
@@ -100,8 +104,11 @@ const updatesAcknowledge: ActionDefinition = {
       suppressionReason,
     });
 
-    if (receipts.length !== updateIds.length) {
-      throw new AppError(404, 'not_found', 'One or more updates were not found inside the actor scope');
+    // Don't require 1:1 matching — activity IDs are silently skipped by the SQL
+    // and that's correct. Only fail if zero receipts when some IDs were provided,
+    // which would indicate all IDs were invalid (not just activity IDs).
+    if (receipts.length === 0 && updateIds.length > 0) {
+      throw new AppError(404, 'not_found', 'No inbox updates found for the given IDs');
     }
 
     return {

@@ -1,12 +1,31 @@
 import type { Pool } from 'pg';
-import type {
-  AcknowledgeUpdatesInput,
-  MemberUpdates,
-  PendingUpdate,
-  Repository,
-  UpdateReceipt,
+import {
+  AppError,
+  type AcknowledgeUpdatesInput,
+  type MemberUpdates,
+  type PendingUpdate,
+  type Repository,
+  type UpdateReceipt,
 } from '../contract.ts';
 import type { ApplyActorContext, DbClient } from './helpers.ts';
+
+// ── Compound cursor for merged activity + inbox streams ─────
+
+type UpdatesCursor = { a: number; i: number };
+
+export function encodeUpdatesCursor(c: UpdatesCursor): string {
+  return Buffer.from(JSON.stringify([c.a, c.i])).toString('base64url');
+}
+
+export function decodeUpdatesCursor(s: string): UpdatesCursor {
+  try {
+    const [a, i] = JSON.parse(Buffer.from(s, 'base64url').toString());
+    if (typeof a !== 'number' || typeof i !== 'number') throw new Error();
+    return { a, i };
+  } catch {
+    throw new AppError(400, 'invalid_input', 'Invalid updates cursor');
+  }
+}
 
 type PendingUpdateRow = {
   update_id: string;
@@ -39,6 +58,7 @@ function mapPendingUpdateRow(row: PendingUpdateRow): PendingUpdate {
   return {
     updateId: row.update_id,
     streamSeq: Number(row.stream_seq),
+    source: 'inbox',
     recipientMemberId: row.recipient_member_id,
     clubId: row.club_id,
     entityId: row.entity_id,
@@ -66,12 +86,14 @@ function mapUpdateReceiptRow(row: UpdateReceiptRow): UpdateReceipt {
   };
 }
 
-export async function listPendingUpdates(
+// ── Inbox: targeted per-recipient updates (DMs, admissions) ─
+
+async function listInboxUpdates(
   client: DbClient,
   actorMemberId: string,
   limit: number,
-  after: number | null = null,
-): Promise<MemberUpdates> {
+  afterSeq: number,
+): Promise<Array<PendingUpdate & { _sourceSeq: number }>> {
   const result = await client.query<PendingUpdateRow>(
     `
       select
@@ -88,19 +110,200 @@ export async function listPendingUpdates(
         pmu.created_at::text
       from app.pending_member_updates pmu
       where pmu.recipient_member_id = $1
-        and ($2::bigint is null or pmu.stream_seq > $2)
+        and pmu.stream_seq > $2
       order by pmu.stream_seq asc
       limit $3
     `,
-    [actorMemberId, after, limit],
+    [actorMemberId, afterSeq, limit],
   );
 
+  return result.rows.map(row => ({
+    ...mapPendingUpdateRow(row),
+    _sourceSeq: Number(row.stream_seq),
+  }));
+}
+
+// ── Club activity: club-wide events (entities, events) ──────
+
+type ClubActivityRow = {
+  id: string;
+  club_id: string;
+  seq: string | number;
+  topic: string;
+  payload: Record<string, unknown> | null;
+  entity_id: string | null;
+  entity_version_id: string | null;
+  created_by_member_id: string | null;
+  created_at: string;
+};
+
+async function listClubActivityUpdates(
+  client: DbClient,
+  actorMemberId: string,
+  clubIds: string[],
+  limit: number,
+  afterSeq: number,
+): Promise<Array<PendingUpdate & { _sourceSeq: number }>> {
+  if (clubIds.length === 0) return [];
+
+  const result = await client.query<ClubActivityRow>(
+    `
+      select
+        ca.id,
+        ca.club_id,
+        ca.seq,
+        ca.topic,
+        ca.payload,
+        ca.entity_id,
+        ca.entity_version_id,
+        ca.created_by_member_id,
+        ca.created_at::text
+      from app.club_activity ca
+      where ca.club_id = any($1::app.short_id[])
+        and ca.seq > $2::bigint
+      order by ca.created_at asc, ca.seq asc
+      limit $3
+    `,
+    [clubIds, afterSeq, limit],
+  );
+
+  return result.rows.map(row => ({
+    updateId: row.id,
+    streamSeq: Number(row.seq),
+    source: 'activity' as const,
+    recipientMemberId: actorMemberId,
+    clubId: row.club_id,
+    entityId: row.entity_id,
+    entityVersionId: row.entity_version_id,
+    dmMessageId: null,
+    topic: row.topic,
+    payload: row.payload ?? {},
+    createdAt: row.created_at,
+    createdByMemberId: row.created_by_member_id,
+    _sourceSeq: Number(row.seq),
+  }));
+}
+
+// ── Seed activity cursor for first-time readers ─────────────
+
+async function seedActivityCursor(
+  client: DbClient,
+  actorMemberId: string,
+  clubIds: string[],
+): Promise<number> {
+  if (clubIds.length === 0) return 0;
+
+  // Check for a saved cursor first (use min across clubs so we don't skip any club's activity)
+  const saved = await client.query<{ last_seq: string | null }>(
+    `select min(last_seq)::text as last_seq from app.club_activity_cursors where member_id = $1 and club_id = any($2::app.short_id[])`,
+    [actorMemberId, clubIds],
+  );
+  const savedSeq = saved.rows[0]?.last_seq;
+  if (savedSeq !== null && savedSeq !== undefined) return Number(savedSeq);
+
+  // No saved cursor — start from the current max (don't replay history)
+  // Persist immediately so subsequent cursorless polls resume from here
+  const latest = await client.query<{ max_seq: string | null }>(
+    `select max(seq)::text as max_seq from app.club_activity where club_id = any($1::app.short_id[])`,
+    [clubIds],
+  );
+  const seededSeq = latest.rows[0]?.max_seq ? Number(latest.rows[0].max_seq) : 0;
+
+  // Persist for every club so subsequent polls without a cursor don't reseed
+  for (const clubId of clubIds) {
+    await client.query(
+      `
+        insert into app.club_activity_cursors (member_id, club_id, last_seq, updated_at)
+        values ($1, $2, $3, now())
+        on conflict (member_id, club_id) do nothing
+      `,
+      [actorMemberId, clubId, seededSeq],
+    );
+  }
+
+  return seededSeq;
+}
+
+// ── Advance activity cursors after reading ──────────────────
+
+async function advanceActivityCursors(
+  client: DbClient,
+  actorMemberId: string,
+  activityItems: Array<{ clubId: string; _sourceSeq: number }>,
+): Promise<void> {
+  if (activityItems.length === 0) return;
+
+  // Group by club, find max seq per club
+  const maxPerClub = new Map<string, number>();
+  for (const item of activityItems) {
+    const current = maxPerClub.get(item.clubId) ?? 0;
+    if (item._sourceSeq > current) maxPerClub.set(item.clubId, item._sourceSeq);
+  }
+
+  for (const [clubId, maxSeq] of maxPerClub) {
+    await client.query(
+      `
+        insert into app.club_activity_cursors (member_id, club_id, last_seq, updated_at)
+        values ($1, $2, $3, now())
+        on conflict (member_id, club_id) do update
+          set last_seq = greatest(app.club_activity_cursors.last_seq, excluded.last_seq),
+              updated_at = now()
+      `,
+      [actorMemberId, clubId, maxSeq],
+    );
+  }
+}
+
+// ── Merged read: combines club activity + inbox ─────────────
+
+export async function listMergedUpdates(
+  client: DbClient,
+  actorMemberId: string,
+  clubIds: string[],
+  limit: number,
+  cursor: UpdatesCursor | null,
+): Promise<MemberUpdates> {
+  // Seed the activity cursor for first-time readers (no client cursor provided)
+  const activityAfter = cursor?.a ?? await seedActivityCursor(client, actorMemberId, clubIds);
+  const inboxAfter = cursor?.i ?? 0;
+
+  const [activityItems, inboxItems] = await Promise.all([
+    listClubActivityUpdates(client, actorMemberId, clubIds, limit, activityAfter),
+    listInboxUpdates(client, actorMemberId, limit, inboxAfter),
+  ]);
+
+  // Tag source for cursor tracking
+  type Tagged = PendingUpdate & { _source: 'a' | 'i'; _sourceSeq: number };
+  const tagged: Tagged[] = [
+    ...activityItems.map(item => ({ ...item, _source: 'a' as const })),
+    ...inboxItems.map(item => ({ ...item, _source: 'i' as const })),
+  ];
+
+  // Merge by created_at ASC, take limit
+  tagged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const merged = tagged.slice(0, limit);
+
+  // Advance cursor based on which items were included
+  let nextA = activityAfter;
+  let nextI = inboxAfter;
+  for (const item of merged) {
+    if (item._source === 'a') nextA = Math.max(nextA, item._sourceSeq);
+    else nextI = Math.max(nextI, item._sourceSeq);
+  }
+
+  // Persist activity cursor advancement
+  const deliveredActivity = merged.filter(item => item._source === 'a');
+  await advanceActivityCursors(client, actorMemberId, deliveredActivity);
+
   const polledAtResult = await client.query<{ polled_at: string }>(`select now()::text as polled_at`);
-  const items = result.rows.map(mapPendingUpdateRow);
+  const nextCursor: UpdatesCursor = { a: nextA, i: nextI };
+
+  // Strip internal tags
+  const items: PendingUpdate[] = merged.map(({ _source, _sourceSeq, ...item }) => item);
 
   return {
     items,
-    nextAfter: items.length > 0 ? items[items.length - 1]!.streamSeq : after,
+    nextAfter: encodeUpdatesCursor(nextCursor),
     polledAt: polledAtResult.rows[0]?.polled_at ?? new Date().toISOString(),
   };
 }
@@ -139,21 +342,20 @@ export async function appendDirectMessageUpdate(
   return result.rowCount ?? 0;
 }
 
-export async function appendEntityVersionUpdates(
+export async function appendClubActivity(
   client: DbClient,
   input: {
     clubId: string;
-    entityId: string;
-    entityVersionId: string;
     topic: string;
-    createdByMemberId: string;
     payload: Record<string, unknown>;
+    entityId?: string;
+    entityVersionId?: string;
+    createdByMemberId: string;
   },
-): Promise<number> {
-  const result = await client.query(
+): Promise<void> {
+  await client.query(
     `
-      insert into app.member_updates (
-        recipient_member_id,
+      insert into app.club_activity (
         club_id,
         topic,
         payload,
@@ -161,29 +363,17 @@ export async function appendEntityVersionUpdates(
         entity_version_id,
         created_by_member_id
       )
-      select
-        anm.member_id,
-        $1::app.short_id,
-        $2,
-        $3::jsonb,
-        $4::app.short_id,
-        $5::app.short_id,
-        $6::app.short_id
-      from app.accessible_club_memberships anm
-      where anm.club_id = $1::app.short_id
-        and anm.member_id <> $6::text
+      values ($1, $2, $3::jsonb, $4, $5, $6)
     `,
     [
       input.clubId,
       input.topic,
       JSON.stringify(input.payload),
-      input.entityId,
-      input.entityVersionId,
+      input.entityId ?? null,
+      input.entityVersionId ?? null,
       input.createdByMemberId,
     ],
   );
-
-  return result.rowCount ?? 0;
 }
 
 async function acknowledgeUpdates(
@@ -291,15 +481,16 @@ export function buildUpdatesRepository({
 }: {
   pool: Pool;
   applyActorContext: ApplyActorContext;
-}): Pick<Repository, 'listMemberUpdates' | 'getLatestStreamSeq' | 'acknowledgeUpdates'> {
+}): Pick<Repository, 'listMemberUpdates' | 'getLatestCursor' | 'acknowledgeUpdates'> {
   return {
-    async listMemberUpdates({ actorMemberId, limit, after }): Promise<MemberUpdates> {
+    async listMemberUpdates({ actorMemberId, clubIds, limit, after }): Promise<MemberUpdates> {
+      const cursor = after ? decodeUpdatesCursor(after) : null;
       const client = await pool.connect();
 
       try {
         await client.query('begin');
-        await applyActorContext(client, actorMemberId, []);
-        const updates = await listPendingUpdates(client, actorMemberId, limit, after ?? null);
+        await applyActorContext(client, actorMemberId, clubIds);
+        const updates = await listMergedUpdates(client, actorMemberId, clubIds, limit, cursor);
         await client.query('commit');
         return updates;
       } catch (error) {
@@ -310,19 +501,32 @@ export function buildUpdatesRepository({
       }
     },
 
-    async getLatestStreamSeq({ actorMemberId }): Promise<number | null> {
+    async getLatestCursor({ actorMemberId, clubIds }): Promise<string | null> {
       const client = await pool.connect();
 
       try {
         await client.query('begin');
-        await applyActorContext(client, actorMemberId, []);
-        const result = await client.query<{ latest: string | null }>(
-          `select max(stream_seq)::text as latest from app.member_updates where recipient_member_id = $1`,
-          [actorMemberId],
-        );
+        await applyActorContext(client, actorMemberId, clubIds);
+        const [inboxResult, activityResult] = await Promise.all([
+          client.query<{ latest: string | null }>(
+            `select max(stream_seq)::text as latest from app.member_updates where recipient_member_id = $1`,
+            [actorMemberId],
+          ),
+          clubIds.length > 0
+            ? client.query<{ latest: string | null }>(
+                `select max(seq)::text as latest from app.club_activity where club_id = any($1::app.short_id[])`,
+                [clubIds],
+              )
+            : Promise.resolve({ rows: [{ latest: null }] }),
+        ]);
         await client.query('commit');
-        const val = result.rows[0]?.latest;
-        return val !== null && val !== undefined ? Number(val) : null;
+
+        const inboxSeq = inboxResult.rows[0]?.latest;
+        const activitySeq = activityResult.rows[0]?.latest;
+        const i = inboxSeq !== null && inboxSeq !== undefined ? Number(inboxSeq) : 0;
+        const a = activitySeq !== null && activitySeq !== undefined ? Number(activitySeq) : 0;
+
+        return (i > 0 || a > 0) ? encodeUpdatesCursor({ a, i }) : null;
       } catch (error) {
         await client.query('rollback');
         throw error;
