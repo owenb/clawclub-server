@@ -1,6 +1,8 @@
 import http from 'node:http';
 import type net from 'node:net';
 import { URL } from 'node:url';
+import { gzipSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { AppError, type Repository } from './contract.ts';
 import { buildDispatcher, type QualityGateFn } from './dispatch.ts';
@@ -8,6 +10,10 @@ import { getAction } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
 import { getSchemaPayload, resolveSchemaAccess } from './schema-endpoint.ts';
+
+const PACKAGE_VERSION: string = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf-8'),
+).version;
 
 type ColdAdmissionAction = 'admissions.challenge' | 'admissions.apply';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
@@ -165,14 +171,38 @@ function normalizeUpdatesAfter(value: string | null): string | 'latest' | null {
   return trimmed;
 }
 
-function writeJson(response: http.ServerResponse, statusCode: number, payload: unknown) {
-  response.writeHead(statusCode, {
-    'content-type': 'application/json; charset=utf-8',
+function writeCompressed(
+  request: http.IncomingMessage,
+  response: http.ServerResponse,
+  statusCode: number,
+  contentType: string,
+  body: string,
+  extraHeaders?: Record<string, string>,
+) {
+  const accept = String(request.headers['accept-encoding'] ?? '');
+  const headers: Record<string, string> = {
+    'content-type': contentType,
+    'x-content-type-options': 'nosniff',
+    ...extraHeaders,
+  };
+
+  if (/\bgzip\b/.test(accept)) {
+    const compressed = gzipSync(Buffer.from(body, 'utf-8'));
+    headers['content-encoding'] = 'gzip';
+    headers['vary'] = 'Accept-Encoding';
+    response.writeHead(statusCode, headers);
+    response.end(compressed);
+  } else {
+    response.writeHead(statusCode, headers);
+    response.end(body);
+  }
+}
+
+function writeJson(request: http.IncomingMessage, response: http.ServerResponse, statusCode: number, payload: unknown) {
+  writeCompressed(request, response, statusCode, 'application/json; charset=utf-8', JSON.stringify(payload), {
     'cache-control': 'no-store, no-cache, max-age=0',
     pragma: 'no-cache',
-    'x-content-type-options': 'nosniff',
   });
-  response.end(JSON.stringify(payload));
 }
 
 function writeSseEvent(response: http.ServerResponse, event: string, data: unknown, id?: string | number) {
@@ -333,7 +363,7 @@ export function createServer(options: {
           after,
         });
 
-        writeJson(response, 200, {
+        writeJson(request, response, 200, {
           ok: true,
           member: auth.actor.member,
           requestScope: auth.requestScope,
@@ -341,7 +371,7 @@ export function createServer(options: {
         });
       } catch (error) {
         if (error instanceof AppError) {
-          writeJson(response, error.statusCode, {
+          writeJson(request, response, error.statusCode, {
             ok: false,
             error: {
               code: error.code,
@@ -352,7 +382,7 @@ export function createServer(options: {
         }
 
         console.error(error);
-        writeJson(response, 500, {
+        writeJson(request, response, 500, {
           ok: false,
           error: {
             code: 'internal_error',
@@ -486,7 +516,7 @@ export function createServer(options: {
             return;
           }
 
-          writeJson(response, error.statusCode, {
+          writeJson(request, response, error.statusCode, {
             ok: false,
             error: {
               code: error.code,
@@ -502,7 +532,7 @@ export function createServer(options: {
           return;
         }
 
-        writeJson(response, 500, {
+        writeJson(request, response, 500, {
           ok: false,
           error: {
             code: 'internal_error',
@@ -521,10 +551,10 @@ export function createServer(options: {
           repository,
         );
         const schema = getSchemaPayload(full);
-        writeJson(response, 200, { ok: true, data: schema });
+        writeJson(request, response, 200, { ok: true, data: schema });
       } catch (error) {
         console.error(error);
-        writeJson(response, 500, {
+        writeJson(request, response, 500, {
           ok: false,
           error: { code: 'internal_error', message: 'Unexpected server error' },
         });
@@ -532,12 +562,26 @@ export function createServer(options: {
       return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/') {
+      const html = [
+        '<!DOCTYPE html>',
+        '<html><head><title>ClawClub</title></head>',
+        '<body>',
+        `<h1>ClawClub Version ${PACKAGE_VERSION}</h1>`,
+        '<p>Tell your agent to look at <a href="https://github.com/owenb/clawclub/blob/main/SKILL.md">SKILL.md</a></p>',
+        '<p>See the full API Schema at <a href="/api/schema">/api/schema</a></p>',
+        '</body></html>',
+      ].join('\n');
+      writeCompressed(request, response, 200, 'text/html; charset=utf-8', html);
+      return;
+    }
+
     if (request.method !== 'POST' || url.pathname !== '/api') {
-      writeJson(response, 404, {
+      writeJson(request, response, 404, {
         ok: false,
         error: {
           code: 'not_found',
-          message: 'Only GET /updates, GET /updates/stream, GET /api/schema, and POST /api are supported',
+          message: 'Only GET /, GET /updates, GET /updates/stream, GET /api/schema, and POST /api are supported',
         },
       });
       return;
@@ -546,7 +590,7 @@ export function createServer(options: {
     try {
       const contentType = (request.headers['content-type'] ?? '').toLowerCase();
       if (contentType !== 'application/json' && !contentType.startsWith('application/json;')) {
-        writeJson(response, 415, {
+        writeJson(request, response, 415, {
           ok: false,
           error: {
             code: 'unsupported_media_type',
@@ -576,13 +620,13 @@ export function createServer(options: {
         payload: body.input,
       });
 
-      writeJson(response, 200, {
+      writeJson(request, response, 200, {
         ok: true,
         ...(result as Record<string, unknown>),
       });
     } catch (error) {
       if (error instanceof AppError) {
-        writeJson(response, error.statusCode, {
+        writeJson(request, response, error.statusCode, {
           ok: false,
           error: {
             code: error.code,
@@ -593,7 +637,7 @@ export function createServer(options: {
       }
 
       console.error(error);
-      writeJson(response, 500, {
+      writeJson(request, response, 500, {
         ok: false,
         error: {
           code: 'internal_error',
