@@ -46,9 +46,15 @@ test('postgres repository creates, archives, and reassigns club owners through s
       if (sql.includes('with owner_member as (')) return { rows: [{ club_id: 'club-9' }], rowCount: 1 };
       if (sql.includes("update app.clubs n\n            set archived_at = coalesce")) return { rows: [{ club_id: 'club-9' }], rowCount: 1 };
       if (sql.includes('select') && sql.includes('join app.current_club_owners cno on cno.club_id = n.id') && sql.includes('join app.members m on m.id = $2')) {
-        return { rows: [{ club_id: 'club-9', current_owner_version_id: 'owner-1', current_version_no: 1 }], rowCount: 1 };
+        return { rows: [{ club_id: 'club-9', current_owner_version_id: 'owner-1', current_version_no: 1, current_owner_member_id: 'member-old' }], rowCount: 1 };
       }
       if (sql.includes('insert into app.club_owner_versions')) return { rows: [], rowCount: 1 };
+      if (sql.includes("set_config('app.allow_club_membership_state_sync'")) return { rows: [{ set_config: '1' }], rowCount: 1 };
+      if (sql.includes('insert into app.club_memberships') && sql.includes('on conflict')) return { rows: [], rowCount: 1 };
+      if (sql.includes('select id from app.club_memberships where club_id')) return { rows: [{ id: 'ms-new' }], rowCount: 1 };
+      if (sql.includes('insert into app.club_membership_state_versions')) return { rows: [], rowCount: 1 };
+      if (sql.includes('update app.club_memberships') && sql.includes("set role = 'member'")) return { rows: [], rowCount: 1 };
+      if (sql.includes('insert into app.subscriptions')) return { rows: [], rowCount: 1 };
       if (sql.includes('from app.clubs n') && sql.includes('where n.id = $1')) {
         return {
           rows: [{

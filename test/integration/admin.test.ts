@@ -373,10 +373,33 @@ describe('superadmin.clubs.assignOwner', () => {
     assert.equal(err.code, 'forbidden');
   });
 
-  // Known P1 bug: superadmin.clubs.assignOwner writes club_owner_versions but doesn't
-  // demote the old owner's club_memberships.role. The old owner retains owner
-  // API access until the membership role is also updated.
-  it.todo('old owner loses owner-only API access after reassignment');
+  it('new owner gets active membership; old owner demoted to member role', async () => {
+    const admin = await h.seedSuperadmin('Admin OwnerSwap', 'admin-owner-swap');
+    const oldOwnerCtx = await h.seedOwner('owner-swap-club', 'Owner Swap Club');
+    const newOwner = await h.seedMember('New Owner Swap', 'new-owner-swap');
+
+    // Reassign ownership
+    await h.apiOk(admin.token, 'superadmin.clubs.assignOwner', {
+      clubId: oldOwnerCtx.club.id,
+      ownerMemberId: newOwner.id,
+    });
+
+    // New owner should see the club in session.describe
+    const newOwnerSession = await h.apiOk(newOwner.token, 'session.describe', {});
+    const newActor = newOwnerSession.actor as Record<string, unknown>;
+    const newMemberships = (newActor.activeMemberships ?? []) as Array<Record<string, unknown>>;
+    const newClubMembership = newMemberships.find((m) => m.clubId === oldOwnerCtx.club.id);
+    assert.ok(newClubMembership, 'new owner should have membership in the club');
+    assert.equal(newClubMembership!.role, 'owner', 'new owner membership should have owner role');
+
+    // Old owner should still be a member but no longer owner
+    const oldOwnerSession = await h.apiOk(oldOwnerCtx.token, 'session.describe', {});
+    const oldActor = oldOwnerSession.actor as Record<string, unknown>;
+    const oldMemberships = (oldActor.activeMemberships ?? []) as Array<Record<string, unknown>>;
+    const oldClubMembership = oldMemberships.find((m) => m.clubId === oldOwnerCtx.club.id);
+    assert.ok(oldClubMembership, 'old owner should still have membership');
+    assert.equal(oldClubMembership!.role, 'member', 'old owner should be demoted to member');
+  });
 });
 
 // ── Admin Dashboard Actions ──────────────────────────────────────────────────
@@ -532,10 +555,54 @@ describe('admin.content.list', () => {
 });
 
 describe('admin.content.archive', () => {
+  it('archives an entity via SQL-seeded content', async () => {
+    const admin = await h.seedSuperadmin('Admin ArchiveEntity', 'admin-archive-entity');
+    const ownerCtx = await h.seedOwner('archive-content-club', 'Archive Content Club');
+
+    const [entity] = await h.sql<{ id: string }>(
+      `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
+      [ownerCtx.club.id, ownerCtx.id],
+    );
+    await h.sql(
+      `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
+       values ($1, 1, 'published', 'To Archive', 'Body', $2)`,
+      [entity!.id, ownerCtx.id],
+    );
+
+    const result = await h.apiOk(admin.token, 'admin.content.archive', { entityId: entity!.id });
+    const data = result.data as Record<string, unknown>;
+    assert.equal(data.entityId, entity!.id);
+  });
+
+  it('returns 404 for non-existent entity', async () => {
+    const admin = await h.seedSuperadmin('Admin ArchiveGhost', 'admin-archive-ghost-entity');
+    const err = await h.apiErr(admin.token, 'admin.content.archive', { entityId: 'nonexistent-entity-id' });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'not_found');
+  });
+
   it('non-superadmin cannot archive content as admin', async () => {
     const member = await h.seedMember('Regular Archive', 'regular-archive-content');
     const err = await h.apiErr(member.token, 'admin.content.archive', { entityId: 'fake-id' });
     assert.equal(err.status, 403);
+  });
+});
+
+describe('admin.content.redact', () => {
+  it('non-superadmin cannot redact content as admin', async () => {
+    const member = await h.seedMember('Regular Redact', 'regular-redact-content');
+    const err = await h.apiErr(member.token, 'admin.content.redact', { entityId: 'fake-id' });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
+  });
+});
+
+describe('admin.messages.redact', () => {
+  it('non-superadmin cannot redact messages as admin', async () => {
+    const member = await h.seedMember('Regular MsgRedact', 'regular-redact-message');
+    const err = await h.apiErr(member.token, 'admin.messages.redact', { messageId: 'fake-id' });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
   });
 });
 
@@ -594,6 +661,13 @@ describe('admin.messages.read', () => {
     assert.ok(Array.isArray(messages));
     assert.ok(messages.length >= 1);
     assert.ok(messages.some((m) => m.messageText === 'A message in a readable thread'));
+  });
+
+  it('returns 404 for non-existent thread', async () => {
+    const admin = await h.seedSuperadmin('Admin ReadGhost', 'admin-read-ghost-thread');
+    const err = await h.apiErr(admin.token, 'admin.messages.read', { threadId: 'nonexistent-thread-id' });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'not_found');
   });
 
   it('non-superadmin cannot read admin threads', async () => {
@@ -806,8 +880,10 @@ describe('platform authorization', () => {
       ['admin.clubs.stats', { clubId: 'x' }],
       ['admin.content.list', { limit: 1 }],
       ['admin.content.archive', { entityId: 'x' }],
+      ['admin.content.redact', { entityId: 'x' }],
       ['admin.messages.threads', { limit: 1 }],
       ['admin.messages.read', { threadId: 'x' }],
+      ['admin.messages.redact', { messageId: 'x' }],
       ['admin.tokens.list', { memberId: 'x' }],
       ['admin.tokens.revoke', { memberId: 'x', tokenId: 'x' }],
       ['superadmin.diagnostics.health', {}],

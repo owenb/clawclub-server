@@ -212,12 +212,14 @@ export function buildPlatformRepository({
           club_id: string;
           current_owner_version_id: string;
           current_version_no: number;
+          current_owner_member_id: string;
         }>(
           `
             select
               n.id as club_id,
               cno.id as current_owner_version_id,
-              cno.version_no as current_version_no
+              cno.version_no as current_version_no,
+              cno.owner_member_id as current_owner_member_id
             from app.clubs n
             join app.current_club_owners cno on cno.club_id = n.id
             join app.members m on m.id = $2 and m.state = 'active'
@@ -233,6 +235,7 @@ export function buildPlatformRepository({
           return null;
         }
 
+        // 1. Write new owner version (triggers clubs.owner_member_id sync)
         await client.query(
           `
             insert into app.club_owner_versions (
@@ -246,6 +249,76 @@ export function buildPlatformRepository({
           `,
           [input.clubId, input.ownerMemberId, Number(current.current_version_no) + 1, current.current_owner_version_id, input.actorMemberId],
         );
+
+        // 2. Ensure new owner has a membership with role='owner'
+        //    The network_memberships_check constraint requires:
+        //    - owners: sponsor_member_id IS NULL
+        //    - non-owners: sponsor_member_id IS NOT NULL
+        //    Bypass the trigger guard (sponsor_member_id is normally immutable)
+        await client.query(`select set_config('app.allow_club_membership_state_sync', '1', true)`);
+        await client.query(
+          `
+            insert into app.club_memberships (club_id, member_id, role, sponsor_member_id)
+            values ($1::app.short_id, $2::app.short_id, 'owner', null)
+            on conflict (club_id, member_id) do update
+              set role = 'owner', sponsor_member_id = null
+          `,
+          [input.clubId, input.ownerMemberId],
+        );
+
+        // 3. Ensure active membership state for the new owner
+        //    Note: the sync trigger on club_membership_state_versions resets
+        //    allow_club_membership_state_sync to '', so we re-enable before step 4.
+        const newMsRows = await client.query<{ id: string }>(
+          `select id from app.club_memberships where club_id = $1 and member_id = $2`,
+          [input.clubId, input.ownerMemberId],
+        );
+        await client.query(
+          `
+            insert into app.club_membership_state_versions (
+              membership_id, status, reason, version_no, created_by_member_id
+            )
+            select $1::app.short_id, 'active', 'owner_assignment',
+                   coalesce(max(version_no), 0) + 1, $2::app.short_id
+            from app.club_membership_state_versions where membership_id = $1::app.short_id
+          `,
+          [newMsRows.rows[0]!.id, input.actorMemberId],
+        );
+
+        // 4. Demote old owner to 'member' role (skip if reassigning to same person)
+        //    Re-enable bypass since step 3's trigger reset it
+        if (current.current_owner_member_id !== input.ownerMemberId) {
+          await client.query(`select set_config('app.allow_club_membership_state_sync', '1', true)`);
+          await client.query(
+            `
+              update app.club_memberships
+              set role = 'member', sponsor_member_id = $3
+              where club_id = $1 and member_id = $2 and role = 'owner'
+            `,
+            [input.clubId, current.current_owner_member_id, input.ownerMemberId],
+          );
+          await client.query(`select set_config('app.allow_club_membership_state_sync', '', true)`);
+
+          // 5. Create comped subscription for the demoted owner so they retain
+          //    club access (accessible_club_memberships requires a live subscription
+          //    for non-owner members).
+          const oldMsRows = await client.query<{ id: string }>(
+            `select id from app.club_memberships where club_id = $1 and member_id = $2`,
+            [input.clubId, current.current_owner_member_id],
+          );
+          if (oldMsRows.rows[0]) {
+            await client.query(
+              `
+                insert into app.subscriptions (membership_id, payer_member_id, status, amount)
+                values ($1, $2, 'active', 0)
+                on conflict do nothing
+              `,
+              [oldMsRows.rows[0].id, input.ownerMemberId],
+            );
+          }
+        } else {
+          await client.query(`select set_config('app.allow_club_membership_state_sync', '', true)`);
+        }
 
         await client.query('commit');
         return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readClubSummary(scopedClient, input.clubId));

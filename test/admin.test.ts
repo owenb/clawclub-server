@@ -373,3 +373,632 @@ test('admin.tokens.revoke revokes a token for any member', async () => {
     await shutdown();
   }
 });
+
+// ── superadmin.clubs.list ──��──────────────────────────────
+
+test('superadmin.clubs.list returns clubs array', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async listClubs({ includeArchived }) {
+      return [{
+        clubId: 'club-1',
+        slug: 'alpha',
+        name: 'Alpha',
+        summary: 'First club',
+        archivedAt: null,
+        owner: { memberId: 'member-1', publicName: 'Alice', handle: 'alice', email: null },
+        ownerVersion: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'member-1' },
+      }];
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.list', {});
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.clubs.length, 1);
+    assert.equal(body.data.clubs[0].slug, 'alpha');
+    assert.equal(body.data.clubs[0].owner.publicName, 'Alice');
+  } finally {
+    await shutdown();
+  }
+});
+
+// ── superadmin.clubs.create ──────────────────���────────────
+
+test('superadmin.clubs.create returns new club', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async createClub({ slug, name, summary, ownerMemberId }) {
+      return {
+        clubId: 'club-new',
+        slug,
+        name,
+        summary,
+        archivedAt: null,
+        owner: { memberId: ownerMemberId, publicName: 'Owner', handle: 'owner', email: null },
+        ownerVersion: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'admin-1' },
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.create', {
+      slug: 'new-club',
+      name: 'New Club',
+      summary: 'A new club',
+      ownerMemberId: 'member-1',
+    });
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.club.slug, 'new-club');
+    assert.equal(body.data.club.name, 'New Club');
+    assert.equal(body.data.club.owner.memberId, 'member-1');
+  } finally {
+    await shutdown();
+  }
+});
+
+test('superadmin.clubs.create returns 404 for non-existent owner', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async createClub() {
+      return null;
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.create', {
+      slug: 'ghost-club',
+      name: 'Ghost Club',
+      summary: 'No owner',
+      ownerMemberId: 'nonexistent',
+    });
+    assert.equal(response.status, 404);
+    assert.equal(body.ok, false);
+  } finally {
+    await shutdown();
+  }
+});
+
+// ── superadmin.clubs.archive ──────────────��───────────────
+
+test('superadmin.clubs.archive returns archived club', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async archiveClub({ clubId }) {
+      return {
+        clubId,
+        slug: 'archived',
+        name: 'Archived Club',
+        summary: 'Gone',
+        archivedAt: '2026-03-14T12:00:00Z',
+        owner: { memberId: 'member-1', publicName: 'Alice', handle: 'alice', email: null },
+        ownerVersion: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'member-1' },
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.archive', { clubId: 'club-1' });
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.ok(body.data.club.archivedAt !== null);
+  } finally {
+    await shutdown();
+  }
+});
+
+test('superadmin.clubs.archive returns 404 for non-existent club', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async archiveClub() {
+      return null;
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.archive', { clubId: 'ghost' });
+    assert.equal(response.status, 404);
+    assert.equal(body.ok, false);
+  } finally {
+    await shutdown();
+  }
+});
+
+// ── superadmin.clubs.assignOwner ──────────────────────────
+
+test('superadmin.clubs.assignOwner returns updated club', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async assignClubOwner({ clubId, ownerMemberId }) {
+      return {
+        clubId,
+        slug: 'transferred',
+        name: 'Transferred Club',
+        summary: 'Now yours',
+        archivedAt: null,
+        owner: { memberId: ownerMemberId, publicName: 'New Owner', handle: 'new-owner', email: null },
+        ownerVersion: { versionNo: 2, createdAt: '2026-03-14T12:00:00Z', createdByMemberId: 'admin-1' },
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.assignOwner', {
+      clubId: 'club-1',
+      ownerMemberId: 'member-2',
+    });
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.club.owner.memberId, 'member-2');
+    assert.equal(body.data.club.ownerVersion.versionNo, 2);
+  } finally {
+    await shutdown();
+  }
+});
+
+test('superadmin.clubs.assignOwner returns 404 for non-existent club or member', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async assignClubOwner() {
+      return null;
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.assignOwner', {
+      clubId: 'ghost',
+      ownerMemberId: 'ghost',
+    });
+    assert.equal(response.status, 404);
+    assert.equal(body.ok, false);
+  } finally {
+    await shutdown();
+  }
+});
+
+// ── admin.content.list ─────────��──────────────────────────
+
+test('admin.content.list returns paginated content', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async adminListContent({ limit }) {
+      assert.equal(limit, 10);
+      return [{
+        entityId: 'entity-1',
+        clubId: 'club-1',
+        clubSlug: 'alpha',
+        kind: 'post' as const,
+        title: 'Hello',
+        authorMemberId: 'member-1',
+        authorPublicName: 'Alice',
+        authorHandle: 'alice',
+        state: 'published',
+        createdAt: '2026-03-14T10:00:00Z',
+        archivedAt: null,
+        redactedAt: null,
+      }];
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.content.list', { limit: 10 });
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.content.length, 1);
+    assert.equal(body.data.content[0].title, 'Hello');
+  } finally {
+    await shutdown();
+  }
+});
+
+// ── admin.content.redact ──────────────────────────────────
+
+test('admin.content.redact redacts an entity', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async redactEntity({ entityId }) {
+      return {
+        redaction: {
+          redactionId: 'redact-1',
+          targetKind: 'entity' as const,
+          targetId: entityId,
+          reason: null,
+          redactedAt: '2026-03-14T12:00:00Z',
+          redactedByMemberId: 'admin-1',
+        },
+        authorMemberId: 'member-1',
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.content.redact', { entityId: 'entity-42' });
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.redaction.targetKind, 'entity');
+    assert.equal(body.data.redaction.targetId, 'entity-42');
+  } finally {
+    await shutdown();
+  }
+});
+
+test('admin.content.redact returns 404 for non-existent entity', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async redactEntity() {
+      return null;
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.content.redact', { entityId: 'ghost' });
+    assert.equal(response.status, 404);
+    assert.equal(body.ok, false);
+  } finally {
+    await shutdown();
+  }
+});
+
+// ── admin.messages.threads ────────────────────────────────
+
+test('admin.messages.threads returns thread list', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async adminListThreads({ limit }) {
+      assert.equal(limit, 10);
+      return [{
+        threadId: 'thread-1',
+        clubId: 'club-1',
+        clubSlug: 'alpha',
+        messageCount: 5,
+        latestMessageAt: '2026-03-14T12:00:00Z',
+        participants: [
+          { memberId: 'member-1', publicName: 'Alice', handle: 'alice' },
+          { memberId: 'member-2', publicName: 'Bob', handle: 'bob' },
+        ],
+      }];
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.threads', { limit: 10 });
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.threads.length, 1);
+    assert.equal(body.data.threads[0].messageCount, 5);
+  } finally {
+    await shutdown();
+  }
+});
+
+// ── admin.messages.read ───────���───────────────────────────
+
+test('admin.messages.read returns thread with messages', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async adminReadThread({ threadId }) {
+      return {
+        thread: {
+          threadId,
+          clubId: 'club-1',
+          clubSlug: 'alpha',
+          messageCount: 1,
+          latestMessageAt: '2026-03-14T12:00:00Z',
+          participants: [
+            { memberId: 'member-1', publicName: 'Alice', handle: 'alice' },
+          ],
+        },
+        messages: [{
+          messageId: 'msg-1',
+          threadId,
+          senderMemberId: 'member-1',
+          senderPublicName: 'Alice',
+          senderHandle: 'alice',
+          messageText: 'Hello',
+          createdAt: '2026-03-14T12:00:00Z',
+          redactedAt: null,
+        }],
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.read', { threadId: 'thread-1' });
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.thread.threadId, 'thread-1');
+    assert.equal(body.data.messages.length, 1);
+    assert.equal(body.data.messages[0].messageText, 'Hello');
+  } finally {
+    await shutdown();
+  }
+});
+
+test('admin.messages.read returns 404 for non-existent thread', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async adminReadThread() {
+      return null;
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.read', { threadId: 'ghost' });
+    assert.equal(response.status, 404);
+    assert.equal(body.ok, false);
+  } finally {
+    await shutdown();
+  }
+});
+
+// ── admin.messages.redact ─────────────────────────────────
+
+test('admin.messages.redact redacts a message', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async redactMessage({ messageId }) {
+      return {
+        redaction: {
+          redactionId: 'redact-1',
+          targetKind: 'dm_message' as const,
+          targetId: messageId,
+          reason: null,
+          redactedAt: '2026-03-14T12:00:00Z',
+          redactedByMemberId: 'admin-1',
+        },
+        senderMemberId: 'member-1',
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.redact', { messageId: 'msg-42' });
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.redaction.targetKind, 'dm_message');
+    assert.equal(body.data.redaction.targetId, 'msg-42');
+  } finally {
+    await shutdown();
+  }
+});
+
+test('admin.messages.redact returns 404 for non-existent message', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async redactMessage() {
+      return null;
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.redact', { messageId: 'ghost' });
+    assert.equal(response.status, 404);
+    assert.equal(body.ok, false);
+  } finally {
+    await shutdown();
+  }
+});
+
+// ── admin.tokens.list ────────────────────��────────────────
+
+test('admin.tokens.list returns tokens for a member', async () => {
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
+    },
+    async adminListMemberTokens({ memberId }) {
+      return [{
+        tokenId: 'token-1',
+        memberId,
+        label: 'default',
+        createdAt: '2026-03-14T10:00:00Z',
+        lastUsedAt: null,
+        revokedAt: null,
+        expiresAt: null,
+        metadata: {},
+      }];
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.tokens.list', { memberId: 'member-1' });
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.tokens.length, 1);
+    assert.equal(body.data.tokens[0].label, 'default');
+  } finally {
+    await shutdown();
+  }
+});
