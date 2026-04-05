@@ -123,12 +123,12 @@ describe('entities', () => {
     const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
     const entityId = entity.entityId as string;
 
-    await h.apiOk(author.token, 'entities.archive', { entityId });
+    await h.apiOk(author.token, 'entities.remove', { entityId });
 
     const list = await h.apiOk(author.token, 'entities.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = results.find((e) => e.entityId === entityId);
-    assert.equal(found, undefined, 'archived post should not appear in entities.list');
+    assert.equal(found, undefined, 'removed post should not appear in entities.list');
   });
 
   it('all entity kinds can be created: post, opportunity, service, ask', async () => {

@@ -227,38 +227,6 @@ test('admin.clubs.stats returns club statistics', async () => {
   }
 });
 
-test('admin.content.archive archives an entity', async () => {
-  let archivedEntityId: string | null = null;
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken(token) {
-      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
-    },
-    async adminArchiveEntity({ entityId }) {
-      archivedEntityId = entityId;
-      return { entityId };
-    },
-  };
-
-  const { server, shutdown } = createServer({
-    repository,
-    updatesNotifier: makeUpdatesNotifier(),
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.content.archive', { entityId: 'entity-42' });
-    assert.equal(response.status, 200);
-    assert.equal(body.ok, true);
-    assert.equal(archivedEntityId, 'entity-42');
-  } finally {
-    await shutdown();
-  }
-});
-
 test('superadmin.diagnostics.health returns system diagnostics', async () => {
   const repository: Repository = {
     ...makeRepository(),
@@ -693,78 +661,6 @@ test('admin.content.list returns paginated content', async () => {
   }
 });
 
-// ── admin.content.redact ──────────────────────────────────
-
-test('admin.content.redact redacts an entity', async () => {
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken(token) {
-      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
-    },
-    async redactEntity({ entityId }) {
-      return {
-        redaction: {
-          redactionId: 'redact-1',
-          targetKind: 'entity' as const,
-          targetId: entityId,
-          reason: null,
-          redactedAt: '2026-03-14T12:00:00Z',
-          redactedByMemberId: 'admin-1',
-        },
-        authorMemberId: 'member-1',
-      };
-    },
-  };
-
-  const { server, shutdown } = createServer({
-    repository,
-    updatesNotifier: makeUpdatesNotifier(),
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.content.redact', { entityId: 'entity-42' });
-    assert.equal(response.status, 200);
-    assert.equal(body.ok, true);
-    assert.equal(body.data.redaction.targetKind, 'entity');
-    assert.equal(body.data.redaction.targetId, 'entity-42');
-  } finally {
-    await shutdown();
-  }
-});
-
-test('admin.content.redact returns 404 for non-existent entity', async () => {
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken(token) {
-      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
-    },
-    async redactEntity() {
-      return null;
-    },
-  };
-
-  const { server, shutdown } = createServer({
-    repository,
-    updatesNotifier: makeUpdatesNotifier(),
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.content.redact', { entityId: 'ghost' });
-    assert.equal(response.status, 404);
-    assert.equal(body.ok, false);
-  } finally {
-    await shutdown();
-  }
-});
-
 // ── admin.messages.threads ────────────────────────────────
 
 test('admin.messages.threads returns thread list', async () => {
@@ -893,77 +789,8 @@ test('admin.messages.read returns 404 for non-existent thread', async () => {
   }
 });
 
-// ── admin.messages.redact ─────────────────────────────────
-
-test('admin.messages.redact redacts a message', async () => {
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken(token) {
-      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
-    },
-    async redactMessage({ messageId }) {
-      return {
-        redaction: {
-          redactionId: 'redact-1',
-          targetKind: 'dm_message' as const,
-          targetId: messageId,
-          reason: null,
-          redactedAt: '2026-03-14T12:00:00Z',
-          redactedByMemberId: 'admin-1',
-        },
-        senderMemberId: 'member-1',
-      };
-    },
-  };
-
-  const { server, shutdown } = createServer({
-    repository,
-    updatesNotifier: makeUpdatesNotifier(),
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.redact', { messageId: 'msg-42' });
-    assert.equal(response.status, 200);
-    assert.equal(body.ok, true);
-    assert.equal(body.data.redaction.targetKind, 'dm_message');
-    assert.equal(body.data.redaction.targetId, 'msg-42');
-  } finally {
-    await shutdown();
-  }
-});
-
-test('admin.messages.redact returns 404 for non-existent message', async () => {
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken(token) {
-      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
-    },
-    async redactMessage() {
-      return null;
-    },
-  };
-
-  const { server, shutdown } = createServer({
-    repository,
-    updatesNotifier: makeUpdatesNotifier(),
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.redact', { messageId: 'ghost' });
-    assert.equal(response.status, 404);
-    assert.equal(body.ok, false);
-  } finally {
-    await shutdown();
-  }
-});
+// Superadmin removal actions deleted — superadmins use clubadmin.entities.remove,
+// clubadmin.events.remove, clubadmin.messages.remove instead.
 
 // ── admin.tokens.list ────────────────────��────────────────
 

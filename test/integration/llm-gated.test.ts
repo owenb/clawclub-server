@@ -220,9 +220,10 @@ describe('superadmin.content (LLM-gated)', () => {
     const entity = createData.entity as Record<string, unknown>;
     const entityId = entity.entityId as string;
 
-    const result = await h.apiOk(admin.token, 'superadmin.content.archive', { entityId });
+    const result = await h.apiOk(admin.token, 'clubadmin.entities.remove', { clubId: owner.club.id, entityId, reason: 'Content policy violation' });
     const data = result.data as Record<string, unknown>;
-    assert.equal(data.entityId, entityId);
+    const removedEntity = data.entity as Record<string, unknown>;
+    assert.equal(removedEntity.entityId, entityId);
   });
 });
 

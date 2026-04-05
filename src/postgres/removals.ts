@@ -38,67 +38,6 @@ type CurrentVersionRow = {
   capacity: number | null;
 };
 
-type EventReloadRow = {
-  entity_id: string;
-  entity_version_id: string;
-  club_id: string;
-  author_member_id: string;
-  author_public_name: string;
-  author_handle: string | null;
-  version_no: number;
-  state: string;
-  title: string | null;
-  summary: string | null;
-  body: string | null;
-  location: string | null;
-  starts_at: string | null;
-  ends_at: string | null;
-  timezone: string | null;
-  recurrence_rule: string | null;
-  capacity: number | null;
-  effective_at: string;
-  expires_at: string | null;
-  version_created_at: string;
-  content: Record<string, unknown> | null;
-  entity_created_at: string;
-};
-
-function mapEventReloadRow(row: EventReloadRow): EventSummary {
-  return {
-    entityId: row.entity_id,
-    entityVersionId: row.entity_version_id,
-    clubId: row.club_id,
-    author: {
-      memberId: row.author_member_id,
-      publicName: row.author_public_name,
-      handle: row.author_handle,
-    },
-    version: {
-      versionNo: row.version_no,
-      state: row.state as EventSummary['version']['state'],
-      title: row.title,
-      summary: row.summary,
-      body: row.body,
-      location: row.location,
-      startsAt: row.starts_at,
-      endsAt: row.ends_at,
-      timezone: row.timezone,
-      recurrenceRule: row.recurrence_rule,
-      capacity: row.capacity,
-      effectiveAt: row.effective_at,
-      expiresAt: row.expires_at,
-      createdAt: row.version_created_at,
-      content: row.content ?? {},
-    },
-    rsvps: {
-      viewerResponse: null,
-      counts: { yes: 0, maybe: 0, no: 0, waitlist: 0 },
-      attendees: [],
-    },
-    createdAt: row.entity_created_at,
-  };
-}
-
 async function lookupCurrentVersion(
   client: DbClient,
   entityId: string,
@@ -144,50 +83,6 @@ async function lookupCurrentVersion(
   return result.rows[0] ?? null;
 }
 
-async function reloadEventSummary(
-  client: DbClient,
-  entityId: string,
-  accessibleClubIds: string[],
-): Promise<EventSummary | null> {
-  const result = await client.query<EventReloadRow>(
-    `
-      select
-        e.id as entity_id,
-        cev.id as entity_version_id,
-        e.club_id,
-        e.author_member_id,
-        m.public_name as author_public_name,
-        m.handle as author_handle,
-        cev.version_no,
-        cev.state,
-        cev.title,
-        cev.summary,
-        cev.body,
-        cev.location,
-        cev.starts_at::text as starts_at,
-        cev.ends_at::text as ends_at,
-        cev.timezone,
-        cev.recurrence_rule,
-        cev.capacity,
-        cev.effective_at::text as effective_at,
-        cev.expires_at::text as expires_at,
-        cev.created_at::text as version_created_at,
-        cev.content,
-        e.created_at::text as entity_created_at
-      from app.entities e
-      join app.current_entity_versions cev on cev.entity_id = e.id
-      join app.members m on m.id = e.author_member_id
-      where e.id = $1
-        and e.club_id = any($2::app.short_id[])
-        and e.kind = 'event'
-        and e.deleted_at is null
-      limit 1
-    `,
-    [entityId, accessibleClubIds],
-  );
-  return result.rows[0] ? mapEventReloadRow(result.rows[0]) : null;
-}
-
 export function buildRemovalsRepository({
   pool,
   applyActorContext,
@@ -217,30 +112,32 @@ export function buildRemovalsRepository({
           throw new AppError(403, 'forbidden', 'Only the author may remove this entity');
         }
 
-        // Idempotent: already removed
+        // Idempotent: already removed — return current state directly
         if (current.state === 'removed') {
           await client.query('rollback');
-          // Reload with current_entity_versions (includes removed state)
-          const reloadResult = await client.query<{
-            entity_id: string; entity_version_id: string; club_id: string; kind: EntitySummary['kind'];
-            author_member_id: string; author_public_name: string; author_handle: string | null;
-            version_no: number; state: string; title: string | null; summary: string | null;
-            body: string | null; effective_at: string; expires_at: string | null;
-            version_created_at: string; content: Record<string, unknown> | null; entity_created_at: string;
-          }>(
-            `select e.id as entity_id, cev.id as entity_version_id, e.club_id, e.kind,
-                    e.author_member_id, m.public_name as author_public_name, m.handle as author_handle,
-                    cev.version_no, cev.state, cev.title, cev.summary, cev.body,
-                    cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
-                    cev.created_at::text as version_created_at, cev.content,
-                    e.created_at::text as entity_created_at
-             from app.entities e
-             join app.current_entity_versions cev on cev.entity_id = e.id
-             join app.members m on m.id = e.author_member_id
-             where e.id = $1`,
-            [input.entityId],
-          );
-          return reloadResult.rows[0] ? mapEntityRow(reloadResult.rows[0] as any) : null;
+          return {
+            entityId: current.entity_id,
+            entityVersionId: current.version_id,
+            clubId: current.club_id,
+            kind: current.kind as EntitySummary['kind'],
+            author: {
+              memberId: current.author_member_id,
+              publicName: current.author_public_name,
+              handle: current.author_handle,
+            },
+            version: {
+              versionNo: current.version_no,
+              state: 'removed',
+              title: current.title,
+              summary: current.summary,
+              body: current.body,
+              effectiveAt: current.effective_at ?? '',
+              expiresAt: current.expires_at,
+              createdAt: current.entity_created_at,
+              content: current.content ?? {},
+            },
+            createdAt: current.entity_created_at,
+          };
         }
 
         const clockResult = await client.query<{ now: string }>(`select now()::text as now`);
@@ -350,10 +247,42 @@ export function buildRemovalsRepository({
           throw new AppError(403, 'forbidden', 'Only the author may remove this event');
         }
 
-        // Idempotent
+        // Idempotent: already removed — return current state
         if (current.state === 'removed') {
           await client.query('rollback');
-          return reloadEventSummary(client, input.entityId, input.accessibleClubIds);
+          return {
+            entityId: current.entity_id,
+            entityVersionId: current.version_id,
+            clubId: current.club_id,
+            author: {
+              memberId: current.author_member_id,
+              publicName: current.author_public_name,
+              handle: current.author_handle,
+            },
+            version: {
+              versionNo: current.version_no,
+              state: 'removed' as const,
+              title: current.title,
+              summary: current.summary,
+              body: current.body,
+              location: current.location,
+              startsAt: current.starts_at,
+              endsAt: current.ends_at,
+              timezone: current.timezone,
+              recurrenceRule: current.recurrence_rule,
+              capacity: current.capacity,
+              effectiveAt: current.effective_at ?? '',
+              expiresAt: current.expires_at,
+              createdAt: current.entity_created_at,
+              content: current.content ?? {},
+            },
+            rsvps: {
+              viewerResponse: null,
+              counts: { yes: 0, maybe: 0, no: 0, waitlist: 0 },
+              attendees: [],
+            },
+            createdAt: current.entity_created_at,
+          };
         }
 
         const clockResult = await client.query<{ now: string }>(`select now()::text as now`);
@@ -428,8 +357,40 @@ export function buildRemovalsRepository({
 
         await client.query('commit');
 
-        // Reload event summary using direct query (no membership scoping)
-        return reloadEventSummary(client, input.entityId, input.accessibleClubIds);
+        // Build event summary inline (actor context is lost after commit)
+        return {
+          entityId: current.entity_id,
+          entityVersionId: removedVersion.id,
+          clubId: current.club_id,
+          author: {
+            memberId: current.author_member_id,
+            publicName: current.author_public_name,
+            handle: current.author_handle,
+          },
+          version: {
+            versionNo: current.version_no + 1,
+            state: 'removed' as const,
+            title: current.title,
+            summary: current.summary,
+            body: current.body,
+            location: current.location,
+            startsAt: current.starts_at,
+            endsAt: current.ends_at,
+            timezone: current.timezone,
+            recurrenceRule: current.recurrence_rule,
+            capacity: current.capacity,
+            effectiveAt: now,
+            expiresAt: current.expires_at,
+            createdAt: now,
+            content: current.content ?? {},
+          },
+          rsvps: {
+            viewerResponse: null,
+            counts: { yes: 0, maybe: 0, no: 0, waitlist: 0 },
+            attendees: [],
+          },
+          createdAt: current.entity_created_at,
+        };
       } catch (error) {
         await client.query('rollback');
         throw error;

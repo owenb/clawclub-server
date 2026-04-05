@@ -96,8 +96,8 @@ The browser `EventSource` API cannot set `Authorization` headers. Use `fetch` wi
 |---|---|---|
 | `dm.message.created` | A DM is sent to the member | `kind`, `threadId`, `messageId`, `senderMemberId`, `senderPublicName`, `messageText` |
 | `entity.version.published` | An entity or event is created or updated | `kind`, `entityId`, `entityVersionId`, `entityKind`, `state`, `author`, `title`, `summary`, `body` |
-| `entity.version.archived` | An entity is archived | Same fields as published, with `state: "archived"` |
-| `entity.redacted` | An entity is redacted club-wide | Redaction metadata for the affected entity |
+| `entity.removed` | An entity or event is removed | Same fields as published, with `state: "removed"` |
+| `dm.message.removed` | A DM message is removed | `kind`, `messageId` |
 
 ### Checking for new messages
 
@@ -135,6 +135,9 @@ Action families and individual actions:
 - `clubadmin.members.promoteToAdmin` — promote a club member to admin role (owner only)
 - `clubadmin.members.demoteFromAdmin` — demote a club admin to regular member (owner only)
 - `clubadmin.clubs.stats` — get statistics for a club
+- `clubadmin.entities.remove` — remove any entity in a club (moderation; reason required)
+- `clubadmin.events.remove` — remove any event in a club (moderation; reason required)
+- `clubadmin.messages.remove` — remove any message in a club (moderation; reason required)
 
 **Admissions**
 - `admissions.challenge` — get a PoW puzzle bound to a specific club (unauthenticated, requires `clubSlug`)
@@ -149,21 +152,21 @@ Action families and individual actions:
 - `entities.create` — publish a new entity (subject to legality gate)
 - `entities.list` — list entities with optional kind/query filters
 - `entities.update` — update an existing entity (author only, subject to legality gate)
-- `entities.archive` — soft-archive an entity (author only)
-- `entities.redact` — redact an entity (author or club owner)
+- `entities.remove` — remove an entity (author only; optional reason)
 - `entities.findViaEmbedding` — semantic entity search via embedding similarity (requires `OPENAI_API_KEY`)
 
 **Events**
 - `events.create` — create an event (requires `title`, `summary`, `location`, `startsAt`; subject to legality gate)
 - `events.list` — list upcoming events with optional query/club filter
 - `events.rsvp` — RSVP to an event (`yes`, `maybe`, `no`, `waitlist`)
+- `events.remove` — remove an event (author only; optional reason)
 
 **Messages**
 - `messages.send` — send a DM to another member
 - `messages.inbox` — list DM inbox with unread counts
 - `messages.list` — list DM threads
 - `messages.read` — read messages in a thread
-- `messages.redact` — redact a message (sender or club owner only)
+- `messages.remove` — remove a message (sender only; optional reason)
 
 **Updates**
 - `updates.list` — list pending updates for the current member
@@ -189,7 +192,7 @@ The schema endpoint (`GET {baseUrl}/api/schema`) is the **only reliable source**
 - `admissions.apply` uses `application` (not `reason`) for the free-text field
 - `admissions.apply` does not take `clubSlug` — the club is bound to the challenge
 - `clubadmin.memberships.create` creates the membership in `invited` status, not `active` — a club admin must transition it to `active` separately
-- `entities.archive` is **author-only** — even club admins cannot archive another member's entity (they can only `entities.redact` it)
+- `entities.remove` and `events.remove` are **author-only** — club admins use `clubadmin.entities.remove` / `clubadmin.events.remove` (requires a reason)
 - All `clubadmin.*` actions require an explicit `clubId` — no scope inference
 
 ### Resolving club IDs

@@ -1269,6 +1269,413 @@
       "safety": "read_only"
     },
     {
+      "action": "clubadmin.entities.remove",
+      "auth": "clubadmin",
+      "authorizationNote": "Club admin may remove any entity in their club. Reason is required for moderation audit trail.",
+      "description": "Remove any entity in the specified club (moderation).",
+      "domain": "clubadmin",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Club the entity belongs to",
+            "type": "string"
+          },
+          "entityId": {
+            "description": "Entity to remove",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for removal (required for moderation)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubId",
+          "entityId",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "entity": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "entityId": {
+                "type": "string"
+              },
+              "entityVersionId": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "post",
+                  "opportunity",
+                  "service",
+                  "ask"
+                ],
+                "type": "string"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "content": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "draft",
+                      "published",
+                      "removed"
+                    ],
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "title": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "versionNo",
+                  "state",
+                  "title",
+                  "summary",
+                  "body",
+                  "effectiveAt",
+                  "expiresAt",
+                  "createdAt",
+                  "content"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "entityId",
+              "entityVersionId",
+              "clubId",
+              "kind",
+              "author",
+              "version",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "entity"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "clubadmin.events.remove",
+      "auth": "clubadmin",
+      "authorizationNote": "Club admin may remove any event in their club. Reason is required.",
+      "description": "Remove any event in the specified club (moderation).",
+      "domain": "clubadmin",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Club the event belongs to",
+            "type": "string"
+          },
+          "entityId": {
+            "description": "Event entity ID to remove",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for removal (required for moderation)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubId",
+          "entityId",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "entityId": {
+                "type": "string"
+              },
+              "entityVersionId": {
+                "type": "string"
+              },
+              "rsvps": {
+                "additionalProperties": false,
+                "properties": {
+                  "attendees": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "createdAt": {
+                          "type": "string"
+                        },
+                        "handle": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "memberId": {
+                          "type": "string"
+                        },
+                        "membershipId": {
+                          "type": "string"
+                        },
+                        "note": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "publicName": {
+                          "type": "string"
+                        },
+                        "response": {
+                          "$ref": "#/properties/event/properties/rsvps/properties/viewerResponse"
+                        }
+                      },
+                      "required": [
+                        "membershipId",
+                        "memberId",
+                        "publicName",
+                        "handle",
+                        "response",
+                        "note",
+                        "createdAt"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "counts": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "maybe": {
+                        "$ref": "#/properties/event/properties/rsvps/properties/counts/properties/yes"
+                      },
+                      "no": {
+                        "$ref": "#/properties/event/properties/rsvps/properties/counts/properties/yes"
+                      },
+                      "waitlist": {
+                        "$ref": "#/properties/event/properties/rsvps/properties/counts/properties/yes"
+                      },
+                      "yes": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "yes",
+                      "maybe",
+                      "no",
+                      "waitlist"
+                    ],
+                    "type": "object"
+                  },
+                  "viewerResponse": {
+                    "enum": [
+                      "yes",
+                      "maybe",
+                      "no",
+                      "waitlist"
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "viewerResponse",
+                  "counts",
+                  "attendees"
+                ],
+                "type": "object"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "capacity": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "content": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  },
+                  "endsAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "location": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "recurrenceRule": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "startsAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "draft",
+                      "published",
+                      "removed"
+                    ],
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "title": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "versionNo",
+                  "state",
+                  "title",
+                  "summary",
+                  "body",
+                  "location",
+                  "startsAt",
+                  "endsAt",
+                  "timezone",
+                  "recurrenceRule",
+                  "capacity",
+                  "effectiveAt",
+                  "expiresAt",
+                  "createdAt",
+                  "content"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "entityId",
+              "entityVersionId",
+              "clubId",
+              "author",
+              "version",
+              "rsvps",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "event"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "clubadmin.members.demoteFromAdmin",
       "auth": "clubadmin",
       "authorizationNote": "Only the club owner can demote admins. The owner cannot be demoted.",
@@ -2297,140 +2704,68 @@
       "safety": "mutating"
     },
     {
-      "action": "entities.archive",
-      "auth": "member",
-      "authorizationNote": "Only the original author may archive.",
-      "description": "Archive an entity (author only).",
-      "domain": "content",
+      "action": "clubadmin.messages.remove",
+      "auth": "clubadmin",
+      "authorizationNote": "Club admin may remove any message in their club. Reason is required for moderation audit trail.",
+      "description": "Remove any message in the specified club (moderation).",
+      "domain": "clubadmin",
       "input": {
         "properties": {
-          "entityId": {
-            "description": "Entity to archive",
+          "clubId": {
+            "description": "Club the message belongs to",
+            "type": "string"
+          },
+          "messageId": {
+            "description": "Message to remove",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for removal (required for moderation)",
             "type": "string"
           }
         },
         "required": [
-          "entityId"
+          "clubId",
+          "messageId",
+          "reason"
         ],
         "type": "object"
       },
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entity": {
+          "removal": {
             "additionalProperties": false,
             "properties": {
-              "author": {
-                "additionalProperties": false,
-                "properties": {
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle"
-                ],
-                "type": "object"
-              },
               "clubId": {
                 "type": "string"
               },
-              "createdAt": {
+              "messageId": {
                 "type": "string"
               },
-              "entityId": {
+              "reason": {
+                "nullable": true,
                 "type": "string"
               },
-              "entityVersionId": {
+              "removedAt": {
                 "type": "string"
               },
-              "kind": {
-                "enum": [
-                  "post",
-                  "opportunity",
-                  "service",
-                  "ask"
-                ],
+              "removedByMemberId": {
                 "type": "string"
-              },
-              "version": {
-                "additionalProperties": false,
-                "properties": {
-                  "body": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "content": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
-                  "createdAt": {
-                    "type": "string"
-                  },
-                  "effectiveAt": {
-                    "type": "string"
-                  },
-                  "expiresAt": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "state": {
-                    "enum": [
-                      "draft",
-                      "published",
-                      "archived"
-                    ],
-                    "type": "string"
-                  },
-                  "summary": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "title": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "versionNo": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "versionNo",
-                  "state",
-                  "title",
-                  "summary",
-                  "body",
-                  "effectiveAt",
-                  "expiresAt",
-                  "createdAt",
-                  "content"
-                ],
-                "type": "object"
               }
             },
             "required": [
-              "entityId",
-              "entityVersionId",
+              "messageId",
               "clubId",
-              "kind",
-              "author",
-              "version",
-              "createdAt"
+              "removedByMemberId",
+              "reason",
+              "removedAt"
             ],
             "type": "object"
           }
         },
         "required": [
-          "entity"
+          "removal"
         ],
         "type": "object"
       },
@@ -2561,7 +2896,7 @@
                     "enum": [
                       "draft",
                       "published",
-                      "archived"
+                      "removed"
                     ],
                     "type": "string"
                   },
@@ -2789,7 +3124,7 @@
                       "enum": [
                         "draft",
                         "published",
-                        "archived"
+                        "removed"
                       ],
                       "type": "string"
                     },
@@ -3028,7 +3363,7 @@
                       "enum": [
                         "draft",
                         "published",
-                        "archived"
+                        "removed"
                       ],
                       "type": "string"
                     },
@@ -3084,19 +3419,19 @@
       "safety": "read_only"
     },
     {
-      "action": "entities.redact",
+      "action": "entities.remove",
       "auth": "member",
-      "authorizationNote": "Author or club owner may redact.",
-      "description": "Redact an entity (author or club owner).",
+      "authorizationNote": "Only the original author may remove their own entity.",
+      "description": "Remove an entity (author only).",
       "domain": "content",
       "input": {
         "properties": {
           "entityId": {
-            "description": "Entity to redact",
+            "description": "Entity to remove",
             "type": "string"
           },
           "reason": {
-            "description": "Reason for redaction",
+            "description": "Reason for removal (optional)",
             "maxLength": 500000,
             "nullable": true,
             "type": "string"
@@ -3110,45 +3445,120 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "redaction": {
+          "entity": {
             "additionalProperties": false,
             "properties": {
+              "author": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
               "clubId": {
                 "type": "string"
               },
               "createdAt": {
                 "type": "string"
               },
-              "createdByMemberId": {
+              "entityId": {
                 "type": "string"
               },
-              "redactionId": {
+              "entityVersionId": {
                 "type": "string"
               },
-              "targetId": {
-                "type": "string"
-              },
-              "targetKind": {
+              "kind": {
                 "enum": [
-                  "dm_message",
-                  "entity"
+                  "post",
+                  "opportunity",
+                  "service",
+                  "ask"
                 ],
                 "type": "string"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "content": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "draft",
+                      "published",
+                      "removed"
+                    ],
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "title": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "versionNo",
+                  "state",
+                  "title",
+                  "summary",
+                  "body",
+                  "effectiveAt",
+                  "expiresAt",
+                  "createdAt",
+                  "content"
+                ],
+                "type": "object"
               }
             },
             "required": [
-              "redactionId",
-              "targetKind",
-              "targetId",
+              "entityId",
+              "entityVersionId",
               "clubId",
-              "createdByMemberId",
+              "kind",
+              "author",
+              "version",
               "createdAt"
             ],
             "type": "object"
           }
         },
         "required": [
-          "redaction"
+          "entity"
         ],
         "type": "object"
       },
@@ -3268,7 +3678,7 @@
                     "enum": [
                       "draft",
                       "published",
-                      "archived"
+                      "removed"
                     ],
                     "type": "string"
                   },
@@ -3556,7 +3966,9 @@
                   },
                   "state": {
                     "enum": [
-                      "published"
+                      "draft",
+                      "published",
+                      "removed"
                     ],
                     "type": "string"
                   },
@@ -3875,7 +4287,9 @@
                     },
                     "state": {
                       "enum": [
-                        "published"
+                        "draft",
+                        "published",
+                        "removed"
                       ],
                       "type": "string"
                     },
@@ -3938,6 +4352,259 @@
         "type": "object"
       },
       "safety": "read_only"
+    },
+    {
+      "action": "events.remove",
+      "auth": "member",
+      "authorizationNote": "Only the original author may remove their own event.",
+      "description": "Remove an event (author only).",
+      "domain": "content",
+      "input": {
+        "properties": {
+          "entityId": {
+            "description": "Event entity ID to remove",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for removal (optional)",
+            "maxLength": 500000,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "entityId": {
+                "type": "string"
+              },
+              "entityVersionId": {
+                "type": "string"
+              },
+              "rsvps": {
+                "additionalProperties": false,
+                "properties": {
+                  "attendees": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "createdAt": {
+                          "type": "string"
+                        },
+                        "handle": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "memberId": {
+                          "type": "string"
+                        },
+                        "membershipId": {
+                          "type": "string"
+                        },
+                        "note": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "publicName": {
+                          "type": "string"
+                        },
+                        "response": {
+                          "$ref": "#/properties/event/properties/rsvps/properties/viewerResponse"
+                        }
+                      },
+                      "required": [
+                        "membershipId",
+                        "memberId",
+                        "publicName",
+                        "handle",
+                        "response",
+                        "note",
+                        "createdAt"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "counts": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "maybe": {
+                        "$ref": "#/properties/event/properties/rsvps/properties/counts/properties/yes"
+                      },
+                      "no": {
+                        "$ref": "#/properties/event/properties/rsvps/properties/counts/properties/yes"
+                      },
+                      "waitlist": {
+                        "$ref": "#/properties/event/properties/rsvps/properties/counts/properties/yes"
+                      },
+                      "yes": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "yes",
+                      "maybe",
+                      "no",
+                      "waitlist"
+                    ],
+                    "type": "object"
+                  },
+                  "viewerResponse": {
+                    "enum": [
+                      "yes",
+                      "maybe",
+                      "no",
+                      "waitlist"
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "viewerResponse",
+                  "counts",
+                  "attendees"
+                ],
+                "type": "object"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "capacity": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "content": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  },
+                  "endsAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "location": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "recurrenceRule": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "startsAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "draft",
+                      "published",
+                      "removed"
+                    ],
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "title": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "versionNo",
+                  "state",
+                  "title",
+                  "summary",
+                  "body",
+                  "location",
+                  "startsAt",
+                  "endsAt",
+                  "timezone",
+                  "recurrenceRule",
+                  "capacity",
+                  "effectiveAt",
+                  "expiresAt",
+                  "createdAt",
+                  "content"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "entityId",
+              "entityVersionId",
+              "clubId",
+              "author",
+              "version",
+              "rsvps",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "event"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
     },
     {
       "action": "events.rsvp",
@@ -4141,7 +4808,9 @@
                   },
                   "state": {
                     "enum": [
-                      "published"
+                      "draft",
+                      "published",
+                      "removed"
                     ],
                     "type": "string"
                   },
@@ -5315,19 +5984,19 @@
       "safety": "read_only"
     },
     {
-      "action": "messages.redact",
+      "action": "messages.remove",
       "auth": "member",
-      "authorizationNote": "Sender or club owner may redact.",
-      "description": "Redact a DM (sender or club owner).",
+      "authorizationNote": "Only the sender may remove their own message.",
+      "description": "Remove a DM (sender only).",
       "domain": "messages",
       "input": {
         "properties": {
           "messageId": {
-            "description": "Message to redact",
+            "description": "Message to remove",
             "type": "string"
           },
           "reason": {
-            "description": "Reason for redaction",
+            "description": "Reason for removal (optional)",
             "maxLength": 500000,
             "nullable": true,
             "type": "string"
@@ -5341,45 +6010,38 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "redaction": {
+          "removal": {
             "additionalProperties": false,
             "properties": {
               "clubId": {
                 "type": "string"
               },
-              "createdAt": {
+              "messageId": {
                 "type": "string"
               },
-              "createdByMemberId": {
+              "reason": {
+                "nullable": true,
                 "type": "string"
               },
-              "redactionId": {
+              "removedAt": {
                 "type": "string"
               },
-              "targetId": {
-                "type": "string"
-              },
-              "targetKind": {
-                "enum": [
-                  "dm_message",
-                  "entity"
-                ],
+              "removedByMemberId": {
                 "type": "string"
               }
             },
             "required": [
-              "redactionId",
-              "targetKind",
-              "targetId",
+              "messageId",
               "clubId",
-              "createdByMemberId",
-              "createdAt"
+              "removedByMemberId",
+              "reason",
+              "removedAt"
             ],
             "type": "object"
           }
         },
         "required": [
-          "redaction"
+          "removal"
         ],
         "type": "object"
       },
@@ -6439,37 +7101,6 @@
       "safety": "mutating"
     },
     {
-      "action": "superadmin.content.archive",
-      "auth": "superadmin",
-      "description": "Archive an entity as superadmin.",
-      "domain": "superadmin",
-      "input": {
-        "properties": {
-          "entityId": {
-            "description": "Entity to archive",
-            "type": "string"
-          }
-        },
-        "required": [
-          "entityId"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "entityId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "entityId"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating"
-    },
-    {
       "action": "superadmin.content.list",
       "auth": "superadmin",
       "description": "List content across all clubs with optional filters.",
@@ -6555,7 +7186,7 @@
                   "enum": [
                     "draft",
                     "published",
-                    "archived"
+                    "removed"
                   ],
                   "type": "string"
                 },
@@ -6590,76 +7221,6 @@
         "type": "object"
       },
       "safety": "read_only"
-    },
-    {
-      "action": "superadmin.content.redact",
-      "auth": "superadmin",
-      "description": "Redact an entity as superadmin.",
-      "domain": "superadmin",
-      "input": {
-        "properties": {
-          "entityId": {
-            "description": "Entity to redact",
-            "type": "string"
-          },
-          "reason": {
-            "description": "Reason for redaction",
-            "maxLength": 500000,
-            "nullable": true,
-            "type": "string"
-          }
-        },
-        "required": [
-          "entityId"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "redaction": {
-            "additionalProperties": false,
-            "properties": {
-              "clubId": {
-                "type": "string"
-              },
-              "createdAt": {
-                "type": "string"
-              },
-              "createdByMemberId": {
-                "type": "string"
-              },
-              "redactionId": {
-                "type": "string"
-              },
-              "targetId": {
-                "type": "string"
-              },
-              "targetKind": {
-                "enum": [
-                  "dm_message",
-                  "entity"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "redactionId",
-              "targetKind",
-              "targetId",
-              "clubId",
-              "createdByMemberId",
-              "createdAt"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "redaction"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating"
     },
     {
       "action": "superadmin.diagnostics.health",
@@ -7219,76 +7780,6 @@
         "type": "object"
       },
       "safety": "read_only"
-    },
-    {
-      "action": "superadmin.messages.redact",
-      "auth": "superadmin",
-      "description": "Redact a DM message as superadmin.",
-      "domain": "superadmin",
-      "input": {
-        "properties": {
-          "messageId": {
-            "description": "Message to redact",
-            "type": "string"
-          },
-          "reason": {
-            "description": "Reason for redaction",
-            "maxLength": 500000,
-            "nullable": true,
-            "type": "string"
-          }
-        },
-        "required": [
-          "messageId"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "redaction": {
-            "additionalProperties": false,
-            "properties": {
-              "clubId": {
-                "type": "string"
-              },
-              "createdAt": {
-                "type": "string"
-              },
-              "createdByMemberId": {
-                "type": "string"
-              },
-              "redactionId": {
-                "type": "string"
-              },
-              "targetId": {
-                "type": "string"
-              },
-              "targetKind": {
-                "enum": [
-                  "dm_message",
-                  "entity"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "redactionId",
-              "targetKind",
-              "targetId",
-              "clubId",
-              "createdByMemberId",
-              "createdAt"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "redaction"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating"
     },
     {
       "action": "superadmin.messages.threads",
@@ -8251,6 +8742,6 @@
       "safety": "read_only"
     }
   ],
-  "schemaHash": "08dafc05a67ee678",
+  "schemaHash": "c87a140c35321fd2",
   "version": "0.1.0"
 }

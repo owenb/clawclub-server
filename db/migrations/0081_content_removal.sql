@@ -38,6 +38,26 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- ── 2b. Entities: allow club admins to see entities regardless of published state ─
+-- Needed for clubadmin/superadmin removal (entities_select_author from 0058
+-- already covers author self-service)
+CREATE POLICY entities_select_club_admin ON app.entities
+  FOR SELECT USING (
+    deleted_at IS NULL
+    AND app.actor_is_club_admin(club_id)
+  );
+
+-- ── 2c. Entity versions: allow club admins to see entity versions regardless of published state ─
+CREATE POLICY entity_versions_select_club_admin ON app.entity_versions
+  FOR SELECT USING (
+    EXISTS (
+      SELECT 1 FROM app.entities e
+      WHERE (e.id)::text = (entity_versions.entity_id)::text
+        AND e.deleted_at IS NULL
+        AND app.actor_is_club_admin(e.club_id)
+    )
+  );
+
 -- ── 3. Entity versions: allow club admin to insert removal versions ─────────────
 
 CREATE POLICY entity_versions_insert_club_admin_removal ON app.entity_versions

@@ -760,57 +760,9 @@ describe('superadmin.content.list', () => {
   });
 });
 
-describe('superadmin.content.archive', () => {
-  it('archives an entity via SQL-seeded content', async () => {
-    const admin = await h.seedSuperadmin('Admin ArchiveEntity', 'admin-archive-entity');
-    const ownerCtx = await h.seedOwner('archive-content-club', 'Archive Content Club');
-
-    const [entity] = await h.sql<{ id: string }>(
-      `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
-      [ownerCtx.club.id, ownerCtx.id],
-    );
-    await h.sql(
-      `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
-       values ($1, 1, 'published', 'To Archive', 'Body', $2)`,
-      [entity!.id, ownerCtx.id],
-    );
-
-    const result = await h.apiOk(admin.token, 'superadmin.content.archive', { entityId: entity!.id });
-    const data = result.data as Record<string, unknown>;
-    assert.equal(data.entityId, entity!.id);
-  });
-
-  it('returns 404 for non-existent entity', async () => {
-    const admin = await h.seedSuperadmin('Admin ArchiveGhost', 'admin-archive-ghost-entity');
-    const err = await h.apiErr(admin.token, 'superadmin.content.archive', { entityId: 'nonexistent-entity-id' });
-    assert.equal(err.status, 404);
-    assert.equal(err.code, 'not_found');
-  });
-
-  it('non-superadmin cannot archive content as admin', async () => {
-    const member = await h.seedMember('Regular Archive', 'regular-archive-content');
-    const err = await h.apiErr(member.token, 'superadmin.content.archive', { entityId: 'fake-id' });
-    assert.equal(err.status, 403);
-  });
-});
-
-describe('superadmin.content.redact', () => {
-  it('non-superadmin cannot redact content as admin', async () => {
-    const member = await h.seedMember('Regular Redact', 'regular-redact-content');
-    const err = await h.apiErr(member.token, 'superadmin.content.redact', { entityId: 'fake-id' });
-    assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
-  });
-});
-
-describe('superadmin.messages.redact', () => {
-  it('non-superadmin cannot redact messages as admin', async () => {
-    const member = await h.seedMember('Regular MsgRedact', 'regular-redact-message');
-    const err = await h.apiErr(member.token, 'superadmin.messages.redact', { messageId: 'fake-id' });
-    assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
-  });
-});
+// superadmin.content.archive, superadmin.content.redact, superadmin.messages.redact
+// have been removed — superadmins use clubadmin.entities.remove, clubadmin.events.remove,
+// clubadmin.messages.remove directly. See test/integration/removal.test.ts for coverage.
 
 describe('superadmin.messages.threads', () => {
   it('lists threads across all clubs', async () => {
@@ -1085,11 +1037,8 @@ describe('platform authorization', () => {
       ['superadmin.members.get', { memberId: 'x' }],
       ['clubadmin.clubs.stats', { clubId: 'x' }],
       ['superadmin.content.list', { limit: 1 }],
-      ['superadmin.content.archive', { entityId: 'x' }],
-      ['superadmin.content.redact', { entityId: 'x' }],
       ['superadmin.messages.threads', { limit: 1 }],
       ['superadmin.messages.read', { threadId: 'x' }],
-      ['superadmin.messages.redact', { messageId: 'x' }],
       ['superadmin.tokens.list', { memberId: 'x' }],
       ['superadmin.tokens.revoke', { memberId: 'x', tokenId: 'x' }],
       ['superadmin.diagnostics.health', {}],

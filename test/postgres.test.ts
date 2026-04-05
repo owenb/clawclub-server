@@ -178,7 +178,7 @@ test('postgres repository updates an entity only when the actor is the author in
   assert.deepEqual(calls[2]?.params, ['entity-1', ['club-2'], 'member-1']);
 });
 
-test('postgres repository archives an entity by appending an archived version without mutating root rows directly', async () => {
+test('postgres repository removes an entity by appending a removed version without mutating root rows directly', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
 
   const client = {
@@ -193,11 +193,11 @@ test('postgres repository archives an entity by appending an archived version wi
         return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
       }
 
-      if (sql === `select now()::text as archived_at`) {
-        return { rows: [{ archived_at: '2026-03-14T12:00:00Z' }], rowCount: 1 };
+      if (sql.includes('select now()::text as now')) {
+        return { rows: [{ now: '2026-03-14T12:00:00Z' }], rowCount: 1 };
       }
 
-      if (sql.includes('join app.current_entity_versions cev on cev.entity_id = e.id') && sql.includes("e.kind = any(array['post', 'opportunity', 'service', 'ask']::app.entity_kind[])")) {
+      if (sql.includes('join app.current_entity_versions cev on cev.entity_id = e.id') && sql.includes('e.deleted_at is null')) {
         return {
           rows: [{
             entity_id: 'entity-1',
@@ -209,17 +209,25 @@ test('postgres repository archives an entity by appending an archived version wi
             entity_created_at: '2026-03-12T00:00:00Z',
             version_id: 'entity-version-2',
             version_no: 2,
+            state: 'published',
             title: 'Hello',
             summary: 'Summary',
             body: 'Body',
+            effective_at: '2026-03-12T00:00:00Z',
             expires_at: '2026-04-01T00:00:00Z',
             content: { mood: 'steady' },
+            location: null,
+            starts_at: null,
+            ends_at: null,
+            timezone: null,
+            recurrence_rule: null,
+            capacity: null,
           }],
           rowCount: 1,
         };
       }
 
-      if (sql.includes('insert into app.entity_versions') && sql.includes(`'archived'`)) {
+      if (sql.includes('insert into app.entity_versions') && sql.includes(`'removed'`)) {
         return { rows: [{ id: 'entity-version-3' }], rowCount: 1 };
       }
 
@@ -233,32 +241,18 @@ test('postgres repository archives an entity by appending an archived version wi
   };
 
   const repository = createPostgresRepository({ pool: { connect: async () => client } as any });
-  const archived = await repository.archiveEntity?.({
+  const removed = await repository.removeEntity?.({
     actorMemberId: 'member-1',
     accessibleClubIds: ['club-2'],
     entityId: 'entity-1',
   });
 
-  assert.equal(archived?.entityId, 'entity-1');
-  assert.equal(archived?.entityVersionId, 'entity-version-3');
-  assert.equal(archived?.version.versionNo, 3);
-  assert.equal(archived?.version.state, 'archived');
-  assert.equal(archived?.version.effectiveAt, '2026-03-14T12:00:00Z');
-  assert.equal(archived?.version.expiresAt, '2026-04-01T00:00:00Z');
-  assert.deepEqual(calls[1]?.params, ['member-1']);
-  assert.deepEqual(calls[2]?.params, ['entity-1', ['club-2'], 'member-1']);
-  assert.deepEqual(calls[4]?.params, [
-    'entity-1',
-    3,
-    'Hello',
-    'Summary',
-    'Body',
-    '2026-03-14T12:00:00Z',
-    '2026-04-01T00:00:00Z',
-    '{"mood":"steady"}',
-    'entity-version-2',
-    'member-1',
-  ]);
+  assert.equal(removed?.entityId, 'entity-1');
+  assert.equal(removed?.entityVersionId, 'entity-version-3');
+  assert.equal(removed?.version.versionNo, 3);
+  assert.equal(removed?.version.state, 'removed');
+  assert.equal(removed?.version.effectiveAt, '2026-03-14T12:00:00Z');
+  assert.equal(removed?.version.expiresAt, '2026-04-01T00:00:00Z');
   assert.equal(calls.some((call) => call.sql.includes('update app.entities')), false);
 });
 

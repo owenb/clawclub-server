@@ -1635,8 +1635,8 @@ test('entities.update appends a new version on the shared entity surface', async
   assert.equal(result.data.entity.version.versionNo, 2);
 });
 
-test('entities.archive appends an archived version on the shared entity surface', async () => {
-  let capturedInput: { actorMemberId: string; accessibleClubIds: string[]; entityId: string } | null = null;
+test('entities.remove appends a removed version on the shared entity surface', async () => {
+  let capturedInput: { actorMemberId: string; accessibleClubIds: string[]; entityId: string; reason?: string | null } | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1660,7 +1660,7 @@ test('entities.archive appends an archived version on the shared entity surface'
     async updateEntity() {
       return makeEntity();
     },
-    async archiveEntity(input) {
+    async removeEntity(input) {
       capturedInput = input;
       return makeEntity({
         entityVersionId: 'entity-version-3',
@@ -1668,7 +1668,7 @@ test('entities.archive appends an archived version on the shared entity surface'
         version: {
           ...makeEntity().version,
           versionNo: 3,
-          state: 'archived',
+          state: 'removed',
           effectiveAt: '2026-03-12T01:00:00Z',
           expiresAt: '2026-03-12T01:00:00Z',
           createdAt: '2026-03-12T01:00:00Z',
@@ -1698,7 +1698,7 @@ test('entities.archive appends an archived version on the shared entity surface'
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'entities.archive',
+    action: 'entities.remove',
     payload: {
       entityId: 'entity-1',
     },
@@ -1708,13 +1708,14 @@ test('entities.archive appends an archived version on the shared entity surface'
     actorMemberId: 'member-1',
     accessibleClubIds: ['club-1', 'club-2'],
     entityId: 'entity-1',
+    reason: null,
   });
-  assert.equal(result.action, 'entities.archive');
+  assert.equal(result.action, 'entities.remove');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.entity.entityVersionId, 'entity-version-3');
   assert.equal(result.data.entity.version.versionNo, 3);
-  assert.equal(result.data.entity.version.state, 'archived');
+  assert.equal(result.data.entity.version.state, 'removed');
 });
 
 test('entities.update rejects empty patches', async () => {
