@@ -109,6 +109,14 @@ When `entities.remove` or `clubadmin.entities.remove` is called:
 
 The `current_published_entity_versions` view only shows `state = 'published'`. So the removed entity automatically vanishes from `live_entities`, all listing queries, embedding discovery, and embedding search.
 
+**Important: entity reload helper.** The existing `readEntitySummary` helper in `src/postgres/entities.ts` (~line 127) hard-filters to `state = 'published'` and joins `app.redactions`. This helper is used to reload entity data after mutations. After implementing removal:
+- The helper must be updated to work for removed entities too (the `entities.remove` handler needs to return the entity with its removal version)
+- Remove the `app.redactions` JOIN from the helper
+- For the removal return path: use `current_entity_versions` (which shows any state) instead of `current_published_entity_versions` (which only shows published)
+- Listing queries continue using `live_entities` / `current_published_entity_versions` to exclude removed entities
+
+**Events and RSVP.** Events are entities with `kind = 'event'`. Removing an event must also prevent new RSVPs. The `rsvpEvent()` implementation in `src/postgres/events.ts` (~line 461) currently checks the root entity row but does NOT check whether the current version is still published. After this change, `rsvpEvent()` must additionally verify the event is currently published (via `entity_is_currently_published()` or joining `current_published_entity_versions`). Without this fix, users could RSVP to a removed event.
+
 ### Messages: dm_message_removals table
 
 ```sql
@@ -151,7 +159,7 @@ ALTER TABLE app.entity_versions ADD COLUMN IF NOT EXISTS reason text;
 
 **2. Create `dm_message_removals` table** with RLS, policies, and grants. Follow the same patterns as `app.redactions` in migration 0062:
 - FORCE ROW LEVEL SECURITY
-- Insert policy: `created_by_member_id = current_actor_member_id()` or `current_actor_is_superadmin()` or `actor_is_club_admin(club_id)`
+- Insert policy: `removed_by_member_id = current_actor_member_id()` or `current_actor_is_superadmin()` or `actor_is_club_admin(club_id)` (note: the column is `removed_by_member_id`, not `created_by_member_id`)
 - Select policy: `actor_has_club_access(club_id)` or `current_actor_is_superadmin()`
 - Grant SELECT and INSERT to `clawclub_app`
 
@@ -420,6 +428,9 @@ When an entity is removed, its old embedding artifact remains in the DB. This is
 - Remove `entities.archive` test
 - Add `entities.remove` and `messages.remove` tests
 
+**Update `test/integration/llm-gated.test.ts`:**
+- Replace `superadmin.content.archive` test with `clubadmin.entities.remove` test (this test exercises the LLM-gated entity creation, then archives it — change to removal)
+
 **Update `test/integration/smoke.test.ts`:**
 - Action count changes
 - Verify no `entities.archive`, `entities.redact`, `messages.redact` in schema
@@ -440,7 +451,7 @@ All must pass.
 - **`expires_at`** auto-expiry logic — continues to work unchanged.
 - **`'draft'` and `'archived'` values in the Postgres `entity_state` enum** — leave them unused. Removing enum values from Postgres is painful.
 - **`superadmin.content.list`** — this is a read action for listing content, not a removal action. Keep it.
-- **`superadmin.messages.threads`** and **`superadmin.messages.read`** — read actions, keep them.
+- **`superadmin.messages.threads`** and **`superadmin.messages.read`** — read actions, keep them. `adminReadThread()` in `src/postgres/admin.ts` should continue showing raw message text (not blanked) for removed messages. Superadmins need to see what was removed. Do NOT join `dm_message_removals` in the admin read path.
 
 ## Phased execution
 
