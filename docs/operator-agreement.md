@@ -156,7 +156,7 @@ together referred to as the "Parties".
 
 9.1. ClawClub maintains an Operator Balance for each Operator. The Operator Balance is derived from an **append-only event ledger** in which every financial event is recorded as an immutable entry. The Operator Balance is never stored or mutated directly; it is always the sum of all ledger events.
 
-9.2. The Operator Balance is tracked **per Club**. The Operator may view an aggregate balance across all Clubs, but each Club's financial position is maintained separately for the purposes of reserve calculations and settlement.
+9.2. The Operator Balance is tracked **per Club**. The Operator may view an aggregate balance across all Clubs, but each Club's financial position is maintained separately for the purposes of settlement and closure calculations.
 
 9.3. The Operator Balance is credited with the Operator Share each time a Paid Member's Membership Fee is collected. Credits are subject to the hold periods described in this Clause.
 
@@ -164,22 +164,28 @@ together referred to as the "Parties".
 
 9.5. **120-Day Hold.** All revenue credited to the Operator Balance is subject to a **one hundred and twenty (120) day hold** from the date of the transaction. During this period, the funds are classified as "pending" and are not eligible for Payout. This hold period corresponds to the standard credit card dispute window.
 
-9.6. **Rolling Reserve.** In addition to the 120-day hold, ClawClub retains a **rolling reserve of ten percent (10%)** of each Payout. Each reserved amount is held for **sixteen (16) months from the date of the original transaction**, after which it is released automatically to the Operator's available balance. The 16-month period covers the full annual service period (12 months) plus the maximum dispute window from the final service date (approximately 4 months).
+9.6. **No rolling reserve during normal operations.** After the 120-day hold expires, the full Operator Share is eligible for Payout. There is no percentage withheld from each Payout during normal operations.
 
-9.7. **Monthly Payouts.** Payouts are calculated and issued **monthly, in arrears**. At the end of each calendar month, ClawClub:
+9.7. **Late dispute recovery.** If a Dispute is filed after the 120-day hold has expired (a future-service dispute), the disputed amount and chargeback fee are deducted from the Operator's current and future balance — pending revenue, available funds, or future incoming payments.
+
+9.8. **Tail holdback.** ClawClub may hold funds (beyond the standard 120-day hold) under the following circumstances:
+- (a) **Club closure:** remaining funds are held until all dispute windows have elapsed (sixteen (16) months from the last transaction), then returned as a final settlement;
+- (b) **Operator inactivity:** if the Club has no new member payments for an extended period, ClawClub may hold remaining funds until dispute windows close;
+- (c) **Elevated dispute rate:** when a payout pause is triggered under Clause 17.2, funds are held during review.
+
+9.9. **Monthly Payouts.** Payouts are calculated and issued **monthly, in arrears**. At the end of each calendar month, ClawClub:
 - (a) identifies all Operator Share credits where the 120-day hold has expired;
 - (b) subtracts any pending Dispute holds, confirmed chargeback debits, fees, and other deductions;
-- (c) withholds 10% as rolling reserve;
-- (d) releases any rolling reserve amounts that have passed their 16-month hold;
-- (e) calculates the available balance after deducting the rolling reserve;
-- (f) if the available balance exceeds the Payout Threshold (Clause 9.9), transfers the **amount above the threshold** to the Operator's designated payment account, retaining the threshold amount in the Operator Balance;
-- (g) if the available balance is at or below the Payout Threshold, no Payout is issued for that period. Funds remain in the Operator Balance until the threshold is exceeded.
+- (c) if the available balance exceeds the Payout Threshold (Clause 9.11), transfers the **amount above the threshold** to the Operator's designated payment account, retaining the threshold amount in the Operator Balance;
+- (d) if the available balance is at or below the Payout Threshold, no Payout is issued for that period. Funds remain in the Operator Balance until the threshold is exceeded.
 
-9.8. Payouts are made via **Stripe Connect** to the Operator's connected account. The Operator must complete Stripe's identity verification and onboarding process before receiving Payouts. One connected account per Operator covers all Clubs operated by that Operator.
+9.10. Payouts are made via **Stripe Connect** to the Operator's connected account. The Operator must complete Stripe's identity verification and onboarding process before receiving Payouts. One connected account per Operator covers all Clubs operated by that Operator.
 
-9.9. **Payout Threshold.** Payouts are only issued when the Operator's available balance (after deducting the rolling reserve) exceeds **$50 (USD)**. When a Payout is issued, ClawClub transfers the **amount above $50**, retaining $50 in the Operator Balance as a minimum floor. If the available balance is at or below $50, no Payout is issued and funds accumulate until the threshold is exceeded.
+9.11. **Payout Threshold.** Payouts are only issued when the Operator's available balance exceeds **$50 (USD)**. When a Payout is issued, ClawClub transfers the **amount above $50**, retaining $50 in the Operator Balance as a minimum floor. If the available balance is at or below $50, no Payout is issued and funds accumulate until the threshold is exceeded.
 
-9.10. **Operator Visibility.** The Operator may view their balance in real time, showing: pending funds (within the 120-day hold), reserved funds (within the 16-month rolling reserve), provisional Dispute holds, and available funds (eligible for Payout). ClawClub provides a full monthly statement detailing all ledger events for the period.
+9.12. **Unrecoverable tail losses.** If a late Dispute arrives and the Operator has no current or future balance to cover it (e.g., Club has closed, Operator has been fully paid out), ClawClub absorbs the loss. ClawClub does not pursue the Operator for unrecoverable tail losses except in cases of fraud or wilful misconduct. The Platform Fee and Platform Share are priced to include this insurance.
+
+9.13. **Operator Visibility.** The Operator may view their balance in real time, showing: pending funds (within the 120-day hold), held funds (if a tail holdback is active), provisional Dispute holds, and available funds (eligible for Payout). ClawClub provides a full monthly statement detailing all ledger events for the period.
 
 9.11. **No Surprises.** ClawClub shall not make any deduction from the Operator Balance except as expressly provided for in this Agreement.
 
@@ -207,7 +213,7 @@ together referred to as the "Parties".
 
 11.6. **When a Dispute is lost (resolved against ClawClub):** The provisional hold on the disputed amount becomes a permanent deduction from the Operator Balance. The $25 chargeback fee is finalised. The cross-platform ban procedure in Clause 12 is triggered.
 
-11.7. The Operator acknowledges that the 120-day hold and rolling reserve exist in part to ensure that funds are available to cover Disputes. In most cases, Dispute deductions will be made against pending or reserved funds that have not yet been paid out to the Operator.
+11.7. The Operator acknowledges that the 120-day hold exists in part to ensure that funds are available to cover Disputes. In most cases, Dispute deductions will be made against pending funds that have not yet been paid out to the Operator. Late Disputes (after the hold period) are deducted from the Operator's current and future balance.
 
 ---
 
@@ -313,7 +319,7 @@ together referred to as the "Parties".
 - (b) no refunds are issued to Members for remaining service — this is set out in the Member terms of service;
 - (c) no new Members may join the Club.
 
-18.3. Once all memberships have expired and all rolling reserve hold periods (16 months from the last transaction) have elapsed, the **remaining reserve balance is returned** to the Operator as a final settlement.
+18.3. Once all memberships have expired and all dispute windows have elapsed (sixteen (16) months from the last transaction), the **remaining balance is returned** to the Operator as a final settlement.
 
 18.4. The Operator's Stripe Connect account remains active until the final settlement Payout is made.
 
@@ -369,7 +375,7 @@ together referred to as the "Parties".
 
 23.1. In the event that ClawClub ceases trading, enters administration, liquidation, or any form of insolvency proceedings, the Operator acknowledges that they have **no priority claim** on funds held in the Operator Balance.
 
-23.2. Any funds held by ClawClub (including pending balances, rolling reserves, and available balances) will be dealt with in accordance with the applicable insolvency laws of England and Wales. The Operator will be treated as an unsecured creditor.
+23.2. Any funds held by ClawClub (including pending balances, held balances, and available balances) will be dealt with in accordance with the applicable insolvency laws of England and Wales. The Operator will be treated as an unsecured creditor.
 
 23.3. ClawClub will use reasonable efforts to notify Operators promptly in the event of any insolvency proceedings.
 
@@ -442,7 +448,7 @@ together referred to as the "Parties".
 | Platform Share | Greater of 30% or $29 USD | Per Membership Fee (pre-tax) |
 | Chargeback fee | $25 USD | Per Dispute (regardless of outcome) |
 | Payout hold period | 120 days | Per transaction |
-| Rolling reserve | 10% of Payout | Held for 16 months per transaction |
+| Rolling reserve | None during normal operations | Tail holdback on closure/inactivity/dispute escalation only |
 | Payout threshold | $50 USD | Minimum available balance for Payouts |
 
 ---
@@ -451,16 +457,15 @@ together referred to as the "Parties".
 
 An Operator launches a Club on 1 January with a Membership Fee of $100/year.
 
-| Date | Event | Available | Pending | Reserved |
-|---|---|---|---|---|
-| 1 Jan | Operator pays $299 Platform Fee | $0 | $0 | $0 |
-| 15 Jan | Member A joins. Operator share: $70 (enters hold) | $0 | $70 | $0 |
-| 1 Feb | Member B joins. Operator share: $70 (enters hold) | $0 | $140 | $0 |
-| 15 May | Member A hold expires. $7 withheld as reserve. | $63 | $70 | $7 |
-| 1 Jun | Member B hold expires. $7 withheld as reserve. | $126 | $0 | $14 |
-| 30 Jun | Monthly payout. $126 > $50 threshold. Payout: $76. | $50 | $0 | $14 |
-| Jul–Dec | More members join, holds expire, payouts continue. | ... | ... | ... |
-| May Y2 | Member A reserve ($7) hits 16-month mark. Released. | +$7 | — | −$7 |
+| Date | Event | Available | Pending |
+|---|---|---|---|
+| 1 Jan | Operator pays $299 Platform Fee | $0 | $0 |
+| 15 Jan | Member A joins. Operator share: $70 (enters 120-day hold) | $0 | $70 |
+| 1 Feb | Member B joins. Operator share: $70 (enters 120-day hold) | $0 | $140 |
+| 15 May | Member A hold expires. Full $70 becomes available. | $70 | $70 |
+| 1 Jun | Member B hold expires. Full $70 becomes available. | $140 | $0 |
+| 30 Jun | Monthly payout. $140 > $50 threshold. Payout: $90. | $50 | $0 |
+| Jul–Dec | More members join, holds expire, payouts continue monthly. | ... | ... |
 
 ---
 

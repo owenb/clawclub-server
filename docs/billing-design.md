@@ -93,8 +93,8 @@ Ledger event types:
 | `chargeback_hold_released` | Dispute won, hold released | +(disputed amount), $25 fee remains debited |
 | `chargeback_confirmed` | Dispute lost, hold becomes permanent | No additional debit (already held) |
 | `refund_cascade` | Prorated refund from cross-platform ban | −prorated refund amount (capped at operator earnings from that member) |
-| `reserve_withheld` | 10% rolling reserve on payout | −reserve amount (enters 16-month hold) |
-| `reserve_released` | Reserve past 16-month hold date | +reserve amount |
+| `tail_holdback` | Funds held due to club closure, inactivity, or elevated disputes | −held amount (until dispute windows close) |
+| `tail_holdback_released` | Holdback released after dispute windows elapsed | +held amount |
 | `payout` | Transfer to operator's Connect account | −payout amount |
 | `operator_fee` | Annual $299 fee deducted from balance | −$299 |
 | `comp_seat_fee` | Additional comp seat purchase | −$29 per seat |
@@ -115,10 +115,10 @@ The operator's **gross position** is the sum of all events, but the **payout-eli
 
 The raw sum of all events is not the payout-eligible balance. Events carry hold metadata (hold type, expiry date) that partitions them into distinct balance pools. Four derived balances are computed from the ledger:
 
-- **Pending:** Sum of `member_payment` events where the 120-day hold has not yet expired. Money ClawClub has collected but is not yet eligible for payout or reserve calculation.
+- **Pending:** Sum of `member_payment` events where the 120-day hold has not yet expired. Money ClawClub has collected but is not yet eligible for payout.
 - **Provisional holds:** Sum of `chargeback_hold` events not yet resolved by a `chargeback_hold_released` or `chargeback_confirmed`. Excluded from all payout calculations.
-- **Reserved:** Sum of `reserve_withheld` events where the 16-month hold has not yet expired, minus any `reserve_released` events. Held back from payout as tail-risk buffer.
-- **Available:** Everything else — `member_payment` events past their 120-day hold, minus `chargeback_confirmed`, `refund_cascade`, `operator_requested_refund`, `payout`, `operator_fee`, `comp_seat_fee` events, minus reserved and provisional amounts. This is the amount eligible for payout (subject to the $50 threshold).
+- **Held (tail holdback):** Sum of `tail_holdback` events not yet released. Only present when the club is closing, inactive, or under dispute review. Zero during normal operations.
+- **Available:** Everything else — `member_payment` events past their 120-day hold, minus `chargeback_confirmed`, `refund_cascade`, `operator_requested_refund`, `payout`, `operator_fee`, `comp_seat_fee` events, minus provisional and held amounts. This is the amount eligible for payout (subject to the $50 threshold).
 
 The monthly statement shows all four pools. The operator dashboard shows them in real time.
 
@@ -128,18 +128,9 @@ The monthly statement shows all four pools. The operator dashboard shows them in
 - This covers the standard credit card dispute window from the payment date. If a chargeback comes in during the hold period, ClawClub deducts it from pending funds — no money has left the platform.
 - After the 120-day hold, eligible funds are paid out **monthly, in arrears.**
 
-**Important caveat: future-service disputes.** For annual memberships, card networks may allow disputes up to 120 days from the **service date**, not the payment date. This means a dispute could arrive after the 120-day hold expires. The rolling reserve (below) covers this tail risk.
+**Important caveat: future-service disputes.** For annual memberships, card networks may allow disputes up to 120 days from the **service date**, not the payment date. This means a dispute could arrive after the 120-day hold expires. Late disputes are deducted from the operator's future revenue (see tail risk below).
 
-**Operator pitch:** "Your first payouts arrive roughly 4 months after your first paid members join, then monthly after that as the rolling window catches up. This is comparable to how the App Store pays developers."
-
-### Rolling reserve
-
-ClawClub retains a **rolling reserve of 10%** of each payout. Each reserved amount is held for **16 months from the original transaction date**, then released automatically to the operator. The 16-month window covers the full annual service period (12 months) plus the maximum dispute window from the final service date (120 days ≈ 4 months). This means:
-
-- The reserve is always sized proportionally to recent revenue.
-- Older funds cycle out as their risk window closes.
-- The reserve never accumulates indefinitely — it rolls.
-- On **club closure**, once all memberships have expired and all 16-month reserve windows have elapsed, the remaining reserve is returned as a final settlement.
+**Operator pitch:** "You get paid 4 months after each member joins. That's it."
 
 ### Monthly payout formula
 
@@ -147,22 +138,38 @@ At the end of each month:
 
 1. Identify all revenue where the 120-day hold has expired.
 2. Subtract any pending dispute holds, chargeback debits, or fees.
-3. Calculate 10% rolling reserve withholding on the eligible amount.
-4. Release any rolling reserve amounts that have passed their 16-month hold date (add back to available balance).
-5. Check that the remaining balance (excluding rolling reserve) is above the **$50 payout threshold**.
-6. If above threshold: transfer the **amount above $50** to the operator's Connect account, retaining $50 as a floor.
-7. If at or below threshold: no payout issued, funds accumulate.
-8. Generate monthly statement with full breakdown.
+3. Check that the available balance is above the **$50 payout threshold**.
+4. If above threshold: transfer the **amount above $50** to the operator's Connect account, retaining $50 as a floor.
+5. If at or below threshold: no payout issued, funds accumulate.
+6. Generate monthly statement with full breakdown.
 
-### Reserve threshold
+### Late dispute recovery
 
-- Payouts are only issued when the operator's available balance (after rolling reserve) exceeds **$50**. Below that, funds remain until the threshold is met.
+If a dispute arrives after the 120-day hold (a future-service dispute), ClawClub deducts it from the operator's **current and future balance** — pending revenue, available funds, or future incoming payments. In a healthy, active club, ongoing member payments provide a continuous balance to absorb these rare events.
+
+### Tail holdback (activated only when risk appears)
+
+There is **no rolling reserve during normal operations**. However, ClawClub activates a tail holdback under the following circumstances:
+
+- **Club closure:** When an operator closes their club, ClawClub holds remaining funds until all dispute windows have elapsed (16 months from the last transaction — 12 months of service plus 4 months of dispute window). The balance is then returned as a final settlement.
+- **Operator inactivity / no new revenue:** If a club has no new member payments for an extended period and existing funds are the only buffer, ClawClub may hold funds until dispute windows close.
+- **Payout pause triggered by elevated disputes:** When the per-operator circuit breaker fires, funds are held during review.
+
+This targets the actual edge case (no future revenue to absorb late disputes) without penalising healthy, active clubs.
+
+### ClawClub absorbs unrecoverable tail losses
+
+If a late dispute arrives and the operator has no current or future balance to cover it (e.g., club has closed, operator has been paid out, no new revenue), **ClawClub absorbs the loss**. The platform fee and revenue share are priced to include this insurance. The operator's liability is limited to their current and future balance — ClawClub does not pursue operators for unrecoverable tail losses except in cases of fraud or wilful misconduct.
+
+### Payout threshold
+
+- Payouts are only issued when the operator's available balance exceeds **$50**. Below that, funds accumulate until the threshold is met.
 - If the balance goes **negative** due to exceptional circumstances (multiple simultaneous disputes), ClawClub reaches out. If unresolved, the club is suspended until the balance is restored.
 
 ### Operator visibility
 
-- Operators see their balance in **real time**: pending (within 120-day hold), reserved (within rolling reserve (16-month hold)), and available (eligible for payout).
-- Full monthly statements showing: members joined, revenue collected, ClawClub's cut, chargebacks, chargeback fees, reserve held, reserve released, and net payout.
+- Operators see their balance in **real time**: pending (within 120-day hold) and available (eligible for payout). When a tail holdback is active, held funds are shown separately with an explanation.
+- Full monthly statements showing: members joined, revenue collected, ClawClub's cut, chargebacks, chargeback fees, and net payout.
 - No surprises.
 
 ## Chargeback handling
@@ -193,7 +200,7 @@ Stripe Checkout enforces Strong Customer Authentication (3DS) on the **initial p
 
 **Renewal charges are less protected.** Annual renewals are merchant-initiated transactions (MIT). They run off-session with no customer challenge and **no 3DS liability shift**. This is an accepted risk because:
 - A member active for a year is less likely to dispute.
-- The 120-day hold and rolling reserve cover the financial exposure.
+- The 120-day hold covers the financial exposure on initial charges.
 - Renewal reminders with easy cancellation reduce friendly fraud (the main renewal dispute driver).
 - The chargeback cost is passed to the operator regardless.
 
@@ -357,12 +364,10 @@ Stripe Prices are **immutable** — you cannot change the amount on an existing 
 
 1. Identify all revenue where the 120-day hold has expired.
 2. Subtract pending dispute holds, chargeback debits, and fees.
-3. Withhold 10% rolling reserve (held for 16 months from transaction date).
-4. Release any reserve amounts past their 16-month hold.
-5. Check available balance is above $50 payout threshold.
-6. If above: transfer amount above $50 to operator's Connect account, retain $50 as floor.
-7. If at or below: no payout issued, funds accumulate.
-8. Generate monthly statement with full breakdown.
+3. Check available balance is above $50 payout threshold.
+4. If above: transfer amount above $50 to operator's Connect account, retain $50 as floor.
+5. If at or below: no payout issued, funds accumulate.
+6. Generate monthly statement with full breakdown.
 
 ### Annual renewal
 
@@ -384,7 +389,7 @@ Frozen club: existing members retain access until memberships expire, but no new
 An operator can voluntarily close their club:
 - All memberships are cancelled (no future renewals). Existing members retain access until their paid period expires.
 - No refunds for remaining service — this is covered in the member ToS. Members with remaining service who are unhappy must contact ClawClub support.
-- Once all memberships have expired and all rolling reserve (16-month hold) windows have elapsed, the **remaining reserve is returned** to the operator as a final settlement.
+- Once all memberships have expired and all dispute windows have elapsed (16 months from the last transaction), the **remaining balance is returned** to the operator as a final settlement.
 - The operator's Connect account remains active until the final payout.
 
 ## Membership access state machine
@@ -430,9 +435,9 @@ Webhooks from Stripe (`invoice.paid`, `invoice.payment_failed`, `customer.subscr
 - On a lost dispute, the disputed amount is permanently deducted. On a won dispute, the provisional hold is released but the $25 fee stands.
 - Cross-platform bans may result in prorated refunds deducted from their balance for members they admitted, capped at the revenue earned from that member.
 - Club payouts may be paused if dispute rate exceeds 0.5% (at 200+ members).
-- Payouts are monthly, in arrears, after a 120-day hold, with a 10% rolling reserve held for 16 months per transaction.
+- Payouts are monthly, in arrears, after a 120-day hold. Full operator share paid out (no rolling reserve during normal operations).
 - ClawClub is merchant of record; operators receive payouts, not direct payments.
-- On club closure, rolling reserve is returned after all memberships and reserve windows expire.
+- On club closure, funds held until all dispute windows elapse, then returned as final settlement.
 
 **Member ToS:**
 - No refunds on active memberships. Cancellation stops future renewal; access continues until period end.
@@ -494,9 +499,13 @@ Simplifies everything: no mixed-interval invoice splitting, predictable revenue 
 
 Avoids multi-currency subscription complexity. Multiple currencies would require one subscription per member per currency. USD-only is the simplest starting point.
 
-### Why 120-day hold plus rolling reserve
+### Why 120-day hold without a permanent rolling reserve
 
-The 120-day hold covers the standard dispute window from the payment date. The 10% rolling reserve (held for 16 months per transaction, then released) covers the residual tail risk from future-service disputes: 12 months of service plus up to 120 days (~4 months) of dispute window from the final service date. Together they provide layered protection without requiring an unacceptably long hold.
+The 120-day hold covers the standard dispute window from the payment date. For future-service disputes (filed against the service date, potentially beyond 120 days), late chargebacks are deducted from the operator's ongoing revenue stream. In a healthy active club, new member payments provide a continuous buffer.
+
+There is no rolling reserve during normal operations. A tail holdback activates only when the risk is real: club closure, operator inactivity, or elevated dispute rates. This is simpler to explain, better for operator cash flow, and targets the actual edge case (no future revenue to absorb late disputes).
+
+ClawClub absorbs unrecoverable tail losses — if a late dispute hits and the operator has no balance, ClawClub eats it. The platform fee and revenue share are priced to include this insurance.
 
 We considered tiered hold periods based on operator trust. Rejected in favour of a flat 120 days for simplicity — no trust-scoring system to build. The App Store precedent makes it explainable.
 
