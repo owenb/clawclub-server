@@ -72,7 +72,7 @@ function createRequireMembershipOwner(actor: ActorContext) {
   const requireAccessibleClub = createRequireAccessibleClub(actor);
   return (clubId: string): MembershipSummary => {
     const membership = requireAccessibleClub(clubId);
-    if (membership.role !== 'owner') {
+    if (membership.role !== 'clubadmin') {
       throw new AppError(403, 'forbidden', 'This action requires owner membership in the requested club');
     }
     return membership;

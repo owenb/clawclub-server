@@ -15,8 +15,9 @@ test('postgres repository lists clubs for superadmin scope including archived on
         return {
           rows: [{
             club_id: 'club-1', slug: 'alpha', name: 'Alpha', summary: 'First club',
+            publicly_listed: false, admission_policy: null,
             archived_at: '2026-03-12T01:00:00Z', owner_member_id: 'member-1', owner_public_name: 'Member One', owner_handle: 'member-one', owner_email: 'one@example.com',
-            owner_version_no: 2, owner_created_at: '2026-03-12T00:30:00Z', owner_created_by_member_id: 'member-1',
+            version_no: 2, version_created_at: '2026-03-12T00:30:00Z', version_created_by_member_id: 'member-1',
           }], rowCount: 1,
         };
       }
@@ -30,7 +31,7 @@ test('postgres repository lists clubs for superadmin scope including archived on
 
   assert.equal(results[0]?.clubId, 'club-1');
   assert.equal(results[0]?.archivedAt, '2026-03-12T01:00:00Z');
-  assert.equal(results[0]?.ownerVersion.versionNo, 2);
+  assert.equal(results[0]?.version.versionNo, 2);
   assert.deepEqual(calls[1]?.params, ['member-1']);
   assert.deepEqual(calls[2]?.params, [true]);
 });
@@ -45,10 +46,10 @@ test('postgres repository creates, archives, and reassigns club owners through s
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
       if (sql.includes('with owner_member as (')) return { rows: [{ club_id: 'club-9' }], rowCount: 1 };
       if (sql.includes("update app.clubs n\n            set archived_at = coalesce")) return { rows: [{ club_id: 'club-9' }], rowCount: 1 };
-      if (sql.includes('select') && sql.includes('join app.current_club_owners cno on cno.club_id = n.id') && sql.includes('join app.members m on m.id = $2')) {
-        return { rows: [{ club_id: 'club-9', current_owner_version_id: 'owner-1', current_version_no: 1, current_owner_member_id: 'member-old' }], rowCount: 1 };
+      if (sql.includes('select') && sql.includes('join app.current_club_versions cv on cv.club_id = n.id') && sql.includes('join app.members m on m.id = $2')) {
+        return { rows: [{ club_id: 'club-9', current_version_id: 'ver-1', current_version_no: 1, current_owner_member_id: 'member-old', name: 'Gamma', summary: 'Third club', publicly_listed: false, admission_policy: null }], rowCount: 1 };
       }
-      if (sql.includes('insert into app.club_owner_versions')) return { rows: [], rowCount: 1 };
+      if (sql.includes('insert into app.club_versions')) return { rows: [], rowCount: 1 };
       if (sql.includes("set_config('app.allow_club_membership_state_sync'")) return { rows: [{ set_config: '1' }], rowCount: 1 };
       if (sql.includes('insert into app.club_memberships') && sql.includes('on conflict')) return { rows: [], rowCount: 1 };
       if (sql.includes('select id from app.club_memberships where club_id')) return { rows: [{ id: 'ms-new' }], rowCount: 1 };
@@ -59,8 +60,9 @@ test('postgres repository creates, archives, and reassigns club owners through s
         return {
           rows: [{
             club_id: 'club-9', slug: 'gamma', name: 'Gamma', summary: 'Third club',
+            publicly_listed: false, admission_policy: null,
             archived_at: null, owner_member_id: 'member-9', owner_public_name: 'Member Nine', owner_handle: 'member-nine', owner_email: 'nine@example.com',
-            owner_version_no: 2, owner_created_at: '2026-03-12T01:00:00Z', owner_created_by_member_id: 'member-1',
+            version_no: 2, version_created_at: '2026-03-12T01:00:00Z', version_created_by_member_id: 'member-1',
           }], rowCount: 1,
         };
       }
@@ -77,7 +79,7 @@ test('postgres repository creates, archives, and reassigns club owners through s
   assert.equal(created?.clubId, 'club-9');
   assert.equal(archived?.clubId, 'club-9');
   assert.equal(reassigned?.owner.memberId, 'member-9');
-  assert.equal(reassigned?.ownerVersion.versionNo, 2);
+  assert.equal(reassigned?.version.versionNo, 2);
 });
 
 test('postgres repository updates an entity only when the actor is the author inside scope', async () => {

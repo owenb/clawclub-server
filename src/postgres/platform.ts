@@ -3,6 +3,7 @@ import type {
   ArchiveClubInput,
   AssignClubOwnerInput,
   CreateClubInput,
+  UpdateClubInput,
   ClubSummary,
   Repository,
 } from '../contract.ts';
@@ -13,14 +14,16 @@ type ClubRow = {
   slug: string;
   name: string;
   summary: string | null;
+  publicly_listed: boolean;
+  admission_policy: string | null;
   archived_at: string | null;
   owner_member_id: string;
   owner_public_name: string;
   owner_handle: string | null;
   owner_email: string | null;
-  owner_version_no: number;
-  owner_created_at: string;
-  owner_created_by_member_id: string | null;
+  version_no: number;
+  version_created_at: string;
+  version_created_by_member_id: string | null;
 };
 
 function mapClubRow(row: ClubRow): ClubSummary {
@@ -29,6 +32,8 @@ function mapClubRow(row: ClubRow): ClubSummary {
     slug: row.slug,
     name: row.name,
     summary: row.summary,
+    publiclyListed: row.publicly_listed,
+    admissionPolicy: row.admission_policy,
     archivedAt: row.archived_at,
     owner: {
       memberId: row.owner_member_id,
@@ -36,10 +41,10 @@ function mapClubRow(row: ClubRow): ClubSummary {
       handle: row.owner_handle,
       email: row.owner_email,
     },
-    ownerVersion: {
-      versionNo: Number(row.owner_version_no),
-      createdAt: row.owner_created_at,
-      createdByMemberId: row.owner_created_by_member_id,
+    version: {
+      versionNo: Number(row.version_no),
+      createdAt: row.version_created_at,
+      createdByMemberId: row.version_created_by_member_id,
     },
   };
 }
@@ -52,17 +57,19 @@ async function listClubs(client: DbClient, includeArchived: boolean): Promise<Cl
         n.slug,
         n.name,
         n.summary,
+        n.publicly_listed,
+        n.admission_policy,
         n.archived_at::text,
-        owner.owner_member_id as owner_member_id,
+        cv.owner_member_id as owner_member_id,
         m.public_name as owner_public_name,
         m.handle as owner_handle,
         mpc.email as owner_email,
-        owner.version_no as owner_version_no,
-        owner.created_at::text as owner_created_at,
-        owner.created_by_member_id as owner_created_by_member_id
+        cv.version_no,
+        cv.created_at::text as version_created_at,
+        cv.created_by_member_id as version_created_by_member_id
       from app.clubs n
-      join app.current_club_owners owner on owner.club_id = n.id
-      join app.members m on m.id = owner.owner_member_id
+      join app.current_club_versions cv on cv.club_id = n.id
+      join app.members m on m.id = cv.owner_member_id
       left join app.member_private_contacts mpc on mpc.member_id = m.id
       where ($1::boolean = true or n.archived_at is null)
       order by n.archived_at asc nulls first, n.name asc, n.id asc
@@ -81,17 +88,19 @@ async function readClubSummary(client: DbClient, clubId: string): Promise<ClubSu
         n.slug,
         n.name,
         n.summary,
+        n.publicly_listed,
+        n.admission_policy,
         n.archived_at::text,
-        owner.owner_member_id as owner_member_id,
+        cv.owner_member_id as owner_member_id,
         m.public_name as owner_public_name,
         m.handle as owner_handle,
         mpc.email as owner_email,
-        owner.version_no as owner_version_no,
-        owner.created_at::text as owner_created_at,
-        owner.created_by_member_id as owner_created_by_member_id
+        cv.version_no,
+        cv.created_at::text as version_created_at,
+        cv.created_by_member_id as version_created_by_member_id
       from app.clubs n
-      join app.current_club_owners owner on owner.club_id = n.id
-      join app.members m on m.id = owner.owner_member_id
+      join app.current_club_versions cv on cv.club_id = n.id
+      join app.members m on m.id = cv.owner_member_id
       left join app.member_private_contacts mpc on mpc.member_id = m.id
       where n.id = $1
       limit 1
@@ -110,7 +119,7 @@ export function buildPlatformRepository({
   pool: Pool;
   applyActorContext: ApplyActorContext;
   withActorContext: WithActorContext;
-}): Pick<Repository, 'listClubs' | 'createClub' | 'archiveClub' | 'assignClubOwner'> {
+}): Pick<Repository, 'listClubs' | 'createClub' | 'archiveClub' | 'assignClubOwner' | 'updateClub'> {
   return {
     async listClubs({ actorMemberId, includeArchived }) {
       return withActorContext(pool, actorMemberId, [], (client) => listClubs(client, includeArchived));
@@ -139,14 +148,18 @@ export function buildPlatformRepository({
               select $1, $2, $3, om.id
               from owner_member om
               returning id as club_id
-            ), owner_version as (
-              insert into app.club_owner_versions (
+            ), club_version as (
+              insert into app.club_versions (
                 club_id,
                 owner_member_id,
+                name,
+                summary,
+                publicly_listed,
+                admission_policy,
                 version_no,
                 created_by_member_id
               )
-              select club_id, $4, 1, $5
+              select club_id, $4, $2, $3, false, null, 1, $5
               from inserted_club
             )
             select club_id
@@ -210,18 +223,26 @@ export function buildPlatformRepository({
 
         const currentResult = await client.query<{
           club_id: string;
-          current_owner_version_id: string;
+          current_version_id: string;
           current_version_no: number;
           current_owner_member_id: string;
+          name: string;
+          summary: string | null;
+          publicly_listed: boolean;
+          admission_policy: string | null;
         }>(
           `
             select
               n.id as club_id,
-              cno.id as current_owner_version_id,
-              cno.version_no as current_version_no,
-              cno.owner_member_id as current_owner_member_id
+              cv.id as current_version_id,
+              cv.version_no as current_version_no,
+              cv.owner_member_id as current_owner_member_id,
+              cv.name,
+              cv.summary,
+              cv.publicly_listed,
+              cv.admission_policy
             from app.clubs n
-            join app.current_club_owners cno on cno.club_id = n.id
+            join app.current_club_versions cv on cv.club_id = n.id
             join app.members m on m.id = $2 and m.state = 'active'
             where n.id = $1
             limit 1
@@ -235,22 +256,36 @@ export function buildPlatformRepository({
           return null;
         }
 
-        // 1. Write new owner version (triggers clubs.owner_member_id sync)
+        // 1. Write new club version with updated owner (triggers clubs sync)
         await client.query(
           `
-            insert into app.club_owner_versions (
+            insert into app.club_versions (
               club_id,
               owner_member_id,
+              name,
+              summary,
+              publicly_listed,
+              admission_policy,
               version_no,
-              supersedes_owner_version_id,
+              supersedes_version_id,
               created_by_member_id
             )
-            values ($1, $2, $3, $4, $5)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
           `,
-          [input.clubId, input.ownerMemberId, Number(current.current_version_no) + 1, current.current_owner_version_id, input.actorMemberId],
+          [
+            input.clubId,
+            input.ownerMemberId,
+            current.name,
+            current.summary,
+            current.publicly_listed,
+            current.admission_policy,
+            Number(current.current_version_no) + 1,
+            current.current_version_id,
+            input.actorMemberId,
+          ],
         );
 
-        // 2. Ensure new owner has a membership with role='owner'
+        // 2. Ensure new owner has a membership with role='clubadmin'
         //    The network_memberships_check constraint requires:
         //    - owners: sponsor_member_id IS NULL
         //    - non-owners: sponsor_member_id IS NOT NULL
@@ -259,9 +294,9 @@ export function buildPlatformRepository({
         await client.query(
           `
             insert into app.club_memberships (club_id, member_id, role, sponsor_member_id)
-            values ($1::app.short_id, $2::app.short_id, 'owner', null)
+            values ($1::app.short_id, $2::app.short_id, 'clubadmin', null)
             on conflict (club_id, member_id) do update
-              set role = 'owner', sponsor_member_id = null
+              set role = 'clubadmin', sponsor_member_id = null
           `,
           [input.clubId, input.ownerMemberId],
         );
@@ -293,7 +328,7 @@ export function buildPlatformRepository({
             `
               update app.club_memberships
               set role = 'member', sponsor_member_id = $3
-              where club_id = $1 and member_id = $2 and role = 'owner'
+              where club_id = $1 and member_id = $2 and role = 'clubadmin'
             `,
             [input.clubId, current.current_owner_member_id, input.ownerMemberId],
           );
@@ -319,6 +354,92 @@ export function buildPlatformRepository({
         } else {
           await client.query(`select set_config('app.allow_club_membership_state_sync', '', true)`);
         }
+
+        await client.query('commit');
+        return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readClubSummary(scopedClient, input.clubId));
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async updateClub(input: UpdateClubInput): Promise<ClubSummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, input.actorMemberId, []);
+
+        const currentResult = await client.query<{
+          club_id: string;
+          current_version_id: string;
+          current_version_no: number;
+          owner_member_id: string;
+          name: string;
+          summary: string | null;
+          publicly_listed: boolean;
+          admission_policy: string | null;
+        }>(
+          `
+            select
+              n.id as club_id,
+              cv.id as current_version_id,
+              cv.version_no as current_version_no,
+              cv.owner_member_id,
+              cv.name,
+              cv.summary,
+              cv.publicly_listed,
+              cv.admission_policy
+            from app.clubs n
+            join app.current_club_versions cv on cv.club_id = n.id
+            where n.id = $1
+            limit 1
+          `,
+          [input.clubId],
+        );
+
+        const current = currentResult.rows[0];
+        if (!current) {
+          await client.query('rollback');
+          return null;
+        }
+
+        const { patch } = input;
+        const merged = {
+          name: patch.name !== undefined ? patch.name : current.name,
+          summary: patch.summary !== undefined ? patch.summary : current.summary,
+          publiclyListed: patch.publiclyListed !== undefined ? patch.publiclyListed : current.publicly_listed,
+          admissionPolicy: patch.admissionPolicy !== undefined ? patch.admissionPolicy : current.admission_policy,
+        };
+
+        await client.query(
+          `
+            insert into app.club_versions (
+              club_id,
+              owner_member_id,
+              name,
+              summary,
+              publicly_listed,
+              admission_policy,
+              version_no,
+              supersedes_version_id,
+              created_by_member_id
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          `,
+          [
+            input.clubId,
+            current.owner_member_id,
+            merged.name,
+            merged.summary,
+            merged.publiclyListed,
+            merged.admissionPolicy,
+            Number(current.current_version_no) + 1,
+            current.current_version_id,
+            input.actorMemberId,
+          ],
+        );
 
         await client.query('commit');
         return withActorContext(pool, input.actorMemberId, [], (scopedClient) => readClubSummary(scopedClient, input.clubId));

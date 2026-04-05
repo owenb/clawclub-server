@@ -6,12 +6,12 @@ const databaseUrl = process.env.DATABASE_URL;
 
 function requireDatabaseUrl(): string {
   if (!databaseUrl) {
-    throw new Error('DATABASE_URL must be set for club owner sync tests');
+    throw new Error('DATABASE_URL must be set for club version sync tests');
   }
   return databaseUrl;
 }
 
-test('club owner root column mirrors owner history and rejects direct updates', async () => {
+test('club versioned fields mirror club_versions and reject direct updates', async () => {
   const pool = new Pool({ connectionString: requireDatabaseUrl() });
   const client = await pool.connect();
   const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -44,34 +44,34 @@ test('club owner root column mirrors owner history and rejects direct updates', 
 
     const clubId = (await client.query<{ id: string }>(
       `insert into app.clubs (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
-      [`owner-sync-${suffix}`, `Owner Sync ${suffix}`, originalOwnerId, 'Owner compatibility sync test'],
+      [`ver-sync-${suffix}`, `Version Sync ${suffix}`, originalOwnerId, 'Version compatibility sync test'],
     )).rows[0]!.id;
 
     await client.query(
       `
-        insert into app.club_owner_versions (
-          club_id,
-          owner_member_id,
-          version_no,
-          created_by_member_id
+        insert into app.club_versions (
+          club_id, owner_member_id, name, summary,
+          publicly_listed, admission_policy,
+          version_no, created_by_member_id
         )
-        values ($1, $2, 1, $3)
+        values ($1, $2, $3, $4, false, null, 1, $5)
       `,
-      [clubId, originalOwnerId, originalOwnerId],
+      [clubId, originalOwnerId, `Version Sync ${suffix}`, 'Version compatibility sync test', originalOwnerId],
     );
 
+    // Owner change via club_versions
     await client.query(
       `
-        insert into app.club_owner_versions (
-          club_id,
-          owner_member_id,
-          version_no,
-          supersedes_owner_version_id,
-          created_by_member_id
+        insert into app.club_versions (
+          club_id, owner_member_id, name, summary,
+          publicly_listed, admission_policy,
+          version_no, supersedes_version_id, created_by_member_id
         )
-        select $1::app.short_id, $2::app.short_id, 2, cno.id, $3::app.short_id
-        from app.current_club_owners cno
-        where cno.club_id = $1::app.short_id
+        select $1::app.short_id, $2::app.short_id, cv.name, cv.summary,
+               cv.publicly_listed, cv.admission_policy,
+               2, cv.id, $3::app.short_id
+        from app.current_club_versions cv
+        where cv.club_id = $1::app.short_id
       `,
       [clubId, nextOwnerId, originalOwnerId],
     );
@@ -83,10 +83,21 @@ test('club owner root column mirrors owner history and rejects direct updates', 
 
     assert.equal(mirroredOwner.rows[0]?.owner_member_id, nextOwnerId);
 
+    // Direct mutation of owner_member_id is rejected
+    await client.query('savepoint sp1');
     await assert.rejects(
       client.query(`update app.clubs set owner_member_id = $2 where id = $1`, [clubId, originalOwnerId]),
-      /club_owner_versions/,
+      /club_versions/,
     );
+    await client.query('rollback to savepoint sp1');
+
+    // Direct mutation of name is rejected
+    await client.query('savepoint sp2');
+    await assert.rejects(
+      client.query(`update app.clubs set name = 'Direct Change' where id = $1`, [clubId]),
+      /club_versions/,
+    );
+    await client.query('rollback to savepoint sp2');
   } finally {
     await client.query('rollback').catch(() => {});
     client.release();

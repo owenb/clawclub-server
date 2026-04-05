@@ -34,7 +34,7 @@ function resolveOwnerClubs(ctx: HandlerContext, clubId?: string) {
   if (clubId) {
     return [ctx.requireMembershipOwner(clubId)];
   }
-  const ownerClubs = ctx.actor.memberships.filter(m => m.role === 'owner');
+  const ownerClubs = ctx.actor.memberships.filter(m => m.role === 'clubadmin');
   if (ownerClubs.length === 0) {
     throw new AppError(403, 'forbidden', 'This member does not currently own any clubs');
   }
@@ -262,7 +262,7 @@ const membershipsTransition: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { membershipId, status, reason } = input as MembershipsTransitionInput;
     const accessibleClubIds = ctx.actor.memberships
-      .filter(m => m.role === 'owner')
+      .filter(m => m.role === 'clubadmin')
       .map(m => m.clubId);
 
     const membership = await ctx.repository.transitionMembershipState({
@@ -394,7 +394,7 @@ const admissionsTransition: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { admissionId, status, notes, intake, metadata } = input as AdmissionsTransitionInput;
     const accessibleClubIds = ctx.actor.memberships
-      .filter(m => m.role === 'owner')
+      .filter(m => m.role === 'clubadmin')
       .map(m => m.clubId);
     ctx.requireCapability('transitionAdmission');
 
@@ -515,7 +515,7 @@ const admissionsIssueAccess: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { admissionId } = input as { admissionId: string };
     const accessibleClubIds = ctx.actor.memberships
-      .filter(m => m.role === 'owner')
+      .filter(m => m.role === 'clubadmin')
       .map(m => m.clubId);
 
     if (accessibleClubIds.length === 0) {

@@ -243,7 +243,7 @@ const entitiesRedact: ActionDefinition = {
     const result = await ctx.repository.redactEntity!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
-      ownerClubIds: ctx.actor.memberships.filter(m => m.role === 'owner').map(m => m.clubId),
+      ownerClubIds: ctx.actor.memberships.filter(m => m.role === 'clubadmin').map(m => m.clubId),
       entityId,
       reason,
     });

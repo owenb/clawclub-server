@@ -94,9 +94,9 @@ values (:'club_slug', :'club_name', :'member_id', :'club_summary');
 
 select id as club_id from app.clubs where slug = :'club_slug' \gset
 
--- Record club ownership version
-insert into app.club_owner_versions (club_id, owner_member_id, version_no, created_by_member_id)
-values (:'club_id', :'member_id', 1, :'member_id');
+-- Record club version
+insert into app.club_versions (club_id, owner_member_id, name, summary, publicly_listed, admission_policy, version_no, created_by_member_id)
+values (:'club_id', :'member_id', :'club_name', :'club_summary', false, null, 1, :'member_id');
 
 -- Owner membership
 insert into app.club_memberships (club_id, member_id, role)

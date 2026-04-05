@@ -40,6 +40,7 @@ export const membershipSummary = z.object({
   name: z.string(),
   summary: z.string().nullable(),
   role: membershipRole,
+  isOwner: z.boolean(),
   status: z.literal('active'),
   sponsorMemberId: z.string().nullable(),
   joinedAt: z.string(),
@@ -51,6 +52,7 @@ export const membershipAdminSummary = z.object({
   member: memberRef,
   sponsor: memberRef.nullable(),
   role: membershipRole,
+  isOwner: z.boolean(),
   state: z.object({
     status: membershipState,
     reason: z.string().nullable(),
@@ -402,6 +404,8 @@ export const clubSummary = z.object({
   slug: z.string(),
   name: z.string(),
   summary: z.string().nullable(),
+  publiclyListed: z.boolean(),
+  admissionPolicy: z.string().nullable(),
   archivedAt: z.string().nullable(),
   owner: z.object({
     memberId: z.string(),
@@ -409,7 +413,7 @@ export const clubSummary = z.object({
     handle: z.string().nullable(),
     email: z.string().nullable(),
   }),
-  ownerVersion: z.object({
+  version: z.object({
     versionNo: z.number(),
     createdAt: z.string(),
     createdByMemberId: z.string().nullable(),

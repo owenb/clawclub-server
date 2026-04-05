@@ -74,8 +74,8 @@ describe('superadmin.clubs.create', () => {
     const clubOwner = club.owner as Record<string, unknown>;
     assert.equal(clubOwner.memberId, owner.id);
     assert.equal(clubOwner.publicName, 'New Owner');
-    const ownerVersion = club.ownerVersion as Record<string, unknown>;
-    assert.equal(ownerVersion.versionNo, 1);
+    const version = club.version as Record<string, unknown>;
+    assert.equal(version.versionNo, 1);
   });
 
   it('created club appears in superadmin.clubs.list', async () => {
@@ -318,8 +318,8 @@ describe('superadmin.clubs.assignOwner', () => {
     const updatedClub = data.club as Record<string, unknown>;
     const updatedOwner = updatedClub.owner as Record<string, unknown>;
     assert.equal(updatedOwner.memberId, newOwner.id);
-    const ownerVersion = updatedClub.ownerVersion as Record<string, unknown>;
-    assert.equal(ownerVersion.versionNo, 2, 'should be version 2 after reassignment');
+    const version = updatedClub.version as Record<string, unknown>;
+    assert.equal(version.versionNo, 2, 'should be version 2 after reassignment');
   });
 
   it('rejects missing clubId', async () => {
@@ -399,6 +399,225 @@ describe('superadmin.clubs.assignOwner', () => {
     const oldClubMembership = oldMemberships.find((m) => m.clubId === oldOwnerCtx.club.id);
     assert.ok(oldClubMembership, 'old owner should still have membership');
     assert.equal(oldClubMembership!.role, 'member', 'old owner should be demoted to member');
+  });
+});
+
+// ── superadmin.clubs.update ──────────────────────────────────────────────────
+
+describe('superadmin.clubs.update', () => {
+  it('updates name and returns updated club with incremented version', async () => {
+    const admin = await h.seedSuperadmin('Admin Updater', 'admin-clubs-update');
+    const owner = await h.seedMember('Update Owner', 'update-owner');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
+      slug: 'update-name-club',
+      name: 'Original Name',
+      ownerMemberId: owner.id,
+      summary: 'A club to update',
+    });
+    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
+
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.update', {
+      clubId: created.clubId as string,
+      name: 'Updated Name',
+    });
+    const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(club.name, 'Updated Name');
+    assert.equal(club.summary, 'A club to update', 'summary should be unchanged');
+    const version = club.version as Record<string, unknown>;
+    assert.equal(version.versionNo, 2, 'should be version 2 after update');
+  });
+
+  it('updates summary to a new value', async () => {
+    const admin = await h.seedSuperadmin('Admin SummaryUp', 'admin-summary-up');
+    const owner = await h.seedMember('Summary Owner', 'summary-owner');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
+      slug: 'update-summary-club',
+      name: 'Summary Club',
+      ownerMemberId: owner.id,
+      summary: 'Old summary',
+    });
+    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
+
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.update', {
+      clubId: created.clubId as string,
+      summary: 'New summary',
+    });
+    const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(club.summary, 'New summary');
+    assert.equal(club.name, 'Summary Club', 'name should be unchanged');
+  });
+
+  it('clears summary by sending null', async () => {
+    const admin = await h.seedSuperadmin('Admin ClearSum', 'admin-clear-sum');
+    const owner = await h.seedMember('Clear Owner', 'clear-owner');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
+      slug: 'clear-summary-club',
+      name: 'Clear Club',
+      ownerMemberId: owner.id,
+      summary: 'Will be cleared',
+    });
+    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
+
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.update', {
+      clubId: created.clubId as string,
+      summary: null,
+    });
+    const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(club.summary, null, 'summary should be cleared');
+  });
+
+  it('updates publiclyListed to true', async () => {
+    const admin = await h.seedSuperadmin('Admin PubList', 'admin-pub-list');
+    const owner = await h.seedMember('PubList Owner', 'publist-owner');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
+      slug: 'publist-club',
+      name: 'PubList Club',
+      ownerMemberId: owner.id,
+      summary: 'Testing publiclyListed',
+    });
+    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(created.publiclyListed, false, 'should default to false');
+
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.update', {
+      clubId: created.clubId as string,
+      publiclyListed: true,
+    });
+    const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(club.publiclyListed, true);
+  });
+
+  it('updates admissionPolicy', async () => {
+    const admin = await h.seedSuperadmin('Admin AdmPol', 'admin-adm-pol');
+    const owner = await h.seedMember('AdmPol Owner', 'admpol-owner');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
+      slug: 'admpol-club',
+      name: 'AdmPol Club',
+      ownerMemberId: owner.id,
+      summary: 'Testing admissionPolicy',
+    });
+    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(created.admissionPolicy, null);
+
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.update', {
+      clubId: created.clubId as string,
+      admissionPolicy: 'Must be a dog lover',
+    });
+    const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(club.admissionPolicy, 'Must be a dog lover');
+  });
+
+  it('rejects non-existent club with 404', async () => {
+    const admin = await h.seedSuperadmin('Admin NoClub', 'admin-update-no-club');
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.update', {
+      clubId: 'nonexistent',
+      name: 'Does Not Matter',
+    });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'not_found');
+  });
+
+  it('non-superadmin cannot update club', async () => {
+    const member = await h.seedMember('Regular Updater', 'regular-updater');
+    const err = await h.apiErr(member.token, 'superadmin.clubs.update', {
+      clubId: 'any',
+      name: 'Nope',
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('rejects empty name', async () => {
+    const admin = await h.seedSuperadmin('Admin EmptyName', 'admin-empty-name');
+    const owner = await h.seedMember('EmptyName Owner', 'emptyname-owner');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
+      slug: 'emptyname-club',
+      name: 'EmptyName Club',
+      ownerMemberId: owner.id,
+      summary: 'Testing empty name',
+    });
+    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
+
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.update', {
+      clubId: created.clubId as string,
+      name: '   ',
+    });
+    assert.equal(err.status, 400);
+  });
+
+  it('rejects empty patch with no fields to update', async () => {
+    const admin = await h.seedSuperadmin('Admin EmptyPatch', 'admin-empty-patch');
+    const owner = await h.seedMember('EmptyPatch Owner', 'emptypatch-owner');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
+      slug: 'emptypatch-club',
+      name: 'EmptyPatch Club',
+      ownerMemberId: owner.id,
+      summary: 'Testing empty patch',
+    });
+    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
+
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.update', {
+      clubId: created.clubId as string,
+    });
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+  });
+
+  it('clears admissionPolicy by sending null', async () => {
+    const admin = await h.seedSuperadmin('Admin ClearPol', 'admin-clear-pol');
+    const owner = await h.seedMember('ClearPol Owner', 'clearpol-owner');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
+      slug: 'clearpol-club',
+      name: 'ClearPol Club',
+      ownerMemberId: owner.id,
+      summary: 'Testing clear admissionPolicy',
+    });
+    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
+
+    // Set admission policy first
+    await h.apiOk(admin.token, 'superadmin.clubs.update', {
+      clubId: created.clubId as string,
+      admissionPolicy: 'Must be invited',
+    });
+
+    // Clear it
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.update', {
+      clubId: created.clubId as string,
+      admissionPolicy: null,
+    });
+    const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(club.admissionPolicy, null, 'admissionPolicy should be cleared');
+  });
+
+  it('sequential updates increment version correctly', async () => {
+    const admin = await h.seedSuperadmin('Admin SeqUp', 'admin-seq-up');
+    const owner = await h.seedMember('SeqUp Owner', 'sequp-owner');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
+      slug: 'seq-update-club',
+      name: 'Seq Club',
+      ownerMemberId: owner.id,
+      summary: 'Sequential updates',
+    });
+    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
+    const clubId = created.clubId as string;
+
+    const r1 = await h.apiOk(admin.token, 'superadmin.clubs.update', { clubId, name: 'V2' });
+    const c1 = (r1.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal((c1.version as Record<string, unknown>).versionNo, 2);
+
+    const r2 = await h.apiOk(admin.token, 'superadmin.clubs.update', { clubId, summary: 'V3 summary' });
+    const c2 = (r2.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal((c2.version as Record<string, unknown>).versionNo, 3);
+    assert.equal(c2.name, 'V2', 'name should persist from previous update');
+    assert.equal(c2.summary, 'V3 summary');
   });
 });
 

@@ -22,7 +22,7 @@ import type {
 
 // ── Auth and safety types ────────────────────────────────
 
-export type ActionAuth = 'none' | 'member' | 'owner' | 'superadmin';
+export type ActionAuth = 'none' | 'member' | 'clubadmin' | 'superadmin';
 export type ActionSafety = 'read_only' | 'mutating';
 
 // ── Repository capability ────────────────────────────────
@@ -34,6 +34,7 @@ export type RepositoryCapability =
   | 'createClub'
   | 'archiveClub'
   | 'assignClubOwner'
+  | 'updateClub'
   | 'listAdmissions'
   | 'transitionAdmission'
   | 'createAdmissionChallenge'
@@ -55,7 +56,9 @@ export type RepositoryCapability =
   | 'adminReadThread'
   | 'adminListMemberTokens'
   | 'adminRevokeMemberToken'
-  | 'adminGetDiagnostics';
+  | 'adminGetDiagnostics'
+  | 'promoteMemberToAdmin'
+  | 'demoteMemberFromAdmin';
 
 // ── Handler context ──────────────────────────────────────
 // Passed to every handler. Authorization helpers are pre-bound to the actor.
@@ -68,7 +71,8 @@ export type HandlerContext = {
 
   // Authorization helpers (pre-bound to actor)
   requireAccessibleClub: (clubId: string) => MembershipSummary;
-  requireMembershipOwner: (clubId: string) => MembershipSummary;
+  requireClubAdmin: (clubId: string) => void;
+  requireClubOwner: (clubId: string) => void;
   requireSuperadmin: () => void;
   resolveScopedClubs: (clubId?: string) => MembershipSummary[];
 

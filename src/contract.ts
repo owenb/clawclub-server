@@ -17,7 +17,8 @@ export type MembershipSummary = {
   slug: string;
   name: string;
   summary: string | null;
-  role: 'owner' | 'admin' | 'member';
+  role: 'clubadmin' | 'member';
+  isOwner: boolean;
   status: 'active';
   sponsorMemberId: string | null;
   joinedAt: string;
@@ -49,7 +50,8 @@ export type MembershipAdminSummary = {
     publicName: string;
     handle: string | null;
   } | null;
-  role: 'owner' | 'admin' | 'member';
+  role: 'clubadmin' | 'member';
+  isOwner: boolean;
   state: {
     status: MembershipState;
     reason: string | null;
@@ -67,7 +69,7 @@ export type CreateMembershipInput = {
   clubId: string;
   memberId: string;
   sponsorMemberId: string;
-  role: 'admin' | 'member';
+  role: 'member';
   initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active'>;
   reason?: string | null;
   metadata: Record<string, unknown>;
@@ -207,6 +209,8 @@ export type ClubSummary = {
   slug: string;
   name: string;
   summary: string | null;
+  publiclyListed: boolean;
+  admissionPolicy: string | null;
   archivedAt: string | null;
   owner: {
     memberId: string;
@@ -214,7 +218,7 @@ export type ClubSummary = {
     handle: string | null;
     email: string | null;
   };
-  ownerVersion: {
+  version: {
     versionNo: number;
     createdAt: string;
     createdByMemberId: string | null;
@@ -238,6 +242,17 @@ export type AssignClubOwnerInput = {
   actorMemberId: string;
   clubId: string;
   ownerMemberId: string;
+};
+
+export type UpdateClubInput = {
+  actorMemberId: string;
+  clubId: string;
+  patch: {
+    name?: string;
+    summary?: string | null;
+    publiclyListed?: boolean;
+    admissionPolicy?: string | null;
+  };
 };
 
 export type ActorContext = {
@@ -747,6 +762,7 @@ export type Repository = {
   createClub?(input: CreateClubInput): Promise<ClubSummary | null>;
   archiveClub?(input: ArchiveClubInput): Promise<ClubSummary | null>;
   assignClubOwner?(input: AssignClubOwnerInput): Promise<ClubSummary | null>;
+  updateClub?(input: UpdateClubInput): Promise<ClubSummary | null>;
   listMemberships(input: {
     actorMemberId: string;
     clubIds: string[];
@@ -813,6 +829,8 @@ export type Repository = {
 
   createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
   listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number }): Promise<MembershipVouchSummary[]>;
+  promoteMemberToAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
+  demoteMemberFromAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
   createAdmissionSponsorship(input: CreateAdmissionSponsorInput): Promise<AdmissionSummary>;
   issueAdmissionAccess?(input: IssueAdmissionAccessInput): Promise<IssueAdmissionAccessResult | null>;
   getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;

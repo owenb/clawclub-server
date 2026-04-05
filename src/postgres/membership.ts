@@ -36,6 +36,7 @@ type MembershipAdminRow = {
   sponsor_public_name: string | null;
   sponsor_handle: string | null;
   role: MembershipSummary['role'];
+  is_owner: boolean;
   status: MembershipState;
   state_reason: string | null;
   state_version_no: number;
@@ -99,6 +100,7 @@ function mapMembershipAdminRow(row: MembershipAdminRow): MembershipAdminSummary 
         }
       : null,
     role: row.role,
+    isOwner: row.is_owner,
     state: {
       status: row.status,
       reason: row.state_reason,
@@ -152,6 +154,7 @@ async function readMembershipAdminSummary(client: DbClient, membershipId: string
         sponsor.public_name as sponsor_public_name,
         sponsor.handle as sponsor_handle,
         cnm.role,
+        (n.owner_member_id = cnm.member_id) as is_owner,
         cnm.status,
         cnm.state_reason,
         cnm.state_version_no,
@@ -162,6 +165,7 @@ async function readMembershipAdminSummary(client: DbClient, membershipId: string
         cnm.metadata
       from app.current_club_memberships cnm
       join app.members m on m.id = cnm.member_id
+      join app.clubs n on n.id = cnm.club_id
       left join app.members sponsor on sponsor.id = cnm.sponsor_member_id
       where cnm.id = $1
       limit 1
@@ -193,6 +197,7 @@ async function readMemberships(client: DbClient, input: {
         sponsor.public_name as sponsor_public_name,
         sponsor.handle as sponsor_handle,
         cnm.role,
+        (n.owner_member_id = cnm.member_id) as is_owner,
         cnm.status,
         cnm.state_reason,
         cnm.state_version_no,
@@ -203,6 +208,7 @@ async function readMemberships(client: DbClient, input: {
         cnm.metadata
       from app.current_club_memberships cnm
       join app.members m on m.id = cnm.member_id
+      join app.clubs n on n.id = cnm.club_id
       left join app.members sponsor on sponsor.id = cnm.sponsor_member_id
       where cnm.club_id = any($1::app.short_id[])
         and ($2::app.membership_state is null or cnm.status = $2)
@@ -271,6 +277,7 @@ async function readMembershipReviews(client: DbClient, input: {
         sponsor.public_name as sponsor_public_name,
         sponsor.handle as sponsor_handle,
         cnm.role,
+        (n.owner_member_id = cnm.member_id) as is_owner,
         cnm.status,
         cnm.state_reason,
         cnm.state_version_no,
@@ -284,6 +291,7 @@ async function readMembershipReviews(client: DbClient, input: {
         coalesce(va.vouches, '[]'::jsonb) as vouches
       from app.current_club_memberships cnm
       join app.members m on m.id = cnm.member_id
+      join app.clubs n on n.id = cnm.club_id
       left join app.members sponsor on sponsor.id = cnm.sponsor_member_id
       left join sponsor_stats ss on ss.sponsor_member_id = cnm.sponsor_member_id and ss.club_id = cnm.club_id
       left join vouch_agg va on va.to_member_id = cnm.member_id and va.club_id = cnm.club_id
@@ -374,6 +382,8 @@ export function buildMembershipRepository({
   | 'listMembers'
   | 'createVouch'
   | 'listVouches'
+  | 'promoteMemberToAdmin'
+  | 'demoteMemberFromAdmin'
 > {
   const admissionWorkflowRepository = buildAdmissionWorkflowRepository({
     pool,
@@ -404,7 +414,7 @@ export function buildMembershipRepository({
             from app.accessible_club_memberships anm
             where anm.member_id = $1
               and anm.club_id = $2
-              and anm.role = 'owner'
+              and anm.role = 'clubadmin'
             limit 1
           `,
           [input.actorMemberId, input.clubId],
@@ -428,7 +438,7 @@ export function buildMembershipRepository({
           [input.clubId, input.sponsorMemberId],
         );
 
-        if (!sponsorScopeResult.rows[0] || (!actorIsSponsor && adminScopeResult.rows[0].role !== 'owner')) {
+        if (!sponsorScopeResult.rows[0] || (!actorIsSponsor && adminScopeResult.rows[0].role !== 'clubadmin')) {
           await client.query('rollback');
           return null;
         }
@@ -540,7 +550,7 @@ export function buildMembershipRepository({
             join app.accessible_club_memberships owner_scope
               on owner_scope.club_id = cnm.club_id
              and owner_scope.member_id = $1
-             and owner_scope.role = 'owner'
+             and owner_scope.role = 'clubadmin'
             where cnm.id = $2
               and cnm.club_id = any($3::app.short_id[])
             limit 1
@@ -709,6 +719,122 @@ export function buildMembershipRepository({
           createdByMemberId: row.created_by_member_id,
         }));
       });
+    },
+
+    async promoteMemberToAdmin({ actorMemberId, clubId, memberId }): Promise<MembershipAdminSummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, actorMemberId, [clubId]);
+
+        const membershipResult = await client.query<{ id: string; role: string }>(
+          `
+            select cnm.id, cnm.role
+            from app.current_club_memberships cnm
+            where cnm.club_id = $1
+              and cnm.member_id = $2
+              and cnm.status = 'active'
+            limit 1
+          `,
+          [clubId, memberId],
+        );
+
+        const membership = membershipResult.rows[0];
+        if (!membership) {
+          await client.query('rollback');
+          return null;
+        }
+
+        // Idempotent: if already clubadmin, just reload and return
+        if (membership.role === 'clubadmin') {
+          await client.query('rollback');
+          return withActorContext(pool, actorMemberId, [clubId], (scopedClient) =>
+            readMembershipAdminSummary(scopedClient, membership.id),
+          );
+        }
+
+        await client.query(
+          `update app.club_memberships set role = 'clubadmin' where id = $1`,
+          [membership.id],
+        );
+
+        await client.query('commit');
+        return withActorContext(pool, actorMemberId, [clubId], (scopedClient) =>
+          readMembershipAdminSummary(scopedClient, membership.id),
+        );
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async demoteMemberFromAdmin({ actorMemberId, clubId, memberId }): Promise<MembershipAdminSummary | null> {
+      const client = await pool.connect();
+      try {
+        await client.query('begin');
+        await applyActorContext(client, actorMemberId, [clubId]);
+
+        // Check if the target is the club owner
+        const ownerCheck = await client.query<{ owner_member_id: string }>(
+          `select owner_member_id from app.clubs where id = $1 limit 1`,
+          [clubId],
+        );
+
+        if (ownerCheck.rows[0]?.owner_member_id === memberId) {
+          throw new AppError(403, 'forbidden', 'Cannot demote the club owner');
+        }
+
+        const membershipResult = await client.query<{ id: string; role: string; sponsor_member_id: string | null }>(
+          `
+            select cnm.id, cnm.role, cnm.sponsor_member_id
+            from app.current_club_memberships cnm
+            where cnm.club_id = $1
+              and cnm.member_id = $2
+              and cnm.status = 'active'
+            limit 1
+          `,
+          [clubId, memberId],
+        );
+
+        const membership = membershipResult.rows[0];
+        if (!membership) {
+          await client.query('rollback');
+          return null;
+        }
+
+        // Idempotent: if already member, just reload and return
+        if (membership.role === 'member') {
+          await client.query('rollback');
+          return withActorContext(pool, actorMemberId, [clubId], (scopedClient) =>
+            readMembershipAdminSummary(scopedClient, membership.id),
+          );
+        }
+
+        // If sponsor_member_id IS NULL (ex-owner case), fill with current club owner
+        const ownerId = ownerCheck.rows[0]?.owner_member_id ?? null;
+
+        await client.query(
+          `
+            update app.club_memberships
+            set role = 'member',
+                sponsor_member_id = coalesce(sponsor_member_id, $2)
+            where id = $1
+          `,
+          [membership.id, ownerId],
+        );
+
+        await client.query('commit');
+        return withActorContext(pool, actorMemberId, [clubId], (scopedClient) =>
+          readMembershipAdminSummary(scopedClient, membership.id),
+        );
+      } catch (error) {
+        await client.query('rollback');
+        throw error;
+      } finally {
+        client.release();
+      }
     },
   };
 }

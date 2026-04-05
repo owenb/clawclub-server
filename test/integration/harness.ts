@@ -248,11 +248,11 @@ export class TestHarness {
       [membershipId, ownerMemberId],
     );
 
-    // Owner version (needed by current_club_owners view used by superadmin queries)
+    // Club version (needed by current_club_versions view used by superadmin queries)
     await this.sql(
-      `INSERT INTO app.club_owner_versions (club_id, owner_member_id, version_no, created_by_member_id)
-       VALUES ($1::app.short_id, $2::app.short_id, 1, $2::app.short_id) ON CONFLICT DO NOTHING`,
-      [clubId, ownerMemberId],
+      `INSERT INTO app.club_versions (club_id, owner_member_id, name, summary, publicly_listed, admission_policy, version_no, created_by_member_id)
+       VALUES ($1::app.short_id, $2::app.short_id, $3, $4, false, null, 1, $2::app.short_id) ON CONFLICT DO NOTHING`,
+      [clubId, ownerMemberId, name, `Test club ${slug}`],
     );
 
     return { id: clubId, slug, name, ownerMemberId };

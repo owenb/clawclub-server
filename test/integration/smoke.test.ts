@@ -39,7 +39,7 @@ describe('smoke', () => {
       }>;
     };
     assert.ok(data.version, 'schema should have a version');
-    assert.equal(data.actions.length, 55, 'schema should have all 55 actions');
+    assert.equal(data.actions.length, 56, 'schema should have all 56 actions');
 
     for (const a of data.actions) {
       assert.ok(a.input, `${a.action} should have input schema`);

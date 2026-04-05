@@ -134,17 +134,16 @@ async function seedRlsFixture(client: PoolClient) {
 
   await client.query(
     `
-      insert into app.club_owner_versions (
-        club_id,
-        owner_member_id,
-        version_no,
-        created_by_member_id
+      insert into app.club_versions (
+        club_id, owner_member_id, name, summary,
+        publicly_listed, admission_policy,
+        version_no, created_by_member_id
       )
       values
-        ($1, $2, 1, $2),
-        ($3, $4, 1, $4)
+        ($1, $2, $5, 'RLS test club one', false, null, 1, $2),
+        ($3, $4, $6, 'RLS test club two', false, null, 1, $4)
     `,
-    [club1Id, ownerId, club2Id, outsiderId],
+    [club1Id, ownerId, club2Id, outsiderId, `Club One ${suffix}`, `Club Two ${suffix}`],
   );
 
   const ownerMembershipId = (await client.query<{ id: string }>(
@@ -1072,15 +1071,15 @@ test('RLS limits token and history tables to actor or owner scope', async () => 
     );
     assert.equal(hiddenRoles.rows[0]?.visible_count, '0');
 
-    const visibleOwnerHistory = await client.query<{ visible_count: string }>(
+    const visibleVersionHistory = await client.query<{ visible_count: string }>(
       `
         select count(*)::text as visible_count
-        from app.club_owner_versions
+        from app.club_versions
         where club_id in ($1, $2)
       `,
       [fixture.club1Id, fixture.club2Id],
     );
-    assert.equal(visibleOwnerHistory.rows[0]?.visible_count, '1');
+    assert.equal(visibleVersionHistory.rows[0]?.visible_count, '1');
 
     await client.query('savepoint bad_state');
     await assert.rejects(

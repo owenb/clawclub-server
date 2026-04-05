@@ -388,9 +388,11 @@ test('superadmin.clubs.list returns clubs array', async () => {
         slug: 'alpha',
         name: 'Alpha',
         summary: 'First club',
+        publiclyListed: false,
+        admissionPolicy: null,
         archivedAt: null,
         owner: { memberId: 'member-1', publicName: 'Alice', handle: 'alice', email: null },
-        ownerVersion: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'member-1' },
+        version: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'member-1' },
       }];
     },
   };
@@ -430,9 +432,11 @@ test('superadmin.clubs.create returns new club', async () => {
         slug,
         name,
         summary,
+        publiclyListed: false,
+        admissionPolicy: null,
         archivedAt: null,
         owner: { memberId: ownerMemberId, publicName: 'Owner', handle: 'owner', email: null },
-        ownerVersion: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'admin-1' },
+        version: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'admin-1' },
       };
     },
   };
@@ -511,9 +515,11 @@ test('superadmin.clubs.archive returns archived club', async () => {
         slug: 'archived',
         name: 'Archived Club',
         summary: 'Gone',
+        publiclyListed: false,
+        admissionPolicy: null,
         archivedAt: '2026-03-14T12:00:00Z',
         owner: { memberId: 'member-1', publicName: 'Alice', handle: 'alice', email: null },
-        ownerVersion: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'member-1' },
+        version: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'member-1' },
       };
     },
   };
@@ -580,9 +586,11 @@ test('superadmin.clubs.assignOwner returns updated club', async () => {
         slug: 'transferred',
         name: 'Transferred Club',
         summary: 'Now yours',
+        publiclyListed: false,
+        admissionPolicy: null,
         archivedAt: null,
         owner: { memberId: ownerMemberId, publicName: 'New Owner', handle: 'new-owner', email: null },
-        ownerVersion: { versionNo: 2, createdAt: '2026-03-14T12:00:00Z', createdByMemberId: 'admin-1' },
+        version: { versionNo: 2, createdAt: '2026-03-14T12:00:00Z', createdByMemberId: 'admin-1' },
       };
     },
   };
@@ -604,7 +612,7 @@ test('superadmin.clubs.assignOwner returns updated club', async () => {
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.club.owner.memberId, 'member-2');
-    assert.equal(body.data.club.ownerVersion.versionNo, 2);
+    assert.equal(body.data.club.version.versionNo, 2);
   } finally {
     await shutdown();
   }

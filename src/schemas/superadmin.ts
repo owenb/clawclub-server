@@ -1,7 +1,10 @@
 /**
  * Action contracts: superadmin.overview, superadmin.members.list, superadmin.members.get,
  * superadmin.diagnostics.health, superadmin.clubs.list, superadmin.clubs.create,
- * superadmin.clubs.archive, superadmin.clubs.assignOwner
+ * superadmin.clubs.archive, superadmin.clubs.assignOwner, superadmin.clubs.update,
+ * superadmin.content.list, superadmin.content.archive, superadmin.content.redact,
+ * superadmin.messages.threads, superadmin.messages.read, superadmin.messages.redact,
+ * superadmin.tokens.list, superadmin.tokens.revoke
  *
  * Platform-wide actions restricted to server operators (superadmin role).
  */
@@ -9,14 +12,20 @@ import { z } from 'zod';
 import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
+  wireOptionalString, parseTrimmedNullableString,
   wireOptionalBoolean,
+  wirePatchString, parsePatchString,
   wireLimit, parseLimit,
   wireCursor, parseCursor,
   wireSlug, parseSlug,
+  entityKind,
 } from './fields.ts';
 import {
   adminOverview, adminMemberSummary, adminMemberDetail,
   adminDiagnostics, clubSummary,
+  adminContentSummary, adminThreadSummary,
+  directMessageEntry, redactionResult,
+  bearerTokenSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -392,8 +401,466 @@ const superadminClubsAssignOwner: ActionDefinition = {
   },
 };
 
+// ── superadmin.clubs.update ───────────────────────────
+
+type ClubsUpdateInput = {
+  clubId: string;
+  name?: string;
+  summary?: string | null;
+  publiclyListed?: boolean;
+  admissionPolicy?: string | null;
+};
+
+const superadminClubsUpdate: ActionDefinition = {
+  action: 'superadmin.clubs.update',
+  domain: 'superadmin',
+  description: 'Update mutable fields on a club (superadmin only).',
+  auth: 'superadmin',
+  safety: 'mutating',
+
+  requiredCapability: 'updateClub',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club to update'),
+      name: wireRequiredString.optional().describe('New club name (cannot be empty if provided)'),
+      summary: wirePatchString.describe('Club summary'),
+      publiclyListed: wireOptionalBoolean.describe('Whether the club is publicly listed'),
+      admissionPolicy: wirePatchString.describe('Admission policy text (1-2000 chars)'),
+    }),
+    output: z.object({ club: clubSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      name: parseRequiredString.optional(),
+      summary: parsePatchString,
+      publiclyListed: z.boolean().optional(),
+      admissionPolicy: parsePatchString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('updateClub');
+    const { clubId, ...patch } = input as ClubsUpdateInput;
+
+    if (patch.name === undefined && patch.summary === undefined &&
+        patch.publiclyListed === undefined && patch.admissionPolicy === undefined) {
+      throw new AppError(400, 'invalid_input', 'At least one field to update must be provided');
+    }
+
+    const club = await ctx.repository.updateClub!({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      patch,
+    });
+
+    if (!club) {
+      throw new AppError(404, 'not_found', 'Club not found');
+    }
+
+    return {
+      data: { club },
+      requestScope: { requestedClubId: club.clubId, activeClubIds: [club.clubId] },
+    };
+  },
+};
+
+// ── superadmin.content.list ──────────────────────────────
+
+type SuperadminContentListInput = {
+  clubId?: string;
+  kind?: 'post' | 'opportunity' | 'service' | 'ask';
+  limit: number;
+  cursor: string | null;
+};
+
+const superadminContentList: ActionDefinition = {
+  action: 'superadmin.content.list',
+  domain: 'superadmin',
+  description: 'List content across all clubs with optional filters.',
+  auth: 'superadmin',
+  safety: 'read_only',
+
+  requiredCapability: 'adminListContent',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.optional().describe('Filter by club'),
+      kind: entityKind.optional().describe('Filter by entity kind'),
+      limit: wireLimit,
+      cursor: wireCursor,
+    }),
+    output: z.object({ content: z.array(adminContentSummary), nextCursor: z.string().nullable() }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString.optional(),
+      kind: entityKind.optional().catch(undefined),
+      limit: parseLimit,
+      cursor: parseCursor,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('adminListContent');
+    const { clubId, kind, limit, cursor: rawCursor } = input as SuperadminContentListInput;
+    const cursor = rawCursor ? decodeSuperadminCursor(rawCursor) : null;
+
+    const content = await ctx.repository.adminListContent!({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      kind,
+      limit,
+      cursor,
+    });
+
+    const last = content[content.length - 1];
+    const nextCursor = last ? encodeSuperadminCursor(last.createdAt, last.entityId) : null;
+
+    return { data: { content, nextCursor } };
+  },
+};
+
+// ── superadmin.content.archive ───────────────────────────
+
+const superadminContentArchive: ActionDefinition = {
+  action: 'superadmin.content.archive',
+  domain: 'superadmin',
+  description: 'Archive an entity as superadmin.',
+  auth: 'superadmin',
+  safety: 'mutating',
+
+  requiredCapability: 'adminArchiveEntity',
+
+  wire: {
+    input: z.object({
+      entityId: wireRequiredString.describe('Entity to archive'),
+    }),
+    output: z.object({ entityId: z.string() }),
+  },
+
+  parse: {
+    input: z.object({
+      entityId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('adminArchiveEntity');
+    const { entityId } = input as { entityId: string };
+
+    const result = await ctx.repository.adminArchiveEntity!({
+      actorMemberId: ctx.actor.member.id,
+      entityId,
+    });
+
+    if (!result) {
+      throw new AppError(404, 'not_found', 'Entity not found or already archived');
+    }
+
+    return { data: result };
+  },
+};
+
+// ── superadmin.content.redact ────────────────────────────
+
+const superadminContentRedact: ActionDefinition = {
+  action: 'superadmin.content.redact',
+  domain: 'superadmin',
+  description: 'Redact an entity as superadmin.',
+  auth: 'superadmin',
+  safety: 'mutating',
+
+  requiredCapability: 'redactEntity',
+
+  wire: {
+    input: z.object({
+      entityId: wireRequiredString.describe('Entity to redact'),
+      reason: wireOptionalString.describe('Reason for redaction'),
+    }),
+    output: z.object({ redaction: redactionResult }),
+  },
+
+  parse: {
+    input: z.object({
+      entityId: parseRequiredString,
+      reason: parseTrimmedNullableString.default(null),
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('redactEntity');
+    const { entityId, reason } = input as { entityId: string; reason: string | null };
+
+    const result = await ctx.repository.redactEntity!({
+      actorMemberId: ctx.actor.member.id,
+      accessibleClubIds: [],
+      ownerClubIds: [],
+      entityId,
+      reason,
+      skipNotification: true,
+      skipAuthCheck: true,
+    });
+
+    if (!result) {
+      throw new AppError(404, 'not_found', 'Entity not found');
+    }
+
+    return { data: { redaction: result.redaction } };
+  },
+};
+
+// ── superadmin.messages.threads ──────────────────────────
+
+type SuperadminMessagesThreadsInput = {
+  clubId?: string;
+  limit: number;
+  cursor: string | null;
+};
+
+const superadminMessagesThreads: ActionDefinition = {
+  action: 'superadmin.messages.threads',
+  domain: 'superadmin',
+  description: 'List DM threads across the platform.',
+  auth: 'superadmin',
+  safety: 'read_only',
+
+  requiredCapability: 'adminListThreads',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.optional().describe('Filter by club'),
+      limit: wireLimit,
+      cursor: wireCursor,
+    }),
+    output: z.object({ threads: z.array(adminThreadSummary), nextCursor: z.string().nullable() }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString.optional(),
+      limit: parseLimit,
+      cursor: parseCursor,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('adminListThreads');
+    const { clubId, limit, cursor: rawCursor } = input as SuperadminMessagesThreadsInput;
+    const cursor = rawCursor ? decodeSuperadminCursor(rawCursor) : null;
+
+    const threads = await ctx.repository.adminListThreads!({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      limit,
+      cursor,
+    });
+
+    const last = threads[threads.length - 1];
+    const nextCursor = last ? encodeSuperadminCursor(last.latestMessageAt, last.threadId) : null;
+
+    return { data: { threads, nextCursor } };
+  },
+};
+
+// ── superadmin.messages.read ─────────────────────────────
+
+type SuperadminMessagesReadInput = {
+  threadId: string;
+  limit: number;
+};
+
+const superadminMessagesRead: ActionDefinition = {
+  action: 'superadmin.messages.read',
+  domain: 'superadmin',
+  description: 'Read a DM thread as superadmin.',
+  auth: 'superadmin',
+  safety: 'read_only',
+
+  requiredCapability: 'adminReadThread',
+
+  wire: {
+    input: z.object({
+      threadId: wireRequiredString.describe('Thread to read'),
+      limit: wireLimit,
+    }),
+    output: z.object({
+      thread: adminThreadSummary,
+      messages: z.array(directMessageEntry),
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      threadId: parseRequiredString,
+      limit: parseLimit,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('adminReadThread');
+    const { threadId, limit } = input as SuperadminMessagesReadInput;
+
+    const result = await ctx.repository.adminReadThread!({
+      actorMemberId: ctx.actor.member.id,
+      threadId,
+      limit,
+    });
+
+    if (!result) {
+      throw new AppError(404, 'not_found', 'Thread not found');
+    }
+
+    return { data: result };
+  },
+};
+
+// ── superadmin.messages.redact ───────────────────────────
+
+const superadminMessagesRedact: ActionDefinition = {
+  action: 'superadmin.messages.redact',
+  domain: 'superadmin',
+  description: 'Redact a DM message as superadmin.',
+  auth: 'superadmin',
+  safety: 'mutating',
+
+  requiredCapability: 'redactMessage',
+
+  wire: {
+    input: z.object({
+      messageId: wireRequiredString.describe('Message to redact'),
+      reason: wireOptionalString.describe('Reason for redaction'),
+    }),
+    output: z.object({ redaction: redactionResult }),
+  },
+
+  parse: {
+    input: z.object({
+      messageId: parseRequiredString,
+      reason: parseTrimmedNullableString.default(null),
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('redactMessage');
+    const { messageId, reason } = input as { messageId: string; reason: string | null };
+
+    const result = await ctx.repository.redactMessage!({
+      actorMemberId: ctx.actor.member.id,
+      accessibleClubIds: [],
+      ownerClubIds: [],
+      messageId,
+      reason,
+      skipNotification: true,
+      skipAuthCheck: true,
+    });
+
+    if (!result) {
+      throw new AppError(404, 'not_found', 'Message not found');
+    }
+
+    return { data: { redaction: result.redaction } };
+  },
+};
+
+// ── superadmin.tokens.list ───────────────────────────────
+
+const superadminTokensList: ActionDefinition = {
+  action: 'superadmin.tokens.list',
+  domain: 'superadmin',
+  description: 'List bearer tokens for a specific member.',
+  auth: 'superadmin',
+  safety: 'read_only',
+
+  requiredCapability: 'adminListMemberTokens',
+
+  wire: {
+    input: z.object({
+      memberId: wireRequiredString.describe('Member whose tokens to list'),
+    }),
+    output: z.object({ tokens: z.array(bearerTokenSummary) }),
+  },
+
+  parse: {
+    input: z.object({
+      memberId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('adminListMemberTokens');
+    const { memberId } = input as { memberId: string };
+
+    const tokens = await ctx.repository.adminListMemberTokens!({
+      actorMemberId: ctx.actor.member.id,
+      memberId,
+    });
+
+    return { data: { tokens } };
+  },
+};
+
+// ── superadmin.tokens.revoke ─────────────────────────────
+
+const superadminTokensRevoke: ActionDefinition = {
+  action: 'superadmin.tokens.revoke',
+  domain: 'superadmin',
+  description: 'Revoke a bearer token for a specific member.',
+  auth: 'superadmin',
+  safety: 'mutating',
+
+  requiredCapability: 'adminRevokeMemberToken',
+
+  wire: {
+    input: z.object({
+      memberId: wireRequiredString.describe('Member who owns the token'),
+      tokenId: wireRequiredString.describe('Token to revoke'),
+    }),
+    output: z.object({ token: bearerTokenSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      memberId: parseRequiredString,
+      tokenId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('adminRevokeMemberToken');
+    const { memberId, tokenId } = input as { memberId: string; tokenId: string };
+
+    const token = await ctx.repository.adminRevokeMemberToken!({
+      actorMemberId: ctx.actor.member.id,
+      memberId,
+      tokenId,
+    });
+
+    if (!token) {
+      throw new AppError(404, 'not_found', 'Token not found for the specified member');
+    }
+
+    return { data: { token } };
+  },
+};
+
 registerActions([
   superadminOverview, superadminMembersList, superadminMembersGet,
   superadminDiagnosticsHealth, superadminClubsList, superadminClubsCreate,
-  superadminClubsArchive, superadminClubsAssignOwner,
+  superadminClubsArchive, superadminClubsAssignOwner, superadminClubsUpdate,
+  superadminContentList, superadminContentArchive, superadminContentRedact,
+  superadminMessagesThreads, superadminMessagesRead, superadminMessagesRedact,
+  superadminTokensList, superadminTokensRevoke,
 ]);

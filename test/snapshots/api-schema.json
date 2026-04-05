@@ -1278,6 +1278,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -1320,6 +1323,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -2423,6 +2427,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -2465,6 +2472,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -2652,6 +2660,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -2694,6 +2705,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -3407,6 +3419,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -3449,6 +3464,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -3991,6 +4007,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -4033,6 +4052,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -4175,6 +4195,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -4217,6 +4240,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -4352,6 +4376,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -4394,6 +4421,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -4551,6 +4579,9 @@
               "clubId": {
                 "type": "string"
               },
+              "isOwner": {
+                "type": "boolean"
+              },
               "joinedAt": {
                 "type": "string"
               },
@@ -4643,6 +4674,7 @@
               "member",
               "sponsor",
               "role",
+              "isOwner",
               "state",
               "joinedAt",
               "acceptedCovenantAt",
@@ -4699,6 +4731,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -4741,6 +4776,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -4762,6 +4798,9 @@
                 },
                 "clubId": {
                   "type": "string"
+                },
+                "isOwner": {
+                  "type": "boolean"
                 },
                 "joinedAt": {
                   "type": "string"
@@ -4842,6 +4881,7 @@
                 "member",
                 "sponsor",
                 "role",
+                "isOwner",
                 "state",
                 "joinedAt",
                 "acceptedCovenantAt",
@@ -4919,6 +4959,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -4961,6 +5004,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -4982,6 +5026,9 @@
                 },
                 "clubId": {
                   "type": "string"
+                },
+                "isOwner": {
+                  "type": "boolean"
                 },
                 "joinedAt": {
                   "type": "string"
@@ -5115,6 +5162,7 @@
                 "member",
                 "sponsor",
                 "role",
+                "isOwner",
                 "state",
                 "joinedAt",
                 "acceptedCovenantAt",
@@ -5200,6 +5248,9 @@
               },
               "clubId": {
                 "type": "string"
+              },
+              "isOwner": {
+                "type": "boolean"
               },
               "joinedAt": {
                 "type": "string"
@@ -5293,6 +5344,7 @@
               "member",
               "sponsor",
               "role",
+              "isOwner",
               "state",
               "joinedAt",
               "acceptedCovenantAt",
@@ -5340,6 +5392,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -5382,6 +5437,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -5532,6 +5588,9 @@
                 "clubId": {
                   "type": "string"
                 },
+                "isOwner": {
+                  "type": "boolean"
+                },
                 "joinedAt": {
                   "type": "string"
                 },
@@ -5574,6 +5633,7 @@
                 "name",
                 "summary",
                 "role",
+                "isOwner",
                 "status",
                 "sponsorMemberId",
                 "joinedAt"
@@ -6431,6 +6491,10 @@
           "club": {
             "additionalProperties": false,
             "properties": {
+              "admissionPolicy": {
+                "nullable": true,
+                "type": "string"
+              },
               "archivedAt": {
                 "nullable": true,
                 "type": "string"
@@ -6467,7 +6531,17 @@
                 ],
                 "type": "object"
               },
-              "ownerVersion": {
+              "publiclyListed": {
+                "type": "boolean"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "summary": {
+                "nullable": true,
+                "type": "string"
+              },
+              "version": {
                 "additionalProperties": false,
                 "properties": {
                   "createdAt": {
@@ -6487,13 +6561,6 @@
                   "createdByMemberId"
                 ],
                 "type": "object"
-              },
-              "slug": {
-                "type": "string"
-              },
-              "summary": {
-                "nullable": true,
-                "type": "string"
               }
             },
             "required": [
@@ -6501,9 +6568,11 @@
               "slug",
               "name",
               "summary",
+              "publiclyListed",
+              "admissionPolicy",
               "archivedAt",
               "owner",
-              "ownerVersion"
+              "version"
             ],
             "type": "object"
           }
@@ -6543,6 +6612,10 @@
           "club": {
             "additionalProperties": false,
             "properties": {
+              "admissionPolicy": {
+                "nullable": true,
+                "type": "string"
+              },
               "archivedAt": {
                 "nullable": true,
                 "type": "string"
@@ -6579,7 +6652,17 @@
                 ],
                 "type": "object"
               },
-              "ownerVersion": {
+              "publiclyListed": {
+                "type": "boolean"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "summary": {
+                "nullable": true,
+                "type": "string"
+              },
+              "version": {
                 "additionalProperties": false,
                 "properties": {
                   "createdAt": {
@@ -6599,13 +6682,6 @@
                   "createdByMemberId"
                 ],
                 "type": "object"
-              },
-              "slug": {
-                "type": "string"
-              },
-              "summary": {
-                "nullable": true,
-                "type": "string"
               }
             },
             "required": [
@@ -6613,9 +6689,11 @@
               "slug",
               "name",
               "summary",
+              "publiclyListed",
+              "admissionPolicy",
               "archivedAt",
               "owner",
-              "ownerVersion"
+              "version"
             ],
             "type": "object"
           }
@@ -6665,6 +6743,10 @@
           "club": {
             "additionalProperties": false,
             "properties": {
+              "admissionPolicy": {
+                "nullable": true,
+                "type": "string"
+              },
               "archivedAt": {
                 "nullable": true,
                 "type": "string"
@@ -6701,7 +6783,17 @@
                 ],
                 "type": "object"
               },
-              "ownerVersion": {
+              "publiclyListed": {
+                "type": "boolean"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "summary": {
+                "nullable": true,
+                "type": "string"
+              },
+              "version": {
                 "additionalProperties": false,
                 "properties": {
                   "createdAt": {
@@ -6721,13 +6813,6 @@
                   "createdByMemberId"
                 ],
                 "type": "object"
-              },
-              "slug": {
-                "type": "string"
-              },
-              "summary": {
-                "nullable": true,
-                "type": "string"
               }
             },
             "required": [
@@ -6735,9 +6820,11 @@
               "slug",
               "name",
               "summary",
+              "publiclyListed",
+              "admissionPolicy",
               "archivedAt",
               "owner",
-              "ownerVersion"
+              "version"
             ],
             "type": "object"
           }
@@ -6770,6 +6857,10 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "admissionPolicy": {
+                  "nullable": true,
+                  "type": "string"
+                },
                 "archivedAt": {
                   "nullable": true,
                   "type": "string"
@@ -6806,7 +6897,17 @@
                   ],
                   "type": "object"
                 },
-                "ownerVersion": {
+                "publiclyListed": {
+                  "type": "boolean"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "version": {
                   "additionalProperties": false,
                   "properties": {
                     "createdAt": {
@@ -6826,13 +6927,6 @@
                     "createdByMemberId"
                   ],
                   "type": "object"
-                },
-                "slug": {
-                  "type": "string"
-                },
-                "summary": {
-                  "nullable": true,
-                  "type": "string"
                 }
               },
               "required": [
@@ -6840,9 +6934,11 @@
                 "slug",
                 "name",
                 "summary",
+                "publiclyListed",
+                "admissionPolicy",
                 "archivedAt",
                 "owner",
-                "ownerVersion"
+                "version"
               ],
               "type": "object"
             },
@@ -6859,6 +6955,363 @@
         "type": "object"
       },
       "safety": "read_only"
+    },
+    {
+      "action": "superadmin.clubs.update",
+      "auth": "superadmin",
+      "description": "Update mutable fields on a club (superadmin only).",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "admissionPolicy": {
+            "$ref": "#/properties/summary",
+            "description": "Admission policy text (1-2000 chars)"
+          },
+          "clubId": {
+            "description": "Club to update",
+            "type": "string"
+          },
+          "name": {
+            "description": "New club name (cannot be empty if provided)",
+            "type": "string"
+          },
+          "publiclyListed": {
+            "description": "Whether the club is publicly listed",
+            "type": "boolean"
+          },
+          "summary": {
+            "description": "Club summary",
+            "maxLength": 500000,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "club": {
+            "additionalProperties": false,
+            "properties": {
+              "admissionPolicy": {
+                "nullable": true,
+                "type": "string"
+              },
+              "archivedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle",
+                  "email"
+                ],
+                "type": "object"
+              },
+              "publiclyListed": {
+                "type": "boolean"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "summary": {
+                "nullable": true,
+                "type": "string"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "createdByMemberId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "versionNo",
+                  "createdAt",
+                  "createdByMemberId"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "clubId",
+              "slug",
+              "name",
+              "summary",
+              "publiclyListed",
+              "admissionPolicy",
+              "archivedAt",
+              "owner",
+              "version"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "club"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "superadmin.content.archive",
+      "auth": "superadmin",
+      "description": "Archive an entity as superadmin.",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "entityId": {
+            "description": "Entity to archive",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "entityId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "superadmin.content.list",
+      "auth": "superadmin",
+      "description": "List content across all clubs with optional filters.",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Filter by club",
+            "type": "string"
+          },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
+          "kind": {
+            "description": "Filter by entity kind",
+            "enum": [
+              "post",
+              "opportunity",
+              "service",
+              "ask"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "author": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "clubId": {
+                  "type": "string"
+                },
+                "clubName": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "entityId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "post",
+                    "opportunity",
+                    "service",
+                    "ask"
+                  ],
+                  "type": "string"
+                },
+                "state": {
+                  "enum": [
+                    "draft",
+                    "published",
+                    "archived"
+                  ],
+                  "type": "string"
+                },
+                "title": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "entityId",
+                "clubId",
+                "clubName",
+                "kind",
+                "author",
+                "title",
+                "state",
+                "createdAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
+      "action": "superadmin.content.redact",
+      "auth": "superadmin",
+      "description": "Redact an entity as superadmin.",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "entityId": {
+            "description": "Entity to redact",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for redaction",
+            "maxLength": 500000,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "redaction": {
+            "additionalProperties": false,
+            "properties": {
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "createdByMemberId": {
+                "type": "string"
+              },
+              "redactionId": {
+                "type": "string"
+              },
+              "targetId": {
+                "type": "string"
+              },
+              "targetKind": {
+                "enum": [
+                  "dm_message",
+                  "entity"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "redactionId",
+              "targetKind",
+              "targetId",
+              "clubId",
+              "createdByMemberId",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "redaction"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
     },
     {
       "action": "superadmin.diagnostics.health",
@@ -7214,6 +7667,377 @@
       "safety": "read_only"
     },
     {
+      "action": "superadmin.messages.read",
+      "auth": "superadmin",
+      "description": "Read a DM thread as superadmin.",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "limit": {
+            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "type": "integer"
+          },
+          "threadId": {
+            "description": "Thread to read",
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "messages": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "createdAt": {
+                  "type": "string"
+                },
+                "inReplyToMessageId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "messageId": {
+                  "type": "string"
+                },
+                "messageText": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "payload": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "role": {
+                  "enum": [
+                    "member",
+                    "agent",
+                    "system"
+                  ],
+                  "type": "string"
+                },
+                "senderMemberId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "threadId": {
+                  "type": "string"
+                },
+                "updateReceipts": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "receipt": {
+                        "additionalProperties": false,
+                        "nullable": true,
+                        "properties": {
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "createdByMemberId": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "receiptId": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "enum": [
+                              "processed",
+                              "suppressed"
+                            ],
+                            "type": "string"
+                          },
+                          "suppressionReason": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "versionNo": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "receiptId",
+                          "state",
+                          "suppressionReason",
+                          "versionNo",
+                          "createdAt",
+                          "createdByMemberId"
+                        ],
+                        "type": "object"
+                      },
+                      "recipientMemberId": {
+                        "type": "string"
+                      },
+                      "topic": {
+                        "type": "string"
+                      },
+                      "updateId": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "updateId",
+                      "recipientMemberId",
+                      "topic",
+                      "createdAt",
+                      "receipt"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "messageId",
+                "threadId",
+                "senderMemberId",
+                "role",
+                "messageText",
+                "payload",
+                "createdAt",
+                "inReplyToMessageId",
+                "updateReceipts"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "thread": {
+            "additionalProperties": false,
+            "properties": {
+              "clubId": {
+                "type": "string"
+              },
+              "clubName": {
+                "type": "string"
+              },
+              "latestMessageAt": {
+                "type": "string"
+              },
+              "messageCount": {
+                "type": "number"
+              },
+              "participants": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "threadId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "threadId",
+              "clubId",
+              "clubName",
+              "participants",
+              "messageCount",
+              "latestMessageAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "thread",
+          "messages"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
+      "action": "superadmin.messages.redact",
+      "auth": "superadmin",
+      "description": "Redact a DM message as superadmin.",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "messageId": {
+            "description": "Message to redact",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason for redaction",
+            "maxLength": 500000,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "messageId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "redaction": {
+            "additionalProperties": false,
+            "properties": {
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "createdByMemberId": {
+                "type": "string"
+              },
+              "redactionId": {
+                "type": "string"
+              },
+              "targetId": {
+                "type": "string"
+              },
+              "targetKind": {
+                "enum": [
+                  "dm_message",
+                  "entity"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "redactionId",
+              "targetKind",
+              "targetId",
+              "clubId",
+              "createdByMemberId",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "redaction"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "superadmin.messages.threads",
+      "auth": "superadmin",
+      "description": "List DM threads across the platform.",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Filter by club",
+            "type": "string"
+          },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
+          },
+          "threads": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "type": "string"
+                },
+                "clubName": {
+                  "type": "string"
+                },
+                "latestMessageAt": {
+                  "type": "string"
+                },
+                "messageCount": {
+                  "type": "number"
+                },
+                "participants": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "handle": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "publicName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "publicName",
+                      "handle"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "threadId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "threadId",
+                "clubId",
+                "clubName",
+                "participants",
+                "messageCount",
+                "latestMessageAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "threads",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
       "action": "superadmin.overview",
       "auth": "superadmin",
       "description": "Get platform-wide overview statistics.",
@@ -7289,6 +8113,160 @@
         "type": "object"
       },
       "safety": "read_only"
+    },
+    {
+      "action": "superadmin.tokens.list",
+      "auth": "superadmin",
+      "description": "List bearer tokens for a specific member.",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "memberId": {
+            "description": "Member whose tokens to list",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memberId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "tokens": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "label": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "lastUsedAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "memberId": {
+                  "type": "string"
+                },
+                "metadata": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "revokedAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "tokenId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tokenId",
+                "memberId",
+                "label",
+                "createdAt",
+                "lastUsedAt",
+                "revokedAt",
+                "expiresAt",
+                "metadata"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tokens"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
+      "action": "superadmin.tokens.revoke",
+      "auth": "superadmin",
+      "description": "Revoke a bearer token for a specific member.",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "memberId": {
+            "description": "Member who owns the token",
+            "type": "string"
+          },
+          "tokenId": {
+            "description": "Token to revoke",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memberId",
+          "tokenId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "token": {
+            "additionalProperties": false,
+            "properties": {
+              "createdAt": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "label": {
+                "nullable": true,
+                "type": "string"
+              },
+              "lastUsedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "memberId": {
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "revokedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "tokenId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tokenId",
+              "memberId",
+              "label",
+              "createdAt",
+              "lastUsedAt",
+              "revokedAt",
+              "expiresAt",
+              "metadata"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
     },
     {
       "action": "tokens.create",
@@ -7925,6 +8903,6 @@
       "safety": "read_only"
     }
   ],
-  "schemaHash": "abd0b2f981db9678",
+  "schemaHash": "a5f522b0cec32cab",
   "version": "0.1.0"
 }

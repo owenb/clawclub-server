@@ -292,6 +292,8 @@ function makeClub(overrides: Partial<ClubSummary> = {}): ClubSummary {
     slug: 'alpha',
     name: 'Alpha',
     summary: 'First club',
+    publiclyListed: false,
+    admissionPolicy: null,
     archivedAt: null,
     owner: {
       memberId: 'member-1',
@@ -299,7 +301,7 @@ function makeClub(overrides: Partial<ClubSummary> = {}): ClubSummary {
       handle: 'member-one',
       email: 'one@example.com',
     },
-    ownerVersion: {
+    version: {
       versionNo: 1,
       createdAt: '2026-03-12T00:00:00Z',
       createdByMemberId: 'member-1',
@@ -531,7 +533,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async assignClubOwner() {
       return makeClub({
         owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
-        ownerVersion: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
+        version: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
       });
     },
     async listMemberships() {
@@ -703,7 +705,7 @@ test('superadmin.clubs.assignOwner appends a new owner version via the superadmi
       return makeClub({
         clubId: 'club-2',
         owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
-        ownerVersion: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
+        version: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
       });
     },
   };
@@ -724,7 +726,7 @@ test('superadmin.clubs.assignOwner appends a new owner version via the superadmi
     ownerMemberId: 'member-9',
   });
   assert.equal(result.data.club.owner.memberId, 'member-9');
-  assert.equal(result.data.club.ownerVersion.versionNo, 2);
+  assert.equal(result.data.club.version.versionNo, 2);
 });
 
 test('memberships.list stays inside owner club scope and can filter by status', async () => {

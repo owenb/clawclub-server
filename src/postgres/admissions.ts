@@ -272,7 +272,7 @@ export function buildAdmissionWorkflowRepository({
             join app.accessible_club_memberships owner_scope
               on owner_scope.club_id = ca.club_id
              and owner_scope.member_id = $1
-             and owner_scope.role = 'owner'
+             and owner_scope.role = 'clubadmin'
             where ca.id = $2
               and ca.club_id = any($3::app.short_id[])
             limit 1
@@ -891,7 +891,7 @@ export function buildAdmissionWorkflowRepository({
             join app.accessible_club_memberships owner_scope
               on owner_scope.club_id = ca.club_id
              and owner_scope.member_id = $1
-             and owner_scope.role = 'owner'
+             and owner_scope.role = 'clubadmin'
             where ca.id = $2
               and ca.club_id = any($3::app.short_id[])
             limit 1
