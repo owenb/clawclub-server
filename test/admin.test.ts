@@ -217,7 +217,7 @@ test('admin.clubs.stats returns club statistics', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.clubs.stats', { clubId: 'club-1' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'clubadmin.clubs.stats', { clubId: 'club-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.stats.entityCount, 25);
@@ -250,7 +250,7 @@ test('admin.content.archive archives an entity', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.content.archive', { entityId: 'entity-42' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.content.archive', { entityId: 'entity-42' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(archivedEntityId, 'entity-42');
@@ -361,7 +361,7 @@ test('admin.tokens.revoke revokes a token for any member', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.tokens.revoke', {
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.tokens.revoke', {
       memberId: 'member-99',
       tokenId: 'token-42',
     });
@@ -388,7 +388,6 @@ test('superadmin.clubs.list returns clubs array', async () => {
         slug: 'alpha',
         name: 'Alpha',
         summary: 'First club',
-        publiclyListed: false,
         admissionPolicy: null,
         archivedAt: null,
         owner: { memberId: 'member-1', publicName: 'Alice', handle: 'alice', email: null },
@@ -432,7 +431,6 @@ test('superadmin.clubs.create returns new club', async () => {
         slug,
         name,
         summary,
-        publiclyListed: false,
         admissionPolicy: null,
         archivedAt: null,
         owner: { memberId: ownerMemberId, publicName: 'Owner', handle: 'owner', email: null },
@@ -515,7 +513,6 @@ test('superadmin.clubs.archive returns archived club', async () => {
         slug: 'archived',
         name: 'Archived Club',
         summary: 'Gone',
-        publiclyListed: false,
         admissionPolicy: null,
         archivedAt: '2026-03-14T12:00:00Z',
         owner: { memberId: 'member-1', publicName: 'Alice', handle: 'alice', email: null },
@@ -586,7 +583,6 @@ test('superadmin.clubs.assignOwner returns updated club', async () => {
         slug: 'transferred',
         name: 'Transferred Club',
         summary: 'Now yours',
-        publiclyListed: false,
         admissionPolicy: null,
         archivedAt: null,
         owner: { memberId: ownerMemberId, publicName: 'New Owner', handle: 'new-owner', email: null },
@@ -687,7 +683,7 @@ test('admin.content.list returns paginated content', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.content.list', { limit: 10 });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.content.list', { limit: 10 });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.content.length, 1);
@@ -730,7 +726,7 @@ test('admin.content.redact redacts an entity', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.content.redact', { entityId: 'entity-42' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.content.redact', { entityId: 'entity-42' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.redaction.targetKind, 'entity');
@@ -761,7 +757,7 @@ test('admin.content.redact returns 404 for non-existent entity', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.content.redact', { entityId: 'ghost' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.content.redact', { entityId: 'ghost' });
     assert.equal(response.status, 404);
     assert.equal(body.ok, false);
   } finally {
@@ -803,7 +799,7 @@ test('admin.messages.threads returns thread list', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.threads', { limit: 10 });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.threads', { limit: 10 });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.threads.length, 1);
@@ -857,7 +853,7 @@ test('admin.messages.read returns thread with messages', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.read', { threadId: 'thread-1' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.read', { threadId: 'thread-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.thread.threadId, 'thread-1');
@@ -889,7 +885,7 @@ test('admin.messages.read returns 404 for non-existent thread', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.read', { threadId: 'ghost' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.read', { threadId: 'ghost' });
     assert.equal(response.status, 404);
     assert.equal(body.ok, false);
   } finally {
@@ -930,7 +926,7 @@ test('admin.messages.redact redacts a message', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.redact', { messageId: 'msg-42' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.redact', { messageId: 'msg-42' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.redaction.targetKind, 'dm_message');
@@ -961,7 +957,7 @@ test('admin.messages.redact returns 404 for non-existent message', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.messages.redact', { messageId: 'ghost' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.redact', { messageId: 'ghost' });
     assert.equal(response.status, 404);
     assert.equal(body.ok, false);
   } finally {
@@ -1001,7 +997,7 @@ test('admin.tokens.list returns tokens for a member', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.tokens.list', { memberId: 'member-1' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.tokens.list', { memberId: 'member-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.tokens.length, 1);

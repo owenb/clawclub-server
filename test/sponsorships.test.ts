@@ -159,10 +159,11 @@ test('admissions.list returns admissions for accessible clubs', async () => {
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
-    action: 'admissions.list',
+    action: 'clubadmin.admissions.list',
+    payload: { clubId: 'club-1', limit: 10 },
   });
 
-  assert.equal(result.action, 'admissions.list');
+  assert.equal(result.action, 'clubadmin.admissions.list');
   assert.equal(result.data.results.length, 1);
   assert.equal(result.data.results[0].applicant.publicName, 'Jane Doe');
 });

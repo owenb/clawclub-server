@@ -404,7 +404,6 @@ export const clubSummary = z.object({
   slug: z.string(),
   name: z.string(),
   summary: z.string().nullable(),
-  publiclyListed: z.boolean(),
   admissionPolicy: z.string().nullable(),
   archivedAt: z.string().nullable(),
   owner: z.object({

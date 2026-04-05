@@ -147,10 +147,6 @@ export type AdmissionClubSummary = {
   admissionPolicy: string;
 };
 
-export type PubliclyVisibleClubListResult = {
-  clubs: Array<{ slug: string; name: string }>;
-};
-
 export type CreateAdmissionChallengeInput = {
   clubSlug: string;
 };
@@ -209,7 +205,6 @@ export type ClubSummary = {
   slug: string;
   name: string;
   summary: string | null;
-  publiclyListed: boolean;
   admissionPolicy: string | null;
   archivedAt: string | null;
   owner: {
@@ -250,7 +245,6 @@ export type UpdateClubInput = {
   patch: {
     name?: string;
     summary?: string | null;
-    publiclyListed?: boolean;
     admissionPolicy?: string | null;
   };
 };
@@ -776,7 +770,6 @@ export type Repository = {
     statuses?: AdmissionStatus[];
   }): Promise<AdmissionSummary[]>;
   transitionAdmission?(input: TransitionAdmissionInput): Promise<AdmissionSummary | null>;
-  listPubliclyVisibleClubs?(): Promise<PubliclyVisibleClubListResult>;
   createAdmissionChallenge?(input: CreateAdmissionChallengeInput): Promise<AdmissionChallengeResult>;
   solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<AdmissionApplyResult>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;

@@ -52,9 +52,9 @@ import './schemas/profile.ts';
 import './schemas/messages.ts';
 import './schemas/platform.ts';
 import './schemas/updates.ts';
-import './schemas/admin.ts';
 import './schemas/superadmin.ts';
 import './schemas/membership.ts';
+import './schemas/clubadmin.ts';
 
 // ── Authorization helpers ────────────────────────────────
 
@@ -68,14 +68,25 @@ function createRequireAccessibleClub(actor: ActorContext) {
   };
 }
 
-function createRequireMembershipOwner(actor: ActorContext) {
-  const requireAccessibleClub = createRequireAccessibleClub(actor);
-  return (clubId: string): MembershipSummary => {
-    const membership = requireAccessibleClub(clubId);
-    if (membership.role !== 'clubadmin') {
-      throw new AppError(403, 'forbidden', 'This action requires owner membership in the requested club');
+function createRequireClubAdmin(actor: ActorContext) {
+  return (clubId: string): void => {
+    if (actor.globalRoles.includes('superadmin')) return;
+    const membership = actor.memberships.find(m => m.clubId === clubId);
+    if (!membership) {
+      throw new AppError(403, 'forbidden', 'Requested club is outside your access scope');
     }
-    return membership;
+    if (membership.role !== 'clubadmin') {
+      throw new AppError(403, 'forbidden', 'This action requires club admin role in the requested club');
+    }
+  };
+}
+
+function createRequireClubOwner(actor: ActorContext) {
+  return (clubId: string): void => {
+    const membership = actor.memberships.find(m => m.clubId === clubId);
+    if (!membership || !membership.isOwner) {
+      throw new AppError(403, 'forbidden', 'This action requires club owner status');
+    }
   };
 }
 
@@ -374,7 +385,8 @@ async function dispatchAuthenticated(
     sharedContext,
     repository,
     requireAccessibleClub: createRequireAccessibleClub(actor),
-    requireMembershipOwner: createRequireMembershipOwner(actor),
+    requireClubAdmin: createRequireClubAdmin(actor),
+    requireClubOwner: createRequireClubOwner(actor),
     requireSuperadmin: createRequireSuperadmin(actor),
     resolveScopedClubs: createResolveScopedClubs(actor),
     requireCapability: (capability) => checkCapability(repository, capability, actionName),

@@ -27,6 +27,7 @@ type ActorRow = {
   club_name: string | null;
   club_summary: string | null;
   role: MembershipSummary['role'] | null;
+  is_owner: boolean | null;
   status: MembershipSummary['status'] | null;
   sponsor_member_id: string | null;
   joined_at: string | null;
@@ -112,6 +113,7 @@ function mapActor(rows: ActorRow[]): ActorContext | null {
         name: row.club_name as string,
         summary: row.club_summary,
         role: row.role as MembershipSummary['role'],
+        isOwner: row.is_owner === true,
         status: row.status as MembershipSummary['status'],
         sponsorMemberId: row.sponsor_member_id,
         joinedAt: row.joined_at as string,
@@ -133,6 +135,7 @@ async function readActorByMemberId(client: DbClient, memberId: string): Promise<
         n.name as club_name,
         n.summary as club_summary,
         anm.role,
+        (n.owner_member_id = anm.member_id) as is_owner,
         anm.status,
         anm.sponsor_member_id,
         anm.joined_at::text as joined_at

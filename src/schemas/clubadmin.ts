@@ -1,0 +1,611 @@
+/**
+ * Club admin action contracts: clubadmin.memberships.list, clubadmin.memberships.review,
+ * clubadmin.memberships.create, clubadmin.memberships.transition,
+ * clubadmin.admissions.list, clubadmin.admissions.transition, clubadmin.admissions.issueAccess,
+ * clubadmin.members.promoteToAdmin, clubadmin.members.demoteFromAdmin,
+ * clubadmin.clubs.stats
+ *
+ * All actions require auth: 'clubadmin' — the caller must be a club admin,
+ * the club owner, or a superadmin. All actions require an explicit clubId.
+ */
+import { z } from 'zod';
+import { AppError } from '../contract.ts';
+import {
+  wireRequiredString, parseRequiredString,
+  wireOptionalString, parseTrimmedNullableString,
+  wireLimit, parseLimit,
+  wireOptionalRecord, parseOptionalRecord,
+  membershipState, admissionStatus,
+  membershipCreateInitialStatus,
+  wireMembershipStates, parseMembershipStates,
+  wireAdmissionStatuses, parseAdmissionStatuses,
+  wireIntake, parseIntake,
+  type MembershipState, type AdmissionStatus,
+} from './fields.ts';
+import {
+  membershipAdminSummary, membershipReviewSummary,
+  admissionSummary, adminClubStats,
+} from './responses.ts';
+import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
+
+// ── clubadmin.memberships.list ─────────────────────────
+
+type MembershipsListInput = {
+  clubId: string;
+  status?: MembershipState;
+  limit: number;
+};
+
+const clubadminMembershipsList: ActionDefinition = {
+  action: 'clubadmin.memberships.list',
+  domain: 'clubadmin',
+  description: 'List memberships in the specified club.',
+  auth: 'clubadmin',
+  safety: 'read_only',
+  authorizationNote: 'Requires club admin role.',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club to list memberships for'),
+      status: membershipState.optional().describe('Filter by membership status'),
+      limit: wireLimit,
+    }),
+    output: z.object({
+      limit: z.number(),
+      status: membershipState.nullable(),
+      results: z.array(membershipAdminSummary),
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      status: membershipState.optional(),
+      limit: parseLimit,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, status, limit } = input as MembershipsListInput;
+    ctx.requireClubAdmin(clubId);
+
+    const results = await ctx.repository.listMemberships({
+      actorMemberId: ctx.actor.member.id,
+      clubIds: [clubId],
+      limit,
+      status,
+    });
+
+    return {
+      data: { limit, status: status ?? null, results },
+      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
+    };
+  },
+};
+
+// ── clubadmin.memberships.review ───────────────────────
+
+type MembershipsReviewInput = {
+  clubId: string;
+  statuses: MembershipState[];
+  limit: number;
+};
+
+const clubadminMembershipsReview: ActionDefinition = {
+  action: 'clubadmin.memberships.review',
+  domain: 'clubadmin',
+  description: 'List memberships pending review in the specified club.',
+  auth: 'clubadmin',
+  safety: 'read_only',
+  authorizationNote: 'Requires club admin role.',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club to review memberships for'),
+      statuses: wireMembershipStates.describe('Filter by statuses (default: invited, pending_review)'),
+      limit: wireLimit,
+    }),
+    output: z.object({
+      limit: z.number(),
+      statuses: z.array(membershipState),
+      results: z.array(membershipReviewSummary),
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      statuses: parseMembershipStates(['invited', 'pending_review']),
+      limit: parseLimit,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, statuses, limit } = input as MembershipsReviewInput;
+    ctx.requireClubAdmin(clubId);
+
+    const results = await ctx.repository.listMembershipReviews({
+      actorMemberId: ctx.actor.member.id,
+      clubIds: [clubId],
+      limit,
+      statuses,
+    });
+
+    return {
+      data: { limit, statuses, results },
+      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
+    };
+  },
+};
+
+// ── clubadmin.memberships.create ───────────────────────
+
+type MembershipsCreateInput = {
+  clubId: string;
+  memberId: string;
+  sponsorMemberId: string;
+  initialStatus: 'invited' | 'pending_review' | 'active';
+  reason: string | null;
+  metadata: Record<string, unknown>;
+};
+
+const clubadminMembershipsCreate: ActionDefinition = {
+  action: 'clubadmin.memberships.create',
+  domain: 'clubadmin',
+  description: 'Create a new membership in the specified club.',
+  auth: 'clubadmin',
+  safety: 'mutating',
+  authorizationNote: 'Requires club admin role. Members are always created with role member. Use promoteToAdmin to elevate.',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club to add membership in'),
+      memberId: wireRequiredString.describe('Member to add'),
+      sponsorMemberId: wireRequiredString.describe('Sponsoring member'),
+      initialStatus: membershipCreateInitialStatus.default('invited').describe('Initial status'),
+      reason: wireOptionalString.describe('Reason for creation'),
+      metadata: wireOptionalRecord.describe('Additional metadata'),
+    }),
+    output: z.object({ membership: membershipAdminSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      memberId: parseRequiredString,
+      sponsorMemberId: parseRequiredString,
+      initialStatus: membershipCreateInitialStatus.default('invited'),
+      reason: parseTrimmedNullableString.default(null),
+      metadata: parseOptionalRecord,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, memberId, sponsorMemberId, initialStatus, reason, metadata } = input as MembershipsCreateInput;
+    ctx.requireClubAdmin(clubId);
+
+    const membership = await ctx.repository.createMembership({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      memberId,
+      sponsorMemberId,
+      role: 'member',
+      initialStatus,
+      reason,
+      metadata,
+    });
+
+    if (!membership) {
+      throw new AppError(404, 'not_found', 'Member or sponsor not found inside the club scope');
+    }
+
+    return {
+      data: { membership },
+      requestScope: { requestedClubId: membership.clubId, activeClubIds: [membership.clubId] },
+    };
+  },
+};
+
+// ── clubadmin.memberships.transition ───────────────────
+
+type MembershipsTransitionInput = {
+  clubId: string;
+  membershipId: string;
+  status: MembershipState;
+  reason: string | null;
+};
+
+const clubadminMembershipsTransition: ActionDefinition = {
+  action: 'clubadmin.memberships.transition',
+  domain: 'clubadmin',
+  description: 'Transition a membership to a new status.',
+  auth: 'clubadmin',
+  safety: 'mutating',
+  authorizationNote: 'Requires club admin role.',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club the membership belongs to'),
+      membershipId: wireRequiredString.describe('Membership to transition'),
+      status: membershipState.describe('Target status'),
+      reason: wireOptionalString.describe('Reason for transition'),
+    }),
+    output: z.object({ membership: membershipAdminSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      membershipId: parseRequiredString,
+      status: membershipState,
+      reason: parseTrimmedNullableString.default(null),
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, membershipId, status, reason } = input as MembershipsTransitionInput;
+    ctx.requireClubAdmin(clubId);
+
+    const membership = await ctx.repository.transitionMembershipState({
+      actorMemberId: ctx.actor.member.id,
+      membershipId,
+      nextStatus: status,
+      reason,
+      accessibleClubIds: [clubId],
+    });
+
+    if (!membership) {
+      throw new AppError(404, 'not_found', 'Membership not found in the specified club');
+    }
+
+    return {
+      data: { membership },
+      requestScope: { requestedClubId: membership.clubId, activeClubIds: [membership.clubId] },
+    };
+  },
+};
+
+// ── clubadmin.admissions.list ──────────────────────────
+
+type AdmissionsListInput = {
+  clubId: string;
+  statuses?: AdmissionStatus[];
+  limit: number;
+};
+
+const clubadminAdmissionsList: ActionDefinition = {
+  action: 'clubadmin.admissions.list',
+  domain: 'clubadmin',
+  description: 'List admissions for the specified club.',
+  auth: 'clubadmin',
+  safety: 'read_only',
+  authorizationNote: 'Requires club admin role.',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club to list admissions for'),
+      statuses: wireAdmissionStatuses.describe('Filter by admission statuses'),
+      limit: wireLimit,
+    }),
+    output: z.object({
+      limit: z.number(),
+      statuses: z.array(admissionStatus).nullable(),
+      results: z.array(admissionSummary),
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      statuses: parseAdmissionStatuses,
+      limit: parseLimit,
+    }),
+  },
+
+  requiredCapability: 'listAdmissions',
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, statuses, limit } = input as AdmissionsListInput;
+    ctx.requireClubAdmin(clubId);
+    ctx.requireCapability('listAdmissions');
+
+    const results = await ctx.repository.listAdmissions!({
+      actorMemberId: ctx.actor.member.id,
+      clubIds: [clubId],
+      limit,
+      statuses,
+    });
+
+    return {
+      data: { limit, statuses: statuses ?? null, results },
+      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
+    };
+  },
+};
+
+// ── clubadmin.admissions.transition ────────────────────
+
+type AdmissionsTransitionInput = {
+  clubId: string;
+  admissionId: string;
+  status: AdmissionStatus;
+  notes: string | null;
+  intake?: {
+    kind?: 'fit_check' | 'advice_call' | 'other';
+    price?: { amount?: number | null; currency?: string | null };
+    bookingUrl?: string | null;
+    bookedAt?: string | null;
+    completedAt?: string | null;
+  };
+  metadata?: Record<string, unknown>;
+};
+
+const clubadminAdmissionsTransition: ActionDefinition = {
+  action: 'clubadmin.admissions.transition',
+  domain: 'clubadmin',
+  description: 'Transition an admission to a new status.',
+  auth: 'clubadmin',
+  safety: 'mutating',
+  authorizationNote: 'Requires club admin role.',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club the admission belongs to'),
+      admissionId: wireRequiredString.describe('Admission to transition'),
+      status: admissionStatus.describe('Target status'),
+      notes: wireOptionalString.describe('Notes for the transition'),
+      intake: wireIntake,
+      metadata: wireOptionalRecord.describe('Metadata patch'),
+    }),
+    output: z.object({ admission: admissionSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      admissionId: parseRequiredString,
+      status: admissionStatus,
+      notes: parseTrimmedNullableString.default(null),
+      intake: parseIntake,
+      metadata: z.record(z.unknown()).optional(),
+    }),
+  },
+
+  requiredCapability: 'transitionAdmission',
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, admissionId, status, notes, intake, metadata } = input as AdmissionsTransitionInput;
+    ctx.requireClubAdmin(clubId);
+    ctx.requireCapability('transitionAdmission');
+
+    const admission = await ctx.repository.transitionAdmission!({
+      actorMemberId: ctx.actor.member.id,
+      admissionId,
+      nextStatus: status,
+      notes,
+      accessibleClubIds: [clubId],
+      intake,
+      metadataPatch: metadata,
+    });
+
+    if (admission === undefined) {
+      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.transition is not implemented');
+    }
+
+    if (!admission) {
+      throw new AppError(404, 'not_found', 'Admission not found in the specified club');
+    }
+
+    return {
+      data: { admission },
+      requestScope: { requestedClubId: admission.clubId, activeClubIds: [admission.clubId] },
+    };
+  },
+};
+
+// ── clubadmin.admissions.issueAccess ───────────────────
+
+const clubadminAdmissionsIssueAccess: ActionDefinition = {
+  action: 'clubadmin.admissions.issueAccess',
+  domain: 'clubadmin',
+  description: 'Issue access credentials for an accepted admission.',
+  auth: 'clubadmin',
+  safety: 'mutating',
+  authorizationNote: 'Requires club admin role.',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club the admission belongs to'),
+      admissionId: wireRequiredString.describe('Admission to issue access for'),
+    }),
+    output: z.object({
+      admission: admissionSummary,
+      bearerToken: z.string(),
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      admissionId: parseRequiredString,
+    }),
+  },
+
+  requiredCapability: 'issueAdmissionAccess',
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, admissionId } = input as { clubId: string; admissionId: string };
+    ctx.requireClubAdmin(clubId);
+    ctx.requireCapability('issueAdmissionAccess');
+
+    const result = await ctx.repository.issueAdmissionAccess!({
+      actorMemberId: ctx.actor.member.id,
+      admissionId,
+      accessibleClubIds: [clubId],
+    });
+
+    if (result === undefined) {
+      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.issueAccess is not implemented');
+    }
+
+    if (!result) {
+      throw new AppError(404, 'not_found', 'Admission not found in the specified club');
+    }
+
+    return {
+      data: { admission: result.admission, bearerToken: result.bearerToken },
+      requestScope: { requestedClubId: result.admission.clubId, activeClubIds: [result.admission.clubId] },
+    };
+  },
+};
+
+// ── clubadmin.members.promoteToAdmin ───────────────────
+
+const clubadminMembersPromote: ActionDefinition = {
+  action: 'clubadmin.members.promoteToAdmin',
+  domain: 'clubadmin',
+  description: 'Promote a club member to admin role (owner only).',
+  auth: 'clubadmin',
+  safety: 'mutating',
+  authorizationNote: 'Only the club owner can promote members.',
+
+  requiredCapability: 'promoteMemberToAdmin',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club to promote in'),
+      memberId: wireRequiredString.describe('Member to promote'),
+    }),
+    output: z.object({ membership: membershipAdminSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      memberId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, memberId } = input as { clubId: string; memberId: string };
+    ctx.requireClubAdmin(clubId);
+    ctx.requireClubOwner(clubId);
+    ctx.requireCapability('promoteMemberToAdmin');
+
+    const membership = await ctx.repository.promoteMemberToAdmin!({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      memberId,
+    });
+
+    if (!membership) {
+      throw new AppError(404, 'not_found', 'Member not found or not eligible for promotion in this club');
+    }
+
+    return {
+      data: { membership },
+      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
+    };
+  },
+};
+
+// ── clubadmin.members.demoteFromAdmin ──────────────────
+
+const clubadminMembersDemote: ActionDefinition = {
+  action: 'clubadmin.members.demoteFromAdmin',
+  domain: 'clubadmin',
+  description: 'Demote a club admin to regular member (owner only).',
+  auth: 'clubadmin',
+  safety: 'mutating',
+  authorizationNote: 'Only the club owner can demote admins. The owner cannot be demoted.',
+
+  requiredCapability: 'demoteMemberFromAdmin',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club to demote in'),
+      memberId: wireRequiredString.describe('Admin to demote'),
+    }),
+    output: z.object({ membership: membershipAdminSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      memberId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, memberId } = input as { clubId: string; memberId: string };
+    ctx.requireClubAdmin(clubId);
+    ctx.requireClubOwner(clubId);
+    ctx.requireCapability('demoteMemberFromAdmin');
+
+    const membership = await ctx.repository.demoteMemberFromAdmin!({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      memberId,
+    });
+
+    if (!membership) {
+      throw new AppError(404, 'not_found', 'Admin not found or not eligible for demotion in this club');
+    }
+
+    return {
+      data: { membership },
+      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
+    };
+  },
+};
+
+// ── clubadmin.clubs.stats ──────────────────────────────
+
+const clubadminClubsStats: ActionDefinition = {
+  action: 'clubadmin.clubs.stats',
+  domain: 'clubadmin',
+  description: 'Get statistics for the specified club.',
+  auth: 'clubadmin',
+  safety: 'read_only',
+  authorizationNote: 'Requires club admin role.',
+
+  requiredCapability: 'adminGetClubStats',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club to inspect'),
+    }),
+    output: z.object({ stats: adminClubStats }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId } = input as { clubId: string };
+    ctx.requireClubAdmin(clubId);
+    ctx.requireCapability('adminGetClubStats');
+
+    const stats = await ctx.repository.adminGetClubStats!({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+    });
+
+    if (!stats) {
+      throw new AppError(404, 'not_found', 'Club not found');
+    }
+
+    return { data: { stats } };
+  },
+};
+
+registerActions([
+  clubadminMembershipsList, clubadminMembershipsReview,
+  clubadminMembershipsCreate, clubadminMembershipsTransition,
+  clubadminAdmissionsList, clubadminAdmissionsTransition, clubadminAdmissionsIssueAccess,
+  clubadminMembersPromote, clubadminMembersDemote,
+  clubadminClubsStats,
+]);

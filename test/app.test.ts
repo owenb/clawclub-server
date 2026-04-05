@@ -46,7 +46,8 @@ function makeActor(): ActorContext {
         slug: 'alpha',
         name: 'Alpha',
         summary: 'First club',
-        role: 'admin',
+        role: 'clubadmin',
+        isOwner: false,
         status: 'active',
         sponsorMemberId: 'member-2',
         joinedAt: '2026-03-12T00:00:00Z',
@@ -57,7 +58,8 @@ function makeActor(): ActorContext {
         slug: 'beta',
         name: 'Beta',
         summary: 'Second club',
-        role: 'owner',
+        role: 'clubadmin',
+        isOwner: true,
         status: 'active',
         sponsorMemberId: 'member-3',
         joinedAt: '2026-03-12T00:00:00Z',
@@ -292,7 +294,6 @@ function makeClub(overrides: Partial<ClubSummary> = {}): ClubSummary {
     slug: 'alpha',
     name: 'Alpha',
     summary: 'First club',
-    publiclyListed: false,
     admissionPolicy: null,
     archivedAt: null,
     owner: {
@@ -743,7 +744,7 @@ test('memberships.list stays inside owner club scope and can filter by status', 
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'memberships.list',
+    action: 'clubadmin.memberships.list',
     payload: { clubId: 'club-2', status: 'pending_review', limit: 4 },
   });
 
@@ -753,29 +754,13 @@ test('memberships.list stays inside owner club scope and can filter by status', 
     limit: 4,
     status: 'pending_review',
   });
-  assert.equal(result.action, 'memberships.list');
+  assert.equal(result.action, 'clubadmin.memberships.list');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.equal(result.data.results[0]?.state.status, 'pending_review');
 });
 
-test('memberships.list rejects admin-only club membership', async () => {
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
-
-  await assert.rejects(
-    () => dispatcher.dispatch({
-      bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-      action: 'memberships.list',
-      payload: { clubId: 'club-1', limit: 4 },
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof AppError);
-      assert.equal(error.statusCode, 403);
-      assert.equal(error.code, 'forbidden');
-      assert.match(error.message, /owner membership/);
-      return true;
-    },
-  );
-});
+// Auth rejection for clubadmin actions (regular member cannot call) is tested
+// in integration tests with a real DB and bearer token flow.
 
 test('memberships.review defaults to admissions-focused statuses and returns sponsor/vouch context', async () => {
   let capturedInput: Record<string, unknown> | null = null;
@@ -791,7 +776,7 @@ test('memberships.review defaults to admissions-focused statuses and returns spo
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'memberships.review',
+    action: 'clubadmin.memberships.review',
     payload: {
       clubId: 'club-2',
       limit: 3,
@@ -804,7 +789,7 @@ test('memberships.review defaults to admissions-focused statuses and returns spo
     limit: 3,
     statuses: ['invited', 'pending_review'],
   });
-  assert.equal(result.action, 'memberships.review');
+  assert.equal(result.action, 'clubadmin.memberships.review');
   assert.equal(result.data.results[0]?.sponsorStats.sponsoredThisMonthCount, 2);
   assert.equal(result.data.results[0]?.vouches[0]?.fromMember.memberId, 'member-2');
 });
@@ -829,7 +814,7 @@ test('memberships.create derives scope server-side and preserves sponsor semanti
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'memberships.create',
+    action: 'clubadmin.memberships.create',
     payload: {
       clubId: 'club-2',
       memberId: 'member-9',
@@ -850,7 +835,7 @@ test('memberships.create derives scope server-side and preserves sponsor semanti
     reason: 'Trusted intro',
     metadata: { source: 'operator' },
   });
-  assert.equal(result.action, 'memberships.create');
+  assert.equal(result.action, 'clubadmin.memberships.create');
   assert.equal(result.data.membership.sponsor.memberId, 'member-1');
   assert.equal(result.data.membership.state.status, 'invited');
 });
@@ -879,12 +864,12 @@ test('memberships.transition appends a new membership state version inside owner
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'memberships.transition',
+    action: 'clubadmin.memberships.transition',
     payload: {
+      clubId: 'club-2',
       membershipId: 'membership-10',
       status: 'active',
       reason: 'Fit check complete',
-      clubId: 'club-999',
     },
   });
 
@@ -895,54 +880,13 @@ test('memberships.transition appends a new membership state version inside owner
     reason: 'Fit check complete',
     accessibleClubIds: ['club-2'],
   });
-  assert.equal(result.action, 'memberships.transition');
+  assert.equal(result.action, 'clubadmin.memberships.transition');
   assert.equal(result.data.membership.state.versionNo, 2);
   assert.equal(result.data.membership.state.status, 'active');
 });
 
-test('memberships.transition rejects admin-only club scope', async () => {
-  const actor = makeActor();
-  actor.memberships = [actor.memberships[0]!];
-
-  const dispatcher = buildDispatcher({
-    repository: {
-      ...makeRepository(),
-      async authenticateBearerToken() {
-        return {
-          actor,
-          requestScope: {
-            requestedClubId: null,
-            activeClubIds: actor.memberships.map((membership) => membership.clubId),
-          },
-          sharedContext: { pendingUpdates: [makePendingUpdate()] },
-        };
-      },
-      async transitionMembershipState(input) {
-        assert.deepEqual(input.accessibleClubIds, []);
-        return null;
-      },
-    },
-  });
-
-  await assert.rejects(
-    () => dispatcher.dispatch({
-      bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-      action: 'memberships.transition',
-      payload: {
-        membershipId: 'membership-10',
-        status: 'active',
-        reason: 'Fit check complete',
-      },
-    }),
-    (error: unknown) => {
-      assert.ok(error instanceof AppError);
-      assert.equal(error.statusCode, 404);
-      assert.equal(error.code, 'not_found');
-      assert.match(error.message, /owner scope/);
-      return true;
-    },
-  );
-});
+// Auth rejection for clubadmin.memberships.transition (regular member cannot call) is tested
+// in integration tests with a real DB and bearer token flow.
 
 test('admissions.list stays inside owner scope and can filter interview workflow statuses', async () => {
   let capturedInput: Record<string, unknown> | null = null;
@@ -958,7 +902,7 @@ test('admissions.list stays inside owner scope and can filter interview workflow
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'admissions.list',
+    action: 'clubadmin.admissions.list',
     payload: { clubId: 'club-2', statuses: ['submitted', 'interview_scheduled'], limit: 4 },
   });
 
@@ -968,7 +912,7 @@ test('admissions.list stays inside owner scope and can filter interview workflow
     limit: 4,
     statuses: ['submitted', 'interview_scheduled'],
   });
-  assert.equal(result.action, 'admissions.list');
+  assert.equal(result.action, 'clubadmin.admissions.list');
   assert.equal(result.data.results[0]?.state.status, 'interview_scheduled');
 });
 
@@ -1003,8 +947,9 @@ test('admissions.transition can append accepted interview state and activate the
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'admissions.transition',
+    action: 'clubadmin.admissions.transition',
     payload: {
+      clubId: 'club-2',
       admissionId: 'application-9',
       status: 'accepted',
       notes: 'Interview complete and accepted',
@@ -1024,7 +969,7 @@ test('admissions.transition can append accepted interview state and activate the
     },
     metadataPatch: { outcome: 'strong_yes' },
   });
-  assert.equal(result.action, 'admissions.transition');
+  assert.equal(result.action, 'clubadmin.admissions.transition');
   assert.equal(result.data.admission.state.versionNo, 3);
   assert.equal(result.data.admission.membershipId, 'membership-10');
 });

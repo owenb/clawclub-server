@@ -14,7 +14,6 @@ type ClubRow = {
   slug: string;
   name: string;
   summary: string | null;
-  publicly_listed: boolean;
   admission_policy: string | null;
   archived_at: string | null;
   owner_member_id: string;
@@ -32,7 +31,6 @@ function mapClubRow(row: ClubRow): ClubSummary {
     slug: row.slug,
     name: row.name,
     summary: row.summary,
-    publiclyListed: row.publicly_listed,
     admissionPolicy: row.admission_policy,
     archivedAt: row.archived_at,
     owner: {
@@ -57,7 +55,6 @@ async function listClubs(client: DbClient, includeArchived: boolean): Promise<Cl
         n.slug,
         n.name,
         n.summary,
-        n.publicly_listed,
         n.admission_policy,
         n.archived_at::text,
         cv.owner_member_id as owner_member_id,
@@ -88,7 +85,6 @@ async function readClubSummary(client: DbClient, clubId: string): Promise<ClubSu
         n.slug,
         n.name,
         n.summary,
-        n.publicly_listed,
         n.admission_policy,
         n.archived_at::text,
         cv.owner_member_id as owner_member_id,
@@ -154,12 +150,11 @@ export function buildPlatformRepository({
                 owner_member_id,
                 name,
                 summary,
-                publicly_listed,
                 admission_policy,
                 version_no,
                 created_by_member_id
               )
-              select club_id, $4, $2, $3, false, null, 1, $5
+              select club_id, $4, $2, $3, null, 1, $5
               from inserted_club
             )
             select club_id
@@ -228,7 +223,6 @@ export function buildPlatformRepository({
           current_owner_member_id: string;
           name: string;
           summary: string | null;
-          publicly_listed: boolean;
           admission_policy: string | null;
         }>(
           `
@@ -239,7 +233,6 @@ export function buildPlatformRepository({
               cv.owner_member_id as current_owner_member_id,
               cv.name,
               cv.summary,
-              cv.publicly_listed,
               cv.admission_policy
             from app.clubs n
             join app.current_club_versions cv on cv.club_id = n.id
@@ -264,20 +257,18 @@ export function buildPlatformRepository({
               owner_member_id,
               name,
               summary,
-              publicly_listed,
               admission_policy,
               version_no,
               supersedes_version_id,
               created_by_member_id
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
           `,
           [
             input.clubId,
             input.ownerMemberId,
             current.name,
             current.summary,
-            current.publicly_listed,
             current.admission_policy,
             Number(current.current_version_no) + 1,
             current.current_version_id,
@@ -378,7 +369,6 @@ export function buildPlatformRepository({
           owner_member_id: string;
           name: string;
           summary: string | null;
-          publicly_listed: boolean;
           admission_policy: string | null;
         }>(
           `
@@ -389,7 +379,6 @@ export function buildPlatformRepository({
               cv.owner_member_id,
               cv.name,
               cv.summary,
-              cv.publicly_listed,
               cv.admission_policy
             from app.clubs n
             join app.current_club_versions cv on cv.club_id = n.id
@@ -409,7 +398,6 @@ export function buildPlatformRepository({
         const merged = {
           name: patch.name !== undefined ? patch.name : current.name,
           summary: patch.summary !== undefined ? patch.summary : current.summary,
-          publiclyListed: patch.publiclyListed !== undefined ? patch.publiclyListed : current.publicly_listed,
           admissionPolicy: patch.admissionPolicy !== undefined ? patch.admissionPolicy : current.admission_policy,
         };
 
@@ -420,20 +408,18 @@ export function buildPlatformRepository({
               owner_member_id,
               name,
               summary,
-              publicly_listed,
               admission_policy,
               version_no,
               supersedes_version_id,
               created_by_member_id
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            values ($1, $2, $3, $4, $5, $6, $7, $8)
           `,
           [
             input.clubId,
             current.owner_member_id,
             merged.name,
             merged.summary,
-            merged.publiclyListed,
             merged.admissionPolicy,
             Number(current.current_version_no) + 1,
             current.current_version_id,
