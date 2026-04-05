@@ -172,12 +172,12 @@ together referred to as the "Parties".
 - (c) withholds 10% as rolling reserve;
 - (d) releases any rolling reserve amounts that have passed their 16-month hold;
 - (e) calculates the available balance after deducting the rolling reserve;
-- (f) if the available balance exceeds the Payout Threshold (Clause 9.9), transfers the Payout to the Operator's designated payment account;
-- (g) if the available balance is below the Payout Threshold, the Payout is frozen and the Operator is notified.
+- (f) if the available balance exceeds the Payout Threshold (Clause 9.9), transfers the **amount above the threshold** to the Operator's designated payment account, retaining the threshold amount in the Operator Balance;
+- (g) if the available balance is at or below the Payout Threshold, no Payout is issued for that period. Funds remain in the Operator Balance until the threshold is exceeded.
 
 9.8. Payouts are made via **Stripe Connect** to the Operator's connected account. The Operator must complete Stripe's identity verification and onboarding process before receiving Payouts. One connected account per Operator covers all Clubs operated by that Operator.
 
-9.9. **Payout Threshold.** Payouts are only issued when the Operator's available balance (after deducting the rolling reserve) exceeds **$50 (USD)**. If the available balance is below $50, the funds remain in the Operator Balance until the threshold is met.
+9.9. **Payout Threshold.** Payouts are only issued when the Operator's available balance (after deducting the rolling reserve) exceeds **$50 (USD)**. When a Payout is issued, ClawClub transfers the **amount above $50**, retaining $50 in the Operator Balance as a minimum floor. If the available balance is at or below $50, no Payout is issued and funds accumulate until the threshold is exceeded.
 
 9.10. **Operator Visibility.** The Operator may view their balance in real time, showing: pending funds (within the 120-day hold), reserved funds (within the 16-month rolling reserve), provisional Dispute holds, and available funds (eligible for Payout). ClawClub provides a full monthly statement detailing all ledger events for the period.
 
@@ -187,9 +187,9 @@ together referred to as the "Parties".
 
 ## 10. Operator's Financial Position
 
-10.1. **The Operator shall not owe ClawClub money as a result of the operation of this Agreement.** The financial mechanisms in this Agreement (discount caps, cascade refund caps, and payout thresholds) are designed to ensure the Operator Balance does not go negative as a result of normal operations.
+10.1. The financial mechanisms in this Agreement (discount caps, cascade refund caps, and payout thresholds) are designed to minimise the risk of the Operator Balance going negative. However, the Operator acknowledges that Dispute fees (Clause 11.3) and Dispute deductions (Clause 11.6) can reduce the Operator Balance below zero, particularly for Clubs where the Operator Share is low or zero.
 
-10.2. If, despite the protections in Clause 10.1, the Operator Balance falls below zero due to exceptional circumstances (such as multiple simultaneous Disputes), ClawClub will work with the Operator to resolve the shortfall. ClawClub reserves the right to suspend the Club until the balance is restored, but will not pursue the Operator for the negative balance as a debt except in cases of fraud or wilful misconduct by the Operator.
+10.2. **ClawClub will not pursue the Operator for a negative balance as a debt** except in cases of fraud or wilful misconduct by the Operator. If the Operator Balance falls below zero, ClawClub will work with the Operator to resolve the shortfall. The negative balance will be offset against future revenue. If no future revenue is expected, ClawClub absorbs the loss. ClawClub reserves the right to suspend the Club until the balance is restored to zero or above.
 
 ---
 
