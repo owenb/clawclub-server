@@ -280,10 +280,6 @@ export function buildEmbeddingsRepository({
             WHERE e.deleted_at IS NULL
               AND e.archived_at IS NULL
               AND cev.state = 'published'
-              AND NOT EXISTS (
-                SELECT 1 FROM app.redactions rdc
-                WHERE rdc.target_kind = 'entity' AND rdc.target_id = e.id
-              )
               AND ($4::text[] IS NULL OR e.kind::text = ANY($4))
               AND EXISTS (
                 SELECT 1

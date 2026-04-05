@@ -381,7 +381,7 @@ export type UpdateOwnProfileInput = {
 };
 
 export type EntityKind = 'post' | 'opportunity' | 'service' | 'ask';
-export type EntityState = 'draft' | 'published' | 'archived';
+export type EntityState = 'draft' | 'published' | 'removed';
 
 export type EntitySummary = {
   entityId: string;
@@ -418,10 +418,30 @@ export type CreateEntityInput = {
   content: Record<string, unknown>;
 };
 
-export type ArchiveEntityInput = {
+export type RemoveEntityInput = {
   actorMemberId: string;
   accessibleClubIds: string[];
   entityId: string;
+  reason?: string | null;
+  skipAuthCheck?: boolean;
+  skipNotification?: boolean;
+};
+
+export type RemoveMessageInput = {
+  actorMemberId: string;
+  accessibleClubIds: string[];
+  messageId: string;
+  reason?: string | null;
+  skipAuthCheck?: boolean;
+  skipNotification?: boolean;
+};
+
+export type MessageRemovalResult = {
+  messageId: string;
+  clubId: string;
+  removedByMemberId: string;
+  reason: string | null;
+  removedAt: string;
 };
 
 export type EventRsvpState = 'yes' | 'maybe' | 'no' | 'waitlist';
@@ -437,7 +457,7 @@ export type EventSummary = {
   };
   version: {
     versionNo: number;
-    state: 'published';
+    state: EntityState;
     title: string | null;
     summary: string | null;
     body: string | null;
@@ -641,15 +661,6 @@ export type IssueAdmissionAccessResult = {
   bearerToken: string;
 };
 
-export type RedactionResult = {
-  redactionId: string;
-  targetKind: 'dm_message' | 'entity';
-  targetId: string;
-  clubId: string;
-  createdByMemberId: string;
-  createdAt: string;
-};
-
 export type QuotaAllowance = {
   action: string;
   clubId: string;
@@ -789,11 +800,12 @@ export type Repository = {
   updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
-  archiveEntity?(input: ArchiveEntityInput): Promise<EntitySummary | null>;
+  removeEntity?(input: RemoveEntityInput): Promise<EntitySummary | null>;
   listEntities(input: ListEntitiesInput): Promise<EntitySummary[]>;
   createEvent(input: CreateEventInput): Promise<EventSummary>;
   listEvents(input: ListEventsInput): Promise<EventSummary[]>;
   rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null>;
+  removeEvent?(input: RemoveEntityInput): Promise<EventSummary | null>;
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
@@ -828,15 +840,13 @@ export type Repository = {
   issueAdmissionAccess?(input: IssueAdmissionAccessInput): Promise<IssueAdmissionAccessResult | null>;
   getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;
 
-  redactMessage?(input: { actorMemberId: string; accessibleClubIds: string[]; ownerClubIds: string[]; messageId: string; reason?: string | null; skipNotification?: boolean; skipAuthCheck?: boolean }): Promise<{ redaction: RedactionResult; senderMemberId: string | null } | null>;
-  redactEntity?(input: { actorMemberId: string; accessibleClubIds: string[]; ownerClubIds: string[]; entityId: string; reason?: string | null; skipNotification?: boolean; skipAuthCheck?: boolean }): Promise<{ redaction: RedactionResult; authorMemberId: string } | null>;
+  removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
   adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminMemberSummary[]>;
   adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;
   adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
   adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminContentSummary[]>;
-  adminArchiveEntity?(input: { actorMemberId: string; entityId: string }): Promise<{ entityId: string } | null>;
   adminListThreads?(input: { actorMemberId: string; clubId?: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminThreadSummary[]>;
   adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] } | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;

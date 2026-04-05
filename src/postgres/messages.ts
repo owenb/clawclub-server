@@ -169,13 +169,13 @@ async function listDirectMessageThreads(client: DbClient, actorMemberId: string,
           tm.id as latest_message_id,
           tm.sender_member_id as latest_sender_member_id,
           tm.role as latest_role,
-          case when r.id is not null then '[Message redacted]' else tm.message_text end as latest_message_text,
+          case when dmr.message_id is not null then '[Message removed]' else tm.message_text end as latest_message_text,
           tm.created_at::text as latest_created_at,
           count(*) over (partition by ts.thread_id)::int as message_count,
           row_number() over (partition by ts.thread_id order by tm.created_at desc, tm.id desc) as row_no
         from thread_scope ts
         join app.dm_messages tm on tm.thread_id = ts.thread_id
-        left join app.redactions r on r.target_kind = 'dm_message' and r.target_id = tm.id
+        left join app.dm_message_removals dmr on dmr.message_id = tm.id
       )
       select
         mr.thread_id,
@@ -270,13 +270,13 @@ async function readDirectMessageThread(
           tm.id as latest_message_id,
           tm.sender_member_id as latest_sender_member_id,
           tm.role as latest_role,
-          case when r.id is not null then '[Message redacted]' else tm.message_text end as latest_message_text,
+          case when dmr.message_id is not null then '[Message removed]' else tm.message_text end as latest_message_text,
           tm.created_at::text as latest_created_at,
           count(*) over (partition by ts.thread_id)::int as message_count,
           row_number() over (partition by ts.thread_id order by tm.created_at desc, tm.id desc) as row_no
         from thread_scope ts
         join app.dm_messages tm on tm.thread_id = ts.thread_id
-        left join app.redactions r on r.target_kind = 'dm_message' and r.target_id = tm.id
+        left join app.dm_message_removals dmr on dmr.message_id = tm.id
       )
       select
         mr.thread_id,
@@ -309,14 +309,14 @@ async function readDirectMessageThread(
         tm.thread_id,
         tm.sender_member_id,
         tm.role,
-        case when r.id is not null then '[Message redacted]' else tm.message_text end as message_text,
-        case when r.id is not null then null else tm.payload end as payload,
+        case when dmr.message_id is not null then '[Message removed]' else tm.message_text end as message_text,
+        case when dmr.message_id is not null then null else tm.payload end as payload,
         tm.created_at::text as created_at,
         tm.in_reply_to_message_id,
         coalesce(receipts.update_receipts, '[]'::jsonb) as update_receipts
       from app.dm_messages tm
-      left join app.redactions r
-        on r.target_kind = 'dm_message' and r.target_id = tm.id
+      left join app.dm_message_removals dmr
+        on dmr.message_id = tm.id
       left join lateral (
         select jsonb_agg(
           jsonb_build_object(

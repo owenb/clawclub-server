@@ -21,7 +21,6 @@ export function buildAdminRepository({
   | 'adminGetMember'
   | 'adminGetClubStats'
   | 'adminListContent'
-  | 'adminArchiveEntity'
   | 'adminListThreads'
   | 'adminReadThread'
   | 'adminListMemberTokens'
@@ -319,90 +318,6 @@ export function buildAdminRepository({
           createdAt: row.created_at,
         }));
       });
-    },
-
-    async adminArchiveEntity({ actorMemberId, entityId }) {
-      const client = await pool.connect();
-      try {
-        await client.query('begin');
-        await applyActorContext(client, actorMemberId, []);
-
-        const currentResult = await client.query<{
-          entity_id: string;
-          version_id: string;
-          version_no: number;
-          title: string | null;
-          summary: string | null;
-          body: string | null;
-          expires_at: string | null;
-          content: Record<string, unknown> | null;
-        }>(
-          `
-            select
-              ev.entity_id,
-              ev.id as version_id,
-              ev.version_no,
-              ev.title,
-              ev.summary,
-              ev.body,
-              ev.expires_at::text,
-              ev.content
-            from app.current_entity_versions ev
-            where ev.entity_id = $1
-              and ev.state != 'archived'
-            limit 1
-          `,
-          [entityId],
-        );
-
-        const current = currentResult.rows[0];
-        if (!current) {
-          await client.query('rollback');
-          return null;
-        }
-
-        const archiveClockResult = await client.query<{ archived_at: string }>(`select now()::text as archived_at`);
-        const archivedAt = archiveClockResult.rows[0].archived_at;
-
-        await client.query(
-          `
-            insert into app.entity_versions (
-              entity_id,
-              version_no,
-              state,
-              title,
-              summary,
-              body,
-              effective_at,
-              expires_at,
-              content,
-              supersedes_version_id,
-              created_by_member_id
-            )
-            values ($1, $2, 'archived', $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-          `,
-          [
-            current.entity_id,
-            current.version_no + 1,
-            current.title,
-            current.summary,
-            current.body,
-            archivedAt,
-            current.expires_at,
-            JSON.stringify(current.content ?? {}),
-            current.version_id,
-            actorMemberId,
-          ],
-        );
-
-        await client.query('commit');
-        return { entityId };
-      } catch (error) {
-        await client.query('rollback');
-        throw error;
-      } finally {
-        client.release();
-      }
     },
 
     async adminListThreads({ actorMemberId, clubId, limit, cursor }) {

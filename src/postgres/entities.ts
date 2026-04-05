@@ -1,7 +1,7 @@
 import type { Pool } from 'pg';
 import type {
-  ArchiveEntityInput,
   CreateEntityInput,
+  EntityState,
   EntitySummary,
   ListEntitiesInput,
   Repository,
@@ -23,7 +23,7 @@ type EntityRow = {
   author_public_name: string;
   author_handle: string | null;
   version_no: number;
-  state: 'published';
+  state: EntityState;
   title: string | null;
   summary: string | null;
   body: string | null;
@@ -82,7 +82,7 @@ export function buildEntityUpdatePayload(input: {
   entityVersionId: string;
   clubId: string;
   kind: EntitySummary['kind'] | 'event';
-  state: 'published' | 'archived';
+  state: 'published' | 'removed';
   author: {
     memberId: string;
     publicName: string;
@@ -137,21 +137,19 @@ export async function readEntitySummary(client: DbClient, entityId: string, enti
         m.handle as author_handle,
         cev.version_no,
         cev.state,
-        case when rdc.id is not null then '[Redacted]' else cev.title end as title,
-        case when rdc.id is not null then null else cev.summary end as summary,
-        case when rdc.id is not null then null else cev.body end as body,
+        cev.title,
+        cev.summary,
+        cev.body,
         cev.effective_at::text as effective_at,
         cev.expires_at::text as expires_at,
         cev.created_at::text as version_created_at,
-        case when rdc.id is not null then '{}'::jsonb else cev.content end as content,
+        cev.content,
         e.created_at::text as entity_created_at
       from app.entities e
       join app.current_entity_versions cev on cev.entity_id = e.id
-      left join app.redactions rdc on rdc.target_kind = 'entity' and rdc.target_id = e.id
       join app.members m on m.id = e.author_member_id
       where e.id = $1
         and e.deleted_at is null
-        and cev.state = 'published'
         and ($2::app.short_id is null or cev.id = $2)
     `,
     [entityId, entityVersionId ?? null],
@@ -170,7 +168,7 @@ export function buildEntitiesRepository({
   withActorContext: WithActorContext;
 }): Pick<
   Repository,
-  'createEntity' | 'updateEntity' | 'archiveEntity' | 'listEntities'
+  'createEntity' | 'updateEntity' | 'listEntities'
 > {
   return {
     async createEntity(input: CreateEntityInput): Promise<EntitySummary> {
@@ -210,7 +208,7 @@ export function buildEntitiesRepository({
             entityVersionId: summary.entityVersionId,
             clubId: summary.clubId,
             kind: summary.kind,
-            state: summary.version.state as 'published' | 'archived',
+            state: summary.version.state as 'published' | 'removed',
             author: summary.author,
             title: summary.version.title,
             summary: summary.version.summary,
@@ -323,7 +321,7 @@ export function buildEntitiesRepository({
             entityVersionId: summary.entityVersionId,
             clubId: summary.clubId,
             kind: summary.kind,
-            state: summary.version.state as 'published' | 'archived',
+            state: summary.version.state as 'published' | 'removed',
             author: summary.author,
             title: summary.version.title,
             summary: summary.version.summary,
@@ -334,140 +332,6 @@ export function buildEntitiesRepository({
           }),
         });
         await enqueueEmbeddingJob(client, 'entity', nextVersion.id);
-        await client.query('commit');
-        return summary;
-      } catch (error) {
-        await client.query('rollback');
-        throw error;
-      } finally {
-        client.release();
-      }
-    },
-
-    async archiveEntity(input: ArchiveEntityInput): Promise<EntitySummary | null> {
-      const client = await pool.connect();
-      try {
-        await client.query('begin');
-        await applyActorContext(client, input.actorMemberId, input.accessibleClubIds);
-
-        const currentResult = await client.query<CurrentEntityRow>(
-          `
-            select
-              e.id as entity_id,
-              e.club_id,
-              e.kind,
-              e.author_member_id,
-              m.public_name as author_public_name,
-              m.handle as author_handle,
-              e.created_at::text as entity_created_at,
-              cev.id as version_id,
-              cev.version_no,
-              cev.title,
-              cev.summary,
-              cev.body,
-              cev.expires_at::text as expires_at,
-              cev.content
-            from app.entities e
-            join app.current_entity_versions cev on cev.entity_id = e.id
-            join app.members m on m.id = e.author_member_id
-            where e.id = $1
-              and e.club_id = any($2::app.short_id[])
-              and e.author_member_id = $3
-              and e.kind = any(array['post', 'opportunity', 'service', 'ask']::app.entity_kind[])
-              and e.deleted_at is null
-              and cev.state = 'published'
-            limit 1
-          `,
-          [input.entityId, input.accessibleClubIds, input.actorMemberId],
-        );
-
-        const current = currentResult.rows[0];
-        if (!current) {
-          await client.query('rollback');
-          return null;
-        }
-
-        const archiveClockResult = await client.query<{ archived_at: string }>(`select now()::text as archived_at`);
-        const archiveClock = requireReturnedRow(archiveClockResult.rows[0], 'Archive timestamp could not be resolved');
-        const archivedAt = archiveClock.archived_at;
-
-        const archivedVersionResult = await client.query<{ id: string }>(
-          `
-            insert into app.entity_versions (
-              entity_id,
-              version_no,
-              state,
-              title,
-              summary,
-              body,
-              effective_at,
-              expires_at,
-              content,
-              supersedes_version_id,
-              created_by_member_id
-            )
-            values ($1, $2, 'archived', $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
-            returning id
-          `,
-          [
-            current.entity_id,
-            current.version_no + 1,
-            current.title,
-            current.summary,
-            current.body,
-            archivedAt,
-            current.expires_at,
-            JSON.stringify(current.content ?? {}),
-            current.version_id,
-            input.actorMemberId,
-          ],
-        );
-        const archivedVersion = requireReturnedRow(archivedVersionResult.rows[0], 'Archived entity version row was not returned');
-
-        const summary: EntitySummary = {
-          entityId: current.entity_id,
-          entityVersionId: archivedVersion.id,
-          clubId: current.club_id,
-          kind: current.kind,
-          author: {
-            memberId: current.author_member_id,
-            publicName: current.author_public_name,
-            handle: current.author_handle,
-          },
-          version: {
-            versionNo: current.version_no + 1,
-            state: 'archived',
-            title: current.title,
-            summary: current.summary,
-            body: current.body,
-            effectiveAt: archivedAt,
-            expiresAt: current.expires_at,
-            createdAt: archivedAt,
-            content: current.content ?? {},
-          },
-          createdAt: current.entity_created_at,
-        };
-        await appendClubActivity(client, {
-          clubId: summary.clubId,
-          entityId: summary.entityId,
-          entityVersionId: summary.entityVersionId,
-          topic: 'entity.version.archived',
-          createdByMemberId: input.actorMemberId,
-          payload: buildEntityUpdatePayload({
-            entityId: summary.entityId,
-            entityVersionId: summary.entityVersionId,
-            clubId: summary.clubId,
-            kind: summary.kind,
-            state: summary.version.state as 'published' | 'archived',
-            author: summary.author,
-            title: summary.version.title,
-            summary: summary.version.summary,
-            body: summary.version.body,
-            effectiveAt: summary.version.effectiveAt,
-            expiresAt: summary.version.expiresAt,
-            content: summary.version.content,
-          }),
-        });
         await client.query('commit');
         return summary;
       } catch (error) {
@@ -511,10 +375,6 @@ export function buildEntitiesRepository({
             join app.live_entities le on le.club_id = s.club_id
             join app.members m on m.id = le.author_member_id
             where le.kind = any($2::app.entity_kind[])
-              and not exists (
-                select 1 from app.redactions rdc
-                where rdc.target_kind = 'entity' and rdc.target_id = le.entity_id
-              )
               and (
                 $4::text is null
                 or coalesce(le.title, '') ilike $4 escape '\\'

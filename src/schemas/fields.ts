@@ -14,7 +14,7 @@ import { z } from 'zod';
 export const entityKind = z.enum(['post', 'opportunity', 'service', 'ask']);
 export type EntityKind = z.infer<typeof entityKind>;
 
-export const entityState = z.enum(['draft', 'published', 'archived']);
+export const entityState = z.enum(['draft', 'published', 'removed']);
 export type EntityState = z.infer<typeof entityState>;
 
 export const membershipState = z.enum([
@@ -32,10 +32,10 @@ export type AdmissionStatus = z.infer<typeof admissionStatus>;
 export const eventRsvpState = z.enum(['yes', 'maybe', 'no', 'waitlist']);
 export type EventRsvpState = z.infer<typeof eventRsvpState>;
 
-export const membershipRole = z.enum(['owner', 'admin', 'member']);
+export const membershipRole = z.enum(['clubadmin', 'member']);
 export type MembershipRole = z.infer<typeof membershipRole>;
 
-export const membershipCreateRole = z.enum(['admin', 'member']);
+export const membershipCreateRole = z.enum(['clubadmin', 'member']);
 
 export const membershipCreateInitialStatus = z.enum(['invited', 'pending_review', 'active']);
 

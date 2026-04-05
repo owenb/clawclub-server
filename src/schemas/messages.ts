@@ -1,5 +1,5 @@
 /**
- * Action contracts: messages.send, messages.list, messages.read, messages.inbox, messages.redact
+ * Action contracts: messages.send, messages.list, messages.read, messages.inbox, messages.remove
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -13,7 +13,7 @@ import {
 import {
   directMessageSummary, directMessageThreadSummary,
   directMessageEntry, directMessageInboxSummary,
-  membershipSummary, redactionResult,
+  membershipSummary, messageRemovalResult,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -244,27 +244,27 @@ const messagesInbox: ActionDefinition = {
   },
 };
 
-// ── messages.redact ─────────────────────────────────────
+// ── messages.remove ─────────────────────────────────────
 
-type RedactInput = {
+type RemoveInput = {
   messageId: string;
   reason: string | null;
 };
 
-const messagesRedact: ActionDefinition = {
-  action: 'messages.redact',
+const messagesRemove: ActionDefinition = {
+  action: 'messages.remove',
   domain: 'messages',
-  description: 'Redact a DM (sender or club owner).',
+  description: 'Remove a DM (sender only).',
   auth: 'member',
   safety: 'mutating',
-  authorizationNote: 'Sender or club owner may redact.',
+  authorizationNote: 'Only the sender may remove their own message.',
 
   wire: {
     input: z.object({
-      messageId: wireRequiredString.describe('Message to redact'),
-      reason: wireOptionalString.describe('Reason for redaction'),
+      messageId: wireRequiredString.describe('Message to remove'),
+      reason: wireOptionalString.describe('Reason for removal (optional)'),
     }),
-    output: z.object({ redaction: redactionResult }),
+    output: z.object({ removal: messageRemovalResult }),
   },
 
   parse: {
@@ -274,16 +274,15 @@ const messagesRedact: ActionDefinition = {
     }),
   },
 
-  requiredCapability: 'redactMessage',
+  requiredCapability: 'removeMessage',
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { messageId, reason } = input as RedactInput;
-    ctx.requireCapability('redactMessage');
+    const { messageId, reason } = input as RemoveInput;
+    ctx.requireCapability('removeMessage');
 
-    const result = await ctx.repository.redactMessage!({
+    const result = await ctx.repository.removeMessage!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map((m) => m.clubId),
-      ownerClubIds: ctx.actor.memberships.filter((m) => m.role === 'clubadmin').map((m) => m.clubId),
       messageId,
       reason,
     });
@@ -293,13 +292,13 @@ const messagesRedact: ActionDefinition = {
     }
 
     return {
-      data: { redaction: result.redaction },
+      data: { removal: result },
       requestScope: {
-        requestedClubId: result.redaction.clubId,
-        activeClubIds: [result.redaction.clubId],
+        requestedClubId: result.clubId,
+        activeClubIds: [result.clubId],
       },
     };
   },
 };
 
-registerActions([messagesSend, messagesList, messagesRead, messagesInbox, messagesRedact]);
+registerActions([messagesSend, messagesList, messagesRead, messagesInbox, messagesRemove]);

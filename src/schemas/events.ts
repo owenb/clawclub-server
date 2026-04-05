@@ -1,5 +1,5 @@
 /**
- * Action contracts: events.create, events.list, events.rsvp
+ * Action contracts: events.create, events.list, events.rsvp, events.remove
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -220,4 +220,53 @@ const eventsRsvp: ActionDefinition = {
   },
 };
 
-registerActions([eventsCreate, eventsList, eventsRsvp]);
+// ── events.remove ─────────────────���─────────────────────
+
+const eventsRemove: ActionDefinition = {
+  action: 'events.remove',
+  domain: 'content',
+  description: 'Remove an event (author only).',
+  auth: 'member',
+  safety: 'mutating',
+  authorizationNote: 'Only the original author may remove their own event.',
+
+  wire: {
+    input: z.object({
+      entityId: wireRequiredString.describe('Event entity ID to remove'),
+      reason: wireOptionalString.describe('Reason for removal (optional)'),
+    }),
+    output: z.object({ event: eventSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      entityId: parseRequiredString,
+      reason: parseTrimmedNullableString.default(null),
+    }),
+  },
+
+  requiredCapability: 'removeEvent',
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { entityId, reason } = input as { entityId: string; reason: string | null };
+    ctx.requireCapability('removeEvent');
+
+    const event = await ctx.repository.removeEvent!({
+      actorMemberId: ctx.actor.member.id,
+      accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
+      entityId,
+      reason,
+    });
+
+    if (!event) {
+      throw new AppError(404, 'not_found', 'Event not found inside the actor scope');
+    }
+
+    return {
+      data: { event },
+      requestScope: { requestedClubId: event.clubId, activeClubIds: [event.clubId] },
+    };
+  },
+};
+
+registerActions([eventsCreate, eventsList, eventsRsvp, eventsRemove]);

@@ -363,6 +363,7 @@ removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 `removeEvent()`:
 - Same logic as `removeEntity()` but scoped to `kind = 'event'` and returns `EventSummary`
 - The underlying storage operation is identical (append a `state = 'removed'` version)
+- **Event reload path:** The existing `readEventSummary()` helper scopes via `accessible_club_memberships where member_id = $1`, which requires a real club membership. Superadmins calling `clubadmin.events.remove` may not have a membership row. The `removeEvent()` implementation must NOT use `readEventSummary()` for its reload. Instead, it should use a direct query scoped by `e.club_id = any($N::app.short_id[])` using `accessibleClubIds` (same pattern as the entity reload helper `readEntitySummary()`, which has no membership scoping). This reload query also needs to join `current_entity_versions` (not `current_published_entity_versions`) to return the removed version.
 
 `removeMessage()`:
 - Apply actor context
@@ -402,6 +403,11 @@ removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 **`src/schemas/responses.ts`:**
 - Remove `redactionResult` schema
 - Add `messageRemovalResult` schema
+- Widen event `state` from `z.literal('published')` to `entityState` in `eventSummary` — events can now be `'removed'` when returned from `events.remove` / `clubadmin.events.remove`
+
+**`src/contract.ts`:** Widen `EventSummary.version.state` from the hard-coded literal `'published'` to `EntityState` (i.e. `'draft' | 'published' | 'removed'`). This parallels `EntitySummary.version.state` which already uses `EntityState`.
+
+**`src/postgres/events.ts`:** Widen the `EventRow.state` type from `'published'` to `EntityState`. The `mapEventRow()` function already just passes `row.state` through, so it needs no logic changes — only the type annotation.
 
 **Update type casts:** Search for `'published' | 'archived'` in `src/postgres/entities.ts` and change to `'published' | 'removed'`.
 
@@ -419,9 +425,10 @@ When an entity is removed, its old embedding artifact remains in the DB. This is
 
 - Remove `entities.archive` from action list
 - Replace `entities.redact` with `entities.remove` — "remove an entity (author only)"
+- Add `events.remove` — "remove an event (author only)"
 - Replace `messages.redact` with `messages.remove` — "remove a message (sender only)"
-- Add `clubadmin.entities.remove` and `clubadmin.messages.remove` to the clubadmin section
-- Remove `superadmin.content.archive`, `superadmin.content.redact`, `superadmin.messages.redact` from the superadmin section (superadmins use `clubadmin.entities.remove` and `clubadmin.messages.remove` instead)
+- Add `clubadmin.entities.remove`, `clubadmin.events.remove`, and `clubadmin.messages.remove` to the clubadmin section
+- Remove `superadmin.content.archive`, `superadmin.content.redact`, `superadmin.messages.redact` from the superadmin section (superadmins use `clubadmin.entities.remove`, `clubadmin.events.remove`, and `clubadmin.messages.remove` instead)
 - Update the update topics table: replace `entity.version.archived` and `entity.redacted` with `entity.removed`; replace `dm.message.redacted` with `dm.message.removed`
 - Update agent behavior guidance: replace "archive" and "redact" with "remove"
 
@@ -452,7 +459,7 @@ When an entity is removed, its old embedding artifact remains in the DB. This is
 
 **Update `test/integration/admin.test.ts`:**
 - Remove `superadmin.content.archive`, `superadmin.content.redact`, `superadmin.messages.redact` tests
-- Verify superadmin can call `clubadmin.entities.remove` and `clubadmin.messages.remove` (already tested via existing clubadmin superadmin bypass tests)
+- Verify superadmin can call `clubadmin.entities.remove`, `clubadmin.events.remove`, and `clubadmin.messages.remove` (already tested via existing clubadmin superadmin bypass tests)
 
 **Update unit tests (`test/app.test.ts`):**
 - Remove `entities.archive` test
@@ -488,7 +495,7 @@ All must pass.
 If you want to minimize risk, implement in this order:
 
 1. **Migrations first** — add enum value, create table, update views/functions. Do NOT drop `app.redactions` yet.
-2. **Add new actions** — `entities.remove`, `messages.remove`, `clubadmin.entities.remove`, `clubadmin.messages.remove`.
+2. **Add new actions** — `entities.remove`, `events.remove`, `messages.remove`, `clubadmin.entities.remove`, `clubadmin.events.remove`, `clubadmin.messages.remove`.
 3. **Delete old actions** — `entities.archive`, `entities.redact`, `messages.redact`, `superadmin.content.archive`, `superadmin.content.redact`, `superadmin.messages.redact`.
 4. **Remove redaction query hooks** — entity listing, embeddings, message queries.
 5. **Migrate data** — existing redactions → new mechanisms.

@@ -25,6 +25,7 @@ import {
 import {
   membershipAdminSummary, membershipReviewSummary,
   admissionSummary, adminClubStats,
+  entitySummary, eventSummary, messageRemovalResult,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -602,10 +603,170 @@ const clubadminClubsStats: ActionDefinition = {
   },
 };
 
+// ── clubadmin.entities.remove ─────────────────────────────
+
+const clubadminEntitiesRemove: ActionDefinition = {
+  action: 'clubadmin.entities.remove',
+  domain: 'clubadmin',
+  description: 'Remove any entity in the specified club (moderation).',
+  auth: 'clubadmin',
+  safety: 'mutating',
+  authorizationNote: 'Club admin may remove any entity in their club. Reason is required for moderation audit trail.',
+
+  requiredCapability: 'removeEntity',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club the entity belongs to'),
+      entityId: wireRequiredString.describe('Entity to remove'),
+      reason: wireRequiredString.describe('Reason for removal (required for moderation)'),
+    }),
+    output: z.object({ entity: entitySummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      entityId: parseRequiredString,
+      reason: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, entityId, reason } = input as { clubId: string; entityId: string; reason: string };
+    ctx.requireClubAdmin(clubId);
+    ctx.requireCapability('removeEntity');
+
+    const entity = await ctx.repository.removeEntity!({
+      actorMemberId: ctx.actor.member.id,
+      accessibleClubIds: [clubId],
+      entityId,
+      reason,
+      skipAuthCheck: true,
+    });
+
+    if (!entity) {
+      throw new AppError(404, 'not_found', 'Entity not found in the specified club');
+    }
+
+    return {
+      data: { entity },
+      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+    };
+  },
+};
+
+// ── clubadmin.events.remove ──────────────────────────────
+
+const clubadminEventsRemove: ActionDefinition = {
+  action: 'clubadmin.events.remove',
+  domain: 'clubadmin',
+  description: 'Remove any event in the specified club (moderation).',
+  auth: 'clubadmin',
+  safety: 'mutating',
+  authorizationNote: 'Club admin may remove any event in their club. Reason is required.',
+
+  requiredCapability: 'removeEvent',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club the event belongs to'),
+      entityId: wireRequiredString.describe('Event entity ID to remove'),
+      reason: wireRequiredString.describe('Reason for removal (required for moderation)'),
+    }),
+    output: z.object({ event: eventSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      entityId: parseRequiredString,
+      reason: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, entityId, reason } = input as { clubId: string; entityId: string; reason: string };
+    ctx.requireClubAdmin(clubId);
+    ctx.requireCapability('removeEvent');
+
+    const event = await ctx.repository.removeEvent!({
+      actorMemberId: ctx.actor.member.id,
+      accessibleClubIds: [clubId],
+      entityId,
+      reason,
+      skipAuthCheck: true,
+    });
+
+    if (!event) {
+      throw new AppError(404, 'not_found', 'Event not found in the specified club');
+    }
+
+    return {
+      data: { event },
+      requestScope: { requestedClubId: event.clubId, activeClubIds: [event.clubId] },
+    };
+  },
+};
+
+// ── clubadmin.messages.remove ────────────────────────────
+
+const clubadminMessagesRemove: ActionDefinition = {
+  action: 'clubadmin.messages.remove',
+  domain: 'clubadmin',
+  description: 'Remove any message in the specified club (moderation).',
+  auth: 'clubadmin',
+  safety: 'mutating',
+  authorizationNote: 'Club admin may remove any message in their club. Reason is required for moderation audit trail.',
+
+  requiredCapability: 'removeMessage',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club the message belongs to'),
+      messageId: wireRequiredString.describe('Message to remove'),
+      reason: wireRequiredString.describe('Reason for removal (required for moderation)'),
+    }),
+    output: z.object({ removal: messageRemovalResult }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      messageId: parseRequiredString,
+      reason: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, messageId, reason } = input as { clubId: string; messageId: string; reason: string };
+    ctx.requireClubAdmin(clubId);
+    ctx.requireCapability('removeMessage');
+
+    const result = await ctx.repository.removeMessage!({
+      actorMemberId: ctx.actor.member.id,
+      accessibleClubIds: [clubId],
+      messageId,
+      reason,
+      skipAuthCheck: true,
+    });
+
+    if (!result) {
+      throw new AppError(404, 'not_found', 'Message not found in the specified club');
+    }
+
+    return {
+      data: { removal: result },
+      requestScope: { requestedClubId: result.clubId, activeClubIds: [result.clubId] },
+    };
+  },
+};
+
 registerActions([
   clubadminMembershipsList, clubadminMembershipsReview,
   clubadminMembershipsCreate, clubadminMembershipsTransition,
   clubadminAdmissionsList, clubadminAdmissionsTransition, clubadminAdmissionsIssueAccess,
   clubadminMembersPromote, clubadminMembersDemote,
   clubadminClubsStats,
+  clubadminEntitiesRemove, clubadminEventsRemove, clubadminMessagesRemove,
 ]);

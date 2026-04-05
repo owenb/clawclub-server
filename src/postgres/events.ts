@@ -3,6 +3,7 @@ import { enforceQuota } from './quotas.ts';
 import {
   AppError,
   type CreateEventInput,
+  type EntityState,
   type EventRsvpState,
   type EventSummary,
   type ListEventsInput,
@@ -34,7 +35,7 @@ type EventRow = {
   author_public_name: string;
   author_handle: string | null;
   version_no: number;
-  state: 'published';
+  state: EntityState;
   title: string | null;
   summary: string | null;
   body: string | null;
@@ -373,7 +374,7 @@ export function buildEventsRepository({
             entityVersionId: event.entityVersionId,
             clubId: event.clubId,
             kind: 'event',
-            state: event.version.state,
+            state: event.version.state as 'published' | 'removed',
             author: event.author,
             title: event.version.title,
             summary: event.version.summary,
@@ -460,6 +461,7 @@ export function buildEventsRepository({
             `
               select e.id as entity_id, e.club_id
               from app.entities e
+              join app.current_published_entity_versions cpev on cpev.entity_id = e.id
               where e.id = $1
                 and e.kind = 'event'
                 and e.archived_at is null

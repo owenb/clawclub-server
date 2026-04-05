@@ -24,7 +24,7 @@ import {
   adminOverview, adminMemberSummary, adminMemberDetail,
   adminDiagnostics, clubSummary,
   adminContentSummary, adminThreadSummary,
-  directMessageEntry, redactionResult,
+  directMessageEntry,
   bearerTokenSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
@@ -407,7 +407,6 @@ type ClubsUpdateInput = {
   clubId: string;
   name?: string;
   summary?: string | null;
-  publiclyListed?: boolean;
   admissionPolicy?: string | null;
 };
 
@@ -425,7 +424,6 @@ const superadminClubsUpdate: ActionDefinition = {
       clubId: wireRequiredString.describe('Club to update'),
       name: wireRequiredString.optional().describe('New club name (cannot be empty if provided)'),
       summary: wirePatchString.describe('Club summary'),
-      publiclyListed: wireOptionalBoolean.describe('Whether the club is publicly listed'),
       admissionPolicy: wirePatchString.describe('Admission policy text (1-2000 chars)'),
     }),
     output: z.object({ club: clubSummary }),
@@ -436,7 +434,6 @@ const superadminClubsUpdate: ActionDefinition = {
       clubId: parseRequiredString,
       name: parseRequiredString.optional(),
       summary: parsePatchString,
-      publiclyListed: z.boolean().optional(),
       admissionPolicy: parsePatchString,
     }),
   },
@@ -447,7 +444,7 @@ const superadminClubsUpdate: ActionDefinition = {
     const { clubId, ...patch } = input as ClubsUpdateInput;
 
     if (patch.name === undefined && patch.summary === undefined &&
-        patch.publiclyListed === undefined && patch.admissionPolicy === undefined) {
+        patch.admissionPolicy === undefined) {
       throw new AppError(400, 'invalid_input', 'At least one field to update must be provided');
     }
 
@@ -523,97 +520,6 @@ const superadminContentList: ActionDefinition = {
     const nextCursor = last ? encodeSuperadminCursor(last.createdAt, last.entityId) : null;
 
     return { data: { content, nextCursor } };
-  },
-};
-
-// ── superadmin.content.archive ───────────────────────────
-
-const superadminContentArchive: ActionDefinition = {
-  action: 'superadmin.content.archive',
-  domain: 'superadmin',
-  description: 'Archive an entity as superadmin.',
-  auth: 'superadmin',
-  safety: 'mutating',
-
-  requiredCapability: 'adminArchiveEntity',
-
-  wire: {
-    input: z.object({
-      entityId: wireRequiredString.describe('Entity to archive'),
-    }),
-    output: z.object({ entityId: z.string() }),
-  },
-
-  parse: {
-    input: z.object({
-      entityId: parseRequiredString,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('adminArchiveEntity');
-    const { entityId } = input as { entityId: string };
-
-    const result = await ctx.repository.adminArchiveEntity!({
-      actorMemberId: ctx.actor.member.id,
-      entityId,
-    });
-
-    if (!result) {
-      throw new AppError(404, 'not_found', 'Entity not found or already archived');
-    }
-
-    return { data: result };
-  },
-};
-
-// ── superadmin.content.redact ────────────────────────────
-
-const superadminContentRedact: ActionDefinition = {
-  action: 'superadmin.content.redact',
-  domain: 'superadmin',
-  description: 'Redact an entity as superadmin.',
-  auth: 'superadmin',
-  safety: 'mutating',
-
-  requiredCapability: 'redactEntity',
-
-  wire: {
-    input: z.object({
-      entityId: wireRequiredString.describe('Entity to redact'),
-      reason: wireOptionalString.describe('Reason for redaction'),
-    }),
-    output: z.object({ redaction: redactionResult }),
-  },
-
-  parse: {
-    input: z.object({
-      entityId: parseRequiredString,
-      reason: parseTrimmedNullableString.default(null),
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('redactEntity');
-    const { entityId, reason } = input as { entityId: string; reason: string | null };
-
-    const result = await ctx.repository.redactEntity!({
-      actorMemberId: ctx.actor.member.id,
-      accessibleClubIds: [],
-      ownerClubIds: [],
-      entityId,
-      reason,
-      skipNotification: true,
-      skipAuthCheck: true,
-    });
-
-    if (!result) {
-      throw new AppError(404, 'not_found', 'Entity not found');
-    }
-
-    return { data: { redaction: result.redaction } };
   },
 };
 
@@ -724,55 +630,6 @@ const superadminMessagesRead: ActionDefinition = {
   },
 };
 
-// ── superadmin.messages.redact ───────────────────────────
-
-const superadminMessagesRedact: ActionDefinition = {
-  action: 'superadmin.messages.redact',
-  domain: 'superadmin',
-  description: 'Redact a DM message as superadmin.',
-  auth: 'superadmin',
-  safety: 'mutating',
-
-  requiredCapability: 'redactMessage',
-
-  wire: {
-    input: z.object({
-      messageId: wireRequiredString.describe('Message to redact'),
-      reason: wireOptionalString.describe('Reason for redaction'),
-    }),
-    output: z.object({ redaction: redactionResult }),
-  },
-
-  parse: {
-    input: z.object({
-      messageId: parseRequiredString,
-      reason: parseTrimmedNullableString.default(null),
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('redactMessage');
-    const { messageId, reason } = input as { messageId: string; reason: string | null };
-
-    const result = await ctx.repository.redactMessage!({
-      actorMemberId: ctx.actor.member.id,
-      accessibleClubIds: [],
-      ownerClubIds: [],
-      messageId,
-      reason,
-      skipNotification: true,
-      skipAuthCheck: true,
-    });
-
-    if (!result) {
-      throw new AppError(404, 'not_found', 'Message not found');
-    }
-
-    return { data: { redaction: result.redaction } };
-  },
-};
-
 // ── superadmin.tokens.list ───────────────────────────────
 
 const superadminTokensList: ActionDefinition = {
@@ -860,7 +717,7 @@ registerActions([
   superadminOverview, superadminMembersList, superadminMembersGet,
   superadminDiagnosticsHealth, superadminClubsList, superadminClubsCreate,
   superadminClubsArchive, superadminClubsAssignOwner, superadminClubsUpdate,
-  superadminContentList, superadminContentArchive, superadminContentRedact,
-  superadminMessagesThreads, superadminMessagesRead, superadminMessagesRedact,
+  superadminContentList,
+  superadminMessagesThreads, superadminMessagesRead,
   superadminTokensList, superadminTokensRevoke,
 ]);

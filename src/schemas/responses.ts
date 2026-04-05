@@ -245,7 +245,7 @@ export const eventSummary = z.object({
   author: memberRef,
   version: z.object({
     versionNo: z.number(),
-    state: z.literal('published'),
+    state: entityState,
     title: z.string().nullable(),
     summary: z.string().nullable(),
     body: z.string().nullable(),
@@ -419,15 +419,14 @@ export const clubSummary = z.object({
   }),
 });
 
-// ── Redactions ───────────────────────────────────────────
+// ── Removals ────────────────────────────────────────────
 
-export const redactionResult = z.object({
-  redactionId: z.string(),
-  targetKind: z.enum(['dm_message', 'entity']),
-  targetId: z.string(),
+export const messageRemovalResult = z.object({
+  messageId: z.string(),
   clubId: z.string(),
-  createdByMemberId: z.string(),
-  createdAt: z.string(),
+  removedByMemberId: z.string(),
+  reason: z.string().nullable(),
+  removedAt: z.string(),
 });
 
 // ── Admin ────────────────────────────────────────────────

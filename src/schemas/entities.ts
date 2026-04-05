@@ -1,5 +1,5 @@
 /**
- * Action contracts: entities.create, entities.update, entities.archive, entities.redact, entities.list
+ * Action contracts: entities.create, entities.update, entities.remove, entities.list
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -12,7 +12,7 @@ import {
   wireEntityKinds, parseEntityKinds,
   entityKind,
 } from './fields.ts';
-import { entitySummary, membershipSummary, redactionResult } from './responses.ts';
+import { entitySummary, membershipSummary } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 // ── entities.create ──────────────────────────────────────
@@ -159,72 +159,22 @@ const entitiesUpdate: ActionDefinition = {
   },
 };
 
-// ── entities.archive ─────────────────────────────────────
+// ── entities.remove ──────────────────────────────────────
 
-const entitiesArchive: ActionDefinition = {
-  action: 'entities.archive',
+const entitiesRemove: ActionDefinition = {
+  action: 'entities.remove',
   domain: 'content',
-  description: 'Archive an entity (author only).',
+  description: 'Remove an entity (author only).',
   auth: 'member',
   safety: 'mutating',
-  authorizationNote: 'Only the original author may archive.',
+  authorizationNote: 'Only the original author may remove their own entity.',
 
   wire: {
     input: z.object({
-      entityId: wireRequiredString.describe('Entity to archive'),
+      entityId: wireRequiredString.describe('Entity to remove'),
+      reason: wireOptionalString.describe('Reason for removal (optional)'),
     }),
     output: z.object({ entity: entitySummary }),
-  },
-
-  parse: {
-    input: z.object({
-      entityId: parseRequiredString,
-    }),
-  },
-
-  requiredCapability: 'archiveEntity',
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { entityId } = input as { entityId: string };
-    ctx.requireCapability('archiveEntity');
-
-    const entity = await ctx.repository.archiveEntity!({
-      actorMemberId: ctx.actor.member.id,
-      accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
-      entityId,
-    });
-
-    if (!entity) {
-      throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
-    }
-
-    if (entity.author.memberId !== ctx.actor.member.id) {
-      throw new AppError(403, 'forbidden', 'Only the author may archive this entity');
-    }
-
-    return {
-      data: { entity },
-      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
-    };
-  },
-};
-
-// ── entities.redact ──────────────────────────────────────
-
-const entitiesRedact: ActionDefinition = {
-  action: 'entities.redact',
-  domain: 'content',
-  description: 'Redact an entity (author or club owner).',
-  auth: 'member',
-  safety: 'mutating',
-  authorizationNote: 'Author or club owner may redact.',
-
-  wire: {
-    input: z.object({
-      entityId: wireRequiredString.describe('Entity to redact'),
-      reason: wireOptionalString.describe('Reason for redaction'),
-    }),
-    output: z.object({ redaction: redactionResult }),
   },
 
   parse: {
@@ -234,27 +184,26 @@ const entitiesRedact: ActionDefinition = {
     }),
   },
 
-  requiredCapability: 'redactEntity',
+  requiredCapability: 'removeEntity',
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { entityId, reason } = input as { entityId: string; reason: string | null };
-    ctx.requireCapability('redactEntity');
+    ctx.requireCapability('removeEntity');
 
-    const result = await ctx.repository.redactEntity!({
+    const entity = await ctx.repository.removeEntity!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
-      ownerClubIds: ctx.actor.memberships.filter(m => m.role === 'clubadmin').map(m => m.clubId),
       entityId,
       reason,
     });
 
-    if (!result) {
+    if (!entity) {
       throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
     }
 
     return {
-      data: { redaction: result.redaction },
-      requestScope: { requestedClubId: result.redaction.clubId, activeClubIds: [result.redaction.clubId] },
+      data: { entity },
+      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
     };
   },
 };
@@ -466,4 +415,4 @@ const entitiesFindViaEmbedding: ActionDefinition = {
   },
 };
 
-registerActions([entitiesCreate, entitiesUpdate, entitiesArchive, entitiesRedact, entitiesList, entitiesFindViaEmbedding]);
+registerActions([entitiesCreate, entitiesUpdate, entitiesRemove, entitiesList, entitiesFindViaEmbedding]);
