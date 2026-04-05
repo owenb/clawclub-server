@@ -352,7 +352,7 @@ Stripe Prices are **immutable** — you cannot change the amount on an existing 
 
 1. Identify all revenue where the 120-day hold has expired.
 2. Subtract pending dispute holds, chargeback debits, and fees.
-3. Withhold 10% rolling reserve (held for 12 months from transaction date).
+3. Withhold 10% rolling reserve (held for 16 months from transaction date).
 4. Release any reserve amounts past their 16-month hold.
 5. Check available balance is above $200 threshold.
 6. If above: transfer net payout to operator's Connect account.
