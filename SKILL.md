@@ -124,19 +124,22 @@ Action families and individual actions:
 - `members.fullTextSearch` — PostgreSQL FTS across member profiles with handle/name prefix boosting
 - `members.findViaEmbedding` — semantic search via embedding similarity (requires `OPENAI_API_KEY`)
 
-**Memberships** (owner-only)
-- `memberships.list` — list memberships across owned clubs, with optional status filter
-- `memberships.review` — list memberships pending review
-- `memberships.create` — add an existing member to an owned club (creates with `invited` status)
-- `memberships.transition` — change membership status (`invited`, `pending_review`, `active`, `paused`, `revoked`, `rejected`)
+**Club Admin** (requires `clubadmin` role, club owner, or superadmin — all require explicit `clubId`)
+- `clubadmin.memberships.list` — list memberships in a club, with optional status filter
+- `clubadmin.memberships.review` — list memberships pending review in a club
+- `clubadmin.memberships.create` — add an existing member to a club (creates with `invited` status, role `member`)
+- `clubadmin.memberships.transition` — change membership status (`invited`, `pending_review`, `active`, `paused`, `revoked`, `rejected`)
+- `clubadmin.admissions.list` — list admissions for a club
+- `clubadmin.admissions.transition` — advance an admission through statuses
+- `clubadmin.admissions.issueAccess` — issue a bearer token for an accepted admission
+- `clubadmin.members.promoteToAdmin` — promote a club member to admin role (owner only)
+- `clubadmin.members.demoteFromAdmin` — demote a club admin to regular member (owner only)
+- `clubadmin.clubs.stats` — get statistics for a club
 
 **Admissions**
 - `admissions.challenge` — get a PoW puzzle bound to a specific club (unauthenticated, requires `clubSlug`)
 - `admissions.apply` — submit a solved PoW with application details (unauthenticated)
 - `admissions.sponsor` — sponsor an outsider for admission (member)
-- `admissions.list` — list admissions across owned clubs (owner)
-- `admissions.transition` — advance an admission through statuses (owner)
-- `admissions.issueAccess` — issue a bearer token for an accepted admission (owner)
 
 **Profile**
 - `profile.get` — read a member profile; omit `memberId` for the current actor
@@ -185,8 +188,9 @@ The schema endpoint (`GET {baseUrl}/api/schema`) is the **only reliable source**
 - `socials` is a **string** (not an object) in both `admissions.apply` and `admissions.sponsor`
 - `admissions.apply` uses `application` (not `reason`) for the free-text field
 - `admissions.apply` does not take `clubSlug` — the club is bound to the challenge
-- `memberships.create` creates the membership in `invited` status, not `active` — the owner must transition it to `active` separately
-- `entities.archive` is **author-only** — even club owners cannot archive another member's entity (they can only `entities.redact` it)
+- `clubadmin.memberships.create` creates the membership in `invited` status, not `active` — a club admin must transition it to `active` separately
+- `entities.archive` is **author-only** — even club admins cannot archive another member's entity (they can only `entities.redact` it)
+- All `clubadmin.*` actions require an explicit `clubId` — no scope inference
 
 ### Resolving club IDs
 
@@ -260,9 +264,9 @@ All paths into a club go through the unified admissions model. There are two ori
 
 **Path 1: Member-sponsored (an existing member sponsors an outsider)**
 1. An existing member uses `admissions.sponsor` to recommend the outsider
-2. The club owner reviews via `admissions.list` and advances via `admissions.transition`
+2. A club admin reviews via `clubadmin.admissions.list` and advances via `clubadmin.admissions.transition`
 3. On acceptance, the system auto-creates the member, private contacts, profile, and membership
-4. The owner issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
+4. A club admin issues a bearer token via `clubadmin.admissions.issueAccess` and delivers it out-of-band
 
 **Path 2: Self-applied (self-service, no account needed)**
 The applicant must already know the club slug (e.g. from an invitation link or the club's website).
@@ -270,9 +274,9 @@ The applicant must already know the club slug (e.g. from an invitation link or t
 1. Call `admissions.challenge` with `clubSlug` to get a PoW puzzle
 2. Collect full name, email, socials, and application (free-text response to the club's admission policy)
 3. Solve the PoW and submit via `admissions.apply`
-4. Club owner reviews via `admissions.list` and advances via `admissions.transition`
+4. A club admin reviews via `clubadmin.admissions.list` and advances via `clubadmin.admissions.transition`
 5. On acceptance, the system auto-creates the member, private contacts, profile, and membership
-6. The owner issues a bearer token via `admissions.issueAccess` and delivers it out-of-band
+6. A club admin issues a bearer token via `clubadmin.admissions.issueAccess` and delivers it out-of-band
 
 ---
 
@@ -288,7 +292,7 @@ Treat conversation as the interface. Never expose raw CRUD to the human. Turn pl
 - Keep output concise and high-signal
 - Use club context when composing DMs or posts
 - If a human asks to join a club without a bearer token, guide them through the self-applied admission flow
-- If a club owner asks to review applicants, use the owner-only actions
+- If a club admin asks to review applicants, use the `clubadmin.*` actions (check `isOwner` or `role: 'clubadmin'` in `session.describe`)
 
 ## Club awareness
 
@@ -308,11 +312,13 @@ Entity kinds: `post`, `opportunity`, `service`, `ask`
 
 Event RSVP states: `yes`, `maybe`, `no`, `waitlist`
 
+Membership roles: `clubadmin`, `member`. The club owner's role is always `clubadmin`. Multiple members can be `clubadmin`. `session.describe` returns `isOwner: true` on the ownership membership.
+
 Membership states: `invited`, `pending_review`, `active`, `paused`, `revoked`, `rejected`
 
 Admission statuses: `draft`, `submitted`, `interview_scheduled`, `interview_completed`, `accepted`, `declined`, `withdrawn`
 
-There is no enforced state machine — owners can transition between any statuses freely (e.g. `declined` → `accepted` is allowed). `admissions.issueAccess` requires `accepted` status and can be called multiple times (each call generates a new bearer token).
+There is no enforced state machine — club admins can transition between any statuses freely (e.g. `declined` → `accepted` is allowed). `clubadmin.admissions.issueAccess` requires `accepted` status and can be called multiple times (each call generates a new bearer token).
 
 ## Interaction patterns
 
