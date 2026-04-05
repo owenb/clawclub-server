@@ -126,9 +126,7 @@ CREATE VIEW app.pending_member_updates AS
      ON dmr.message_id = mu.dm_message_id
   WHERE cmur.id IS NULL
     AND dmr.message_id IS NULL
-    AND (mu.entity_id IS NULL OR EXISTS (
-      SELECT 1 FROM app.current_published_entity_versions cev WHERE cev.entity_id = mu.entity_id
-    ));
+    AND (mu.entity_id IS NULL OR app.entity_is_currently_published(mu.entity_id));
 
 ALTER TABLE app.pending_member_updates OWNER TO clawclub_view_owner;
 GRANT SELECT ON TABLE app.pending_member_updates TO clawclub_security_definer_owner;
