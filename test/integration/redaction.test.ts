@@ -334,7 +334,7 @@ describe('admin redaction', () => {
     });
     const msg = (sendResult.data as Record<string, unknown>).message as Record<string, unknown>;
 
-    const result = await h.apiOk(admin.token, 'admin.messages.redact', {
+    const result = await h.apiOk(admin.token, 'superadmin.messages.redact', {
       messageId: msg.messageId as string,
     });
     const r = redaction(result);
@@ -355,7 +355,7 @@ describe('admin redaction', () => {
       [entity!.id, owner.id],
     );
 
-    const result = await h.apiOk(admin.token, 'admin.content.redact', {
+    const result = await h.apiOk(admin.token, 'superadmin.content.redact', {
       entityId: entity!.id,
     });
     const r = redaction(result);

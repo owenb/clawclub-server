@@ -106,7 +106,7 @@ async function assertProvisionedRoleWorks({
     const membershipId = (await client.query<{ id: string }>(
       `
         insert into app.club_memberships (club_id, member_id, role)
-        values ($1, $2, 'owner')
+        values ($1, $2, 'clubadmin')
         returning id
       `,
       [clubId, ownerId],

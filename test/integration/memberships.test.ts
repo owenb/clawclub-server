@@ -27,7 +27,7 @@ describe('membership lifecycle: invited → active → access', () => {
     const member = await h.seedMember('Alice Invited', 'alice-invited');
 
     // Owner creates membership with initialStatus 'invited'
-    const createBody = await h.apiOk(owner.token, 'memberships.create', {
+    const createBody = await h.apiOk(owner.token, 'clubadmin.memberships.create', {
       clubId: owner.club.id,
       memberId: member.id,
       sponsorMemberId: owner.id,
@@ -45,7 +45,8 @@ describe('membership lifecycle: invited → active → access', () => {
     assert.equal(hasClubBefore, false, 'invited member should not see club in activeMemberships');
 
     // Owner transitions to 'active'
-    const transitionBody = await h.apiOk(owner.token, 'memberships.transition', {
+    const transitionBody = await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+      clubId: owner.club.id,
       membershipId: created.membershipId,
       status: 'active',
       reason: 'welcome aboard',
@@ -74,7 +75,7 @@ describe('membership create with active status gives immediate access', () => {
     const owner = await h.seedOwner('immediate-club', 'Immediate Club');
     const member = await h.seedMember('Bob Active', 'bob-active');
 
-    await h.apiOk(owner.token, 'memberships.create', {
+    await h.apiOk(owner.token, 'clubadmin.memberships.create', {
       clubId: owner.club.id,
       memberId: member.id,
       sponsorMemberId: owner.id,
@@ -103,7 +104,8 @@ describe('pausing/removing a membership revokes access', () => {
     assert.equal(hasBefore, true, 'active member should see club before pause');
 
     // Owner pauses the membership
-    await h.apiOk(owner.token, 'memberships.transition', {
+    await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+      clubId: owner.club.id,
       membershipId: clubMember.membership.id,
       status: 'paused',
       reason: 'temporary pause',
@@ -124,7 +126,7 @@ describe('memberships.list and memberships.review work for owners', () => {
     await h.seedClubMember(owner.club.id, 'Dave List', 'dave-list', { sponsorId: owner.id });
     await h.seedClubMember(owner.club.id, 'Eve List', 'eve-list', { sponsorId: owner.id });
 
-    const listBody = await h.apiOk(owner.token, 'memberships.list', {
+    const listBody = await h.apiOk(owner.token, 'clubadmin.memberships.list', {
       clubId: owner.club.id,
       limit: 20,
     });
@@ -142,14 +144,14 @@ describe('memberships.list and memberships.review work for owners', () => {
     const member = await h.seedMember('Frank Review', 'frank-review');
 
     // Create an invited membership so it shows up in review
-    await h.apiOk(owner.token, 'memberships.create', {
+    await h.apiOk(owner.token, 'clubadmin.memberships.create', {
       clubId: owner.club.id,
       memberId: member.id,
       sponsorMemberId: owner.id,
       initialStatus: 'invited',
     });
 
-    const reviewBody = await h.apiOk(owner.token, 'memberships.review', {
+    const reviewBody = await h.apiOk(owner.token, 'clubadmin.memberships.review', {
       clubId: owner.club.id,
       statuses: ['invited'],
     });
@@ -174,7 +176,7 @@ describe('non-owner cannot use owner actions', () => {
       sponsorId: owner.id,
     });
 
-    const err = await h.apiErr(regularMember.token, 'memberships.list', {
+    const err = await h.apiErr(regularMember.token, 'clubadmin.memberships.list', {
       clubId: owner.club.id,
     });
 

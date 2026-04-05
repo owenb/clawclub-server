@@ -233,7 +233,7 @@ export class TestHarness {
     // Owner membership + state
     await this.sql(
       `INSERT INTO app.club_memberships (club_id, member_id, role)
-       VALUES ($1::app.short_id, $2::app.short_id, 'owner') ON CONFLICT (club_id, member_id) DO NOTHING`,
+       VALUES ($1::app.short_id, $2::app.short_id, 'clubadmin') ON CONFLICT (club_id, member_id) DO NOTHING`,
       [clubId, ownerMemberId],
     );
     const membershipRows = await this.sql<{ id: string }>(
@@ -250,8 +250,8 @@ export class TestHarness {
 
     // Club version (needed by current_club_versions view used by superadmin queries)
     await this.sql(
-      `INSERT INTO app.club_versions (club_id, owner_member_id, name, summary, publicly_listed, admission_policy, version_no, created_by_member_id)
-       VALUES ($1::app.short_id, $2::app.short_id, $3, $4, false, null, 1, $2::app.short_id) ON CONFLICT DO NOTHING`,
+      `INSERT INTO app.club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
+       VALUES ($1::app.short_id, $2::app.short_id, $3, $4, null, 1, $2::app.short_id) ON CONFLICT DO NOTHING`,
       [clubId, ownerMemberId, name, `Test club ${slug}`],
     );
 
@@ -286,7 +286,7 @@ export class TestHarness {
     );
 
     // Comped subscription for non-owners with active status
-    if (role !== 'owner' && status === 'active') {
+    if (role !== 'clubadmin' && status === 'active') {
       // Temporarily disable force RLS so superuser can insert
       await this.sql(`ALTER TABLE app.subscriptions DISABLE ROW LEVEL SECURITY`);
       const ownerRows = await this.sql<{ owner_member_id: string }>(

@@ -100,7 +100,7 @@ describe('journey 1: owner-manages outsider admission → full acceptance', () =
     });
 
     // Owner lists admissions — should appear
-    const listBody = await h.apiOk(owner.token, 'admissions.list', { clubId: owner.club.id });
+    const listBody = await h.apiOk(owner.token, 'clubadmin.admissions.list', { clubId: owner.club.id });
     const listed = admissionList(listBody);
     const found = listed.find((a) => a.admissionId === admissionId);
     assert.ok(found, 'Outsider admission should appear in admissions.list');
@@ -113,7 +113,8 @@ describe('journey 1: owner-manages outsider admission → full acceptance', () =
     );
 
     // Transition: submitted → interview_scheduled
-    const afterScheduled = await h.apiOk(owner.token, 'admissions.transition', {
+    const afterScheduled = await h.apiOk(owner.token, 'clubadmin.admissions.transition', {
+      clubId: owner.club.id,
       admissionId,
       status: 'interview_scheduled',
       notes: 'Interview booked for next Tuesday',
@@ -125,7 +126,8 @@ describe('journey 1: owner-manages outsider admission → full acceptance', () =
     );
 
     // Transition: interview_scheduled → interview_completed
-    const afterCompleted = await h.apiOk(owner.token, 'admissions.transition', {
+    const afterCompleted = await h.apiOk(owner.token, 'clubadmin.admissions.transition', {
+      clubId: owner.club.id,
       admissionId,
       status: 'interview_completed',
       notes: 'Great chat',
@@ -137,7 +139,8 @@ describe('journey 1: owner-manages outsider admission → full acceptance', () =
 
     // Transition: interview_completed → accepted
     // On acceptance the system creates a member + membership automatically
-    const afterAccepted = await h.apiOk(owner.token, 'admissions.transition', {
+    const afterAccepted = await h.apiOk(owner.token, 'clubadmin.admissions.transition', {
+      clubId: owner.club.id,
       admissionId,
       status: 'accepted',
       notes: 'Welcome!',
@@ -152,7 +155,7 @@ describe('journey 1: owner-manages outsider admission → full acceptance', () =
     );
 
     // Owner issues access — returns a bearer token
-    const accessBody = await h.apiOk(owner.token, 'admissions.issueAccess', { admissionId });
+    const accessBody = await h.apiOk(owner.token, 'clubadmin.admissions.issueAccess', { clubId: owner.club.id, admissionId });
     const accessData = accessBody.data as Record<string, unknown>;
     assert.ok(
       typeof accessData.bearerToken === 'string' && accessData.bearerToken.length > 0,
@@ -185,7 +188,7 @@ describe('journey 2: member-sponsored outsider admission', () => {
     });
 
     // Owner sees it in admissions.list
-    const listBody = await h.apiOk(owner.token, 'admissions.list', { clubId: owner.club.id });
+    const listBody = await h.apiOk(owner.token, 'clubadmin.admissions.list', { clubId: owner.club.id });
     const found = admissionList(listBody).find((a) => a.admissionId === admissionId);
     assert.ok(found, 'Sponsored admission should appear in owner admissions.list');
     assert.equal(found.origin, 'member_sponsored');
@@ -193,7 +196,8 @@ describe('journey 2: member-sponsored outsider admission', () => {
     assert.equal((found.sponsor as Record<string, unknown>).memberId, sponsor.id);
 
     // Owner accepts
-    const afterAccepted = await h.apiOk(owner.token, 'admissions.transition', {
+    const afterAccepted = await h.apiOk(owner.token, 'clubadmin.admissions.transition', {
+      clubId: owner.club.id,
       admissionId,
       status: 'accepted',
     });
@@ -207,7 +211,7 @@ describe('journey 2: member-sponsored outsider admission', () => {
     );
 
     // Owner issues access
-    const accessBody = await h.apiOk(owner.token, 'admissions.issueAccess', { admissionId });
+    const accessBody = await h.apiOk(owner.token, 'clubadmin.admissions.issueAccess', { clubId: owner.club.id, admissionId });
     const accessData = accessBody.data as Record<string, unknown>;
     assert.ok(
       typeof accessData.bearerToken === 'string' && accessData.bearerToken.length > 0,
@@ -245,7 +249,7 @@ describe('journey 3: admissions.list shows unified view', () => {
     });
 
     // admissions.list should include both
-    const listBody = await h.apiOk(owner.token, 'admissions.list', {
+    const listBody = await h.apiOk(owner.token, 'clubadmin.admissions.list', {
       clubId: owner.club.id,
       limit: 20,
     });
@@ -255,7 +259,7 @@ describe('journey 3: admissions.list shows unified view', () => {
     assert.ok(ids.includes(outsiderId), 'Self-applied outsider admission should be in list');
 
     // Filtering by status works
-    const submittedBody = await h.apiOk(owner.token, 'admissions.list', {
+    const submittedBody = await h.apiOk(owner.token, 'clubadmin.admissions.list', {
       clubId: owner.club.id,
       statuses: ['submitted'],
       limit: 20,
@@ -265,7 +269,7 @@ describe('journey 3: admissions.list shows unified view', () => {
     assert.ok(submittedIds.includes(outsiderId), 'Self-applied (submitted) in submitted filter');
 
     // draft filter returns empty (none are drafts in this club)
-    const draftBody = await h.apiOk(owner.token, 'admissions.list', {
+    const draftBody = await h.apiOk(owner.token, 'clubadmin.admissions.list', {
       clubId: owner.club.id,
       statuses: ['draft'],
       limit: 20,
@@ -285,7 +289,7 @@ describe('journey 4: non-owner cannot use owner admission actions', () => {
       sponsorId: owner.id,
     });
 
-    const err = await h.apiErr(regularMember.token, 'admissions.list', {
+    const err = await h.apiErr(regularMember.token, 'clubadmin.admissions.list', {
       clubId: owner.club.id,
     });
     assert.equal(err.status, 403, `Expected 403 from non-owner admissions.list, got ${err.status}: ${err.code}`);
@@ -305,7 +309,8 @@ describe('journey 4: non-owner cannot use owner admission actions', () => {
 
     // The transition handler checks owner scope and returns 404 when admission is not
     // found within the actor's owned clubs.
-    const err = await h.apiErr(regularMember.token, 'admissions.transition', {
+    const err = await h.apiErr(regularMember.token, 'clubadmin.admissions.transition', {
+      clubId: owner.club.id,
       admissionId,
       status: 'accepted',
     });
@@ -326,7 +331,7 @@ describe('journey 4: non-owner cannot use owner admission actions', () => {
       email: 'oscar.outsider@example.com',
     });
 
-    const err = await h.apiErr(regularMember.token, 'admissions.issueAccess', { admissionId });
+    const err = await h.apiErr(regularMember.token, 'clubadmin.admissions.issueAccess', { clubId: owner.club.id, admissionId });
     assert.equal(err.status, 403, `Expected 403 from non-owner admissions.issueAccess, got ${err.status}: ${err.code}`);
     assert.equal(err.code, 'forbidden');
   });
@@ -336,7 +341,7 @@ describe('journey 4: non-owner cannot use owner admission actions', () => {
     // check, so a missing/null token returns 400 invalid_input rather than 401.
     const owner = await h.seedOwner('auth-unauth-club', 'Auth Unauth Club');
 
-    const err = await h.apiErr(null, 'admissions.list', { clubId: owner.club.id });
+    const err = await h.apiErr(null, 'clubadmin.admissions.list', { clubId: owner.club.id });
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
   });

@@ -183,7 +183,7 @@ describe('entity update fan-out (LLM-gated)', () => {
 
 // ── Admin Content (gated: entities.create as setup) ─────────────────────────
 
-describe('admin.content (LLM-gated)', () => {
+describe('superadmin.content (LLM-gated)', () => {
   it('admin.content.list — lists content across clubs', async () => {
     const admin = await h.seedSuperadmin('Admin Content', 'llm-admin-content-list');
     const ownerCtx = await h.seedOwner('llm-content-list-club', 'LLM Content List Club');
@@ -195,7 +195,7 @@ describe('admin.content (LLM-gated)', () => {
       body: 'By auditing our AWS resource usage and implementing reserved instances for stable workloads, we cut our monthly cloud bill from $8,000 to $4,800. The biggest wins came from right-sizing our RDS instances and moving cold data to S3 Glacier.',
     });
 
-    const result = await h.apiOk(admin.token, 'admin.content.list', {
+    const result = await h.apiOk(admin.token, 'superadmin.content.list', {
       clubId: ownerCtx.club.id,
       limit: 10,
     });
@@ -220,7 +220,7 @@ describe('admin.content (LLM-gated)', () => {
     const entity = createData.entity as Record<string, unknown>;
     const entityId = entity.entityId as string;
 
-    const result = await h.apiOk(admin.token, 'admin.content.archive', { entityId });
+    const result = await h.apiOk(admin.token, 'superadmin.content.archive', { entityId });
     const data = result.data as Record<string, unknown>;
     assert.equal(data.entityId, entityId);
   });

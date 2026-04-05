@@ -21,7 +21,8 @@ describe('smoke', () => {
     const memberships = actor.activeMemberships as Array<Record<string, unknown>>;
     assert.equal(memberships.length, 1);
     assert.equal(memberships[0].slug, 'smokeclub');
-    assert.equal(memberships[0].role, 'owner');
+    assert.equal(memberships[0].role, 'clubadmin');
+    assert.equal(memberships[0].isOwner, true);
   });
 
   it('GET /api/schema returns all actions including superadmin', async () => {
@@ -39,7 +40,7 @@ describe('smoke', () => {
       }>;
     };
     assert.ok(data.version, 'schema should have a version');
-    assert.equal(data.actions.length, 56, 'schema should have all 56 actions');
+    assert.equal(data.actions.length, 58, 'schema should have all 58 actions');
 
     for (const a of data.actions) {
       assert.ok(a.input, `${a.action} should have input schema`);
@@ -58,8 +59,9 @@ describe('smoke', () => {
     // Verify key actions across all auth levels
     assert.ok(names.includes('session.describe'), 'should include session.describe');
     assert.ok(names.includes('entities.create'), 'should include entities.create');
-    assert.ok(names.some(n => n.startsWith('admin.')), 'should include admin.*');
+    assert.ok(names.some(n => n.startsWith('clubadmin.')), 'should include clubadmin.*');
     assert.ok(names.some(n => n.startsWith('superadmin.')), 'should include superadmin.*');
+    assert.ok(!names.some(n => n.startsWith('admin.')), 'should not include admin.*');
 
     // Verify a second call returns identical output (cached, stable)
     const { body: body2 } = await h.getSchema();

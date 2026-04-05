@@ -390,7 +390,7 @@ describe('superadmin.clubs.assignOwner', () => {
     const newMemberships = (newActor.activeMemberships ?? []) as Array<Record<string, unknown>>;
     const newClubMembership = newMemberships.find((m) => m.clubId === oldOwnerCtx.club.id);
     assert.ok(newClubMembership, 'new owner should have membership in the club');
-    assert.equal(newClubMembership!.role, 'owner', 'new owner membership should have owner role');
+    assert.equal(newClubMembership!.role, 'clubadmin', 'new owner membership should have clubadmin role');
 
     // Old owner should still be a member but no longer owner
     const oldOwnerSession = await h.apiOk(oldOwnerCtx.token, 'session.describe', {});
@@ -467,27 +467,6 @@ describe('superadmin.clubs.update', () => {
     });
     const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
     assert.equal(club.summary, null, 'summary should be cleared');
-  });
-
-  it('updates publiclyListed to true', async () => {
-    const admin = await h.seedSuperadmin('Admin PubList', 'admin-pub-list');
-    const owner = await h.seedMember('PubList Owner', 'publist-owner');
-
-    const createResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
-      slug: 'publist-club',
-      name: 'PubList Club',
-      ownerMemberId: owner.id,
-      summary: 'Testing publiclyListed',
-    });
-    const created = (createResult.data as Record<string, unknown>).club as Record<string, unknown>;
-    assert.equal(created.publiclyListed, false, 'should default to false');
-
-    const result = await h.apiOk(admin.token, 'superadmin.clubs.update', {
-      clubId: created.clubId as string,
-      publiclyListed: true,
-    });
-    const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
-    assert.equal(club.publiclyListed, true);
   });
 
   it('updates admissionPolicy', async () => {
@@ -720,13 +699,13 @@ describe('superadmin.members.get', () => {
   });
 });
 
-describe('admin.clubs.stats', () => {
+describe('clubadmin.clubs.stats', () => {
   it('returns club stats with member counts', async () => {
     const admin = await h.seedSuperadmin('Admin Stats', 'admin-clubs-stats');
     const ownerCtx = await h.seedOwner('stats-club', 'Stats Club');
     await h.seedClubMember(ownerCtx.club.id, 'Stats Member', 'stats-club-member', { sponsorId: ownerCtx.id });
 
-    const result = await h.apiOk(admin.token, 'admin.clubs.stats', { clubId: ownerCtx.club.id });
+    const result = await h.apiOk(admin.token, 'clubadmin.clubs.stats', { clubId: ownerCtx.club.id });
     const data = result.data as Record<string, unknown>;
     const stats = data.stats as Record<string, unknown>;
     assert.equal(stats.clubId, ownerCtx.club.id);
@@ -738,42 +717,50 @@ describe('admin.clubs.stats', () => {
 
   it('rejects missing clubId', async () => {
     const admin = await h.seedSuperadmin('Admin StatsNoId', 'admin-stats-no-id');
-    const err = await h.apiErr(admin.token, 'admin.clubs.stats', {});
+    const err = await h.apiErr(admin.token, 'clubadmin.clubs.stats', {});
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
   });
 
   it('returns 404 for non-existent club', async () => {
     const admin = await h.seedSuperadmin('Admin StatsGhost', 'admin-stats-ghost');
-    const err = await h.apiErr(admin.token, 'admin.clubs.stats', { clubId: 'nonexistent-club' });
+    const err = await h.apiErr(admin.token, 'clubadmin.clubs.stats', { clubId: 'nonexistent-club' });
     assert.equal(err.status, 404);
   });
 
-  it('non-superadmin cannot access club stats', async () => {
+  it('regular member cannot access club stats', async () => {
     const ownerCtx = await h.seedOwner('stats-auth-club', 'Stats Auth Club');
-    const err = await h.apiErr(ownerCtx.token, 'admin.clubs.stats', { clubId: ownerCtx.club.id });
+    const member = await h.seedClubMember(ownerCtx.club.id, 'Stats Regular', 'stats-regular-member', { sponsorId: ownerCtx.id });
+    const err = await h.apiErr(member.token, 'clubadmin.clubs.stats', { clubId: ownerCtx.club.id });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
+
+  it('club owner can access club stats', async () => {
+    const ownerCtx = await h.seedOwner('stats-owner-club', 'Stats Owner Club');
+    const result = await h.apiOk(ownerCtx.token, 'clubadmin.clubs.stats', { clubId: ownerCtx.club.id });
+    const stats = (result.data as Record<string, unknown>).stats as Record<string, unknown>;
+    assert.equal(stats.clubId, ownerCtx.club.id);
+  });
 });
 
-describe('admin.content.list', () => {
+describe('superadmin.content.list', () => {
   it('lists content across clubs', async () => {
     const admin = await h.seedSuperadmin('Admin Content', 'admin-content-list');
 
-    const result = await h.apiOk(admin.token, 'admin.content.list', { limit: 10 });
+    const result = await h.apiOk(admin.token, 'superadmin.content.list', { limit: 10 });
     const data = result.data as Record<string, unknown>;
     assert.ok(Array.isArray(data.content));
   });
 
   it('non-superadmin cannot list admin content', async () => {
     const member = await h.seedMember('Regular Content', 'regular-content-list');
-    const err = await h.apiErr(member.token, 'admin.content.list', { limit: 10 });
+    const err = await h.apiErr(member.token, 'superadmin.content.list', { limit: 10 });
     assert.equal(err.status, 403);
   });
 });
 
-describe('admin.content.archive', () => {
+describe('superadmin.content.archive', () => {
   it('archives an entity via SQL-seeded content', async () => {
     const admin = await h.seedSuperadmin('Admin ArchiveEntity', 'admin-archive-entity');
     const ownerCtx = await h.seedOwner('archive-content-club', 'Archive Content Club');
@@ -788,44 +775,44 @@ describe('admin.content.archive', () => {
       [entity!.id, ownerCtx.id],
     );
 
-    const result = await h.apiOk(admin.token, 'admin.content.archive', { entityId: entity!.id });
+    const result = await h.apiOk(admin.token, 'superadmin.content.archive', { entityId: entity!.id });
     const data = result.data as Record<string, unknown>;
     assert.equal(data.entityId, entity!.id);
   });
 
   it('returns 404 for non-existent entity', async () => {
     const admin = await h.seedSuperadmin('Admin ArchiveGhost', 'admin-archive-ghost-entity');
-    const err = await h.apiErr(admin.token, 'admin.content.archive', { entityId: 'nonexistent-entity-id' });
+    const err = await h.apiErr(admin.token, 'superadmin.content.archive', { entityId: 'nonexistent-entity-id' });
     assert.equal(err.status, 404);
     assert.equal(err.code, 'not_found');
   });
 
   it('non-superadmin cannot archive content as admin', async () => {
     const member = await h.seedMember('Regular Archive', 'regular-archive-content');
-    const err = await h.apiErr(member.token, 'admin.content.archive', { entityId: 'fake-id' });
+    const err = await h.apiErr(member.token, 'superadmin.content.archive', { entityId: 'fake-id' });
     assert.equal(err.status, 403);
   });
 });
 
-describe('admin.content.redact', () => {
+describe('superadmin.content.redact', () => {
   it('non-superadmin cannot redact content as admin', async () => {
     const member = await h.seedMember('Regular Redact', 'regular-redact-content');
-    const err = await h.apiErr(member.token, 'admin.content.redact', { entityId: 'fake-id' });
+    const err = await h.apiErr(member.token, 'superadmin.content.redact', { entityId: 'fake-id' });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
 });
 
-describe('admin.messages.redact', () => {
+describe('superadmin.messages.redact', () => {
   it('non-superadmin cannot redact messages as admin', async () => {
     const member = await h.seedMember('Regular MsgRedact', 'regular-redact-message');
-    const err = await h.apiErr(member.token, 'admin.messages.redact', { messageId: 'fake-id' });
+    const err = await h.apiErr(member.token, 'superadmin.messages.redact', { messageId: 'fake-id' });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
 });
 
-describe('admin.messages.threads', () => {
+describe('superadmin.messages.threads', () => {
   it('lists threads across all clubs', async () => {
     const admin = await h.seedSuperadmin('Admin Threads', 'admin-msg-threads');
     const ownerCtx = await h.seedOwner('threads-club', 'Threads Club');
@@ -837,7 +824,7 @@ describe('admin.messages.threads', () => {
       messageText: 'Hello threads test!',
     });
 
-    const result = await h.apiOk(admin.token, 'admin.messages.threads', {
+    const result = await h.apiOk(admin.token, 'superadmin.messages.threads', {
       clubId: ownerCtx.club.id,
       limit: 10,
     });
@@ -852,12 +839,12 @@ describe('admin.messages.threads', () => {
 
   it('non-superadmin cannot list admin threads', async () => {
     const member = await h.seedMember('Regular Threads', 'regular-threads');
-    const err = await h.apiErr(member.token, 'admin.messages.threads', { limit: 10 });
+    const err = await h.apiErr(member.token, 'superadmin.messages.threads', { limit: 10 });
     assert.equal(err.status, 403);
   });
 });
 
-describe('admin.messages.read', () => {
+describe('superadmin.messages.read', () => {
   it('reads any thread', async () => {
     const admin = await h.seedSuperadmin('Admin Read Thread', 'admin-msg-read');
     const ownerCtx = await h.seedOwner('read-thread-club', 'Read Thread Club');
@@ -872,7 +859,7 @@ describe('admin.messages.read', () => {
     const msg = sendData.message as Record<string, unknown>;
     const threadId = msg.threadId as string;
 
-    const result = await h.apiOk(admin.token, 'admin.messages.read', { threadId });
+    const result = await h.apiOk(admin.token, 'superadmin.messages.read', { threadId });
     const data = result.data as Record<string, unknown>;
     const thread = data.thread as Record<string, unknown>;
     assert.equal(thread.threadId, threadId);
@@ -884,24 +871,24 @@ describe('admin.messages.read', () => {
 
   it('returns 404 for non-existent thread', async () => {
     const admin = await h.seedSuperadmin('Admin ReadGhost', 'admin-read-ghost-thread');
-    const err = await h.apiErr(admin.token, 'admin.messages.read', { threadId: 'nonexistent-thread-id' });
+    const err = await h.apiErr(admin.token, 'superadmin.messages.read', { threadId: 'nonexistent-thread-id' });
     assert.equal(err.status, 404);
     assert.equal(err.code, 'not_found');
   });
 
   it('non-superadmin cannot read admin threads', async () => {
     const member = await h.seedMember('Regular Read', 'regular-read-thread');
-    const err = await h.apiErr(member.token, 'admin.messages.read', { threadId: 'fake-thread-id' });
+    const err = await h.apiErr(member.token, 'superadmin.messages.read', { threadId: 'fake-thread-id' });
     assert.equal(err.status, 403);
   });
 });
 
-describe('admin.tokens.list', () => {
+describe('superadmin.tokens.list', () => {
   it('lists tokens for any member', async () => {
     const admin = await h.seedSuperadmin('Admin Token List', 'admin-tokens-list');
     const member = await h.seedMember('Token Listed Member', 'token-listed-member');
 
-    const result = await h.apiOk(admin.token, 'admin.tokens.list', { memberId: member.id });
+    const result = await h.apiOk(admin.token, 'superadmin.tokens.list', { memberId: member.id });
     const data = result.data as Record<string, unknown>;
     const tokens = data.tokens as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(tokens));
@@ -912,7 +899,7 @@ describe('admin.tokens.list', () => {
 
   it('rejects missing memberId', async () => {
     const admin = await h.seedSuperadmin('Admin TokenNoId', 'admin-tokens-no-id');
-    const err = await h.apiErr(admin.token, 'admin.tokens.list', {});
+    const err = await h.apiErr(admin.token, 'superadmin.tokens.list', {});
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
   });
@@ -920,23 +907,23 @@ describe('admin.tokens.list', () => {
   it('non-superadmin cannot list other members tokens', async () => {
     const member = await h.seedMember('Regular Tokens', 'regular-tokens-list');
     const target = await h.seedMember('Target Tokens', 'target-tokens-list');
-    const err = await h.apiErr(member.token, 'admin.tokens.list', { memberId: target.id });
+    const err = await h.apiErr(member.token, 'superadmin.tokens.list', { memberId: target.id });
     assert.equal(err.status, 403);
   });
 });
 
-describe('admin.tokens.revoke', () => {
+describe('superadmin.tokens.revoke', () => {
   it('revokes any member token', async () => {
     const admin = await h.seedSuperadmin('Admin Revoke Token', 'admin-tokens-revoke');
     const member = await h.seedMember('Revoke Target Member', 'revoke-target-member');
 
-    const listResult = await h.apiOk(admin.token, 'admin.tokens.list', { memberId: member.id });
+    const listResult = await h.apiOk(admin.token, 'superadmin.tokens.list', { memberId: member.id });
     const listData = listResult.data as Record<string, unknown>;
     const tokens = listData.tokens as Array<Record<string, unknown>>;
     const tokenId = tokens[0]?.tokenId as string;
     assert.ok(tokenId, 'member should have at least one token');
 
-    const result = await h.apiOk(admin.token, 'admin.tokens.revoke', {
+    const result = await h.apiOk(admin.token, 'superadmin.tokens.revoke', {
       memberId: member.id,
       tokenId,
     });
@@ -953,7 +940,7 @@ describe('admin.tokens.revoke', () => {
   it('non-superadmin cannot revoke other members tokens', async () => {
     const member = await h.seedMember('Regular Revoke', 'regular-revoke-tokens');
     const target = await h.seedMember('Revoke Target', 'revoke-target-tokens');
-    const err = await h.apiErr(member.token, 'admin.tokens.revoke', {
+    const err = await h.apiErr(member.token, 'superadmin.tokens.revoke', {
       memberId: target.id,
       tokenId: 'fake-token-id',
     });
@@ -1096,15 +1083,15 @@ describe('platform authorization', () => {
       ['superadmin.overview', {}],
       ['superadmin.members.list', { limit: 1 }],
       ['superadmin.members.get', { memberId: 'x' }],
-      ['admin.clubs.stats', { clubId: 'x' }],
-      ['admin.content.list', { limit: 1 }],
-      ['admin.content.archive', { entityId: 'x' }],
-      ['admin.content.redact', { entityId: 'x' }],
-      ['admin.messages.threads', { limit: 1 }],
-      ['admin.messages.read', { threadId: 'x' }],
-      ['admin.messages.redact', { messageId: 'x' }],
-      ['admin.tokens.list', { memberId: 'x' }],
-      ['admin.tokens.revoke', { memberId: 'x', tokenId: 'x' }],
+      ['clubadmin.clubs.stats', { clubId: 'x' }],
+      ['superadmin.content.list', { limit: 1 }],
+      ['superadmin.content.archive', { entityId: 'x' }],
+      ['superadmin.content.redact', { entityId: 'x' }],
+      ['superadmin.messages.threads', { limit: 1 }],
+      ['superadmin.messages.read', { threadId: 'x' }],
+      ['superadmin.messages.redact', { messageId: 'x' }],
+      ['superadmin.tokens.list', { memberId: 'x' }],
+      ['superadmin.tokens.revoke', { memberId: 'x', tokenId: 'x' }],
       ['superadmin.diagnostics.health', {}],
     ] as const;
 
