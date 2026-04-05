@@ -17,13 +17,12 @@ CREATE TABLE app.dm_message_removals (
   removed_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE ONLY app.dm_message_removals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ONLY app.dm_message_removals FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY dm_message_removals_insert_actor ON app.dm_message_removals
   FOR INSERT WITH CHECK (
     (removed_by_member_id)::text = (app.current_actor_member_id())::text
-    OR app.current_actor_is_superadmin()
-    OR app.actor_is_club_admin(club_id)
   );
 
 CREATE POLICY dm_message_removals_select_club_scope ON app.dm_message_removals
@@ -74,13 +73,28 @@ CREATE POLICY entity_versions_insert_club_admin_removal ON app.entity_versions
 
 -- ── 4. Migrate existing entity redactions → removal versions ────────────────────
 
-INSERT INTO app.entity_versions (entity_id, version_no, state, reason, effective_at, content, supersedes_version_id, created_by_member_id)
+INSERT INTO app.entity_versions (
+  entity_id, version_no, state, reason, effective_at,
+  title, summary, body, location, starts_at, ends_at, timezone,
+  recurrence_rule, capacity, expires_at, content,
+  supersedes_version_id, created_by_member_id
+)
 SELECT
   e.id,
   cev.version_no + 1,
   'removed',
   r.reason,
   r.created_at,
+  cev.title,
+  cev.summary,
+  cev.body,
+  cev.location,
+  cev.starts_at,
+  cev.ends_at,
+  cev.timezone,
+  cev.recurrence_rule,
+  cev.capacity,
+  cev.expires_at,
   cev.content,
   cev.id,
   r.created_by_member_id
@@ -299,7 +313,25 @@ AS $$
     WHERE ev.id = p_version_id;
 $$;
 
--- ── 10. Drop app.redactions ─────────────────────────────────────────────────────
+-- ── 10. Allow club admins to insert club_activity and member_updates ────────────
+-- Without these, clubadmin/superadmin removal notifications are blocked by RLS
+-- because actor_has_club_access() requires a live membership, which superadmins
+-- may not have. actor_is_club_admin() handles the superadmin bypass.
+
+CREATE POLICY club_activity_insert_club_admin ON app.club_activity
+  FOR INSERT
+  WITH CHECK (
+    app.actor_is_club_admin(club_id)
+    AND (created_by_member_id)::text = (app.current_actor_member_id())::text
+  );
+
+CREATE POLICY member_updates_insert_club_admin ON app.member_updates
+  FOR INSERT WITH CHECK (
+    (created_by_member_id)::text = (app.current_actor_member_id())::text
+    AND app.actor_is_club_admin(club_id)
+  );
+
+-- ── 11. Drop app.redactions ─────────────────────────────────────────────────────
 
 DROP POLICY IF EXISTS redactions_insert_actor ON app.redactions;
 DROP POLICY IF EXISTS redactions_select_club_scope ON app.redactions;

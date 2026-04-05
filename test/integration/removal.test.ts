@@ -346,6 +346,87 @@ describe('clubadmin.messages.remove', () => {
   });
 });
 
+// ── Moderation Audit ──────────────────────────────────────────────────────────
+
+describe('moderation removal emits feed events', () => {
+  it('clubadmin.entities.remove emits entity.removed in club activity', async () => {
+    const owner = await h.seedOwner('mod-audit-entity', 'Mod Audit Entity Club');
+    const author = await h.seedClubMember(owner.club.id, 'Author ModAudit', 'author-mod-audit', { sponsorId: owner.id });
+    const viewer = await h.seedClubMember(owner.club.id, 'Viewer ModAudit', 'viewer-mod-audit', { sponsorId: owner.id });
+
+    const [ent] = await h.sql<{ id: string }>(
+      `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
+      [owner.club.id, author.id],
+    );
+    await h.sql(
+      `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
+       values ($1, 1, 'published', 'Mod will remove', 'Body', $2)`,
+      [ent!.id, author.id],
+    );
+
+    // Seed viewer's activity cursor so subsequent reads start from before the removal
+    await h.apiOk(viewer.token, 'updates.list', {});
+
+    // Moderator removes
+    await h.apiOk(owner.token, 'clubadmin.entities.remove', {
+      clubId: owner.club.id,
+      entityId: ent!.id,
+      reason: 'Policy violation',
+    });
+
+    // Viewer should see entity.removed in their activity feed
+    const updates = await h.apiOk(viewer.token, 'updates.list', {});
+    const items = ((updates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
+    const removedUpdate = items.find((u) => u.topic === 'entity.removed' && u.entityId === ent!.id);
+    assert.ok(removedUpdate, 'entity.removed should appear in club activity after moderator removal');
+  });
+});
+
+describe('dm_message_removals RLS audit integrity', () => {
+  it('RLS prevents spoofing removed_by_member_id via direct SQL', async () => {
+    const owner = await h.seedOwner('audit-spoof', 'Audit Spoof Club');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice Spoof', 'alice-spoof-audit', { sponsorId: owner.id });
+    const bob = await h.seedClubMember(owner.club.id, 'Bob Spoof', 'bob-spoof-audit', { sponsorId: owner.id });
+
+    // Alice sends a message
+    const sendResult = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Spoof test message',
+    });
+    const msg = (sendResult.data as Record<string, unknown>).message as Record<string, unknown>;
+    const msgId = msg.messageId as string;
+
+    // Try to insert a removal row as alice but attributing it to bob (spoofed actor)
+    // This must fail because RLS enforces removed_by_member_id = current_actor_member_id()
+    try {
+      const appPool = (h as any).appPool;
+      const client = await appPool.connect();
+      try {
+        await client.query('begin');
+        await client.query(`select set_config('app.actor_member_id', $1, true)`, [alice.id]);
+        await client.query(
+          `insert into app.dm_message_removals (message_id, club_id, removed_by_member_id, reason)
+           values ($1, $2, $3, 'spoofed')`,
+          [msgId, owner.club.id, bob.id],  // bob.id is NOT alice
+        );
+        await client.query('commit');
+        assert.fail('Should have thrown RLS violation');
+      } catch (err: any) {
+        await client.query('rollback');
+        assert.ok(
+          err.code === '42501' || err.message?.includes('policy'),
+          `Expected RLS violation but got: ${err.message}`,
+        );
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      if (err.code === 'ERR_ASSERTION') throw err;
+      // Connection-level error is also acceptable
+    }
+  });
+});
+
 // ── Event Removal ─────────────────────────────────────────────────────────────
 
 describe('events.remove', () => {

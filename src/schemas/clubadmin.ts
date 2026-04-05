@@ -643,7 +643,6 @@ const clubadminEntitiesRemove: ActionDefinition = {
       entityId,
       reason,
       skipAuthCheck: true,
-      skipNotification: true,
     });
 
     if (!entity) {
@@ -697,7 +696,6 @@ const clubadminEventsRemove: ActionDefinition = {
       entityId,
       reason,
       skipAuthCheck: true,
-      skipNotification: true,
     });
 
     if (!event) {
@@ -751,7 +749,6 @@ const clubadminMessagesRemove: ActionDefinition = {
       messageId,
       reason,
       skipAuthCheck: true,
-      skipNotification: true,
     });
 
     if (!result) {
