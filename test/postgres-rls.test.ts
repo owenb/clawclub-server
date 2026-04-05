@@ -136,12 +136,12 @@ async function seedRlsFixture(client: PoolClient) {
     `
       insert into app.club_versions (
         club_id, owner_member_id, name, summary,
-        publicly_listed, admission_policy,
+        admission_policy,
         version_no, created_by_member_id
       )
       values
-        ($1, $2, $5, 'RLS test club one', false, null, 1, $2),
-        ($3, $4, $6, 'RLS test club two', false, null, 1, $4)
+        ($1, $2, $5, 'RLS test club one', null, 1, $2),
+        ($3, $4, $6, 'RLS test club two', null, 1, $4)
     `,
     [club1Id, ownerId, club2Id, outsiderId, `Club One ${suffix}`, `Club Two ${suffix}`],
   );
@@ -149,7 +149,7 @@ async function seedRlsFixture(client: PoolClient) {
   const ownerMembershipId = (await client.query<{ id: string }>(
     `
       insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, accepted_covenant_at)
-      values ($1, $2, 'owner', null, now())
+      values ($1, $2, 'clubadmin', null, now())
       returning id
     `,
     [club1Id, ownerId],
@@ -203,7 +203,7 @@ async function seedRlsFixture(client: PoolClient) {
   const outsiderMembershipId = (await client.query<{ id: string }>(
     `
       insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, accepted_covenant_at)
-      values ($1, $2, 'owner', null, now())
+      values ($1, $2, 'clubadmin', null, now())
       returning id
     `,
     [club2Id, outsiderId],
@@ -455,7 +455,7 @@ test('RLS only lets owners or superadmins insert club memberships, and blocks di
     const blockedUpdate = await client.query<{ id: string }>(
       `
         update app.club_memberships
-        set role = 'owner'
+        set role = 'clubadmin'
         where id = $1
         returning id
       `,
@@ -582,19 +582,8 @@ test('RLS keeps admission challenge tables inaccessible and only permits the adm
     );
     await client.query('rollback to savepoint bad_cold_challenge_insert');
 
-    // Security definer: list admission-eligible clubs
-    const eligibleClubs = await client.query<{ slug: string }>(
-      `select slug from app.list_admission_eligible_clubs()`,
-    );
-
-    // Security definer: get a specific admission-eligible club
-    const eligibleClub = await client.query<{ club_id: string }>(
-      `select club_id from app.get_admission_eligible_club($1)`,
-      [fixture.club1Slug],
-    );
-
     // Security definer: create a challenge bound to a club (new 7-param signature)
-    const clubId = eligibleClub.rows[0]?.club_id ?? fixture.club1Id;
+    const clubId = fixture.club1Id;
     const createdChallenge = await client.query<{ challenge_id: string }>(
       `select challenge_id from app.create_admission_challenge($1, $2, $3, $4, $5, $6, $7)`,
       [1, 60 * 60 * 1000, clubId, 'Test policy', 'Test Club', 'A test club', 'Owner'],
@@ -618,11 +607,6 @@ test('RLS keeps admission challenge tables inaccessible and only permits the adm
       [createdChallenge.rows[0]?.challenge_id],
     );
 
-    // Security definer function can list publicly listed clubs (unchanged)
-    const publicClubs = await client.query<{ slug: string }>(
-      `select slug from app.list_publicly_listed_clubs()`,
-    );
-
     // Security definer: count admission attempts (should be 0)
     const attemptCount = await client.query<{ count_admission_attempts: number }>(
       `select app.count_admission_attempts($1) as count_admission_attempts`,
@@ -633,12 +617,6 @@ test('RLS keeps admission challenge tables inaccessible and only permits the adm
     await client.query(
       `select app.record_admission_attempt($1, $2, $3, $4, $5, $6::jsonb, $7::app.quality_gate_status, $8, $9)`,
       [createdChallenge.rows[0]?.challenge_id, clubId, 1, 'Test Applicant', 'test@example.com', '{"socials":"@test","application":"testing"}', 'rejected', 'Missing city.', 'Test policy'],
-    );
-
-    // Security definer: check club admission eligible
-    const clubEligible = await client.query<{ eligible: boolean }>(
-      `select eligible from app.check_club_admission_eligible($1)`,
-      [clubId],
     );
 
     // Security definer function consumes the challenge and creates an admission (new 4-param signature)
@@ -666,10 +644,7 @@ test('RLS keeps admission challenge tables inaccessible and only permits the adm
     assert.equal(visibleChallenge.rows[0]?.challenge_id, createdChallenge.rows[0]?.challenge_id);
     assert.equal(visibleChallenge.rows[0]?.difficulty, 1);
     assert.equal(visibleChallenge.rows[0]?.club_id, clubId);
-    assert.ok(publicClubs.rows.length >= 0);
-    assert.ok(eligibleClubs.rows.length >= 0);
     assert.equal(attemptCount.rows[0]?.count_admission_attempts, 0);
-    assert.ok(typeof clubEligible.rows[0]?.eligible === 'boolean');
     assert.equal(hiddenInsertedApplication.rows[0]?.visible_count, '0');
     assert.equal(hiddenAttempts.rows[0]?.visible_count, '0');
   });

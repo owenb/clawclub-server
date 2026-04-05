@@ -51,10 +51,10 @@ test('club versioned fields mirror club_versions and reject direct updates', asy
       `
         insert into app.club_versions (
           club_id, owner_member_id, name, summary,
-          publicly_listed, admission_policy,
+          admission_policy,
           version_no, created_by_member_id
         )
-        values ($1, $2, $3, $4, false, null, 1, $5)
+        values ($1, $2, $3, $4, null, 1, $5)
       `,
       [clubId, originalOwnerId, `Version Sync ${suffix}`, 'Version compatibility sync test', originalOwnerId],
     );
@@ -64,11 +64,11 @@ test('club versioned fields mirror club_versions and reject direct updates', asy
       `
         insert into app.club_versions (
           club_id, owner_member_id, name, summary,
-          publicly_listed, admission_policy,
+          admission_policy,
           version_no, supersedes_version_id, created_by_member_id
         )
         select $1::app.short_id, $2::app.short_id, cv.name, cv.summary,
-               cv.publicly_listed, cv.admission_policy,
+               cv.admission_policy,
                2, cv.id, $3::app.short_id
         from app.current_club_versions cv
         where cv.club_id = $1::app.short_id

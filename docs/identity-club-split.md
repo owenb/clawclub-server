@@ -1,8 +1,25 @@
-# Identity / Club Database Split
+# Identity / Messaging / Club Database Split
 
-Physical separation of the single ClawClub Postgres database into two: an **Identity Database** (the platform control plane) and a **Club Database** (the first content shard). Logical replication from identity to club gives each shard read access to platform data. RLS removed from both databases. Club routing table from day one.
+Physical separation of the single ClawClub Postgres database into three logical Postgres databases:
 
-This is a committed architectural decision.
+1. **Identity DB**: platform control plane
+2. **Messaging DB**: person-to-person and support messaging
+3. **Club DB**: first club-content shard
+
+All three can live on the same physical server at launch. Later they can move independently.
+
+This is a greenfield design. There is no legacy migration constraint. Build the target shape directly.
+
+## Committed decisions
+
+- RLS is removed from all databases
+- polling is the only delivery mechanism at launch
+- `/updates` is the authoritative catch-up path
+- messaging threads are not club-scoped
+- the messaging plane is generic, not DM-only
+- club notifications live in `club_activity`, not in a separate per-recipient club inbox
+- no backwards-compatibility shims are required
+- idempotency keys are supported on all retry-sensitive mutation actions
 
 ---
 
@@ -10,565 +27,855 @@ This is a committed architectural decision.
 
 Read these files before reviewing:
 
-- `docs/horizontal-scaling-plan.md` — the 6-tier scaling vision. This split implements Tiers 3-5.
-- `src/postgres.ts` — repository composition, auth flow (`readActorByMemberId`), `applyActorContext`.
-- `src/contract.ts` — the `Repository` interface (does not change).
-- `src/dispatch.ts` — authorization helpers (`requireAccessibleClub`, `requireMembershipOwner`, `requireSuperadmin`). These already enforce access control before queries run.
-- `db/migrations/0001_init.sql` — the core schema, RLS policies (being removed), security definer functions (being removed), views, triggers.
-- `src/postgres/membership.ts` — admissions, memberships, vouches.
-- `src/postgres/platform.ts` — club CRUD, owner assignment (joins members + private contacts for owner display).
-- `src/postgres/profile.ts` — profile reads/writes.
-- `src/postgres/messages.ts` — DM threads/messages (joins members for counterpart display, filters `m.state = 'active'`).
+- `src/postgres.ts`
+- `src/contract.ts`
+- `src/dispatch.ts`
+- `src/postgres/messages.ts`
+- `src/postgres/updates.ts`
+- `src/server.ts`
+- `db/migrations/0001_init.sql`
+- `db/migrations/0062_rename_transcripts_to_dm_and_add_redactions.sql`
+- `db/migrations/0074_club_activity.sql`
 
-Focus your review on: table assignments, replication scope, saga correctness, and whether removing RLS leaves any authorization gap.
+`docs/horizontal-scaling-plan.md` is superseded by this document for the relevant tiers.
+
+Focus the review on:
+
+- table ownership
+- cross-plane authorization
+- polling updates fan-in
+- replication scope
+- whether any remaining contract still incorrectly assumes messaging threads are club-scoped
 
 ---
 
 ## Architecture
 
-The identity DB is the **platform control plane**. It is the source of truth for who exists, which clubs exist, and who belongs to which club. It never shards.
+### Identity DB
 
-The club DB is the **first content shard**. It stores all club-scoped activity: content, messages, events, admissions, activity streams. When a shard fills up, clone the schema and route new clubs to the new shard.
+The identity DB is the control plane. It owns:
 
-**Logical replication** (Postgres native, identity → club) gives each shard a read-only copy of platform data. Club queries JOIN replicated tables directly — virtually unchanged from today. Writes go to the canonical source.
+- members
+- auth tokens
+- clubs
+- memberships
+- subscriptions
+- club routing
+- member profiles and member search
 
-**No RLS** on either database. Application-layer authorization (`dispatch.ts`) is the single source of truth. This makes the club data layer storage-agnostic (could move to ScyllaDB/CockroachDB later if write throughput demands it).
+It never shards.
+
+### Messaging DB
+
+The messaging DB is a separate messaging plane. It owns conversation threads, messages, inbox state, receipts, and redactions.
+
+Day one it supports direct member-to-member threads. The schema must also support future support conversations with multiple operators. That is why this is the **messaging** plane, not a DM-specific plane.
+
+It is not keyed by club.
+
+### Club DB
+
+The club DB is the first content shard. It owns:
+
+- entities
+- events and RSVPs
+- admissions
+- vouches and other club graph edges
+- club activity
+- quotas
+- entity embeddings
+
+When shard 1 fills up, clone the schema and route some clubs to shard 2.
+
+### Clean boundary
+
+- Identity owns people, clubs, memberships, and routing
+- Messaging owns conversation threads and personal inbox state
+- Club shards own club content and club activity
+
+That is the hard boundary worth getting right now.
 
 ---
 
-## Why Split Now
+## Relationship to `horizontal-scaling-plan.md`
 
-1. **Two connection pools make cross-plane coupling a compile-time error.** You cannot accidentally write a cross-plane JOIN.
-2. **The club DB becomes the shard template.** Every future shard has the same schema, same replication subscription.
-3. **The cost is near-zero.** Both databases on the same Postgres instance. Same host, same backup.
-4. **The cost of not splitting grows daily.** Every new query, table, or feature is another potential coupling.
+This document replaces `docs/horizontal-scaling-plan.md` for the architecture described here.
+
+The old plan kept direct messaging and canonical club truth together on the club data plane. This plan makes a different choice:
+
+- identity keeps canonical club and membership truth
+- messaging moves to its own plane
+- club shards become pure club-content storage
+
+That is not a refinement. It is a replacement.
+
+---
+
+## Why Split This Way
+
+1. Three connection pools make cross-plane joins impossible by accident.
+2. Messaging consistency gets simpler because direct-thread creation no longer depends on replicated club membership checks inside club storage.
+3. Club shards stay about club activity, not conversations.
+4. Identity remains the place where shared-club authorization is checked.
+5. Polling updates can still present one unified feed without collapsing storage boundaries.
+
+---
 
 ## Why Remove RLS
 
-1. **Authorization is already in dispatch.ts.** `requireAccessibleClub`, `requireMembershipOwner`, `requireSuperadmin` run before any query.
-2. **RLS ties the club plane to Postgres.** Without it, club shards are storage-agnostic.
-3. **RLS complicates every shard.** Session variables, security definer functions, policy chains — multiplied by shard count.
-4. **RLS was the main obstacle to splitting.** Without it, the split is straightforward.
-5. **All or nothing.** Having RLS on one database and not the other creates two mental models. We either use it everywhere or nowhere.
+1. We want one authorization model.
+2. RLS multiplies complexity across multiple databases and future shards.
+3. Without RLS, each plane can evolve independently.
+4. Mixed mode is worse than either all-RLS or no-RLS.
 
-## The Trade-Off: Authorization Gaps Must Be Filled
+This requires explicit app-layer authorization helpers before implementation.
 
-`dispatch.ts` has club/owner/superadmin gates but three access checks are currently only in RLS:
+---
 
-1. **Member visibility** — `actor_can_access_member()`: self, superadmin, shared club, owner visibility into pending members, admissions-related access. Five paths.
-2. **Thread privacy** — `actor_can_access_thread()`: actor must be thread participant.
-3. **Private contact access** — `member_private_contacts` RLS: self or superadmin only.
+## Current Auth Model
 
-These must be built as explicit application-level functions **before** RLS removal. This is a prerequisite, not a follow-up.
+The role system to preserve:
+
+- membership roles: `'clubadmin' | 'member'`
+- owner is `isOwner: boolean`, not a role
+- dispatch helpers: `requireAccessibleClub`, `requireClubAdmin`, `requireClubOwner`, `requireSuperadmin`
+- action auth levels: `'none' | 'member' | 'clubadmin' | 'superadmin'`
+- `accessible_club_memberships` includes clubadmins without subscriptions
+
+This role model carries through to the split unchanged.
+
+---
+
+## Authorization Helpers To Build
+
+New functions in `src/authorization.ts`:
+
+| Function | Purpose | Database |
+|----------|---------|----------|
+| `canAccessMember(actor, targetMemberId)` | Self, superadmin, shared club, clubadmin/owner visibility into pending members, admissions-related access | Identity |
+| `canAccessPrivateContacts(actor, targetMemberId)` | Self or superadmin only | Identity |
+| `canStartDirectThread(actor, recipientMemberId)` | Shared-club or superadmin check for creating a new direct thread | Identity |
+| `canAccessMessagingThread(actor, threadId)` | Actor is a participant in the thread | Messaging |
+| `listCurrentSharedClubs(actor, counterpartMemberIds[])` | Read-time enrichment for direct threads only | Identity |
+
+Policy choice:
+
+- starting a new direct thread is membership-aware
+- reading and replying to an existing thread is participant-only
+
+That matches the product model: conversations are person-to-person once created.
+
+---
+
+## Backwards Compatibility
+
+None required. There are no production users. No legacy contract preservation, no migration-compatibility work, no backwards-compatible cursor formats.
 
 ---
 
 ## Table Assignments
 
-### Identity Database (Control Plane)
+### Identity DB
 
-The platform's source of truth. Knows who exists, which clubs exist, and who belongs where.
+Canonical control-plane tables:
 
 | Table | Purpose |
 |-------|---------|
-| `members` | Core identity: id, handle, public_name, state |
-| `member_bearer_tokens` | API authentication tokens |
-| `member_global_role_versions` | Superadmin role tracking |
-| `member_private_contacts` | Private emails (**not replicated** — sensitive data stays identity-only) |
-| `member_profile_versions` | Profiles + full-text search vector |
+| `members` | Core identity |
+| `member_bearer_tokens` | API auth tokens |
+| `member_global_role_versions` | Superadmin roles |
+| `member_private_contacts` | Private emails |
+| `member_profile_versions` | Member profiles and search vector |
 | `clubs` | Club definitions and settings |
-| `club_owner_versions` | Ownership change history |
-| `club_memberships` | Member ↔ Club relationships |
-| `club_membership_state_versions` | Membership state transition history |
+| `club_owner_versions` | Ownership history |
+| `club_memberships` | Member-to-club relationships |
+| `club_membership_state_versions` | Membership state history |
 | `subscriptions` | Billing/subscription records |
-| `club_routing` | Shard routing: club_id → shard_id (NEW — day one, all set to 1) |
-| `embeddings_member_profile_artifacts` | Profile vector embeddings |
+| `club_routing` | `club_id -> shard_id` |
+| `embeddings_member_profile_artifacts` | Profile vectors |
 | `embeddings_jobs` | Profile embedding job queue |
 
+Required addition:
+
+- `club_memberships.source_admission_id` nullable with `UNIQUE (source_admission_id) WHERE source_admission_id IS NOT NULL`
+
 Views:
-- `current_member_profiles`, `current_member_global_roles`
-- `current_club_memberships` → `active_club_memberships` → `accessible_club_memberships`
-- `current_club_owners`, `current_club_membership_states`
 
-Characteristics:
-- Small. Bounded by member count and club count, not activity volume.
-- One-hop auth. Token validation + member identity + global roles + memberships + club metadata — all in one query.
-- Never shards. Single Postgres instance + read replicas.
-- **No RLS.**
+- `current_member_profiles`
+- `current_member_global_roles`
+- `current_club_memberships`
+- `active_club_memberships`
+- `accessible_club_memberships`
+- `current_club_owners`
+- `current_club_membership_states`
 
-### Club Database (First Content Shard)
+### Messaging DB
 
-Club-scoped activity data. This is the shard template.
-
-**Canonical tables (owned by this shard):**
+Canonical messaging tables:
 
 | Table | Purpose |
 |-------|---------|
-| `entities` + `entity_versions` | Content: posts, asks, opportunities, services, events, comments |
-| `event_rsvps` | Event attendance |
-| `edges` | Vouches and relationship graph |
-| `dm_threads` + `dm_messages` | Direct messaging |
-| `redactions` | Content moderation records |
-| `club_activity` + `club_activity_cursors` | Activity stream |
-| `member_updates` + `member_update_receipts` | Targeted inbox |
-| `admissions` + `admission_versions` | Application workflow |
-| `admission_challenges` + `admission_attempts` | Cold application challenges + quality gate log |
-| `club_quota_policies` | Per-club write rate limits |
-| `embeddings_entity_artifacts` | Entity vector embeddings |
-| `embeddings_jobs` | Entity embedding job queue |
-| `llm_usage_log` | LLM gate audit trail |
+| `messaging_threads` | Conversation threads |
+| `messaging_thread_participants` | Participants in each thread |
+| `messaging_messages` | Messages inside threads |
+| `messaging_inbox_entries` | Per-recipient messaging inbox items |
+| `messaging_inbox_receipts` | Messaging receipt / ack state |
+| `messaging_redactions` | Messaging moderation records |
 
-**Replicated tables (read-only, from identity DB via logical replication):**
+Replicated from identity:
 
 | Table | Why replicated |
 |-------|---------------|
-| `members` | Display name JOINs (message senders, entity authors, RSVP attendees), `state = 'active'` filtering |
-| `member_profile_versions` | Rich profile data for `members.list`, FTS via `search_vector`, member search |
-| `clubs` | Club metadata in content queries (name, slug, summary) |
-| `club_memberships` | Membership-based content queries, access views |
-| `club_membership_state_versions` | Membership state in views |
-| `subscriptions` | Subscription status in access views |
-| `club_owner_versions` | Ownership checks |
-| `embeddings_member_profile_artifacts` | Member semantic search (embedding similarity) |
+| `members` | Counterpart display names and `state = 'active'` checks |
 
-Views (local, defined in club DB over replicated + local data):
-- `current_member_profiles` — same definition as today
-- `current_club_memberships` → `accessible_club_memberships` — same definitions
-- `current_entity_versions` → `live_entities` — over local entity data
-- `current_event_rsvps`, `current_admissions`, `pending_member_updates` — same
+### Club DB
 
-Characteristics:
-- Large, fast-growing. Bounded by activity volume.
-- Write-heavy (content creation, messages, activity).
-- Club queries are virtually unchanged — they JOIN the same table names.
-- **No RLS, no session variables, no security definer functions.**
-- This is the shard template. Adding shard 2 = clone schema + set up replication subscription.
+Canonical club-content tables:
 
-### Why Memberships Live in the Identity Database
+| Table | Purpose |
+|-------|---------|
+| `entities` + `entity_versions` | Posts, asks, services, opportunities, events, comments |
+| `event_rsvps` | Attendance |
+| `edges` | Vouches and relationship graph |
+| `admissions` + `admission_versions` | Application workflow |
+| `admission_challenges` + `admission_attempts` | Cold application gate |
+| `club_activity` + `club_activity_cursors` | Club-wide activity stream |
+| `redactions` | Club/entity moderation records |
+| `club_quota_policies` | Per-club quotas |
+| `embeddings_entity_artifacts` | Entity vectors |
+| `embeddings_jobs` | Entity embedding queue |
+| `llm_usage_log` | Audit trail |
 
-1. **One-hop auth.** The identity DB has everything needed for `AuthResult`: token, member, roles, memberships, club metadata. No second database round-trip on every request.
-2. **Member visibility is identity-local.** `canAccessMember()` checks shared clubs — all in identity DB.
-3. **Membership transitions are single-DB.** No saga needed for state changes, subscription updates, or owner transfers.
-4. **Cross-club reads are identity-local.** "What clubs am I in?" and "What's my role everywhere?" don't touch any shard.
-5. **Sharding is cleaner.** The control plane knows the full membership graph. Shards just store content. No "which shard has this membership?" problem.
+Replicated from identity:
 
-The trade-off: admission acceptance becomes a two-database saga (identity creates member + membership, club updates admission status). This is a low-frequency, owner-initiated action.
+| Table | Why replicated |
+|-------|---------------|
+| `members` | Author/attendee display names and active-state checks |
+| `clubs` | Club metadata |
+| `club_memberships` | Membership-based content rules |
+| `club_membership_state_versions` | Membership state views |
+| `subscriptions` | Access views |
+| `club_owner_versions` | Owner checks |
+
+### Explicit non-goal
+
+There is **no** club-side per-recipient inbox at launch.
+
+Club notifications are modeled as `club_activity` rows with audience filtering, not as per-recipient fanout rows.
+
+### Foreign keys across boundaries
+
+One rule everywhere:
+
+**No FK constraints from plane-owned tables to replicated tables or to another plane’s canonical tables.**
+
+Cross-plane references are soft references. Local FKs inside one database remain normal.
+
+---
+
+## Messaging Model
+
+### Messaging is generic
+
+This plane is not “DM-only”.
+
+Launch thread kind:
+
+- `direct`
+
+Planned future thread kind:
+
+- `support`
+
+The schema must support both without redesigning the plane.
+
+### Direct thread identity
+
+For `kind = 'direct'`, enforce one active thread per normalized member pair:
+
+```sql
+unique (
+  kind,
+  least(member_a_id, member_b_id),
+  greatest(member_a_id, member_b_id)
+)
+where kind = 'direct' and archived_at is null
+```
+
+Implementation detail: the normalized pair can live directly on `messaging_threads`, while the full participant set lives in `messaging_thread_participants`.
+
+### Support threads
+
+Support threads are not pair-unique and can have multiple operator participants. They are a future use case, but the primitive should not rule them out.
+
+### No club scope in messaging
+
+- no `club_id` on messaging threads
+- no `club_id` on messaging messages
+- `messages.send` stops accepting `clubId`
+
+If two members share multiple clubs, that does not create multiple direct threads.
+
+### Direct thread authorization
+
+To create a new direct thread:
+
+- actor and recipient must currently share at least one accessible club, or
+- actor is superadmin
+
+Checked in Identity DB.
+
+To read or reply in an existing messaging thread:
+
+- actor must be a participant
+
+Checked in Messaging DB.
+
+### Shared clubs on read
+
+For direct threads only, current shared clubs are calculated on read from Identity DB and returned as enrichment. They are not part of thread identity or routing.
+
+### Send semantics
+
+Messaging send must be idempotent from the client’s perspective.
+
+- `messages.send` accepts `clientMessageId`
+- uniqueness is enforced in Messaging DB
+- retry returns the existing message instead of creating a duplicate
+
+---
+
+## Idempotency
+
+Each retry-sensitive mutation has one canonical anchor row. Downstream side effects are derived idempotently from that anchor.
+
+| Action | Anchor table | Downstream rows |
+|--------|-------------|-----------------|
+| `messages.send` | `messaging_messages` | messaging inbox entry |
+| `entities.create` | `entities` | `entity_versions`, `club_activity`, `embeddings_jobs` |
+| `events.create` | `entities` | `entity_versions`, `club_activity`, `embeddings_jobs` |
+| `events.rsvp` | `event_rsvps` | `club_activity` |
+| `vouches.create` | `edges` | — |
+| `admissions.apply` | `admissions` | `admission_versions`, `admission_attempts` |
+| `admissions.sponsor` | `admissions` | `admission_versions` |
+| admission acceptance | `club_memberships` | `club_membership_state_versions`, `subscriptions`, club-side admission update |
+
+Natural actor-scoped unique indexes:
+
+| Anchor table | Unique index |
+|-------------|-------------|
+| `messaging_messages` | `UNIQUE (sender_member_id, client_key) WHERE client_key IS NOT NULL` |
+| `entities` | `UNIQUE (author_member_id, client_key) WHERE client_key IS NOT NULL` |
+| `event_rsvps` | `UNIQUE (created_by_member_id, client_key) WHERE client_key IS NOT NULL` |
+| `edges` | `UNIQUE (created_by_member_id, client_key) WHERE client_key IS NOT NULL` |
+| `admissions` apply | `UNIQUE (applicant_email, client_key) WHERE client_key IS NOT NULL` |
+| `admissions` sponsor | `UNIQUE (sponsor_member_id, client_key) WHERE client_key IS NOT NULL` |
+
+Admission acceptance saga:
+
+- anchor is `club_memberships`
+- `source_admission_id` is the durable cross-plane lookup key
+- retry checks `SELECT id FROM club_memberships WHERE source_admission_id = $1`
+- if found, skip step 1 and retry only the club-side admission update
 
 ---
 
 ## Logical Replication
 
-Postgres logical replication streams row-level changes (INSERT/UPDATE/DELETE) from publisher to subscriber in near-real-time.
+### Topology
 
-### Setup
-
+```text
+Identity DB (publisher) ──replication──▶ Messaging DB (subscriber)
+Identity DB (publisher) ──replication──▶ Club DB shard N (subscriber)
 ```
-Identity DB (publisher) ──replication──▶ Club DB (subscriber)
-```
 
-One-directional. Identity publishes; each club shard subscribes. No bidirectional replication.
+Identity publishes. Other planes subscribe.
 
-### What it replaces
+### What Messaging DB replicates
 
-- **`member_directory` table** — eliminated. Club queries JOIN the replicated `members` table directly.
-- **Dual-write sync code** — eliminated. No application code for keeping projections in sync.
-- **Batched identity enrichment** — eliminated. Club DB has full `member_profile_versions` locally.
-- **"Member directory is too thin" problem** — eliminated. The full table is replicated.
-- **Two-step member search** — eliminated. FTS and embedding search run locally in the club DB.
+- `members` only
 
-### What it doesn't replicate
+### What Club DB replicates
 
-- **`member_private_contacts`** — sensitive data. Email stays identity-only. If a superadmin needs an email, the application queries identity DB directly.
-- **`member_bearer_tokens`** — tokens are identity-only. No reason for shards to see them.
-- **`member_global_role_versions`** — superadmin status is determined during auth (identity DB). Shards don't need it.
-- **`club_routing`** — routing is application-level, not replicated.
-- **`embeddings_jobs`** — each DB has its own job queue.
+- `members`
+- `clubs`
+- `club_memberships`
+- `club_membership_state_versions`
+- `subscriptions`
+- `club_owner_versions`
 
-### Replication lag
+### What is never replicated
 
-Sub-second on the same host, low seconds across hosts. This affects display freshness, not access control:
-- Access decisions use the auth result (from identity DB — always fresh).
-- Club queries use replicated data for JOINs (display names, profile data). A just-updated profile might show stale data for a fraction of a second.
-- A just-created membership won't appear in club-side member listings for a brief moment. Acceptable.
+- `member_private_contacts`
+- `member_bearer_tokens`
+- `member_global_role_versions`
+- `member_profile_versions`
+- `embeddings_member_profile_artifacts`
+- `club_routing`
+
+### Lag and correctness
+
+Not affected:
+
+- auth
+- member visibility checks
+- direct-thread creation
+- reading or replying in existing messaging threads
+
+Affected:
+
+- display freshness on replicated `members`
+- some club-side reads over replicated membership state
+
+That is acceptable eventual consistency.
+
+### Migration ordering
+
+For replicated tables:
+
+1. migrate subscriber first
+2. migrate publisher second
+
+That rule applies to both identity -> messaging and identity -> club replication.
 
 ---
 
-## Authentication Flow
+## Authentication and Routing
 
-### Current (single database)
+Identity DB remains the one-hop auth query:
 
-```
+```text
 Bearer token
-  → authenticate_member_bearer_token(tokenId, secretHash)
-  → readActorByMemberId()  [members + global_roles + club_memberships + clubs + subscriptions]
-  → AuthResult { actor, requestScope, sharedContext }
+  -> authenticate member token
+  -> read actor, roles, memberships, subscriptions, club routing
+  -> AuthResult
 ```
 
-### After split
+Routing rules:
 
-```
-Identity DB (single query, virtually unchanged):
-  → Validate bearer token → member_id
-  ��� readActorByMemberId()  [same tables, same query, all in identity DB now]
-  → AuthResult { actor, requestScope, sharedContext }
-```
+- club-scoped actions route by `club_routing`
+- messaging actions route to Messaging DB
+- identity actions stay on Identity DB
 
-**One hop.** The auth query barely changes. It joins members, global roles, accessible memberships, and clubs — all now in the identity DB. The existing `readActorByMemberId` function in `postgres.ts:122-158` works against the identity pool with minimal modification.
+If messaging shards later, messaging routes by a messaging-specific directory, not by `club_routing`.
 
 ---
 
-## What Happens to RLS Infrastructure
+## Updates: Polling-Only Launch Design
 
-**Removed entirely:** All `ENABLE ROW LEVEL SECURITY`, `FORCE ROW LEVEL SECURITY`, ~60 `CREATE POLICY` statements, session variable functions (`current_actor_member_id`, `current_actor_is_superadmin`), RLS helper functions (`actor_has_club_access`, `actor_is_club_owner`, `actor_can_access_member`, `actor_can_access_thread`, `membership_belongs_to_current_actor`), `applyActorContext()` in `postgres.ts`, special DB roles (`clawclub_security_definer_owner`, `clawclub_cold_application_owner`, `clawclub_view_owner`).
+### Core decision
 
-**Kept:** Sync triggers (`sync_club_membership_compatibility_state`, `sync_club_owner_compatibility_state` — use `NEW` row data, not session vars). Search vector trigger. NOTIFY triggers (for SSE). `lock_club_membership_mutation()` trigger guard (uses `app.allow_club_membership_state_sync` session var — not RLS-related, stays in identity DB with club_memberships).
+**Polling is the only delivery mechanism at launch.**
 
-**Simplified to regular functions:** `authenticate_member_bearer_token()`, `create_member_from_admission()`, `create_comped_subscription()`, `membership_has_live_subscription()`, admission challenge functions, `count_member_writes_today()`, `entity_is_currently_published()`, etc. No SECURITY DEFINER needed without RLS.
+- no SSE
+- no WebSocket
+- no Centrifugo
+- no LISTEN/NOTIFY
 
-**`withActorContext` becomes `withTransaction`** — a plain transaction helper with no session variable setup.
+Clients poll `GET /updates?after=<cursor>` at adaptive intervals.
 
----
+### What `/updates` contains
 
-## Application-Layer Authorization
+`/updates` merges two source types:
 
-New functions in `src/authorization.ts`, called from repository methods:
+1. **Messaging inbox** from Messaging DB
+2. **Club activity** from relevant club shard(s)
 
-| Function | Replaces | Logic |
-|----------|----------|-------|
-| `canAccessMember(actor, targetMemberId, identityPool)` | `actor_can_access_member()` | Self, superadmin, shared club, owner visibility, admissions-related. All checked against identity DB (memberships are local). |
-| `canAccessThread(actor, threadId, clubPool)` | `actor_can_access_thread()` | Actor is `created_by_member_id` or `counterpart_member_id` on thread, and has club access. |
-| `canAccessPrivateContacts(actor, targetMemberId)` | `member_private_contacts` RLS | Self or superadmin only. |
+There is no third club-private inbox source.
 
-Note: `canAccessMember` queries the identity DB (where memberships live). `canAccessThread` queries the club DB (where threads live). Both are called from repository methods before querying sensitive data.
+### Club activity audiences
+
+`club_activity` needs an audience field. Use something like:
+
+- `members`
+- `clubadmins`
+- `owners`
+
+Examples:
+
+- `entity.version.published` -> `members`
+- `admission.submitted` -> `clubadmins`
+- `membership.activated` -> `clubadmins` or `members`, depending product choice
+
+So yes: new admissions submitted are visible through `/updates`, but only to clubadmins/owners.
+
+### Adaptive polling intervals
+
+| Context | Interval |
+|---------|----------|
+| active direct conversation | 5-10 seconds |
+| browsing a club | 15-30 seconds |
+| idle / background | 60 seconds |
+| immediately after own action | immediate poll |
+
+### Fast-path for “nothing new”
+
+The vast majority of polls return empty. This should be near-free.
+
+Conservative fast-path checks:
+
+```sql
+-- Any new club activity since cursor?
+SELECT EXISTS (
+  SELECT 1
+  FROM club_activity
+  WHERE club_id = ANY($1)
+    AND seq > $2
+) AS has_new_activity;
+
+-- Any unread messaging inbox items?
+SELECT EXISTS (
+  SELECT 1
+  FROM messaging_inbox_entries
+  WHERE recipient_member_id = $1
+    AND acknowledged = false
+) AS has_new_messages;
+```
+
+If both are false, return empty immediately.
+
+This fast-path can produce false positives for admin-only club activity rows a non-admin cannot see. That is acceptable. It must not produce false negatives.
+
+### Indexes
+
+Required indexes:
+
+| Table | Index | Purpose |
+|-------|-------|---------|
+| `club_activity` | `(club_id, seq)` | “anything new since seq X in clubs Y?” |
+| `messaging_inbox_entries` | `(recipient_member_id) WHERE acknowledged = false` | unread messaging inbox check |
+| `club_activity_cursors` | `(member_id, club_id)` PK | activity seed lookup |
+
+### Cursor design
+
+The cursor is per-source and opaque:
+
+```json
+{
+  "v": 2,
+  "messaging": { "inbox": 88 },
+  "clubs": {
+    "1": { "activity": 1204 },
+    "2": { "activity": 77 }
+  }
+}
+```
+
+The client carries the cursor.
+
+### Cursor storage
+
+Server-side persistence is only needed for seeding club activity when there is no client cursor:
+
+| Table | Database | Purpose |
+|-------|----------|---------|
+| `club_activity_cursors(member_id, club_id, last_seq)` | Club DB | seed position for club activity |
+
+Messaging inbox does **not** use a server-side seed cursor. It is receipt-driven: return all pending unacknowledged inbox entries.
+
+### Update payload shape
+
+`PendingUpdate` should change to:
+
+- `plane: 'messaging' | 'club' | 'identity'`
+- `sourceKey` or equivalent routing metadata
+- nullable `clubId`
+
+Messaging updates have no `clubId`. Club activity does.
+
+### Acknowledgements
+
+At launch, acknowledgements matter only for messaging inbox items.
+
+Club activity is cursor-driven, not receipt-driven.
+
+So `updates.acknowledge` either:
+
+- only acknowledges `plane = 'messaging'`, or
+- remains source-aware but only messaging items currently use it
+
+### Ordering policy
+
+Do not promise a global total order across databases.
+
+Promise only:
+
+- each source is internally ordered
+- cursors are monotonic per source
+- reconnects do not lose items
+- merged order is stable with deterministic tie-breaks
+
+### Future option: Centrifugo
+
+If polling latency later becomes unacceptable for human chat, Centrifugo is the recommended transport-layer upgrade.
+
+That does not change database ownership, thread identity, or `/updates` semantics. It only changes freshness delivery.
 
 ---
 
 ## Cross-Plane Operations
 
-### Most operations are now single-database
+### Single-database operations
 
-With memberships in identity DB and replication giving club DB read access to platform data, most operations are single-database:
+| Operation | Database |
+|-----------|----------|
+| Auth | Identity |
+| Profile read/update | Identity |
+| Token CRUD | Identity |
+| Membership transitions | Identity |
+| Club creation | Identity |
+| Club owner assignment | Identity |
+| Member listing and search | Identity |
+| Entity CRUD | Club |
+| Event CRUD / RSVP | Club |
+| Messaging read/list | Messaging + identity enrichment |
+| Messaging send | Identity auth + Messaging write |
 
-| Operation | Database | Notes |
-|-----------|----------|-------|
-| Auth | Identity | One hop, unchanged query |
-| Profile read/update | Identity | Profiles are identity-owned |
-| Token CRUD | Identity | Tokens are identity-owned |
-| Membership transition | Identity | Memberships are identity-owned |
-| Club creation | Identity | Club + owner membership in one transaction |
-| Club owner assignment | Identity | Club ownership + membership changes in one transaction |
-| Member search (FTS/embedding) | Club (replicated data) | Full profiles + search_vector available locally |
-| Entity CRUD | Club | Content is club-owned |
-| Message send/read | Club | Messages are club-owned |
-| Event CRUD/RSVP | Club | Events are club-owned |
-| Activity/updates stream | Club | Streams are club-owned |
-| Cold admission (challenge/apply) | Club | Admissions are club-owned |
+### Multi-database operations
 
-### Admission acceptance (the one saga)
+| Operation | Databases |
+|-----------|-----------|
+| `updates.list` | Messaging + club shard(s) |
+| admission acceptance | Identity + club shard |
+| admin overview | Identity + club shard(s) + Messaging |
 
-When a cold applicant is accepted:
+### Admission acceptance
 
-1. **Identity DB (single transaction):** Create member via `create_member_from_admission()` (if outsider). Create `club_membership` + `club_membership_state_version` + comped `subscription`.
-2. **Club DB (single transaction):** Update `admission_versions` status to `accepted`. Link `membership_id` on the admission record.
+This remains the main saga:
 
-**Failure modes:**
-- Step 1 fails: nothing happened. Retry.
-- Step 2 fails after step 1 succeeds: **member has club access but admission still shows pending.** This is confusing for the club owner but not harmful — the member can access the club, the admission just shows wrong status. The retry must be explicit and idempotent: check if membership already exists for this admission before retrying step 1, then retry step 2 unconditionally (UPDATE is idempotent on status).
+1. identity transaction creates member if needed, membership, state version, subscription
+2. club transaction marks admission accepted
 
-For sponsored admissions where `applicant_member_id` is already set, step 1 skips member creation — just creates the membership.
-
-### Admin queries
-
-`adminGetOverview` counts members (identity) and entities (club). Two queries, combined in application. Low-frequency.
-
----
-
-## Embedding Workers
-
-One worker per database:
-
-- **Identity embedding worker:** Connects to identity DB. Processes profile embedding jobs. Reads profile text, calls OpenAI, writes to `embeddings_member_profile_artifacts`.
-- **Club embedding worker (per shard):** Connects to one club DB. Processes entity embedding jobs. Reads entity text, calls OpenAI, writes to `embeddings_entity_artifacts`.
-
-For now: two workers total (one identity, one club). When shard 2 is added, spin up another club worker. Identity worker stays singular.
-
-Each database has its own `embeddings_jobs` table. `profile.update` enqueues profile jobs in the identity DB transaction. Entity create/update enqueues entity jobs in the club DB transaction. No cross-database job enqueueing.
+That is acceptable because it is low-frequency and owner-initiated.
 
 ---
 
 ## Operational Concerns
 
-### Migration coordination for replicated tables
-
-Logical replication replicates DML (data changes) but **not DDL (schema changes)**. When you add a column to `members` in the identity DB, you must also add it to the replica table in the club DB.
-
-**Required ordering:** Apply the schema change to the subscriber (club DB) **first**, then the publisher (identity DB). If the publisher gets the column first, it starts replicating data for a column the subscriber doesn't have, and replication breaks.
-
-This is a new discipline. Today: one migration directory, one `migrate.sh` run. After: two migration directories, and changes to replicated tables need careful sequencing. Document this in a REPLICATION.md or similar.
-
-### Replication monitoring
-
-- **WAL growth:** If the club DB goes down or the replication slot falls behind, the identity DB's WAL grows unboundedly. Need alerting on replication lag and slot size.
-- **Slot cleanup:** If a shard is permanently removed, its replication slot must be dropped from the identity DB or WAL will never be reclaimed.
-
-### Don't replicate `member_private_contacts`
-
-Emails are sensitive. The club DB should never have them, even as a read-only replica. Club-side functions that need owner display info use the replicated `members` table for `public_name`. If a superadmin needs an email, the application queries identity DB directly.
+- monitor replication lag and slot size
+- drop dead replication slots when subscribers are removed
+- `member_private_contacts` never leaves Identity DB
+- do not introduce any real-time stack on day one
 
 ---
 
-## Connection Management
+## Connection Management and Repository Shape
 
-### Two pools in `server.ts`
+### Pools
 
 ```typescript
-const identityPool = new Pool({
-    connectionString: process.env.IDENTITY_DATABASE_URL,
-    max: parseInt(process.env.IDENTITY_DB_POOL_MAX ?? '10'),
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
-});
-
-const clubPool = new Pool({
-    connectionString: process.env.CLUB_DATABASE_URL,
-    max: parseInt(process.env.DB_POOL_MAX ?? '20'),
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
-});
+const identityPool = new Pool({ connectionString: process.env.IDENTITY_DATABASE_URL });
+const messagingPool = new Pool({ connectionString: process.env.MESSAGING_DATABASE_URL });
+const clubPools = new Map<number, Pool>([
+  [1, new Pool({ connectionString: process.env.CLUB_DATABASE_URL })],
+]);
 ```
 
-### Repository architecture
+### Repository layout
 
 ```typescript
-export function createSplitRepository({ identityPool, clubPool }): Repository {
-    return {
-        authenticateBearerToken: async (bearerToken) => {
-            // Identity DB only — one hop
-        },
-        // Identity-plane repos
-        ...buildTokenRepository({ pool: identityPool }),
-        ...buildProfileRepository({ pool: identityPool }),
-        ...buildMembershipRepository({ pool: identityPool, clubPool }),
-        ...buildPlatformRepository({ pool: identityPool }),
-        // Club-plane repos
-        ...buildEntitiesRepository({ pool: clubPool }),
-        ...buildEventsRepository({ pool: clubPool }),
-        ...buildMessagesRepository({ pool: clubPool }),
-        ...buildUpdatesRepository({ pool: clubPool }),
-        ...buildRedactionsRepository({ pool: clubPool }),
-        ...buildQuotaRepository({ pool: clubPool }),
-        // Both pools
-        ...buildAdminRepository({ identityPool, clubPool }),
-        ...buildEmbeddingsRepository({ identityPool, clubPool }),
-    };
+export function createSplitRepository({
+  identityPool,
+  messagingPool,
+  clubPools,
+}): Repository {
+  return {
+    authenticateBearerToken: async (bearerToken) => {
+      // identity only
+    },
+
+    ...buildTokenRepository({ pool: identityPool }),
+    ...buildProfileRepository({ pool: identityPool }),
+    ...buildMembershipRepository({ pool: identityPool, clubPools }),
+    ...buildPlatformRepository({ pool: identityPool }),
+
+    ...buildMessagingRepository({ messagingPool, identityPool }),
+    ...buildMessagingRedactionsRepository({ pool: messagingPool }),
+
+    ...buildEntitiesRepository({ clubPools }),
+    ...buildEventsRepository({ clubPools }),
+    ...buildClubRedactionsRepository({ clubPools }),
+    ...buildQuotaRepository({ clubPools }),
+
+    ...buildUpdatesRepository({ identityPool, messagingPool, clubPools }),
+    ...buildAdminRepository({ identityPool, messagingPool, clubPools }),
+    ...buildEmbeddingsRepository({ identityPool, clubPools }),
+  };
 }
 ```
 
-The `Repository` interface in `contract.ts` does not change. `dispatch.ts` does not change. The split is invisible above the repository layer.
+### Contract cleanup
 
-### SSE streaming
-
-`MemberUpdateNotifier` uses `LISTEN/NOTIFY` on the club DB (where `member_updates` and `club_activity` live). No change.
-
----
-
-## Migration System
-
-### Two migration directories
-
-```
-db/migrations/identity/   ← identity DB (platform tables + replication publication)
-db/migrations/clubs/      ← club DB (content tables + replication subscription)
-```
-
-**Critical rule for replicated tables:** Schema changes to replicated tables must be applied to the subscriber (club DB) **before** the publisher (identity DB). See "Operational Concerns" above.
-
-### Scripts
-
-- `scripts/migrate-identity.sh` — runs identity migrations
-- `scripts/migrate-clubs.sh` — runs club migrations
-- `scripts/provision-app-role.sh` — simplified (no RLS roles), runs against both DBs
-- `scripts/setup-replication.sh` — NEW: creates publication on identity DB, subscription on club DB
-
-### Foreign keys across the boundary
-
-Club tables that reference `members(id)` or `clubs(id)` can still use FK constraints — because the replicated tables exist locally in the club DB. The FK points to the local replica, not across databases.
-
-However, the replica tables are read-only. If a foreign key has `ON DELETE CASCADE`, the cascade would need to originate from the identity DB (which owns the canonical data). Replica-side cascades don't apply. In practice: don't rely on cross-boundary cascades. Use application-level cleanup.
+- remove `clubId` from `messages.send`
+- remove required `clubId` from direct-thread responses
+- make update `clubId` nullable
+- add plane/source metadata to updates
 
 ---
 
-## Local Development
+## Migration System and Local Development
+
+Migration directories:
+
+```text
+db/migrations/identity/
+db/migrations/messaging/
+db/migrations/clubs/
+```
+
+Scripts:
+
+- `scripts/migrate-identity.sh`
+- `scripts/migrate-messaging.sh`
+- `scripts/migrate-clubs.sh`
+- `scripts/setup-replication.sh`
+
+Local env:
 
 ```bash
 IDENTITY_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_identity_dev"
+MESSAGING_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_messaging_dev"
 CLUB_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_clubs_dev"
 ```
-
-Both on the same Postgres instance. Logical replication works between databases on the same instance.
-
-### Setup script
-
-```bash
-# Create databases
-psql -h localhost -d postgres \
-  -c "DROP DATABASE IF EXISTS clawclub_identity_dev;" \
-  -c "DROP DATABASE IF EXISTS clawclub_clubs_dev;" \
-  -c "CREATE DATABASE clawclub_identity_dev;" \
-  -c "CREATE DATABASE clawclub_clubs_dev;"
-
-# Run migrations
-./scripts/migrate-identity.sh
-./scripts/migrate-clubs.sh
-
-# Provision app role on both
-CLAWCLUB_DB_APP_PASSWORD="localdev" DATABASE_URL="postgresql://localhost/clawclub_identity_dev" ./scripts/provision-app-role.sh
-CLAWCLUB_DB_APP_PASSWORD="localdev" DATABASE_URL="postgresql://localhost/clawclub_clubs_dev" ./scripts/provision-app-role.sh
-
-# Set up replication
-./scripts/setup-replication.sh
-
-# Seed + create tokens
-```
-
-### Test harness
-
-Creates `clawclub_test_identity` and `clawclub_test_clubs`. Sets up replication between them. Same create/migrate/teardown lifecycle, doubled.
 
 ---
 
 ## Path to Multi-Shard
 
-### Day one: Identity DB + Club Shard 1
+Day one:
 
-Both on same Postgres instance. `club_routing` table exists with all clubs mapped to `shard_id = 1`. Replication proven working.
+- one Identity DB
+- one Messaging DB
+- club shard 1
 
-### When growth hits
+Club scaling:
 
-1. **Read replicas** for identity DB (auth offloading).
-2. **PgBouncer** for club shard (connection pooling).
-3. **Partitioning** on large club tables (member_updates, club_activity).
+1. add read replicas for identity
+2. add PgBouncer where needed
+3. partition large club tables if necessary
+4. add club shard 2
+5. update `club_routing`
 
-### Adding shard 2
+Messaging scaling:
 
-1. Spin up new Postgres instance with club schema.
-2. Set up replication subscription from identity DB.
-3. Move clubs from shard 1 to shard 2 (pg_dump per club, delete from shard 1).
-4. Update `club_routing`.
-5. Application reads `club_routing` (cached) and routes club-scoped requests to the right pool.
+Do **not** shard Messaging DB day one.
 
-Each shard gets the same identity replication — the full membership graph, all member profiles, all club metadata. This is small relative to content volume.
+If messaging volume later requires sharding, introduce:
 
-### Cross-club projections (later)
+- `messaging_thread_directory(thread_id, kind, shard_id, status)`
+- `messaging_inbox_index(member_id, thread_id, shard_id, last_message_at, unread_count)`
 
-The identity DB already has the full membership graph. Cross-club reads ("what events are happening tonight across my clubs?") query identity DB for the member's clubs + routing, then fan out to relevant shards for content. Projection tables on the identity DB can cache cross-club summaries.
+Then route by messaging shard, not by club.
 
 ---
 
-## What NOT to Do
+## What Not To Do
 
-- **Don't add Redis.** Not needed for the split. Separate concern (Tier 2).
-- **Don't build cross-club projection pipeline.** That's Tier 6.
-- **Don't use `postgres_fdw`.** Logical replication is simpler and faster.
-- **Don't replicate `member_private_contacts`.** Emails stay identity-only.
-- **Don't do bidirectional replication.** One direction: identity → club shards.
-- **Don't worry about SSE fleet topology.** That's orthogonal to the data split.
+- do not put `club_id` onto messaging threads/messages
+- do not route messaging by club
+- do not build SSE or WebSocket on day one
+- do not create a separate per-recipient club inbox unless a concrete product use case appears
+- do not promise a global total order across databases
+- do not replicate `member_private_contacts`
+- do not use bidirectional replication
 
 ---
 
 ## Full Implementation Surface
 
-### SQL helper functions
+### SQL and schema
 
-**Move to identity DB (as regular functions):**
-- `authenticate_member_bearer_token()`, `create_member_from_admission()`, `get_member_public_contact()`, `member_is_active()`, `resolve_active_member_id_by_handle()`, `issue_admission_access()`, `create_comped_subscription()`, `membership_has_live_subscription()`, `lock_club_membership_mutation()` (trigger), `sync_club_membership_compatibility_state()` (trigger)
+- identity tables stay in Identity DB
+- messaging tables stay in Messaging DB
+- club content and `club_activity` stay in Club DB
+- `club_activity` gains audience filtering
+- club-side `member_updates` are removed from the launch design
 
-**Stay in club DB (as regular functions):**
-- `consume_admission_challenge()`, `create_admission_challenge()`, `get_admission_challenge()`, `delete_admission_challenge()`, `count_member_writes_today()`, `entity_is_currently_published()`, `sync_club_owner_compatibility_state()` (trigger — wait, club_owner_versions moved to identity... this trigger moves too)
+### Code
 
-**Refactored in club DB (use replicated `members` instead of `get_member_public_contact()`):**
-- `list_publicly_listed_clubs()` — JOIN replicated `members` for owner name; drop `owner_email` from return
-- `list_admission_eligible_clubs()`, `get_admission_eligible_club()` — same
+- `src/server.ts` - three DB pools, no `/updates/stream`
+- `src/postgres.ts` - split repository composition
+- `src/postgres/messages.ts` or renamed `src/postgres/messaging.ts` - Messaging DB writes/reads
+- `src/postgres/updates.ts` - polling fan-in merge and fast-path checks
+- `src/member-updates-notifier.ts` - removed entirely
+- `src/contract.ts` - source-aware updates contract
+- `src/schemas/messages.ts` - remove DM `clubId`
+- `src/schemas/updates.ts` - polling-only updates
+- `src/authorization.ts` - explicit auth helpers
 
-**Removed entirely:**
-- `current_actor_member_id()`, `current_actor_is_superadmin()`, `actor_has_club_access()`, `actor_is_club_owner()`, `actor_can_access_member()`, `actor_can_access_thread()`, `membership_belongs_to_current_actor()`
+### Scripts and ops
 
-### Scripts, tools, and config
-
-- `src/server.ts` — two connection pools
-- `src/embedding-worker.ts` → split into identity worker + club worker (or parameterized)
-- `src/embedding-backfill.ts` → same
-- `src/token-cli.ts` → `IDENTITY_DATABASE_URL`
-- `src/http-smoke.ts` → both URLs
-- `scripts/migrate.sh` → parameterized migrations directory
-- `scripts/provision-app-role.sh` → simplified, both DBs
-- `scripts/bootstrap.sh`, `add-member.sh`, `reset-dev.sh`, `healthcheck.sh`, `smoke-test.sh`, `pressure-test.sh`, `migration-status.sh` → updated for both URLs
-- `ops/systemd/clawclub-api.service`, `clawclub-embedding-worker.service` → both `DATABASE_URL` vars
-- `test/integration/harness.ts` → two test databases + replication
-- `test/postgres-rls.test.ts` → replaced by authorization tests
-- `db/seeds/dev-clubs.sql` → writes to both databases
-- `CLAUDE.md` — new local dev instructions
+- migration scripts for three databases
+- replication setup script
+- bootstrap/reset/smoke tooling updated for three URLs
+- systemd services updated for three databases
+- test harness updated for three databases and replication
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: Schema and Migrations
+### Phase 1: Schema split
 
-- Write identity DB initial migration: all platform tables, types, views, functions (no RLS).
-- Write club DB initial migration: all content tables, types, views, triggers (no RLS). Include replica table definitions for the replicated tables (same schema, no data — replication fills them).
-- Write `scripts/setup-replication.sh`: creates publication on identity DB, subscription on club DB.
-- Write `club_routing` table (identity DB) with initial data (all clubs → shard 1).
-- Update `scripts/migrate.sh` for configurable migrations directory.
-- Create `scripts/migrate-identity.sh` and `scripts/migrate-clubs.sh`.
-- Simplify `scripts/provision-app-role.sh` (no RLS roles).
+- create Identity schema
+- create Messaging schema
+- create Club schema
+- create replication from Identity to Messaging and Club shard 1
+- create `club_routing`
 
-### Phase 2: Authorization Layer
+### Phase 2: Authorization layer
 
-Build before removing RLS:
+- implement `canAccessMember`
+- implement `canAccessPrivateContacts`
+- implement `canStartDirectThread`
+- implement `canAccessMessagingThread`
+- implement `listCurrentSharedClubs`
 
-- `canAccessMember(actor, targetMemberId, identityPool)` — 5 access paths, queries identity DB (memberships are local).
-- `canAccessThread(actor, threadId, clubPool)` — thread participant check, queries club DB.
-- `canAccessPrivateContacts(actor, targetMemberId)` �� self or superadmin.
+### Phase 3: Contract cleanup
 
-These live in `src/authorization.ts`.
+- remove `clubId` from messaging actions/results
+- add source-aware updates contract
+- remove club-private inbox assumptions
 
-### Phase 3: Repository Split
+### Phase 4: Repository split
 
-- Refactor `postgres.ts` → `createSplitRepository({ identityPool, clubPool })`.
-- Auth: `authenticateBearerToken` queries identity DB only (one hop, existing query with minimal changes).
-- Remove `applyActorContext`. Replace `withActorContext` with `withTransaction`.
-- `buildTokenRepository` → identity pool.
-- `buildProfileRepository` → identity pool. Profile writes enqueue embedding jobs in same transaction.
-- `buildMembershipRepository` → identity pool for membership writes. Admission acceptance becomes saga (identity creates member + membership, club updates admission).
-- `buildPlatformRepository` → identity pool. `listClubs` JOINs local data (clubs + members + memberships all in identity DB). Owner email via `canAccessPrivateContacts` check then identity DB query.
-- `buildEntitiesRepository`, `buildEventsRepository`, `buildMessagesRepository`, `buildUpdatesRepository`, `buildRedactionsRepository`, `buildQuotaRepository` → club pool. Queries JOIN replicated tables (members, profiles, clubs, memberships) — virtually unchanged.
-- `buildAdminRepository` → both pools where needed.
-- `buildEmbeddingsRepository` → identity pool for profile search, club pool for entity search.
+- identity repositories on Identity pool
+- messaging repositories on Messaging pool
+- club repositories on shard pools
+- updates repository fans in Messaging + club activity
 
-### Phase 4: Infrastructure
+### Phase 5: Polling implementation
 
-- `server.ts` — two pools.
-- Embedding workers — one per database.
-- All scripts, CLI tools, systemd services, seed data — updated for two URLs.
-- Test harness — two test databases + replication setup.
+- implement fast-path checks
+- implement per-source cursor encoding/decoding
+- implement activity seeding via `club_activity_cursors`
+- implement messaging inbox merge
+- remove `/updates/stream`
+- remove notifier code and NOTIFY trigger assumptions
 
-### Phase 5: Authorization Tests
+### Phase 6: Tests
 
-Explicit integration tests for every boundary RLS previously enforced:
+- member visibility auth tests
+- direct-thread authorization tests
+- messaging idempotent send / retry tests
+- admission acceptance saga retry tests via `source_admission_id`
+- updates polling merge tests across Messaging + club activity
 
-- Club access boundary (member of Club A cannot access Club B data)
-- Member visibility (5 access paths: self, superadmin, shared club, owner, admissions)
-- Thread privacy (only participants can read)
-- Private contacts (self + superadmin only)
-- Owner-only operations, superadmin-only operations, self-only operations
-- Admission scoping
+### Phase 7: Verification
 
-### Phase 6: Verification
+- same-host replication lag remains low
+- direct-thread creation does not depend on club-shard replicated membership visibility
+- `/updates` correctly returns admin-only club activity only for admins/owners
+- no club-side per-recipient inbox is needed for launch
 
-- All existing integration tests pass against two-database setup with replication.
-- All new authorization tests pass.
-- Admission saga works end-to-end with explicit retry on partial failure.
-- Replication lag is sub-second on same-host Postgres.
-- `club_routing` table works (even though everything maps to shard 1).
-- Test with two separate Postgres instances to verify cross-host replication.
+---
+
+## Alternatives Considered
+
+| Approach | Why rejected |
+|----------|-------------|
+| keep messaging in club shards | wrong ownership boundary, harder messaging correctness |
+| keep a separate per-recipient club inbox at launch | complexity without a named product need |
+| build SSE/WebSocket on day one | transport complexity too early |
+| Centrifugo on day one | good future option, not needed for launch |
+| custom LISTEN/NOTIFY fan-in | unnecessary complexity under polling-first design |

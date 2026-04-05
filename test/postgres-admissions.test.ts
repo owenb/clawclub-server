@@ -34,34 +34,6 @@ function findValidNonce(challengeId: string, difficulty: number): string {
   }
 }
 
-test('listPubliclyVisibleClubs returns lightweight club list', async () => {
-  const client = {
-    async query(sql: string) {
-      if (sql.includes('from app.list_publicly_listed_clubs()')) {
-        return {
-          rows: [
-            { slug: 'alpha', name: 'Alpha Club', summary: 'A test club', owner_name: 'Alice', owner_email: 'alice@example.com' },
-          ],
-          rowCount: 1,
-        };
-      }
-      throw new Error(`Unexpected query: ${sql}`);
-    },
-    release() {},
-  };
-
-  const repository = buildRepository(client);
-  const result = await repository.listPubliclyVisibleClubs?.();
-
-  assert.equal(result?.clubs.length, 1);
-  assert.equal(result?.clubs[0].slug, 'alpha');
-  assert.equal(result?.clubs[0].name, 'Alpha Club');
-  // Lightweight — no summary, ownerName, admissionPolicy, ownerEmail
-  assert.equal((result?.clubs[0] as any).summary, undefined);
-  assert.equal((result?.clubs[0] as any).ownerName, undefined);
-  assert.equal((result?.clubs[0] as any).admissionPolicy, undefined);
-});
-
 test('createAdmissionChallenge looks up club and creates bound challenge', async () => {
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   const expiresAt = '2026-03-20T12:00:00.000Z';
@@ -70,7 +42,7 @@ test('createAdmissionChallenge looks up club and creates bound challenge', async
     async query(sql: string, params?: unknown[]) {
       calls.push({ sql, params });
 
-      if (sql.includes('from app.get_admission_eligible_club(')) {
+      if (sql.includes('from app.clubs c') && sql.includes('admission_policy is not null')) {
         return {
           rows: [{
             club_id: 'club-1', name: 'Alpha Club', summary: 'A test club',
@@ -100,8 +72,8 @@ test('createAdmissionChallenge looks up club and creates bound challenge', async
   assert.equal(result?.club.admissionPolicy, 'Tell us your name.');
   assert.equal(result?.club.ownerName, 'Alice');
 
-  // Should have called get_admission_eligible_club with the slug
-  const clubCall = calls.find((call) => call.sql.includes('from app.get_admission_eligible_club('));
+  // Should have looked up club eligibility with the slug
+  const clubCall = calls.find((call) => call.sql.includes('from app.clubs c') && call.sql.includes('admission_policy is not null'));
   assert.deepEqual(clubCall?.params, ['alpha']);
 
   // Should have called create_admission_challenge with 7 params
@@ -115,7 +87,7 @@ test('createAdmissionChallenge looks up club and creates bound challenge', async
 test('createAdmissionChallenge rejects non-existent or ineligible club', async () => {
   const client = {
     async query(sql: string) {
-      if (sql.includes('from app.get_admission_eligible_club(')) {
+      if (sql.includes('from app.clubs c') && sql.includes('admission_policy is not null')) {
         return { rows: [], rowCount: 0 };
       }
       throw new Error(`Unexpected query: ${sql}`);
@@ -267,7 +239,7 @@ test('solveAdmissionChallenge returns attempts_exhausted when count >= 5', async
         };
       }
 
-      if (sql.includes('check_club_admission_eligible')) {
+      if (sql.includes('archived_at is null') && sql.includes('admission_policy is not null') && sql.includes('as eligible')) {
         return { rows: [{ eligible: true }], rowCount: 1 };
       }
 

@@ -10,7 +10,6 @@ CREATE TABLE app.club_versions (
     owner_member_id       app.short_id NOT NULL,
     name                  text NOT NULL,
     summary               text,
-    publicly_listed       boolean NOT NULL,
     admission_policy      text,
     version_no            integer NOT NULL,
     supersedes_version_id app.short_id,
@@ -90,7 +89,7 @@ GRANT SELECT ON TABLE app.current_club_versions TO clawclub_security_definer_own
 
 INSERT INTO app.club_versions (
     id, club_id, owner_member_id, name, summary,
-    publicly_listed, admission_policy, version_no,
+    admission_policy, version_no,
     supersedes_version_id, created_at, created_by_member_id
 )
 SELECT
@@ -99,7 +98,6 @@ SELECT
     cov.owner_member_id,
     c.name,
     c.summary,
-    c.publicly_listed,
     c.admission_policy,
     cov.version_no,
     cov.supersedes_owner_version_id,
@@ -119,7 +117,6 @@ begin
     owner_member_id = new.owner_member_id,
     name            = new.name,
     summary         = new.summary,
-    publicly_listed = new.publicly_listed,
     admission_policy = new.admission_policy
   where c.id = new.club_id;
   perform set_config('app.allow_club_version_sync', '', true);
@@ -154,9 +151,6 @@ begin
   if new.summary is distinct from old.summary then
     raise exception 'clubs.summary must change via club_versions';
   end if;
-  if new.publicly_listed is distinct from old.publicly_listed then
-    raise exception 'clubs.publicly_listed must change via club_versions';
-  end if;
   if new.admission_policy is distinct from old.admission_policy then
     raise exception 'clubs.admission_policy must change via club_versions';
   end if;
@@ -181,7 +175,15 @@ GRANT ALL ON FUNCTION app.normalize_club_versions_admission_policy() TO clawclub
 GRANT ALL ON FUNCTION app.normalize_club_versions_admission_policy() TO clawclub_security_definer_owner;
 GRANT ALL ON FUNCTION app.normalize_club_versions_admission_policy() TO clawclub_cold_application_owner;
 
--- 8. Drop old infrastructure ----------------------------------------------
+-- 8. Drop publicly_listed column and public discovery functions -----------
+
+ALTER TABLE app.clubs DROP COLUMN IF EXISTS publicly_listed;
+DROP FUNCTION IF EXISTS app.list_publicly_listed_clubs();
+DROP FUNCTION IF EXISTS app.list_admission_eligible_clubs();
+DROP FUNCTION IF EXISTS app.get_admission_eligible_club(text);
+DROP FUNCTION IF EXISTS app.check_club_admission_eligible(app.short_id);
+
+-- 9. Drop old infrastructure ----------------------------------------------
 
 DROP TRIGGER IF EXISTS club_owner_versions_sync ON app.club_owner_versions;
 DROP VIEW IF EXISTS app.current_club_owners;

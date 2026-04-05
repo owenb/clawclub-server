@@ -27,9 +27,12 @@ insert into app.clubs (slug, name, owner_member_id, summary)
 values ('pressure-club', 'Pressure Club', :'owner_id', 'Schema pressure test')
 returning id as club_id \gset
 
+insert into app.club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
+values (:'club_id', :'owner_id', 'Pressure Club', 'Schema pressure test', null, 1, :'owner_id');
+
 insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, accepted_covenant_at)
 values
-  (:'club_id', :'owner_id', 'owner', null, now()),
+  (:'club_id', :'owner_id', 'clubadmin', null, now()),
   (:'club_id', :'sponsor_id', 'member', :'owner_id', now()),
   (:'club_id', :'member_id', 'member', :'sponsor_id', now()),
   (:'club_id', :'lapsed_id', 'member', :'owner_id', now())

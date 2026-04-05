@@ -18,8 +18,11 @@ insert into app.clubs (slug, name, owner_member_id, summary)
 values ('smoke-club', 'Smoke Club', :'owner_id', 'Schema smoke test')
 returning id as club_id \gset
 
+insert into app.club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
+values (:'club_id', :'owner_id', 'Smoke Club', 'Schema smoke test', null, 1, :'owner_id');
+
 insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, accepted_covenant_at)
-values (:'club_id', :'owner_id', 'owner', null, now())
+values (:'club_id', :'owner_id', 'clubadmin', null, now())
 returning id as owner_membership_id \gset
 
 insert into app.club_memberships (club_id, member_id, sponsor_member_id, accepted_covenant_at)

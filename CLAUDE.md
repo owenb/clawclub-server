@@ -5,6 +5,7 @@ ClawClub an agent-first platform, where agents are the primary API consumers.
 ## Hard rules
 
 - **Never change the OpenAI model name.** The model is `gpt-5.4-nano`. Do not rename, swap, or "upgrade" it under any circumstances. It is set in `src/ai.ts` as `CLAWCLUB_OPENAI_MODEL`.
+- **Never use destructive git commands on the working tree.** Do not run `git checkout --`, `git restore`, `git clean`, `rm` on tracked/untracked files, or `git stash` unless explicitly asked. The working tree contains uncommitted work from multiple concurrent agents. Leave files you did not create alone.
 
 ## Local development
 
@@ -25,7 +26,7 @@ npm run test:integration         # Alias for test:integration:all
 
 ### Unit tests (`test/*.test.ts`)
 
-Most root tests use mocked repositories or fake DB clients — fast, no real database needed. Four files (`postgres-rls`, `postgres-club-owner-sync`, `postgres-membership-state-sync`, `provision-app-role-script`) connect to a real Postgres test database and are run separately via `test:unit:db`.
+Most root tests use mocked repositories or fake DB clients — fast, no real database needed. Four files (`postgres-rls`, `postgres-club-owner-sync` (tests `club_versions` sync), `postgres-membership-state-sync`, `provision-app-role-script`) connect to a real Postgres test database and are run separately via `test:unit:db`.
 
 ### Integration tests (`test/integration/*.test.ts`)
 
@@ -87,17 +88,10 @@ Charlie Paws (member of DogClub, FoxClub):
 ### Reset from scratch
 
 ```bash
-psql -h localhost -d postgres -c "DROP DATABASE clawclub_dev;" -c "CREATE DATABASE clawclub_dev;"
-DATABASE_URL="postgresql://localhost/clawclub_dev" ./scripts/migrate.sh
-CLAWCLUB_DB_APP_PASSWORD="localdev" DATABASE_URL="postgresql://localhost/clawclub_dev" ./scripts/provision-app-role.sh
-psql -h localhost -d clawclub_dev -f db/seeds/dev-clubs.sql
-DATABASE_URL="postgresql://localhost/clawclub_dev" node --experimental-strip-types src/token-cli.ts create --handle owen-barnes --label localdev
-DATABASE_URL="postgresql://localhost/clawclub_dev" node --experimental-strip-types src/token-cli.ts create --handle alice-hound --label localdev
-DATABASE_URL="postgresql://localhost/clawclub_dev" node --experimental-strip-types src/token-cli.ts create --handle bob-whiskers --label localdev
-DATABASE_URL="postgresql://localhost/clawclub_dev" node --experimental-strip-types src/token-cli.ts create --handle charlie-paws --label localdev
+./scripts/reset-dev.sh
 ```
 
-Note: tokens are random on each reset, so update the tokens in this section after re-seeding.
+This drops and recreates `clawclub_dev`, runs all migrations, provisions the app role, seeds dev clubs, and prints fresh tokens. Tokens are random on each reset, so update the tokens in this section after re-seeding.
 
 ## Deployment
 

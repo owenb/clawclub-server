@@ -41,17 +41,17 @@ select id as catclub_id from app.clubs where slug = 'catclub' \gset
 select id as foxclub_id from app.clubs where slug = 'foxclub' \gset
 
 -- Club versions (needed by current_club_versions view)
-insert into app.club_versions (club_id, owner_member_id, name, summary, publicly_listed, admission_policy, version_no, created_by_member_id) values
-  (:'dogclub_id', :'owen_id', 'DogClub', 'A club for dog lovers.', false, null, 1, :'owen_id'),
-  (:'catclub_id', :'owen_id', 'CatClub', 'A club for cat lovers.', false, null, 1, :'owen_id'),
-  (:'foxclub_id', :'owen_id', 'FoxClub', 'A club for fox lovers.', false, null, 1, :'owen_id')
+insert into app.club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id) values
+  (:'dogclub_id', :'owen_id', 'DogClub', 'A club for dog lovers.', null, 1, :'owen_id'),
+  (:'catclub_id', :'owen_id', 'CatClub', 'A club for cat lovers.', null, 1, :'owen_id'),
+  (:'foxclub_id', :'owen_id', 'FoxClub', 'A club for fox lovers.', null, 1, :'owen_id')
 on conflict do nothing;
 
 -- Owen: owner of all three
 insert into app.club_memberships (club_id, member_id, role) values
-  (:'dogclub_id', :'owen_id', 'owner'),
-  (:'catclub_id', :'owen_id', 'owner'),
-  (:'foxclub_id', :'owen_id', 'owner')
+  (:'dogclub_id', :'owen_id', 'clubadmin'),
+  (:'catclub_id', :'owen_id', 'clubadmin'),
+  (:'foxclub_id', :'owen_id', 'clubadmin')
 on conflict (club_id, member_id) do nothing;
 select id as owen_dog_mid from app.club_memberships where club_id = :'dogclub_id' and member_id = :'owen_id' \gset
 select id as owen_cat_mid from app.club_memberships where club_id = :'catclub_id' and member_id = :'owen_id' \gset
