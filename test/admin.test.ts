@@ -636,7 +636,6 @@ test('admin.content.list returns paginated content', async () => {
         state: 'published',
         createdAt: '2026-03-14T10:00:00Z',
         archivedAt: null,
-        redactedAt: null,
       }];
     },
   };
@@ -733,7 +732,6 @@ test('admin.messages.read returns thread with messages', async () => {
           senderHandle: 'alice',
           messageText: 'Hello',
           createdAt: '2026-03-14T12:00:00Z',
-          redactedAt: null,
         }],
       };
     },

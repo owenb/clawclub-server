@@ -2,8 +2,7 @@
  * Action contracts: superadmin.overview, superadmin.members.list, superadmin.members.get,
  * superadmin.diagnostics.health, superadmin.clubs.list, superadmin.clubs.create,
  * superadmin.clubs.archive, superadmin.clubs.assignOwner, superadmin.clubs.update,
- * superadmin.content.list, superadmin.content.archive, superadmin.content.redact,
- * superadmin.messages.threads, superadmin.messages.read, superadmin.messages.redact,
+ * superadmin.content.list, superadmin.messages.threads, superadmin.messages.read,
  * superadmin.tokens.list, superadmin.tokens.revoke
  *
  * Platform-wide actions restricted to server operators (superadmin role).
