@@ -15,7 +15,7 @@ test('postgres repository lists clubs for superadmin scope including archived on
         return {
           rows: [{
             club_id: 'club-1', slug: 'alpha', name: 'Alpha', summary: 'First club',
-            publicly_listed: false, admission_policy: null,
+            admission_policy: null,
             archived_at: '2026-03-12T01:00:00Z', owner_member_id: 'member-1', owner_public_name: 'Member One', owner_handle: 'member-one', owner_email: 'one@example.com',
             version_no: 2, version_created_at: '2026-03-12T00:30:00Z', version_created_by_member_id: 'member-1',
           }], rowCount: 1,
@@ -47,7 +47,7 @@ test('postgres repository creates, archives, and reassigns club owners through s
       if (sql.includes('with owner_member as (')) return { rows: [{ club_id: 'club-9' }], rowCount: 1 };
       if (sql.includes("update app.clubs n\n            set archived_at = coalesce")) return { rows: [{ club_id: 'club-9' }], rowCount: 1 };
       if (sql.includes('select') && sql.includes('join app.current_club_versions cv on cv.club_id = n.id') && sql.includes('join app.members m on m.id = $2')) {
-        return { rows: [{ club_id: 'club-9', current_version_id: 'ver-1', current_version_no: 1, current_owner_member_id: 'member-old', name: 'Gamma', summary: 'Third club', publicly_listed: false, admission_policy: null }], rowCount: 1 };
+        return { rows: [{ club_id: 'club-9', current_version_id: 'ver-1', current_version_no: 1, current_owner_member_id: 'member-old', name: 'Gamma', summary: 'Third club', admission_policy: null }], rowCount: 1 };
       }
       if (sql.includes('insert into app.club_versions')) return { rows: [], rowCount: 1 };
       if (sql.includes("set_config('app.allow_club_membership_state_sync'")) return { rows: [{ set_config: '1' }], rowCount: 1 };
@@ -60,7 +60,7 @@ test('postgres repository creates, archives, and reassigns club owners through s
         return {
           rows: [{
             club_id: 'club-9', slug: 'gamma', name: 'Gamma', summary: 'Third club',
-            publicly_listed: false, admission_policy: null,
+            admission_policy: null,
             archived_at: null, owner_member_id: 'member-9', owner_public_name: 'Member Nine', owner_handle: 'member-nine', owner_email: 'nine@example.com',
             version_no: 2, version_created_at: '2026-03-12T01:00:00Z', version_created_by_member_id: 'member-1',
           }], rowCount: 1,
@@ -1324,7 +1324,7 @@ test('postgres repository appends admission state transitions and reloads curren
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('from app.current_admissions ca') && sql.includes('join app.accessible_club_memberships owner_scope')) {
+      if (sql.includes('from app.current_admissions ca') && sql.includes('actor_is_club_admin')) {
         return {
           rows: [{
             admission_id: 'application-9', club_id: 'club-2', applicant_member_id: 'member-9',
@@ -1395,7 +1395,7 @@ test('postgres repository appends membership state transitions and reloads curre
       calls.push({ sql, params });
       if (sql === 'begin' || sql === 'commit' || sql === 'rollback') return { rows: [], rowCount: 0 };
       if (sql.includes("set_config('app.actor_member_id'")) return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
-      if (sql.includes('join app.accessible_club_memberships owner_scope')) {
+      if (sql.includes('from app.current_club_memberships cnm') && sql.includes('actor_is_club_admin')) {
         return {
           rows: [{
             membership_id: 'membership-9', club_id: 'club-2', member_id: 'member-9', current_status: 'pending_review', current_version_no: 2, current_state_version_id: 'state-2',
@@ -1428,8 +1428,9 @@ test('postgres repository appends membership state transitions and reloads curre
   assert.ok(membership);
   assert.equal(membership?.state.status, 'active');
   assert.equal(membership?.state.versionNo, 3);
-  assert.match(calls[2]?.sql ?? '', /join app\.accessible_club_memberships owner_scope/);
-  assert.deepEqual(calls[2]?.params, ['member-1', 'membership-9', ['club-2']]);
+  assert.match(calls[2]?.sql ?? '', /from app\.current_club_memberships cnm/);
+  assert.match(calls[2]?.sql ?? '', /actor_is_club_admin/);
+  assert.deepEqual(calls[2]?.params, ['membership-9', ['club-2']]);
   assert.deepEqual(calls[3]?.params, ['membership-9', 'active', 'Fit check passed', 3, 'state-2', 'member-1']);
   assert.equal(calls.at(-1)?.sql, 'commit');
 });

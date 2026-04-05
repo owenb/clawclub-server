@@ -338,6 +338,7 @@ async function readMembers(client: DbClient, input: {
             'name', n.name,
             'summary', n.summary,
             'role', anm.role,
+            'isOwner', (n.owner_member_id = anm.member_id),
             'status', anm.status,
             'sponsorMemberId', anm.sponsor_member_id,
             'joinedAt', anm.joined_at::text
@@ -376,7 +377,6 @@ export function buildMembershipRepository({
   | 'createMembership'
   | 'transitionMembershipState'
   | 'transitionAdmission'
-  | 'listPubliclyVisibleClubs'
   | 'issueAdmissionAccess'
   | 'createAdmissionSponsorship'
   | 'listMembers'
@@ -408,39 +408,34 @@ export function buildMembershipRepository({
         await client.query('begin');
         await applyActorContext(client, input.actorMemberId, [input.clubId]);
 
-        const adminScopeResult = await client.query<{ role: MembershipSummary['role'] }>(
-          `
-            select anm.role
-            from app.accessible_club_memberships anm
-            where anm.member_id = $1
-              and anm.club_id = $2
-              and anm.role = 'clubadmin'
-            limit 1
-          `,
-          [input.actorMemberId, input.clubId],
+        // Verify actor is a clubadmin or superadmin
+        const adminCheckResult = await client.query<{ ok: boolean }>(
+          `select app.actor_is_club_admin($1) as ok`,
+          [input.clubId],
         );
-
-        if (!adminScopeResult.rows[0]) {
+        if (!adminCheckResult.rows[0]?.ok) {
           await client.query('rollback');
           return null;
         }
 
+        // Verify sponsor exists in the club (unless actor is the sponsor)
         const actorIsSponsor = input.sponsorMemberId === input.actorMemberId;
-        const sponsorScopeResult = await client.query<{ membership_id: string }>(
-          `
-            select cnm.id as membership_id
-            from app.current_club_memberships cnm
-            where cnm.club_id = $1
-              and cnm.member_id = $2
-              and cnm.status = 'active'
-            limit 1
-          `,
-          [input.clubId, input.sponsorMemberId],
-        );
-
-        if (!sponsorScopeResult.rows[0] || (!actorIsSponsor && adminScopeResult.rows[0].role !== 'clubadmin')) {
-          await client.query('rollback');
-          return null;
+        if (!actorIsSponsor) {
+          const sponsorScopeResult = await client.query<{ membership_id: string }>(
+            `
+              select cnm.id as membership_id
+              from app.current_club_memberships cnm
+              where cnm.club_id = $1
+                and cnm.member_id = $2
+                and cnm.status = 'active'
+              limit 1
+            `,
+            [input.clubId, input.sponsorMemberId],
+          );
+          if (!sponsorScopeResult.rows[0]) {
+            await client.query('rollback');
+            return null;
+          }
         }
 
         const existingResult = await client.query<{ id: string }>(
@@ -547,15 +542,12 @@ export function buildMembershipRepository({
               cnm.state_version_no as current_version_no,
               cnm.state_version_id as current_state_version_id
             from app.current_club_memberships cnm
-            join app.accessible_club_memberships owner_scope
-              on owner_scope.club_id = cnm.club_id
-             and owner_scope.member_id = $1
-             and owner_scope.role = 'clubadmin'
-            where cnm.id = $2
-              and cnm.club_id = any($3::app.short_id[])
+            where cnm.id = $1
+              and cnm.club_id = any($2::app.short_id[])
+              and app.actor_is_club_admin(cnm.club_id)
             limit 1
           `,
-          [input.actorMemberId, input.membershipId, input.accessibleClubIds],
+          [input.membershipId, input.accessibleClubIds],
         );
 
         const membership = membershipResult.rows[0];

@@ -4,7 +4,6 @@ import {
   AppError,
   type AdmissionApplyResult,
   type AdmissionChallengeResult,
-  type PubliclyVisibleClubListResult,
   type AdmissionStatus,
   type AdmissionSummary,
   type CreateAdmissionChallengeInput,
@@ -211,7 +210,6 @@ export function buildAdmissionWorkflowRepository({
   Repository,
   | 'listAdmissions'
   | 'transitionAdmission'
-  | 'listPubliclyVisibleClubs'
   | 'createAdmissionChallenge'
   | 'solveAdmissionChallenge'
   | 'issueAdmissionAccess'
@@ -269,15 +267,12 @@ export function buildAdmissionWorkflowRepository({
               ca.membership_id as current_membership_id,
               ca.sponsor_member_id
             from app.current_admissions ca
-            join app.accessible_club_memberships owner_scope
-              on owner_scope.club_id = ca.club_id
-             and owner_scope.member_id = $1
-             and owner_scope.role = 'clubadmin'
-            where ca.id = $2
-              and ca.club_id = any($3::app.short_id[])
+            where ca.id = $1
+              and ca.club_id = any($2::app.short_id[])
+              and app.actor_is_club_admin(ca.club_id)
             limit 1
           `,
-          [input.actorMemberId, input.admissionId, input.accessibleClubIds],
+          [input.admissionId, input.accessibleClubIds],
         );
 
         const admission = admissionResult.rows[0];
@@ -534,22 +529,20 @@ export function buildAdmissionWorkflowRepository({
       }
     },
 
-    async listPubliclyVisibleClubs(): Promise<PubliclyVisibleClubListResult> {
-      const result = await pool.query<{ slug: string; name: string }>(
-        `select slug, name from app.list_publicly_listed_clubs()`,
-      );
-      return {
-        clubs: result.rows.map((r) => ({ slug: r.slug, name: r.name })),
-      };
-    },
-
     async createAdmissionChallenge(input: CreateAdmissionChallengeInput): Promise<AdmissionChallengeResult> {
-      // Look up club and verify eligibility
+      // Look up club and verify eligibility (archived_at IS NULL, admission_policy set)
       const clubResult = await pool.query<{
         club_id: string; name: string; summary: string | null;
         admission_policy: string; owner_name: string;
       }>(
-        `select club_id, name, summary, admission_policy, owner_name from app.get_admission_eligible_club($1)`,
+        `select c.id as club_id, c.name, c.summary, c.admission_policy,
+                oc.member_name as owner_name
+         from app.clubs c
+         cross join lateral app.get_member_public_contact(c.owner_member_id) oc
+         where c.slug = $1
+           and c.archived_at is null
+           and c.admission_policy is not null
+         limit 1`,
         [input.clubSlug],
       );
       const club = clubResult.rows[0];
@@ -642,7 +635,8 @@ export function buildAdmissionWorkflowRepository({
 
           // Check club still eligible via security definer (bypasses RLS)
           const clubCheck = await client.query<{ eligible: boolean }>(
-            `select eligible from app.check_club_admission_eligible($1)`,
+            `select (c.archived_at is null and c.admission_policy is not null) as eligible
+             from app.clubs c where c.id = $1`,
             [challenge.club_id],
           );
           if (!clubCheck.rows[0] || !clubCheck.rows[0].eligible) {
@@ -713,7 +707,8 @@ export function buildAdmissionWorkflowRepository({
 
         // Re-check club still eligible after LLM call (may have been archived/unlisted/policy cleared)
         const clubRecheck = await client.query<{ eligible: boolean }>(
-          `select eligible from app.check_club_admission_eligible($1)`,
+          `select (c.archived_at is null and c.admission_policy is not null) as eligible
+           from app.clubs c where c.id = $1`,
           [recheck.rows[0].club_id],
         );
         if (!clubRecheck.rows[0] || !clubRecheck.rows[0].eligible) {
@@ -888,15 +883,12 @@ export function buildAdmissionWorkflowRepository({
               ca.applicant_member_id,
               ca.status
             from app.current_admissions ca
-            join app.accessible_club_memberships owner_scope
-              on owner_scope.club_id = ca.club_id
-             and owner_scope.member_id = $1
-             and owner_scope.role = 'clubadmin'
-            where ca.id = $2
-              and ca.club_id = any($3::app.short_id[])
+            where ca.id = $1
+              and ca.club_id = any($2::app.short_id[])
+              and app.actor_is_club_admin(ca.club_id)
             limit 1
           `,
-          [input.actorMemberId, input.admissionId, input.accessibleClubIds],
+          [input.admissionId, input.accessibleClubIds],
         );
 
         const admission = admissionResult.rows[0];

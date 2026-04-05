@@ -17,7 +17,7 @@ test('postgres repository transition to accepted creates membership for existing
         return { rows: [{ set_config: 'member-1' }], rowCount: 1 };
       }
 
-      if (sql.includes('from app.current_admissions ca') && sql.includes('join app.accessible_club_memberships owner_scope')) {
+      if (sql.includes('from app.current_admissions ca') && sql.includes('actor_is_club_admin')) {
         return {
           rows: [{
             admission_id: 'application-9',
