@@ -76,18 +76,30 @@ Each operator has a running **balance** in ClawClub's internal ledger. The balan
 ### Payout schedule
 
 - **120-day hold on all transactions.** Operator revenue from a member payment becomes eligible for payout 120 days after the transaction date.
-- This matches the standard credit card dispute window. If a chargeback comes in during the 120-day period, ClawClub simply deducts it from the pending balance — no money has left the platform.
+- This covers the standard credit card dispute window from the **payment date**. Most chargebacks during this period are caught before any money leaves the platform.
 - After the 120-day hold, eligible funds are paid out **monthly**.
 - This is comparable to how Apple pays App Store developers — the hold exists because the dispute window exists.
+
+**Important caveat: future-service disputes.** For annual subscriptions (one upfront payment for a year of service), card networks may allow disputes up to 120 days from the **service date**, not the payment date. This means a member could dispute months after the 120-day hold has expired. The rolling reserve (below) exists to cover this residual tail risk.
 
 **Operator pitch:** "Your first payouts arrive roughly 4 months after your first paid members join, then monthly after that as the rolling window catches up."
 
 In practice, most operators will start with their 10 free comp seats and build a member base gradually. By the time they have meaningful paid member revenue, the 120-day window for their earliest members is already closing.
 
+### Rolling reserve
+
+In addition to the 120-day hold, ClawClub retains a **rolling reserve of 10%** of all payouts. This reserve covers:
+
+- Late disputes filed against the service date (past the 120-day payment-date window).
+- Disputes on renewal charges, which lack 3DS liability shift (see below).
+- Any edge cases where a dispute arrives after funds have been released.
+
+The reserve is held indefinitely while the club is active. When an operator **closes their club and all memberships have expired or been cancelled**, the reserve is returned to them. This is the final settlement.
+
 ### Reserve threshold
 
-- If the operator's balance drops below **$200**, payouts are **frozen** and the operator is notified.
-- This ensures a minimum buffer exists for edge cases (e.g., chargebacks filed near the end of the 120-day window that haven't resolved yet).
+- If the operator's balance (excluding rolling reserve) drops below **$200**, payouts are **frozen** and the operator is notified.
+- This ensures a minimum buffer exists on top of the rolling reserve.
 - If the balance remains below $200 or goes negative, ClawClub reaches out to the operator. If unresolved, the club is suspended until the operator tops up.
 
 ### Operator visibility
@@ -108,10 +120,12 @@ The 120-day payout hold, fraud prevention layers, and per-operator monitoring al
 
 Because Stripe measures disputes at the **platform level** (not per operator), one bad operator can drag the entire platform into monitoring. To protect against this:
 
-- Any operator whose members exceed a **0.5% dispute rate** has their club suspended for review.
+- The circuit breaker only activates after an operator has had **at least 20 paid members billed** (minimum volume floor). Below this threshold, chargebacks are handled normally (fee deducted, member banned) but the club is not auto-suspended.
+- Once the volume floor is met, any operator whose members exceed a **0.5% dispute rate** (measured over a trailing 12-month window) has their club suspended for review.
 - This fires before the platform-wide 0.75% threshold is reached.
 - Suspension means no new members can join. Existing members retain access. Payouts are frozen.
 - ClawClub investigates and either reinstates or terminates the operator.
+- Below the 20-member threshold, ClawClub relies on manual review — any dispute on a small club is flagged for the ClawClub team to investigate.
 
 ### ClawClub's role
 
@@ -124,6 +138,16 @@ ClawClub handles all chargeback administration on behalf of operators. This is p
 - **Total chargeback fee: $25**, deducted from operator balance.
 - Plus the full refunded amount is deducted from the operator's balance.
 - Because of the 120-day payout hold, in most cases this money has not yet been paid out, so the deduction is against pending funds — not money ClawClub needs to recover.
+
+### Dispute ledger states
+
+Disputes have a lifecycle. When Stripe opens a dispute, they debit the disputed amount immediately — before a resolution is reached. The operator ledger must track this:
+
+- **`dispute_opened`**: Stripe has debited the disputed amount. A provisional hold is placed on the operator's balance for the disputed amount + $25 chargeback fee. This amount is excluded from payout calculations.
+- **`dispute_lost`**: The dispute is resolved against ClawClub. The provisional hold becomes a permanent debit. The $25 fee is finalized. Cross-platform ban and refund cascade is triggered.
+- **`dispute_won`**: The dispute is resolved in ClawClub's favour. Stripe returns the disputed amount (but keeps their $15 fee). The provisional hold is released. The $25 chargeback fee is still charged to the operator (ClawClub absorbed admin cost and the $15 Stripe fee is not returned). No cross-platform ban is triggered.
+
+This prevents operator balances and monthly statements from double-counting or misstating exposure during the dispute resolution period.
 
 ### Cross-platform ban
 
@@ -139,7 +163,13 @@ When a member chargebacks **any** club:
 
 ### 3DS liability shift
 
-Stripe Checkout enforces Strong Customer Authentication (3DS) automatically. For "unauthorized transaction" chargebacks (the most common type), 3DS shifts liability to the card issuer, not ClawClub. This significantly reduces exposure. The remaining chargeback risk comes from "product not as described" or "service not received" disputes, which ClawClub can contest with usage evidence (login history, activity logs).
+Stripe Checkout enforces Strong Customer Authentication (3DS) automatically on the **initial payment**. For "unauthorized transaction" chargebacks (the most common type), 3DS shifts liability to the card issuer, not ClawClub. This significantly reduces exposure on first-year charges.
+
+**Renewal charges are less protected.** Annual renewals are merchant-initiated transactions (MIT) — they run off-session with no customer challenge and **no 3DS liability shift**. This means ClawClub bears full chargeback liability on renewal charges. The risk is accepted because:
+- A member who has been active for a year is less likely to dispute.
+- The 120-day hold and rolling reserve cover the financial exposure.
+- The chargeback fee ($25) is passed to the operator regardless.
+- Requiring re-authentication on every renewal would add significant friction and likely increase involuntary churn (members who miss the email and lapse).
 
 ## Fraud prevention
 
@@ -258,6 +288,15 @@ Triggered by:
 
 Frozen club: existing members retain access until their subscriptions expire, but no new members can join and no new charges are created.
 
+### Club closure
+
+An operator can voluntarily close their club. When this happens:
+- All memberships are cancelled (no renewals). Existing members retain access until their paid period expires.
+- No refunds are issued for remaining service — this is covered in the member ToS.
+- Members with remaining service who are unhappy must take it up with ClawClub support. This is a known friction point that must be addressed in the ToS.
+- Once all memberships have expired and any pending dispute windows have closed, the operator's **rolling reserve is returned**.
+- The operator's Connect account remains active until the final reserve payout.
+
 ## Membership access state machine
 
 The ClawClub database — not Stripe — is the **source of truth for access.** Stripe is for billing only.
@@ -285,6 +324,8 @@ banned            →  (terminal state, platform-wide)
 Comp members are `active` with a `comped` flag. They do not pass through payment states.
 
 Webhooks from Stripe (`invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `charge.dispute.created`) sync billing events into the ledger, but the state machine drives all access decisions.
+
+**Implementation note:** The current database uses `membership_has_live_subscription()` which only grants access for `trialing` or `active` subscription states. Implementing this billing design will require updating the access function to also grant access during `past_due` (grace period), `cancelled` (access until period end), and for `comped` members. This is a schema/function migration that must ship with the billing feature.
 
 ## Terms of Service requirements
 
@@ -331,14 +372,16 @@ We explored a model where operators handle their own billing (ClawClub just faci
 
 The tradeoff is that ClawClub bears chargeback risk, which we mitigate through the 120-day hold, fraud prevention layers, and per-operator circuit breakers.
 
-### Why 120-day payout hold (not shorter tiers)
+### Why 120-day payout hold plus rolling reserve (not shorter tiers)
 
 We considered a tiered system where trusted operators get shorter hold periods (60 days, 30 days). We chose a flat 120 days for everyone because:
-- It fully covers the standard credit card dispute window.
+- It covers the standard credit card dispute window from the payment date.
 - It's simple — one rule for all operators.
 - It eliminates the need to build and manage a trust-scoring system.
 - The App Store precedent makes it explainable.
 - Operators start with 10 free members, so the hold period is less painful in practice — meaningful paid revenue arrives after the club is established.
+
+The 10% rolling reserve exists because the 120-day hold alone is not sufficient. For annual subscriptions (future service), card networks may allow disputes up to 120 days from the service date, not the payment date. A member could dispute well after the 120-day payment hold expires. The rolling reserve covers this tail risk without requiring a longer hold that would be unacceptable to operators.
 
 ### Why not per-transaction splits via Connect
 
