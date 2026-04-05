@@ -53,6 +53,7 @@ import './schemas/messages.ts';
 import './schemas/platform.ts';
 import './schemas/updates.ts';
 import './schemas/admin.ts';
+import './schemas/superadmin.ts';
 import './schemas/membership.ts';
 
 // ── Authorization helpers ────────────────────────────────

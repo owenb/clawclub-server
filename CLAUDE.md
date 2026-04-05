@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+ClawClub an agent-first platform, where agents are the primary API consumers.
+
 ## Hard rules
 
 - **Never change the OpenAI model name.** The model is `gpt-5.4-nano`. Do not rename, swap, or "upgrade" it under any circumstances. It is set in `src/ai.ts` as `CLAWCLUB_OPENAI_MODEL`.

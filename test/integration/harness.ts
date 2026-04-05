@@ -512,19 +512,10 @@ export class TestHarness {
     });
   }
 
-  async getSchema(
-    token?: string,
-    params: { full?: boolean } = {},
-  ): Promise<{ status: number; body: Record<string, unknown> }> {
-    const qs = new URLSearchParams();
-    if (params.full) qs.set('full', '1');
-    const path = `/api/schema${qs.toString() ? `?${qs}` : ''}`;
-    const headers: Record<string, string> = {};
-    if (token) headers['authorization'] = `Bearer ${token}`;
-
+  async getSchema(): Promise<{ status: number; body: Record<string, unknown> }> {
     return new Promise((resolve, reject) => {
       const req = http.request(
-        { hostname: '127.0.0.1', port: this.port, path, method: 'GET', headers },
+        { hostname: '127.0.0.1', port: this.port, path: '/api/schema', method: 'GET' },
         (res) => {
           const chunks: Buffer[] = [];
           res.on('data', (chunk: Buffer) => chunks.push(chunk));

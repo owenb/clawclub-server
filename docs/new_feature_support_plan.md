@@ -167,7 +167,7 @@ All support actions that check "is this person the club owner" query `current_cl
 
 ### Ownership transfer
 
-When `clubs.assignOwner` changes club ownership, open `kind = 'support'` threads are NOT automatically reassigned. The old owner remains the assignee on existing threads (they have context on the conversation). The new owner can see the queue via the `current_club_owners` check in `actor_can_access_support_thread`, so they have visibility, but existing threads continue with the original responder.
+When `superadmin.clubs.assignOwner` changes club ownership, open `kind = 'support'` threads are NOT automatically reassigned. The old owner remains the assignee on existing threads (they have context on the conversation). The new owner can see the queue via the `current_club_owners` check in `actor_can_access_support_thread`, so they have visibility, but existing threads continue with the original responder.
 
 `support.reassign` in v1 only applies to `kind = 'escalation'` threads (superadmin moves between support contacts). Reassignment of `kind = 'support'` threads is deferred.
 
@@ -298,7 +298,7 @@ Requester and assignee are explicit fields, not a viewer-relative `counterpartMe
 | `closed` status | `open` -> `resolved` is sufficient. | Additive enum change if admin-close or auto-close is needed. |
 | `archived_at` | No archive workflow defined yet. | Add column when soft-hide/admin-archive is needed. |
 | Reassignment of support threads | Owner continuity is the right default. New owner has visibility via queue. | Add `support.reassign` for `kind='support'` if needed. |
-| Ownership transfer cascade | Open support threads keep the old owner as assignee. New owner sees the queue. | Automatic reassignment on `clubs.assignOwner` if manual handoff proves insufficient. |
+| Ownership transfer cascade | Open support threads keep the old owner as assignee. New owner sees the queue. | Automatic reassignment on `superadmin.clubs.assignOwner` if manual handoff proves insufficient. |
 
 ## File changes (estimated)
 

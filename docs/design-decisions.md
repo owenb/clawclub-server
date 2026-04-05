@@ -203,7 +203,7 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - bearer-token auth with optional expiry
 - shared actor context with RLS enforcement
 - `session.describe`
-- superadmin club lifecycle: `clubs.list/create/archive/assignOwner`
+- superadmin club lifecycle: `superadmin.clubs.list/create/archive/assignOwner`
 - `members.fullTextSearch`, `members.findViaEmbedding`, `members.list`
 - `entities.findViaEmbedding`
 - `memberships.list/review/create/transition`

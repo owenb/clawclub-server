@@ -1,17 +1,15 @@
 /**
- * Action contracts: quotas.status, clubs.list, clubs.create, clubs.archive, clubs.assignOwner, tokens.list, tokens.create, tokens.revoke
+ * Action contracts: quotas.status, tokens.list, tokens.create, tokens.revoke
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
-  wireOptionalBoolean,
   wireOptionalRecord, parseOptionalRecord,
-  wireSlug, parseSlug,
 } from './fields.ts';
 import {
-  quotaAllowance, clubSummary, bearerTokenSummary, createdBearerToken,
+  quotaAllowance, bearerTokenSummary, createdBearerToken,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -40,216 +38,6 @@ const quotasStatus: ActionDefinition = {
     });
 
     return { data: { quotas } };
-  },
-};
-
-// ── clubs.list ──────────────────────────────────────────
-
-type ClubsListInput = {
-  includeArchived: boolean;
-};
-
-const clubsList: ActionDefinition = {
-  action: 'clubs.list',
-  domain: 'platform',
-  description: 'List all clubs (superadmin only).',
-  auth: 'superadmin',
-  safety: 'read_only',
-
-  wire: {
-    input: z.object({
-      includeArchived: wireOptionalBoolean.describe('Include archived clubs'),
-    }),
-    output: z.object({
-      includeArchived: z.boolean(),
-      clubs: z.array(clubSummary),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      includeArchived: z.boolean().optional().default(false),
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    const { includeArchived } = input as ClubsListInput;
-
-    const clubs = await ctx.repository.listClubs?.({
-      actorMemberId: ctx.actor.member.id,
-      includeArchived,
-    });
-
-    return {
-      data: {
-        includeArchived,
-        clubs: clubs ?? [],
-      },
-    };
-  },
-};
-
-// ── clubs.create ────────────────────────────────────────
-
-type ClubsCreateInput = {
-  slug: string;
-  name: string;
-  summary: string;
-  ownerMemberId: string;
-};
-
-const clubsCreate: ActionDefinition = {
-  action: 'clubs.create',
-  domain: 'platform',
-  description: 'Create a new club (superadmin only).',
-  auth: 'superadmin',
-  safety: 'mutating',
-
-  requiredCapability: 'createClub',
-
-  wire: {
-    input: z.object({
-      slug: wireSlug.describe('URL-safe slug for the club'),
-      name: wireRequiredString.describe('Club display name'),
-      summary: wireRequiredString.describe('Club summary'),
-      ownerMemberId: wireRequiredString.describe('Member ID of the club owner'),
-    }),
-    output: z.object({ club: clubSummary }),
-  },
-
-  parse: {
-    input: z.object({
-      slug: parseSlug,
-      name: parseRequiredString,
-      summary: parseRequiredString,
-      ownerMemberId: parseRequiredString,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('createClub');
-    const { slug, name, summary, ownerMemberId } = input as ClubsCreateInput;
-
-    let club: Awaited<ReturnType<NonNullable<typeof ctx.repository.createClub>>>;
-    try {
-      club = await ctx.repository.createClub!({
-        actorMemberId: ctx.actor.member.id,
-        slug,
-        name,
-        summary,
-        ownerMemberId,
-      });
-    } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error && error.code === '23505' &&
-          'constraint' in error && typeof error.constraint === 'string' && error.constraint.includes('slug')) {
-        throw new AppError(409, 'slug_conflict', 'A club with that slug already exists');
-      }
-      throw error;
-    }
-
-    if (!club) {
-      throw new AppError(404, 'not_found', 'Owner member not found or not active');
-    }
-
-    return {
-      data: { club },
-      requestScope: { requestedClubId: club.clubId, activeClubIds: [club.clubId] },
-    };
-  },
-};
-
-// ── clubs.archive ───────────────────────────────────────
-
-const clubsArchive: ActionDefinition = {
-  action: 'clubs.archive',
-  domain: 'platform',
-  description: 'Archive a club (superadmin only).',
-  auth: 'superadmin',
-  safety: 'mutating',
-
-  requiredCapability: 'archiveClub',
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club to archive'),
-    }),
-    output: z.object({ club: clubSummary }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('archiveClub');
-    const { clubId } = input as { clubId: string };
-
-    const club = await ctx.repository.archiveClub!({
-      actorMemberId: ctx.actor.member.id,
-      clubId,
-    });
-
-    if (!club) {
-      throw new AppError(404, 'not_found', 'Club not found for archive');
-    }
-
-    return {
-      data: { club },
-      requestScope: { requestedClubId: club.clubId, activeClubIds: [club.clubId] },
-    };
-  },
-};
-
-// ── clubs.assignOwner ───────────────────────────────────
-
-const clubsAssignOwner: ActionDefinition = {
-  action: 'clubs.assignOwner',
-  domain: 'platform',
-  description: 'Assign a new owner to a club (superadmin only).',
-  auth: 'superadmin',
-  safety: 'mutating',
-
-  requiredCapability: 'assignClubOwner',
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club to reassign'),
-      ownerMemberId: wireRequiredString.describe('New owner member ID'),
-    }),
-    output: z.object({ club: clubSummary }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      ownerMemberId: parseRequiredString,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('assignClubOwner');
-    const { clubId, ownerMemberId } = input as { clubId: string; ownerMemberId: string };
-
-    const club = await ctx.repository.assignClubOwner!({
-      actorMemberId: ctx.actor.member.id,
-      clubId,
-      ownerMemberId,
-    });
-
-    if (!club) {
-      throw new AppError(404, 'not_found', 'Club or owner member not found for owner assignment');
-    }
-
-    return {
-      data: { club },
-      requestScope: { requestedClubId: club.clubId, activeClubIds: [club.clubId] },
-    };
   },
 };
 
@@ -364,4 +152,4 @@ const tokensRevoke: ActionDefinition = {
   },
 };
 
-registerActions([quotasStatus, clubsList, clubsCreate, clubsArchive, clubsAssignOwner, tokensList, tokensCreate, tokensRevoke]);
+registerActions([quotasStatus, tokensList, tokensCreate, tokensRevoke]);

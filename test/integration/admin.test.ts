@@ -14,13 +14,13 @@ after(async () => {
 
 // ── Superadmin Platform Actions ──────────────────────────────────────────────
 
-describe('clubs.list', () => {
+describe('superadmin.clubs.list', () => {
   it('superadmin sees all clubs', async () => {
     const admin = await h.seedSuperadmin('Admin User', 'admin-clubs-list');
     await h.seedOwner('list-club-a', 'List Club A');
     await h.seedOwner('list-club-b', 'List Club B');
 
-    const result = await h.apiOk(admin.token, 'clubs.list', {});
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.list', {});
     const clubs = result.data as Record<string, unknown>;
     assert.ok(Array.isArray(clubs.clubs));
     const clubList = clubs.clubs as Array<Record<string, unknown>>;
@@ -32,32 +32,32 @@ describe('clubs.list', () => {
   it('includes archived clubs when requested', async () => {
     const admin = await h.seedSuperadmin('Admin Archived', 'admin-clubs-list-archived');
     const { club } = await h.seedOwner('to-list-archived', 'List Archived Club');
-    await h.apiOk(admin.token, 'clubs.archive', { clubId: club.id });
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
 
-    const withArchived = await h.apiOk(admin.token, 'clubs.list', { includeArchived: true });
+    const withArchived = await h.apiOk(admin.token, 'superadmin.clubs.list', { includeArchived: true });
     const clubsData = withArchived.data as Record<string, unknown>;
     const allClubs = clubsData.clubs as Array<Record<string, unknown>>;
     assert.ok(allClubs.some((c) => c.slug === 'to-list-archived'));
 
-    const withoutArchived = await h.apiOk(admin.token, 'clubs.list', {});
+    const withoutArchived = await h.apiOk(admin.token, 'superadmin.clubs.list', {});
     const activeClubs = (withoutArchived.data as Record<string, unknown>).clubs as Array<Record<string, unknown>>;
     assert.ok(!activeClubs.some((c) => c.slug === 'to-list-archived'));
   });
 
   it('non-superadmin cannot list clubs', async () => {
     const member = await h.seedMember('Regular List', 'regular-list-clubs');
-    const err = await h.apiErr(member.token, 'clubs.list', {});
+    const err = await h.apiErr(member.token, 'superadmin.clubs.list', {});
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
 });
 
-describe('clubs.create', () => {
+describe('superadmin.clubs.create', () => {
   it('creates club with all required fields; returns correct shape', async () => {
     const admin = await h.seedSuperadmin('Admin Creator', 'admin-clubs-create');
     const owner = await h.seedMember('New Owner', 'new-owner-create');
 
-    const result = await h.apiOk(admin.token, 'clubs.create', {
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.create', {
       slug: 'created-club',
       name: 'Created Club',
       ownerMemberId: owner.id,
@@ -78,18 +78,18 @@ describe('clubs.create', () => {
     assert.equal(ownerVersion.versionNo, 1);
   });
 
-  it('created club appears in clubs.list', async () => {
+  it('created club appears in superadmin.clubs.list', async () => {
     const admin = await h.seedSuperadmin('Admin Verify List', 'admin-create-verify');
     const owner = await h.seedMember('Verify Owner', 'verify-owner-create');
 
-    await h.apiOk(admin.token, 'clubs.create', {
+    await h.apiOk(admin.token, 'superadmin.clubs.create', {
       slug: 'verify-listed',
       name: 'Verify Listed',
       ownerMemberId: owner.id,
       summary: 'Should appear in list',
     });
 
-    const list = await h.apiOk(admin.token, 'clubs.list', {});
+    const list = await h.apiOk(admin.token, 'superadmin.clubs.list', {});
     const clubs = (list.data as Record<string, unknown>).clubs as Array<Record<string, unknown>>;
     assert.ok(clubs.some((c) => c.slug === 'verify-listed'));
   });
@@ -98,7 +98,7 @@ describe('clubs.create', () => {
     const admin = await h.seedSuperadmin('Admin NoSlug', 'admin-create-no-slug');
     const owner = await h.seedMember('Owner NoSlug', 'owner-no-slug');
 
-    const err = await h.apiErr(admin.token, 'clubs.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.create', {
       name: 'No Slug Club',
       ownerMemberId: owner.id,
       summary: 'Missing slug',
@@ -112,7 +112,7 @@ describe('clubs.create', () => {
     const admin = await h.seedSuperadmin('Admin NoName', 'admin-create-no-name');
     const owner = await h.seedMember('Owner NoName', 'owner-no-name');
 
-    const err = await h.apiErr(admin.token, 'clubs.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.create', {
       slug: 'no-name-club',
       ownerMemberId: owner.id,
       summary: 'Missing name',
@@ -126,7 +126,7 @@ describe('clubs.create', () => {
     const admin = await h.seedSuperadmin('Admin NoSummary', 'admin-create-no-summary');
     const owner = await h.seedMember('Owner NoSummary', 'owner-no-summary');
 
-    const err = await h.apiErr(admin.token, 'clubs.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.create', {
       slug: 'no-summary-club',
       name: 'No Summary Club',
       ownerMemberId: owner.id,
@@ -139,7 +139,7 @@ describe('clubs.create', () => {
   it('rejects missing ownerMemberId', async () => {
     const admin = await h.seedSuperadmin('Admin NoOwner', 'admin-create-no-owner');
 
-    const err = await h.apiErr(admin.token, 'clubs.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.create', {
       slug: 'no-owner-club',
       name: 'No Owner Club',
       summary: 'Missing owner',
@@ -153,7 +153,7 @@ describe('clubs.create', () => {
     const admin = await h.seedSuperadmin('Admin BadSlug', 'admin-create-bad-slug');
     const owner = await h.seedMember('Owner BadSlug', 'owner-bad-slug');
 
-    const err = await h.apiErr(admin.token, 'clubs.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.create', {
       slug: 'BadSlug',
       name: 'Bad Slug Club',
       ownerMemberId: owner.id,
@@ -168,7 +168,7 @@ describe('clubs.create', () => {
     const admin = await h.seedSuperadmin('Admin SpaceSlug', 'admin-create-space-slug');
     const owner = await h.seedMember('Owner SpaceSlug', 'owner-space-slug');
 
-    const err = await h.apiErr(admin.token, 'clubs.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.create', {
       slug: 'bad slug',
       name: 'Space Slug Club',
       ownerMemberId: owner.id,
@@ -182,7 +182,7 @@ describe('clubs.create', () => {
     const admin = await h.seedSuperadmin('Admin TrailSlug', 'admin-create-trail-slug');
     const owner = await h.seedMember('Owner TrailSlug', 'owner-trail-slug');
 
-    const err = await h.apiErr(admin.token, 'clubs.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.create', {
       slug: 'trailing-',
       name: 'Trailing Slug Club',
       ownerMemberId: owner.id,
@@ -196,14 +196,14 @@ describe('clubs.create', () => {
     const admin = await h.seedSuperadmin('Admin DupSlug', 'admin-create-dup-slug');
     const owner = await h.seedMember('Owner DupSlug', 'owner-dup-slug');
 
-    await h.apiOk(admin.token, 'clubs.create', {
+    await h.apiOk(admin.token, 'superadmin.clubs.create', {
       slug: 'unique-slug',
       name: 'First Club',
       ownerMemberId: owner.id,
       summary: 'First club with this slug',
     });
 
-    const err = await h.apiErr(admin.token, 'clubs.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.create', {
       slug: 'unique-slug',
       name: 'Second Club',
       ownerMemberId: owner.id,
@@ -217,7 +217,7 @@ describe('clubs.create', () => {
   it('rejects non-existent owner member', async () => {
     const admin = await h.seedSuperadmin('Admin GhostOwner', 'admin-create-ghost-owner');
 
-    const err = await h.apiErr(admin.token, 'clubs.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.create', {
       slug: 'ghost-owner-club',
       name: 'Ghost Owner Club',
       ownerMemberId: 'nonexistent-member-id',
@@ -230,7 +230,7 @@ describe('clubs.create', () => {
   it('non-superadmin cannot create clubs', async () => {
     const member = await h.seedMember('Regular Creator', 'regular-creator');
 
-    const err = await h.apiErr(member.token, 'clubs.create', {
+    const err = await h.apiErr(member.token, 'superadmin.clubs.create', {
       slug: 'forbidden-club',
       name: 'Forbidden Club',
       ownerMemberId: member.id,
@@ -244,7 +244,7 @@ describe('clubs.create', () => {
     const admin = await h.seedSuperadmin('Admin NoManifesto', 'admin-no-manifesto');
     const owner = await h.seedMember('Owner NoManifesto', 'owner-no-manifesto');
 
-    const result = await h.apiOk(admin.token, 'clubs.create', {
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.create', {
       slug: 'no-manifesto-club',
       name: 'No Manifesto Club',
       ownerMemberId: owner.id,
@@ -256,12 +256,12 @@ describe('clubs.create', () => {
   });
 });
 
-describe('clubs.archive', () => {
+describe('superadmin.clubs.archive', () => {
   it('archives a club', async () => {
     const admin = await h.seedSuperadmin('Admin Archiver', 'admin-clubs-archive');
     const { club } = await h.seedOwner('to-archive-club', 'To Archive Club');
 
-    const result = await h.apiOk(admin.token, 'clubs.archive', { clubId: club.id });
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
     const data = result.data as Record<string, unknown>;
     const archived = data.club as Record<string, unknown>;
     assert.equal(archived.clubId, club.id);
@@ -272,10 +272,10 @@ describe('clubs.archive', () => {
     const admin = await h.seedSuperadmin('Admin DoubleArchive', 'admin-double-archive');
     const { club } = await h.seedOwner('double-archive-club', 'Double Archive Club');
 
-    const first = await h.apiOk(admin.token, 'clubs.archive', { clubId: club.id });
+    const first = await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
     const firstArchivedAt = ((first.data as Record<string, unknown>).club as Record<string, unknown>).archivedAt;
 
-    const second = await h.apiOk(admin.token, 'clubs.archive', { clubId: club.id });
+    const second = await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
     const secondArchivedAt = ((second.data as Record<string, unknown>).club as Record<string, unknown>).archivedAt;
 
     assert.equal(firstArchivedAt, secondArchivedAt, 'archivedAt should not change on second archive');
@@ -283,7 +283,7 @@ describe('clubs.archive', () => {
 
   it('rejects missing clubId', async () => {
     const admin = await h.seedSuperadmin('Admin NoClubId', 'admin-archive-no-id');
-    const err = await h.apiErr(admin.token, 'clubs.archive', {});
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.archive', {});
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
     assert.ok(err.message.includes('clubId'));
@@ -291,26 +291,26 @@ describe('clubs.archive', () => {
 
   it('rejects non-existent club', async () => {
     const admin = await h.seedSuperadmin('Admin GhostClub', 'admin-archive-ghost');
-    const err = await h.apiErr(admin.token, 'clubs.archive', { clubId: 'nonexistent-club-id' });
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.archive', { clubId: 'nonexistent-club-id' });
     assert.equal(err.status, 404);
     assert.equal(err.code, 'not_found');
   });
 
   it('non-superadmin cannot archive clubs', async () => {
     const ownerCtx = await h.seedOwner('archive-auth-club', 'Archive Auth Club');
-    const err = await h.apiErr(ownerCtx.token, 'clubs.archive', { clubId: ownerCtx.club.id });
+    const err = await h.apiErr(ownerCtx.token, 'superadmin.clubs.archive', { clubId: ownerCtx.club.id });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
 });
 
-describe('clubs.assignOwner', () => {
+describe('superadmin.clubs.assignOwner', () => {
   it('reassigns ownership; new owner appears in response', async () => {
     const admin = await h.seedSuperadmin('Admin Reassigner', 'admin-clubs-assign');
     const { club } = await h.seedOwner('reassign-club', 'Reassign Club');
     const newOwner = await h.seedMember('New Club Owner', 'new-club-owner-assign');
 
-    const result = await h.apiOk(admin.token, 'clubs.assignOwner', {
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.assignOwner', {
       clubId: club.id,
       ownerMemberId: newOwner.id,
     });
@@ -325,7 +325,7 @@ describe('clubs.assignOwner', () => {
   it('rejects missing clubId', async () => {
     const admin = await h.seedSuperadmin('Admin AssignNoClub', 'admin-assign-no-club');
     const member = await h.seedMember('Assign NoClub', 'assign-no-club');
-    const err = await h.apiErr(admin.token, 'clubs.assignOwner', { ownerMemberId: member.id });
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', { ownerMemberId: member.id });
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
     assert.ok(err.message.includes('clubId'));
@@ -334,7 +334,7 @@ describe('clubs.assignOwner', () => {
   it('rejects missing ownerMemberId', async () => {
     const admin = await h.seedSuperadmin('Admin AssignNoOwner', 'admin-assign-no-owner');
     const { club } = await h.seedOwner('assign-no-owner-club', 'No Owner Club');
-    const err = await h.apiErr(admin.token, 'clubs.assignOwner', { clubId: club.id });
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', { clubId: club.id });
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
     assert.ok(err.message.includes('ownerMemberId'));
@@ -343,7 +343,7 @@ describe('clubs.assignOwner', () => {
   it('rejects non-existent club', async () => {
     const admin = await h.seedSuperadmin('Admin AssignGhost', 'admin-assign-ghost-club');
     const member = await h.seedMember('Assign Ghost', 'assign-ghost-member');
-    const err = await h.apiErr(admin.token, 'clubs.assignOwner', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', {
       clubId: 'nonexistent-id',
       ownerMemberId: member.id,
     });
@@ -354,7 +354,7 @@ describe('clubs.assignOwner', () => {
   it('rejects non-existent owner member', async () => {
     const admin = await h.seedSuperadmin('Admin AssignBadOwner', 'admin-assign-bad-owner');
     const { club } = await h.seedOwner('assign-bad-owner-club', 'Bad Owner Club');
-    const err = await h.apiErr(admin.token, 'clubs.assignOwner', {
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', {
       clubId: club.id,
       ownerMemberId: 'nonexistent-member-id',
     });
@@ -365,7 +365,7 @@ describe('clubs.assignOwner', () => {
   it('non-superadmin cannot reassign ownership', async () => {
     const ownerCtx = await h.seedOwner('assign-auth-club', 'Assign Auth Club');
     const newOwner = await h.seedMember('Auth New Owner', 'auth-new-owner');
-    const err = await h.apiErr(ownerCtx.token, 'clubs.assignOwner', {
+    const err = await h.apiErr(ownerCtx.token, 'superadmin.clubs.assignOwner', {
       clubId: ownerCtx.club.id,
       ownerMemberId: newOwner.id,
     });
@@ -373,7 +373,7 @@ describe('clubs.assignOwner', () => {
     assert.equal(err.code, 'forbidden');
   });
 
-  // Known P1 bug: clubs.assignOwner writes club_owner_versions but doesn't
+  // Known P1 bug: superadmin.clubs.assignOwner writes club_owner_versions but doesn't
   // demote the old owner's club_memberships.role. The old owner retains owner
   // API access until the membership role is also updated.
   it.todo('old owner loses owner-only API access after reassignment');
@@ -381,11 +381,11 @@ describe('clubs.assignOwner', () => {
 
 // ── Admin Dashboard Actions ──────────────────────────────────────────────────
 
-describe('admin.overview', () => {
+describe('superadmin.overview', () => {
   it('returns platform stats with correct shape', async () => {
     const admin = await h.seedSuperadmin('Admin Overview', 'admin-overview-test');
 
-    const result = await h.apiOk(admin.token, 'admin.overview', {});
+    const result = await h.apiOk(admin.token, 'superadmin.overview', {});
     const data = result.data as Record<string, unknown>;
     const overview = data.overview as Record<string, unknown>;
     assert.ok(typeof overview.totalMembers === 'number');
@@ -397,21 +397,21 @@ describe('admin.overview', () => {
     assert.ok(overview.totalMembers >= 1, 'at least the admin member exists');
   });
 
-  it('non-superadmin cannot access admin.overview', async () => {
+  it('non-superadmin cannot access superadmin.overview', async () => {
     const member = await h.seedMember('Regular Overview', 'regular-overview');
-    const err = await h.apiErr(member.token, 'admin.overview', {});
+    const err = await h.apiErr(member.token, 'superadmin.overview', {});
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
 });
 
-describe('admin.members.list', () => {
+describe('superadmin.members.list', () => {
   it('lists members with pagination', async () => {
     const admin = await h.seedSuperadmin('Admin List Members', 'admin-list-members');
     await h.seedMember('Listed Member A', 'listed-member-a');
     await h.seedMember('Listed Member B', 'listed-member-b');
 
-    const result = await h.apiOk(admin.token, 'admin.members.list', { limit: 20 });
+    const result = await h.apiOk(admin.token, 'superadmin.members.list', { limit: 20 });
     const data = result.data as Record<string, unknown>;
     const members = data.members as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(members));
@@ -428,25 +428,25 @@ describe('admin.members.list', () => {
     await h.seedMember('Limit B', 'limit-member-b');
     await h.seedMember('Limit C', 'limit-member-c');
 
-    const result = await h.apiOk(admin.token, 'admin.members.list', { limit: 1 });
+    const result = await h.apiOk(admin.token, 'superadmin.members.list', { limit: 1 });
     const members = (result.data as Record<string, unknown>).members as Array<Record<string, unknown>>;
     assert.equal(members.length, 1);
   });
 
   it('non-superadmin cannot list members', async () => {
     const member = await h.seedMember('Regular ListM', 'regular-list-members');
-    const err = await h.apiErr(member.token, 'admin.members.list', { limit: 10 });
+    const err = await h.apiErr(member.token, 'superadmin.members.list', { limit: 10 });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
 });
 
-describe('admin.members.get', () => {
+describe('superadmin.members.get', () => {
   it('gets full member detail including memberships', async () => {
     const admin = await h.seedSuperadmin('Admin Get Member', 'admin-get-member');
     const ownerCtx = await h.seedOwner('detail-club', 'Detail Club');
 
-    const result = await h.apiOk(admin.token, 'admin.members.get', { memberId: ownerCtx.id });
+    const result = await h.apiOk(admin.token, 'superadmin.members.get', { memberId: ownerCtx.id });
     const data = result.data as Record<string, unknown>;
     const member = data.member as Record<string, unknown>;
     assert.equal(member.memberId, ownerCtx.id);
@@ -459,20 +459,20 @@ describe('admin.members.get', () => {
 
   it('rejects missing memberId', async () => {
     const admin = await h.seedSuperadmin('Admin GetNoId', 'admin-get-no-id');
-    const err = await h.apiErr(admin.token, 'admin.members.get', {});
+    const err = await h.apiErr(admin.token, 'superadmin.members.get', {});
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
   });
 
   it('returns null/404 for non-existent member', async () => {
     const admin = await h.seedSuperadmin('Admin GetGhost', 'admin-get-ghost');
-    const err = await h.apiErr(admin.token, 'admin.members.get', { memberId: 'nonexistent-id' });
+    const err = await h.apiErr(admin.token, 'superadmin.members.get', { memberId: 'nonexistent-id' });
     assert.equal(err.status, 404);
   });
 
   it('non-superadmin cannot get member detail', async () => {
     const member = await h.seedMember('Regular GetM', 'regular-get-member');
-    const err = await h.apiErr(member.token, 'admin.members.get', { memberId: member.id });
+    const err = await h.apiErr(member.token, 'superadmin.members.get', { memberId: member.id });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
@@ -668,11 +668,11 @@ describe('admin.tokens.revoke', () => {
   });
 });
 
-describe('admin.diagnostics.health', () => {
+describe('superadmin.diagnostics.health', () => {
   it('returns diagnostics with correct shape', async () => {
     const admin = await h.seedSuperadmin('Admin Diag', 'admin-diag-health');
 
-    const result = await h.apiOk(admin.token, 'admin.diagnostics.health', {});
+    const result = await h.apiOk(admin.token, 'superadmin.diagnostics.health', {});
     const data = result.data as Record<string, unknown>;
     const diagnostics = data.diagnostics as Record<string, unknown>;
     assert.ok(typeof diagnostics.migrationCount === 'number');
@@ -686,7 +686,7 @@ describe('admin.diagnostics.health', () => {
 
   it('non-superadmin cannot access diagnostics', async () => {
     const member = await h.seedMember('Regular Diag', 'regular-diag');
-    const err = await h.apiErr(member.token, 'admin.diagnostics.health', {});
+    const err = await h.apiErr(member.token, 'superadmin.diagnostics.health', {});
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
@@ -796,13 +796,13 @@ describe('platform authorization', () => {
   it('non-superadmin cannot use any superadmin action', async () => {
     const regularMember = await h.seedMember('Regular Joe', 'regular-joe-authz');
     const superadminActions = [
-      ['clubs.list', {}],
-      ['clubs.create', { slug: 'x', name: 'X', summary: 'X', ownerMemberId: 'x' }],
-      ['clubs.archive', { clubId: 'x' }],
-      ['clubs.assignOwner', { clubId: 'x', ownerMemberId: 'x' }],
-      ['admin.overview', {}],
-      ['admin.members.list', { limit: 1 }],
-      ['admin.members.get', { memberId: 'x' }],
+      ['superadmin.clubs.list', {}],
+      ['superadmin.clubs.create', { slug: 'x', name: 'X', summary: 'X', ownerMemberId: 'x' }],
+      ['superadmin.clubs.archive', { clubId: 'x' }],
+      ['superadmin.clubs.assignOwner', { clubId: 'x', ownerMemberId: 'x' }],
+      ['superadmin.overview', {}],
+      ['superadmin.members.list', { limit: 1 }],
+      ['superadmin.members.get', { memberId: 'x' }],
       ['admin.clubs.stats', { clubId: 'x' }],
       ['admin.content.list', { limit: 1 }],
       ['admin.content.archive', { entityId: 'x' }],
@@ -810,7 +810,7 @@ describe('platform authorization', () => {
       ['admin.messages.read', { threadId: 'x' }],
       ['admin.tokens.list', { memberId: 'x' }],
       ['admin.tokens.revoke', { memberId: 'x', tokenId: 'x' }],
-      ['admin.diagnostics.health', {}],
+      ['superadmin.diagnostics.health', {}],
     ] as const;
 
     for (const [action, input] of superadminActions) {
@@ -821,12 +821,12 @@ describe('platform authorization', () => {
   });
 
   it('unauthenticated requests are rejected', async () => {
-    const { status } = await h.api(null, 'clubs.list', {});
+    const { status } = await h.api(null, 'superadmin.clubs.list', {});
     assert.ok(status === 400 || status === 401, `expected 400 or 401 but got ${status}`);
   });
 
   it('invalid bearer token returns 401', async () => {
-    const { status } = await h.api('cc_live_fakefakefake_fakefakefakefakefakefake', 'clubs.list', {});
+    const { status } = await h.api('cc_live_fakefakefake_fakefakefakefakefakefake', 'superadmin.clubs.list', {});
     assert.equal(status, 401);
   });
 });

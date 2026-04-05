@@ -21,7 +21,7 @@ async function postAction(port: number, token: string, action: string, input: Re
   return { response, body };
 }
 
-test('admin.overview returns platform stats for superadmin', async () => {
+test('superadmin.overview returns platform stats for superadmin', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -54,7 +54,7 @@ test('admin.overview returns platform stats for superadmin', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.overview');
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.overview');
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.overview.totalMembers, 42);
@@ -83,7 +83,7 @@ test('admin actions reject non-superadmin users with 403', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_user', 'admin.overview');
+    const { response, body } = await postAction(port, 'cc_live_user', 'superadmin.overview');
     assert.equal(response.status, 403);
     assert.equal(body.ok, false);
     assert.equal(body.error.code, 'forbidden');
@@ -92,7 +92,7 @@ test('admin actions reject non-superadmin users with 403', async () => {
   }
 });
 
-test('admin.members.list returns paginated member list', async () => {
+test('superadmin.members.list returns paginated member list', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -122,7 +122,7 @@ test('admin.members.list returns paginated member list', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.members.list', { limit: 5 });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.members.list', { limit: 5 });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.members.length, 1);
@@ -134,7 +134,7 @@ test('admin.members.list returns paginated member list', async () => {
   }
 });
 
-test('admin.members.get returns full member detail', async () => {
+test('superadmin.members.get returns full member detail', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -173,13 +173,13 @@ test('admin.members.get returns full member detail', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.members.get', { memberId: 'member-1' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.members.get', { memberId: 'member-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.member.memberships.length, 1);
     assert.equal(body.data.member.tokenCount, 2);
 
-    const { response: notFound } = await postAction(port, 'cc_live_admin', 'admin.members.get', { memberId: 'nonexistent' });
+    const { response: notFound } = await postAction(port, 'cc_live_admin', 'superadmin.members.get', { memberId: 'nonexistent' });
     assert.equal(notFound.status, 404);
   } finally {
     await shutdown();
@@ -259,7 +259,7 @@ test('admin.content.archive archives an entity', async () => {
   }
 });
 
-test('admin.diagnostics.health returns system diagnostics', async () => {
+test('superadmin.diagnostics.health returns system diagnostics', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -288,7 +288,7 @@ test('admin.diagnostics.health returns system diagnostics', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.diagnostics.health');
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.diagnostics.health');
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.diagnostics.migrationCount, 43);
@@ -299,7 +299,7 @@ test('admin.diagnostics.health returns system diagnostics', async () => {
   }
 });
 
-test('admin.members.list returns 400 for invalid cursor', async () => {
+test('superadmin.members.list returns 400 for invalid cursor', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -320,7 +320,7 @@ test('admin.members.list returns 400 for invalid cursor', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'admin.members.list', { limit: 5, cursor: 'not-valid-base64-json' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.members.list', { limit: 5, cursor: 'not-valid-base64-json' });
     assert.equal(response.status, 400);
     assert.equal(body.ok, false);
     assert.equal(body.error.code, 'invalid_input');

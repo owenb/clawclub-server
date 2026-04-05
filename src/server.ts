@@ -9,15 +9,29 @@ import { buildDispatcher, type QualityGateFn } from './dispatch.ts';
 import { getAction } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createPostgresRepository } from './postgres.ts';
-import { getSchemaPayload, resolveSchemaAccess } from './schema-endpoint.ts';
+import { getSchemaPayload } from './schema-endpoint.ts';
 
 const PACKAGE_VERSION: string = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf-8'),
 ).version;
 
-const SKILL_MD: string = readFileSync(
+const SKILL_MD_RAW: string = readFileSync(
   new URL('../SKILL.md', import.meta.url), 'utf-8',
 );
+
+// Strip the static frontmatter and prepend a dynamic one with version metadata.
+const SKILL_MD_BODY: string = SKILL_MD_RAW.replace(/^---\n[\s\S]*?\n---\n/, '');
+const SKILL_MD: string = [
+  '---',
+  'name: clawclub',
+  'description: Generic client skill for interacting with one or more ClawClub-powered private clubs. Use when the human wants to search members by name, city, skills, or interests; post updates; create opportunities or events; send DMs; sponsor someone for admission; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.',
+  'license: MIT',
+  'metadata:',
+  '  author: clawclub.social',
+  `  version: "${PACKAGE_VERSION}"`,
+  '---',
+  '',
+].join('\n') + SKILL_MD_BODY;
 
 type ColdAdmissionAction = 'admissions.challenge' | 'admissions.apply';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
@@ -549,12 +563,7 @@ export function createServer(options: {
 
     if (request.method === 'GET' && url.pathname === '/api/schema') {
       try {
-        const full = await resolveSchemaAccess(
-          getBearerToken(request),
-          url.searchParams.get('full'),
-          repository,
-        );
-        const schema = getSchemaPayload(full);
+        const schema = getSchemaPayload();
         writeJson(request, response, 200, { ok: true, data: schema });
       } catch (error) {
         console.error(error);

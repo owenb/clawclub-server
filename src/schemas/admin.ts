@@ -1,8 +1,10 @@
 /**
- * Action contracts: admin.overview, admin.members.list, admin.members.get, admin.clubs.stats,
- * admin.content.list, admin.content.archive, admin.content.redact, admin.messages.threads,
- * admin.messages.read, admin.messages.redact, admin.tokens.list, admin.tokens.revoke,
- * admin.diagnostics.health
+ * Action contracts: admin.clubs.stats, admin.content.list, admin.content.archive,
+ * admin.content.redact, admin.messages.threads, admin.messages.read, admin.messages.redact,
+ * admin.tokens.list, admin.tokens.revoke
+ *
+ * These are superadmin actions that operate within club scope and may become
+ * owner-scoped in future.
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -28,132 +30,11 @@ function decodeAdminCursor(cursor: string): { createdAt: string; id: string } {
   }
 }
 import {
-  adminOverview, adminMemberSummary, adminMemberDetail,
   adminClubStats, adminContentSummary, adminThreadSummary,
-  adminDiagnostics, directMessageEntry, redactionResult,
+  directMessageEntry, redactionResult,
   bearerTokenSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
-
-// ── admin.overview ──────────────────────────────────────
-
-const adminOverviewAction: ActionDefinition = {
-  action: 'admin.overview',
-  domain: 'admin',
-  description: 'Get platform-wide overview statistics.',
-  auth: 'superadmin',
-  safety: 'read_only',
-
-  requiredCapability: 'adminGetOverview',
-
-  wire: {
-    input: z.object({}),
-    output: z.object({ overview: adminOverview }),
-  },
-
-  parse: {
-    input: z.object({}),
-  },
-
-  async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('adminGetOverview');
-    const overview = await ctx.repository.adminGetOverview!({ actorMemberId: ctx.actor.member.id });
-    return { data: { overview } };
-  },
-};
-
-// ── admin.members.list ──────────────────────────────────
-
-type AdminMembersListInput = {
-  limit: number;
-  cursor: string | null;
-};
-
-const adminMembersList: ActionDefinition = {
-  action: 'admin.members.list',
-  domain: 'admin',
-  description: 'List all members with summary info.',
-  auth: 'superadmin',
-  safety: 'read_only',
-
-  requiredCapability: 'adminListMembers',
-
-  wire: {
-    input: z.object({
-      limit: wireLimit,
-      cursor: wireCursor,
-    }),
-    output: z.object({ members: z.array(adminMemberSummary), nextCursor: z.string().nullable() }),
-  },
-
-  parse: {
-    input: z.object({
-      limit: parseLimit,
-      cursor: parseCursor,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('adminListMembers');
-    const { limit, cursor: rawCursor } = input as AdminMembersListInput;
-    const cursor = rawCursor ? decodeAdminCursor(rawCursor) : null;
-
-    const members = await ctx.repository.adminListMembers!({
-      actorMemberId: ctx.actor.member.id,
-      limit,
-      cursor,
-    });
-
-    const last = members[members.length - 1];
-    const nextCursor = last ? encodeAdminCursor(last.createdAt, last.memberId) : null;
-
-    return { data: { members, nextCursor } };
-  },
-};
-
-// ── admin.members.get ───────────────────────────────────
-
-const adminMembersGet: ActionDefinition = {
-  action: 'admin.members.get',
-  domain: 'admin',
-  description: 'Get detailed info for a single member.',
-  auth: 'superadmin',
-  safety: 'read_only',
-
-  requiredCapability: 'adminGetMember',
-
-  wire: {
-    input: z.object({
-      memberId: wireRequiredString.describe('Member to inspect'),
-    }),
-    output: z.object({ member: adminMemberDetail }),
-  },
-
-  parse: {
-    input: z.object({
-      memberId: parseRequiredString,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('adminGetMember');
-    const { memberId } = input as { memberId: string };
-
-    const member = await ctx.repository.adminGetMember!({
-      actorMemberId: ctx.actor.member.id,
-      memberId,
-    });
-
-    if (!member) {
-      throw new AppError(404, 'not_found', 'Member not found');
-    }
-
-    return { data: { member } };
-  },
-};
 
 // ── admin.clubs.stats ───────────────────────────────────
 
@@ -585,68 +466,8 @@ const adminTokensRevoke: ActionDefinition = {
   },
 };
 
-// ── admin.diagnostics.health ────────────────────────────
-
-const adminDiagnosticsHealth: ActionDefinition = {
-  action: 'admin.diagnostics.health',
-  domain: 'admin',
-  description: 'Get platform diagnostics and health status.',
-  auth: 'superadmin',
-  safety: 'read_only',
-
-  requiredCapability: 'adminGetDiagnostics',
-
-  wire: {
-    input: z.object({}),
-    output: z.object({ diagnostics: adminDiagnostics }),
-  },
-
-  parse: {
-    input: z.object({}),
-  },
-
-  async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    ctx.requireCapability('adminGetDiagnostics');
-    const diagnostics = await ctx.repository.adminGetDiagnostics!({ actorMemberId: ctx.actor.member.id });
-    return { data: { diagnostics } };
-  },
-};
-
-// ── admissions.clubs (superadmin internal discovery) ────
-
-const admissionsClubs: ActionDefinition = {
-  action: 'admissions.clubs',
-  domain: 'admin',
-  description: 'List publicly visible clubs (internal discovery only).',
-  auth: 'superadmin',
-  safety: 'read_only',
-
-  wire: {
-    input: z.object({}),
-    output: z.object({
-      clubs: z.array(z.object({
-        slug: z.string(),
-        name: z.string(),
-      })),
-    }),
-  },
-
-  parse: {
-    input: z.object({}),
-  },
-
-  async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    ctx.requireSuperadmin();
-    const result = await ctx.repository.listPubliclyVisibleClubs!();
-    return { data: result };
-  },
-};
-
 registerActions([
-  adminOverviewAction, adminMembersList, adminMembersGet,
   adminClubsStats, adminContentList, adminContentArchive, adminContentRedact,
   adminMessagesThreads, adminMessagesRead, adminMessagesRedact,
-  adminTokensList, adminTokensRevoke, adminDiagnosticsHealth,
-  admissionsClubs,
+  adminTokensList, adminTokensRevoke,
 ]);

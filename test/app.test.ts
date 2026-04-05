@@ -629,7 +629,7 @@ test('session.describe returns the canonical actor session envelope once', async
   assert.equal(result.actor.sharedContext.pendingUpdates[0]?.updateId, 'update-1');
 });
 
-test('clubs.list requires superadmin and returns archived flag filter', async () => {
+test('superadmin.clubs.list requires superadmin and returns archived flag filter', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -643,7 +643,7 @@ test('clubs.list requires superadmin and returns archived flag filter', async ()
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'clubs.list',
+    action: 'superadmin.clubs.list',
     payload: { includeArchived: true },
   });
 
@@ -654,7 +654,7 @@ test('clubs.list requires superadmin and returns archived flag filter', async ()
   assert.equal(result.data.clubs[0]?.archivedAt, '2026-03-12T01:00:00Z');
 });
 
-test('clubs.create derives superadmin ownership assignment server-side', async () => {
+test('superadmin.clubs.create derives superadmin ownership assignment server-side', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -673,7 +673,7 @@ test('clubs.create derives superadmin ownership assignment server-side', async (
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'clubs.create',
+    action: 'superadmin.clubs.create',
     payload: {
       slug: 'gamma',
       name: 'Gamma',
@@ -693,7 +693,7 @@ test('clubs.create derives superadmin ownership assignment server-side', async (
   assert.equal(result.data.club.owner.memberId, 'member-9');
 });
 
-test('clubs.assignOwner appends a new owner version via the superadmin surface', async () => {
+test('superadmin.clubs.assignOwner appends a new owner version via the superadmin surface', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -711,7 +711,7 @@ test('clubs.assignOwner appends a new owner version via the superadmin surface',
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'clubs.assignOwner',
+    action: 'superadmin.clubs.assignOwner',
     payload: {
       clubId: 'club-2',
       ownerMemberId: 'member-9',
@@ -1025,37 +1025,6 @@ test('admissions.transition can append accepted interview state and activate the
   assert.equal(result.action, 'admissions.transition');
   assert.equal(result.data.admission.state.versionNo, 3);
   assert.equal(result.data.admission.membershipId, 'membership-10');
-});
-
-test('admissions.clubs requires superadmin authentication', async () => {
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken() {
-      return makeAuthResult({
-        memberId: 'admin-1',
-        handle: 'admin',
-        publicName: 'Admin User',
-        globalRoles: ['superadmin'],
-      });
-    },
-    async listPubliclyVisibleClubs() {
-      return { clubs: [{ slug: 'alpha', name: 'Alpha Club' }] };
-    },
-  };
-
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
-  const result = await dispatcher.dispatch({
-    bearerToken: 'tok_valid',
-    action: 'admissions.clubs',
-  });
-
-  assert.equal(result.action, 'admissions.clubs');
-  assert.equal(result.data.clubs.length, 1);
-  assert.equal(result.data.clubs[0].slug, 'alpha');
-  assert.equal(result.data.clubs[0].name, 'Alpha Club');
-  // Lightweight — no summary, ownerName, admissionPolicy
-  assert.equal(result.data.clubs[0].summary, undefined);
-  assert.equal(result.data.clubs[0].admissionPolicy, undefined);
 });
 
 test('admissions.challenge creates a cold application challenge bound to a club', async () => {
@@ -2250,7 +2219,7 @@ test('entities.list can span accessible clubs and filter by kinds with optional 
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-1', 'club-2']);
 });
 
-test('clubs.create rejects non-superadmins', async () => {
+test('superadmin.clubs.create rejects non-superadmins', async () => {
   const actor = makeActor();
   actor.globalRoles = [];
   const dispatcher = buildDispatcher({
@@ -2269,7 +2238,7 @@ test('clubs.create rejects non-superadmins', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-      action: 'clubs.create',
+      action: 'superadmin.clubs.create',
       payload: { slug: 'gamma', name: 'Gamma', summary: 'Test club', ownerMemberId: 'member-9' },
     }),
     (error: unknown) => {

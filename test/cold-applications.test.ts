@@ -11,26 +11,6 @@ const challengeStub = {
   club: { slug: 'alpha', name: 'Alpha Club', summary: 'A test club', ownerName: 'Owner One', admissionPolicy: 'Tell us your name and city.' },
 };
 
-test('admissions.clubs is not accessible without authentication', async () => {
-  const repository = {
-    ...makeRepository(),
-    async listPubliclyVisibleClubs() { return { clubs: [{ slug: 'alpha', name: 'Alpha Club' }] }; },
-  };
-
-  const dispatcher = buildDispatcher({ repository });
-  await assert.rejects(
-    () => dispatcher.dispatch({
-      bearerToken: null,
-      action: 'admissions.clubs',
-    }),
-    (err: any) => {
-      // Null bearer token on an authenticated action → 400 invalid_input
-      assert.equal(err.statusCode, 400);
-      return true;
-    },
-  );
-});
-
 test('admissions.challenge returns a PoW challenge bound to a club', async () => {
   const repository = {
     ...makeRepository(),

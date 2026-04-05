@@ -1,16 +1,17 @@
 /**
  * GET /api/schema — self-describing API schema endpoint.
  *
- * Serves the full auto-generated contract for actions from the registry.
- * Default (unauthenticated): all non-superadmin actions.
- * With superadmin auth + ?full=1: all actions including superadmin.
- *
+ * Serves the full auto-generated contract for every action in the registry.
  * Output is deterministic: actions sorted by name, stable JSON key order.
  */
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 import { getRegistry } from './schemas/registry.ts';
-import type { Repository } from './contract.ts';
+
+const PACKAGE_VERSION: string = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf-8'),
+).version;
 
 type SchemaAction = {
   action: string;
@@ -41,7 +42,7 @@ function sortKeysDeep(value: unknown): unknown {
   return value;
 }
 
-const schemaCache = new Map<string, unknown>();
+let schemaCache: unknown = null;
 
 function relaxInputSchema(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -63,13 +64,11 @@ function relaxInputSchema(value: unknown): unknown {
   return value;
 }
 
-function buildSchema(includeSuperadmin: boolean): unknown {
+function buildSchema(): unknown {
   const registry = getRegistry();
   const actions: SchemaAction[] = [];
 
   for (const [, def] of registry) {
-    if (!includeSuperadmin && def.auth === 'superadmin') continue;
-
     const inputSchema = relaxInputSchema(zodToJsonSchema(def.wire.input, { target: 'openApi3' }));
 
     const entry: SchemaAction = {
@@ -98,42 +97,18 @@ function buildSchema(includeSuperadmin: boolean): unknown {
   const schemaHash = createHash('sha256').update(actionsJson).digest('hex').slice(0, 16);
 
   return sortKeysDeep({
-    version: '1.0',
+    version: PACKAGE_VERSION,
     schemaHash,
     actions,
   });
 }
 
 /**
- * Get the schema payload for the given access level.
+ * Get the schema payload.
  * Caches after first build (schemas don't change at runtime).
  */
-export function getSchemaPayload(full: boolean): unknown {
-  const cacheKey = full ? 'full' : 'public';
-  const cached = schemaCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const built = buildSchema(full);
-  schemaCache.set(cacheKey, built);
-  return built;
-}
-
-/**
- * Determine if the request should see the full schema.
- * Requires bearer token auth with superadmin role + ?full=1 query param.
- */
-export async function resolveSchemaAccess(
-  bearerToken: string | null,
-  fullParam: string | null,
-  repository: Repository,
-): Promise<boolean> {
-  if (fullParam !== '1') return false;
-  if (!bearerToken) return false;
-
-  const auth = await repository.authenticateBearerToken(bearerToken);
-  if (!auth) return false;
-
-  return auth.actor.globalRoles.includes('superadmin');
+export function getSchemaPayload(): unknown {
+  if (schemaCache) return schemaCache;
+  schemaCache = buildSchema();
+  return schemaCache;
 }
