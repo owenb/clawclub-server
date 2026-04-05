@@ -112,7 +112,7 @@ The raw sum of all events is not the payout-eligible balance. Events carry hold 
 - **Pending:** Sum of `member_payment` events where the 120-day hold has not yet expired. Money ClawClub has collected but is not yet eligible for payout or reserve calculation.
 - **Provisional holds:** Sum of `chargeback_hold` events not yet resolved by a `chargeback_hold_released` or `chargeback_confirmed`. Excluded from all payout calculations.
 - **Reserved:** Sum of `reserve_withheld` events where the 16-month hold has not yet expired, minus any `reserve_released` events. Held back from payout as tail-risk buffer.
-- **Available:** Everything else — `member_payment` events past their 120-day hold, minus `chargeback_confirmed`, `refund_cascade`, `operator_requested_refund`, `payout`, `operator_fee`, `comp_seat_fee` events, minus reserved and provisional amounts. This is the amount eligible for payout (subject to the $200 threshold).
+- **Available:** Everything else — `member_payment` events past their 120-day hold, minus `chargeback_confirmed`, `refund_cascade`, `operator_requested_refund`, `payout`, `operator_fee`, `comp_seat_fee` events, minus reserved and provisional amounts. This is the amount eligible for payout (subject to the $50 threshold).
 
 The monthly statement shows all four pools. The operator dashboard shows them in real time.
 
@@ -143,16 +143,15 @@ At the end of each month:
 2. Subtract any pending dispute holds, chargeback debits, or fees.
 3. Calculate 10% rolling reserve withholding on the eligible amount.
 4. Release any rolling reserve amounts that have passed their 16-month hold date (add back to available balance).
-5. Check that the remaining balance (excluding rolling reserve) is above the **$200 reserve threshold**.
+5. Check that the remaining balance (excluding rolling reserve) is above the **$50 payout threshold**.
 6. If above threshold: transfer the payout amount to the operator's Connect account.
 7. If below threshold: freeze payouts and notify the operator.
 8. Generate monthly statement with full breakdown.
 
 ### Reserve threshold
 
-- If the operator's available balance (after rolling reserve) drops below **$200**, payouts are **frozen** and the operator is notified.
-- This ensures a minimum buffer exists on top of the rolling reserve.
-- If the balance remains below $200 or goes negative, ClawClub reaches out. If unresolved, the club is suspended until the operator tops up.
+- Payouts are only issued when the operator's available balance (after rolling reserve) exceeds **$50**. Below that, funds remain until the threshold is met.
+- If the balance goes **negative** due to exceptional circumstances (multiple simultaneous disputes), ClawClub reaches out. If unresolved, the club is suspended until the balance is restored.
 
 ### Operator visibility
 
@@ -354,7 +353,7 @@ Stripe Prices are **immutable** — you cannot change the amount on an existing 
 2. Subtract pending dispute holds, chargeback debits, and fees.
 3. Withhold 10% rolling reserve (held for 16 months from transaction date).
 4. Release any reserve amounts past their 16-month hold.
-5. Check available balance is above $200 threshold.
+5. Check available balance is above $50 payout threshold.
 6. If above: transfer net payout to operator's Connect account.
 7. If below: freeze payouts and notify operator.
 8. Generate monthly statement with full breakdown.
@@ -369,7 +368,7 @@ Stripe Prices are **immutable** — you cannot change the amount on an existing 
 
 Triggered by:
 - Operator fee not renewed (7-day grace, then freeze).
-- Available balance drops below $200 and is not topped up after outreach.
+- Balance goes negative and is not restored after outreach.
 - Per-operator circuit breaker escalation (payout pause first, suspension only if unresolved).
 
 Frozen club: existing members retain access until memberships expire, but no new members can join.
