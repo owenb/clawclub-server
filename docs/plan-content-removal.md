@@ -38,16 +38,14 @@ Both mechanisms hide content from normal reads and preserve the original data. N
 ## New action surface
 
 **Self-service (auth: 'member'):**
-- `entities.remove` — author removes their own entity. Replaces both `entities.archive` and `entities.redact` for the author case.
-- `messages.remove` — sender removes their own message. Replaces `messages.redact` for the sender case.
+- `entities.remove` — author removes their own entity. Replaces both `entities.archive` and `entities.redact` for the author case. `reason` is optional.
+- `messages.remove` — sender removes their own message. Replaces `messages.redact` for the sender case. `reason` is optional.
 
 **Club admin moderation (auth: 'clubadmin'):**
-- `clubadmin.entities.remove` — club admin removes any entity in their club. Replaces `entities.redact` for the owner case.
-- `clubadmin.messages.remove` — club admin removes any message in their club. Replaces `messages.redact` for the owner case.
+- `clubadmin.entities.remove` — club admin removes any entity in their club. Replaces `entities.redact` for the owner case. `reason` is **required** — moderators must justify removal.
+- `clubadmin.messages.remove` — club admin removes any message in their club. Replaces `messages.redact` for the owner case. `reason` is **required**.
 
-**Superadmin override (auth: 'superadmin'):**
-- `superadmin.entities.remove` — replaces `superadmin.content.archive` and `superadmin.content.redact`.
-- `superadmin.messages.remove` — replaces `superadmin.messages.redact`.
+**Superadmin:** No separate superadmin removal actions. Superadmins call `clubadmin.entities.remove` and `clubadmin.messages.remove` directly — the permissions system already grants superadmins access to all `clubadmin.*` actions. They pass a `clubId` and a `reason` like any other club admin.
 
 **Actions to delete:**
 - `entities.archive` (member)
@@ -237,33 +235,32 @@ Replace both redaction LEFT JOINs:
 **`entities.remove` in `src/schemas/entities.ts`:**
 - `action: 'entities.remove'`, `domain: 'content'`, `auth: 'member'`, `safety: 'mutating'`
 - `authorizationNote: 'Only the original author may remove their own entity.'`
-- Wire input: `{ entityId: string, reason?: string }`
+- Wire input: `{ entityId: string, reason?: string }` — reason is optional for self-service
 - Wire output: `{ entity: entitySummary }`
 - Handler: call `ctx.repository.removeEntity()` with `actorMemberId`, `accessibleClubIds`, `entityId`, `reason`. The repository enforces author-only.
 
 **`messages.remove` in `src/schemas/messages.ts`:**
 - `action: 'messages.remove'`, `domain: 'messages'`, `auth: 'member'`, `safety: 'mutating'`
 - `authorizationNote: 'Only the sender may remove their own message.'`
-- Wire input: `{ messageId: string, reason?: string }`
+- Wire input: `{ messageId: string, reason?: string }` — reason is optional for self-service
 - Wire output: `{ removal: messageRemovalResult }` — new response type
 - Handler: call `ctx.repository.removeMessage()` with `actorMemberId`, `accessibleClubIds`, `messageId`, `reason`. The repository enforces sender-only.
 
 **`clubadmin.entities.remove` in `src/schemas/clubadmin.ts`:**
 - `action: 'clubadmin.entities.remove'`, `domain: 'clubadmin'`, `auth: 'clubadmin'`, `safety: 'mutating'`
-- `authorizationNote: 'Club admin may remove any entity in their club.'`
-- Wire input: `{ clubId: string, entityId: string, reason?: string }`
+- `authorizationNote: 'Club admin may remove any entity in their club. Reason is required for moderation audit trail.'`
+- Wire input: `{ clubId: string, entityId: string, reason: string }` — reason is **required**, not optional
 - Wire output: `{ entity: entitySummary }`
-- Handler: `ctx.requireClubAdmin(clubId)`, then call `ctx.repository.removeEntity()` with `skipAuthCheck: true` and `clubId` scoping.
+- Handler: `ctx.requireClubAdmin(clubId)`, then call `ctx.repository.removeEntity()` with `skipAuthCheck: true`, the `clubId`, and the required `reason`.
 
 **`clubadmin.messages.remove` in `src/schemas/clubadmin.ts`:**
-- Same pattern as above but for messages.
+- `action: 'clubadmin.messages.remove'`, `domain: 'clubadmin'`, `auth: 'clubadmin'`, `safety: 'mutating'`
+- `authorizationNote: 'Club admin may remove any message in their club. Reason is required for moderation audit trail.'`
+- Wire input: `{ clubId: string, messageId: string, reason: string }` — reason is **required**
+- Wire output: `{ removal: messageRemovalResult }`
+- Handler: `ctx.requireClubAdmin(clubId)`, then call `ctx.repository.removeMessage()` with `skipAuthCheck: true`, the `clubId`, and the required `reason`.
 
-**`superadmin.entities.remove` in `src/schemas/superadmin.ts`:**
-- `action: 'superadmin.entities.remove'`, `auth: 'superadmin'`
-- Handler: `ctx.requireSuperadmin()`, then call `ctx.repository.removeEntity()` with `skipAuthCheck: true`, `skipNotification: true`.
-
-**`superadmin.messages.remove` in `src/schemas/superadmin.ts`:**
-- Same pattern.
+**No superadmin removal actions.** Superadmins call `clubadmin.entities.remove` and `clubadmin.messages.remove` directly — they pass through `requireClubAdmin()` which accepts superadmins. They must provide a `clubId` and a `reason` like any other moderator.
 
 ### Delete these actions
 - `entities.archive` from `src/schemas/entities.ts`
@@ -389,22 +386,25 @@ When an entity is removed, its old embedding artifact remains in the DB. This is
 - Replace `entities.redact` with `entities.remove` — "remove an entity (author only)"
 - Replace `messages.redact` with `messages.remove` — "remove a message (sender only)"
 - Add `clubadmin.entities.remove` and `clubadmin.messages.remove` to the clubadmin section
-- Add `superadmin.entities.remove` and `superadmin.messages.remove` to the superadmin section
+- Remove `superadmin.content.archive`, `superadmin.content.redact`, `superadmin.messages.redact` from the superadmin section (superadmins use `clubadmin.entities.remove` and `clubadmin.messages.remove` instead)
 - Update the update topics table: replace `entity.version.archived` and `entity.redacted` with `entity.removed`; replace `dm.message.redacted` with `dm.message.removed`
 - Update agent behavior guidance: replace "archive" and "redact" with "remove"
 
 ## Test plan
 
 **Rewrite `test/integration/redaction.test.ts` → `test/integration/removal.test.ts`:**
-- Author removes own entity → disappears from `entities.list`
-- Club admin removes member's entity via `clubadmin.entities.remove` → disappears, `created_by_member_id` on removal version is the admin
+- Author removes own entity (no reason) → disappears from `entities.list`
+- Author removes own entity (with optional reason) → reason stored on version
+- Club admin removes member's entity via `clubadmin.entities.remove` with required reason → disappears, `created_by_member_id` on removal version is the admin, reason is stored
+- `clubadmin.entities.remove` without reason → 400 invalid_input (reason is required for moderation)
 - Non-author non-admin cannot remove → 403
-- Superadmin removes any entity
+- Superadmin calls `clubadmin.entities.remove` successfully (with clubId and reason)
 - Double remove is idempotent (returns current state, no error)
-- Sender removes own message → thread shows `[Message removed]`
-- Club admin removes member message via `clubadmin.messages.remove`
+- Sender removes own message (no reason) → thread shows `[Message removed]`
+- Club admin removes member message via `clubadmin.messages.remove` with required reason
+- `clubadmin.messages.remove` without reason → 400 invalid_input
 - Non-sender non-admin cannot remove → 403
-- Superadmin removes any message
+- Superadmin calls `clubadmin.messages.remove` successfully
 - Double message remove is idempotent
 - Removed message disappears from updates feed
 - Removed entity filtered from updates feed
@@ -414,7 +414,7 @@ When an entity is removed, its old embedding artifact remains in the DB. This is
 
 **Update `test/integration/admin.test.ts`:**
 - Remove `superadmin.content.archive`, `superadmin.content.redact`, `superadmin.messages.redact` tests
-- Add `superadmin.entities.remove` and `superadmin.messages.remove` tests
+- Verify superadmin can call `clubadmin.entities.remove` and `clubadmin.messages.remove` (already tested via existing clubadmin superadmin bypass tests)
 
 **Update unit tests (`test/app.test.ts`):**
 - Remove `entities.archive` test
@@ -447,7 +447,7 @@ All must pass.
 If you want to minimize risk, implement in this order:
 
 1. **Migrations first** — add enum value, create table, update views/functions. Do NOT drop `app.redactions` yet.
-2. **Add new actions** — `entities.remove`, `messages.remove`, `clubadmin.entities.remove`, `clubadmin.messages.remove`, `superadmin.entities.remove`, `superadmin.messages.remove`.
+2. **Add new actions** — `entities.remove`, `messages.remove`, `clubadmin.entities.remove`, `clubadmin.messages.remove`.
 3. **Delete old actions** — `entities.archive`, `entities.redact`, `messages.redact`, `superadmin.content.archive`, `superadmin.content.redact`, `superadmin.messages.redact`.
 4. **Remove redaction query hooks** — entity listing, embeddings, message queries.
 5. **Migrate data** — existing redactions → new mechanisms.
