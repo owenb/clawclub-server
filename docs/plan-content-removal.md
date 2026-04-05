@@ -33,16 +33,18 @@ Both mechanisms hide content from normal reads and preserve the original data. N
 - **Entity removal uses versioning.** Append a new `entity_version` with `state = 'removed'`. This is the natural extension of the existing versioning model. The `current_published_entity_versions` view already filters to `state = 'published'`, so removed entities automatically vanish from `live_entities`, all listing queries, and all embedding operations.
 - **Message removal uses a dedicated append-only table.** Messages have no versioning. A `dm_message_removals` table records removals without mutating `dm_messages` rows.
 - **Delete `app.redactions`.** The generic cross-cutting table goes away. Entity visibility is determined by version state. Message visibility is determined by the removal table.
-- **Events use the same `entities.remove`.** Events are entities with `kind = 'event'`. Past events already auto-expire via `expires_at`. Explicit removal (e.g. cancelled event) uses the same action.
+- **Events get their own `remove` actions.** Events are entities with `kind = 'event'` but have their own type system (`EventSummary`, not `EntitySummary`) and their own action family (`events.create`, `events.list`, `events.rsvp`). The `entityKind` enum (`post | opportunity | service | ask`) excludes events. So events get `events.remove` (self-service) and `clubadmin.events.remove` (moderation) — same verb, same semantics, correct return types. The underlying storage mechanism is identical (append a version with `state = 'removed'`), just the action surface is separate.
 
 ## New action surface
 
 **Self-service (auth: 'member'):**
 - `entities.remove` — author removes their own entity. Replaces both `entities.archive` and `entities.redact` for the author case. `reason` is optional.
+- `events.remove` — author removes their own event. Same semantics as `entities.remove` but returns `EventSummary`. `reason` is optional.
 - `messages.remove` — sender removes their own message. Replaces `messages.redact` for the sender case. `reason` is optional.
 
 **Club admin moderation (auth: 'clubadmin'):**
 - `clubadmin.entities.remove` — club admin removes any entity in their club. Replaces `entities.redact` for the owner case. `reason` is **required** — moderators must justify removal.
+- `clubadmin.events.remove` — club admin removes any event in their club. `reason` is **required**.
 - `clubadmin.messages.remove` — club admin removes any message in their club. Replaces `messages.redact` for the owner case. `reason` is **required**.
 
 **Superadmin:** No separate superadmin removal actions. Superadmins call `clubadmin.entities.remove` and `clubadmin.messages.remove` directly — the permissions system already grants superadmins access to all `clubadmin.*` actions. They pass a `clubId` and a `reason` like any other club admin.
@@ -254,12 +256,26 @@ Replace both redaction LEFT JOINs:
 - Wire output: `{ removal: messageRemovalResult }` — new response type
 - Handler: call `ctx.repository.removeMessage()` with `actorMemberId`, `accessibleClubIds`, `messageId`, `reason`. The repository enforces sender-only.
 
+**`events.remove` in `src/schemas/events.ts`:**
+- `action: 'events.remove'`, `domain: 'content'`, `auth: 'member'`, `safety: 'mutating'`
+- `authorizationNote: 'Only the original author may remove their own event.'`
+- Wire input: `{ entityId: string, reason?: string }` — reason is optional
+- Wire output: `{ event: eventSummary }`
+- Handler: call `ctx.repository.removeEvent()` with `actorMemberId`, `accessibleClubIds`, `entityId`, `reason`. The repository enforces author-only. Uses the same underlying version-based removal as `entities.remove`.
+
 **`clubadmin.entities.remove` in `src/schemas/clubadmin.ts`:**
 - `action: 'clubadmin.entities.remove'`, `domain: 'clubadmin'`, `auth: 'clubadmin'`, `safety: 'mutating'`
 - `authorizationNote: 'Club admin may remove any entity in their club. Reason is required for moderation audit trail.'`
 - Wire input: `{ clubId: string, entityId: string, reason: string }` — reason is **required**, not optional
 - Wire output: `{ entity: entitySummary }`
 - Handler: `ctx.requireClubAdmin(clubId)`, then call `ctx.repository.removeEntity()` with `skipAuthCheck: true`, the `clubId`, and the required `reason`.
+
+**`clubadmin.events.remove` in `src/schemas/clubadmin.ts`:**
+- `action: 'clubadmin.events.remove'`, `domain: 'clubadmin'`, `auth: 'clubadmin'`, `safety: 'mutating'`
+- `authorizationNote: 'Club admin may remove any event in their club. Reason is required.'`
+- Wire input: `{ clubId: string, entityId: string, reason: string }` — reason is **required**
+- Wire output: `{ event: eventSummary }`
+- Handler: `ctx.requireClubAdmin(clubId)`, then call `ctx.repository.removeEvent()` with `skipAuthCheck: true`, `accessibleClubIds: [clubId]`, and the required `reason`.
 
 **`clubadmin.messages.remove` in `src/schemas/clubadmin.ts`:**
 - `action: 'clubadmin.messages.remove'`, `domain: 'clubadmin'`, `auth: 'clubadmin'`, `safety: 'mutating'`
@@ -292,16 +308,16 @@ Replace both redaction LEFT JOINs:
 ```typescript
 type RemoveEntityInput = {
   actorMemberId: string;
-  accessibleClubIds: string[];
+  accessibleClubIds: string[];  // scopes the entity lookup — [clubId] for clubadmin, all clubs for self-service
   entityId: string;
   reason?: string | null;
-  skipAuthCheck?: boolean;
+  skipAuthCheck?: boolean;      // true for clubadmin path (auth already checked by handler)
   skipNotification?: boolean;
 };
 
 type RemoveMessageInput = {
   actorMemberId: string;
-  accessibleClubIds: string[];
+  accessibleClubIds: string[];  // scopes the message lookup
   messageId: string;
   reason?: string | null;
   skipAuthCheck?: boolean;
@@ -317,29 +333,36 @@ type MessageRemovalResult = {
 };
 ```
 
+The `accessibleClubIds` field provides club scoping. Self-service handlers pass all the actor's club IDs. Clubadmin handlers pass `[clubId]` — the single club they're moderating. This matches the existing pattern used by `clubadmin.memberships.transition` (passes `accessibleClubIds: [clubId]`) and other clubadmin handlers. The repository query then filters `e.club_id = any($N::app.short_id[])` to ensure the entity/message belongs to an authorized club.
+
 Add to Repository:
 ```typescript
 removeEntity?(input: RemoveEntityInput): Promise<EntitySummary | null>;
+removeEvent?(input: RemoveEntityInput): Promise<EventSummary | null>;  // same input, different return type
 removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 ```
 
 ### Repository capabilities (`src/schemas/registry.ts`)
 
 **Remove:** `'archiveEntity'`, `'adminArchiveEntity'`, `'redactEntity'`, `'redactMessage'`
-**Add:** `'removeEntity'`, `'removeMessage'`
+**Add:** `'removeEntity'`, `'removeEvent'`, `'removeMessage'`
 
 ### Postgres implementation
 
 **New file `src/postgres/removals.ts`** (or repurpose `src/postgres/redactions.ts`):
 
 `removeEntity()`:
-- Apply actor context
-- Look up entity and current version via `current_entity_versions`
+- Apply actor context with `accessibleClubIds`
+- Look up entity and current version via `current_entity_versions`, scoped by `e.club_id = any($N::app.short_id[])` using `accessibleClubIds`
 - If `skipAuthCheck` is false: verify actor is the author. Throw 403 otherwise.
 - If current version is already `'removed'`: return the entity summary (idempotent)
 - INSERT new entity_version with `state = 'removed'`, `reason`, `created_by_member_id`
 - Emit `entity.removed` club activity (unless `skipNotification`)
-- Return entity summary
+- Return entity summary (using updated reload helper that works for removed versions)
+
+`removeEvent()`:
+- Same logic as `removeEntity()` but scoped to `kind = 'event'` and returns `EventSummary`
+- The underlying storage operation is identical (append a `state = 'removed'` version)
 
 `removeMessage()`:
 - Apply actor context
@@ -358,6 +381,10 @@ removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 - Replace all 3 `LEFT JOIN app.redactions r ON r.target_kind = 'dm_message' AND r.target_id = tm.id` with `LEFT JOIN app.dm_message_removals dmr ON dmr.message_id = tm.id`
 - Update `CASE WHEN` expressions: `CASE WHEN dmr.message_id IS NOT NULL THEN '[Message removed]' ELSE tm.message_text END`
 - Also update payload blanking: `CASE WHEN dmr.message_id IS NOT NULL THEN null ELSE tm.payload END`
+
+**Update `src/postgres/events.ts`:**
+- Add `removeEvent()` implementation (delegates to the same version-insertion logic as `removeEntity` but scoped to `kind = 'event'` and returning `EventSummary`)
+- Update `rsvpEvent()` (~line 461): add a check that the event is currently published. Either join `current_published_entity_versions` or call `entity_is_currently_published()`. Without this, users can RSVP to removed events.
 
 **Update `src/postgres/embeddings.ts`:**
 - In `findViaEmbedding` query (~line 283): remove the `NOT EXISTS (SELECT 1 FROM app.redactions ...)` filter. The existing `cev.state = 'published'` filter handles it.
@@ -414,8 +441,11 @@ When an entity is removed, its old embedding artifact remains in the DB. This is
 - Non-sender non-admin cannot remove → 403
 - Superadmin calls `clubadmin.messages.remove` successfully
 - Double message remove is idempotent
-- Removed message disappears from updates feed
-- Removed entity filtered from updates feed
+- Removed message disappears from inbox-targeted updates (`pending_member_updates`)
+- `entity.removed` event appears in club activity feed (historical `entity.version.published` entries are NOT suppressed — the activity feed shows history, and the removal is its own event)
+- Author removes own event via `events.remove` → event disappears from `events.list`
+- Club admin removes event via `clubadmin.events.remove` with required reason
+- RSVP on a removed event returns 404
 
 **Update `test/integration/content.test.ts`:**
 - Replace archive test with removal test
