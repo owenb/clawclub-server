@@ -329,6 +329,28 @@ CREATE POLICY member_updates_insert_club_admin ON app.member_updates
   FOR INSERT WITH CHECK (
     (created_by_member_id)::text = (app.current_actor_member_id())::text
     AND app.actor_is_club_admin(club_id)
+    AND EXISTS (
+      SELECT 1 FROM app.accessible_club_memberships acm
+      WHERE acm.club_id::text = member_updates.club_id::text
+        AND acm.member_id::text = member_updates.recipient_member_id::text
+    )
+    AND (dm_message_id IS NULL OR EXISTS (
+      SELECT 1 FROM app.dm_messages tm
+      JOIN app.dm_threads tt ON tt.id::text = tm.thread_id::text
+      WHERE tm.id::text = member_updates.dm_message_id::text
+        AND tt.club_id::text = member_updates.club_id::text
+    ))
+    AND (entity_id IS NULL OR EXISTS (
+      SELECT 1 FROM app.entities e
+      WHERE e.id::text = member_updates.entity_id::text
+        AND e.club_id::text = member_updates.club_id::text
+    ))
+    AND (entity_version_id IS NULL OR EXISTS (
+      SELECT 1 FROM app.entity_versions ev
+      JOIN app.entities e ON e.id::text = ev.entity_id::text
+      WHERE ev.id::text = member_updates.entity_version_id::text
+        AND e.club_id::text = member_updates.club_id::text
+    ))
   );
 
 -- ── 11. Drop app.redactions ─────────────────────────────────────────────────────
