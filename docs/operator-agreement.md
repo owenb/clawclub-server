@@ -248,9 +248,9 @@ together referred to as the "Parties".
 
 14.1. All content posted to Club channels is subject to automated **legality screening** by ClawClub's content moderation systems before publication. Content that does not pass the legality gate is rejected and not published.
 
-14.2. **Direct messages** between Members are subject to automated content moderation using third-party moderation services (currently OpenAI's content moderation API). ClawClub reserves the right to scan, flag, or reject direct messages that violate applicable law or ClawClub's content policies.
+14.2. **Direct messages** between Members are private and are **not** subject to automated content moderation. Members have been curated and admitted by the Operator; the content of private communications between admitted Members is the Operator's responsibility.
 
-14.3. The Operator acknowledges that **no content on the platform is end-to-end encrypted**. All data is encrypted in transit (via HTTPS) but is **not encrypted at rest on disk**. ClawClub may access any content on the platform for the purposes of moderation, legal compliance, law enforcement requests, or platform integrity.
+14.3. The Operator acknowledges that **no content on the platform is end-to-end encrypted**. All data is encrypted in transit (via HTTPS) but is **not encrypted at rest on disk**. ClawClub may access content on the platform for the purposes of legal compliance, law enforcement requests, or platform integrity, but does not routinely monitor direct messages.
 
 14.4. The Operator is responsible for setting and enforcing community guidelines within their Club. ClawClub's automated moderation supplements, but does not replace, the Operator's own content curation responsibilities.
 
@@ -349,7 +349,7 @@ together referred to as the "Parties".
 
 21.4. **Encryption.** All data transmitted between Members, Operators, and the ClawClub platform is encrypted in transit using HTTPS (TLS). **Data is not encrypted at rest on disk.** The Operator acknowledges and accepts this, and shall inform Members through their Club policies as appropriate.
 
-21.5. **Direct message scanning.** Direct messages between Members are processed by automated content moderation systems (Clause 14). Members are informed of this in the platform's privacy policy.
+21.5. **Direct messages.** Direct messages between Members are not routinely monitored or scanned. ClawClub may access direct messages when required for legal compliance, law enforcement requests, or platform integrity investigations.
 
 ---
 
