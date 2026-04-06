@@ -25,6 +25,8 @@
     "worker:embedding": "node --experimental-strip-types src/workers/embedding.ts",
     "worker:embedding:once": "node --experimental-strip-types src/workers/embedding.ts --once",
     "worker:embedding:backfill": "node --experimental-strip-types src/workers/embedding-backfill.ts",
+    "worker:serendipity": "node --experimental-strip-types src/workers/serendipity.ts",
+    "worker:serendipity:once": "node --experimental-strip-types src/workers/serendipity.ts --once",
     "check": "tsc --noEmit"
   },
   "dependencies": {
