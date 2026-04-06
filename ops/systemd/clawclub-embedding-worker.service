@@ -9,7 +9,7 @@ User=ubuntu
 WorkingDirectory=/opt/clawclub
 Environment=NODE_ENV=production
 EnvironmentFile=/etc/clawclub/clawclub.env
-ExecStart=/usr/bin/node --experimental-strip-types src/embedding-worker.ts
+ExecStart=/usr/bin/node --experimental-strip-types src/workers/embedding.ts
 Restart=always
 RestartSec=5
 StandardOutput=append:/var/log/clawclub/embedding-worker.log

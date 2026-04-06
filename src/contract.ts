@@ -268,7 +268,7 @@ export type RequestScope = {
 export type PendingUpdate = {
   updateId: string;
   streamSeq: number;
-  source: 'activity' | 'inbox';
+  source: 'activity' | 'inbox' | 'signal';
   recipientMemberId: string;
   clubId: string;
   entityId: string | null;

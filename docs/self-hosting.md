@@ -117,11 +117,11 @@ Actions that create or modify published content (`entities.create`, `entities.up
 2. An **OPENAI_API_KEY** in the environment
 3. The **embedding worker** running as a separate long-lived process:
    ```bash
-   node --experimental-strip-types src/embedding-worker.ts
+   node --experimental-strip-types src/workers/embedding.ts
    ```
 4. An initial **backfill** if you have existing data:
    ```bash
-   node --experimental-strip-types src/embedding-backfill.ts
+   node --experimental-strip-types src/workers/embedding-backfill.ts
    ```
 
 Without the worker, embeddings are never generated and semantic search returns no results. Full-text search (`members.fullTextSearch`) works without any of this.

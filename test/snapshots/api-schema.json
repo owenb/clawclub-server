@@ -8449,7 +8449,8 @@
                     "source": {
                       "enum": [
                         "activity",
-                        "inbox"
+                        "inbox",
+                        "signal"
                       ],
                       "type": "string"
                     },
@@ -8698,6 +8699,6 @@
       "safety": "read_only"
     }
   ],
-  "schemaHash": "ddace6d84f2f33da",
+  "schemaHash": "3c1a7f720ae8bbab",
   "version": "0.1.0"
 }

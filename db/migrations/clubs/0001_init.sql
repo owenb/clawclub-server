@@ -483,6 +483,7 @@ CREATE TABLE app.club_quota_policies (
 
 CREATE TABLE app.embeddings_entity_artifacts (
     id                  app.short_id DEFAULT app.new_id() NOT NULL,
+    entity_id           app.short_id NOT NULL,
     entity_version_id   app.short_id NOT NULL,
     model               text NOT NULL,
     dimensions          integer NOT NULL,
@@ -490,17 +491,23 @@ CREATE TABLE app.embeddings_entity_artifacts (
     chunk_index         integer NOT NULL DEFAULT 0,
     source_text         text NOT NULL,
     source_hash         text NOT NULL,
-    embedding_vector    vector(1536) NOT NULL,
+    embedding           vector(1536) NOT NULL,
     metadata            jsonb NOT NULL DEFAULT '{}',
     created_at          timestamptz DEFAULT now() NOT NULL,
+    updated_at          timestamptz DEFAULT now() NOT NULL,
 
     CONSTRAINT embeddings_entity_artifacts_pkey PRIMARY KEY (id),
     CONSTRAINT embeddings_entity_artifacts_unique
-        UNIQUE (entity_version_id, model, dimensions, source_version, chunk_index),
+        UNIQUE (entity_id, model, dimensions, source_version, chunk_index),
     CONSTRAINT embeddings_entity_artifacts_dims_check CHECK (dimensions > 0),
+    CONSTRAINT embeddings_entity_artifacts_entity_fkey
+        FOREIGN KEY (entity_id) REFERENCES app.entities(id),
     CONSTRAINT embeddings_entity_artifacts_version_fkey
         FOREIGN KEY (entity_version_id) REFERENCES app.entity_versions(id) ON DELETE CASCADE
 );
+
+CREATE INDEX embeddings_entity_artifacts_entity_idx
+    ON app.embeddings_entity_artifacts (entity_id);
 
 CREATE INDEX embeddings_entity_artifacts_version_idx
     ON app.embeddings_entity_artifacts (entity_version_id);

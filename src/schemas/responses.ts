@@ -366,7 +366,7 @@ export const quotaAllowance = z.object({
 export const pendingUpdate = z.object({
   updateId: z.string(),
   streamSeq: z.number(),
-  source: z.enum(['activity', 'inbox']),
+  source: z.enum(['activity', 'inbox', 'signal']),
   recipientMemberId: z.string(),
   clubId: z.string(),
   entityId: z.string().nullable(),

@@ -569,28 +569,35 @@ CREATE TABLE app.club_routing (
 -- ── embeddings_member_profile_artifacts ─────────────────────
 
 CREATE TABLE app.embeddings_member_profile_artifacts (
-    id                          app.short_id DEFAULT app.new_id() NOT NULL,
-    member_profile_version_id   app.short_id NOT NULL,
-    model                       text NOT NULL,
-    dimensions                  integer NOT NULL,
-    source_version              text NOT NULL,
-    chunk_index                 integer NOT NULL DEFAULT 0,
-    source_text                 text NOT NULL,
-    source_hash                 text NOT NULL,
-    embedding_vector            vector(1536) NOT NULL,
-    metadata                    jsonb NOT NULL DEFAULT '{}',
-    created_at                  timestamptz DEFAULT now() NOT NULL,
+    id                  app.short_id DEFAULT app.new_id() NOT NULL,
+    member_id           app.short_id NOT NULL,
+    profile_version_id  app.short_id NOT NULL,
+    model               text NOT NULL,
+    dimensions          integer NOT NULL,
+    source_version      text NOT NULL,
+    chunk_index         integer NOT NULL DEFAULT 0,
+    source_text         text NOT NULL,
+    source_hash         text NOT NULL,
+    embedding           vector(1536) NOT NULL,
+    metadata            jsonb NOT NULL DEFAULT '{}',
+    created_at          timestamptz DEFAULT now() NOT NULL,
+    updated_at          timestamptz DEFAULT now() NOT NULL,
 
     CONSTRAINT embeddings_member_profile_artifacts_pkey PRIMARY KEY (id),
     CONSTRAINT embeddings_member_profile_artifacts_unique
-        UNIQUE (member_profile_version_id, model, dimensions, source_version, chunk_index),
+        UNIQUE (member_id, model, dimensions, source_version, chunk_index),
     CONSTRAINT embeddings_member_profile_artifacts_dimensions_check CHECK (dimensions > 0),
+    CONSTRAINT embeddings_member_profile_artifacts_member_fkey
+        FOREIGN KEY (member_id) REFERENCES app.members(id),
     CONSTRAINT embeddings_member_profile_artifacts_version_fkey
-        FOREIGN KEY (member_profile_version_id) REFERENCES app.member_profile_versions(id) ON DELETE CASCADE
+        FOREIGN KEY (profile_version_id) REFERENCES app.member_profile_versions(id) ON DELETE CASCADE
 );
 
+CREATE INDEX embeddings_member_profile_artifacts_member_idx
+    ON app.embeddings_member_profile_artifacts (member_id);
+
 CREATE INDEX embeddings_member_profile_artifacts_version_idx
-    ON app.embeddings_member_profile_artifacts USING btree (member_profile_version_id);
+    ON app.embeddings_member_profile_artifacts (profile_version_id);
 
 -- ── embeddings_jobs ─────────────────────────────────────────
 

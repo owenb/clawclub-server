@@ -157,13 +157,13 @@ curl https://<your-app>.up.railway.app/api \
 If you want semantic search, add a second service for the embedding worker:
 
 1. In the Railway dashboard, click **New** → **GitHub Repo** and select the same repo
-2. Override the start command to: `node --experimental-strip-types src/embedding-worker.ts`
+2. Override the start command to: `node --experimental-strip-types src/workers/embedding.ts`
 3. Set the same `DATABASE_URL` and `OPENAI_API_KEY` variables
 
 To backfill embeddings for existing data:
 
 ```bash
-railway run --service <worker-service> node --experimental-strip-types src/embedding-backfill.ts
+railway run --service <worker-service> node --experimental-strip-types src/workers/embedding-backfill.ts
 ```
 
 Without the worker, semantic search returns no results. Full-text search and all other features work without it.

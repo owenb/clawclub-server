@@ -6,14 +6,15 @@
  *   - Clubs pool: entity_version jobs (embeddings_jobs + entity_versions + embeddings_entity_artifacts)
  *
  * Usage:
- *   node --experimental-strip-types src/embedding-worker.ts          # loop mode
- *   node --experimental-strip-types src/embedding-worker.ts --once   # one-shot
+ *   node --experimental-strip-types src/workers/embedding.ts          # loop mode
+ *   node --experimental-strip-types src/workers/embedding.ts --once   # one-shot
  */
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
 import { embedMany } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
-import { EMBEDDING_PROFILES } from './ai.ts';
-import { buildProfileSourceText, buildEntitySourceText, buildEventSourceText, computeSourceHash } from './embedding-source.ts';
+import { EMBEDDING_PROFILES } from '../ai.ts';
+import { buildProfileSourceText, buildEntitySourceText, buildEventSourceText, computeSourceHash } from '../embedding-source.ts';
+import { createPools, runWorkerLoop, runWorkerOnce, type WorkerPools } from './runner.ts';
 
 const BATCH_SIZE = 20;
 const POLL_INTERVAL_MS = 5_000;
@@ -263,7 +264,6 @@ async function processPlane(pool: Pool, planeName: string, insertArtifact: (pool
 }
 
 async function insertProfileArtifact(pool: Pool, job: EmbeddingJob, sourceText: string, sourceHash: string, vectorStr: string): Promise<void> {
-  // Get member_id from the profile version
   const memberResult = await pool.query<{ member_id: string }>(
     `select member_id from app.member_profile_versions where id = $1`,
     [job.subject_version_id],
@@ -285,7 +285,6 @@ async function insertProfileArtifact(pool: Pool, job: EmbeddingJob, sourceText: 
 }
 
 async function insertEntityArtifact(pool: Pool, job: EmbeddingJob, sourceText: string, sourceHash: string, vectorStr: string): Promise<void> {
-  // Get entity_id from the entity version
   const entityResult = await pool.query<{ entity_id: string }>(
     `select entity_id from app.entity_versions where id = $1`,
     [job.subject_version_id],
@@ -306,62 +305,26 @@ async function insertEntityArtifact(pool: Pool, job: EmbeddingJob, sourceText: s
   );
 }
 
-async function processJobs(identityPool: Pool, clubsPool: Pool): Promise<number> {
-  const profileCount = await processPlane(identityPool, 'identity/profiles', insertProfileArtifact);
-  const entityCount = await processPlane(clubsPool, 'clubs/entities', insertEntityArtifact);
+// ── Worker entry point ─────────────────────────────────
+
+async function processEmbeddings(pools: WorkerPools): Promise<number> {
+  const profileCount = await processPlane(pools.identity, 'identity/profiles', insertProfileArtifact);
+  const entityCount = await processPlane(pools.clubs, 'clubs/entities', insertEntityArtifact);
   return profileCount + entityCount;
 }
 
-async function runLoop(identityPool: Pool, clubsPool: Pool): Promise<void> {
-  console.log('Embedding worker started (loop mode)');
-  while (true) {
-    try {
-      const processed = await processJobs(identityPool, clubsPool);
-      if (processed === 0) {
-        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-      }
-    } catch (err) {
-      console.error('Worker loop error:', err);
-      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-    }
-  }
-}
-
-async function runOnce(identityPool: Pool, clubsPool: Pool): Promise<void> {
-  console.log('Embedding worker started (one-shot mode)');
-  let total = 0;
-  while (true) {
-    const processed = await processJobs(identityPool, clubsPool);
-    total += processed;
-    if (processed === 0) break;
-  }
-  console.log(`One-shot complete: ${total} jobs processed`);
-}
-
-// ── Main ────────────────────────────────────────────────
-
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const identityUrl = process.env.IDENTITY_DATABASE_URL;
-  const clubsUrl = process.env.CLUBS_DATABASE_URL;
-  if (!identityUrl || !clubsUrl) {
-    console.error('IDENTITY_DATABASE_URL and CLUBS_DATABASE_URL must be set');
-    process.exit(1);
-  }
+  const pools = createPools({ identity: true, clubs: true });
+  const healthPort = process.env.WORKER_HEALTH_PORT ? parseInt(process.env.WORKER_HEALTH_PORT, 10) : undefined;
 
-  const identityPool = new Pool({ connectionString: identityUrl, max: 3 });
-  const clubsPool = new Pool({ connectionString: clubsUrl, max: 3 });
-  const once = process.argv.includes('--once');
-
-  try {
-    if (once) {
-      await runOnce(identityPool, clubsPool);
-    } else {
-      await runLoop(identityPool, clubsPool);
-    }
-  } finally {
-    await identityPool.end();
-    await clubsPool.end();
+  if (process.argv.includes('--once')) {
+    await runWorkerOnce('embedding', pools, processEmbeddings);
+  } else {
+    await runWorkerLoop('embedding', pools, processEmbeddings, {
+      pollIntervalMs: POLL_INTERVAL_MS,
+      healthPort,
+    });
   }
 }
 
-export { processJobs, runOnce, runLoop };
+export { processEmbeddings };

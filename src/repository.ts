@@ -7,7 +7,7 @@
  */
 
 import type { Pool } from 'pg';
-import { AppError, type Repository, type EntitySummary, type EventSummary, type MembershipVouchSummary, type AdmissionStatus } from './contract.ts';
+import { AppError, type Repository, type EntitySummary, type EventSummary, type MembershipVouchSummary, type AdmissionStatus, type PendingUpdate } from './contract.ts';
 import { fetchMemberDisplayBatch, requireMember, type MemberDisplay } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
@@ -16,35 +16,48 @@ import * as admissionsModule from './clubs/admissions.ts';
 
 // ── Cursor helpers ──────────────────────────────────────────
 
-/** Encode a compound cursor: activity seq + timestamp for inbox filtering. */
-function encodeCursor(activitySeq: number, polledAt: string): string {
-  return Buffer.from(JSON.stringify({ s: activitySeq, t: polledAt })).toString('base64url');
+/**
+ * Compound cursor: independent positions for activity, signals, and inbox.
+ * Encoded as base64url JSON: { a: activitySeq, s: signalSeq, t: inboxTimestamp }
+ *
+ * Backward compatible: old-format cursors { s: N, t: T } are read as
+ * { a: N, s: 0, t: T }, defaulting signal position to 0 so the first
+ * poll returns all unacknowledged signals.
+ */
+type UpdateCursor = { a: number; s: number; t: string };
+
+function encodeCursor(cursor: UpdateCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
 
-/** Decode the timestamp from a cursor. Returns null for unparseable cursors. */
-function decodeCursorTimestamp(cursor: string): string | null {
+function decodeCursor(raw: string): UpdateCursor | null {
   try {
-    // Try compound cursor first
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString());
-    if (typeof parsed === 'object' && parsed.t) return parsed.t;
+    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString());
+    if (typeof parsed === 'object' && parsed !== null) {
+      // New compound format: { a, s, t }
+      if (typeof parsed.a === 'number') {
+        return {
+          a: parsed.a,
+          s: typeof parsed.s === 'number' ? parsed.s : 0,
+          t: typeof parsed.t === 'string' ? parsed.t : new Date(0).toISOString(),
+        };
+      }
+      // Old format: { s: activitySeq, t: inboxTimestamp }
+      if (typeof parsed.s === 'number') {
+        return {
+          a: parsed.s,
+          s: 0,
+          t: typeof parsed.t === 'string' ? parsed.t : new Date(0).toISOString(),
+        };
+      }
+    }
   } catch {
     // Fall through
   }
-  // Legacy: plain number = activity seq only, no timestamp
+  // Legacy: try parsing as plain number (very old cursor format)
+  const n = Number(raw);
+  if (Number.isFinite(n)) return { a: n, s: 0, t: new Date(0).toISOString() };
   return null;
-}
-
-/** Decode the activity seq from a cursor. Returns null for unparseable cursors. */
-function decodeCursorSeq(cursor: string): number | null {
-  try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString());
-    if (typeof parsed === 'object' && typeof parsed.s === 'number') return parsed.s;
-  } catch {
-    // Fall through
-  }
-  // Legacy: try parsing as plain number
-  const n = Number(cursor);
-  return Number.isFinite(n) ? n : null;
 }
 
 // ── Enrichment helpers ──────────────────────────────────────
@@ -724,22 +737,70 @@ export function createRepository(pools: {
       const adminClubIds = actor?.memberships.filter((m) => m.role === 'clubadmin').map((m) => m.clubId) ?? [];
       const ownerClubIds = actor?.memberships.filter((m) => m.isOwner).map((m) => m.clubId) ?? [];
 
-      const afterSeq = input.after ? decodeCursorSeq(input.after) : null;
+      const cursor = input.after ? decodeCursor(input.after) : null;
 
+      // ── Source 1: Club activity ──
       const activity = await clubs.listClubActivity({
         memberId: input.actorMemberId,
         clubIds: input.clubIds,
         limit: input.limit,
-        afterSeq,
+        afterSeq: cursor?.a ?? null,
         adminClubIds,
         ownerClubIds,
       });
 
-      // Fetch unread DM inbox entries from messaging.
-      // When polling with a cursor (after != null), only include inbox entries created
-      // AFTER the cursor timestamp. Initial poll (no cursor) gets all unread items.
-      // The cursor encodes both the activity seq and a timestamp for inbox filtering.
-      const cursorTimestamp = input.after ? decodeCursorTimestamp(input.after) : null;
+      // ── Source 2: Member signals ──
+      const afterSignalSeq = cursor?.s ?? null;
+      let signalSeq: number;
+      let signalItems: PendingUpdate[] = [];
+
+      if (afterSignalSeq == null) {
+        // First poll: seed signal cursor from max(seq)
+        const seedResult = await pools.clubs.query<{ max_seq: string }>(
+          `select coalesce(max(seq), 0)::text as max_seq from app.member_signals
+           where recipient_member_id = $1 and club_id = any($2::text[])`,
+          [input.actorMemberId, input.clubIds],
+        );
+        signalSeq = parseInt(seedResult.rows[0]?.max_seq ?? '0', 10);
+      } else {
+        const signalResult = await pools.clubs.query<{
+          id: string; club_id: string; recipient_member_id: string; seq: string;
+          topic: string; payload: Record<string, unknown>; entity_id: string | null;
+          match_id: string | null; created_at: string;
+        }>(
+          `select id, club_id, recipient_member_id, seq::text as seq, topic, payload,
+                  entity_id, match_id, created_at::text as created_at
+           from app.member_signals
+           where recipient_member_id = $1
+             and club_id = any($2::text[])
+             and acknowledged_state is null
+             and seq > $3
+           order by seq asc limit $4`,
+          [input.actorMemberId, input.clubIds, afterSignalSeq, input.limit],
+        );
+
+        signalItems = signalResult.rows.map(s => ({
+          updateId: `signal:${s.id}`,
+          streamSeq: parseInt(s.seq, 10),
+          source: 'signal' as const,
+          recipientMemberId: s.recipient_member_id,
+          clubId: s.club_id,
+          entityId: s.entity_id,
+          entityVersionId: null,
+          dmMessageId: null,
+          topic: s.topic,
+          payload: s.payload,
+          createdAt: s.created_at,
+          createdByMemberId: null,
+        }));
+
+        signalSeq = signalResult.rows.length > 0
+          ? parseInt(signalResult.rows[signalResult.rows.length - 1].seq, 10)
+          : afterSignalSeq;
+      }
+
+      // ── Source 3: Inbox (DMs) ──
+      const cursorTimestamp = cursor?.t ?? null;
       const inboxResult = await pools.messaging.query<{
         id: string; recipient_member_id: string; thread_id: string;
         message_id: string; created_at: string;
@@ -773,6 +834,8 @@ export function createRepository(pools: {
       }
       const dmMembers = await fetchMemberDisplayBatch(pools.identity, dmMemberIds);
 
+      // ── Map sources to PendingUpdate shape ──
+
       const activityItems = activity.items.map((item) => ({
         updateId: `activity:${item.seq}`,
         streamSeq: Number(item.seq),
@@ -788,9 +851,6 @@ export function createRepository(pools: {
         createdByMemberId: (item.createdByMemberId as string) ?? null,
       }));
 
-      // Assign monotonically increasing stream sequences to inbox items.
-      // Use the inbox entry's created_at timestamp as microseconds to guarantee
-      // monotonic increase across poll cycles (each entry has a unique timestamp).
       const inboxItems = inboxResult.rows.map((ie, idx) => {
         const msg = messageData.get(ie.message_id);
         const sender = msg?.sender_member_id ? dmMembers.get(msg.sender_member_id) : null;
@@ -800,7 +860,7 @@ export function createRepository(pools: {
           streamSeq: tsMs + idx,
           source: 'inbox' as const,
           recipientMemberId: ie.recipient_member_id,
-          clubId: '', // messaging has no club_id
+          clubId: '',
           entityId: null,
           entityVersionId: null,
           dmMessageId: ie.message_id,
@@ -820,13 +880,15 @@ export function createRepository(pools: {
         };
       });
 
-      // Merge: activity first, then inbox
-      const allItems = [...activityItems, ...inboxItems];
+      // Merge all three sources
+      const allItems = [...activityItems, ...signalItems, ...inboxItems];
       const polledAt = new Date().toISOString();
 
       return {
         items: allItems,
-        nextAfter: activity.nextAfterSeq != null ? encodeCursor(activity.nextAfterSeq, polledAt) : null,
+        nextAfter: activity.nextAfterSeq != null
+          ? encodeCursor({ a: activity.nextAfterSeq, s: signalSeq, t: polledAt })
+          : null,
         polledAt,
       };
     },
@@ -838,13 +900,20 @@ export function createRepository(pools: {
         limit: 0,
         afterSeq: null,
       });
-      return activity.nextAfterSeq != null ? encodeCursor(activity.nextAfterSeq, new Date().toISOString()) : null;
+      // Seed signal cursor from max(seq)
+      const signalSeed = await pools.clubs.query<{ max_seq: string }>(
+        `select coalesce(max(seq), 0)::text as max_seq from app.member_signals
+         where recipient_member_id = $1 and club_id = any($2::text[])`,
+        [input.actorMemberId, input.clubIds],
+      );
+      const signalSeq = parseInt(signalSeed.rows[0]?.max_seq ?? '0', 10);
+
+      if (activity.nextAfterSeq == null) return null;
+      return encodeCursor({ a: activity.nextAfterSeq, s: signalSeq, t: new Date().toISOString() });
     },
 
     async acknowledgeUpdates(input) {
-      // For inbox-sourced updates, mark inbox entries as acknowledged.
-      // CRITICAL: filter by recipient_member_id to prevent cross-member manipulation.
-      // Only return receipts for IDs that were actually updated.
+      // ── Inbox acknowledgements ──
       const inboxIds = input.updateIds
         .filter((id) => id.startsWith('inbox:'))
         .map((id) => id.replace('inbox:', ''));
@@ -861,11 +930,33 @@ export function createRepository(pools: {
         for (const row of result.rows) updatedInboxIds.add(row.id);
       }
 
-      // Return receipts only for non-inbox IDs and inbox IDs that were actually updated
+      // ── Signal acknowledgements (durable state) ──
+      const signalIds = input.updateIds
+        .filter((id) => id.startsWith('signal:'))
+        .map((id) => id.replace('signal:', ''));
+
+      const updatedSignalIds = new Set<string>();
+      if (signalIds.length > 0) {
+        const result = await pools.clubs.query<{ id: string }>(
+          `update app.member_signals
+           set acknowledged_state = $3,
+               acknowledged_at = now(),
+               suppression_reason = $4
+           where id = any($1::text[])
+             and recipient_member_id = $2
+             and acknowledged_state is null
+           returning id`,
+          [signalIds, input.actorMemberId, input.state, input.suppressionReason ?? null],
+        );
+        for (const row of result.rows) updatedSignalIds.add(row.id);
+      }
+
+      // Return receipts for activity (always), inbox (if updated), and signal (if updated) IDs
       return input.updateIds
         .filter((id) => {
-          if (!id.startsWith('inbox:')) return true; // activity IDs always get receipts
-          return updatedInboxIds.has(id.replace('inbox:', ''));
+          if (id.startsWith('inbox:')) return updatedInboxIds.has(id.replace('inbox:', ''));
+          if (id.startsWith('signal:')) return updatedSignalIds.has(id.replace('signal:', ''));
+          return true; // activity IDs always get receipts
         })
         .map((updateId) => ({
           receiptId: updateId,
