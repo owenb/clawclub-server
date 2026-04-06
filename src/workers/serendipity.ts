@@ -17,7 +17,7 @@
  *   node --experimental-strip-types src/workers/serendipity.ts          # loop mode
  *   node --experimental-strip-types src/workers/serendipity.ts --once   # one-shot
  */
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import { createPools, runWorkerLoop, runWorkerOnce, type WorkerPools } from './runner.ts';
 import {
   findMembersMatchingEntity,
@@ -28,11 +28,9 @@ import {
 } from './similarity.ts';
 import {
   createMatch,
-  claimPendingMatches,
-  markDelivered,
-  markExpired,
   expireStaleMatches,
   countRecentDeliveries,
+  type PendingMatch,
 } from './matches.ts';
 
 // ── Configuration ─────────────────────────────────────────
@@ -92,25 +90,38 @@ export async function enqueueIntroRecompute(
   );
 }
 
+/** Lease duration for recompute queue entries. Stale leases are reclaimable after this. */
+const RECOMPUTE_LEASE_MS = 300_000; // 5 minutes
+
 /**
- * Claim ready recompute entries. Deletes claimed rows atomically.
+ * Claim ready recompute entries via lease (UPDATE claimed_at).
+ * Entries with stale leases (claimed_at older than RECOMPUTE_LEASE_MS) are reclaimable.
  */
-async function claimRecomputeEntries(pool: Pool, limit: number): Promise<Array<{ memberId: string; clubId: string }>> {
-  const result = await pool.query<{ member_id: string; club_id: string }>(
-    `delete from app.recompute_queue
+async function claimRecomputeEntries(pool: Pool, limit: number): Promise<Array<{ id: string; memberId: string; clubId: string }>> {
+  const staleThreshold = new Date(Date.now() - RECOMPUTE_LEASE_MS).toISOString();
+  const result = await pool.query<{ id: string; member_id: string; club_id: string }>(
+    `update app.recompute_queue
+     set claimed_at = now()
      where id in (
        select id from app.recompute_queue
        where queue_name = 'introductions'
          and recompute_after <= now()
-         and claimed_at is null
+         and (claimed_at is null or claimed_at < $2::timestamptz)
        order by recompute_after asc
        limit $1
        for update skip locked
      )
-     returning member_id, club_id`,
-    [limit],
+     returning id, member_id, club_id`,
+    [limit, staleThreshold],
   );
-  return result.rows.map(r => ({ memberId: r.member_id, clubId: r.club_id }));
+  return result.rows.map(r => ({ id: r.id, memberId: r.member_id, clubId: r.club_id }));
+}
+
+/**
+ * Complete a recompute entry by deleting it. Called after successful processing.
+ */
+async function completeRecomputeEntry(pool: Pool, entryId: string): Promise<void> {
+  await pool.query(`delete from app.recompute_queue where id = $1`, [entryId]);
 }
 
 // ── Entity-triggered matching ─────────────────────────────
@@ -189,6 +200,7 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
           sourceId: row.entity_id,
           targetMemberId: c.authorMemberId,
           score: c.distance,
+          payload: { matchedAskEntityId: c.entityId },
         });
         if (id) matchCount++;
       }
@@ -261,7 +273,13 @@ async function processProfileTriggers(pools: WorkerPools): Promise<number> {
 
 /**
  * Detect newly accessible members and enqueue intro recomputation with warm-up delay.
- * Checks for memberships that became accessible since our last scan.
+ *
+ * Two sources of accessibility changes:
+ *   1. Membership state transitions to 'active' (new members, reactivated members)
+ *   2. Subscription changes (trial starts, reactivations, renewals) that make
+ *      existing active memberships accessible via accessible_club_memberships
+ *
+ * Both are checked against accessible_club_memberships as the final arbiter.
  */
 async function processMemberAccessibilityTriggers(pools: WorkerPools): Promise<number> {
   const lastAt = await getState(pools.clubs, 'membership_scan_at');
@@ -272,9 +290,8 @@ async function processMemberAccessibilityTriggers(pools: WorkerPools): Promise<n
     return 0;
   }
 
-  // Find memberships that became active/accessible recently
-  // We check club_membership_state_versions for recent transitions to 'active'
-  const result = await pools.identity.query<{ member_id: string; club_id: string }>(
+  // Source 1: Membership state transitions to 'active'
+  const membershipResult = await pools.identity.query<{ member_id: string; club_id: string }>(
     `select cm.member_id, cm.club_id
      from app.club_membership_state_versions sv
      join app.club_memberships cm on cm.id = sv.membership_id
@@ -288,11 +305,30 @@ async function processMemberAccessibilityTriggers(pools: WorkerPools): Promise<n
     [lastAt],
   );
 
+  // Source 2: Subscriptions that started or were reactivated recently
+  const subscriptionResult = await pools.identity.query<{ member_id: string; club_id: string }>(
+    `select cm.member_id, cm.club_id
+     from app.subscriptions s
+     join app.club_memberships cm on cm.id = s.membership_id
+     where s.status in ('active', 'trialing')
+       and s.started_at > $1::timestamptz
+       and exists (
+         select 1 from app.accessible_club_memberships acm
+         where acm.member_id = cm.member_id and acm.club_id = cm.club_id
+       )
+     group by cm.member_id, cm.club_id`,
+    [lastAt],
+  );
+
+  // Deduplicate across both sources
+  const seen = new Set<string>();
   let enqueueCount = 0;
   const warmupDelayMs = INTRO_WARMUP_HOURS * 3600_000;
 
-  for (const row of result.rows) {
-    // Warm-up delay: new members wait before intro matching
+  for (const row of [...membershipResult.rows, ...subscriptionResult.rows]) {
+    const key = `${row.member_id}:${row.club_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     await enqueueIntroRecompute(pools.clubs, row.member_id, row.club_id, warmupDelayMs);
     enqueueCount++;
   }
@@ -328,7 +364,10 @@ async function processIntroRecompute(pools: WorkerPools): Promise<number> {
        ) as exists`,
       [entry.memberId, entry.clubId],
     );
-    if (!accessResult.rows[0]?.exists) continue;
+    if (!accessResult.rows[0]?.exists) {
+      await completeRecomputeEntry(pools.clubs, entry.id);
+      continue;
+    }
 
     const candidates = await findSimilarMembers(
       pools.identity, entry.memberId, entry.clubId, MATCH_CANDIDATES_LIMIT,
@@ -363,6 +402,9 @@ async function processIntroRecompute(pools: WorkerPools): Promise<number> {
       });
       if (id) matchCount++;
     }
+
+    // Lease fulfilled — delete the entry
+    await completeRecomputeEntry(pools.clubs, entry.id);
   }
 
   return matchCount;
@@ -375,92 +417,189 @@ async function processIntroRecompute(pools: WorkerPools): Promise<number> {
  * - Best-first ordering (lowest distance first)
  * - Per-kind throttling (stricter for introductions)
  * - Validity checks before delivery
+ *
+ * Each delivery is atomic: lock match row, insert signal, transition match
+ * all within a single transaction. The unique index on member_signals.match_id
+ * prevents duplicate signals on crash-retry.
  */
 async function deliverMatches(pools: WorkerPools): Promise<number> {
   // Expire stale matches first
   await expireStaleMatches(pools.clubs);
 
-  const pending = await claimPendingMatches(pools.clubs, DELIVERY_BATCH_SIZE);
-  if (pending.length === 0) return 0;
+  // Read candidate match IDs (no lock — just a planning query)
+  const candidateResult = await pools.clubs.query<{ id: string; match_kind: string; target_member_id: string }>(
+    `select id, match_kind, target_member_id
+     from app.background_matches
+     where state = 'pending'
+       and (expires_at is null or expires_at > now())
+     order by score asc, created_at asc
+     limit $1`,
+    [DELIVERY_BATCH_SIZE],
+  );
+  if (candidateResult.rows.length === 0) return 0;
 
   let delivered = 0;
 
-  for (const match of pending) {
-    // ── Throttle check ──
-    if (match.matchKind === 'member_to_member') {
+  for (const candidate of candidateResult.rows) {
+    // ── Throttle check (outside transaction — read-only, ok to race) ──
+    if (candidate.match_kind === 'member_to_member') {
       const introCount = await countRecentDeliveries(
-        pools.clubs, match.targetMemberId, WEEK_MS, 'member_to_member',
+        pools.clubs, candidate.target_member_id, WEEK_MS, 'member_to_member',
       );
       if (introCount >= MAX_INTROS_PER_WEEK) continue; // stays pending
     } else {
       const totalCount = await countRecentDeliveries(
-        pools.clubs, match.targetMemberId, DAY_MS,
+        pools.clubs, candidate.target_member_id, DAY_MS,
       );
       if (totalCount >= MAX_SIGNALS_PER_DAY) continue; // stays pending
     }
 
-    // ── Validity checks ──
+    // ── Atomic delivery: lock + validate + signal + transition ──
+    const result = await deliverOneMatch(pools, candidate.id);
+    if (result === 'delivered') delivered++;
+  }
 
-    // For introductions: check DM thread doesn't exist and both members still accessible
-    if (match.matchKind === 'member_to_member' && pools.messaging) {
-      const [a, b] = canonicalPair(match.sourceId, match.targetMemberId);
+  return delivered;
+}
+
+/**
+ * Deliver a single match atomically within a transaction.
+ * Returns 'delivered', 'expired', or 'skipped'.
+ */
+async function deliverOneMatch(
+  pools: WorkerPools,
+  matchId: string,
+): Promise<'delivered' | 'expired' | 'skipped'> {
+  const client = await pools.clubs.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Lock the match row. If another worker got it, SKIP LOCKED returns nothing.
+    const lockResult = await client.query<{
+      id: string; club_id: string; match_kind: string; source_id: string;
+      target_member_id: string; score: number; payload: Record<string, unknown>;
+    }>(
+      `select id, club_id, match_kind, source_id, target_member_id, score, payload
+       from app.background_matches
+       where id = $1 and state = 'pending'
+       for update skip locked`,
+      [matchId],
+    );
+
+    if (lockResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return 'skipped';
+    }
+
+    const match = lockResult.rows[0];
+
+    // ── Validity checks (read from other planes, outside the clubs transaction) ──
+
+    if (match.match_kind === 'member_to_member' && pools.messaging) {
+      const [a, b] = canonicalPair(match.source_id, match.target_member_id);
       const threads = await findExistingThreadPairs(pools.messaging, [a], [b]);
       if (threads.size > 0) {
-        await markExpired(pools.clubs, match.id);
-        continue;
+        await client.query(
+          `update app.background_matches set state = 'expired' where id = $1`,
+          [match.id],
+        );
+        await client.query('COMMIT');
+        return 'expired';
       }
 
-      // Check both members still accessible in this club
       const accessResult = await pools.identity.query<{ count: string }>(
         `select count(*)::text as count from app.accessible_club_memberships
          where club_id = $1 and member_id = any($2::text[])`,
-        [match.clubId, [match.sourceId, match.targetMemberId]],
+        [match.club_id, [match.source_id, match.target_member_id]],
       );
       if (parseInt(accessResult.rows[0]?.count ?? '0', 10) < 2) {
-        await markExpired(pools.clubs, match.id);
-        continue;
+        await client.query(
+          `update app.background_matches set state = 'expired' where id = $1`,
+          [match.id],
+        );
+        await client.query('COMMIT');
+        return 'expired';
       }
     }
 
-    // For entity matches: check entity still published
-    if (match.matchKind === 'ask_to_member' || match.matchKind === 'offer_to_ask') {
-      const entityResult = await pools.clubs.query<{ state: string }>(
-        `select cev.state from app.current_entity_versions cev
-         join app.entities e on e.id = cev.entity_id
-         where e.id = $1`,
-        [match.sourceId],
-      );
-      if (!entityResult.rows[0] || entityResult.rows[0].state !== 'published') {
-        await markExpired(pools.clubs, match.id);
-        continue;
+    if (match.match_kind === 'ask_to_member') {
+      // Verify the ask entity is still published
+      const valid = await isEntityPublished(client, match.source_id);
+      if (!valid) {
+        await client.query(`update app.background_matches set state = 'expired' where id = $1`, [match.id]);
+        await client.query('COMMIT');
+        return 'expired';
       }
     }
 
-    // ── Build signal payload ──
-    const payload = await buildSignalPayload(pools, match);
+    if (match.match_kind === 'offer_to_ask') {
+      // Verify both the offer and the matched ask are still published
+      const matchedAskId = (match.payload as Record<string, unknown>).matchedAskEntityId as string | undefined;
+      const offerValid = await isEntityPublished(client, match.source_id);
+      const askValid = matchedAskId ? await isEntityPublished(client, matchedAskId) : false;
+      if (!offerValid || !askValid) {
+        await client.query(`update app.background_matches set state = 'expired' where id = $1`, [match.id]);
+        await client.query('COMMIT');
+        return 'expired';
+      }
+    }
 
-    // ── Write signal ──
-    const signalResult = await pools.clubs.query<{ id: string }>(
+    // ── Build payload ──
+    const matchForPayload: PendingMatch = {
+      id: match.id,
+      clubId: match.club_id,
+      matchKind: match.match_kind,
+      sourceId: match.source_id,
+      targetMemberId: match.target_member_id,
+      score: match.score,
+      payload: match.payload,
+    };
+    const payload = await buildSignalPayload(pools, matchForPayload);
+
+    // ── Insert signal + transition match atomically ──
+    // ON CONFLICT DO NOTHING on match_id: idempotent on crash-retry.
+    const signalResult = await client.query<{ id: string }>(
       `insert into app.member_signals (club_id, recipient_member_id, topic, payload, entity_id, match_id)
        values ($1, $2, $3, $4::jsonb, $5, $6)
+       on conflict ((match_id)) where match_id is not null do nothing
        returning id`,
       [
-        match.clubId,
-        match.targetMemberId,
-        topicForMatchKind(match.matchKind),
+        match.club_id,
+        match.target_member_id,
+        topicForMatchKind(match.match_kind),
         JSON.stringify(payload),
-        match.matchKind === 'ask_to_member' || match.matchKind === 'offer_to_ask' ? match.sourceId : null,
+        match.match_kind === 'ask_to_member' || match.match_kind === 'offer_to_ask' ? match.source_id : null,
         match.id,
       ],
     );
 
-    if (signalResult.rows[0]) {
-      await markDelivered(pools.clubs, match.id, signalResult.rows[0].id);
-      delivered++;
+    // Get the signal ID (either just inserted or already exists from prior crash)
+    let signalId = signalResult.rows[0]?.id;
+    if (!signalId) {
+      const existing = await client.query<{ id: string }>(
+        `select id from app.member_signals where match_id = $1`,
+        [match.id],
+      );
+      signalId = existing.rows[0]?.id;
     }
-  }
 
-  return delivered;
+    if (signalId) {
+      await client.query(
+        `update app.background_matches
+         set state = 'delivered', delivered_at = now(), signal_id = $2
+         where id = $1 and state = 'pending'`,
+        [match.id, signalId],
+      );
+    }
+
+    await client.query('COMMIT');
+    return 'delivered';
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 function topicForMatchKind(kind: string): string {
@@ -475,7 +614,7 @@ function topicForMatchKind(kind: string): string {
 
 async function buildSignalPayload(
   pools: WorkerPools,
-  match: { matchKind: string; sourceId: string; targetMemberId: string; clubId: string; score: number },
+  match: { matchKind: string; sourceId: string; targetMemberId: string; clubId: string; score: number; payload: Record<string, unknown> },
 ): Promise<Record<string, unknown>> {
   if (match.matchKind === 'ask_to_member') {
     const entity = await loadEntityInfo(pools.clubs, match.sourceId);
@@ -491,16 +630,21 @@ async function buildSignalPayload(
   }
 
   if (match.matchKind === 'offer_to_ask') {
-    // sourceId is the offer entity; we need to find the ask that matched
-    // The target member is the ask author, so look up their ask in this club
-    const entity = await loadEntityInfo(pools.clubs, match.sourceId);
-    const author = entity ? await loadMemberInfo(pools.identity, entity.authorMemberId) : null;
+    const offerEntity = await loadEntityInfo(pools.clubs, match.sourceId);
+    const offerAuthor = offerEntity ? await loadMemberInfo(pools.identity, offerEntity.authorMemberId) : null;
+
+    // The matched ask entity ID is stored in the match payload
+    const matchedAskEntityId = match.payload.matchedAskEntityId as string | undefined;
+    const askEntity = matchedAskEntityId ? await loadEntityInfo(pools.clubs, matchedAskEntityId) : null;
+
     return {
       kind: 'offer_match',
       offerEntityId: match.sourceId,
-      offerKind: entity?.kind ?? null,
-      offerTitle: entity?.title ?? null,
-      offerAuthor: author ? { memberId: author.memberId, publicName: author.publicName, handle: author.handle } : null,
+      offerKind: offerEntity?.kind ?? null,
+      offerTitle: offerEntity?.title ?? null,
+      offerAuthor: offerAuthor ? { memberId: offerAuthor.memberId, publicName: offerAuthor.publicName, handle: offerAuthor.handle } : null,
+      yourAskEntityId: matchedAskEntityId ?? null,
+      yourAskTitle: askEntity?.title ?? null,
       matchScore: match.score,
     };
   }
@@ -515,6 +659,16 @@ async function buildSignalPayload(
   }
 
   return { kind: match.matchKind, sourceId: match.sourceId, matchScore: match.score };
+}
+
+async function isEntityPublished(queryable: Pool | PoolClient, entityId: string): Promise<boolean> {
+  const result = await queryable.query<{ state: string }>(
+    `select cev.state from app.current_entity_versions cev
+     join app.entities e on e.id = cev.entity_id
+     where e.id = $1`,
+    [entityId],
+  );
+  return result.rows[0]?.state === 'published';
 }
 
 async function loadEntityInfo(pool: Pool, entityId: string): Promise<{
@@ -551,6 +705,40 @@ async function loadMemberInfo(pool: Pool, memberId: string): Promise<{
   } : null;
 }
 
+// ── Periodic backstop sweep ───────────────────────────────
+
+const BACKSTOP_INTERVAL_MS = parseInt(process.env.SERENDIPITY_BACKSTOP_INTERVAL_MS ?? String(7 * DAY_MS), 10);
+
+/**
+ * Periodic reconciliation sweep: enqueues intro recompute for all
+ * accessible members across all clubs. Runs infrequently (default: weekly).
+ * Serves as repair for missed reactive triggers and as bootstrap when
+ * the feature is first enabled on an existing club.
+ */
+async function processBackstopSweep(pools: WorkerPools): Promise<number> {
+  const lastAt = await getState(pools.clubs, 'backstop_sweep_at');
+  const now = Date.now();
+
+  if (lastAt && now - Date.parse(lastAt) < BACKSTOP_INTERVAL_MS) {
+    return 0; // not due yet
+  }
+
+  // Get all distinct (member_id, club_id) pairs from accessible memberships
+  const result = await pools.identity.query<{ member_id: string; club_id: string }>(
+    `select distinct member_id, club_id from app.accessible_club_memberships`,
+  );
+
+  let enqueued = 0;
+  for (const row of result.rows) {
+    await enqueueIntroRecompute(pools.clubs, row.member_id, row.club_id);
+    enqueued++;
+  }
+
+  await setState(pools.clubs, 'backstop_sweep_at', new Date().toISOString());
+  if (enqueued > 0) console.log(`Backstop sweep: enqueued ${enqueued} intro recomputes`);
+  return enqueued;
+}
+
 // ── Main process function ─────────────────────────────────
 
 async function processSerendipity(pools: WorkerPools): Promise<number> {
@@ -565,10 +753,13 @@ async function processSerendipity(pools: WorkerPools): Promise<number> {
   // 3. Membership accessibility triggers → enqueue intro recompute with warmup (reactive)
   total += await processMemberAccessibilityTriggers(pools);
 
-  // 4. Process intro recompute queue (debounced)
+  // 4. Periodic backstop sweep → enqueue intro recompute for reconciliation
+  total += await processBackstopSweep(pools);
+
+  // 5. Process intro recompute queue (debounced)
   total += await processIntroRecompute(pools);
 
-  // 5. Deliver pending matches (all types)
+  // 6. Deliver pending matches (all types)
   total += await deliverMatches(pools);
 
   return total;
@@ -590,4 +781,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
 }
 
-export { processSerendipity, processEntityTriggers, processProfileTriggers, processMemberAccessibilityTriggers, processIntroRecompute, deliverMatches };
+export { processSerendipity, processEntityTriggers, processProfileTriggers, processMemberAccessibilityTriggers, processIntroRecompute, processBackstopSweep, deliverMatches };
