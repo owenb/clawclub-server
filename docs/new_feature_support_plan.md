@@ -1,6 +1,8 @@
 # Support Feature Design
 
-Status: **approved design, not yet implemented**
+> **SUPERSEDED** — This plan predates the identity/messaging/club database split (`docs/identity-club-split.md`). Support threads will now be implemented as a thread kind in the messaging plane, not as separate tables with RLS. This file is retained for historical context only.
+
+Status: **superseded by the database split**
 Last updated: 2026-04-04
 
 ## Problem

@@ -17,7 +17,7 @@ ClawClub an agent-first platform, where agents are the primary API consumers.
 ```bash
 npm run check                    # TypeScript type check
 npm run test:unit                # Mocked/fake-client root tests — no DB needed
-npm run test:unit:db             # Root tests that need a real Postgres test DB (RLS, sync triggers, provisioning)
+npm run test:unit:db             # Root tests that need a real Postgres test DB (sync triggers, provisioning)
 npm run test:integration:non-llm # Integration tests that do NOT hit the LLM (fast, free)
 npm run test:integration:with-llm # Integration tests that DO hit gpt-5.4-nano (requires .env.local with OPENAI_API_KEY)
 npm run test:integration:all     # Runs both non-llm then with-llm
@@ -26,11 +26,11 @@ npm run test:integration         # Alias for test:integration:all
 
 ### Unit tests (`test/*.test.ts`)
 
-Most root tests use mocked repositories or fake DB clients — fast, no real database needed. Four files (`postgres-rls`, `postgres-club-owner-sync` (tests `club_versions` sync), `postgres-membership-state-sync`, `provision-app-role-script`) connect to a real Postgres test database and are run separately via `test:unit:db`.
+Root tests use mocked repositories or fake DB clients — fast, no real database needed. One file (`provision-app-role-script`) connects to a real Postgres test database and is run separately via `test:unit:db`.
 
 ### Integration tests (`test/integration/*.test.ts`)
 
-The primary confidence layer. Every test runs against a real Postgres database (`clawclub_test`) with the real `clawclub_app` role, RLS policies, security definer functions, and a real HTTP server on a random port. Each test file creates and tears down `clawclub_test` automatically.
+The primary confidence layer. Every test runs against three real Postgres databases (`clawclub_identity_test`, `clawclub_messaging_test`, `clawclub_clubs_test`) with the real `clawclub_app` role and a real HTTP server on a random port. Each test file creates and tears down all three databases automatically.
 
 Tests are split into two suites:
 
@@ -54,15 +54,19 @@ New actions and meaningful behavior changes require a real integration test in `
 
 ## Local dev server
 
-A local dev database `clawclub_dev` is available with three test clubs seeded.
+Three local dev databases are available with test clubs seeded:
 
-- **Database:** `postgresql://clawclub_app:localdev@localhost/clawclub_dev`
-- **Migrator URL (for migrations/seeds):** `postgresql://localhost/clawclub_dev`
+- **Identity:** `postgresql://clawclub_app:localdev@localhost/clawclub_identity_dev`
+- **Messaging:** `postgresql://clawclub_app:localdev@localhost/clawclub_messaging_dev`
+- **Clubs:** `postgresql://clawclub_app:localdev@localhost/clawclub_clubs_dev`
 
 Start the server:
 
 ```bash
-DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_dev" npm run api:start
+IDENTITY_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_identity_dev" \
+MESSAGING_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_messaging_dev" \
+CLUBS_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_clubs_dev" \
+npm run api:start
 ```
 
 The OPENAI_API_KEY is in `.env` and picked up automatically.
@@ -91,7 +95,7 @@ Charlie Paws (member of DogClub, FoxClub):
 ./scripts/reset-dev.sh
 ```
 
-This drops and recreates `clawclub_dev`, runs all migrations, provisions the app role, seeds dev clubs, and prints fresh tokens. Tokens are random on each reset, so update the tokens in this section after re-seeding.
+This drops and recreates all three dev databases (`clawclub_identity_dev`, `clawclub_messaging_dev`, `clawclub_clubs_dev`), runs migrations, provisions the app role, and seeds extensive test data across all three databases — 13 members, 28 entities, 6 admissions, 8 DM threads, vouches, RSVPs, and more. Tokens are random on each reset, so update the tokens in this section after re-seeding.
 
 ## Deployment
 

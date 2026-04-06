@@ -35,7 +35,7 @@ async function seedOutsiderAdmission(
   clubId: string,
   opts: { name: string; email: string },
 ): Promise<string> {
-  const rows = await h.sql<{ admission_id: string }>(
+  const rows = await h.sqlClubs<{ admission_id: string }>(
     `
       with ins as (
         insert into app.admissions (club_id, origin, applicant_email, applicant_name, admission_details)
@@ -66,7 +66,7 @@ async function seedSponsoredAdmission(
   opts: { name: string; email: string; socials: string; reason: string },
 ): Promise<string> {
   const admissionDetails = JSON.stringify({ socials: opts.socials, reason: opts.reason });
-  const rows = await h.sql<{ admission_id: string }>(
+  const rows = await h.sqlClubs<{ admission_id: string }>(
     `
       with ins as (
         insert into app.admissions (club_id, sponsor_member_id, origin, applicant_email, applicant_name, admission_details)

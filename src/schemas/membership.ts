@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
+  wireOptionalString, parseTrimmedNullableString,
   wireLimit, parseLimit,
   wireBoundedString, parseBoundedString,
   wireFullName, parseFullName,
@@ -228,6 +229,7 @@ const vouchesCreate: ActionDefinition = {
       clubId: wireRequiredString.describe('Club context'),
       memberId: wireRequiredString.describe('Member to vouch for'),
       reason: wireBoundedString.describe('Reason for vouching'),
+      clientKey: wireOptionalString.describe('Idempotency key'),
     }),
     output: z.object({ vouch: vouchSummary }),
   },
@@ -237,13 +239,14 @@ const vouchesCreate: ActionDefinition = {
       clubId: parseRequiredString,
       memberId: parseRequiredString,
       reason: parseBoundedString,
+      clientKey: parseTrimmedNullableString.default(null),
     }),
   },
 
   qualityGate: 'vouches-create',
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, memberId, reason } = input as VouchesCreateInput;
+    const { clubId, memberId, reason, clientKey } = input as VouchesCreateInput & { clientKey?: string | null };
     const club = ctx.requireAccessibleClub(clubId);
 
     if (memberId === ctx.actor.member.id) {
@@ -257,6 +260,7 @@ const vouchesCreate: ActionDefinition = {
         clubId: club.clubId,
         targetMemberId: memberId,
         reason,
+        clientKey,
       });
     } catch (error) {
       if (error && typeof error === 'object' && 'code' in error && error.code === '23505') {

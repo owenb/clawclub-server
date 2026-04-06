@@ -15,6 +15,8 @@ import { Pool } from 'pg';
 import http from 'node:http';
 import { execSync } from 'node:child_process';
 import { createServer } from '../../src/server.ts';
+import { createRepository } from '../../src/repository.ts';
+import { createPostgresMemberUpdateNotifier } from '../../src/member-updates-notifier.ts';
 import { buildBearerToken } from '../../src/token.ts';
 import { z } from 'zod';
 import { getAction } from '../../src/schemas/registry.ts';
@@ -62,6 +64,9 @@ function strictify(schema: z.ZodType): z.ZodType {
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
 const DB_NAME = 'clawclub_test';
+const IDENTITY_DB_NAME = 'clawclub_identity_test';
+const MESSAGING_DB_NAME = 'clawclub_messaging_test';
+const CLUBS_DB_NAME = 'clawclub_clubs_test';
 const APP_ROLE = 'clawclub_app';
 const APP_PASSWORD = 'integration_test';
 
@@ -87,67 +92,106 @@ export type SeededMembership = {
   status: string;
 };
 
+export type SplitPools = {
+  identity: { super: Pool; app: Pool };
+  messaging: { super: Pool; app: Pool };
+  clubs: { super: Pool; app: Pool };
+};
+
 export class TestHarness {
-  private superPool: Pool;
-  private appPool: Pool;
+  private pools: SplitPools;
+  private dbNames: { identity: string; messaging: string; clubs: string };
   private httpServer: ReturnType<typeof createServer>['server'];
   private shutdown: () => Promise<void>;
-  private dbName: string;
   port: number;
 
   private constructor(
-    superPool: Pool,
-    appPool: Pool,
+    pools: SplitPools,
+    dbNames: { identity: string; messaging: string; clubs: string },
     httpServer: ReturnType<typeof createServer>['server'],
     shutdown: () => Promise<void>,
     port: number,
-    dbName: string,
   ) {
-    this.superPool = superPool;
-    this.appPool = appPool;
+    this.pools = pools;
+    this.dbNames = dbNames;
     this.httpServer = httpServer;
     this.shutdown = shutdown;
     this.port = port;
-    this.dbName = dbName;
   }
 
   static async start(options: { qualityGate?: QualityGateFn } = {}): Promise<TestHarness> {
-    const dbName = DB_NAME;
-    const superuserUrl = `postgresql://localhost/${dbName}`;
-    const appUrl = `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbName}`;
+    const dbNames = {
+      identity: IDENTITY_DB_NAME,
+      messaging: MESSAGING_DB_NAME,
+      clubs: CLUBS_DB_NAME,
+    };
 
-    // 1. Create database (terminate any stale connections first)
+    // 1. Create databases (terminate stale connections first)
     const bootstrapPool = new Pool({ connectionString: 'postgresql://localhost/postgres' });
     try {
-      await bootstrapPool.query(
-        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
-        [dbName],
-      );
-      await bootstrapPool.query(`DROP DATABASE IF EXISTS ${dbName}`);
-      await bootstrapPool.query(`CREATE DATABASE ${dbName}`);
+      for (const name of Object.values(dbNames)) {
+        await bootstrapPool.query(
+          `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+          [name],
+        );
+        await bootstrapPool.query(`DROP DATABASE IF EXISTS ${name}`);
+        await bootstrapPool.query(`CREATE DATABASE ${name}`);
+      }
     } finally {
       await bootstrapPool.end();
     }
 
-    // 2. Run migrations
+    // 2. Run per-plane migrations
     execSync(
-      `DATABASE_URL="${superuserUrl}" ${ROOT}/scripts/migrate.sh`,
+      `IDENTITY_DATABASE_URL="postgresql://localhost/${dbNames.identity}" ${ROOT}/scripts/migrate-db.sh identity`,
+      { stdio: 'pipe' },
+    );
+    execSync(
+      `MESSAGING_DATABASE_URL="postgresql://localhost/${dbNames.messaging}" ${ROOT}/scripts/migrate-db.sh messaging`,
+      { stdio: 'pipe' },
+    );
+    execSync(
+      `CLUBS_DATABASE_URL="postgresql://localhost/${dbNames.clubs}" ${ROOT}/scripts/migrate-db.sh clubs`,
       { stdio: 'pipe' },
     );
 
-    // 3. Provision app role
-    execSync(
-      `CLAWCLUB_DB_APP_PASSWORD="${APP_PASSWORD}" DATABASE_URL="${superuserUrl}" ${ROOT}/scripts/provision-app-role.sh`,
-      { stdio: 'pipe' },
-    );
+    // 3. Provision app role on each
+    for (const name of Object.values(dbNames)) {
+      execSync(
+        `CLAWCLUB_DB_APP_PASSWORD="${APP_PASSWORD}" DATABASE_URL="postgresql://localhost/${name}" ${ROOT}/scripts/provision-app-role.sh`,
+        { stdio: 'pipe' },
+      );
+    }
 
     // 4. Open pools
-    const superPool = new Pool({ connectionString: superuserUrl });
-    const appPool = new Pool({ connectionString: appUrl });
+    const pools: SplitPools = {
+      identity: {
+        super: new Pool({ connectionString: `postgresql://localhost/${dbNames.identity}` }),
+        app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbNames.identity}` }),
+      },
+      messaging: {
+        super: new Pool({ connectionString: `postgresql://localhost/${dbNames.messaging}` }),
+        app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbNames.messaging}` }),
+      },
+      clubs: {
+        super: new Pool({ connectionString: `postgresql://localhost/${dbNames.clubs}` }),
+        app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbNames.clubs}` }),
+      },
+    };
 
-    // 5. Start server on random port (using the real app-role pool)
-    process.env.DATABASE_URL = appUrl;
-    const serverInstance = createServer({ qualityGate: options.qualityGate });
+    // 5. Create composed repository, notifier, and start server on random port
+    const repository = createRepository({
+      identity: pools.identity.app,
+      messaging: pools.messaging.app,
+      clubs: pools.clubs.app,
+    });
+
+    const updatesNotifier = createPostgresMemberUpdateNotifier(
+      `postgresql://localhost/${dbNames.clubs}`,
+      `postgresql://localhost/${dbNames.messaging}`,
+    );
+
+    const serverInstance = createServer({ repository, updatesNotifier, qualityGate: options.qualityGate });
     const port = await new Promise<number>((resolve) => {
       serverInstance.server.listen(0, () => {
         const addr = serverInstance.server.address();
@@ -156,35 +200,57 @@ export class TestHarness {
     });
 
     return new TestHarness(
-      superPool,
-      appPool,
+      pools,
+      dbNames,
       serverInstance.server,
       serverInstance.shutdown,
       port,
-      dbName,
     );
   }
 
   async stop(): Promise<void> {
     await this.shutdown();
-    await this.appPool.end();
-    await this.superPool.end();
+    for (const plane of Object.values(this.pools)) {
+      await plane.app.end();
+      await plane.super.end();
+    }
 
     const bootstrapPool = new Pool({ connectionString: 'postgresql://localhost/postgres' });
     try {
-      await bootstrapPool.query(`DROP DATABASE IF EXISTS ${this.dbName}`);
+      for (const name of Object.values(this.dbNames)) {
+        await bootstrapPool.query(`DROP DATABASE IF EXISTS ${name}`);
+      }
     } finally {
       await bootstrapPool.end();
     }
   }
 
-  // ── SQL helpers (run as superuser, bypasses RLS) ──
+  // ── SQL helpers (run as superuser) ──
 
+  /** Run SQL against the identity database (default for seeding). */
   async sql<T extends Record<string, unknown> = Record<string, unknown>>(
     query: string,
     params: unknown[] = [],
   ): Promise<T[]> {
-    const result = await this.superPool.query<T>(query, params);
+    const result = await this.pools.identity.super.query<T>(query, params);
+    return result.rows;
+  }
+
+  /** Run SQL against the clubs database. */
+  async sqlClubs<T extends Record<string, unknown> = Record<string, unknown>>(
+    query: string,
+    params: unknown[] = [],
+  ): Promise<T[]> {
+    const result = await this.pools.clubs.super.query<T>(query, params);
+    return result.rows;
+  }
+
+  /** Run SQL against the messaging database. */
+  async sqlMessaging<T extends Record<string, unknown> = Record<string, unknown>>(
+    query: string,
+    params: unknown[] = [],
+  ): Promise<T[]> {
+    const result = await this.pools.messaging.super.query<T>(query, params);
     return result.rows;
   }
 
@@ -287,8 +353,6 @@ export class TestHarness {
 
     // Comped subscription for non-owners with active status
     if (role !== 'clubadmin' && status === 'active') {
-      // Temporarily disable force RLS so superuser can insert
-      await this.sql(`ALTER TABLE app.subscriptions DISABLE ROW LEVEL SECURITY`);
       const ownerRows = await this.sql<{ owner_member_id: string }>(
         `SELECT owner_member_id FROM app.clubs WHERE id = $1`,
         [clubId],
@@ -298,8 +362,6 @@ export class TestHarness {
          VALUES ($1, $2, 'active', 0)`,
         [membershipId, ownerRows[0]!.owner_member_id],
       );
-      await this.sql(`ALTER TABLE app.subscriptions ENABLE ROW LEVEL SECURITY`);
-      await this.sql(`ALTER TABLE app.subscriptions FORCE ROW LEVEL SECURITY`);
     }
 
     return { id: membershipId, clubId, memberId, role, status };

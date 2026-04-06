@@ -48,15 +48,27 @@ async function sleep(timeoutMs: number, signal?: AbortSignal): Promise<'timed_ou
   return 'timed_out';
 }
 
-export function createPostgresMemberUpdateNotifier(connectionString: string): MemberUpdateNotifier {
-  const client = new Client({ connectionString });
+/**
+ * Create a notifier that connects to both the clubs DB (for club_activity)
+ * and the messaging DB (for member_updates / inbox notifications).
+ * If only one URL is provided, it connects to that one only.
+ */
+export function createPostgresMemberUpdateNotifier(
+  clubsConnectionString: string,
+  messagingConnectionString?: string,
+): MemberUpdateNotifier {
+  const clubsClient = new Client({ connectionString: clubsConnectionString });
+  const messagingClient = messagingConnectionString ? new Client({ connectionString: messagingConnectionString }) : null;
   const waiters = new Set<Waiter>();
   let failed = false;
 
   const ready = (async () => {
-    await client.connect();
-    await client.query('listen member_updates');
-    await client.query('listen club_activity');
+    await clubsClient.connect();
+    await clubsClient.query('listen club_activity');
+    if (messagingClient) {
+      await messagingClient.connect();
+      await messagingClient.query('listen member_updates');
+    }
   })().catch((error) => {
     failed = true;
     throw error;
@@ -81,7 +93,7 @@ export function createPostgresMemberUpdateNotifier(connectionString: string): Me
     waiter.resolve();
   }
 
-  client.on('notification', (message) => {
+  function handleNotification(message: { channel: string; payload?: string }) {
     if (message.channel === 'member_updates') {
       let recipientMemberId: string | null = null;
       let streamSeq: number | null = null;
@@ -96,14 +108,8 @@ export function createPostgresMemberUpdateNotifier(connectionString: string): Me
       }
 
       for (const waiter of [...waiters]) {
-        if (recipientMemberId !== null && waiter.recipientMemberId !== recipientMemberId) {
-          continue;
-        }
-
-        if (streamSeq !== null && waiter.afterStreamSeq !== null && streamSeq <= waiter.afterStreamSeq) {
-          continue;
-        }
-
+        if (recipientMemberId !== null && waiter.recipientMemberId !== recipientMemberId) continue;
+        if (streamSeq !== null && waiter.afterStreamSeq !== null && streamSeq <= waiter.afterStreamSeq) continue;
         finishWaiter(waiter);
       }
     } else if (message.channel === 'club_activity') {
@@ -117,21 +123,25 @@ export function createPostgresMemberUpdateNotifier(connectionString: string): Me
       }
 
       for (const waiter of [...waiters]) {
-        if (clubId !== null && !waiter.clubIds.includes(clubId)) {
-          continue;
-        }
-
+        if (clubId !== null && !waiter.clubIds.includes(clubId)) continue;
         finishWaiter(waiter);
       }
     }
-  });
+  }
 
-  client.on('error', (error) => {
+  function handleError(error: unknown) {
     failed = true;
     for (const waiter of [...waiters]) {
       finishWaiter(waiter, error instanceof Error ? error : new Error('member_updates notifier failed'));
     }
-  });
+  }
+
+  clubsClient.on('notification', handleNotification);
+  clubsClient.on('error', handleError);
+  if (messagingClient) {
+    messagingClient.on('notification', handleNotification);
+    messagingClient.on('error', handleError);
+  }
 
   return {
     async waitForUpdate({ recipientMemberId, clubIds, afterStreamSeq, timeoutMs, signal }) {
@@ -192,7 +202,8 @@ export function createPostgresMemberUpdateNotifier(connectionString: string): Me
         return;
       }
 
-      await client.end();
+      await clubsClient.end();
+      if (messagingClient) await messagingClient.end();
     },
   };
 }

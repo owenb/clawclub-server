@@ -2704,74 +2704,6 @@
       "safety": "mutating"
     },
     {
-      "action": "clubadmin.messages.remove",
-      "auth": "clubadmin",
-      "authorizationNote": "Club admin may remove any message in their club. Reason is required for moderation audit trail.",
-      "description": "Remove any message in the specified club (moderation).",
-      "domain": "clubadmin",
-      "input": {
-        "properties": {
-          "clubId": {
-            "description": "Club the message belongs to",
-            "type": "string"
-          },
-          "messageId": {
-            "description": "Message to remove",
-            "type": "string"
-          },
-          "reason": {
-            "description": "Reason for removal (required for moderation)",
-            "type": "string"
-          }
-        },
-        "required": [
-          "clubId",
-          "messageId",
-          "reason"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "removal": {
-            "additionalProperties": false,
-            "properties": {
-              "clubId": {
-                "type": "string"
-              },
-              "messageId": {
-                "type": "string"
-              },
-              "reason": {
-                "nullable": true,
-                "type": "string"
-              },
-              "removedAt": {
-                "type": "string"
-              },
-              "removedByMemberId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "messageId",
-              "clubId",
-              "removedByMemberId",
-              "reason",
-              "removedAt"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "removal"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating"
-    },
-    {
       "action": "entities.create",
       "auth": "member",
       "authorizationNote": "Requires club membership. Subject to daily quota.",
@@ -2782,6 +2714,10 @@
           "body": {
             "$ref": "#/properties/title",
             "description": "Body text"
+          },
+          "clientKey": {
+            "$ref": "#/properties/title",
+            "description": "Idempotency key — if provided, duplicate creates with the same key are rejected"
           },
           "clubId": {
             "description": "Club to post in",
@@ -3746,6 +3682,10 @@
             "minimum": 1,
             "nullable": true,
             "type": "integer"
+          },
+          "clientKey": {
+            "$ref": "#/properties/body",
+            "description": "Idempotency key"
           },
           "clubId": {
             "description": "Club to create event in",
@@ -6054,6 +5994,12 @@
       "domain": "messages",
       "input": {
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key — duplicate sends with the same key return the original message",
+            "maxLength": 500000,
+            "nullable": true,
+            "type": "string"
+          },
           "clubId": {
             "description": "Restrict to one club",
             "type": "string"
@@ -7891,6 +7837,9 @@
           "overview": {
             "additionalProperties": false,
             "properties": {
+              "activeMembers": {
+                "type": "number"
+              },
               "recentMembers": {
                 "items": {
                   "additionalProperties": false,
@@ -7937,6 +7886,7 @@
             },
             "required": [
               "totalMembers",
+              "activeMembers",
               "totalClubs",
               "totalEntities",
               "totalMessages",
@@ -8562,6 +8512,12 @@
       "domain": "admissions",
       "input": {
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key",
+            "maxLength": 500000,
+            "nullable": true,
+            "type": "string"
+          },
           "clubId": {
             "description": "Club context",
             "type": "string"
@@ -8742,6 +8698,6 @@
       "safety": "read_only"
     }
   ],
-  "schemaHash": "c87a140c35321fd2",
+  "schemaHash": "ddace6d84f2f33da",
   "version": "0.1.0"
 }

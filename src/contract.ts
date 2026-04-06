@@ -73,6 +73,7 @@ export type CreateMembershipInput = {
   initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active'>;
   reason?: string | null;
   metadata: Record<string, unknown>;
+  sourceAdmissionId?: string | null;
 };
 
 export type MembershipReviewSummary = MembershipAdminSummary & {
@@ -416,6 +417,7 @@ export type CreateEntityInput = {
   body: string | null;
   expiresAt: string | null;
   content: Record<string, unknown>;
+  clientKey?: string | null;
 };
 
 export type RemoveEntityInput = {
@@ -502,6 +504,7 @@ export type CreateEventInput = {
   capacity: number | null;
   expiresAt: string | null;
   content: Record<string, unknown>;
+  clientKey?: string | null;
 };
 
 export type ListEventsInput = {
@@ -516,6 +519,7 @@ export type RsvpEventInput = {
   eventEntityId: string;
   response: EventRsvpState;
   note?: string | null;
+  clientKey?: string | null;
   accessibleMemberships: Array<{
     membershipId: string;
     clubId: string;
@@ -627,6 +631,7 @@ export type SendDirectMessageInput = {
   recipientMemberId: string;
   clubId?: string;
   messageText: string;
+  clientKey?: string | null;
 };
 
 export type UpdateEntityInput = {
@@ -647,6 +652,7 @@ export type CreateVouchInput = {
   clubId: string;
   targetMemberId: string;
   reason: string;
+  clientKey?: string | null;
 };
 
 export type IssueAdmissionAccessInput = {
@@ -671,6 +677,7 @@ export type QuotaAllowance = {
 
 export type AdminOverview = {
   totalMembers: number;
+  activeMembers: number;
   totalClubs: number;
   totalEntities: number;
   totalMessages: number;

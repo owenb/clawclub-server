@@ -610,12 +610,15 @@ describe('superadmin.overview', () => {
     const data = result.data as Record<string, unknown>;
     const overview = data.overview as Record<string, unknown>;
     assert.ok(typeof overview.totalMembers === 'number');
+    assert.ok(typeof overview.activeMembers === 'number');
     assert.ok(typeof overview.totalClubs === 'number');
     assert.ok(typeof overview.totalEntities === 'number');
     assert.ok(typeof overview.totalMessages === 'number');
     assert.ok(typeof overview.totalAdmissions === 'number');
     assert.ok(Array.isArray(overview.recentMembers));
     assert.ok(overview.totalMembers >= 1, 'at least the admin member exists');
+    assert.ok(overview.activeMembers >= 1, 'at least the admin member is active');
+    assert.ok((overview.totalMembers as number) >= (overview.activeMembers as number), 'totalMembers >= activeMembers');
   });
 
   it('non-superadmin cannot access superadmin.overview', async () => {
@@ -1019,6 +1022,100 @@ describe('quotas.status', () => {
       assert.ok(typeof quota.usedToday === 'number');
       assert.ok(typeof quota.remaining === 'number');
     }
+  });
+
+  it('only includes supported actions (not messages.send)', async () => {
+    const ownerCtx = await h.seedOwner('quota-supported', 'Quota Supported Club');
+    // Seed all three action types to verify filtering
+    await h.sqlClubs(
+      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
+      [ownerCtx.club.id],
+    );
+
+    const result = await h.apiOk(ownerCtx.token, 'quotas.status', {});
+    const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
+    const actions = quotas.map((q) => q.action);
+    assert.ok(actions.includes('entities.create'));
+    assert.ok(actions.includes('events.create'));
+    assert.ok(!actions.includes('messages.send'), 'messages.send should not be in quota status');
+  });
+
+  it('posts do NOT consume events.create quota', async () => {
+    const ownerCtx = await h.seedOwner('quota-kind-isolation', 'Quota Kind Club');
+    // Seed quotas for both actions
+    await h.sqlClubs(
+      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
+      [ownerCtx.club.id],
+    );
+
+    // Create two posts via direct SQL (bypasses LLM gate)
+    for (let i = 0; i < 2; i++) {
+      await h.sqlClubs(
+        `with ent as (insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id)
+         insert into app.entity_versions (entity_id, version_no, state, title, created_by_member_id)
+         select id, 1, 'published', 'Post ' || $3, $2 from ent`,
+        [ownerCtx.club.id, ownerCtx.id, i],
+      );
+    }
+
+    const result = await h.apiOk(ownerCtx.token, 'quotas.status', {});
+    const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
+    const entityQuota = quotas.find((q) => q.action === 'entities.create' && q.clubId === ownerCtx.club.id);
+    const eventQuota = quotas.find((q) => q.action === 'events.create' && q.clubId === ownerCtx.club.id);
+
+    assert.ok(entityQuota, 'entities.create quota should exist');
+    assert.equal(entityQuota!.usedToday, 2, 'entities.create should count the 2 posts');
+    assert.ok(eventQuota, 'events.create quota should exist');
+    assert.equal(eventQuota!.usedToday, 0, 'events.create should be 0 (no events created)');
+  });
+
+  it('events do NOT consume entities.create quota', async () => {
+    const ownerCtx = await h.seedOwner('quota-event-isolation', 'Quota Event Club');
+    await h.sqlClubs(
+      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
+      [ownerCtx.club.id],
+    );
+
+    // Create one event via direct SQL
+    await h.sqlClubs(
+      `with ent as (insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id)
+       insert into app.entity_versions (entity_id, version_no, state, title, summary, location, starts_at, created_by_member_id)
+       select id, 1, 'published', 'Event', 'Summary', 'Online', now() + interval '1 day', $2 from ent`,
+      [ownerCtx.club.id, ownerCtx.id],
+    );
+
+    const result = await h.apiOk(ownerCtx.token, 'quotas.status', {});
+    const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
+    const entityQuota = quotas.find((q) => q.action === 'entities.create' && q.clubId === ownerCtx.club.id);
+    const eventQuota = quotas.find((q) => q.action === 'events.create' && q.clubId === ownerCtx.club.id);
+
+    assert.equal(entityQuota!.usedToday, 0, 'entities.create should be 0 (no posts created)');
+    assert.equal(eventQuota!.usedToday, 1, 'events.create should count the 1 event');
+  });
+
+  it('quota enforcement is kind-specific (posts do not block events)', async () => {
+    const ownerCtx = await h.seedOwner('quota-enforce-kind', 'Quota Enforce Club');
+    // Set entities.create max to 1 (not events)
+    await h.sqlClubs(
+      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 1)`,
+      [ownerCtx.club.id],
+    );
+
+    // Create one event via SQL — should NOT consume the entities.create quota
+    await h.sqlClubs(
+      `with ent as (insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id)
+       insert into app.entity_versions (entity_id, version_no, state, title, summary, location, starts_at, created_by_member_id)
+       select id, 1, 'published', 'An event', 'Summary', 'Online', now() + interval '1 day', $2 from ent`,
+      [ownerCtx.club.id, ownerCtx.id],
+    );
+
+    // Verify entities.create quota is still at 0 used (the event didn't consume it)
+    const result = await h.apiOk(ownerCtx.token, 'quotas.status', {});
+    const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
+    const entityQuota = quotas.find((q) => q.action === 'entities.create' && q.clubId === ownerCtx.club.id);
+    assert.ok(entityQuota);
+    assert.equal(entityQuota!.usedToday, 0, 'event should not consume entities.create quota');
+    assert.equal(entityQuota!.remaining, 1, 'entities.create should still have full quota');
   });
 });
 

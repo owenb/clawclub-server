@@ -1541,6 +1541,7 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     body: 'Can help unblock hairy backend issues.',
     expiresAt: '2026-04-01T00:00:00Z',
     content: { priceHint: '£120/hour' },
+    clientKey: null,
   });
   assert.equal(result.action, 'entities.create');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
@@ -1915,6 +1916,7 @@ test('events.create writes the smallest sane event payload', async () => {
     capacity: 12,
     expiresAt: null,
     content: { locationHint: 'Hackney' },
+    clientKey: null,
   });
   assert.equal(result.action, 'events.create');
   assert.equal(result.data.event.clubId, 'club-2');
@@ -2422,6 +2424,7 @@ test('messages.send picks a shared club, appends the request scope, and returns 
     recipientMemberId: 'member-9',
     clubId: 'club-2',
     messageText: 'Hello from the club edge',
+    clientKey: null,
   });
   assert.equal(result.action, 'messages.send');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');

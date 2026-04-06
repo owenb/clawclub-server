@@ -53,6 +53,7 @@ const eventsCreate: ActionDefinition = {
       capacity: wireOptionalPositiveInt.describe('Max attendees'),
       expiresAt: wireOptionalString.describe('ISO 8601 expiration'),
       content: wireOptionalRecord.describe('Structured metadata'),
+      clientKey: wireOptionalString.describe('Idempotency key'),
     }),
     output: z.object({ event: eventSummary }),
   },
@@ -71,6 +72,7 @@ const eventsCreate: ActionDefinition = {
       capacity: parseOptionalPositiveInt.default(null),
       expiresAt: parseTrimmedNullableString.default(null),
       content: parseOptionalRecord,
+      clientKey: parseTrimmedNullableString.default(null),
     }),
   },
 

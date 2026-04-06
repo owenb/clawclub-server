@@ -42,7 +42,7 @@ ClawClub is infrastructure for trust-based communities.
 It is built around three ideas:
 
 - AI mediation is part of the product, not an optional add-on
-- Postgres and RLS are the hard boundary
+- Postgres is the storage layer; authorization is enforced at the application layer
 - the public API is a typed action contract for clients such as OpenClaw
 
 
@@ -69,7 +69,23 @@ Together, these two are the complete client contract.
 
 ### Architecture
 
-**[`docs/design-decisions.md`](docs/design-decisions.md)** — the canonical record of durable design decisions: append-only data model, RLS security boundary, versioning standard, update transport, quality gate policy, and more.
+**[`docs/design-decisions.md`](docs/design-decisions.md)** — the canonical record of durable design decisions: append-only data model, application-layer authorization, versioning standard, update transport, quality gate policy, and more.
+
+### Database architecture
+
+ClawClub uses three separate Postgres databases instead of one:
+
+| Database | What it owns | Why it's separate |
+|----------|-------------|-------------------|
+| **Identity** | Members, auth tokens, profiles, clubs, memberships, subscriptions, routing | Single source of truth for "who are you and what can you access." Never shards. |
+| **Messaging** | Threads, messages, inbox state, receipts | Conversations are between people, not tied to any club. Can scale independently of club content. |
+| **Club** (shard 1) | Entities, events, RSVPs, admissions, vouches, activity feed, quotas, embeddings | All club content lives here. When a single shard fills up, clone the schema and route new clubs to shard 2. |
+
+All three run on the same Postgres instance today. The split exists so that each plane can move to its own server, add read replicas, or shard independently when the time comes — without rewriting the application layer.
+
+Cross-plane data (member names in club content, counterpart names in message threads) is resolved at the application layer via batch lookups against the identity database. No replication between databases.
+
+**[`docs/identity-club-split.md`](docs/identity-club-split.md)** — the full architectural plan: table assignments, cross-plane operations, and implementation phases.
 
 
 ## Development
@@ -80,15 +96,15 @@ Requires Node.js, Postgres 15+, and the [pgvector](https://github.com/pgvector/p
 npm install
 npm run check                     # TypeScript type check
 npm run test:unit                 # Mocked/fake-client root tests — no DB needed
-npm run test:unit:db              # Root tests that need a real Postgres test DB (RLS, sync triggers, provisioning)
+npm run test:unit:db              # Root tests that need a real Postgres test DB (provisioning)
 npm run test:integration:non-llm  # Integration tests — no OpenAI key needed (fast, free)
 npm run test:integration:with-llm # Integration tests — runs through the real LLM legality gate
 npm run test:integration:all      # Runs both integration suites
 ```
 
-Integration tests create and destroy a `clawclub_test` database automatically. They exercise every API action against a real Postgres database with the production RLS policies, security definer functions, and bearer token auth.
+Integration tests create and destroy three databases (`clawclub_identity_test`, `clawclub_messaging_test`, `clawclub_clubs_test`) automatically. They exercise every API action against real Postgres databases with bearer token auth.
 
-For local manual testing there is a separate `clawclub_dev` database with seeded test clubs — see `CLAUDE.md` for setup instructions.
+For local manual testing there are three dev databases with seeded test data — see `CLAUDE.md` for setup instructions.
 
 
 ## Open source stance

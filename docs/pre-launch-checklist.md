@@ -15,7 +15,7 @@ This document is deliberately pragmatic:
 - [ ] Do not do a framework rewrite.
   There is no launch value in swapping the custom HTTP layer for Express/Fastify/etc. The goal is to make the current server code small, boring, and reliable.
 - [ ] Do not weaken the product thesis.
-  AI mediation is part of the product. Postgres and RLS remain the hard boundary. The typed action surface stays as the client interface.
+  AI mediation is part of the product. Postgres with application-layer authorization is the hard boundary. The typed action surface stays as the client interface.
 - [ ] Be explicit about what is and is not launch-blocking.
   If something is deferred, write down why it is safe to defer.
 
@@ -90,10 +90,9 @@ This section should be updated continuously from the active bug list.
 
 ### Runtime role safety
 
-- [ ] Re-verify the runtime Postgres role is non-superuser and non-`BYPASSRLS`.
-- [ ] Re-verify projection views and security definer functions have the intended owners.
-- [ ] Re-verify live app tables enforce both RLS and FORCE RLS.
+- [ ] Re-verify the runtime Postgres role is non-superuser with no special privileges.
 - [ ] Re-run the provisioning flow and ensure the role grants are still correct.
+- [ ] Verify application-layer authorization helpers are tested for all access paths.
 
 ## 4. Distributed behavior and abuse boundaries
 
@@ -160,7 +159,7 @@ This section should be updated continuously from the active bug list.
 - [ ] Ensure docs do not oversell maturity.
   Early, self-hosted, use-at-your-own-risk should remain explicit.
 - [ ] Ensure docs do not undersell the actual product thesis.
-  AI mediation and the Postgres/RLS model should be stated clearly and consistently.
+  AI mediation and the Postgres/application-layer auth model should be stated clearly and consistently.
 
 ## 8. Pre-flight launch verification
 
@@ -223,7 +222,7 @@ Run this only after the sections above are in acceptable shape.
 These may still be good ideas. They are not the priority right now.
 
 - [ ] No framework migration.
-- [ ] No architectural rewrite away from Postgres/RLS.
+- [ ] No architectural rewrite away from Postgres.
 - [ ] No weakening of AI mediation as a core product behavior.
 - [ ] No large refactor whose main benefit is aesthetics.
 - [ ] No “scale theater” work that is not tied to a real near-term bottleneck.
@@ -235,6 +234,6 @@ Launch only when all of the following are true:
 - [ ] known launch-blocking bugs are fixed
 - [ ] migration and health tooling are trustworthy enough to operate under stress
 - [ ] critical test coverage passes
-- [ ] runtime role and RLS posture are verified
+- [ ] runtime role and authorization posture are verified
 - [ ] the team understands what is still rough and is deliberately accepting that risk
 

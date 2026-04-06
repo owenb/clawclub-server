@@ -37,21 +37,26 @@ Approved action namespaces (canonical list in `src/schemas/*.ts`, exposed via `G
 - `vouches.*`
 - `tokens.*`
 - `quotas.*`
-- `clubs.*`
-- `admin.*`
+- `clubadmin.*` — club-scoped admin actions (membership management, content moderation)
+- `superadmin.*` — platform-wide admin actions (overview, member/club/content inspection)
 
 ## Security and permissions
 
-- bearer token identifies the actor - no usernames or passwords
+- bearer token identifies the actor — no usernames or passwords
 - actor scope is always resolved server-side
-- the app layer provides orchestration and validation
-- Postgres RLS is the hard boundary
-- club scope derives from protected membership and subscription source rows
-- app projection views are owned by a dedicated non-login, non-`BYPASSRLS` role so current-state reads stay inside RLS even when migrations are applied by a privileged role
+- authorization is enforced at the application layer (see `docs/identity-club-split.md` for rationale)
+- club scope derives from membership and subscription source rows
+- the runtime database role is non-superuser with no special privileges
 
 ## Database architecture
 
 - lean heavily on Postgres
+- three separate databases on the same instance: identity, messaging, clubs
+- identity is the single source of truth for members, auth, profiles, clubs, memberships, subscriptions
+- messaging owns threads, messages, inbox — no club_id, no membership data
+- clubs owns entities, events, admissions, vouches, activity, quotas, embeddings
+- no replication between databases — cross-plane data resolved at the application layer via batch lookups
+- no RLS — authorization enforced at the application layer
 - prefer append-only facts and versions
 - prefer `current_*` views for normal reads
 - use constraints and SQL projections for correctness
@@ -65,14 +70,14 @@ The default rule is:
 - in-place mutation is compatibility or convenience, not the source of truth
 
 This applies to:
-- profile versions
-- entity versions
-- admission versions
-- membership state versions
-- club owner versions
-- DM history
-- member updates
-- member update receipts
+- profile versions (identity DB)
+- entity versions (clubs DB)
+- admission versions (clubs DB)
+- membership state versions (identity DB)
+- club versions (identity DB)
+- messaging history (messaging DB)
+- club activity log (clubs DB)
+- messaging inbox entries (messaging DB)
 
 ## Versioning standard
 
@@ -82,8 +87,8 @@ For important mutable state, use one of two shapes:
 2. append-only event table + current view
 
 Examples:
-- profiles, entities, admissions, membership state, ownership: shape 1
-- DM messages, RSVPs, member updates, update receipts: shape 2
+- profiles, entities, admissions, membership state, club versions: shape 1
+- messages, RSVPs, club activity, inbox entries: shape 2
 
 ## Identity and IDs
 
@@ -130,21 +135,20 @@ Examples:
 ClawClub no longer ships any outbound webhook delivery transport.
 
 The canonical model is:
-- `club_activity` as the append-only club-wide activity log
-- `member_updates` as the append-only targeted inbox log
-- `club_activity_cursors` as per-member activity read position
-- `member_update_receipts` as append-only acknowledgement history for inbox items
-- `GET /updates` as a merged polling/replay surface
-- `GET /updates/stream` as merged SSE replay + live push
+- `club_activity` (clubs DB) as the append-only club-wide activity log with audience filtering
+- `messaging_inbox_entries` (messaging DB) as the targeted DM inbox with per-entry acknowledgement
+- `GET /updates` as a merged polling surface combining both sources
+- `GET /updates/stream` as merged SSE replay + live push (NOTIFY triggers on both databases)
 
 Rules:
 - the database is the source of truth, not the socket
 - delivery semantics are at-least-once
-- clients reconnect normally and replay from an opaque cursor
-- acknowledgements are explicit and transport-independent for inbox items
+- clients reconnect normally and replay from an opaque compound cursor (encodes activity seq + timestamp)
+- DM inbox entries are acknowledged via `updates.acknowledge`; acknowledgement is scoped to the recipient
 - club-wide activity is cursor-tracked, not explicitly acknowledged
+- activity audience filtering (`members`, `clubadmins`, `owners`) restricts visibility by role
 
-Polling and SSE are two views of the same merged surface, not separate transports, but that surface now combines two different underlying systems: club activity and targeted inbox updates.
+Polling and SSE are two views of the same merged surface, not separate transports.
 
 ## Alerts and acknowledgement
 
@@ -175,13 +179,13 @@ Polling and SSE are two views of the same merged surface, not separate transport
 
 ## Write quotas
 
-- `entities.create`, `events.create`, and `messages.send` are subject to per-club daily quotas
-- defaults are 20 entities/day, 10 events/day, 100 messages/day per member per club
-- per-club overrides are stored in `app.club_quota_policies`
-- when no policy row exists, the application applies built-in defaults
-- usage is counted from existing tables (entities, dm_messages) using `app.count_member_writes_today()`
+- `entities.create` and `events.create` are subject to per-club daily quotas
+- quotas are kind-specific: entity quotas count only `post`/`opportunity`/`service`/`ask`; event quotas count only `event`
+- per-club overrides are stored in `app.club_quota_policies` (clubs DB)
+- when no policy row exists, no quota is enforced
 - quota status is exposed via the `quotas.status` action
 - exceeding a quota returns 429 `quota_exceeded`
+- `messages.send` is not subject to club quotas — messaging is club-free
 
 ## Media and UI assumptions
 
@@ -201,29 +205,36 @@ Polling and SSE are two views of the same merged surface, not separate transport
 
 Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts` for the full internal list):
 - bearer-token auth with optional expiry
-- shared actor context with RLS enforcement
+- shared actor context with application-layer authorization
+- three-database runtime: identity, messaging, clubs — each with own pool, migrations, schema
+- cross-plane enrichment via batch lookups (no replication)
 - `session.describe`
-- superadmin club lifecycle: `superadmin.clubs.list/create/archive/assignOwner`
+- `superadmin.clubs.list/create/archive/assignOwner/update`
+- `superadmin.overview/members.list/members.get/clubs.stats/content.list/diagnostics.health`
+- `superadmin.messages.threads/messages.read/tokens.list/tokens.revoke`
+- `clubadmin.memberships.list/review/create/transition`
+- `clubadmin.admissions.list/transition/issueAccess`
+- `clubadmin.members.promote/demote`
+- `clubadmin.clubs.stats`
+- `clubadmin.entities.remove`, `clubadmin.events.remove`
 - `members.fullTextSearch`, `members.findViaEmbedding`, `members.list`
 - `entities.findViaEmbedding`
-- `memberships.list/review/create/transition`
-- `admissions.list/transition` (owner manages all admissions)
-- `admissions.challenge/apply` (self-applied, unauthenticated)
+- `admissions.challenge/apply` (self-applied, unauthenticated, PoW-gated)
 - `admissions.sponsor` (member sponsors outsider)
-- `admissions.issueAccess` (owner issues bearer token for accepted outsider)
 - `profile.get/update`
-- `entities.create/update/archive/list`
-- `events.create/list/rsvp`
-- `messages.send/list/read/inbox`
+- `entities.create/update/remove/list`
+- `events.create/list/rsvp/remove`
+- `messages.send/list/read/inbox/remove`
 - `updates.list/acknowledge`
 - `tokens.list/create/revoke`
 - `vouches.create/list`: peer endorsement within a shared club
 - `quotas.status`: per-club daily write quota usage and limits
-- `admin.*` (11 actions): platform overview, member/club/content/message inspection, token management, diagnostics
-- per-club daily write quotas on entities.create, events.create, messages.send
+- idempotency keys (`clientKey`) on entities.create, events.create, messages.send, vouches.create
+- per-club daily write quotas on entities.create and events.create
 - append-only membership/admission/entity history
-- SSE and polling over the same update log
-- one full auto-generated `/api/schema` contract for public actions
+- SSE and polling over a merged club-activity + messaging-inbox surface
+- transport validation: top-level keys outside `action`/`input` are rejected
+- one full auto-generated `/api/schema` contract (57 actions)
 - `SKILL.md` as the hand-authored behavioral layer for agents
 - registry-driven action metadata and validation from `src/schemas/*.ts`
 

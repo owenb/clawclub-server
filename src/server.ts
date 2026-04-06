@@ -8,7 +8,7 @@ import { AppError, type Repository } from './contract.ts';
 import { buildDispatcher, type QualityGateFn } from './dispatch.ts';
 import { getAction } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
-import { createPostgresRepository } from './postgres.ts';
+import { createRepository } from './repository.ts';
 import { getSchemaPayload } from './schema-endpoint.ts';
 
 const PACKAGE_VERSION: string = JSON.parse(
@@ -326,20 +326,36 @@ export function createServer(options: {
   trustProxy?: boolean;
 } = {}) {
   const trustProxy = options.trustProxy ?? (process.env.TRUST_PROXY === '1');
-  const databaseUrl = process.env.DATABASE_URL;
-  const pool = options.repository ? null : new Pool({
-    connectionString: databaseUrl ?? (() => { throw new Error('DATABASE_URL must be set'); })(),
+
+  const poolConfig = {
     max: Number(process.env.DB_POOL_MAX ?? 20),
     idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_TIMEOUT_MS ?? 30_000),
     connectionTimeoutMillis: Number(process.env.DB_POOL_CONNECTION_TIMEOUT_MS ?? 5_000),
     options: `-c statement_timeout=${Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 30_000)}`,
-  });
-  if (pool) {
-    pool.on('error', (err) => { console.error('Unexpected database pool error:', err); });
+  };
+
+  function requireEnv(name: string): string {
+    const value = process.env[name];
+    if (!value) throw new Error(`${name} must be set`);
+    return value;
   }
-  const repository = options.repository ?? createPostgresRepository({ pool: pool! });
+
+  // Three pools — one per database plane. All three URLs must be set explicitly.
+  const pools = options.repository ? null : {
+    identity: new Pool({ ...poolConfig, connectionString: requireEnv('IDENTITY_DATABASE_URL') }),
+    messaging: new Pool({ ...poolConfig, connectionString: requireEnv('MESSAGING_DATABASE_URL') }),
+    clubs: new Pool({ ...poolConfig, connectionString: requireEnv('CLUBS_DATABASE_URL') }),
+  };
+  if (pools) {
+    for (const [name, pool] of Object.entries(pools)) {
+      pool.on('error', (err) => { console.error(`Unexpected ${name} pool error:`, err); });
+    }
+  }
+  const repository = options.repository ?? createRepository(pools!);
+  const clubsUrl = process.env.CLUBS_DATABASE_URL;
+  const messagingUrl = process.env.MESSAGING_DATABASE_URL;
   const updatesNotifier = options.updatesNotifier
-    ?? (databaseUrl ? createPostgresMemberUpdateNotifier(databaseUrl) : createTimeoutOnlyNotifier());
+    ?? (clubsUrl ? createPostgresMemberUpdateNotifier(clubsUrl, messagingUrl) : createTimeoutOnlyNotifier());
   const coldAdmissionRateLimits: Record<ColdAdmissionAction, FixedWindowRateLimit> = {
     'admissions.challenge': options.coldAdmissionRateLimits?.['admissions.challenge'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.challenge'],
     'admissions.apply': options.coldAdmissionRateLimits?.['admissions.apply'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.apply'],
@@ -621,6 +637,24 @@ export function createServer(options: {
 
       const body = await readJsonBody(request);
 
+      // Enforce canonical POST shape: {"action":"...","input":{...}}
+      // Reject any unexpected top-level keys to prevent silent parameter widening.
+      if (typeof body.action !== 'string' || !body.action) {
+        throw new AppError(400, 'invalid_input', 'Request body must include "action" as a string');
+      }
+      const allowedTopLevelKeys = new Set(['action', 'input']);
+      const unexpectedKeys = Object.keys(body).filter((k) => !allowedTopLevelKeys.has(k));
+      if (unexpectedKeys.length > 0) {
+        throw new AppError(
+          400,
+          'invalid_input',
+          `Unexpected top-level keys: ${unexpectedKeys.join(', ')}. Action parameters must be nested inside "input".`,
+        );
+      }
+      if (body.input !== undefined && (typeof body.input !== 'object' || body.input === null || Array.isArray(body.input))) {
+        throw new AppError(400, 'invalid_input', '"input" must be a JSON object');
+      }
+
       // Rate-limit cold admission actions by IP (before dispatch)
       if (isColdAdmissionAction(body.action)) {
         const clientIp = getClientIp(request, trustProxy);
@@ -701,8 +735,8 @@ export function createServer(options: {
     }
     await closePromise;
 
-    if (pool) {
-      await pool.end();
+    if (pools) {
+      await Promise.all(Object.values(pools).map((p) => p.end()));
     }
 
     await updatesNotifier.close();

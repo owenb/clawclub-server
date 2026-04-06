@@ -161,6 +161,12 @@ describe('entity update fan-out (LLM-gated)', () => {
     const author = await h.seedClubMember(owner.club.id, 'Alice ContentAuthor', 'llm-alice-upd-2', { sponsorId: owner.id });
     const viewer = await h.seedClubMember(owner.club.id, 'Bob ContentViewer', 'llm-bob-upd-2', { sponsorId: owner.id });
 
+    // Seed the viewer's activity cursor before the entity is created,
+    // so the follow-up poll (with cursor) sees the new activity row.
+    const seedResult = await h.apiOk(viewer.token, 'updates.list', {});
+    const seedUpdates = (seedResult.data as Record<string, unknown>).updates as Record<string, unknown>;
+    const seedAfter = seedUpdates.nextAfter as string;
+
     await h.apiOk(author.token, 'entities.create', {
       clubId: owner.club.id,
       kind: 'post',
@@ -169,7 +175,7 @@ describe('entity update fan-out (LLM-gated)', () => {
       body: 'After building event-driven systems for six years, three patterns consistently prove their worth. First, the outbox pattern ensures you never lose data even when the message broker is down. Second, idempotent consumers with deduplication keys prevent double-processing. Third, dead-letter queues with automated replay handle transient failures gracefully.',
     });
 
-    const result = await h.apiOk(viewer.token, 'updates.list', {});
+    const result = await h.apiOk(viewer.token, 'updates.list', { after: seedAfter });
     const updates = (result.data as Record<string, unknown>).updates as Record<string, unknown>;
     const items = updates.items as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(items), 'updates.items should be an array');

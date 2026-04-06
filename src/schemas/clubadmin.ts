@@ -709,58 +709,8 @@ const clubadminEventsRemove: ActionDefinition = {
   },
 };
 
-// ── clubadmin.messages.remove ────────────────────────────
-
-const clubadminMessagesRemove: ActionDefinition = {
-  action: 'clubadmin.messages.remove',
-  domain: 'clubadmin',
-  description: 'Remove any message in the specified club (moderation).',
-  auth: 'clubadmin',
-  safety: 'mutating',
-  authorizationNote: 'Club admin may remove any message in their club. Reason is required for moderation audit trail.',
-
-  requiredCapability: 'removeMessage',
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club the message belongs to'),
-      messageId: wireRequiredString.describe('Message to remove'),
-      reason: wireRequiredString.describe('Reason for removal (required for moderation)'),
-    }),
-    output: z.object({ removal: messageRemovalResult }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      messageId: parseRequiredString,
-      reason: parseRequiredString,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, messageId, reason } = input as { clubId: string; messageId: string; reason: string };
-    ctx.requireClubAdmin(clubId);
-    ctx.requireCapability('removeMessage');
-
-    const result = await ctx.repository.removeMessage!({
-      actorMemberId: ctx.actor.member.id,
-      accessibleClubIds: [clubId],
-      messageId,
-      reason,
-      skipAuthCheck: true,
-    });
-
-    if (!result) {
-      throw new AppError(404, 'not_found', 'Message not found in the specified club');
-    }
-
-    return {
-      data: { removal: result },
-      requestScope: { requestedClubId: result.clubId, activeClubIds: [result.clubId] },
-    };
-  },
-};
+// clubadmin.messages.remove has been removed.
+// Messages are no longer club-scoped — club admins have no authority over private messages.
 
 registerActions([
   clubadminMembershipsList, clubadminMembershipsReview,
@@ -768,5 +718,5 @@ registerActions([
   clubadminAdmissionsList, clubadminAdmissionsTransition, clubadminAdmissionsIssueAccess,
   clubadminMembersPromote, clubadminMembersDemote,
   clubadminClubsStats,
-  clubadminEntitiesRemove, clubadminEventsRemove, clubadminMessagesRemove,
+  clubadminEntitiesRemove, clubadminEventsRemove,
 ]);

@@ -2,7 +2,7 @@
  * Integration tests for the content removal system.
  *
  * Covers: entities.remove, events.remove, messages.remove,
- * clubadmin.entities.remove, clubadmin.events.remove, clubadmin.messages.remove.
+ * clubadmin.entities.remove, clubadmin.events.remove.
  * Verifies version-based entity removal, dm_message_removals table,
  * content blanking in read paths, updates-feed filtering, and
  * superadmin bypass via clubadmin actions.
@@ -43,11 +43,11 @@ describe('entities.remove', () => {
     const owner = await h.seedOwner('entity-remove-author', 'Entity Remove Author Club');
     const author = await h.seedClubMember(owner.club.id, 'Author Remove', 'author-remove-entity', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
       [owner.club.id, author.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
        values ($1, 1, 'published', 'To be removed', 'Body', $2)`,
       [ent!.id, author.id],
@@ -67,11 +67,11 @@ describe('entities.remove', () => {
     const owner = await h.seedOwner('entity-remove-reason', 'Entity Remove Reason Club');
     const author = await h.seedClubMember(owner.club.id, 'Author Reason', 'author-reason-remove', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
       [owner.club.id, author.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
        values ($1, 1, 'published', 'Reason test', 'Body', $2)`,
       [ent!.id, author.id],
@@ -87,11 +87,11 @@ describe('entities.remove', () => {
     const author = await h.seedClubMember(owner.club.id, 'Author Forbid', 'author-forbid-remove', { sponsorId: owner.id });
     const bystander = await h.seedClubMember(owner.club.id, 'Bystander', 'bystander-remove', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
       [owner.club.id, author.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
        values ($1, 1, 'published', 'Protected', 'Only author may remove', $2)`,
       [ent!.id, author.id],
@@ -105,11 +105,11 @@ describe('entities.remove', () => {
     const owner = await h.seedOwner('entity-remove-idempotent', 'Entity Remove Idempotent Club');
     const author = await h.seedClubMember(owner.club.id, 'Author Idempotent', 'author-idempotent-remove', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
       [owner.club.id, author.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
        values ($1, 1, 'published', 'Idempotent', 'Body', $2)`,
       [ent!.id, author.id],
@@ -125,28 +125,32 @@ describe('entities.remove', () => {
     const author = await h.seedClubMember(owner.club.id, 'Author Updates', 'author-updates-remove', { sponsorId: owner.id });
     const viewer = await h.seedClubMember(owner.club.id, 'Viewer Updates', 'viewer-updates-remove', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    // Seed the viewer's cursor BEFORE the entity is created
+    const seedResult = await h.apiOk(viewer.token, 'updates.list', {});
+    const seedAfter = ((seedResult.data as Record<string, unknown>).updates as Record<string, unknown>).nextAfter as string;
+
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
       [owner.club.id, author.id],
     );
-    const [ver] = await h.sql<{ id: string }>(
+    const [ver] = await h.sqlClubs<{ id: string }>(
       `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
        values ($1, 1, 'published', 'Will remove', 'Content', $2) returning id`,
       [ent!.id, author.id],
     );
-    await h.sql(
-      `insert into app.member_updates (recipient_member_id, club_id, topic, entity_id, entity_version_id, created_by_member_id, payload)
-       values ($1, $2, 'entity.version.published', $3, $4, $5, '{"kind":"entity"}'::jsonb)`,
-      [viewer.id, owner.club.id, ent!.id, ver!.id, author.id],
+    await h.sqlClubs(
+      `insert into app.club_activity (club_id, topic, entity_id, entity_version_id, created_by_member_id, payload)
+       values ($1, 'entity.version.published', $2, $3, $4, '{"kind":"entity"}'::jsonb)`,
+      [owner.club.id, ent!.id, ver!.id, author.id],
     );
 
-    const beforeUpdates = await h.apiOk(viewer.token, 'updates.list', {});
+    const beforeUpdates = await h.apiOk(viewer.token, 'updates.list', { after: seedAfter });
     const beforeItems = ((beforeUpdates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
     assert.ok(beforeItems.some((u) => u.entityId === ent!.id), 'entity update should exist before removal');
 
     await h.apiOk(author.token, 'entities.remove', { entityId: ent!.id });
 
-    const afterUpdates = await h.apiOk(viewer.token, 'updates.list', {});
+    const afterUpdates = await h.apiOk(viewer.token, 'updates.list', { after: seedAfter });
     const afterItems = ((afterUpdates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
     assert.ok(
       !afterItems.some((u) => u.entityId === ent!.id && u.topic === 'entity.version.published'),
@@ -243,11 +247,11 @@ describe('clubadmin.entities.remove', () => {
     const owner = await h.seedOwner('admin-entity-remove', 'Admin Entity Remove Club');
     const author = await h.seedClubMember(owner.club.id, 'Author AdminRemove', 'author-admin-remove', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
       [owner.club.id, author.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
        values ($1, 1, 'published', 'Admin removes this', 'Content', $2)`,
       [ent!.id, author.id],
@@ -275,11 +279,11 @@ describe('clubadmin.entities.remove', () => {
     const admin = await h.seedSuperadmin('Admin EntityRemove', 'admin-entity-remove-super');
     const owner = await h.seedOwner('super-entity-remove', 'Super Entity Remove Club');
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
       [owner.club.id, owner.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
        values ($1, 1, 'published', 'Superadmin removes', 'Content', $2)`,
       [ent!.id, owner.id],
@@ -296,55 +300,7 @@ describe('clubadmin.entities.remove', () => {
   });
 });
 
-describe('clubadmin.messages.remove', () => {
-  it('club admin removes any message with required reason', async () => {
-    const owner = await h.seedOwner('admin-msg-remove', 'Admin Msg Remove Club');
-    const member = await h.seedClubMember(owner.club.id, 'Member AdminMsgRemove', 'member-admin-msg-remove', { sponsorId: owner.id });
-
-    const sendResult = await h.apiOk(member.token, 'messages.send', {
-      recipientMemberId: owner.id,
-      messageText: 'Admin will remove this',
-    });
-    const msg = (sendResult.data as Record<string, unknown>).message as Record<string, unknown>;
-
-    const result = await h.apiOk(owner.token, 'clubadmin.messages.remove', {
-      clubId: owner.club.id,
-      messageId: msg.messageId as string,
-      reason: 'Inappropriate content',
-    });
-    const r = removal(result);
-    assert.equal(r.messageId, msg.messageId);
-  });
-
-  it('clubadmin.messages.remove without reason — 400', async () => {
-    const owner = await h.seedOwner('admin-msg-no-reason', 'Admin Msg No Reason Club');
-    const err = await h.apiErr(owner.token, 'clubadmin.messages.remove', {
-      clubId: owner.club.id,
-      messageId: 'fake-id',
-    });
-    assert.equal(err.status, 400);
-  });
-
-  it('superadmin calls clubadmin.messages.remove successfully', async () => {
-    const admin = await h.seedSuperadmin('Admin MsgRemove', 'admin-msg-remove-super');
-    const owner = await h.seedOwner('super-msg-remove', 'Super Msg Remove Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Alice SuperMsg', 'alice-super-msg-remove', { sponsorId: owner.id });
-
-    const sendResult = await h.apiOk(alice.token, 'messages.send', {
-      recipientMemberId: owner.id,
-      messageText: 'Superadmin will remove this',
-    });
-    const msg = (sendResult.data as Record<string, unknown>).message as Record<string, unknown>;
-
-    const result = await h.apiOk(admin.token, 'clubadmin.messages.remove', {
-      clubId: owner.club.id,
-      messageId: msg.messageId as string,
-      reason: 'Platform policy enforcement',
-    });
-    const r = removal(result);
-    assert.equal(r.messageId, msg.messageId);
-  });
-});
+// clubadmin.messages.remove has been removed — messages are no longer club-scoped.
 
 // ── Moderation Audit ──────────────────────────────────────────────────────────
 
@@ -354,18 +310,19 @@ describe('moderation removal emits feed events', () => {
     const author = await h.seedClubMember(owner.club.id, 'Author ModAudit', 'author-mod-audit', { sponsorId: owner.id });
     const viewer = await h.seedClubMember(owner.club.id, 'Viewer ModAudit', 'viewer-mod-audit', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
       [owner.club.id, author.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
        values ($1, 1, 'published', 'Mod will remove', 'Body', $2)`,
       [ent!.id, author.id],
     );
 
     // Seed viewer's activity cursor so subsequent reads start from before the removal
-    await h.apiOk(viewer.token, 'updates.list', {});
+    const seedResult = await h.apiOk(viewer.token, 'updates.list', {});
+    const seedAfter = ((seedResult.data as Record<string, unknown>).updates as Record<string, unknown>).nextAfter as string;
 
     // Moderator removes
     await h.apiOk(owner.token, 'clubadmin.entities.remove', {
@@ -375,57 +332,15 @@ describe('moderation removal emits feed events', () => {
     });
 
     // Viewer should see entity.removed in their activity feed
-    const updates = await h.apiOk(viewer.token, 'updates.list', {});
+    const updates = await h.apiOk(viewer.token, 'updates.list', { after: seedAfter });
     const items = ((updates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
     const removedUpdate = items.find((u) => u.topic === 'entity.removed' && u.entityId === ent!.id);
     assert.ok(removedUpdate, 'entity.removed should appear in club activity after moderator removal');
   });
 });
 
-describe('dm_message_removals RLS audit integrity', () => {
-  it('RLS prevents spoofing removed_by_member_id via direct SQL', async () => {
-    const owner = await h.seedOwner('audit-spoof', 'Audit Spoof Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Alice Spoof', 'alice-spoof-audit', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Bob Spoof', 'bob-spoof-audit', { sponsorId: owner.id });
-
-    // Alice sends a message
-    const sendResult = await h.apiOk(alice.token, 'messages.send', {
-      recipientMemberId: bob.id,
-      messageText: 'Spoof test message',
-    });
-    const msg = (sendResult.data as Record<string, unknown>).message as Record<string, unknown>;
-    const msgId = msg.messageId as string;
-
-    // Try to insert a removal row as alice but attributing it to bob (spoofed actor)
-    // This must fail because RLS enforces removed_by_member_id = current_actor_member_id()
-    try {
-      const appPool = (h as any).appPool;
-      const client = await appPool.connect();
-      try {
-        await client.query('begin');
-        await client.query(`select set_config('app.actor_member_id', $1, true)`, [alice.id]);
-        await client.query(
-          `insert into app.dm_message_removals (message_id, club_id, removed_by_member_id, reason)
-           values ($1, $2, $3, 'spoofed')`,
-          [msgId, owner.club.id, bob.id],  // bob.id is NOT alice
-        );
-        await client.query('commit');
-        assert.fail('Should have thrown RLS violation');
-      } catch (err: any) {
-        await client.query('rollback');
-        assert.ok(
-          err.code === '42501' || err.message?.includes('policy'),
-          `Expected RLS violation but got: ${err.message}`,
-        );
-      } finally {
-        client.release();
-      }
-    } catch (err: any) {
-      if (err.code === 'ERR_ASSERTION') throw err;
-      // Connection-level error is also acceptable
-    }
-  });
-});
+// RLS audit test removed — no RLS in the split architecture.
+// Message removal auth is enforced at the application layer (sender check in messages/index.ts).
 
 // ── Event Removal ─────────────────────────────────────────────────────────────
 
@@ -434,11 +349,11 @@ describe('events.remove', () => {
     const owner = await h.seedOwner('event-remove-author', 'Event Remove Author Club');
     const author = await h.seedClubMember(owner.club.id, 'Author EventRemove', 'author-event-remove', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id`,
       [owner.club.id, author.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, summary, location, starts_at, body, created_by_member_id)
        values ($1, 1, 'published', 'To Remove', 'An event', 'Online', now() + interval '1 day', 'Details', $2)`,
       [ent!.id, author.id],
@@ -460,11 +375,11 @@ describe('clubadmin.events.remove', () => {
     const owner = await h.seedOwner('admin-event-remove', 'Admin Event Remove Club');
     const author = await h.seedClubMember(owner.club.id, 'Author AdminEventRemove', 'author-admin-event-remove', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id`,
       [owner.club.id, author.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, summary, location, starts_at, body, created_by_member_id)
        values ($1, 1, 'published', 'Admin Removes Event', 'Summary', 'Venue', now() + interval '1 day', 'Details', $2)`,
       [ent!.id, author.id],
@@ -486,11 +401,11 @@ describe('RSVP on removed event', () => {
     const author = await h.seedClubMember(owner.club.id, 'Author RSVP', 'author-rsvp-removed', { sponsorId: owner.id });
     const attendee = await h.seedClubMember(owner.club.id, 'Attendee RSVP', 'attendee-rsvp-removed', { sponsorId: owner.id });
 
-    const [ent] = await h.sql<{ id: string }>(
+    const [ent] = await h.sqlClubs<{ id: string }>(
       `insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id`,
       [owner.club.id, author.id],
     );
-    await h.sql(
+    await h.sqlClubs(
       `insert into app.entity_versions (entity_id, version_no, state, title, summary, location, starts_at, body, created_by_member_id)
        values ($1, 1, 'published', 'RSVP Test Event', 'Summary', 'Online', now() + interval '1 day', 'Body', $2)`,
       [ent!.id, author.id],

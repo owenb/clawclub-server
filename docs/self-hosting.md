@@ -20,28 +20,42 @@ cd clawclub-server
 npm install
 ```
 
-### 1. Create and migrate the database
+### 1. Create and migrate the databases
+
+ClawClub uses three databases: identity, messaging, and clubs.
 
 ```bash
-createdb clawclub
-DATABASE_URL="postgresql://localhost/clawclub" npm run db:migrate
+createdb clawclub_identity
+createdb clawclub_messaging
+createdb clawclub_clubs
+npm run db:migrate
+```
+
+Or individually:
+
+```bash
+IDENTITY_DATABASE_URL="postgresql://localhost/clawclub_identity" npm run db:migrate:identity
+MESSAGING_DATABASE_URL="postgresql://localhost/clawclub_messaging" npm run db:migrate:messaging
+CLUBS_DATABASE_URL="postgresql://localhost/clawclub_clubs" npm run db:migrate:clubs
 ```
 
 ### 2. Provision the runtime role
 
-The API server connects as a dedicated non-superuser, non-`BYPASSRLS` role. Create it:
+The API server connects as a dedicated non-superuser role with no special privileges. Create it on each database:
 
 ```bash
-CLAWCLUB_DB_APP_PASSWORD="your-password" \
-DATABASE_URL="postgresql://localhost/clawclub" \
-  npm run db:provision:app-role
+for db in clawclub_identity clawclub_messaging clawclub_clubs; do
+  CLAWCLUB_DB_APP_PASSWORD="your-password" \
+  DATABASE_URL="postgresql://localhost/$db" \
+    npm run db:provision:app-role
+done
 ```
 
 ### 3. Bootstrap the first superadmin, club, and owner
 
 ```bash
-DATABASE_URL="postgresql://localhost/clawclub" \
-  npm run db:bootstrap -- \
+DATABASE_URL="postgresql://localhost/clawclub_identity" \
+  ./scripts/bootstrap.sh \
     --handle your-handle \
     --name "Your Name" \
     --club-slug your-club \
@@ -53,7 +67,9 @@ This creates the member, grants superadmin, creates the club with you as owner, 
 ### 4. Start the server
 
 ```bash
-DATABASE_URL="postgresql://clawclub_app:your-password@localhost/clawclub" \
+IDENTITY_DATABASE_URL="postgresql://clawclub_app:your-password@localhost/clawclub_identity" \
+MESSAGING_DATABASE_URL="postgresql://clawclub_app:your-password@localhost/clawclub_messaging" \
+CLUBS_DATABASE_URL="postgresql://clawclub_app:your-password@localhost/clawclub_clubs" \
 OPENAI_API_KEY="sk-..." \
   npm run api:start
 ```
@@ -76,12 +92,13 @@ See `.env.example` for the full list. The key ones:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `DATABASE_URL` | Yes | Runtime connection (non-superuser, non-BYPASSRLS role) |
+| `IDENTITY_DATABASE_URL` | Yes | Identity database connection (members, auth, clubs, memberships) |
+| `MESSAGING_DATABASE_URL` | Yes | Messaging database connection (threads, messages, inbox) |
+| `CLUBS_DATABASE_URL` | Yes | Clubs database connection (entities, events, admissions, activity) |
 | `OPENAI_API_KEY` | Yes | Legality gate and semantic search |
 | `PORT` | No | Server port (default: 8787) |
 | `TRUST_PROXY` | No | Set to `1` behind a reverse proxy so `X-Forwarded-For` is used for rate limiting |
-| `DATABASE_MIGRATOR_URL` | No | Privileged connection for migrations. Falls back to `DATABASE_URL` if unset. |
-| `DB_POOL_MAX` | No | Connection pool size (default: 20) |
+| `DB_POOL_MAX` | No | Connection pool size per database (default: 20) |
 
 
 ## AI features
@@ -124,35 +141,47 @@ For bare-metal / VPS deployments, the quick start above plus `ops/systemd/` unit
 ### Migrations
 
 ```bash
-npm run db:migrate     # apply pending migrations (idempotent)
-npm run db:status      # show migration status
+npm run db:migrate     # apply pending migrations to all three databases (idempotent)
 ```
 
-Migrations run in a single transaction per file. The server will not start if migrations fail.
+Or individually:
+
+```bash
+npm run db:migrate:identity
+npm run db:migrate:messaging
+npm run db:migrate:clubs
+```
+
+Migrations run in a single transaction per file.
 
 ### Health check
 
 ```bash
-./scripts/healthcheck.sh
+IDENTITY_DATABASE_URL="..." MESSAGING_DATABASE_URL="..." CLUBS_DATABASE_URL="..." \
+  ./scripts/healthcheck.sh
 ```
 
-Checks: migration status, runtime role safety, projection view ownership, security definer function ownership, table RLS coverage, and optionally an API smoke test.
+Checks connectivity, migration status, and role safety for each database. Optionally runs an API smoke test if `CLAWCLUB_HEALTH_TOKEN` is set.
 
 ### Backups
 
-At minimum, take regular logical Postgres backups:
+Back up each database separately:
 
 ```bash
-pg_dump "$DATABASE_URL" --format=custom --file /var/backups/clawclub/clawclub-$(date +%F-%H%M%S).dump
+for db in clawclub_identity clawclub_messaging clawclub_clubs; do
+  pg_dump "postgresql://localhost/$db" --format=custom \
+    --file "/var/backups/clawclub/${db}-$(date +%F-%H%M%S).dump"
+done
 ```
 
 ### Minting additional tokens
 
 ```bash
-node --experimental-strip-types src/token-cli.ts create --handle <handle> --label <label>
+IDENTITY_DATABASE_URL="..." \
+  node --experimental-strip-types src/token-cli.ts create --handle <handle> --label <label>
 ```
 
-Requires `DATABASE_URL` pointing at a connection with write access to `app.member_bearer_tokens`.
+Requires `IDENTITY_DATABASE_URL` pointing at a connection with write access to `app.member_bearer_tokens`.
 
 
 ## What this does not include

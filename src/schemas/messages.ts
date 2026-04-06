@@ -37,6 +37,7 @@ const messagesSend: ActionDefinition = {
       recipientMemberId: wireRequiredString.describe('Recipient member ID'),
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
       messageText: wireMessageText.describe('Message text'),
+      clientKey: wireOptionalString.describe('Idempotency key — duplicate sends with the same key return the original message'),
     }),
     output: z.object({ message: directMessageSummary }),
   },
@@ -46,11 +47,12 @@ const messagesSend: ActionDefinition = {
       recipientMemberId: parseRequiredString,
       clubId: parseRequiredString.optional(),
       messageText: parseMessageText,
+      clientKey: parseTrimmedNullableString.default(null),
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { recipientMemberId, clubId, messageText } = input as SendInput;
+    const { recipientMemberId, clubId, messageText, clientKey } = input as SendInput & { clientKey?: string | null };
 
     if (recipientMemberId === ctx.actor.member.id) {
       throw new AppError(400, 'invalid_input', 'Cannot send a message to yourself');
@@ -62,6 +64,7 @@ const messagesSend: ActionDefinition = {
       recipientMemberId,
       clubId: clubId === undefined ? undefined : ctx.requireAccessibleClub(clubId).clubId,
       messageText,
+      clientKey,
     });
 
     if (!message) {

@@ -73,16 +73,10 @@ async function assertUpdatesStreamReady(baseUrl: string, bearerToken: string): P
   }
 }
 
-function requireRuntimeDatabaseUrl(): string {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL must be set for the HTTP smoke test');
-  }
-  return databaseUrl;
-}
-
-function getSetupDatabaseUrl(runtimeDatabaseUrl: string): string {
-  return process.env.DATABASE_MIGRATOR_URL ?? runtimeDatabaseUrl;
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} must be set for the HTTP smoke test`);
+  return value;
 }
 
 function readSmokeHandle(): string {
@@ -199,8 +193,8 @@ export async function runHttpSmoke(): Promise<{
   clubId: string;
   actions: string[];
 }> {
-  const runtimeDatabaseUrl = requireRuntimeDatabaseUrl();
-  const setupPool = new Pool({ connectionString: getSetupDatabaseUrl(runtimeDatabaseUrl) });
+  const identityUrl = requireEnv('IDENTITY_DATABASE_URL');
+  const setupPool = new Pool({ connectionString: identityUrl });
   const memberHandle = readSmokeHandle();
   const actions = ['GET /updates', 'GET /updates/stream', 'session.describe', 'members.fullTextSearch', 'profile.get', 'messages.inbox', 'entities.list', 'events.list'];
   let tokenId: string | null = null;

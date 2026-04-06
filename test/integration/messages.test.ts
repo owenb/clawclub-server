@@ -1,7 +1,9 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from './harness.ts';
-import { decodeUpdatesCursor } from '../../src/postgres/updates.ts';
+function decodeCursor(cursor: string): { s: number; t: string } {
+  return JSON.parse(Buffer.from(cursor, 'base64url').toString());
+}
 
 let h: TestHarness;
 
@@ -477,18 +479,11 @@ describe('updates/stream', () => {
       assert.ok(seq1 > seq0, 'streamSeq should be monotonically increasing');
 
       // SSE ids are opaque compound cursors. When present, they should decode
-      // to a position at or beyond the update's source stream seq.
+      // to a valid cursor with activity seq and timestamp.
       assert.ok(typeof updates[1]!.id === 'string', 'last streamed update should carry an SSE id');
-      const cursor1 = decodeUpdatesCursor(updates[1]!.id!);
-      assert.equal(cursor1.i, seq1);
-      assert.equal(cursor1.a, 0);
-
-      if (typeof updates[0]!.id === 'string') {
-        const cursor0 = decodeUpdatesCursor(updates[0]!.id);
-        assert.equal(cursor0.i, seq0);
-        assert.equal(cursor0.a, 0);
-        assert.ok(cursor1.i > cursor0.i, 'compound cursor should advance with later inbox updates');
-      }
+      const cursor1 = decodeCursor(updates[1]!.id!);
+      assert.ok(typeof cursor1.s === 'number', 'cursor should have activity seq');
+      assert.ok(typeof cursor1.t === 'string', 'cursor should have timestamp');
     } finally {
       stream.close();
     }

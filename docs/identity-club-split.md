@@ -187,7 +187,7 @@ Canonical control-plane tables:
 | `member_private_contacts` | Private emails |
 | `member_profile_versions` | Member profiles and search vector |
 | `clubs` | Club definitions and settings |
-| `club_owner_versions` | Ownership history |
+| `club_versions` | Club metadata + ownership history |
 | `club_memberships` | Member-to-club relationships |
 | `club_membership_state_versions` | Membership state history |
 | `subscriptions` | Billing/subscription records |
@@ -206,7 +206,7 @@ Views:
 - `current_club_memberships`
 - `active_club_memberships`
 - `accessible_club_memberships`
-- `current_club_owners`
+- `current_club_versions`
 - `current_club_membership_states`
 
 ### Messaging DB
@@ -255,7 +255,7 @@ Replicated from identity:
 | `club_memberships` | Membership-based content rules |
 | `club_membership_state_versions` | Membership state views |
 | `subscriptions` | Access views |
-| `club_owner_versions` | Owner checks |
+| `club_versions` | Owner checks + club metadata |
 
 ### Explicit non-goal
 
@@ -402,7 +402,7 @@ Identity publishes. Other planes subscribe.
 - `club_memberships`
 - `club_membership_state_versions`
 - `subscriptions`
-- `club_owner_versions`
+- `club_versions`
 
 ### What is never replicated
 
@@ -667,7 +667,7 @@ That is acceptable because it is low-frequency and owner-initiated.
 const identityPool = new Pool({ connectionString: process.env.IDENTITY_DATABASE_URL });
 const messagingPool = new Pool({ connectionString: process.env.MESSAGING_DATABASE_URL });
 const clubPools = new Map<number, Pool>([
-  [1, new Pool({ connectionString: process.env.CLUB_DATABASE_URL })],
+  [1, new Pool({ connectionString: process.env.CLUBS_DATABASE_URL })],
 ]);
 ```
 
@@ -735,7 +735,7 @@ Local env:
 ```bash
 IDENTITY_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_identity_dev"
 MESSAGING_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_messaging_dev"
-CLUB_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_clubs_dev"
+CLUBS_DATABASE_URL="postgresql://clawclub_app:localdev@localhost/clawclub_clubs_dev"
 ```
 
 ---

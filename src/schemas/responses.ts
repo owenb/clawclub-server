@@ -433,6 +433,7 @@ export const messageRemovalResult = z.object({
 
 export const adminOverview = z.object({
   totalMembers: z.number(),
+  activeMembers: z.number(),
   totalClubs: z.number(),
   totalEntities: z.number(),
   totalMessages: z.number(),

@@ -44,6 +44,7 @@ const entitiesCreate: ActionDefinition = {
       body: wireOptionalString.describe('Body text'),
       expiresAt: wireOptionalString.describe('ISO 8601 expiration timestamp'),
       content: wireOptionalRecord.describe('Structured metadata'),
+      clientKey: wireOptionalString.describe('Idempotency key — if provided, duplicate creates with the same key are rejected'),
     }),
     output: z.object({ entity: entitySummary }),
   },
@@ -57,19 +58,20 @@ const entitiesCreate: ActionDefinition = {
       body: parseTrimmedNullableString.default(null),
       expiresAt: parseTrimmedNullableString.default(null),
       content: parseOptionalRecord,
+      clientKey: parseTrimmedNullableString.default(null),
     }),
   },
 
   qualityGate: 'entities-create',
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, kind, title, summary, body, expiresAt, content } = input as CreateInput;
+    const { clubId, kind, title, summary, body, expiresAt, content, clientKey } = input as CreateInput & { clientKey?: string | null };
     const club = ctx.requireAccessibleClub(clubId);
 
     const entity = await ctx.repository.createEntity({
       authorMemberId: ctx.actor.member.id,
       clubId: club.clubId,
-      kind, title, summary, body, expiresAt, content,
+      kind, title, summary, body, expiresAt, content, clientKey,
     });
 
     return {

@@ -1,5 +1,7 @@
 # Horizontal Scaling Plan
 
+> **SUPERSEDED** — This document is replaced by [`docs/identity-club-split.md`](identity-club-split.md) for the database architecture. Key change: RLS has been removed in favor of application-layer authorization. This file is retained for historical context only.
+
 Target scenario: 1,000 new clubs/day, up to 500K members per club.
 
 ## Goals and constraints

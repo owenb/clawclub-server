@@ -83,10 +83,10 @@ function parseFlags(argv: string[]): { command: string; flags: Flags } {
 }
 
 function requireDatabaseUrl(): string {
-  // Prefer the least-privilege runtime role. The migrator URL is only a fallback for bootstrap-only environments.
-  const databaseUrl = process.env.DATABASE_URL ?? process.env.DATABASE_MIGRATOR_URL;
+  // Token operations run against the identity database.
+  const databaseUrl = process.env.IDENTITY_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.DATABASE_MIGRATOR_URL;
   if (!databaseUrl) {
-    console.error('DATABASE_URL or DATABASE_MIGRATOR_URL must be set for this command');
+    console.error('IDENTITY_DATABASE_URL (or DATABASE_URL) must be set for this command');
     process.exit(1);
   }
   return databaseUrl;
