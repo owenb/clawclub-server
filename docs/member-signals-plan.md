@@ -551,12 +551,40 @@ This depends on the `updated_at` column added to artifact tables in Phase 0. The
 2. For each matching ask above threshold, insert `(match_kind='offer_to_ask', source_id=offerEntityId, target_member_id=askAuthorMemberId)`
 3. Skip on unique constraint violation
 
-**Profile embedding updated** (Source B):
-1. Run `findSimilarMembers` for the updated member, in each of their clubs
-2. Batch-check existing DM threads from messaging DB (using canonical pair `unnest` query)
-3. Filter out pairs with existing threads
-4. Filter out pairs with existing `member_to_member` matches
-5. Insert new match rows for pairs above threshold
+**Introduction matching** (trigger → recompute queue → match):
+
+Introductions use a different model from entity-triggered matching. Triggers never send signals directly. They mark a `(member_id, club_id)` pair as dirty for recomputation. A separate recompute step processes the dirty set and produces matches.
+
+**Triggers** (any of these marks a pair dirty):
+- Primary: profile embedding completion/update (Source B — `updated_at` on profile artifacts)
+- Secondary: member becomes newly accessible in a club via `accessible_club_memberships` (new membership, subscription activated)
+- Backstop: periodic sweep for repair/reconciliation only, not primary discovery
+
+**Recompute queue** (`recompute_queue` table or dirty-set, added in Phase 4):
+- Key: `(member_id, club_id)` — one pending recompute per pair, deduplicated
+- Newly accessible members get a warm-up delay before recompute (e.g., 24 hours) to let them fill out their profile before matching
+- Small profile edits should not fan out repeated work — the dirty-set deduplicates naturally
+- New members joining only enqueue recomputation for the new member, never a broadcast to the whole club
+
+**Recompute step** (processes dirty set):
+1. Claim dirty `(member_id, club_id)` pairs
+2. Run `findSimilarMembers` for each
+3. Batch-check existing DM threads from messaging DB
+4. Filter out pairs with existing threads
+5. Filter out pairs with existing `member_to_member` matches (delivered or pending)
+6. Insert new match rows for qualifying pairs above threshold
+
+**Introduction identity and dedup**:
+- `match_kind = 'member_to_member'`
+- `source_id = other_member_id` (the person being introduced)
+- `target_member_id = recipient_member_id`
+- The unique constraint `(match_kind, source_id, target_member_id)` means a member never receives the same introduction twice
+- Pending matches should be expired/invalidated if a DM thread now exists or either member is no longer accessible in that club
+
+**Introduction-specific delivery rules**:
+- Stricter caps than general signals: 1/day or 2/week per member (configurable)
+- Best-first delivery only (lowest cosine distance first)
+- Introduction caps are separate from general signal caps
 
 **Event suggestion** (periodic, e.g., every 6 hours):
 1. Query events with `starts_at` within 48 hours and remaining capacity
@@ -582,10 +610,11 @@ for update skip locked
 Note: results ordered by `score asc` (lower distance = better match). Best matches are delivered first within the throttle budget.
 
 For each pending match:
-1. **Throttle check**: Count signals delivered to this member in the last 24 hours. Skip if over the daily cap. The match stays `pending` for the next cycle.
-2. **Enrich payload**: Look up member names (identity DB) and entity details (clubs DB). Build the signal payload.
-3. **Write signal**: Insert into `member_signals` with the appropriate topic and payload.
-4. **Transition match**: Set `state = 'delivered'`, `delivered_at = now()`, `signal_id = <new signal ID>`.
+1. **Throttle check**: Count signals delivered to this member, scoped by match kind and time window. Different match kinds can have different caps (e.g., introductions: 1/day or 2/week; ask matches: 3/day). Skip if over the cap. The match stays `pending` for the next cycle.
+2. **Validity check**: Verify the match is still valid (source entity still published, both members still accessible in the club, no DM thread created since match was computed). Expire invalid matches.
+3. **Enrich payload**: Look up member names (identity DB) and entity details (clubs DB). Build the signal payload.
+4. **Write signal**: Insert into `member_signals` with the appropriate topic and payload.
+5. **Transition match**: Set `state = 'delivered'`, `delivered_at = now()`, `signal_id = <new signal ID>`.
 
 ### Cost analysis at scale
 
@@ -596,7 +625,7 @@ For each pending match:
 For a club with 500 members and 20 new entities/day:
 
 - **Ask/offer matching** (20 entities * 1 similarity query each): Each query scans ~500 profile embeddings (1536 dims). Exact scan of 500 vectors at 1536 dims takes ~1-5ms per query on modern hardware. 20 queries total: <100ms. Fine without an index.
-- **Introduction sweep** (daily, 500 members): 500 similarity queries, each scanning ~500 vectors. ~500-2500ms total. Fine without an index.
+- **Introduction recompute** (triggered by dirty-set, not exhaustive sweep): only processes members whose profiles changed or who are newly accessible. Typical daily volume is ~5-20 dirty members, not 500. Each recompute runs one similarity query (~500 vectors). Total: <100ms. The periodic backstop sweep is infrequent (weekly) and only for repair.
 - **Event suggestions** (every 6 hours, ~5 events): Negligible.
 - **LLM calls**: Zero. All matching is pgvector SQL.
 - **Embedding calls**: Zero additional. The existing embedding worker maintains all vectors.
