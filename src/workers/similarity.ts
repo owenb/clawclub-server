@@ -20,6 +20,7 @@ export type SimilarityResult = {
 
 export type EntityMatchResult = {
   entityId: string;
+  entityVersionId: string;
   authorMemberId: string;
   distance: number;
 };
@@ -45,15 +46,21 @@ async function loadEntityVector(clubsPool: Pool, entityId: string): Promise<stri
 }
 
 /**
- * Load the latest embedding vector for a member's profile from the identity DB.
- * Returns null if no embedding exists.
+ * Load the embedding vector for a member's CURRENT profile version.
+ * Returns null if no embedding exists for the current version.
+ *
+ * Only uses embeddings whose profile_version_id matches the current
+ * profile version. If the member has updated their profile but the
+ * new embedding isn't ready yet, returns null — preferring to skip
+ * the member over matching on stale semantics.
  */
 async function loadProfileVector(identityPool: Pool, memberId: string): Promise<string | null> {
   const result = await identityPool.query<{ embedding: string }>(
     `select empa.embedding::text as embedding
      from app.embeddings_member_profile_artifacts empa
+     join app.current_member_profiles cmp
+       on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
      where empa.member_id = $1
-     order by empa.updated_at desc
      limit 1`,
     [memberId],
   );
@@ -80,9 +87,14 @@ export async function findMembersMatchingEntity(
   const vector = await loadEntityVector(clubsPool, entityId);
   if (!vector) return [];
 
+  // Only match against embeddings for the current profile version.
+  // Members whose profile has advanced but whose new embedding isn't ready
+  // are skipped — prefer missing a match over matching on stale semantics.
   const result = await identityPool.query<{ member_id: string; distance: number }>(
     `select empa.member_id, min(empa.embedding <=> $1::vector) as distance
      from app.embeddings_member_profile_artifacts empa
+     join app.current_member_profiles cmp
+       on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
      join app.accessible_club_memberships acm
        on acm.member_id = empa.member_id
        and acm.club_id = $2
@@ -114,9 +126,12 @@ export async function findSimilarMembers(
   const vector = await loadProfileVector(identityPool, memberId);
   if (!vector) return [];
 
+  // Only match against current-version embeddings for target members too.
   const result = await identityPool.query<{ member_id: string; distance: number }>(
     `select empa.member_id, min(empa.embedding <=> $1::vector) as distance
      from app.embeddings_member_profile_artifacts empa
+     join app.current_member_profiles cmp
+       on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
      join app.accessible_club_memberships acm
        on acm.member_id = empa.member_id
        and acm.club_id = $2
@@ -144,14 +159,16 @@ export async function findAskMatchingOffer(
   offerEntityId: string,
   clubId: string,
   limit: number,
+  excludeAuthorId?: string,
 ): Promise<EntityMatchResult[]> {
   const vector = await loadEntityVector(clubsPool, offerEntityId);
   if (!vector) return [];
 
   const result = await clubsPool.query<{
-    entity_id: string; author_member_id: string; distance: number;
+    entity_id: string; entity_version_id: string; author_member_id: string; distance: number;
   }>(
     `select eea.entity_id,
+            cev.id as entity_version_id,
             e.author_member_id,
             min(eea.embedding <=> $1::vector) as distance
      from app.embeddings_entity_artifacts eea
@@ -162,14 +179,16 @@ export async function findAskMatchingOffer(
        and e.kind = 'ask'
        and e.id <> $3
        and e.deleted_at is null
-     group by eea.entity_id, e.author_member_id
+       and ($5::text is null or e.author_member_id <> $5)
+     group by eea.entity_id, cev.id, e.author_member_id
      order by distance asc
      limit $4`,
-    [vector, clubId, offerEntityId, limit],
+    [vector, clubId, offerEntityId, limit, excludeAuthorId ?? null],
   );
 
   return result.rows.map(r => ({
     entityId: r.entity_id,
+    entityVersionId: r.entity_version_id,
     authorMemberId: r.author_member_id,
     distance: r.distance,
   }));

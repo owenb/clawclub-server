@@ -41,9 +41,8 @@ CREATE INDEX member_signals_recipient_poll_idx
     ON app.member_signals (recipient_member_id, club_id, seq)
     WHERE acknowledged_state IS NULL;
 
--- Idempotency: one signal per match. Prevents duplicate signals on crash-retry.
--- Partial unique index because match_id is nullable (non-match signals have no match_id).
-CREATE UNIQUE INDEX member_signals_match_unique_idx
+-- Admin/cleanup: find signals for a given match
+CREATE INDEX member_signals_match_idx
     ON app.member_signals (match_id)
     WHERE match_id IS NOT NULL;
 

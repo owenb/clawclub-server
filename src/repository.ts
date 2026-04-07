@@ -770,11 +770,26 @@ export function createRepository(pools: {
         }>(
           `select id, club_id, recipient_member_id, seq::text as seq, topic, payload,
                   entity_id, match_id, created_at::text as created_at
-           from app.member_signals
+           from app.member_signals ms
            where recipient_member_id = $1
              and club_id = any($2::text[])
              and acknowledged_state is null
              and seq > $3
+             and (
+               ms.entity_id is null
+               or exists (
+                 select 1 from app.current_entity_versions cev
+                 where cev.entity_id = ms.entity_id and cev.state = 'published'
+               )
+             )
+             and (
+               ms.topic <> 'signal.offer_match'
+               or ms.payload->>'yourAskEntityId' is null
+               or exists (
+                 select 1 from app.current_entity_versions cev
+                 where cev.entity_id = ms.payload->>'yourAskEntityId' and cev.state = 'published'
+               )
+             )
            order by seq asc limit $4`,
           [input.actorMemberId, input.clubIds, afterSignalSeq, input.limit],
         );

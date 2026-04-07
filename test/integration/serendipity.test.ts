@@ -429,4 +429,728 @@ describe('serendipity worker', () => {
       assert.equal(payload.askEntityId, askId);
     });
   });
+
+  describe('crash-retry idempotency', () => {
+    it('duplicate signal insert is prevented by unique match_id index', async () => {
+      const owner = await h.seedOwner('sw-idem1', 'SW Idem1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice Idem1', 'alice-idem1', { sponsorId: owner.id });
+      await seedProfileEmbedding(alice.id, makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools);
+
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+
+      // Deliver once
+      await deliverMatches(pools);
+
+      const signals1 = await getSignals(alice.id);
+      const askSignals1 = signals1.filter(s => s.topic === 'signal.ask_match');
+      assert.equal(askSignals1.length, 1, 'should have exactly one signal');
+
+      // Simulate crash-retry: manually insert a second signal with the same match_id
+      const matchRows = await h.sqlClubs<{ id: string }>(
+        `select id from app.background_matches where target_member_id = $1 and match_kind = 'ask_to_member'`,
+        [alice.id],
+      );
+      assert.ok(matchRows.length >= 1);
+
+      // The unique index should prevent this
+      const dupResult = await h.sqlClubs<{ id: string }>(
+        `insert into app.member_signals (club_id, recipient_member_id, topic, payload, match_id)
+         values ($1, $2, 'signal.ask_match', '{}'::jsonb, $3)
+         on conflict ((match_id)) where match_id is not null do nothing
+         returning id`,
+        [owner.club.id, alice.id, matchRows[0].id],
+      );
+      assert.equal(dupResult.length, 0, 'duplicate signal should be silently skipped');
+
+      // Still only one signal
+      const signals2 = await getSignals(alice.id);
+      const askSignals2 = signals2.filter(s => s.topic === 'signal.ask_match');
+      assert.equal(askSignals2.length, 1, 'should still have exactly one signal');
+    });
+  });
+
+  describe('offer_match payload', () => {
+    it('offer_match signal includes yourAskEntityId', async () => {
+      const owner = await h.seedOwner('sw-offpay1', 'SW OffPay1');
+      const bob = await h.seedClubMember(owner.club.id, 'Bob OffPay1', 'bob-offpay1', { sponsorId: owner.id });
+
+      // Owner has an ask
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+
+      // Bob publishes a service that matches the ask
+      const serviceId = await seedEntityWithEmbedding(owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      await publishActivity(owner.club.id, serviceId, bob.id);
+      await processEntityTriggers(pools);
+      await deliverMatches(pools);
+
+      const signals = await getSignals(owner.id);
+      const offerSignals = signals.filter(s => s.topic === 'signal.offer_match');
+      assert.ok(offerSignals.length >= 1, 'owner should receive offer_match signal');
+
+      const payload = offerSignals[0].payload as Record<string, unknown>;
+      assert.equal(payload.kind, 'offer_match');
+      assert.equal(payload.offerEntityId, serviceId);
+      assert.equal(payload.yourAskEntityId, askId, 'should include the matched ask entity ID');
+    });
+  });
+
+  describe('zero-candidate queue cleanup', () => {
+    it('recompute entry is deleted even when no candidates found', async () => {
+      // Create a member with no other members in the club (no candidates)
+      const owner = await h.seedOwner('sw-zerocand1', 'SW ZeroCand1');
+      await seedProfileEmbedding(owner.id, makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await enqueueIntroRecompute(pools.clubs, owner.id, owner.club.id);
+
+      // Verify entry exists
+      const before = await h.sqlClubs<{ id: string }>(
+        `select id from app.recompute_queue where member_id = $1 and club_id = $2`,
+        [owner.id, owner.club.id],
+      );
+      assert.equal(before.length, 1, 'queue entry should exist before processing');
+
+      // Process — no other members, so zero candidates
+      await processIntroRecompute(pools);
+
+      // Entry should be cleaned up, not stuck as a stale lease
+      const after = await h.sqlClubs<{ id: string }>(
+        `select id from app.recompute_queue where member_id = $1 and club_id = $2`,
+        [owner.id, owner.club.id],
+      );
+      assert.equal(after.length, 0, 'queue entry should be deleted after zero-candidate processing');
+    });
+  });
+
+  describe('backstop sweep', () => {
+    it('enqueues all accessible members for intro recompute', async () => {
+      const owner = await h.seedOwner('sw-backstop1', 'SW Backstop1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice Backstop1', 'alice-backstop1', { sponsorId: owner.id });
+
+      const pools = workerPools();
+
+      // Clear any backstop state so the sweep runs
+      await h.sqlClubs(
+        `delete from app.worker_state where worker_id = 'serendipity' and state_key = 'backstop_sweep_at'`,
+      );
+
+      const { processBackstopSweep } = await import('../../src/workers/serendipity.ts');
+      const enqueued = await processBackstopSweep(pools);
+
+      assert.ok(enqueued >= 2, `should enqueue at least 2 members (owner + alice), got ${enqueued}`);
+
+      // Verify queue entries exist
+      const queueRows = await h.sqlClubs<{ member_id: string }>(
+        `select member_id from app.recompute_queue where queue_name = 'introductions' and club_id = $1`,
+        [owner.club.id],
+      );
+      const memberIds = queueRows.map(r => r.member_id);
+      assert.ok(memberIds.includes(owner.id), 'owner should be in recompute queue');
+      assert.ok(memberIds.includes(alice.id), 'alice should be in recompute queue');
+    });
+  });
+
+  // ── User promise tests ────────────────────────────────────
+  // These test the specific guarantees we make to users about
+  // signal quality and correctness.
+
+  describe('user promises', () => {
+    it('no self offer->ask signal: member never gets matched to their own ask', async () => {
+      const owner = await h.seedOwner('sw-selfmatch', 'SW SelfMatch');
+
+      // Owner posts both an ask and a service with similar embeddings
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'service', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+      await publishActivity(owner.club.id, serviceId, owner.id);
+      await processEntityTriggers(pools);
+
+      // Owner should NOT have an offer_to_ask match targeting themselves
+      const matches = await getMatches(owner.id);
+      const selfMatches = matches.filter(
+        m => m.match_kind === 'offer_to_ask' && m.source_id === serviceId,
+      );
+      assert.equal(selfMatches.length, 0, 'member must never get matched to their own ask');
+    });
+
+    it('stale pending match does not deliver after TTL', async () => {
+      const owner = await h.seedOwner('sw-ttl1', 'SW TTL1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice TTL1', 'alice-ttl1', { sponsorId: owner.id });
+      await seedProfileEmbedding(alice.id, makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+
+      // Verify match was created with expires_at
+      const matches = await getMatches(alice.id);
+      const askMatch = matches.find(m => m.match_kind === 'ask_to_member' && m.source_id === askId);
+      assert.ok(askMatch, 'match should exist');
+      assert.ok(askMatch.expires_at, 'match should have an expires_at');
+
+      // Artificially age the match past its TTL
+      await h.sqlClubs(
+        `update app.background_matches
+         set created_at = now() - interval '10 days',
+             expires_at = now() - interval '1 hour'
+         where id = $1`,
+        [askMatch.id],
+      );
+
+      // Delivery should expire it, not deliver it
+      await deliverMatches(pools);
+
+      const matchAfter = (await getMatches(alice.id)).find(m => m.id === askMatch.id);
+      assert.equal(matchAfter?.state, 'expired', 'TTL-expired match must not be delivered');
+
+      const signals = await getSignals(alice.id);
+      const askSignals = signals.filter(s => s.topic === 'signal.ask_match' && (s.payload as Record<string, unknown>).askEntityId === askId);
+      assert.equal(askSignals.length, 0, 'no signal should exist for TTL-expired match');
+    });
+
+    it('edited ask invalidates old pending match', async () => {
+      const owner = await h.seedOwner('sw-drift1', 'SW Drift1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice Drift1', 'alice-drift1', { sponsorId: owner.id });
+      await seedProfileEmbedding(alice.id, makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      // Create ask v1
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+
+      const matchesBefore = await getMatches(alice.id);
+      const matchBefore = matchesBefore.find(m => m.match_kind === 'ask_to_member' && m.source_id === askId);
+      assert.ok(matchBefore, 'match v1 should exist');
+      assert.equal(matchBefore.state, 'pending');
+
+      // "Edit" the ask: create a new version (simulates entity update)
+      await h.sqlClubs(
+        `insert into app.entity_versions (entity_id, version_no, state, title, summary)
+         values ($1, 2, 'published', 'edited ask', 'different content now')`,
+        [askId],
+      );
+
+      // Publish the edit as a new activity entry
+      await publishActivity(owner.club.id, askId, owner.id);
+      // Process triggers — this should expire old pending matches for this entity
+      await processEntityTriggers(pools);
+
+      // The old match should now be expired
+      const matchAfter = (await getMatches(alice.id)).find(m => m.id === matchBefore.id);
+      assert.equal(matchAfter?.state, 'expired', 'old version match must be expired on re-publish');
+    });
+
+    it('edited offer invalidates old pending offer_to_ask match', async () => {
+      const owner = await h.seedOwner('sw-drift2', 'SW Drift2');
+      const bob = await h.seedClubMember(owner.club.id, 'Bob Drift2', 'bob-drift2', { sponsorId: owner.id });
+
+      // Owner has an ask, Bob publishes a matching service
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedEntityWithEmbedding(owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      await publishActivity(owner.club.id, serviceId, bob.id);
+      await processEntityTriggers(pools);
+
+      const matchesBefore = await getMatches(owner.id);
+      const matchBefore = matchesBefore.find(m => m.match_kind === 'offer_to_ask');
+      assert.ok(matchBefore, 'offer_to_ask match should exist');
+
+      // "Edit" the service
+      await h.sqlClubs(
+        `insert into app.entity_versions (entity_id, version_no, state, title, summary)
+         values ($1, 2, 'published', 'edited service', 'different offering now')`,
+        [serviceId],
+      );
+
+      await publishActivity(owner.club.id, serviceId, bob.id);
+      await processEntityTriggers(pools);
+
+      const matchAfter = (await getMatches(owner.id)).find(m => m.id === matchBefore.id);
+      assert.equal(matchAfter?.state, 'expired', 'old offer match must be expired on re-publish');
+    });
+
+    it('removed entity never appears in a signal payload', async () => {
+      const owner = await h.seedOwner('sw-removed1', 'SW Removed1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice Removed1', 'alice-removed1', { sponsorId: owner.id });
+      await seedProfileEmbedding(alice.id, makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+
+      // Remove the entity before delivery
+      await h.sqlClubs(
+        `update app.entity_versions set state = 'removed' where entity_id = $1`,
+        [askId],
+      );
+
+      await deliverMatches(pools);
+
+      // No signal should reference the removed entity
+      const signals = await getSignals(alice.id);
+      for (const s of signals) {
+        const payload = s.payload as Record<string, unknown>;
+        assert.notEqual(payload.askEntityId, askId, 'removed entity must not appear in signal payload');
+      }
+    });
+
+    it('no duplicate intro after profile re-embedding', async () => {
+      const owner = await h.seedOwner('sw-reembed1', 'SW Reembed1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice Reembed1', 'alice-reembed1', { sponsorId: owner.id });
+
+      await seedProfileEmbedding(owner.id, makeVector([1, 0, 0]));
+      await seedProfileEmbedding(alice.id, makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+
+      // Drain any leftover recompute entries from previous tests
+      await h.sqlClubs(`delete from app.recompute_queue where queue_name = 'introductions'`);
+
+      // First recompute: creates intro match
+      await enqueueIntroRecompute(pools.clubs, owner.id, owner.club.id);
+      await processIntroRecompute(pools);
+
+      const matches1 = await getMatches(owner.id);
+      const intros1 = matches1.filter(
+        m => m.match_kind === 'member_to_member' && m.source_id === alice.id,
+      );
+      assert.equal(intros1.length, 1, 'should have exactly one intro match');
+
+      // Simulate profile re-embedding and recompute again
+      await seedProfileEmbedding(owner.id, makeVector([0.99, 0.01, 0]));
+      await enqueueIntroRecompute(pools.clubs, owner.id, owner.club.id);
+      await processIntroRecompute(pools);
+
+      // Should still have exactly one match — dedup prevents duplicates
+      const matches2 = await getMatches(owner.id);
+      const intros2 = matches2.filter(
+        m => m.match_kind === 'member_to_member' && m.source_id === alice.id,
+      );
+      assert.equal(intros2.length, 1, 'must not create duplicate intro match after re-embedding');
+    });
+
+    it('edited matched ask invalidates pending offer_to_ask match', async () => {
+      const owner = await h.seedOwner('sw-askdrift1', 'SW AskDrift1');
+      const bob = await h.seedClubMember(owner.club.id, 'Bob AskDrift1', 'bob-askdrift1', { sponsorId: owner.id });
+
+      // Owner has an ask, Bob publishes a matching service
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedEntityWithEmbedding(owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      await publishActivity(owner.club.id, serviceId, bob.id);
+      await processEntityTriggers(pools);
+
+      // Verify offer_to_ask match exists
+      const matchesBefore = await getMatches(owner.id);
+      const matchBefore = matchesBefore.find(m => m.match_kind === 'offer_to_ask');
+      assert.ok(matchBefore, 'offer_to_ask match should exist');
+      assert.equal(matchBefore.state, 'pending');
+
+      // Now edit the ASK (new version)
+      await h.sqlClubs(
+        `insert into app.entity_versions (entity_id, version_no, state, title, summary)
+         values ($1, 2, 'published', 'edited ask', 'totally different need now')`,
+        [askId],
+      );
+      // Re-publish the ask
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+
+      // The old offer_to_ask match should be expired
+      const matchAfter = (await getMatches(owner.id)).find(m => m.id === matchBefore.id);
+      assert.equal(matchAfter?.state, 'expired',
+        'offer_to_ask match must be expired when the matched ask is edited');
+    });
+
+    it('delayed profile embedding does not create intro messages', async () => {
+      const owner = await h.seedOwner('sw-delayed1', 'SW Delayed1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice Delayed1', 'alice-delayed1', { sponsorId: owner.id });
+
+      const pools = workerPools();
+
+      // Seed the profile trigger cursor
+      await processProfileTriggers(pools);
+
+      // Simulate a delayed embedding: the profile was changed 5 days ago
+      // but the embedding was just completed now (e.g., OpenAI outage recovery)
+      const pvRows = await h.sql<{ id: string }>(
+        `select id from app.current_member_profiles where member_id = $1`,
+        [alice.id],
+      );
+      let pvId = pvRows[0]?.id;
+      if (!pvId) {
+        const r = await h.sql<{ id: string }>(
+          `insert into app.member_profile_versions
+             (member_id, version_no, display_name, created_by_member_id, created_at)
+           values ($1, 1, 'test', $1, now() - interval '5 days') returning id`,
+          [alice.id],
+        );
+        pvId = r[0].id;
+      } else {
+        // Backdate the profile version
+        await h.sql(
+          `update app.member_profile_versions set created_at = now() - interval '5 days' where id = $1`,
+          [pvId],
+        );
+      }
+
+      // Insert the embedding artifact as if it just completed now
+      await h.sql(
+        `insert into app.embeddings_member_profile_artifacts
+           (member_id, profile_version_id, model, dimensions, source_version,
+            chunk_index, source_text, source_hash, embedding, updated_at)
+         values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'delayed',
+                 $3::vector, now())
+         on conflict (member_id, model, dimensions, source_version, chunk_index)
+         do update set embedding = excluded.embedding,
+                       profile_version_id = excluded.profile_version_id,
+                       source_hash = excluded.source_hash,
+                       updated_at = now()`,
+        [alice.id, pvId, makeVector([0.9, 0.1, 0])],
+      );
+
+      // Process profile triggers — should skip this delayed embedding
+      const enqueued = await processProfileTriggers(pools);
+
+      // Verify no recompute was enqueued for this member
+      const queueRows = await h.sqlClubs<{ id: string }>(
+        `select id from app.recompute_queue
+         where queue_name = 'introductions' and member_id = $1 and club_id = $2`,
+        [alice.id, owner.club.id],
+      );
+      assert.equal(queueRows.length, 0,
+        'delayed profile embedding must not enqueue intro recompute');
+    });
+
+    it('freshness guard: very old match does not deliver after outage', async () => {
+      const owner = await h.seedOwner('sw-fresh1', 'SW Fresh1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice Fresh1', 'alice-fresh1', { sponsorId: owner.id });
+      await seedProfileEmbedding(alice.id, makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+
+      // Artificially age the match beyond the freshness cutoff but within TTL
+      await h.sqlClubs(
+        `update app.background_matches
+         set created_at = now() - interval '4 days'
+         where target_member_id = $1 and match_kind = 'ask_to_member'`,
+        [alice.id],
+      );
+
+      // Delivery should expire it due to freshness guard
+      await deliverMatches(pools);
+
+      const match = (await getMatches(alice.id)).find(m => m.match_kind === 'ask_to_member' && m.source_id === askId);
+      assert.equal(match?.state, 'expired', 'match older than freshness cutoff must not deliver');
+    });
+
+    it('removed entity content does not surface through delivered signal', async () => {
+      const owner = await h.seedOwner('sw-removesig1', 'SW RemoveSig1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice RemoveSig1', 'alice-removesig1', { sponsorId: owner.id });
+      await seedProfileEmbedding(alice.id, makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      // Seed Alice's update cursor
+      const initial = await h.apiOk(alice.token, 'updates.list', { limit: 50 });
+      const cursor = ((initial.data as Record<string, unknown>).updates as { nextAfter: string }).nextAfter;
+
+      // Create and deliver an ask signal
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+      await deliverMatches(pools);
+
+      // Now remove the entity AFTER signal delivery but BEFORE read
+      await h.sqlClubs(
+        `update app.entity_versions set state = 'removed' where entity_id = $1`,
+        [askId],
+      );
+
+      // Poll — the signal for the removed entity should be filtered out
+      const poll = await h.apiOk(alice.token, 'updates.list', { after: cursor, limit: 50 });
+      const items = ((poll.data as Record<string, unknown>).updates as { items: Array<Record<string, unknown>> }).items;
+      const entitySignals = items.filter(
+        u => u.source === 'signal' && u.entityId === askId,
+      );
+      assert.equal(entitySignals.length, 0,
+        'signal for removed entity must not appear in updates.list');
+    });
+
+    it('pending ask_to_member expires when recipient profile changes', async () => {
+      const owner = await h.seedOwner('sw-profask1', 'SW ProfAsk1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice ProfAsk1', 'alice-profask1', { sponsorId: owner.id });
+      await seedProfileEmbedding(alice.id, makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+      await processProfileTriggers(pools); // seed profile cursor
+
+      // Create ask match for alice
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+
+      const matchBefore = (await getMatches(alice.id)).find(m => m.match_kind === 'ask_to_member');
+      assert.ok(matchBefore, 'ask_to_member match should exist');
+      assert.equal(matchBefore.state, 'pending');
+
+      // Alice updates her profile (simulated via embedding update)
+      await seedProfileEmbedding(alice.id, makeVector([0.1, 0.9, 0]));
+
+      // Process profile triggers — should expire pending matches for alice
+      await processProfileTriggers(pools);
+
+      const matchAfter = (await getMatches(alice.id)).find(m => m.id === matchBefore.id);
+      assert.equal(matchAfter?.state, 'expired',
+        'pending ask_to_member must expire when recipient profile changes');
+    });
+
+    it('pending introduction expires when either member profile changes', async () => {
+      const owner = await h.seedOwner('sw-profintro1', 'SW ProfIntro1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice ProfIntro1', 'alice-profintro1', { sponsorId: owner.id });
+
+      await seedProfileEmbedding(owner.id, makeVector([1, 0, 0]));
+      await seedProfileEmbedding(alice.id, makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processProfileTriggers(pools); // seed profile cursor
+
+      // Drain leftover recompute entries
+      await h.sqlClubs(`delete from app.recompute_queue where queue_name = 'introductions'`);
+
+      // Create intro match
+      await enqueueIntroRecompute(pools.clubs, owner.id, owner.club.id);
+      await processIntroRecompute(pools);
+
+      const matchBefore = (await getMatches(owner.id)).find(
+        m => m.match_kind === 'member_to_member' && m.source_id === alice.id,
+      );
+      assert.ok(matchBefore, 'intro match should exist');
+      assert.equal(matchBefore.state, 'pending');
+
+      // Alice updates her profile — the intro match based on her old profile is stale
+      await seedProfileEmbedding(alice.id, makeVector([0.1, 0.9, 0]));
+      await processProfileTriggers(pools);
+
+      const matchAfter = (await getMatches(owner.id)).find(m => m.id === matchBefore.id);
+      assert.equal(matchAfter?.state, 'expired',
+        'pending intro must expire when either member profile changes');
+    });
+
+    it('recipient loses access before ask_to_member delivery => no signal', async () => {
+      const owner = await h.seedOwner('sw-noaccess1', 'SW NoAccess1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice NoAccess1', 'alice-noaccess1', { sponsorId: owner.id });
+      await seedProfileEmbedding(alice.id, makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+
+      // Remove Alice's access: revoke membership state + end subscription
+      const membershipRows = await h.sql<{ id: string }>(
+        `select id from app.club_memberships where member_id = $1 and club_id = $2`,
+        [alice.id, owner.club.id],
+      );
+      const membershipId = membershipRows[0]!.id;
+      await h.sql(
+        `insert into app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+         values ($1, 'revoked', 'test', 99, $2)`,
+        [membershipId, owner.id],
+      );
+      await h.sql(
+        `update app.subscriptions set status = 'canceled', ended_at = now()
+         where membership_id = $1`,
+        [membershipId],
+      );
+
+      await deliverMatches(pools);
+
+      const matchAfter = (await getMatches(alice.id)).find(m => m.match_kind === 'ask_to_member');
+      assert.equal(matchAfter?.state, 'expired',
+        'ask_to_member match must expire when recipient loses access');
+
+      const signals = await getSignals(alice.id);
+      assert.equal(signals.filter(s => s.topic === 'signal.ask_match').length, 0,
+        'no signal should be delivered to inaccessible recipient');
+    });
+
+    it('recipient loses access before offer_to_ask delivery => no signal', async () => {
+      const owner = await h.seedOwner('sw-noaccess2', 'SW NoAccess2');
+      // Alice is a regular member (not clubadmin) who posts an ask
+      const alice = await h.seedClubMember(owner.club.id, 'Alice NoAccess2', 'alice-noaccess2', { sponsorId: owner.id });
+      // Bob publishes a matching service
+      const bob = await h.seedClubMember(owner.club.id, 'Bob NoAccess2', 'bob-noaccess2', { sponsorId: owner.id });
+
+      const askId = await seedEntityWithEmbedding(owner.club.id, alice.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedEntityWithEmbedding(owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+      await publishActivity(owner.club.id, serviceId, bob.id);
+      await processEntityTriggers(pools);
+
+      // Revoke Alice's access before delivery
+      const membershipRows = await h.sql<{ id: string }>(
+        `select id from app.club_memberships where member_id = $1 and club_id = $2`,
+        [alice.id, owner.club.id],
+      );
+      await h.sql(
+        `insert into app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+         values ($1, 'revoked', 'test', 99, $2)`,
+        [membershipRows[0]!.id, owner.id],
+      );
+      await h.sql(
+        `update app.subscriptions set status = 'canceled', ended_at = now()
+         where membership_id = $1`,
+        [membershipRows[0]!.id],
+      );
+
+      await deliverMatches(pools);
+
+      const matchAfter = (await getMatches(alice.id)).find(m => m.match_kind === 'offer_to_ask');
+      assert.equal(matchAfter?.state, 'expired',
+        'offer_to_ask match must expire when recipient loses access');
+
+      const signals = await getSignals(alice.id);
+      assert.equal(signals.filter(s => s.topic === 'signal.offer_match').length, 0,
+        'no signal should be delivered to inaccessible recipient');
+    });
+
+    it('stale profile embedding: profile advances without new embedding => no ask_to_member match', async () => {
+      const owner = await h.seedOwner('sw-staleprof1', 'SW StaleProf1');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice StaleProf1', 'alice-staleprof1', { sponsorId: owner.id });
+
+      // Alice has v1 profile embedding
+      await seedProfileEmbedding(alice.id, makeVector([1, 0, 0]));
+
+      // Alice updates her profile to v2 (no new embedding yet — simulates pending embedding job)
+      await h.sql(
+        `insert into app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
+         values ($1, 2, 'updated profile', $1)`,
+        [alice.id],
+      );
+
+      // Now her current_member_profiles.id is v2, but her embedding is for v1
+      // Publish an ask — Alice should NOT be matched because her embedding is stale
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+      await publishActivity(owner.club.id, askId, owner.id);
+      await processEntityTriggers(pools);
+
+      const matches = await getMatches(alice.id);
+      const askMatches = matches.filter(m => m.match_kind === 'ask_to_member' && m.source_id === askId);
+      assert.equal(askMatches.length, 0,
+        'member with stale profile embedding must not be matched to asks');
+    });
+
+    it('stale profile embedding: profile advances without new embedding => no intro match', async () => {
+      const owner = await h.seedOwner('sw-staleprof2', 'SW StaleProf2');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice StaleProf2', 'alice-staleprof2', { sponsorId: owner.id });
+
+      // Owner has current embedding
+      await seedProfileEmbedding(owner.id, makeVector([1, 0, 0]));
+
+      // Alice has v1 embedding
+      await seedProfileEmbedding(alice.id, makeVector([0.95, 0.05, 0]));
+
+      // Alice updates her profile to v2 (embedding still for v1)
+      await h.sql(
+        `insert into app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
+         values ($1, 2, 'updated profile', $1)`,
+        [alice.id],
+      );
+
+      const pools = workerPools();
+      await h.sqlClubs(`delete from app.recompute_queue where queue_name = 'introductions'`);
+
+      await enqueueIntroRecompute(pools.clubs, owner.id, owner.club.id);
+      await processIntroRecompute(pools);
+
+      // Owner should not get an intro match for Alice because Alice's embedding is stale
+      const matches = await getMatches(owner.id);
+      const introMatches = matches.filter(
+        m => m.match_kind === 'member_to_member' && m.source_id === alice.id,
+      );
+      assert.equal(introMatches.length, 0,
+        'intro must not match against member with stale profile embedding');
+    });
+
+    it('removed matched ask hides delivered offer_match signal from updates', async () => {
+      const owner = await h.seedOwner('sw-askremove1', 'SW AskRemove1');
+      const bob = await h.seedClubMember(owner.club.id, 'Bob AskRemove1', 'bob-askremove1', { sponsorId: owner.id });
+
+      // Owner posts an ask, Bob posts a matching service
+      const askId = await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedEntityWithEmbedding(owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools); // seed cursor
+
+      // Seed owner's update cursor
+      const initial = await h.apiOk(owner.token, 'updates.list', { limit: 50 });
+      const cursor = ((initial.data as Record<string, unknown>).updates as { nextAfter: string }).nextAfter;
+
+      await publishActivity(owner.club.id, serviceId, bob.id);
+      await processEntityTriggers(pools);
+      await deliverMatches(pools);
+
+      // Verify signal was delivered
+      const signalsBefore = await getSignals(owner.id);
+      assert.ok(
+        signalsBefore.some(s => s.topic === 'signal.offer_match'),
+        'offer_match signal should be delivered',
+      );
+
+      // Now remove the matched ASK (not the offer)
+      await h.sqlClubs(
+        `update app.entity_versions set state = 'removed' where entity_id = $1`,
+        [askId],
+      );
+
+      // Poll updates — the offer_match signal should be hidden
+      const poll = await h.apiOk(owner.token, 'updates.list', { after: cursor, limit: 50 });
+      const items = ((poll.data as Record<string, unknown>).updates as { items: Array<Record<string, unknown>> }).items;
+      const offerSignals = items.filter(u => u.source === 'signal' && u.topic === 'signal.offer_match');
+      assert.equal(offerSignals.length, 0,
+        'offer_match signal must not appear when matched ask is removed');
+    });
+  });
 });
