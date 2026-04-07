@@ -288,16 +288,11 @@ export class TestHarness {
       [membershipId, status, memberId],
     );
 
-    // Comped subscription for non-owners with active status
+    // Comp non-owners with active status so they get access
     if (role !== 'clubadmin' && status === 'active') {
-      const ownerRows = await this.sql<{ owner_member_id: string }>(
-        `SELECT owner_member_id FROM app.clubs WHERE id = $1`,
-        [clubId],
-      );
       await this.sql(
-        `INSERT INTO app.subscriptions (membership_id, payer_member_id, status, amount)
-         VALUES ($1, $2, 'active', 0)`,
-        [membershipId, ownerRows[0]!.owner_member_id],
+        `UPDATE app.memberships SET is_comped = true, comped_at = now() WHERE id = $1`,
+        [membershipId],
       );
     }
 

@@ -55,8 +55,11 @@ import './schemas/messages.ts';
 import './schemas/platform.ts';
 import './schemas/updates.ts';
 import './schemas/superadmin.ts';
+import './schemas/billing-sync.ts';
+import './schemas/billing.ts';
 import './schemas/membership.ts';
 import './schemas/clubadmin.ts';
+import './schemas/clubowner.ts';
 
 // ── Authorization helpers ────────────────────────────────
 
@@ -85,6 +88,7 @@ function createRequireClubAdmin(actor: ActorContext) {
 
 function createRequireClubOwner(actor: ActorContext) {
   return (clubId: string): void => {
+    if (actor.globalRoles.includes('superadmin')) return;
     const membership = actor.memberships.find(m => m.clubId === clubId);
     if (!membership || !membership.isOwner) {
       throw new AppError(403, 'forbidden', 'This action requires club owner status');

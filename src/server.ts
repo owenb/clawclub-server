@@ -746,11 +746,40 @@ export function createServer(options: {
     await updatesNotifier.close();
   };
 
-  return { server, shutdown };
+  // Billing config check — runs async, callers should await `ready` before listening
+  const ready: Promise<void> = (async () => {
+    const billingEnabled = process.env.BILLING_ENABLED === 'true' || process.env.BILLING_ENABLED === '1';
+    if (!billingEnabled && pool) {
+      const paidCheck = await pool.query<{ count: string }>(
+        `select count(*)::text as count from app.clubs where membership_price_amount is not null and archived_at is null`,
+      );
+      const pendingCheck = await pool.query<{ count: string }>(
+        `select count(*)::text as count from app.memberships where status = 'payment_pending'`,
+      );
+      const paidCount = Number(paidCheck.rows[0]?.count ?? 0);
+      const pendingCount = Number(pendingCheck.rows[0]?.count ?? 0);
+      if (paidCount > 0 || pendingCount > 0) {
+        const msg = `${paidCount} paid club(s) and ${pendingCount} payment_pending membership(s) exist but BILLING_ENABLED is not set.`;
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error(msg);
+        }
+        console.warn(`WARNING: ${msg} Paid billing flows will not function.`);
+      }
+    }
+  })();
+
+  return { server, shutdown, ready };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const { server, shutdown } = createServer();
+  const { server, shutdown, ready } = createServer();
+
+  // Await billing config check — throws in prod if misconfigured
+  await ready.catch((err) => {
+    console.error(`FATAL: ${err.message}`);
+    process.exit(1);
+  });
+
   const port = Number(process.env.PORT ?? 8787);
 
   server.listen(port, () => {

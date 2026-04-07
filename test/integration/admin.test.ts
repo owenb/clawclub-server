@@ -747,6 +747,248 @@ describe('clubadmin.clubs.stats', () => {
   });
 });
 
+// ── Club Admin Promote / Demote ─────────────────────────────────────────────
+
+describe('clubowner.members.promoteToAdmin', () => {
+  it('owner promotes a regular member to admin', async () => {
+    const owner = await h.seedOwner('promote-club', 'Promote Club');
+    const member = await h.seedClubMember(owner.club.id, 'Promo Target', 'promo-target', { sponsorId: owner.id });
+
+    const result = await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    const data = result.data as Record<string, unknown>;
+    const membership = data.membership as Record<string, unknown>;
+    assert.equal(membership.role, 'clubadmin');
+    const memberRef = membership.member as Record<string, unknown>;
+    assert.equal(memberRef.memberId, member.id);
+  });
+
+  it('promoted member can access clubadmin actions', async () => {
+    const owner = await h.seedOwner('promote-access', 'Promote Access Club');
+    const member = await h.seedClubMember(owner.club.id, 'Promo Access', 'promo-access', { sponsorId: owner.id });
+
+    // Before promotion — regular member cannot access stats
+    const errBefore = await h.apiErr(member.token, 'clubadmin.clubs.stats', { clubId: owner.club.id });
+    assert.equal(errBefore.status, 403);
+
+    // Promote
+    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+
+    // After promotion — now has admin access
+    const stats = await h.apiOk(member.token, 'clubadmin.clubs.stats', { clubId: owner.club.id });
+    const data = stats.data as Record<string, unknown>;
+    assert.ok(data.stats);
+  });
+
+  it('promoting already-admin member is idempotent', async () => {
+    const owner = await h.seedOwner('promote-idem', 'Promote Idempotent Club');
+    const member = await h.seedClubMember(owner.club.id, 'Already Admin', 'already-admin', { sponsorId: owner.id });
+
+    // Promote twice
+    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    const result = await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    const membership = (result.data as Record<string, unknown>).membership as Record<string, unknown>;
+    assert.equal(membership.role, 'clubadmin');
+  });
+
+  it('non-owner admin cannot promote members', async () => {
+    const owner = await h.seedOwner('promote-noauth', 'Promote NoAuth Club');
+    const admin = await h.seedClubMember(owner.club.id, 'Non-Owner Admin', 'non-owner-admin-promote', { sponsorId: owner.id });
+    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: admin.id,
+    });
+    const target = await h.seedClubMember(owner.club.id, 'Promote Target2', 'promote-target2', { sponsorId: owner.id });
+
+    const err = await h.apiErr(admin.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: target.id,
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('regular member cannot promote', async () => {
+    const owner = await h.seedOwner('promote-reg', 'Promote Reg Club');
+    const memberA = await h.seedClubMember(owner.club.id, 'Regular A', 'promote-reg-a', { sponsorId: owner.id });
+    const memberB = await h.seedClubMember(owner.club.id, 'Regular B', 'promote-reg-b', { sponsorId: owner.id });
+
+    const err = await h.apiErr(memberA.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: memberB.id,
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('returns 404 for non-existent member', async () => {
+    const owner = await h.seedOwner('promote-ghost', 'Promote Ghost Club');
+
+    const err = await h.apiErr(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: 'nonexistent-member',
+    });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'not_found');
+  });
+
+  it('returns 404 for member not in the club', async () => {
+    const owner = await h.seedOwner('promote-other', 'Promote Other Club');
+    const outsider = await h.seedMember('Outsider', 'promote-outsider');
+
+    const err = await h.apiErr(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: outsider.id,
+    });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'not_found');
+  });
+
+  it('superadmin can promote a member', async () => {
+    const admin = await h.seedSuperadmin('SA Promote', 'sa-promote');
+    const owner = await h.seedOwner('sa-promote-club', 'SA Promote Club');
+    const member = await h.seedClubMember(owner.club.id, 'SA Promo Target', 'sa-promo-target', { sponsorId: owner.id });
+
+    const result = await h.apiOk(admin.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    const membership = (result.data as Record<string, unknown>).membership as Record<string, unknown>;
+    assert.equal(membership.role, 'clubadmin');
+  });
+});
+
+describe('clubowner.members.demoteFromAdmin', () => {
+  it('owner demotes an admin to regular member', async () => {
+    const owner = await h.seedOwner('demote-club', 'Demote Club');
+    const member = await h.seedClubMember(owner.club.id, 'Demote Target', 'demote-target', { sponsorId: owner.id });
+    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+
+    const result = await h.apiOk(owner.token, 'clubowner.members.demoteFromAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    const membership = (result.data as Record<string, unknown>).membership as Record<string, unknown>;
+    assert.equal(membership.role, 'member');
+    const memberRef = membership.member as Record<string, unknown>;
+    assert.equal(memberRef.memberId, member.id);
+  });
+
+  it('demoted member loses admin access', async () => {
+    const owner = await h.seedOwner('demote-access', 'Demote Access Club');
+    const member = await h.seedClubMember(owner.club.id, 'Demote Access', 'demote-access-member', { sponsorId: owner.id });
+
+    // Promote then verify access
+    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    await h.apiOk(member.token, 'clubadmin.clubs.stats', { clubId: owner.club.id });
+
+    // Demote then verify loss of access
+    await h.apiOk(owner.token, 'clubowner.members.demoteFromAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    const err = await h.apiErr(member.token, 'clubadmin.clubs.stats', { clubId: owner.club.id });
+    assert.equal(err.status, 403);
+  });
+
+  it('cannot demote the club owner', async () => {
+    const owner = await h.seedOwner('demote-owner', 'Demote Owner Club');
+
+    const err = await h.apiErr(owner.token, 'clubowner.members.demoteFromAdmin', {
+      clubId: owner.club.id,
+      memberId: owner.id,
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('demoting a regular member is idempotent', async () => {
+    const owner = await h.seedOwner('demote-idem', 'Demote Idempotent Club');
+    const member = await h.seedClubMember(owner.club.id, 'Not Admin', 'demote-idem-member', { sponsorId: owner.id });
+
+    const result = await h.apiOk(owner.token, 'clubowner.members.demoteFromAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    const membership = (result.data as Record<string, unknown>).membership as Record<string, unknown>;
+    assert.equal(membership.role, 'member');
+  });
+
+  it('non-owner admin cannot demote', async () => {
+    const owner = await h.seedOwner('demote-noauth', 'Demote NoAuth Club');
+    const adminA = await h.seedClubMember(owner.club.id, 'Admin A', 'demote-noauth-a', { sponsorId: owner.id });
+    const adminB = await h.seedClubMember(owner.club.id, 'Admin B', 'demote-noauth-b', { sponsorId: owner.id });
+    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', { clubId: owner.club.id, memberId: adminA.id });
+    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', { clubId: owner.club.id, memberId: adminB.id });
+
+    const err = await h.apiErr(adminA.token, 'clubowner.members.demoteFromAdmin', {
+      clubId: owner.club.id,
+      memberId: adminB.id,
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('regular member cannot demote', async () => {
+    const owner = await h.seedOwner('demote-reg', 'Demote Reg Club');
+    const admin = await h.seedClubMember(owner.club.id, 'Admin Demote', 'demote-reg-admin', { sponsorId: owner.id });
+    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', { clubId: owner.club.id, memberId: admin.id });
+    const regular = await h.seedClubMember(owner.club.id, 'Regular Demote', 'demote-reg-member', { sponsorId: owner.id });
+
+    const err = await h.apiErr(regular.token, 'clubowner.members.demoteFromAdmin', {
+      clubId: owner.club.id,
+      memberId: admin.id,
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('returns 404 for non-existent member', async () => {
+    const owner = await h.seedOwner('demote-ghost', 'Demote Ghost Club');
+
+    const err = await h.apiErr(owner.token, 'clubowner.members.demoteFromAdmin', {
+      clubId: owner.club.id,
+      memberId: 'nonexistent-member',
+    });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'not_found');
+  });
+
+  it('superadmin can demote an admin', async () => {
+    const admin = await h.seedSuperadmin('SA Demote', 'sa-demote');
+    const owner = await h.seedOwner('sa-demote-club', 'SA Demote Club');
+    const member = await h.seedClubMember(owner.club.id, 'SA Demote Target', 'sa-demote-target', { sponsorId: owner.id });
+    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+
+    const result = await h.apiOk(admin.token, 'clubowner.members.demoteFromAdmin', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    const membership = (result.data as Record<string, unknown>).membership as Record<string, unknown>;
+    assert.equal(membership.role, 'member');
+  });
+});
+
 describe('superadmin.content.list', () => {
   it('lists content across clubs', async () => {
     const admin = await h.seedSuperadmin('Admin Content', 'admin-content-list');

@@ -25,6 +25,7 @@ import type {
   UpdateClubInput,
   UpdateOwnProfileInput,
 } from '../contract.ts';
+
 import type { DbClient } from '../db.ts';
 import { authenticateBearerToken, readActor } from './auth.ts';
 import * as tokens from './tokens.ts';
@@ -52,10 +53,14 @@ export type IdentityRepository = {
   promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
   demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
 
+  // Superadmin member/membership creation
+  createMemberDirect(input: { actorMemberId: string; publicName: string; handle?: string | null; email?: string | null }): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }>;
+  createMembershipAsSuperadmin(input: { actorMemberId: string; clubId: string; memberId: string; role: 'member' | 'clubadmin'; sponsorMemberId?: string | null; initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>; reason?: string | null }): Promise<MembershipAdminSummary | null>;
+
   // Admission acceptance helpers
   createMemberFromAdmission(input: { name: string; email: string; displayName: string; details: Record<string, unknown>; admissionId: string }): Promise<string>;
-  createCompedSubscription(membershipId: string, payerMemberId: string): Promise<void>;
-  hasLiveSubscription(membershipId: string): Promise<boolean>;
+  setComped(membershipId: string, compedByMemberId: string): Promise<void>;
+  hasLiveAccess(membershipId: string): Promise<boolean>;
   getMemberPublicContact(memberId: string): Promise<{ memberName: string; email: string | null } | null>;
 
   // Profiles
@@ -95,27 +100,33 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     promoteMemberToAdmin: (input) => memberships.promoteMemberToAdmin(pool, input),
     demoteMemberFromAdmin: (input) => memberships.demoteMemberFromAdmin(pool, input),
 
+    // Superadmin member/membership creation
+    createMemberDirect: (input) => memberships.createMemberDirect(pool, input),
+    createMembershipAsSuperadmin: (input) => memberships.createMembershipAsSuperadmin(pool, input),
+
     // Admission acceptance helpers
     createMemberFromAdmission: (input) => memberships.createMemberFromAdmission(pool, input),
-    createCompedSubscription: (membershipId, payerMemberId) => {
-      // Run outside a transaction — caller manages the saga
+    setComped: (membershipId, compedByMemberId) => {
       return pool.query(
-        `insert into app.subscriptions (membership_id, payer_member_id, status, amount) values ($1, $2, 'active', 0)`,
-        [membershipId, payerMemberId],
+        `update app.memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
+         where id = $1 and is_comped = false`,
+        [membershipId, compedByMemberId],
       ).then(() => {});
     },
-    hasLiveSubscription: async (membershipId) => {
-      const result = await pool.query<{ has_sub: boolean }>(
+    hasLiveAccess: async (membershipId) => {
+      const result = await pool.query<{ has_access: boolean }>(
         `select exists(
+           select 1 from app.memberships where id = $1 and is_comped = true
+           union all
            select 1 from app.subscriptions
            where membership_id = $1
-             and status in ('trialing', 'active')
+             and status in ('trialing', 'active', 'past_due')
              and coalesce(ended_at, 'infinity'::timestamptz) > now()
              and coalesce(current_period_end, 'infinity'::timestamptz) > now()
-         ) as has_sub`,
+         ) as has_access`,
         [membershipId],
       );
-      return result.rows[0]?.has_sub === true;
+      return result.rows[0]?.has_access === true;
     },
     getMemberPublicContact: (memberId) => memberships.getMemberPublicContact(pool, memberId),
 

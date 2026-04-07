@@ -92,6 +92,28 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
 
     const clubId = clubResult.rows[0]?.club_id;
     if (!clubId) return null;
+
+    // Create owner's clubadmin membership + active state + comp
+    await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
+    const ownerMsResult = await client.query<{ id: string }>(
+      `insert into app.memberships (club_id, member_id, role, sponsor_member_id)
+       values ($1::app.short_id, $2::app.short_id, 'clubadmin', null)
+       returning id`,
+      [clubId, input.ownerMemberId],
+    );
+    const ownerMsId = ownerMsResult.rows[0]!.id;
+    await client.query(
+      `insert into app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+       values ($1::app.short_id, 'active', 'club_created', 1, $2::app.short_id)`,
+      [ownerMsId, input.actorMemberId],
+    );
+    await client.query(
+      `update app.memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
+       where id = $1 and is_comped = false`,
+      [ownerMsId, input.actorMemberId],
+    );
+    await client.query(`select set_config('app.allow_membership_state_sync', '', true)`);
+
     return readClub(client, clubId);
   });
 }
@@ -166,15 +188,15 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
       );
       await client.query(`select set_config('app.allow_membership_state_sync', '', true)`);
 
-      // 5. Comp subscription for demoted owner to retain access
+      // 5. Comp demoted owner to retain access
       const oldMsRows = await client.query<{ id: string }>(
         `select id from app.memberships where club_id = $1 and member_id = $2`,
         [input.clubId, current.current_owner_member_id],
       );
       if (oldMsRows.rows[0]) {
         await client.query(
-          `insert into app.subscriptions (membership_id, payer_member_id, status, amount)
-           values ($1, $2, 'active', 0) on conflict do nothing`,
+          `update app.memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
+           where id = $1 and is_comped = false`,
           [oldMsRows.rows[0].id, input.ownerMemberId],
         );
       }

@@ -2,7 +2,6 @@
  * Club admin action contracts: clubadmin.memberships.list, clubadmin.memberships.review,
  * clubadmin.memberships.create, clubadmin.memberships.transition,
  * clubadmin.admissions.list, clubadmin.admissions.transition, clubadmin.admissions.issueAccess,
- * clubadmin.members.promoteToAdmin, clubadmin.members.demoteFromAdmin,
  * clubadmin.clubs.stats
  *
  * All actions require auth: 'clubadmin' — the caller must be a club admin,
@@ -145,7 +144,7 @@ type MembershipsCreateInput = {
   clubId: string;
   memberId: string;
   sponsorMemberId: string;
-  initialStatus: 'invited' | 'pending_review' | 'active';
+  initialStatus: 'invited' | 'pending_review' | 'active' | 'payment_pending';
   reason: string | null;
   metadata: Record<string, unknown>;
 };
@@ -460,106 +459,6 @@ const clubadminAdmissionsIssueAccess: ActionDefinition = {
   },
 };
 
-// ── clubadmin.members.promoteToAdmin ───────────────────
-
-const clubadminMembersPromote: ActionDefinition = {
-  action: 'clubadmin.members.promoteToAdmin',
-  domain: 'clubadmin',
-  description: 'Promote a club member to admin role (owner only).',
-  auth: 'clubadmin',
-  safety: 'mutating',
-  authorizationNote: 'Only the club owner can promote members.',
-
-  requiredCapability: 'promoteMemberToAdmin',
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club to promote in'),
-      memberId: wireRequiredString.describe('Member to promote'),
-    }),
-    output: z.object({ membership: membershipAdminSummary }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      memberId: parseRequiredString,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, memberId } = input as { clubId: string; memberId: string };
-    ctx.requireClubAdmin(clubId);
-    ctx.requireClubOwner(clubId);
-    ctx.requireCapability('promoteMemberToAdmin');
-
-    const membership = await ctx.repository.promoteMemberToAdmin!({
-      actorMemberId: ctx.actor.member.id,
-      clubId,
-      memberId,
-    });
-
-    if (!membership) {
-      throw new AppError(404, 'not_found', 'Member not found or not eligible for promotion in this club');
-    }
-
-    return {
-      data: { membership },
-      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
-    };
-  },
-};
-
-// ── clubadmin.members.demoteFromAdmin ──────────────────
-
-const clubadminMembersDemote: ActionDefinition = {
-  action: 'clubadmin.members.demoteFromAdmin',
-  domain: 'clubadmin',
-  description: 'Demote a club admin to regular member (owner only).',
-  auth: 'clubadmin',
-  safety: 'mutating',
-  authorizationNote: 'Only the club owner can demote admins. The owner cannot be demoted.',
-
-  requiredCapability: 'demoteMemberFromAdmin',
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club to demote in'),
-      memberId: wireRequiredString.describe('Admin to demote'),
-    }),
-    output: z.object({ membership: membershipAdminSummary }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      memberId: parseRequiredString,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, memberId } = input as { clubId: string; memberId: string };
-    ctx.requireClubAdmin(clubId);
-    ctx.requireClubOwner(clubId);
-    ctx.requireCapability('demoteMemberFromAdmin');
-
-    const membership = await ctx.repository.demoteMemberFromAdmin!({
-      actorMemberId: ctx.actor.member.id,
-      clubId,
-      memberId,
-    });
-
-    if (!membership) {
-      throw new AppError(404, 'not_found', 'Admin not found or not eligible for demotion in this club');
-    }
-
-    return {
-      data: { membership },
-      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
-    };
-  },
-};
-
 // ── clubadmin.clubs.stats ──────────────────────────────
 
 const clubadminClubsStats: ActionDefinition = {
@@ -716,7 +615,6 @@ registerActions([
   clubadminMembershipsList, clubadminMembershipsReview,
   clubadminMembershipsCreate, clubadminMembershipsTransition,
   clubadminAdmissionsList, clubadminAdmissionsTransition, clubadminAdmissionsIssueAccess,
-  clubadminMembersPromote, clubadminMembersDemote,
   clubadminClubsStats,
   clubadminEntitiesRemove, clubadminEventsRemove,
 ]);

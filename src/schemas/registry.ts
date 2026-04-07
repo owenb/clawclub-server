@@ -22,7 +22,7 @@ import type {
 
 // ── Auth and safety types ────────────────────────────────
 
-export type ActionAuth = 'none' | 'member' | 'clubadmin' | 'superadmin';
+export type ActionAuth = 'none' | 'member' | 'clubadmin' | 'clubowner' | 'superadmin';
 export type ActionSafety = 'read_only' | 'mutating';
 
 // ── Repository capability ────────────────────────────────
@@ -48,6 +48,8 @@ export type RepositoryCapability =
   | 'getLatestCursor'
   | 'acknowledgeUpdates'
   | 'issueAdmissionAccess'
+  | 'adminCreateMember'
+  | 'adminCreateMembership'
   | 'adminGetOverview'
   | 'adminListMembers'
   | 'adminGetMember'
@@ -59,7 +61,16 @@ export type RepositoryCapability =
   | 'adminRevokeMemberToken'
   | 'adminGetDiagnostics'
   | 'promoteMemberToAdmin'
-  | 'demoteMemberFromAdmin';
+  | 'demoteMemberFromAdmin'
+  | 'billingActivateMembership'
+  | 'billingRenewMembership'
+  | 'billingMarkRenewalPending'
+  | 'billingExpireMembership'
+  | 'billingCancelAtPeriodEnd'
+  | 'billingBanMember'
+  | 'billingSetClubPrice'
+  | 'billingArchiveClub'
+  | 'getBillingStatus';
 
 // ── Handler context ──────────────────────────────────────
 // Passed to every handler. Authorization helpers are pre-bound to the actor.

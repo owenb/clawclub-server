@@ -47,12 +47,14 @@ Action families and individual actions:
 - `clubadmin.admissions.list` — list admissions for a club
 - `clubadmin.admissions.transition` — advance an admission through statuses
 - `clubadmin.admissions.issueAccess` — issue a bearer token for an accepted admission
-- `clubadmin.members.promoteToAdmin` — promote a club member to admin role (owner only)
-- `clubadmin.members.demoteFromAdmin` — demote a club admin to regular member (owner only)
 - `clubadmin.clubs.stats` — get statistics for a club
 - `clubadmin.entities.remove` — remove any entity in a club (moderation; reason required)
 - `clubadmin.events.remove` — remove any event in a club (moderation; reason required)
 - `clubadmin.messages.remove` — remove any message in a club (moderation; reason required)
+
+**Club Owner**
+- `clubowner.members.promoteToAdmin` — promote a club member to admin role (owner only)
+- `clubowner.members.demoteFromAdmin` — demote a club admin to regular member (owner only)
 
 **Admissions**
 - `admissions.challenge` — get a PoW puzzle bound to a specific club (unauthenticated, requires `clubSlug`)

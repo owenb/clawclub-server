@@ -10,7 +10,9 @@ export class AppError extends Error {
   }
 }
 
-export type MembershipState = 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected';
+export type MembershipState =
+  | 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected'
+  | 'payment_pending' | 'renewal_pending' | 'cancelled' | 'banned' | 'expired';
 
 export type MembershipSummary = {
   membershipId: string;
@@ -20,7 +22,7 @@ export type MembershipSummary = {
   summary: string | null;
   role: 'clubadmin' | 'member';
   isOwner: boolean;
-  status: 'active';
+  status: 'active' | 'renewal_pending' | 'cancelled';
   sponsorMemberId: string | null;
   joinedAt: string;
 };
@@ -71,7 +73,7 @@ export type CreateMembershipInput = {
   memberId: string;
   sponsorMemberId: string;
   role: 'member';
-  initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active'>;
+  initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
   reason?: string | null;
   metadata: Record<string, unknown>;
   sourceAdmissionId?: string | null;
@@ -865,6 +867,8 @@ export type Repository = {
 
   removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 
+  adminCreateMember?(input: { actorMemberId: string; publicName: string; handle?: string | null; email?: string | null }): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }>;
+  adminCreateMembership?(input: { actorMemberId: string; clubId: string; memberId: string; role: 'member' | 'clubadmin'; sponsorMemberId?: string | null; initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>; reason?: string | null }): Promise<MembershipAdminSummary | null>;
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
   adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminMemberSummary[]>;
   adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;
@@ -875,6 +879,26 @@ export type Repository = {
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
   adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
   adminGetDiagnostics?(input: { actorMemberId: string }): Promise<AdminDiagnostics>;
+
+  // ── Billing helpers ────────────────────────────────────
+  isPaidClub?(clubId: string): Promise<boolean>;
+  getBillingStatus?(input: { memberId: string; clubId: string }): Promise<{
+    membershipId: string;
+    state: string;
+    isComped: boolean;
+    paidThrough: string | null;
+    approvedPrice: { amount: number | null; currency: string | null };
+  } | null>;
+
+  // ── Billing sync ───────────────────────────────────────
+  billingActivateMembership?(input: { membershipId: string; paidThrough: string }): Promise<void>;
+  billingRenewMembership?(input: { membershipId: string; newPaidThrough: string }): Promise<void>;
+  billingMarkRenewalPending?(input: { membershipId: string }): Promise<void>;
+  billingExpireMembership?(input: { membershipId: string }): Promise<void>;
+  billingCancelAtPeriodEnd?(input: { membershipId: string }): Promise<void>;
+  billingBanMember?(input: { memberId: string; reason: string }): Promise<void>;
+  billingSetClubPrice?(input: { clubId: string; amount: number | null; currency: string }): Promise<void>;
+  billingArchiveClub?(input: { clubId: string }): Promise<void>;
 
   logLlmUsage?(input: LogLlmUsageInput): Promise<void>;
 

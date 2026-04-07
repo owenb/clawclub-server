@@ -41,7 +41,7 @@ export const membershipSummary = z.object({
   summary: z.string().nullable(),
   role: membershipRole,
   isOwner: z.boolean(),
-  status: z.literal('active'),
+  status: z.enum(['active', 'renewal_pending', 'cancelled']),
   sponsorMemberId: z.string().nullable(),
   joinedAt: z.string(),
 });

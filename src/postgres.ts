@@ -461,6 +461,13 @@ export function createRepository(pool: Pool): Repository {
         }
 
         if (memberId) {
+          // Check if this is a paid club — determines initial membership state
+          const clubPriceResult = await pool.query<{ membership_price_amount: string | null; membership_price_currency: string }>(
+            `select membership_price_amount, membership_price_currency from app.clubs where id = $1`,
+            [clubId],
+          );
+          const isPaidClub = clubPriceResult.rows[0]?.membership_price_amount != null;
+
           // Create membership in identity (idempotent via source_admission_id unique index)
           const sponsorId = adm.sponsor_member_id ?? input.actorMemberId;
           const membershipResult = await identity.createMembership({
@@ -469,13 +476,23 @@ export function createRepository(pool: Pool): Repository {
             memberId,
             sponsorMemberId: sponsorId,
             role: 'member',
-            initialStatus: 'active',
+            initialStatus: isPaidClub ? 'payment_pending' : 'active',
             sourceAdmissionId: adm.admission_id,
-            reason: 'Admitted from accepted admission',
+            reason: isPaidClub ? 'Admitted — awaiting payment' : 'Admitted from accepted admission',
             metadata: {},
           });
 
           if (membershipResult) {
+            // Snapshot the approved price on the membership for paid clubs
+            if (isPaidClub) {
+              const priceRow = clubPriceResult.rows[0]!;
+              await pool.query(
+                `update app.memberships set approved_price_amount = $2, approved_price_currency = $3
+                 where id = $1`,
+                [membershipResult.membershipId, priceRow.membership_price_amount, priceRow.membership_price_currency],
+              );
+            }
+
             // Link admission to member and membership
             await admissionsModule.linkAdmissionToMember(pool, adm.admission_id, memberId, membershipResult.membershipId);
           }
@@ -998,6 +1015,10 @@ export function createRepository(pool: Pool): Repository {
     // ── Embeddings ─────────────────────────────────────────
     findEntitiesViaEmbedding: (input) => clubs.findEntitiesViaEmbedding(input),
 
+    // ── Admin: member/membership creation ───────────────
+    adminCreateMember: (input) => identity.createMemberDirect(input),
+    adminCreateMembership: (input) => identity.createMembershipAsSuperadmin(input),
+
     // ── Admin ───────────────────────────────────────────
     async adminGetOverview() {
       const [totalMemberCount, activeMemberCount, clubCount, entityCount, messageCount, admissionCount] = await Promise.all([
@@ -1281,6 +1302,385 @@ export function createRepository(pool: Pool): Repository {
         totalAppTables: Number(tableCount.rows[0]?.count ?? 0),
         databaseSize: dbSize.rows[0]?.size ?? '0 bytes',
       };
+    },
+
+    // ── Billing helpers ────────────────────────────────────────
+
+    async getBillingStatus({ memberId, clubId }) {
+      const result = await pool.query<{
+        membership_id: string;
+        status: string;
+        is_comped: boolean;
+        current_period_end: string | null;
+        approved_price_amount: string | null;
+        approved_price_currency: string | null;
+      }>(
+        `select
+           m.id as membership_id,
+           m.status,
+           m.is_comped,
+           s.current_period_end::text as current_period_end,
+           m.approved_price_amount::text as approved_price_amount,
+           m.approved_price_currency
+         from app.memberships m
+         left join app.subscriptions s on s.membership_id = m.id
+           and s.status in ('trialing', 'active', 'past_due')
+         where m.club_id = $1 and m.member_id = $2
+         limit 1`,
+        [clubId, memberId],
+      );
+      const row = result.rows[0];
+      if (!row) return null;
+      return {
+        membershipId: row.membership_id,
+        state: row.status,
+        isComped: row.is_comped,
+        paidThrough: row.current_period_end,
+        approvedPrice: {
+          amount: row.approved_price_amount != null ? Number(row.approved_price_amount) : null,
+          currency: row.approved_price_currency,
+        },
+      };
+    },
+
+    async isPaidClub(clubId: string): Promise<boolean> {
+      const result = await pool.query<{ is_paid: boolean }>(
+        `select (membership_price_amount is not null) as is_paid from app.clubs where id = $1`,
+        [clubId],
+      );
+      return result.rows[0]?.is_paid === true;
+    },
+
+    // ── Billing sync ─────────────────────────────────────────
+
+    async billingActivateMembership({ membershipId, paidThrough }) {
+      await withTransaction(pool, async (client) => {
+        const row = await client.query<{
+          membership_id: string; member_id: string; club_id: string;
+          status: string; state_version_no: number; state_version_id: string;
+        }>(
+          `select cnm.id as membership_id, cnm.member_id, cnm.club_id,
+                  cnm.status::text as status, cnm.state_version_no, cnm.state_version_id
+           from app.current_memberships cnm
+           where cnm.id = $1 limit 1`,
+          [membershipId],
+        );
+        const m = row.rows[0];
+        if (!m) throw new AppError(404, 'not_found', 'Membership not found');
+
+        // Idempotent: no-op if already active
+        if (m.status === 'active') {
+          // Check subscription — if current_period_end >= paidThrough, true no-op
+          const subRow = await client.query<{ current_period_end: string | null }>(
+            `select current_period_end::text as current_period_end from app.subscriptions
+             where membership_id = $1 and status in ('active', 'trialing')
+             order by started_at desc limit 1`,
+            [membershipId],
+          );
+          if (subRow.rows[0]?.current_period_end &&
+              new Date(subRow.rows[0].current_period_end) >= new Date(paidThrough)) {
+            return; // already active with same or later period end
+          }
+          // Active but subscription needs updating — update current_period_end
+          await client.query(
+            `update app.subscriptions set current_period_end = $2
+             where membership_id = $1 and status in ('active', 'trialing')`,
+            [membershipId, paidThrough],
+          );
+          return;
+        }
+
+        // Only payment_pending can transition to active via this action
+        if (m.status !== 'payment_pending') {
+          throw new AppError(409, 'invalid_state', `Cannot activate membership in state '${m.status}'; expected 'payment_pending'`);
+        }
+
+        // Transition membership state: payment_pending → active
+        await client.query(
+          `insert into app.membership_state_versions
+           (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
+           values ($1, 'active', 'Billing activation', $2, $3, null)`,
+          [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
+        );
+
+        // Create subscription row
+        const priceRow = await client.query<{ approved_price_amount: string | null }>(
+          `select approved_price_amount::text from app.memberships where id = $1`,
+          [membershipId],
+        );
+        const amount = priceRow.rows[0]?.approved_price_amount != null
+          ? Number(priceRow.rows[0].approved_price_amount) : 0;
+        await client.query(
+          `insert into app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+           values ($1::app.short_id, $2::app.short_id, 'active', $3, $4)`,
+          [membershipId, m.member_id, amount, paidThrough],
+        );
+      });
+    },
+
+    async billingRenewMembership({ membershipId, newPaidThrough }) {
+      await withTransaction(pool, async (client) => {
+        const row = await client.query<{
+          membership_id: string; status: string; state_version_no: number; state_version_id: string;
+        }>(
+          `select cnm.id as membership_id, cnm.status::text as status,
+                  cnm.state_version_no, cnm.state_version_id
+           from app.current_memberships cnm
+           where cnm.id = $1 limit 1`,
+          [membershipId],
+        );
+        const m = row.rows[0];
+        if (!m) throw new AppError(404, 'not_found', 'Membership not found');
+
+        if (m.status !== 'active' && m.status !== 'cancelled' && m.status !== 'renewal_pending') {
+          throw new AppError(409, 'invalid_state', `Cannot renew membership in state '${m.status}'; expected 'active', 'cancelled', or 'renewal_pending'`);
+        }
+
+        // If cancelled or renewal_pending, transition back to active
+        if (m.status === 'cancelled' || m.status === 'renewal_pending') {
+          await client.query(
+            `insert into app.membership_state_versions
+             (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
+             values ($1, 'active', 'Billing renewal', $2, $3, null)`,
+            [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
+          );
+        }
+
+        // Update subscription current_period_end forward only, and ensure status is active
+        const updated = await client.query<{ id: string }>(
+          `update app.subscriptions
+           set current_period_end = greatest(current_period_end, $2::timestamptz),
+               status = 'active',
+               ended_at = null
+           where membership_id = $1
+             and status in ('active', 'trialing', 'past_due')
+           returning id`,
+          [membershipId, newPaidThrough],
+        );
+
+        // If no live subscription exists (e.g., was ended), create one
+        if (updated.rows.length === 0) {
+          await client.query(
+            `insert into app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+             select $1, ms.member_id, 'active',
+                    coalesce(ms.approved_price_amount, 0), $2
+             from app.memberships ms where ms.id = $1`,
+            [membershipId, newPaidThrough],
+          );
+        }
+      });
+    },
+
+    async billingMarkRenewalPending({ membershipId }) {
+      await withTransaction(pool, async (client) => {
+        const row = await client.query<{
+          membership_id: string; status: string; state_version_no: number; state_version_id: string;
+        }>(
+          `select cnm.id as membership_id, cnm.status::text as status,
+                  cnm.state_version_no, cnm.state_version_id
+           from app.current_memberships cnm
+           where cnm.id = $1 limit 1`,
+          [membershipId],
+        );
+        const m = row.rows[0];
+        if (!m) throw new AppError(404, 'not_found', 'Membership not found');
+
+        // Idempotent: no-op if already renewal_pending
+        if (m.status === 'renewal_pending') return;
+
+        if (m.status !== 'active') {
+          throw new AppError(409, 'invalid_state', `Cannot mark renewal pending for membership in state '${m.status}'; expected 'active'`);
+        }
+
+        // Transition membership state: active → renewal_pending
+        await client.query(
+          `insert into app.membership_state_versions
+           (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
+           values ($1, 'renewal_pending', 'Payment past due', $2, $3, null)`,
+          [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
+        );
+
+        // Update subscription status to past_due
+        await client.query(
+          `update app.subscriptions set status = 'past_due'
+           where membership_id = $1 and status in ('active', 'trialing')`,
+          [membershipId],
+        );
+      });
+    },
+
+    async billingExpireMembership({ membershipId }) {
+      await withTransaction(pool, async (client) => {
+        const row = await client.query<{
+          membership_id: string; status: string; state_version_no: number; state_version_id: string;
+        }>(
+          `select cnm.id as membership_id, cnm.status::text as status,
+                  cnm.state_version_no, cnm.state_version_id
+           from app.current_memberships cnm
+           where cnm.id = $1 limit 1`,
+          [membershipId],
+        );
+        const m = row.rows[0];
+        if (!m) throw new AppError(404, 'not_found', 'Membership not found');
+
+        // Idempotent: no-op if already expired
+        if (m.status === 'expired') return;
+
+        const allowedStates = ['active', 'renewal_pending', 'cancelled', 'payment_pending'];
+        if (!allowedStates.includes(m.status)) {
+          throw new AppError(409, 'invalid_state', `Cannot expire membership in state '${m.status}'`);
+        }
+
+        // Transition membership state → expired
+        await client.query(
+          `insert into app.membership_state_versions
+           (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
+           values ($1, 'expired', 'Billing expiration', $2, $3, null)`,
+          [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
+        );
+
+        // End any live subscriptions
+        await client.query(
+          `update app.subscriptions set status = 'ended', ended_at = now()
+           where membership_id = $1 and status in ('active', 'trialing', 'past_due')`,
+          [membershipId],
+        );
+      });
+    },
+
+    async billingCancelAtPeriodEnd({ membershipId }) {
+      await withTransaction(pool, async (client) => {
+        const row = await client.query<{
+          membership_id: string; status: string; state_version_no: number; state_version_id: string;
+        }>(
+          `select cnm.id as membership_id, cnm.status::text as status,
+                  cnm.state_version_no, cnm.state_version_id
+           from app.current_memberships cnm
+           where cnm.id = $1 limit 1`,
+          [membershipId],
+        );
+        const m = row.rows[0];
+        if (!m) throw new AppError(404, 'not_found', 'Membership not found');
+
+        // Idempotent: no-op if already cancelled
+        if (m.status === 'cancelled') return;
+
+        if (m.status !== 'active') {
+          throw new AppError(409, 'invalid_state', `Cannot cancel membership in state '${m.status}'; expected 'active'`);
+        }
+
+        // Transition membership state: active → cancelled
+        // Subscription status is NOT changed — Stripe keeps it active until period end
+        await client.query(
+          `insert into app.membership_state_versions
+           (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
+           values ($1, 'cancelled', 'Cancelled at period end', $2, $3, null)`,
+          [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
+        );
+      });
+    },
+
+    async billingBanMember({ memberId, reason }) {
+      await withTransaction(pool, async (client) => {
+        // Check member exists and current state
+        const memberRow = await client.query<{ id: string; state: string }>(
+          `select id, state::text as state from app.members where id = $1 limit 1`,
+          [memberId],
+        );
+        const member = memberRow.rows[0];
+        if (!member) throw new AppError(404, 'not_found', 'Member not found');
+
+        // Idempotent: no-op if already banned
+        if (member.state === 'banned') return;
+
+        // Set member state to banned
+        await client.query(
+          `update app.members set state = 'banned' where id = $1`,
+          [memberId],
+        );
+
+        // Find all non-terminal memberships
+        const terminalStates = ['banned', 'expired', 'revoked', 'rejected', 'left', 'removed'];
+        const membershipsResult = await client.query<{
+          membership_id: string; status: string; state_version_no: number; state_version_id: string;
+        }>(
+          `select cnm.id as membership_id, cnm.status::text as status,
+                  cnm.state_version_no, cnm.state_version_id
+           from app.current_memberships cnm
+           where cnm.member_id = $1
+             and cnm.status::text <> all($2::text[])`,
+          [memberId, terminalStates],
+        );
+
+        // Transition each non-terminal membership to banned
+        for (const ms of membershipsResult.rows) {
+          await client.query(
+            `insert into app.membership_state_versions
+             (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
+             values ($1, 'banned', $2, $3, $4, null)`,
+            [ms.membership_id, reason, Number(ms.state_version_no) + 1, ms.state_version_id],
+          );
+        }
+
+        // End all live subscriptions for this member
+        await client.query(
+          `update app.subscriptions set status = 'ended', ended_at = now()
+           where payer_member_id = $1 and status in ('active', 'trialing', 'past_due')`,
+          [memberId],
+        );
+      });
+    },
+
+    async billingSetClubPrice({ clubId, amount, currency }) {
+      await withTransaction(pool, async (client) => {
+        const currentResult = await client.query<{
+          club_id: string; current_version_id: string; current_version_no: number;
+          owner_member_id: string; name: string; summary: string | null;
+          admission_policy: string | null;
+          membership_price_amount: string | null; membership_price_currency: string;
+        }>(
+          `select n.id as club_id, cv.id as current_version_id, cv.version_no as current_version_no,
+                  cv.owner_member_id, cv.name, cv.summary, cv.admission_policy,
+                  cv.membership_price_amount::text as membership_price_amount,
+                  cv.membership_price_currency
+           from app.clubs n
+           join app.current_club_versions cv on cv.club_id = n.id
+           where n.id = $1 limit 1`,
+          [clubId],
+        );
+
+        const current = currentResult.rows[0];
+        if (!current) throw new AppError(404, 'not_found', 'Club not found');
+
+        // Idempotent: no-op if price already matches
+        const currentAmount = current.membership_price_amount != null ? Number(current.membership_price_amount) : null;
+        if (currentAmount === amount && (amount === null || current.membership_price_currency === currency)) {
+          return;
+        }
+
+        // Create new club version with updated price
+        await client.query(
+          `insert into app.club_versions
+           (club_id, owner_member_id, name, summary, admission_policy,
+            membership_price_amount, membership_price_currency,
+            version_no, supersedes_version_id, created_by_member_id)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, null)`,
+          [clubId, current.owner_member_id, current.name, current.summary,
+           current.admission_policy, amount, currency,
+           Number(current.current_version_no) + 1, current.current_version_id],
+        );
+      });
+    },
+
+    async billingArchiveClub({ clubId }) {
+      const result = await pool.query<{ club_id: string }>(
+        `update app.clubs set archived_at = coalesce(archived_at, now())
+         where id = $1 returning id as club_id`,
+        [clubId],
+      );
+      if (!result.rows[0]) {
+        throw new AppError(404, 'not_found', 'Club not found');
+      }
     },
   };
 }

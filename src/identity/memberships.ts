@@ -103,25 +103,27 @@ async function isClubAdmin(client: DbClient, memberId: string, clubId: string): 
   return result.rows[0]?.ok === true;
 }
 
-async function hasLiveSubscription(client: DbClient, membershipId: string): Promise<boolean> {
-  const result = await client.query<{ has_sub: boolean }>(
+async function hasLiveAccess(client: DbClient, membershipId: string): Promise<boolean> {
+  const result = await client.query<{ has_access: boolean }>(
     `select exists(
+       select 1 from app.memberships where id = $1 and is_comped = true
+       union all
        select 1 from app.subscriptions
        where membership_id = $1
-         and status in ('trialing', 'active')
+         and status in ('trialing', 'active', 'past_due')
          and coalesce(ended_at, 'infinity'::timestamptz) > now()
          and coalesce(current_period_end, 'infinity'::timestamptz) > now()
-     ) as has_sub`,
+     ) as has_access`,
     [membershipId],
   );
-  return result.rows[0]?.has_sub === true;
+  return result.rows[0]?.has_access === true;
 }
 
-async function createCompedSubscription(client: DbClient, membershipId: string, payerMemberId: string): Promise<void> {
+async function setComped(client: DbClient, membershipId: string, compedByMemberId: string): Promise<void> {
   await client.query(
-    `insert into app.subscriptions (membership_id, payer_member_id, status, amount)
-     values ($1, $2, 'active', 0)`,
-    [membershipId, payerMemberId],
+    `update app.memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
+     where id = $1 and is_comped = false`,
+    [membershipId, compedByMemberId],
   );
 }
 
@@ -280,7 +282,7 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
     );
 
     if (input.initialStatus === 'active') {
-      await createCompedSubscription(client, membershipId, input.actorMemberId);
+      await setComped(client, membershipId, input.actorMemberId);
     }
 
     return readMembershipSummary(client, membershipId);
@@ -320,8 +322,8 @@ export async function transitionMembershipState(pool: Pool, input: TransitionMem
     );
 
     if (input.nextStatus === 'active') {
-      if (!(await hasLiveSubscription(client, membership.membership_id))) {
-        await createCompedSubscription(client, membership.membership_id, input.actorMemberId);
+      if (!(await hasLiveAccess(client, membership.membership_id))) {
+        await setComped(client, membership.membership_id, input.actorMemberId);
       }
     }
 
@@ -377,8 +379,8 @@ export async function demoteMemberFromAdmin(pool: Pool, input: {
   });
 }
 
-export { createCompedSubscription };
-export { hasLiveSubscription };
+export { setComped };
+export { hasLiveAccess };
 
 /**
  * Create a member record from an admission (outsider acceptance).
@@ -435,6 +437,145 @@ export async function createMemberFromAdmission(pool: Pool, input: {
     }
 
     return memberId;
+  });
+}
+
+/**
+ * Create a member record directly (superadmin bypass, no admission).
+ * Returns the new member ID, handle, and a bearer token.
+ */
+export async function createMemberDirect(pool: Pool, input: {
+  actorMemberId: string;
+  publicName: string;
+  handle?: string | null;
+  email?: string | null;
+}): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }> {
+  const { buildBearerToken } = await import('../token.ts');
+
+  return withTransaction(pool, async (client) => {
+    // Generate handle if not provided
+    const baseHandle = (input.handle ?? input.publicName)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 30) || 'member';
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const handle = input.handle ?? `${baseHandle}-${suffix}`;
+
+    let memberResult;
+    try {
+      memberResult = await client.query<{ id: string; handle: string }>(
+        `insert into app.members (public_name, handle, state)
+         values ($1, $2, 'active')
+         returning id, handle`,
+        [input.publicName, handle],
+      );
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === '23505' &&
+          'constraint' in error && typeof error.constraint === 'string' && error.constraint.includes('handle')) {
+        throw new AppError(409, 'handle_conflict', 'A member with that handle already exists');
+      }
+      throw error;
+    }
+    const row = memberResult.rows[0];
+    if (!row) throw new AppError(500, 'member_creation_failed', 'Failed to create member');
+
+    const memberId = row.id;
+
+    // Create initial profile version
+    await client.query(
+      `insert into app.profile_versions (member_id, version_no, display_name)
+       values ($1, 1, $2)`,
+      [memberId, input.publicName],
+    );
+
+    // Store private contact email
+    if (input.email) {
+      await client.query(
+        `insert into app.private_contacts (member_id, email) values ($1, $2)`,
+        [memberId, input.email],
+      );
+    }
+
+    // Issue bearer token
+    const token = buildBearerToken();
+    await client.query(
+      `insert into app.bearer_tokens (id, member_id, label, token_hash, metadata)
+       values ($1, $2, $3, $4, '{}'::jsonb)`,
+      [token.tokenId, memberId, 'superadmin-issued', token.tokenHash],
+    );
+
+    return {
+      memberId,
+      publicName: input.publicName,
+      handle: row.handle,
+      bearerToken: token.bearerToken,
+    };
+  });
+}
+
+/**
+ * Create a membership as superadmin (bypasses club admin check).
+ * If sponsorMemberId is not provided, falls back to the club owner.
+ */
+export async function createMembershipAsSuperadmin(pool: Pool, input: {
+  actorMemberId: string;
+  clubId: string;
+  memberId: string;
+  role: 'member' | 'clubadmin';
+  sponsorMemberId?: string | null;
+  initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
+  reason?: string | null;
+}): Promise<MembershipAdminSummary | null> {
+  return withTransaction(pool, async (client) => {
+    // Resolve sponsor: use provided, fall back to club owner
+    let sponsorMemberId = input.sponsorMemberId ?? null;
+    const clubResult = await client.query<{ owner_member_id: string }>(
+      `select owner_member_id from app.clubs where id = $1 and archived_at is null limit 1`,
+      [input.clubId],
+    );
+    if (!clubResult.rows[0]) {
+      throw new AppError(404, 'not_found', 'Club not found or archived');
+    }
+    if (!sponsorMemberId) {
+      sponsorMemberId = clubResult.rows[0].owner_member_id;
+    }
+
+    // Check no existing membership
+    const existing = await client.query<{ id: string }>(
+      `select id from app.memberships where club_id = $1 and member_id = $2 limit 1`,
+      [input.clubId, input.memberId],
+    );
+    if (existing.rows[0]) {
+      throw new AppError(409, 'membership_exists', 'This member already has a membership record in the club');
+    }
+
+    // For clubadmin role, sponsor_member_id can be null
+    const effectiveSponsor = input.role === 'clubadmin' ? null : sponsorMemberId;
+
+    // Insert membership (verify target member is active)
+    const membershipResult = await client.query<{ id: string }>(
+      `insert into app.memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata)
+       select $1::app.short_id, $2::app.short_id, $3::app.short_id, $4::app.membership_role, $5::app.membership_state, now(), '{}'::jsonb
+       where exists (select 1 from app.members where id = $2::app.short_id and state = 'active')
+       returning id`,
+      [input.clubId, input.memberId, effectiveSponsor, input.role, input.initialStatus],
+    );
+
+    const membershipId = membershipResult.rows[0]?.id;
+    if (!membershipId) return null;
+
+    await client.query(
+      `insert into app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+       values ($1, $2, $3, 1, $4)`,
+      [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
+    );
+
+    if (input.initialStatus === 'active') {
+      await setComped(client, membershipId, input.actorMemberId);
+    }
+
+    return readMembershipSummary(client, membershipId);
   });
 }
 

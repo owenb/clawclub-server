@@ -1,5 +1,6 @@
 /**
  * Action contracts: superadmin.overview, superadmin.members.list, superadmin.members.get,
+ * superadmin.members.create, superadmin.memberships.create,
  * superadmin.diagnostics.health, superadmin.clubs.list, superadmin.clubs.create,
  * superadmin.clubs.archive, superadmin.clubs.assignOwner, superadmin.clubs.update,
  * superadmin.content.list, superadmin.messages.threads, superadmin.messages.read,
@@ -18,6 +19,7 @@ import {
   wireCursor, parseCursor,
   wireSlug, parseSlug,
   entityKind,
+  membershipRole, membershipCreateInitialStatus,
 } from './fields.ts';
 import {
   adminOverview, adminMemberSummary, adminMemberDetail,
@@ -25,6 +27,7 @@ import {
   adminContentSummary, adminThreadSummary,
   directMessageEntry,
   bearerTokenSummary,
+  memberRef, membershipAdminSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -336,6 +339,12 @@ const superadminClubsArchive: ActionDefinition = {
     ctx.requireCapability('archiveClub');
     const { clubId } = input as { clubId: string };
 
+    // Guard: paid clubs must be archived through superadmin.billing.archiveClub
+    if (ctx.repository.isPaidClub) {
+      const paid = await ctx.repository.isPaidClub(clubId);
+      if (paid) throw new AppError(409, 'paid_club', 'Paid clubs must be archived through the billing system');
+    }
+
     const club = await ctx.repository.archiveClub!({
       actorMemberId: ctx.actor.member.id,
       clubId,
@@ -382,6 +391,12 @@ const superadminClubsAssignOwner: ActionDefinition = {
     ctx.requireSuperadmin();
     ctx.requireCapability('assignClubOwner');
     const { clubId, ownerMemberId } = input as { clubId: string; ownerMemberId: string };
+
+    // Guard: paid clubs cannot transfer ownership
+    if (ctx.repository.isPaidClub) {
+      const paid = await ctx.repository.isPaidClub(clubId);
+      if (paid) throw new AppError(409, 'paid_club', 'Ownership transfer of paid clubs is not supported');
+    }
 
     const club = await ctx.repository.assignClubOwner!({
       actorMemberId: ctx.actor.member.id,
@@ -712,10 +727,143 @@ const superadminTokensRevoke: ActionDefinition = {
   },
 };
 
+// ── superadmin.members.create ───────────────────────────
+
+type SuperadminMembersCreateInput = {
+  publicName: string;
+  handle?: string | null;
+  email?: string | null;
+};
+
+const superadminMembersCreate: ActionDefinition = {
+  action: 'superadmin.members.create',
+  domain: 'superadmin',
+  description: 'Create a new platform member with a bearer token (no club membership).',
+  auth: 'superadmin',
+  safety: 'mutating',
+
+  requiredCapability: 'adminCreateMember',
+
+  wire: {
+    input: z.object({
+      publicName: wireRequiredString.describe('Display name for the new member'),
+      handle: wireOptionalString.describe('Optional handle (auto-generated if omitted)'),
+      email: wireOptionalString.describe('Optional private contact email'),
+    }),
+    output: z.object({
+      member: memberRef,
+      bearerToken: z.string().describe('cc_live_* bearer token for the new member'),
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      publicName: parseRequiredString,
+      handle: parseTrimmedNullableString.default(null),
+      email: parseTrimmedNullableString.default(null),
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('adminCreateMember');
+    const { publicName, handle, email } = input as SuperadminMembersCreateInput;
+
+    const result = await ctx.repository.adminCreateMember!({
+      actorMemberId: ctx.actor.member.id,
+      publicName,
+      handle,
+      email,
+    });
+
+    return {
+      data: {
+        member: {
+          memberId: result.memberId,
+          publicName: result.publicName,
+          handle: result.handle,
+        },
+        bearerToken: result.bearerToken,
+      },
+    };
+  },
+};
+
+// ── superadmin.memberships.create ───────────────────────
+
+type SuperadminMembershipsCreateInput = {
+  clubId: string;
+  memberId: string;
+  role: 'member' | 'clubadmin';
+  sponsorMemberId?: string | null;
+  initialStatus: 'invited' | 'pending_review' | 'active' | 'payment_pending';
+  reason?: string | null;
+};
+
+const superadminMembershipsCreate: ActionDefinition = {
+  action: 'superadmin.memberships.create',
+  domain: 'superadmin',
+  description: 'Add an existing member to a club (bypasses club admin requirement).',
+  auth: 'superadmin',
+  safety: 'mutating',
+
+  requiredCapability: 'adminCreateMembership',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club to add the member to'),
+      memberId: wireRequiredString.describe('Member to add'),
+      role: membershipRole.default('member').describe('Role: member or clubadmin'),
+      sponsorMemberId: wireOptionalString.describe('Sponsoring member (defaults to club owner)'),
+      initialStatus: membershipCreateInitialStatus.default('active').describe('Initial membership status'),
+      reason: wireOptionalString.describe('Reason for creation'),
+    }),
+    output: z.object({ membership: membershipAdminSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      memberId: parseRequiredString,
+      role: membershipRole.default('member'),
+      sponsorMemberId: parseTrimmedNullableString.default(null),
+      initialStatus: membershipCreateInitialStatus.default('active'),
+      reason: parseTrimmedNullableString.default(null),
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireSuperadmin();
+    ctx.requireCapability('adminCreateMembership');
+    const { clubId, memberId, role, sponsorMemberId, initialStatus, reason } = input as SuperadminMembershipsCreateInput;
+
+    const membership = await ctx.repository.adminCreateMembership!({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      memberId,
+      role,
+      sponsorMemberId,
+      initialStatus,
+      reason,
+    });
+
+    if (!membership) {
+      throw new AppError(404, 'not_found', 'Member not found or not active');
+    }
+
+    return {
+      data: { membership },
+      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
+    };
+  },
+};
+
 registerActions([
   superadminOverview, superadminMembersList, superadminMembersGet,
+  superadminMembersCreate,
   superadminDiagnosticsHealth, superadminClubsList, superadminClubsCreate,
   superadminClubsArchive, superadminClubsAssignOwner, superadminClubsUpdate,
+  superadminMembershipsCreate,
   superadminContentList,
   superadminMessagesThreads, superadminMessagesRead,
   superadminTokensList, superadminTokensRevoke,
