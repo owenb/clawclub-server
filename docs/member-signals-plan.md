@@ -1,6 +1,6 @@
-# Member Signals and Serendipity Engine
+# Member Signals and Synchronicity Engine
 
-Implementation plan for proactive, system-generated notifications delivered through the existing update feed. This document covers the full primitive stack: from a general-purpose signal delivery channel through to the serendipity matching engine that uses it.
+Implementation plan for proactive, system-generated notifications delivered through the existing update feed. This document covers the full primitive stack: from a general-purpose signal delivery channel through to the synchronicity matching engine that uses it.
 
 Last updated: 2026-04-06
 
@@ -9,8 +9,8 @@ Last updated: 2026-04-06
 ClawClub today is entirely reactive. Nothing happens unless a human initiates it. An ask sits in the feed waiting for someone to scroll past it. Two members with overlapping interests never learn about each other unless one explicitly searches. An event with one spot left and three perfect-fit members goes unfilled because nobody thought to check.
 
 The platform already has the raw intelligence to connect these dots:
-- Member profiles are embedded as vectors (pgvector, `text-embedding-3-small`, 1536 dims) in the identity DB
-- Entities (asks, opportunities, services, posts) are embedded the same way in the clubs DB
+- Member profiles are embedded as vectors (pgvector, `text-embedding-3-small`, 1536 dims)
+- Entities (asks, opportunities, services, posts) are embedded the same way
 - Both embedding sets are maintained asynchronously by the existing embedding worker
 - The update feed already merges multiple notification sources into a single poll/SSE stream
 
@@ -20,7 +20,7 @@ What's missing is the ability for the *system* to generate targeted notification
 
 ### Primitives over features
 
-This plan is deliberately structured as a stack of general-purpose primitives, not as a set of feature implementations. The use cases for system-generated member notifications extend far beyond serendipity:
+This plan is deliberately structured as a stack of general-purpose primitives, not as a set of feature implementations. The use cases for system-generated member notifications extend far beyond synchronicity:
 
 - Billing: "Your subscription expires in 7 days"
 - Moderation: "Your post was removed by a club admin"
@@ -29,9 +29,9 @@ This plan is deliberately structured as a stack of general-purpose primitives, n
 - Capacity: "A spot opened up at Thursday's dinner"
 - Milestones: "You've been a member for one year"
 
-All of these are the same primitive: a targeted, structured, system-generated notification delivered through the update feed. Building the signal channel as a general-purpose primitive means every future notification use case is already solved at the transport layer. The serendipity engine is just the first (and most complex) producer.
+All of these are the same primitive: a targeted, structured, system-generated notification delivered through the update feed. Building the signal channel as a general-purpose primitive means every future notification use case is already solved at the transport layer. The synchronicity engine is just the first (and most complex) producer.
 
-This philosophy extends to every layer of the stack. The worker runner is not a "serendipity runner" -- it is a general-purpose worker lifecycle harness. The match table is not a "serendipity matches table" -- it is a general-purpose background match lifecycle tracker. The similarity queries are not "serendipity queries" -- they are general-purpose cross-plane vector similarity helpers. Every component should be named, documented, and tested as the general tool it is, not as a feature-specific implementation detail.
+This philosophy extends to every layer of the stack. The worker runner is not a "synchronicity runner" -- it is a general-purpose worker lifecycle harness. The match table is not a "synchronicity matches table" -- it is a general-purpose background match lifecycle tracker. The similarity queries are not "synchronicity queries" -- they are general-purpose vector similarity helpers. Every component should be named, documented, and tested as the general tool it is, not as a feature-specific implementation detail.
 
 ### Quality of signal over quantity
 
@@ -56,11 +56,11 @@ The plan never calls the LLM speculatively. Embedding vectors are pre-computed a
 
 ### Sharding awareness
 
-The current architecture plans for horizontal scaling via club sharding (see `docs/identity-club-split.md`). Every primitive in this plan must work in a sharded world:
+If ClawClub scales to the point where horizontal scaling is needed (see `docs/hyperscale.md`), every primitive in this plan must work in that world:
 
-- **Member signals** live in the clubs DB, which is the shard unit. Signals are already club-scoped. One shard = one club's signals.
-- **Worker state** lives in the clubs DB alongside the data it tracks. Each shard maintains its own high-water marks. A worker process can be assigned to one or many shards.
-- **Cross-plane queries** load a vector from one plane and query the other. This pattern works whether the clubs DB is one instance or many -- the vector is loaded from the shard, then queried against the global identity plane.
+- **Member signals** are already club-scoped. One shard = one club's signals.
+- **Worker state** lives in the database alongside the data it tracks. Each shard maintains its own high-water marks. A worker process can be assigned to one or many shards.
+- **Similarity queries** load a source vector and query the target table. This pattern works whether the database is one instance or many -- the vector is loaded from the shard, then queried against the target table.
 - **The worker runner** is shard-agnostic. It manages pools and lifecycle. The worker implementation receives pools and operates on them.
 
 ## Architecture overview
@@ -70,11 +70,11 @@ The stack decomposes into four tiers. Each tier is independently useful, and eac
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Feature workers                                            │
-│  serendipity today; digests, billing nudges, recommendation │
+│  synchronicity today; digests, billing nudges, recommendation │
 │  workers later. Each is a process using the tiers below.    │
 ├─────────────────────────────────────────────────────────────┤
 │  Recommendation primitives                                  │
-│  cross-plane similarity helpers, background_matches table   │
+│  similarity helpers, background_matches table               │
 ├─────────────────────────────────────────────────────────────┤
 │  Worker primitives                                          │
 │  runner.ts (lifecycle, pools, health), worker_state table   │
@@ -84,22 +84,22 @@ The stack decomposes into four tiers. Each tier is independently useful, and eac
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- **Transport primitives** are the general-purpose notification channel. Any system that needs to tell a specific member something -- billing, moderation, support, capacity alerts -- inserts a row into `member_signals` and the existing update feed delivers it. This tier has no knowledge of matching, similarity, or recommendations.
+- **Transport primitives** are the general-purpose notification channel. Any system that needs to tell a specific member something -- billing, moderation, support, capacity alerts -- inserts a row into `signals` and the existing update feed delivers it. This tier has no knowledge of matching, similarity, or recommendations.
 - **Worker primitives** are the general-purpose background process infrastructure. Any long-running process that polls for work, needs DB pools, health checks, and graceful shutdown uses the shared runner. Any worker that needs to persist cursor state uses `worker_state`. This tier has no knowledge of what the workers do.
-- **Recommendation primitives** are reusable within the narrower domain of "the system computed that member X should know about thing Y." Cross-plane similarity queries and the `background_matches` lifecycle table. Any worker that needs to find similar members/entities and track match state uses these. This tier has no knowledge of specific match types.
-- **Feature workers** are the specific business logic: serendipity matching today, digests, billing nudges, and other recommendation workers later. Each worker is a thin layer of domain logic that uses the tiers below. Adding a new feature worker should never require changes to the transport, worker, or recommendation tiers.
+- **Recommendation primitives** are reusable within the narrower domain of "the system computed that member X should know about thing Y." Similarity queries and the `background_matches` lifecycle table. Any worker that needs to find similar members/entities and track match state uses these. This tier has no knowledge of specific match types.
+- **Feature workers** are the specific business logic: synchronicity matching today, digests, billing nudges, and other recommendation workers later. Each worker is a thin layer of domain logic that uses the tiers below. Adding a new feature worker should never require changes to the transport, worker, or recommendation tiers.
 
 ## Prerequisites: Phase 0
 
 ### Canonical embedding schema
 
-The split migrations and the application code have drifted on embedding artifact column names:
+The migrations and the application code have drifted on embedding artifact column names:
 
-**Split migrations** (`db/migrations/identity/0001_init.sql:565-587`, `db/migrations/clubs/0001_init.sql:484-506`):
-- Identity: `member_profile_version_id`, `embedding_vector`
-- Clubs: `entity_version_id`, `embedding_vector`
+**Migrations** (`db/migrations/0001_init.sql`):
+- Profile artifacts: `member_profile_version_id`, `embedding_vector`
+- Entity artifacts: `entity_version_id`, `embedding_vector`
 
-**Application code** (`src/identity/profiles.ts:262-272`, `src/clubs/index.ts:246-252`, `src/embedding-worker.ts:265-304`):
+**Application code** (`src/identity/profiles.ts`, `src/clubs/index.ts`, `src/workers/embedding.ts`):
 - Identity: `member_id`, `profile_version_id`, `embedding`
 - Clubs: `entity_id`, `entity_version_id`, `embedding`
 
@@ -107,19 +107,16 @@ The code-style schema is the right one to standardize on, for two reasons:
 1. The code includes denormalized `member_id` / `entity_id` columns that avoid a join through the version table on every similarity query. At scale (large clubs), eliminating that join per row matters.
 2. All existing application code already uses this schema. Changing the migrations to match is one task; changing all the code to match the migrations is many.
 
-**Action**: Update the split migrations to match the code-style schema. Add `member_id` and `entity_id` columns, rename `embedding_vector` to `embedding`, rename `member_profile_version_id` to `profile_version_id`. Maintain the upsert-on-conflict key as `(member_id, model, dimensions, source_version, chunk_index)` for profiles and `(entity_id, model, dimensions, source_version, chunk_index)` for entities.
+**Action**: Update the migrations to match the code-style schema. Add `member_id` and `entity_id` columns, rename `embedding_vector` to `embedding`, rename `member_profile_version_id` to `profile_version_id`. Maintain the upsert-on-conflict key as `(member_id, model, dimensions, source_version, chunk_index)` for profiles and `(entity_id, model, dimensions, source_version, chunk_index)` for entities.
 
-Additionally, add an `updated_at` column (default `now()`) to both artifact tables, and update it on upsert conflict. The current `insertProfileArtifact` (`src/embedding-worker.ts:274-283`) uses `ON CONFLICT DO UPDATE` but does not touch any timestamp, which makes it impossible to detect re-embedded profiles. The `updated_at` column is needed for the serendipity worker's profile-change trigger (see Primitive 5).
+Additionally, add an `updated_at` column (default `now()`) to both artifact tables, and update it on upsert conflict. The current `insertProfileArtifact` in `src/workers/embedding.ts` uses `ON CONFLICT DO UPDATE` but does not touch any timestamp, which makes it impossible to detect re-embedded profiles. The `updated_at` column is needed for the synchronicity worker's profile-change trigger (see Primitive 5).
 
 ### Worker infrastructure
 
 All workers move to `src/workers/` with shared infrastructure. This is detailed in the "Worker management" section below. Files affected:
-- `src/embedding-worker.ts` -> `src/workers/embedding.ts`
-- `src/embedding-backfill.ts` -> `src/workers/embedding-backfill.ts`
-- `ops/systemd/clawclub-embedding-worker.service` (update `ExecStart` path)
-- `docs/self-hosting.md` (lines 120, 124 reference old paths)
-- `docs/railway-guide.md` (lines 160, 166 reference old paths)
-- `package.json` (add `worker:*` npm scripts)
+- `src/workers/embedding.ts` (embedding worker)
+- `src/workers/embedding-backfill.ts` (backfill script)
+- `package.json` (`worker:*` npm scripts)
 
 ---
 
@@ -127,18 +124,18 @@ All workers move to `src/workers/` with shared infrastructure. This is detailed 
 
 ### What it is
 
-A new notification source in the update feed. Today `listMemberUpdates` (`src/repository.ts:683`) merges two sources:
+A new notification source in the update feed. Today `listMemberUpdates` in `src/postgres.ts` merges two sources:
 
-| Source | Table | DB | Scope | Targeting |
-|--------|-------|----|-------|-----------|
-| Activity | `app.club_activity` | clubs | Club-wide broadcast | Audience filter (members/clubadmins/owners) |
-| Inbox | `app.messaging_inbox_entries` | messaging | Per-recipient | Specific member |
+| Source | Table | Scope | Targeting |
+|--------|-------|-------|-----------|
+| Activity | `app.activity` | Club-wide broadcast | Audience filter (members/clubadmins/owners) |
+| Inbox | `app.inbox_entries` | Per-recipient | Specific member |
 
 Member signals add a third:
 
-| Source | Table | DB | Scope | Targeting |
-|--------|-------|----|-------|-----------|
-| Signal | `app.member_signals` | clubs | Per-recipient, club-scoped | Specific member |
+| Source | Table | Scope | Targeting |
+|--------|-------|-------|-----------|
+| Signal | `app.signals` | Per-recipient, club-scoped | Specific member |
 
 ### Why not DMs
 
@@ -156,10 +153,10 @@ Using DMs would pollute the messaging system with non-conversational noise and f
 
 ### Migration
 
-New table in the clubs database:
+New table:
 
 ```sql
-CREATE TABLE app.member_signals (
+CREATE TABLE app.signals (
     id                      app.short_id DEFAULT app.new_id() NOT NULL,
     club_id                 text NOT NULL,
     recipient_member_id     text NOT NULL,
@@ -189,19 +186,19 @@ CREATE TABLE app.member_signals (
 );
 
 CREATE INDEX member_signals_recipient_poll_idx
-    ON app.member_signals (recipient_member_id, club_id, seq)
+    ON app.signals (recipient_member_id, club_id, seq)
     WHERE acknowledged_state IS NULL;
 
 CREATE INDEX member_signals_match_idx
-    ON app.member_signals (match_id)
+    ON app.signals (match_id)
     WHERE match_id IS NOT NULL;
 ```
 
-**Why `acknowledged_state` instead of `acknowledged boolean`**: The current inbox acknowledgement path (`src/repository.ts:843-880`) only flips a boolean and synthesizes receipt objects in memory -- it does not persist `processed` vs `suppressed` state. For signals, we want durable analytics: did the agent act on this signal, or suppress it? This data is essential for tuning match quality and similarity thresholds. If 80% of `signal.introduction` signals are suppressed, the threshold is too loose. If 95% of `signal.ask_match` signals are processed, the threshold might be too tight. A bare boolean discards this information.
+**Why `acknowledged_state` instead of `acknowledged boolean`**: The current inbox acknowledgement path in `src/postgres.ts` only flips a boolean and synthesizes receipt objects in memory -- it does not persist `processed` vs `suppressed` state. For signals, we want durable analytics: did the agent act on this signal, or suppress it? This data is essential for tuning match quality and similarity thresholds. If 80% of `signal.introduction` signals are suppressed, the threshold is too loose. If 95% of `signal.ask_match` signals are processed, the threshold might be too tight. A bare boolean discards this information.
 
 ### NOTIFY trigger
 
-The trigger reuses the existing `club_activity` NOTIFY channel:
+The trigger reuses the existing `updates` NOTIFY channel:
 
 ```sql
 CREATE FUNCTION app.notify_member_signal() RETURNS trigger
@@ -217,7 +214,7 @@ END;
 $$;
 
 CREATE TRIGGER member_signals_notify
-    AFTER INSERT ON app.member_signals
+    AFTER INSERT ON app.signals
     FOR EACH ROW EXECUTE FUNCTION app.notify_member_signal();
 ```
 
@@ -256,7 +253,7 @@ Example payloads are shown in the "Signal payloads" section.
 
 ### Why this is necessary
 
-The current update cursor encodes two values: `club_activity.seq` (for activity) and a timestamp (for inbox). Adding a third source with its own independent sequence (`member_signals.seq`) breaks this model. The signal seq and activity seq are independent identity-generated columns on different tables -- their values have no relationship.
+The current update cursor encodes two values: `activity.seq` (for activity) and a timestamp (for inbox). Adding a third source with its own independent sequence (`signals.seq`) breaks this model. The signal seq and activity seq are independent identity-generated columns on different tables -- their values have no relationship.
 
 ### Design
 
@@ -264,8 +261,8 @@ The cursor format changes from `{ s: activitySeq, t: inboxTimestamp }` to:
 
 ```typescript
 type UpdateCursor = {
-  a: number;        // club_activity.seq high-water mark
-  s: number;        // member_signals.seq high-water mark
+  a: number;        // activity.seq high-water mark
+  s: number;        // signals.seq high-water mark
   t: string;        // inbox timestamp high-water mark
 };
 ```
@@ -287,11 +284,11 @@ The server uses `repository.getLatestCursor` in two places:
 - `GET /updates?after=latest` (`src/server.ts:389-390`)
 - `GET /updates/stream` bootstrap (`src/server.ts:482-486`)
 
-This method must return a compound cursor seeded from `max(seq)` of both `club_activity` and `member_signals`, plus `now()` for the inbox timestamp.
+This method must return a compound cursor seeded from `max(seq)` of both `activity` and `signals`, plus `now()` for the inbox timestamp.
 
 ### Feed ordering and limiting
 
-The current merged feed is already only loosely ordered: `listMemberUpdates` fetches `limit` rows from each source and concatenates them unsorted (`src/repository.ts:822-823`). Adding signals the same way means `limit` is per source, not global.
+The current merged feed is already only loosely ordered: `listMemberUpdates` fetches `limit` rows from each source and concatenates them unsorted. Adding signals the same way means `limit` is per source, not global.
 
 This is acceptable because:
 - The feed is append-only and clients dedupe by `updateId`
@@ -302,92 +299,80 @@ If strict ordering is needed later, the composition layer can merge-sort all res
 
 ---
 
-## Primitive 3: Cross-Plane Similarity Queries
+## Primitive 3: Similarity Queries
 
 ### What it is
 
-Worker-side helper functions that find members or entities similar to a given member or entity, using embedding vectors that already exist in `embeddings_member_profile_artifacts` (identity DB) and `embeddings_entity_artifacts` (clubs DB).
-
-### Why "cross-plane"
-
-After the DB split, the data lives on different planes:
-- **Profile embeddings**: identity DB
-- **Entity embeddings**: clubs DB
-- **Club memberships / accessible_club_memberships**: identity DB
-- **DM threads**: messaging DB
-
-Entity-to-member matching cannot be a single SQL query -- the source vector is in clubs and the target vectors are in identity. Each similarity method follows a two-step pattern:
-1. **Load the source embedding** from its owning plane
-2. **Query the target plane** by vector similarity, passing the loaded vector as a parameter
+Worker-side helper functions that find members or entities similar to a given member or entity, using embedding vectors that already exist in `profile_embeddings` and `entity_embeddings`.
 
 ### Where these live
 
-New file: `src/workers/similarity.ts`. These are worker-side helpers, not repository methods. They take multiple DB pools as arguments. They have no API surface and are not wired into the action registry. They are designed to be reusable by any worker that needs similarity queries, not just the serendipity worker.
+New file: `src/workers/similarity.ts`. These are worker-side helpers, not repository methods. They have no API surface and are not wired into the action registry. They are designed to be reusable by any worker that needs similarity queries, not just the synchronicity worker.
 
 ### Scope constraint: no cross-club matching
 
 All similarity queries are scoped to a single club. ClawClub never leaks membership across clubs. A member's ask in DogClub must not be matched against a profile visible only through CatClub, even if the target member is in both. Each club is a closed context.
 
-All member-scoped queries join through `accessible_club_memberships` (not bare `club_memberships`). This matches the current product model where member visibility is gated by active membership + valid subscription (`db/migrations/identity/0001_init.sql:677-693`).
+All member-scoped queries join through `accessible_memberships` (not bare `memberships`). This matches the current product model where member visibility is gated by active membership + valid subscription (`db/init.sql`).
 
 ### Methods
 
 **`findMembersMatchingEntity`**: Given an entity (ask, opportunity, service), find members whose profiles are semantically similar.
 
-Step 1 -- load entity vector from clubs DB:
+Step 1 -- load entity vector:
 ```sql
-select eea.embedding
-from app.embeddings_entity_artifacts eea
+select ee.embedding
+from app.entity_embeddings ee
 join app.current_entity_versions cev
-  on cev.entity_id = eea.entity_id and cev.state = 'published'
-where eea.entity_id = $1
-order by eea.created_at desc
+  on cev.entity_id = ee.entity_id and cev.state = 'published'
+where ee.entity_id = $1
+order by ee.created_at desc
 limit 1
 ```
 
-Step 2 -- query identity DB for similar profiles, scoped to accessible club members:
+Step 2 -- query for similar profiles, scoped to accessible club members:
 ```sql
-select empa.member_id, min(empa.embedding <=> $1::vector) as distance
-from app.embeddings_member_profile_artifacts empa
-join app.accessible_club_memberships acm
-  on acm.member_id = empa.member_id
-  and acm.club_id = $2
-where empa.member_id <> $3
-group by empa.member_id
+select pe.member_id, min(pe.embedding <=> $1::vector) as distance
+from app.profile_embeddings pe
+join app.accessible_memberships am
+  on am.member_id = pe.member_id
+  and am.club_id = $2
+where pe.member_id <> $3
+group by pe.member_id
 order by distance asc
 limit $4
 ```
 
 **`findSimilarMembers`**: Given a member, find other members in the same club with similar profiles.
 
-Step 1 -- load member's profile vector from identity DB:
+Step 1 -- load member's profile vector:
 ```sql
-select empa.embedding
-from app.embeddings_member_profile_artifacts empa
-where empa.member_id = $1
-order by empa.updated_at desc
+select pe.embedding
+from app.profile_embeddings pe
+where pe.member_id = $1
+order by pe.updated_at desc
 limit 1
 ```
 
-Step 2 -- query identity DB for similar profiles in the same club (same query shape as above, different source vector).
+Step 2 -- query for similar profiles in the same club (same query shape as above, different source vector).
 
 **`findAskMatchingOffer`**: Given a new service/opportunity entity, find existing *ask* entities in the same club that it could fulfil. This is entity-to-entity matching.
 
-Step 1 -- load offer entity vector from clubs DB (same as `findMembersMatchingEntity` step 1).
+Step 1 -- load offer entity vector (same as `findMembersMatchingEntity` step 1).
 
-Step 2 -- query clubs DB for similar ask entities:
+Step 2 -- query for similar ask entities:
 ```sql
-select eea.entity_id,
+select ee.entity_id,
        cev.author_member_id,
-       min(eea.embedding <=> $1::vector) as distance
-from app.embeddings_entity_artifacts eea
+       min(ee.embedding <=> $1::vector) as distance
+from app.entity_embeddings ee
 join app.current_entity_versions cev
-  on cev.entity_id = eea.entity_id and cev.state = 'published'
-join app.entities e on e.id = eea.entity_id
+  on cev.entity_id = ee.entity_id and cev.state = 'published'
+join app.entities e on e.id = ee.entity_id
 where e.club_id = $2
   and e.kind = 'ask'
   and e.id <> $3
-group by eea.entity_id, cev.author_member_id
+group by ee.entity_id, cev.author_member_id
 order by distance asc
 limit $4
 ```
@@ -398,11 +383,11 @@ The result includes `author_member_id` -- the worker signals the ask's author, n
 
 ### Interaction filtering for introductions
 
-To avoid introducing members who already know each other, the worker batch-loads existing DM thread pairs from the messaging DB. Threads store canonical member ordering (`member_a_id < member_b_id`, `src/messages/index.ts:109-110`). The worker batch-checks using `unnest`:
+To avoid introducing members who already know each other, the worker batch-loads existing DM thread pairs. Threads store canonical member ordering (`member_a_id < member_b_id`, `src/messages/index.ts:109-110`). The worker batch-checks using `unnest`:
 
 ```sql
 select member_a_id, member_b_id
-from app.messaging_threads
+from app.threads
 where archived_at is null
   and (member_a_id, member_b_id) in (
     select * from unnest($1::text[], $2::text[])
@@ -423,11 +408,11 @@ A reusable table for tracking background member-targeted match computations. It 
 1. **Deduplication** -- prevents suggesting the same match twice
 2. **Lifecycle tracking** -- records whether a match was delivered and enables analytics
 
-The scope is deliberately specific: every match targets a member. This is not a universal matching substrate for arbitrary object pairs -- it is a primitive for "the system computed that member X should know about thing Y." That scope covers all current and foreseeable recommendation use cases (serendipity, digest highlights, billing nudges, moderation notifications) without pretending to solve a more general problem. If a future system needs non-member-targeted matching, it should have its own table rather than forcing `background_matches` into a shape it wasn't designed for.
+The scope is deliberately specific: every match targets a member. This is not a universal matching substrate for arbitrary object pairs -- it is a primitive for "the system computed that member X should know about thing Y." That scope covers all current and foreseeable recommendation use cases (synchronicity, digest highlights, billing nudges, moderation notifications) without pretending to solve a more general problem. If a future system needs non-member-targeted matching, it should have its own table rather than forcing `background_matches` into a shape it wasn't designed for.
 
 ### Why this is separate from member_signals
 
-`member_signals` is the delivery channel -- it carries the notification. The match table is the computation state -- it tracks whether a match was computed, whether it was worth delivering, and links to the signal that delivered it.
+`signals` is the delivery channel -- it carries the notification. The match table is the computation state -- it tracks whether a match was computed, whether it was worth delivering, and links to the signal that delivered it.
 
 Without this separation:
 - Restarting a worker would re-compute and re-deliver all matches
@@ -458,7 +443,7 @@ CREATE TABLE app.background_matches (
     CONSTRAINT background_matches_unique
         UNIQUE (match_kind, source_id, target_member_id),
     CONSTRAINT background_matches_signal_fkey
-        FOREIGN KEY (signal_id) REFERENCES app.member_signals(id)
+        FOREIGN KEY (signal_id) REFERENCES app.signals(id)
 );
 
 CREATE INDEX background_matches_pending_idx
@@ -491,43 +476,43 @@ The `(match_kind, source_id, target_member_id)` unique constraint prevents dupli
 
 ### What it is
 
-Background processes that detect triggers, compute matches, and deliver signals. The first worker is the serendipity worker, but the infrastructure is designed for any number of workers.
+Background processes that detect triggers, compute matches, and deliver signals. The first worker is the synchronicity worker, but the infrastructure is designed for any number of workers.
 
 ### Architecture: shared runner + specific workers
 
 ```
 src/workers/
   runner.ts              shared worker lifecycle
-  similarity.ts          cross-plane vector similarity helpers
-  embedding.ts           existing embedding worker (moved)
-  embedding-backfill.ts  existing backfill script (moved)
-  serendipity.ts         serendipity matching worker (new)
+  similarity.ts          vector similarity helpers
+  embedding.ts           embedding worker
+  embedding-backfill.ts  backfill script
+  synchronicity.ts         synchronicity matching worker (new)
 ```
 
-Each worker implements a single function: `process(pools) -> number` (returns count of items processed). The runner handles everything else.
+Each worker implements a single function: `process(pool) -> number` (returns count of items processed). The runner handles everything else.
 
-### Serendipity worker: trigger detection
+### Synchronicity worker: trigger detection
 
-The worker uses two trigger sources, because entity publications and profile updates live on different planes and emit through different mechanisms.
+The worker uses two trigger sources, because entity publications and profile updates emit through different mechanisms.
 
 **Source A: Club activity** (entity-triggered matching)
 
 Polls `club_activity` for new entity publications:
 ```sql
 select seq, club_id, entity_id, topic, payload, created_by_member_id
-from app.club_activity
+from app.activity
 where seq > $1 and topic = 'entity.version.published'
 order by seq asc limit $2
 ```
 
-High-water mark: `club_activity.seq`, persisted in `worker_state` (see below).
+High-water mark: `activity.seq`, persisted in `worker_state` (see below).
 
 **Source B: Profile embedding completion** (introduction-triggered matching)
 
-Polls for newly completed or updated profile embeddings in the identity DB:
+Polls for newly completed or updated profile embeddings:
 ```sql
 select member_id, updated_at
-from app.embeddings_member_profile_artifacts
+from app.profile_embeddings
 where (updated_at, member_id) > ($1, $2)
 order by updated_at asc, member_id asc
 limit $3
@@ -535,11 +520,11 @@ limit $3
 
 High-water mark: `(updated_at, member_id)` pair, persisted in `worker_state`. A timestamp alone is not a safe cursor (rows can share timestamps). The query uses row-value comparison `(updated_at, member_id) > ($1, $2)` so the tie-breaker is honored in the filter, not just in storage.
 
-This depends on the `updated_at` column added to artifact tables in Phase 0. The current `insertProfileArtifact` (`src/embedding-worker.ts:274-283`) upserts in place without advancing any timestamp, so without `updated_at`, later profile changes would be invisible to the serendipity worker.
+This depends on the `updated_at` column added to artifact tables in Phase 0. The `insertProfileArtifact` in `src/workers/embedding.ts` upserts in place without advancing any timestamp, so without `updated_at`, later profile changes would be invisible to the synchronicity worker.
 
-**Shard coordination**: The identity DB is global (not sharded), so the profile artifact change stream is global too. If we run one serendipity worker per clubs shard, every shard-local worker independently scans the same global identity change stream. This is an explicit design choice: each worker filters the global profile changes to members who have memberships in its shard's clubs. The identity-side scan is read-only and cheap (a small indexed query), so N workers scanning the same stream is acceptable. The alternative -- a single coordinator that fans out profile changes to per-shard queues -- adds a coordination point that is not justified at current scale.
+**Shard coordination**: Profile data is global (not sharded), so the profile artifact change stream is global too. If we run one synchronicity worker per shard, every shard-local worker independently scans the same global profile change stream. This is an explicit design choice: each worker filters the global profile changes to members who have memberships in its shard's clubs. The profile-side scan is read-only and cheap (a small indexed query), so N workers scanning the same stream is acceptable. The alternative -- a single coordinator that fans out profile changes to per-shard queues -- adds a coordination point that is not justified at current scale.
 
-### Serendipity worker: matching logic
+### Synchronicity worker: matching logic
 
 **Ask published** (Source A, entity kind = `ask`):
 1. Run `findMembersMatchingEntity` -- find members whose profiles are similar to the ask
@@ -557,7 +542,7 @@ Introductions use a different model from entity-triggered matching. Triggers nev
 
 **Triggers** (any of these marks a pair dirty):
 - Primary: profile embedding completion/update (Source B — `updated_at` on profile artifacts)
-- Secondary: member becomes newly accessible in a club via `accessible_club_memberships` (new membership, subscription activated)
+- Secondary: member becomes newly accessible in a club via `accessible_memberships` (new membership, subscription activated)
 - Backstop: periodic sweep for repair/reconciliation only, not primary discovery
 
 **Recompute queue** (`recompute_queue` table or dirty-set, added in Phase 4):
@@ -569,7 +554,7 @@ Introductions use a different model from entity-triggered matching. Triggers nev
 **Recompute step** (processes dirty set):
 1. Claim dirty `(member_id, club_id)` pairs
 2. Run `findSimilarMembers` for each
-3. Batch-check existing DM threads from messaging DB
+3. Batch-check existing DM threads
 4. Filter out pairs with existing threads
 5. Filter out pairs with existing `member_to_member` matches (delivered or pending)
 6. Insert new match rows for qualifying pairs above threshold
@@ -593,7 +578,7 @@ Introductions use a different model from entity-triggered matching. Triggers nev
 4. Filter out members with existing `event_to_member` matches for this event
 5. Insert match rows
 
-### Serendipity worker: delivery
+### Synchronicity worker: delivery
 
 After computing matches, the worker delivers pending ones:
 
@@ -612,13 +597,13 @@ Note: results ordered by `score asc` (lower distance = better match). Best match
 For each pending match:
 1. **Throttle check**: Count signals delivered to this member, scoped by match kind and time window. Different match kinds can have different caps (e.g., introductions: 1/day or 2/week; ask matches: 3/day). Skip if over the cap. The match stays `pending` for the next cycle.
 2. **Validity check**: Verify the match is still valid (source entity still published, both members still accessible in the club, no DM thread created since match was computed). Expire invalid matches.
-3. **Enrich payload**: Look up member names (identity DB) and entity details (clubs DB). Build the signal payload.
-4. **Write signal**: Insert into `member_signals` with the appropriate topic and payload.
+3. **Enrich payload**: Look up member names and entity details. Build the signal payload.
+4. **Write signal**: Insert into `signals` with the appropriate topic and payload.
 5. **Transition match**: Set `state = 'delivered'`, `delivered_at = now()`, `signal_id = <new signal ID>`.
 
 ### Cost analysis at scale
 
-**Current state: no ANN indexes.** The existing embedding migrations (`db/migrations/identity/0001_init.sql:586`, `db/migrations/clubs/0001_init.sql:505`) create only B-tree indexes on version/ID columns. There are no pgvector ANN indexes (IVFFlat, HNSW) on the embedding columns. All `<=>` similarity queries currently do exact brute-force scans.
+**Current state: no ANN indexes.** The existing embedding migrations (`db/migrations/0001_init.sql`) create only B-tree indexes on version/ID columns. There are no pgvector ANN indexes (IVFFlat, HNSW) on the embedding columns. All `<=>` similarity queries currently do exact brute-force scans.
 
 **Performance at current scale (brute-force):**
 
@@ -636,13 +621,13 @@ At ~2,000-5,000 members per club, brute-force scans start taking noticeable time
 
 ```sql
 -- Phase 0 or when a club approaches 2,000 members
-CREATE INDEX embeddings_member_profile_artifacts_hnsw_idx
-    ON app.embeddings_member_profile_artifacts
+CREATE INDEX profile_embeddings_hnsw_idx
+    ON app.profile_embeddings
     USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64);
 
-CREATE INDEX embeddings_entity_artifacts_hnsw_idx
-    ON app.embeddings_entity_artifacts
+CREATE INDEX entity_embeddings_hnsw_idx
+    ON app.entity_embeddings
     USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 64);
 ```
@@ -669,22 +654,22 @@ CREATE TABLE app.worker_state (
 );
 ```
 
-This is generic -- any worker stores key-value state here. Lives in the clubs DB (shard-local). The serendipity worker stores:
-- `('serendipity', 'activity_seq')` -- last processed `club_activity.seq`
-- `('serendipity', 'profile_artifact_at')` -- last processed profile artifact `updated_at`
-- `('serendipity', 'profile_artifact_member_id')` -- tie-breaker for timestamp cursor
-- `('serendipity', 'introduction_sweep_at')` -- last introduction sweep timestamp
-- `('serendipity', 'event_sweep_at')` -- last event suggestion sweep timestamp
+This is generic -- any worker stores key-value state here. The synchronicity worker stores:
+- `('synchronicity', 'activity_seq')` -- last processed `activity.seq`
+- `('synchronicity', 'profile_artifact_at')` -- last processed profile artifact `updated_at`
+- `('synchronicity', 'profile_artifact_member_id')` -- tie-breaker for timestamp cursor
+- `('synchronicity', 'introduction_sweep_at')` -- last introduction sweep timestamp
+- `('synchronicity', 'event_sweep_at')` -- last event suggestion sweep timestamp
 
 ### Configuration
 
 Environment variables:
-- `IDENTITY_DATABASE_URL`, `CLUBS_DATABASE_URL`, `MESSAGING_DATABASE_URL`
-- `SERENDIPITY_POLL_INTERVAL_MS` (default: 30000)
-- `SERENDIPITY_SIMILARITY_THRESHOLD` (default: TBD, needs tuning)
-- `SERENDIPITY_MAX_SIGNALS_PER_DAY` (default: 3)
-- `SERENDIPITY_INTRODUCTION_INTERVAL_MS` (default: 86400000)
-- `SERENDIPITY_EVENT_WINDOW_HOURS` (default: 48)
+- `DATABASE_URL`
+- `SYNCHRONICITY_POLL_INTERVAL_MS` (default: 30000)
+- `SYNCHRONICITY_SIMILARITY_THRESHOLD` (default: TBD, needs tuning)
+- `SYNCHRONICITY_MAX_SIGNALS_PER_DAY` (default: 3)
+- `SYNCHRONICITY_INTRODUCTION_INTERVAL_MS` (default: 86400000)
+- `SYNCHRONICITY_EVENT_WINDOW_HOURS` (default: 48)
 
 ---
 
@@ -699,17 +684,17 @@ Worker scripts are currently scattered in `src/` with no shared infrastructure f
 ```
 src/workers/
   runner.ts              shared worker lifecycle
-  similarity.ts          cross-plane vector similarity helpers
-  embedding.ts           embedding worker (moved from src/embedding-worker.ts)
-  embedding-backfill.ts  backfill script (moved from src/embedding-backfill.ts)
-  serendipity.ts         serendipity worker (new)
+  similarity.ts          vector similarity helpers
+  embedding.ts           embedding worker
+  embedding-backfill.ts  backfill script
+  synchronicity.ts         synchronicity worker (new)
 ```
 
 ### Shared runner (`runner.ts`)
 
 Provides:
 
-1. **Pool management**: Creates and tears down DB pools from env vars. Standard `WorkerPools` type with `identity`, `clubs`, and optional `messaging` pools.
+1. **Pool management**: Creates and tears down the DB pool from `DATABASE_URL`.
 
 2. **Graceful shutdown**: Listens for `SIGTERM`/`SIGINT`, sets a flag, waits for the current cycle to complete, closes pools, exits cleanly.
 
@@ -718,23 +703,17 @@ Provides:
 4. **Loop harness**: Standard poll-sleep loop:
 
 ```typescript
-type WorkerPools = {
-  identity: Pool;
-  clubs: Pool;
-  messaging?: Pool;
-};
-
 export async function runWorkerLoop(
   name: string,
-  pools: WorkerPools,
-  processFn: (pools: WorkerPools) => Promise<number>,
+  pool: Pool,
+  processFn: (pool: Pool) => Promise<number>,
   opts: { pollIntervalMs: number; healthPort?: number },
 ): Promise<void>;
 
 export async function runWorkerOnce(
   name: string,
-  pools: WorkerPools,
-  processFn: (pools: WorkerPools) => Promise<number>,
+  pool: Pool,
+  processFn: (pool: Pool) => Promise<number>,
 ): Promise<void>;
 ```
 
@@ -744,9 +723,9 @@ export async function runWorkerOnce(
 
 Adding a future worker (e.g., billing notifications, digest generation) is:
 1. Create `src/workers/my-worker.ts`
-2. Import `runWorkerLoop` and `WorkerPools` from `runner.ts`
-3. Implement `async function process(pools: WorkerPools): Promise<number>`
-4. Call `runWorkerLoop('my-worker', pools, process, { pollIntervalMs: N })`
+2. Import `runWorkerLoop` from `runner.ts`
+3. Implement `async function process(pool: Pool): Promise<number>`
+4. Call `runWorkerLoop('my-worker', pool, process, { pollIntervalMs: N })`
 
 The runner handles pool setup, shutdown, health checks, and error recovery. The worker only implements its processing logic.
 
@@ -755,7 +734,7 @@ The runner handles pool setup, shutdown, health checks, and error recovery. The 
 ```json
 {
   "worker:embedding": "node --experimental-strip-types src/workers/embedding.ts",
-  "worker:serendipity": "node --experimental-strip-types src/workers/serendipity.ts"
+  "worker:synchronicity": "node --experimental-strip-types src/workers/synchronicity.ts"
 }
 ```
 
@@ -871,43 +850,41 @@ The first four features require all five primitives. Every other notification ne
 
 ### Phase 0: Prerequisites
 
-1. Canonicalize embedding artifact schema: update split migrations to match code-style columns (`member_id`, `entity_id`, `profile_version_id`, `embedding`). Add `updated_at` column to both artifact tables, set on upsert.
+1. Canonicalize embedding artifact schema: update migrations to match code-style columns (`member_id`, `entity_id`, `profile_version_id`, `embedding`). Add `updated_at` column to both artifact tables, set on upsert.
 2. Create `src/workers/` directory and `runner.ts` with shared lifecycle (pools, shutdown, health, loop harness).
-3. Move `src/embedding-worker.ts` to `src/workers/embedding.ts`. Update `ops/systemd/clawclub-embedding-worker.service`, `docs/self-hosting.md`, `docs/railway-guide.md`, and `package.json`.
-4. Move `src/embedding-backfill.ts` to `src/workers/embedding-backfill.ts`. Update references.
-5. Verify all existing tests pass after the move.
+3. Verify all existing tests pass.
 
 ### Phase 1: Member Signals + Compound Cursor (Primitives 1 + 2)
 
-1. Write clubs DB migration: `member_signals` table, NOTIFY trigger, `worker_state` table.
+1. Write migration: `signals` table, NOTIFY trigger, `worker_state` table.
 2. Add `'signal'` to `PendingUpdate.source` type in `src/contract.ts`.
 3. Update `pendingUpdate` Zod schema in `src/schemas/responses.ts`.
 4. Refactor cursor encode/decode to compound format (backward-compatible).
-5. Add signals query to `listMemberUpdates` in `src/repository.ts`.
-6. Update `getLatestCursor` to seed compound cursor from both `club_activity` and `member_signals`.
+5. Add signals query to `listMemberUpdates` in `src/postgres.ts`.
+6. Update `getLatestCursor` to seed compound cursor from both `activity` and `signals`.
 7. Extend `acknowledgeUpdates` to handle `signal:` prefixed IDs with durable state.
 8. Integration tests: signal in `updates.list`, acknowledgement (processed + suppressed), cursor independence, SSE wake-up, backward-compatible cursor parsing.
 
-### Phase 2: Cross-Plane Similarity Queries (Primitive 3)
+### Phase 2: Similarity Queries (Primitive 3)
 
 1. Create `src/workers/similarity.ts` with `findMembersMatchingEntity`, `findSimilarMembers`, `findAskMatchingOffer`.
-2. Integration tests: seed known embeddings across identity and clubs DBs, verify ranking, verify club scoping, verify `accessible_club_memberships` filtering.
+2. Integration tests: seed known embeddings, verify ranking, verify club scoping, verify `accessible_memberships` filtering.
 
 ### Phase 3: Match Lifecycle Table (Primitive 4)
 
-1. Write clubs DB migration: `background_matches` table.
+1. Write migration: `background_matches` table.
 2. Add repository helpers for creating matches (with upsert/skip on conflict), transitioning state, expiring old matches.
 3. Tests: deduplication, state transitions, expiration.
 
-### Phase 4: Serendipity Worker (Primitive 5)
+### Phase 4: Synchronicity Worker (Primitive 5)
 
-1. Create `src/workers/serendipity.ts` using the shared runner.
+1. Create `src/workers/synchronicity.ts` using the shared runner.
 2. Implement dual trigger detection (club_activity + identity profile artifacts with `updated_at`).
 3. Implement ask matching and offer matching (entity-triggered).
 4. Implement introduction matching (profile-triggered + periodic sweep) with batch DM thread filtering.
 5. Implement event suggestion matching (periodic).
 6. Implement delivery step with throttling.
-7. Integration tests against real databases (all three planes).
+7. Integration tests against a real database.
 8. Add npm scripts and deployment config.
 
 ### Phase 5 (future): Match Context Generation
@@ -941,7 +918,7 @@ Every primitive must have its own integration tests that run against real Postgr
 - Seed known profile and entity embeddings
 - Verify `findMembersMatchingEntity` returns correct ranking
 - Verify club scoping (member in wrong club not returned)
-- Verify `accessible_club_memberships` filtering (inactive subscription excluded)
+- Verify `accessible_memberships` filtering (inactive subscription excluded)
 - Verify `findAskMatchingOffer` returns asks, not other entity kinds
 - Verify self-exclusion (author not matched to own entity)
 
