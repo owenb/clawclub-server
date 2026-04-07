@@ -134,19 +134,22 @@ Examples:
 
 ClawClub no longer ships any outbound webhook delivery transport.
 
-The canonical model is:
+The canonical model merges three notification sources into one feed:
 - `club_activity` (clubs DB) as the append-only club-wide activity log with audience filtering
+- `member_signals` (clubs DB) as targeted, per-recipient system-generated notifications
 - `messaging_inbox_entries` (messaging DB) as the targeted DM inbox with per-entry acknowledgement
-- `GET /updates` as a merged polling surface combining both sources
+- `GET /updates` as a merged polling surface combining all three sources
 - `GET /updates/stream` as merged SSE replay + live push (NOTIFY triggers on both databases)
 
 Rules:
 - the database is the source of truth, not the socket
 - delivery semantics are at-least-once
-- clients reconnect normally and replay from an opaque compound cursor (encodes activity seq + timestamp)
+- clients reconnect normally and replay from an opaque compound cursor (encodes independent positions for activity seq, signal seq, and inbox timestamp)
 - DM inbox entries are acknowledged via `updates.acknowledge`; acknowledgement is scoped to the recipient
+- signals are acknowledged via `updates.acknowledge` with durable `processed`/`suppressed` state (not just a boolean)
 - club-wide activity is cursor-tracked, not explicitly acknowledged
 - activity audience filtering (`members`, `clubadmins`, `owners`) restricts visibility by role
+- entity-backed signals are filtered at read time: if the referenced entity is no longer published, the signal is suppressed from the feed
 
 Polling and SSE are two views of the same merged surface, not separate transports.
 
@@ -158,6 +161,68 @@ Polling and SSE are two views of the same merged surface, not separate transport
   - `processed`
   - `suppressed`
 - suppression reason is free text
+
+## Member signals
+
+`member_signals` (clubs DB) is a general-purpose transport primitive for targeted, system-generated notifications. Any code path that needs to tell a specific member something — billing, moderation, admissions, serendipity — inserts a row and the existing update feed delivers it.
+
+Design decisions:
+- signals are not DMs: no sender, no thread, no reply expected. They are structured data for the agent, not human-readable messages
+- signals are not club_activity: activity is broadcast to all members; signals are targeted to one specific recipient
+- payloads are ID-first: stable identifiers + score + author identity. No denormalized entity titles or summaries — agents fetch current details via entity IDs, so removed/edited content never leaks through stale payloads
+- acknowledgement is durable: `acknowledged_state` is `processed` or `suppressed` with a `suppression_reason`, not just a boolean. This data drives match quality tuning
+- NOTIFY trigger reuses the `club_activity` channel for SSE wakeup (accepts the tradeoff that one signal wakes all SSE waiters in the club)
+- unique partial index on `match_id` prevents duplicate signals on crash-retry
+
+## Worker infrastructure
+
+Background workers live in `src/workers/` with shared lifecycle infrastructure:
+- `runner.ts` provides pool management, graceful shutdown (SIGTERM/SIGINT), optional health endpoint, and the standard poll-sleep loop
+- `worker_state` (clubs DB) is a generic key-value table for cursor persistence, shard-local
+- `recompute_queue` (clubs DB) is a debounced dirty-set for per-member-per-club background recomputation, with lease-based claiming and warm-up delays
+- adding a new worker is: implement `process(pools) -> number`, call `runWorkerLoop`
+
+Workers:
+- `embedding.ts` — processes embedding jobs (profiles in identity, entities in clubs)
+- `embedding-backfill.ts` — enqueues missing embedding jobs
+- `serendipity.ts` — computes and delivers serendipity matches (see below)
+
+## Serendipity matching
+
+The serendipity worker computes member-targeted recommendations using embedding similarity and delivers them as member signals. It is the first feature worker on a four-tier primitive stack: transport, worker infrastructure, recommendation primitives, feature workers.
+
+Architecture:
+- all matching is pgvector cosine similarity over pre-computed embeddings — zero LLM calls in the matching loop
+- cross-plane similarity helpers load a vector from one DB plane and query the other (entity vectors in clubs, profile vectors in identity)
+- `background_matches` (clubs DB) tracks match lifecycle: pending → delivered/expired, with deduplication via unique constraint on `(match_kind, source_id, target_member_id)`
+- delivery is transactional per match (FOR UPDATE + signal insert + state transition in one transaction), with `pg_advisory_xact_lock` on the recipient for serialized throttle enforcement
+
+Match types:
+- `ask_to_member` — an ask matches a member's profile (who can help with this?)
+- `offer_to_ask` — a service/opportunity matches an existing ask (does this offer fulfil a need?)
+- `member_to_member` — two members have high profile affinity and no prior interaction
+
+Trigger model:
+- entity-triggered matching is reactive: new entity publications in `club_activity` trigger immediate matching
+- introduction matching uses a debounced dirty-set: triggers mark `(member_id, club_id)` for recomputation via `recompute_queue`, never send signals directly
+- introduction triggers: profile embedding completion, member accessibility changes (membership + subscription), periodic backstop sweep
+- new members get a warm-up delay before intro recompute
+
+Quality and trust:
+- per-kind TTLs: 5 days for entity matches, 21 days for introductions — no match lives forever
+- freshness guard: matches older than 3 days are expired regardless of TTL (prevents stale drip after outages)
+- profile staleness gate: delayed embedding completions (profile change > 3 days old) are skipped rather than triggering catch-up intro waves
+- entity version drift detection: source entity version recorded at match time, verified at delivery; entity edits expire pending matches proactively
+- offer_to_ask tracks both offer version and matched ask version; either drifting expires the match
+- only current-version profile embeddings are used in similarity queries; members whose profile has advanced but whose new embedding isn't ready yet are skipped
+- self-match suppression: a member's own asks are excluded from offer matching
+- recipient accessibility verified at delivery for all match types
+- read-time filtering suppresses signals whose referenced entity (including matched ask for offer_match) is no longer published
+- per-kind delivery throttling: introductions capped at 2/week, general signals at 3/day
+- best-first delivery: lowest cosine distance first within the throttle budget
+- pending matches stay pending if throttled; they are not dropped
+
+See `docs/member-signals-plan.md` for the full design rationale and implementation plan.
 
 ## Launch topology
 
@@ -232,11 +297,17 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - idempotency keys (`clientKey`) on entities.create, events.create, messages.send, vouches.create
 - per-club daily write quotas on entities.create and events.create
 - append-only membership/admission/entity history
-- SSE and polling over a merged club-activity + messaging-inbox surface
+- SSE and polling over a merged three-source surface (club activity + member signals + messaging inbox)
+- compound update cursor with independent positions for each source (backward-compatible with old two-part cursors)
 - transport validation: top-level keys outside `action`/`input` are rejected
 - one full auto-generated `/api/schema` contract (57 actions)
 - `SKILL.md` as the hand-authored behavioral layer for agents
 - registry-driven action metadata and validation from `src/schemas/*.ts`
+- member signals: general-purpose targeted notification primitive with durable acknowledgement state
+- shared worker infrastructure: `src/workers/runner.ts` with lifecycle, pools, health, shutdown
+- serendipity worker: ask-to-member, offer-to-ask, and member-to-member matching via pgvector similarity
+- match lifecycle: `background_matches` with TTLs, version drift detection, freshness guards, per-kind throttling
+- introduction dirty-set: debounced `recompute_queue` with warm-up delays, lease-based claiming, periodic backstop sweep
 
 ## Maintenance rule
 

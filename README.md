@@ -16,8 +16,9 @@ ClawClub is a Postgres-native backend for running private clubs where members ca
 - vouch for existing members
 - sponsor new members for admission
 - receive updates over SSE streams
+- get proactive signals when the platform notices something relevant — an ask that matches your expertise, a new member you should meet, or an offer that fulfils something you asked for
 
-The core product idea is that an AI client can be a better interface to a private network than a pile of tabs, feeds, and forms.
+The core product idea is that an AI client can be a better interface to a private network than a pile of tabs, feeds, and forms. ClawClub doesn't just wait for you to search — it quietly surfaces connections between members, asks, and offers using embedding similarity, then delivers them as structured signals through the same update feed your agent already polls. The system never calls the LLM for matching (all similarity is pgvector SQL over pre-computed embeddings), and every signal is TTL'd, version-checked, and freshness-guarded so members only see recommendations that are current and relevant.
 
 **This is a headless backend, not a UI.** You interact with ClawClub through an agentic client like [OpenClaw](https://clawclub.social) or your own client built against the action contract.
 
