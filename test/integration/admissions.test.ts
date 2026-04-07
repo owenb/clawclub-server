@@ -346,3 +346,98 @@ describe('journey 4: non-owner cannot use owner admission actions', () => {
     assert.equal(err.code, 'invalid_input');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('journey 5: challenge cleanup with recorded attempts', () => {
+  it('deleting a challenge with prior attempts does not violate FK', async () => {
+    // Regression test: admission_attempts rows reference admission_challenges
+    // via FK. When the code deletes a consumed challenge, it must clean up
+    // child attempt rows first (or rely on ON DELETE CASCADE).
+    const owner = await h.seedOwner('fk-cleanup-club', 'FK Cleanup Club');
+
+    // Seed a challenge directly via SQL (bypasses PoW solving)
+    const challengeRows = await h.sql<{ id: string }>(
+      `insert into app.admission_challenges
+         (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
+       values (1, $1, 'Tell us who you are.', 'FK Cleanup Club', 'Test', 'Owner', now() + interval '10 minutes')
+       returning id`,
+      [owner.club.id],
+    );
+    const challengeId = challengeRows[0]!.id;
+
+    // Insert an attempt row (simulates a first attempt that got needs_revision)
+    await h.sql(
+      `insert into app.admission_attempts
+         (challenge_id, club_id, attempt_no, applicant_name, applicant_email,
+          payload, gate_status, gate_feedback, policy_snapshot)
+       values ($1, $2, 1, 'Test Applicant', 'test@example.com',
+               '{"socials":"@test","application":"test"}'::jsonb,
+               'rejected', 'Missing info', 'Tell us who you are.')`,
+      [challengeId, owner.club.id],
+    );
+
+    // Now delete the challenge — this is what the app code does on
+    // acceptance, expiration, or attempt exhaustion. Before the fix,
+    // this would fail with a FK violation (23503).
+    await h.sql(
+      `delete from app.admission_attempts where challenge_id = $1`,
+      [challengeId],
+    );
+    await h.sql(
+      `delete from app.admission_challenges where id = $1`,
+      [challengeId],
+    );
+
+    // Verify both are gone
+    const remaining = await h.sql<{ count: string }>(
+      `select count(*)::text as count from app.admission_challenges where id = $1`,
+      [challengeId],
+    );
+    assert.equal(remaining[0]!.count, '0', 'Challenge should be deleted');
+
+    const remainingAttempts = await h.sql<{ count: string }>(
+      `select count(*)::text as count from app.admission_attempts where challenge_id = $1`,
+      [challengeId],
+    );
+    assert.equal(remainingAttempts[0]!.count, '0', 'Attempts should be deleted');
+  });
+
+  it('ON DELETE CASCADE also cleans up attempts when challenge is deleted directly', async () => {
+    const owner = await h.seedOwner('cascade-club', 'Cascade Club');
+
+    const challengeRows = await h.sql<{ id: string }>(
+      `insert into app.admission_challenges
+         (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
+       values (1, $1, 'Policy', 'Cascade Club', 'Test', 'Owner', now() + interval '10 minutes')
+       returning id`,
+      [owner.club.id],
+    );
+    const challengeId = challengeRows[0]!.id;
+
+    // Insert two attempt rows
+    for (let i = 1; i <= 2; i++) {
+      await h.sql(
+        `insert into app.admission_attempts
+           (challenge_id, club_id, attempt_no, applicant_name, applicant_email,
+            payload, gate_status, gate_feedback, policy_snapshot)
+         values ($1, $2, $3, 'Applicant', 'app@example.com',
+                 '{"socials":"@x","application":"y"}'::jsonb,
+                 'rejected', 'Missing', 'Policy')`,
+        [challengeId, owner.club.id, i],
+      );
+    }
+
+    // Delete challenge directly — CASCADE should clean up attempts
+    await h.sql(
+      `delete from app.admission_challenges where id = $1`,
+      [challengeId],
+    );
+
+    const remainingAttempts = await h.sql<{ count: string }>(
+      `select count(*)::text as count from app.admission_attempts where challenge_id = $1`,
+      [challengeId],
+    );
+    assert.equal(remainingAttempts[0]!.count, '0', 'CASCADE should delete attempt rows');
+  });
+});
