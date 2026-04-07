@@ -133,6 +133,105 @@ describe('smoke', () => {
     assert.ok(!(body.error as any).message.includes('top-level'), 'should not be a transport rejection');
   });
 
+  it('GET /api/schema includes self-sufficient transport section', async () => {
+    const { body } = await h.getSchema();
+    const data = body.data as Record<string, unknown>;
+    const transport = data.transport as Record<string, unknown>;
+    assert.ok(transport, 'schema should have transport');
+
+    // Endpoints
+    const endpoints = transport.endpoints as Record<string, unknown>;
+    assert.ok(endpoints.action, 'should have action endpoint');
+    assert.ok(endpoints.schema, 'should have schema endpoint');
+    assert.ok(endpoints.updates, 'should have updates endpoint');
+    assert.ok(endpoints.stream, 'should have stream endpoint');
+
+    // Auth
+    const auth = transport.auth as Record<string, unknown>;
+    assert.equal(auth.type, 'bearer');
+    assert.ok(Array.isArray(auth.unauthenticatedActions));
+
+    // Request envelope
+    const envelope = transport.requestEnvelope as Record<string, unknown>;
+    assert.ok(envelope.schema, 'should have request envelope schema');
+    assert.ok(envelope.example, 'should have request envelope example');
+
+    // Response envelopes
+    const envelopes = transport.responseEnvelopes as Record<string, unknown>;
+    assert.ok(envelopes.authenticatedSuccess);
+    assert.ok(envelopes.unauthenticatedSuccess);
+    assert.ok(envelopes.error);
+
+    // Updates
+    const updates = transport.updates as Record<string, unknown>;
+    const polling = updates.polling as Record<string, unknown>;
+    assert.ok(polling.responseSchema, 'should have polling response schema');
+    const stream = updates.stream as Record<string, unknown>;
+    const events = stream.events as Record<string, unknown>;
+    assert.ok(events.ready, 'should have stream ready event schema');
+    assert.ok(events.update, 'should have stream update event schema');
+
+    // Transport error codes
+    const errorCodes = transport.transportErrorCodes as Array<Record<string, unknown>>;
+    assert.ok(errorCodes.length >= 8, 'should have transport error codes');
+    const codes = errorCodes.map(e => e.code);
+    assert.ok(codes.includes('invalid_input'));
+    assert.ok(codes.includes('unauthorized'));
+    assert.ok(codes.includes('unknown_action'));
+
+    // schemaHash covers full payload
+    assert.ok(typeof data.schemaHash === 'string');
+    assert.ok((data.schemaHash as string).length > 0);
+  });
+
+  it('error response includes requestTemplate for wrong envelope', async () => {
+    const owner = await h.seedOwner('template-envelope', 'TemplateEnvelope');
+    const { status, body } = await rawPost(h.port, owner.token, { action: 'session.describe', bogusKey: 'x' });
+    assert.equal(status, 400);
+    const error = body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invalid_input');
+    const template = error.requestTemplate as Record<string, unknown>;
+    assert.ok(template, 'should include requestTemplate');
+    assert.equal(template.action, 'session.describe');
+    assert.ok(template.input !== undefined, 'template should have input');
+  });
+
+  it('error response includes requestTemplate for missing required fields', async () => {
+    const owner = await h.seedOwner('template-fields', 'TemplateFields');
+    const { status, body } = await rawPost(h.port, owner.token, { action: 'entities.create', input: {} });
+    assert.equal(status, 400);
+    const error = body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invalid_input');
+    const template = error.requestTemplate as Record<string, unknown>;
+    assert.ok(template, 'should include requestTemplate');
+    assert.equal(template.action, 'entities.create');
+    const input = template.input as Record<string, string>;
+    assert.ok(input.clubId, 'template should show clubId');
+    assert.ok(input.clubId.includes('required'), 'clubId should be marked required');
+  });
+
+  it('error response includes generic requestTemplate when action is missing', async () => {
+    const { status, body } = await rawPost(h.port, null, { notAction: 'hello' });
+    assert.equal(status, 400);
+    const error = body.error as Record<string, unknown>;
+    const template = error.requestTemplate as Record<string, unknown>;
+    assert.ok(template, 'should include requestTemplate');
+    assert.equal(template.action, '(action name)');
+    assert.deepEqual(template.input, {});
+  });
+
+  it('error response includes generic requestTemplate for unknown action', async () => {
+    const owner = await h.seedOwner('template-unknown', 'TemplateUnknown');
+    const { status, body } = await rawPost(h.port, owner.token, { action: 'bogus.nonexistent' });
+    assert.equal(status, 400);
+    const error = body.error as Record<string, unknown>;
+    assert.equal(error.code, 'unknown_action');
+    const template = error.requestTemplate as Record<string, unknown>;
+    assert.ok(template, 'should include requestTemplate');
+    assert.equal(template.action, '(action name)');
+    assert.deepEqual(template.input, {});
+  });
+
   it('GET /api/schema matches committed snapshot', async () => {
     const { body } = await h.getSchema();
     const snapshotPath = new URL('../snapshots/api-schema.json', import.meta.url).pathname;

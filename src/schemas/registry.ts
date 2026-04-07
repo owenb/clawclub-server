@@ -184,14 +184,56 @@ export function getAction(action: string): ActionDefinition | undefined {
 /**
  * Parse action input through the parse schema.
  * Converts ZodError to AppError(400, 'invalid_input', ...) to preserve
- * the existing error contract.
+ * the existing error contract. Attaches a requestTemplate so agents can
+ * self-correct envelope and top-level shape mistakes.
  */
 export function parseActionInput<T>(def: ActionDefinition, payload: unknown): T {
   const result = def.parse.input.safeParse(payload);
   if (!result.success) {
     const err = result.error.issues[0];
     const path = err.path.length > 0 ? `${err.path.join('.')}: ` : '';
-    throw new AppError(400, 'invalid_input', `${path}${err.message}`);
+    const appErr = new AppError(400, 'invalid_input', `${path}${err.message}`);
+    appErr.requestTemplate = generateRequestTemplate(def);
+    throw appErr;
   }
   return result.data as T;
+}
+
+// ── Request template helpers ────────────────────────────
+
+/** Generic template for when the action is unknown or missing. */
+export const GENERIC_REQUEST_TEMPLATE = { action: '(action name)', input: {} };
+
+/**
+ * Generate a shallow request template from an action's wire input schema.
+ * Walks the JSON Schema properties to produce placeholder descriptors.
+ * Helps agents recover from envelope and top-level shape mistakes.
+ */
+export function generateRequestTemplate(def: ActionDefinition): { action: string; input: Record<string, string> } {
+  const jsonSchema = z.toJSONSchema(def.wire.input) as Record<string, unknown>;
+  const properties = (jsonSchema.properties ?? {}) as Record<string, Record<string, unknown>>;
+  const required = new Set((jsonSchema.required ?? []) as string[]);
+
+  const input: Record<string, string> = {};
+  for (const [key, prop] of Object.entries(properties)) {
+    const req = required.has(key) ? 'required' : 'optional';
+
+    if (prop.enum && Array.isArray(prop.enum)) {
+      input[key] = `(one of: ${prop.enum.join(', ')})`;
+      continue;
+    }
+
+    let typeStr = typeof prop.type === 'string' ? prop.type : 'unknown';
+
+    if (typeStr === 'array') {
+      const items = prop.items as Record<string, unknown> | undefined;
+      const itemType = items && typeof items.type === 'string' ? items.type : 'unknown';
+      input[key] = `(array of ${itemType}, ${req})`;
+      continue;
+    }
+
+    input[key] = `(${typeStr}, ${req})`;
+  }
+
+  return { action: def.action, input };
 }

@@ -11,102 +11,17 @@ The value is in the club, membership, and trust graph — not in the software al
 
 ## How to connect
 
-The agent must be configured with a **base URL** and a **bearer token** for the target ClawClub server. These are provided externally, not hardcoded here.
+Configure a **base URL** and **bearer token** for the target ClawClub server. Then fetch `GET {baseUrl}/api/schema` — it is the self-sufficient contract for all transport details: endpoints, request/response formats, authentication, error codes, and update/stream semantics. Use it as the source of truth.
 
-Four HTTP surfaces:
-
-| Surface | Purpose |
-|---|---|
-| `POST {baseUrl}/api` | Action calls |
-| `GET {baseUrl}/api/schema` | Live action reference (full input/output schemas) |
-| `GET {baseUrl}/updates` | Poll the pending update feed |
-| `GET {baseUrl}/updates/stream` | SSE replay + live push |
-
-### Authentication
-
-Most requests require a bearer token:
-
-```
-Authorization: Bearer cc_live_...
-```
-
-Two admissions actions are intentionally unauthenticated: `admissions.challenge` and `admissions.apply`. Two additional actions provide a cross-apply path for existing network members: `admissions.crossChallenge` and `admissions.crossApply` (authenticated, reduced PoW difficulty, name/email locked to profile).
-
-### Action reference
-
-**Before making action calls, fetch the live schema:**
-
-```
-GET {baseUrl}/api/schema
-```
-
-This unauthenticated endpoint returns the canonical action contract for every public action: action names, auth requirements, full input schemas, full output schemas, and descriptions. It is generated from the same code that validates requests at runtime.
-
-The response includes a `schemaHash` — a content hash of the current schema. Cache per base URL for the current session. If you fetch again and the hash changed, replace your cache.
-
-### Request format
-
-All actions use the same envelope:
-
-```
-POST {baseUrl}/api
-Content-Type: application/json
-Authorization: Bearer cc_live_...
-
-{ "action": "session.describe", "input": {} }
-```
-
-### Response format
-
-**Authenticated success:** `"ok": true` with an `actor` envelope containing the member identity, roles, club memberships, request scope, and pending update context. The `data` field contains the action-specific response.
-
-**Unauthenticated success** (cold admissions only): `"ok": true` with `action` and `data` but no `actor` envelope.
-
-**Error:** `"ok": false` with `error.code` and `error.message`.
-
-Common error codes: `invalid_input` (400), `unauthorized` (401), `forbidden` (403), `not_found` (404), `quota_exceeded` (429).
-
-### Polling
-
-```
-GET {baseUrl}/updates?limit=10&after=eyJhIjowLCJpIjo0Mn0
-Authorization: Bearer cc_live_...
-```
-
-The `after` parameter accepts an opaque string cursor, or `"latest"` to skip all existing updates and start from the current position. Omitting `after` is a bootstrap read: it returns pending inbox items and resumes club activity from the server's saved per-club position. The server does not auto-acknowledge targeted inbox items; call `updates.acknowledge` only for updates where `source` is `"inbox"`.
-
-### Streaming (SSE)
-
-```
-GET {baseUrl}/updates/stream?after=latest
-Authorization: Bearer cc_live_...
-```
-
-Opens a persistent Server-Sent Events connection. Events:
-
-- `ready` — sent immediately with member info, request scope, and cursor position
-- `update` — each update as JSON; the last update in a delivered batch carries an opaque SSE `id` cursor for resume
-- keepalive comments every 15 seconds
-
-The browser `EventSource` API cannot set `Authorization` headers. Use `fetch` with a streaming reader instead.
-
-### Update topics
-
-| Topic | Trigger | Key payload fields |
-|---|---|---|
-| `dm.message.created` | A DM is sent to the member | `kind`, `threadId`, `messageId`, `senderMemberId`, `senderPublicName`, `messageText` |
-| `entity.version.published` | An entity or event is created or updated | `kind`, `entityId`, `entityVersionId`, `entityKind`, `state`, `author`, `title`, `summary`, `body` |
-| `entity.removed` | An entity or event is removed | Same fields as published, with `state: "removed"` |
-| `dm.message.removed` | A DM message is removed | `kind`, `messageId` |
+The schema includes a `schemaHash`. Cache per base URL for the current session. If the hash changes on a subsequent fetch, replace your cache.
 
 ### Checking for new messages
 
 1. **Quick check** — `messages.inbox` with `unreadOnly: true`
 2. **Periodic poll** — `GET {baseUrl}/updates?after={lastCursor}`
-3. **Real-time (tail)** — `GET {baseUrl}/updates/stream?after=latest`
-4. **Real-time (replay)** — `GET {baseUrl}/updates/stream`
+3. **Real-time** — `GET {baseUrl}/updates/stream?after=latest`
 
-After processing, call `updates.acknowledge` with `state: "processed"` or `"suppressed"` for inbox items (`source: "inbox"`). Club activity items (`source: "activity"`) advance via the cursor and are not explicitly acknowledged.
+After processing, call `updates.acknowledge` with `state: "processed"` or `"suppressed"` for inbox items (`source: "inbox"`). Club activity items advance via the cursor and are not explicitly acknowledged.
 
 ---
 
@@ -186,9 +101,9 @@ Action families and individual actions:
 - `tokens.create` — create a new bearer token (max 10 active per member)
 - `tokens.revoke` — revoke a bearer token
 
-### Important: always fetch the schema first
+### Common surprises
 
-The schema endpoint (`GET {baseUrl}/api/schema`) is the **only reliable source** for field names, types, and required/optional status. Field names in this document are for orientation — if in doubt, check the schema. Common surprises:
+The schema is the only reliable source for field names and types. This list highlights non-obvious behaviors:
 
 - `socials` is a **string** (not an object) in both `admissions.apply` and `admissions.sponsor`
 - `admissions.apply` uses `application` (not `reason`) for the free-text field

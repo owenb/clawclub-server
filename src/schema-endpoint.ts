@@ -1,13 +1,25 @@
 /**
  * GET /api/schema — self-describing API schema endpoint.
  *
- * Serves the full auto-generated contract for every action in the registry.
+ * Serves the full auto-generated contract for every action in the registry,
+ * plus transport-level information (endpoints, auth, request/response
+ * envelopes, update/stream schemas, error codes) so the schema is
+ * self-sufficient — an agent needs no other document to make a correct call.
+ *
  * Output is deterministic: actions sorted by name, stable JSON key order.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { getRegistry } from './schemas/registry.ts';
+import {
+  authenticatedSuccessEnvelope,
+  unauthenticatedSuccessEnvelope,
+  errorEnvelope,
+  pollingResponse,
+  sseReadyEvent,
+} from './schemas/transport.ts';
+import { pendingUpdate } from './schemas/responses.ts';
 
 const PACKAGE_VERSION: string = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf-8'),
@@ -64,6 +76,77 @@ function relaxInputSchema(value: unknown): unknown {
   return value;
 }
 
+/**
+ * Convert a Zod schema to JSON Schema using the same pipeline as action schemas.
+ */
+function toRelaxedJsonSchema(schema: z.ZodType): unknown {
+  return relaxInputSchema(z.toJSONSchema(schema, { target: 'openapi-3.0' }));
+}
+
+/**
+ * Build the transport section: endpoints, auth, envelopes, updates, error codes.
+ */
+function buildTransport(): unknown {
+  return {
+    endpoints: {
+      action: { method: 'POST', path: '/api', contentType: 'application/json' },
+      schema: { method: 'GET', path: '/api/schema' },
+      updates: { method: 'GET', path: '/updates', contentType: 'application/json' },
+      stream: { method: 'GET', path: '/updates/stream', contentType: 'text/event-stream' },
+    },
+    auth: {
+      type: 'bearer',
+      headerFormat: 'Authorization: Bearer cc_live_...',
+      unauthenticatedActions: ['admissions.challenge', 'admissions.apply'],
+    },
+    requestEnvelope: {
+      schema: {
+        type: 'object',
+        properties: {
+          action: { type: 'string' },
+          input: { type: 'object' },
+        },
+        required: ['action'],
+      },
+      example: { action: 'session.describe', input: {} },
+    },
+    responseEnvelopes: {
+      authenticatedSuccess: toRelaxedJsonSchema(authenticatedSuccessEnvelope),
+      unauthenticatedSuccess: toRelaxedJsonSchema(unauthenticatedSuccessEnvelope),
+      error: toRelaxedJsonSchema(errorEnvelope),
+    },
+    updates: {
+      polling: {
+        queryParameters: {
+          limit: { type: 'integer', default: 10 },
+          after: { type: 'string', description: 'Opaque cursor or "latest"' },
+        },
+        responseSchema: toRelaxedJsonSchema(pollingResponse),
+      },
+      stream: {
+        events: {
+          ready: toRelaxedJsonSchema(sseReadyEvent),
+          update: toRelaxedJsonSchema(pendingUpdate),
+        },
+        note: 'Browser EventSource cannot set Authorization headers; use fetch with a streaming reader.',
+      },
+      acknowledgment: 'Acknowledge inbox-sourced updates via updates.acknowledge. Activity updates advance via cursor.',
+    },
+    transportErrorCodes: [
+      { code: 'invalid_input', status: 400 },
+      { code: 'invalid_json', status: 400 },
+      { code: 'unknown_action', status: 400 },
+      { code: 'unsupported_media_type', status: 415 },
+      { code: 'unauthorized', status: 401 },
+      { code: 'forbidden', status: 403 },
+      { code: 'rate_limited', status: 429 },
+      { code: 'payload_too_large', status: 413 },
+      { code: 'internal_error', status: 500 },
+      { code: 'not_implemented', status: 501 },
+    ],
+  };
+}
+
 function buildSchema(): unknown {
   const registry = getRegistry();
   const actions: SchemaAction[] = [];
@@ -91,16 +174,18 @@ function buildSchema(): unknown {
   // Sort by action name for deterministic output
   actions.sort((a, b) => a.action.localeCompare(b.action));
 
-  // Compute a content hash from the sorted actions so agents can detect
-  // schema changes with a single comparison, without diffing the full payload.
-  const actionsJson = JSON.stringify(actions);
-  const schemaHash = createHash('sha256').update(actionsJson).digest('hex').slice(0, 16);
+  const transport = buildTransport();
 
-  return sortKeysDeep({
+  const payload = sortKeysDeep({
     version: PACKAGE_VERSION,
-    schemaHash,
+    transport,
     actions,
   });
+
+  // Hash the full payload (transport + actions) so agents detect any contract change.
+  const schemaHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 16);
+
+  return { ...(payload as Record<string, unknown>), schemaHash };
 }
 
 /**

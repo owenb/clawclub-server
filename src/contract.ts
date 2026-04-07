@@ -1,6 +1,7 @@
 export class AppError extends Error {
   statusCode: number;
   code: string;
+  requestTemplate?: unknown;
 
   constructor(statusCode: number, code: string, message: string) {
     super(message);

@@ -32,6 +32,7 @@ import type {
 import {
   getAction,
   parseActionInput,
+  GENERIC_REQUEST_TEMPLATE,
   type ActionDefinition,
   type ActionResult,
   type HandlerContext,
@@ -264,7 +265,9 @@ export function buildDispatcher({ repository, qualityGate }: { repository: Repos
       // 2. Look up contract
       const def = getAction(actionName);
       if (!def) {
-        throw new AppError(400, 'unknown_action', `Unsupported action: ${actionName}`);
+        const err = new AppError(400, 'unknown_action', `Unsupported action: ${actionName}`);
+        err.requestTemplate = GENERIC_REQUEST_TEMPLATE;
+        throw err;
       }
 
       // 3. Branch on auth

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { AppError, type Repository } from './contract.ts';
 import { buildDispatcher, type QualityGateFn } from './dispatch.ts';
-import { getAction } from './schemas/registry.ts';
+import { getAction, generateRequestTemplate, GENERIC_REQUEST_TEMPLATE } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { createRepository } from './postgres.ts';
 import { getSchemaPayload } from './schema-endpoint.ts';
@@ -635,19 +635,27 @@ export function createServer(options: {
       // Enforce canonical POST shape: {"action":"...","input":{...}}
       // Reject any unexpected top-level keys to prevent silent parameter widening.
       if (typeof body.action !== 'string' || !body.action) {
-        throw new AppError(400, 'invalid_input', 'Request body must include "action" as a string');
+        const err = new AppError(400, 'invalid_input', 'Request body must include "action" as a string');
+        err.requestTemplate = GENERIC_REQUEST_TEMPLATE;
+        throw err;
       }
       const allowedTopLevelKeys = new Set(['action', 'input']);
       const unexpectedKeys = Object.keys(body).filter((k) => !allowedTopLevelKeys.has(k));
       if (unexpectedKeys.length > 0) {
-        throw new AppError(
+        const err = new AppError(
           400,
           'invalid_input',
           `Unexpected top-level keys: ${unexpectedKeys.join(', ')}. Action parameters must be nested inside "input".`,
         );
+        const def = getAction(body.action);
+        err.requestTemplate = def ? generateRequestTemplate(def) : GENERIC_REQUEST_TEMPLATE;
+        throw err;
       }
       if (body.input !== undefined && (typeof body.input !== 'object' || body.input === null || Array.isArray(body.input))) {
-        throw new AppError(400, 'invalid_input', '"input" must be a JSON object');
+        const err = new AppError(400, 'invalid_input', '"input" must be a JSON object');
+        const def = getAction(body.action);
+        err.requestTemplate = def ? generateRequestTemplate(def) : GENERIC_REQUEST_TEMPLATE;
+        throw err;
       }
 
       // Rate-limit cold admission actions by IP (before dispatch)
@@ -679,6 +687,7 @@ export function createServer(options: {
           error: {
             code: error.code,
             message: error.message,
+            ...(error.requestTemplate ? { requestTemplate: error.requestTemplate } : {}),
           },
         });
         return;

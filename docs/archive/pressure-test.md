@@ -41,7 +41,7 @@ This gives the future API/server one canonical scope source:
 - `supersedes_rsvp_id`
 - `created_by_member_id`
 
-And there is now a `app.current_event_rsvps` view for normal reads.
+And there is now a `app.current_rsvps` view for normal reads.
 
 This keeps RSVP history while still making “show me the current list” easy.
 
