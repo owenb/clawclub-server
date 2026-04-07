@@ -258,6 +258,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     }
 
     if (Date.parse(challenge.expires_at) < Date.now()) {
+      await client1.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client1.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
       throw new AppError(410, 'challenge_expired', 'This challenge has expired');
@@ -277,6 +278,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     );
     attemptCount = Number(countResult.rows[0]?.count ?? 0);
     if (attemptCount >= MAX_ADMISSION_ATTEMPTS) {
+      await client1.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client1.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
       return { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' };
@@ -307,6 +309,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     );
     if (!recheck.rows[0]) throw new AppError(409, 'challenge_consumed', 'Challenge was consumed by a concurrent request');
     if (Date.parse(recheck.rows[0].expires_at) < Date.now()) {
+      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       throw new AppError(410, 'challenge_expired', 'This challenge has expired');
     }
@@ -318,6 +321,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     );
     const attemptNo = Number(liveCount.rows[0]?.count ?? 0) + 1;
     if (attemptNo > MAX_ADMISSION_ATTEMPTS) {
+      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
     }
@@ -359,6 +363,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
       );
 
       // Delete challenge
+      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
 
       // Notify via activity
@@ -383,6 +388,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
         message: `Your application has been submitted. ${challengeData.owner_name} will contact you by email to let you know whether an interview has been scheduled. If you don't hear back, know that there are many other clubs you can join.`,
       };
     } else if (attemptNo >= MAX_ADMISSION_ATTEMPTS) {
+      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
     } else {
@@ -519,6 +525,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
     await assertCrossEligibility(client1, input.memberId, challenge.club_id);
 
     if (Date.parse(challenge.expires_at) < Date.now()) {
+      await client1.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client1.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
       throw new AppError(410, 'challenge_expired', 'This challenge has expired');
@@ -538,6 +545,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
     );
     const attemptCount = Number(countResult.rows[0]?.count ?? 0);
     if (attemptCount >= MAX_ADMISSION_ATTEMPTS) {
+      await client1.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client1.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
       return { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' };
@@ -584,6 +592,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
     );
     if (!recheck.rows[0]) throw new AppError(409, 'challenge_consumed', 'Challenge was consumed by a concurrent request');
     if (Date.parse(recheck.rows[0].expires_at) < Date.now()) {
+      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       throw new AppError(410, 'challenge_expired', 'This challenge has expired');
     }
@@ -595,6 +604,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
     );
     const attemptNo = Number(liveCount.rows[0]?.count ?? 0) + 1;
     if (attemptNo > MAX_ADMISSION_ATTEMPTS) {
+      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
     }
@@ -647,6 +657,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
       );
 
       // Delete challenge
+      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
 
       // Notify via activity
@@ -671,6 +682,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
         message: `Your application has been submitted. ${challengeData.owner_name} will review your application and contact you if an interview is scheduled.`,
       };
     } else if (attemptNo >= MAX_ADMISSION_ATTEMPTS) {
+      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
       return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
     } else {

@@ -50,9 +50,9 @@ $$;
 -- ============================================================
 
 -- Identity
-CREATE TYPE app.member_state AS ENUM ('pending', 'active', 'suspended', 'deleted');
+CREATE TYPE app.member_state AS ENUM ('pending', 'active', 'suspended', 'deleted', 'banned');
 CREATE TYPE app.membership_role AS ENUM ('clubadmin', 'member');
-CREATE TYPE app.membership_state AS ENUM ('invited', 'active', 'paused', 'left', 'removed', 'pending_review', 'revoked', 'rejected');
+CREATE TYPE app.membership_state AS ENUM ('invited', 'active', 'paused', 'left', 'removed', 'pending_review', 'revoked', 'rejected', 'payment_pending', 'renewal_pending', 'cancelled', 'banned', 'expired');
 CREATE TYPE app.global_role AS ENUM ('superadmin');
 CREATE TYPE app.assignment_state AS ENUM ('active', 'revoked');
 CREATE TYPE app.subscription_status AS ENUM ('trialing', 'active', 'past_due', 'paused', 'canceled', 'ended');
@@ -221,6 +221,8 @@ CREATE TABLE app.clubs (
     summary             text,
     owner_member_id     app.short_id NOT NULL,
     admission_policy    text,
+    membership_price_amount   numeric(12,2),
+    membership_price_currency text DEFAULT 'USD' NOT NULL,
     created_at          timestamptz DEFAULT now() NOT NULL,
     archived_at         timestamptz,
 
@@ -231,6 +233,8 @@ CREATE TABLE app.clubs (
     CONSTRAINT clubs_admission_policy_length CHECK (
         admission_policy IS NULL OR char_length(admission_policy) BETWEEN 1 AND 2000
     ),
+    CONSTRAINT clubs_price_check CHECK (membership_price_amount IS NULL OR membership_price_amount >= 0),
+    CONSTRAINT clubs_currency_check CHECK (membership_price_currency ~ '^[A-Z]{3}$'),
     CONSTRAINT clubs_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES app.members(id)
 );
 
@@ -272,6 +276,12 @@ BEGIN
     IF NEW.admission_policy IS DISTINCT FROM OLD.admission_policy THEN
         RAISE EXCEPTION 'clubs.admission_policy must change via club_versions';
     END IF;
+    IF NEW.membership_price_amount IS DISTINCT FROM OLD.membership_price_amount THEN
+        RAISE EXCEPTION 'clubs.membership_price_amount must change via club_versions';
+    END IF;
+    IF NEW.membership_price_currency IS DISTINCT FROM OLD.membership_price_currency THEN
+        RAISE EXCEPTION 'clubs.membership_price_currency must change via club_versions';
+    END IF;
     RETURN NEW;
 END;
 $$;
@@ -289,6 +299,8 @@ CREATE TABLE app.club_versions (
     name                    text NOT NULL,
     summary                 text,
     admission_policy        text,
+    membership_price_amount   numeric(12,2),
+    membership_price_currency text DEFAULT 'USD' NOT NULL,
     version_no              integer NOT NULL,
     supersedes_version_id   app.short_id,
     created_at              timestamptz DEFAULT now() NOT NULL,
@@ -301,6 +313,8 @@ CREATE TABLE app.club_versions (
     CONSTRAINT club_versions_admission_policy_length CHECK (
         admission_policy IS NULL OR char_length(admission_policy) BETWEEN 1 AND 2000
     ),
+    CONSTRAINT club_versions_price_check CHECK (membership_price_amount IS NULL OR membership_price_amount >= 0),
+    CONSTRAINT club_versions_currency_check CHECK (membership_price_currency ~ '^[A-Z]{3}$'),
     CONSTRAINT club_versions_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
     CONSTRAINT club_versions_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES app.members(id),
     CONSTRAINT club_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id),
@@ -319,10 +333,12 @@ AS $$
 BEGIN
     PERFORM set_config('app.allow_club_version_sync', '1', true);
     UPDATE app.clubs c SET
-        owner_member_id  = NEW.owner_member_id,
-        name             = NEW.name,
-        summary          = NEW.summary,
-        admission_policy = NEW.admission_policy
+        owner_member_id           = NEW.owner_member_id,
+        name                      = NEW.name,
+        summary                   = NEW.summary,
+        admission_policy          = NEW.admission_policy,
+        membership_price_amount   = NEW.membership_price_amount,
+        membership_price_currency = NEW.membership_price_currency
     WHERE c.id = NEW.club_id;
     PERFORM set_config('app.allow_club_version_sync', '', true);
     RETURN NEW;
@@ -351,13 +367,19 @@ CREATE TABLE app.memberships (
     accepted_covenant_at    timestamptz,
     metadata                jsonb DEFAULT '{}' NOT NULL,
     source_admission_id     app.short_id,
+    is_comped               boolean DEFAULT false NOT NULL,
+    comped_at               timestamptz,
+    comped_by_member_id     app.short_id,
+    approved_price_amount   numeric(12,2),
+    approved_price_currency text,
 
     CONSTRAINT memberships_pkey PRIMARY KEY (id),
     CONSTRAINT memberships_club_member_unique UNIQUE (club_id, member_id),
     CONSTRAINT memberships_sponsor_check CHECK (sponsor_member_id IS NOT NULL OR role = 'clubadmin'),
     CONSTRAINT memberships_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
     CONSTRAINT memberships_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id),
-    CONSTRAINT memberships_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES app.members(id)
+    CONSTRAINT memberships_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES app.members(id),
+    CONSTRAINT memberships_comped_by_fkey FOREIGN KEY (comped_by_member_id) REFERENCES app.members(id)
 );
 
 CREATE UNIQUE INDEX memberships_source_admission_unique
@@ -430,7 +452,7 @@ DECLARE
     mirrored_left_at timestamptz;
 BEGIN
     mirrored_left_at := CASE
-        WHEN NEW.status IN ('revoked', 'rejected') THEN NEW.created_at
+        WHEN NEW.status IN ('revoked', 'rejected', 'expired', 'banned', 'removed') THEN NEW.created_at
         ELSE NULL
     END;
     PERFORM set_config('app.allow_membership_state_sync', '1', true);
@@ -473,6 +495,8 @@ CREATE TABLE app.subscriptions (
 
 CREATE INDEX subscriptions_membership_status_idx ON app.subscriptions (membership_id, status);
 CREATE INDEX subscriptions_payer_status_idx ON app.subscriptions (payer_member_id, status);
+CREATE UNIQUE INDEX subscriptions_one_live_per_membership
+    ON app.subscriptions (membership_id) WHERE status IN ('active', 'trialing', 'past_due');
 
 
 -- ============================================================
@@ -752,7 +776,7 @@ CREATE TABLE app.admission_attempts (
 
     CONSTRAINT admission_attempts_pkey PRIMARY KEY (id),
     CONSTRAINT admission_attempts_attempt_no_check CHECK (attempt_no BETWEEN 1 AND 5),
-    CONSTRAINT admission_attempts_challenge_fkey FOREIGN KEY (challenge_id) REFERENCES app.admission_challenges(id),
+    CONSTRAINT admission_attempts_challenge_fkey FOREIGN KEY (challenge_id) REFERENCES app.admission_challenges(id) ON DELETE CASCADE,
     CONSTRAINT admission_attempts_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id)
 );
 
@@ -1235,6 +1259,11 @@ CREATE VIEW app.current_memberships AS
         m.accepted_covenant_at,
         m.metadata,
         m.source_admission_id,
+        m.is_comped,
+        m.comped_at,
+        m.comped_by_member_id,
+        m.approved_price_amount,
+        m.approved_price_currency,
         cms.id              AS state_version_id,
         cms.reason          AS state_reason,
         cms.version_no      AS state_version_no,
@@ -1250,16 +1279,27 @@ CREATE VIEW app.active_memberships AS
 CREATE VIEW app.accessible_memberships AS
     SELECT cm.*
     FROM app.current_memberships cm
-    WHERE cm.status = 'active'
-      AND cm.left_at IS NULL
+    WHERE cm.left_at IS NULL
       AND (
+          -- Club admins always have access
           cm.role = 'clubadmin'
-          OR EXISTS (
-              SELECT 1 FROM app.subscriptions s
-              WHERE s.membership_id = cm.id
-                AND s.status IN ('trialing', 'active')
-                AND coalesce(s.ended_at, 'infinity'::timestamptz) > now()
-                AND coalesce(s.current_period_end, 'infinity'::timestamptz) > now()
+          -- Comped members: access without subscription
+          OR (cm.is_comped = true AND cm.status = 'active')
+          -- Paid members: active or cancelled with live subscription
+          OR (
+              cm.status IN ('active', 'cancelled')
+              AND EXISTS (
+                  SELECT 1 FROM app.subscriptions s
+                  WHERE s.membership_id = cm.id
+                    AND s.status IN ('trialing', 'active', 'past_due')
+                    AND coalesce(s.ended_at, 'infinity'::timestamptz) > now()
+                    AND coalesce(s.current_period_end, 'infinity'::timestamptz) > now()
+              )
+          )
+          -- Grace period: 7 days from state entry, regardless of subscription dates
+          OR (
+              cm.status = 'renewal_pending'
+              AND cm.state_created_at + interval '7 days' > now()
           )
       );
 
