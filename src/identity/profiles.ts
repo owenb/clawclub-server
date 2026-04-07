@@ -24,7 +24,7 @@ type ProfileRow = {
   version_no: number | null;
   version_created_at: string | null;
   version_created_by_member_id: string | null;
-  shared_clubs: Array<{ id: string; slug: string; name: string }> | null;
+  shared_clubs: Array<{ clubId: string; slug: string; name: string }> | null;
 };
 
 function mapProfileRow(row: ProfileRow): MemberProfile {
@@ -95,7 +95,7 @@ export async function getMemberProfile(pool: Pool, actorMemberId: string, target
        cmp.id as version_id, cmp.version_no,
        cmp.created_at::text as version_created_at,
        cmp.created_by_member_id as version_created_by_member_id,
-       jsonb_agg(distinct jsonb_build_object('id', n.id, 'slug', n.slug, 'name', n.name))
+       jsonb_agg(distinct jsonb_build_object('clubId', n.id, 'slug', n.slug, 'name', n.name))
          filter (where n.id is not null) as shared_clubs
      from app.members m
      left join app.current_profiles cmp on cmp.member_id = m.id
@@ -176,7 +176,7 @@ type MemberSearchRow = {
   handle: string | null; tagline: string | null; summary: string | null;
   what_i_do: string | null; known_for: string | null;
   services_summary: string | null; website_url: string | null;
-  shared_clubs: Array<{ id: string; slug: string; name: string }> | null;
+  shared_clubs: Array<{ clubId: string; slug: string; name: string }> | null;
 };
 
 function mapSearchRow(row: MemberSearchRow): MemberSearchResult {
@@ -212,7 +212,7 @@ export async function fullTextSearchMembers(pool: Pool, input: {
        coalesce(cmp.display_name, m.public_name) as display_name,
        m.handle, cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
        cmp.services_summary, cmp.website_url,
-       jsonb_agg(distinct jsonb_build_object('id', n.id, 'slug', n.slug, 'name', n.name))
+       jsonb_agg(distinct jsonb_build_object('clubId', n.id, 'slug', n.slug, 'name', n.name))
          filter (where n.id is not null) as shared_clubs
      from scope s
      join app.members m on m.id = s.member_id and m.state = 'active'
@@ -251,7 +251,7 @@ export async function findMembersViaEmbedding(pool: Pool, input: {
        coalesce(cmp.display_name, m.public_name) as display_name,
        m.handle, cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
        cmp.services_summary, cmp.website_url,
-       jsonb_agg(distinct jsonb_build_object('id', n.id, 'slug', n.slug, 'name', n.name))
+       jsonb_agg(distinct jsonb_build_object('clubId', n.id, 'slug', n.slug, 'name', n.name))
          filter (where n.id is not null) as shared_clubs
      from scope s
      join app.members m on m.id = s.member_id and m.state = 'active'

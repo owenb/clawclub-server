@@ -335,3 +335,39 @@ describe('billing.status returns membership billing info', () => {
     assert.equal(data.membership, null);
   });
 });
+
+// ── ISO datetime validation ─────────────────────────────────────────────
+
+describe('parseIsoDatetime rejects non-ISO date formats', () => {
+  it('rejects ambiguous date strings, accepts strict ISO', async () => {
+    // Set up a paid club with a payment_pending membership via the real flow
+    const owner = await h.seedOwner('iso-club', 'IsoClub');
+    await h.apiOk(admin.token, 'superadmin.billing.setClubPrice', {
+      clubId: owner.club.id,
+      amount: 2900,
+      currency: 'usd',
+    });
+    const member = await h.seedClubMember(owner.club.id, 'Iso Member', 'iso-member', { sponsorId: owner.id, status: 'payment_pending' });
+    const msRows = await h.sql<{ id: string }>(
+      `select id from app.memberships where club_id = $1 and member_id = $2`,
+      [owner.club.id, member.id],
+    );
+    const msId = msRows[0]!.id;
+
+    // Non-ISO formats should be rejected at the parse layer
+    for (const badDate of ['March 5, 2027', '12/31/2027', '2027-12-31 23:59:59']) {
+      const err = await h.apiErr(admin.token, 'superadmin.billing.activateMembership', {
+        membershipId: msId,
+        paidThrough: badDate,
+      });
+      assert.equal(err.code, 'invalid_input', `should reject "${badDate}"`);
+    }
+
+    // Valid ISO formats should be accepted
+    const goodResult = await h.apiOk(admin.token, 'superadmin.billing.activateMembership', {
+      membershipId: msId,
+      paidThrough: '2027-12-31T23:59:59Z',
+    });
+    assert.ok(goodResult.ok);
+  });
+});

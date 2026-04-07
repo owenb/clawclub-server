@@ -95,6 +95,44 @@ describe('superadmin.members.create', () => {
     assert.equal(err.code, 'handle_conflict');
   });
 
+  it('rejects invalid handle format', async () => {
+    const admin = await h.seedSuperadmin('Provisioner-hv', 'provisioner-hv');
+    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+      publicName: 'Bad Handle',
+      handle: 'Bad Handle',
+    });
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /handle/i);
+  });
+
+  it('rejects handle with uppercase', async () => {
+    const admin = await h.seedSuperadmin('Provisioner-hv2', 'provisioner-hv2');
+    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+      publicName: 'Upper',
+      handle: 'UpperCase',
+    });
+    assert.equal(err.code, 'invalid_input');
+  });
+
+  it('rejects invalid email', async () => {
+    const admin = await h.seedSuperadmin('Provisioner-ev', 'provisioner-ev');
+    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+      publicName: 'Bad Email',
+      email: 'not-an-email',
+    });
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /email/i);
+  });
+
+  it('rejects email without TLD', async () => {
+    const admin = await h.seedSuperadmin('Provisioner-ev2', 'provisioner-ev2');
+    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+      publicName: 'No TLD',
+      email: 'user@localhost',
+    });
+    assert.equal(err.code, 'invalid_input');
+  });
+
   it('rejects empty publicName', async () => {
     const admin = await h.seedSuperadmin('Provisioner7', 'provisioner7');
     const err = await h.apiErr(admin.token, 'superadmin.members.create', {
@@ -201,6 +239,63 @@ describe('superadmin.memberships.create', () => {
     });
     const ms = (result.data as any).membership;
     assert.equal(ms.sponsor.memberId, sponsor.id);
+  });
+
+  it('rejects non-existent sponsor', async () => {
+    const admin = await h.seedSuperadmin('MsAdminSp1', 'ms-admin-sp1');
+    const owner = await h.seedOwner('ms-club-sp1', 'MsClubSp1');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+      publicName: 'Ghost Sponsor Target',
+    });
+    const memberId = (createResult.data as any).member.memberId;
+
+    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+      clubId: owner.club.id,
+      memberId,
+      sponsorMemberId: 'xxxxxxxxxxxx',
+    });
+    assert.equal(err.code, 'sponsor_not_found');
+  });
+
+  it('rejects cross-club sponsor', async () => {
+    const admin = await h.seedSuperadmin('MsAdminSp2', 'ms-admin-sp2');
+    const ownerA = await h.seedOwner('ms-club-sp2a', 'MsClubSp2A');
+    const ownerB = await h.seedOwner('ms-club-sp2b', 'MsClubSp2B');
+
+    // Seed a member only in club B
+    const crossSponsor = await h.seedClubMember(ownerB.club.id, 'Cross Sponsor', 'cross-sponsor', { sponsorId: ownerB.id });
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+      publicName: 'Cross Target',
+    });
+    const memberId = (createResult.data as any).member.memberId;
+
+    // Try to use club B's member as sponsor in club A
+    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+      clubId: ownerA.club.id,
+      memberId,
+      sponsorMemberId: crossSponsor.id,
+    });
+    assert.equal(err.code, 'sponsor_not_found');
+  });
+
+  it('rejects superadmin self-sponsoring into a club they are not in', async () => {
+    const admin = await h.seedSuperadmin('MsAdminSelf', 'ms-admin-self');
+    const owner = await h.seedOwner('ms-club-self', 'MsClubSelf');
+
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+      publicName: 'Self Sponsor Target',
+    });
+    const memberId = (createResult.data as any).member.memberId;
+
+    // The superadmin is NOT a member of this club — sponsorMemberId = admin.id should fail
+    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+      clubId: owner.club.id,
+      memberId,
+      sponsorMemberId: admin.id,
+    });
+    assert.equal(err.code, 'sponsor_not_found');
   });
 
   it('rejects adding to non-existent club', async () => {

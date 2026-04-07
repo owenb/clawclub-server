@@ -10,7 +10,7 @@
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
-import { wireRequiredString, parseRequiredString } from './fields.ts';
+import { wireRequiredString, parseRequiredString, wireIsoDatetime, parseIsoDatetime } from './fields.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 // ── superadmin.billing.activateMembership ─────────────────
@@ -32,7 +32,7 @@ const billingActivateMembership: ActionDefinition = {
   wire: {
     input: z.object({
       membershipId: wireRequiredString.describe('Membership to activate'),
-      paidThrough: wireRequiredString.describe('ISO 8601 date/datetime for subscription period end'),
+      paidThrough: wireIsoDatetime.describe('ISO 8601 date/datetime for subscription period end'),
     }),
     output: z.object({ ok: z.boolean() }),
   },
@@ -40,7 +40,7 @@ const billingActivateMembership: ActionDefinition = {
   parse: {
     input: z.object({
       membershipId: parseRequiredString,
-      paidThrough: parseRequiredString,
+      paidThrough: parseIsoDatetime,
     }),
   },
 
@@ -72,7 +72,7 @@ const billingRenewMembership: ActionDefinition = {
   wire: {
     input: z.object({
       membershipId: wireRequiredString.describe('Membership to renew'),
-      newPaidThrough: wireRequiredString.describe('New ISO 8601 period end date (must be forward-only)'),
+      newPaidThrough: wireIsoDatetime.describe('New ISO 8601 period end date (must be forward-only)'),
     }),
     output: z.object({ ok: z.boolean() }),
   },
@@ -80,7 +80,7 @@ const billingRenewMembership: ActionDefinition = {
   parse: {
     input: z.object({
       membershipId: parseRequiredString,
-      newPaidThrough: parseRequiredString,
+      newPaidThrough: parseIsoDatetime,
     }),
   },
 

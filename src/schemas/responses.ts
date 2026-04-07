@@ -26,7 +26,7 @@ export const memberRef = z.object({
 });
 
 export const sharedClubRef = z.object({
-  id: z.string(),
+  clubId: z.string(),
   slug: z.string(),
   name: z.string(),
 });
@@ -272,7 +272,7 @@ export const eventSummary = z.object({
 
 export const directMessageSummary = z.object({
   threadId: z.string(),
-  clubId: z.string(),
+  sharedClubs: z.array(sharedClubRef),
   senderMemberId: z.string(),
   recipientMemberId: z.string(),
   messageId: z.string(),
@@ -283,7 +283,7 @@ export const directMessageSummary = z.object({
 
 export const directMessageThreadSummary = z.object({
   threadId: z.string(),
-  clubId: z.string(),
+  sharedClubs: z.array(sharedClubRef),
   counterpartMemberId: z.string(),
   counterpartPublicName: z.string(),
   counterpartHandle: z.string().nullable(),
@@ -368,7 +368,7 @@ export const pendingUpdate = z.object({
   streamSeq: z.number(),
   source: z.enum(['activity', 'inbox', 'signal']),
   recipientMemberId: z.string(),
-  clubId: z.string(),
+  clubId: z.string().nullable(),
   entityId: z.string().nullable(),
   entityVersionId: z.string().nullable(),
   dmMessageId: z.string().nullable(),
@@ -382,7 +382,7 @@ export const updateReceipt = z.object({
   receiptId: z.string(),
   updateId: z.string(),
   recipientMemberId: z.string(),
-  clubId: z.string(),
+  clubId: z.string().nullable(),
   state: updateReceiptState,
   suppressionReason: z.string().nullable(),
   versionNo: z.number(),
@@ -423,7 +423,6 @@ export const clubSummary = z.object({
 
 export const messageRemovalResult = z.object({
   messageId: z.string(),
-  clubId: z.string(),
   removedByMemberId: z.string(),
   reason: z.string().nullable(),
   removedAt: z.string(),
@@ -499,8 +498,7 @@ export const adminContentSummary = z.object({
 
 export const adminThreadSummary = z.object({
   threadId: z.string(),
-  clubId: z.string(),
-  clubName: z.string(),
+  sharedClubs: z.array(sharedClubRef),
   participants: z.array(memberRef),
   messageCount: z.number(),
   latestMessageAt: z.string(),

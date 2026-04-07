@@ -124,6 +124,16 @@ function buildTransport(): unknown {
         responseSchema: toRelaxedJsonSchema(pollingResponse),
       },
       stream: {
+        queryParameters: {
+          after: { type: 'string', description: 'Opaque cursor or "latest". Falls back to Last-Event-ID header if omitted.' },
+          limit: { type: 'integer', default: 10, maximum: 20, description: 'Max updates per poll cycle inside the stream (1-20).' },
+        },
+        resumeHeaders: {
+          'Last-Event-ID': 'Set automatically by EventSource on reconnect. Used as `after` cursor when query param is absent.',
+        },
+        sseIdBehavior: 'The compound cursor is attached as `id:` on the last update event in each batch, enabling automatic resume via Last-Event-ID.',
+        heartbeat: { comment: 'keepalive', intervalMs: 15_000 },
+        maxConcurrentStreamsPerMember: 3,
         events: {
           ready: toRelaxedJsonSchema(sseReadyEvent),
           update: toRelaxedJsonSchema(pendingUpdate),
@@ -132,16 +142,22 @@ function buildTransport(): unknown {
       },
       acknowledgment: 'Acknowledge inbox-sourced updates via updates.acknowledge. Activity updates advance via cursor.',
     },
+    // Transport-surface and dispatch-layer error codes only.
+    // Action-level business codes (illegal_content, gate_unavailable, quota_exceeded, etc.)
+    // are documented per-action and are NOT included here.
     transportErrorCodes: [
       { code: 'invalid_input', status: 400 },
       { code: 'invalid_json', status: 400 },
       { code: 'unknown_action', status: 400 },
+      { code: 'not_found', status: 404 },
       { code: 'unsupported_media_type', status: 415 },
       { code: 'unauthorized', status: 401 },
       { code: 'forbidden', status: 403 },
       { code: 'rate_limited', status: 429 },
+      { code: 'too_many_streams', status: 429 },
       { code: 'payload_too_large', status: 413 },
       { code: 'internal_error', status: 500 },
+      { code: 'not_available', status: 501 },
       { code: 'not_implemented', status: 501 },
     ],
   };

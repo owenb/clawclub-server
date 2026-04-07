@@ -96,6 +96,8 @@ export type MessagingRepository = {
     memberId: string;
     threadId: string;
   }): Promise<void>;
+
+  hasExistingThread(memberA: string, memberB: string): Promise<boolean>;
 };
 
 export function createMessagingRepository(pool: Pool): MessagingRepository {
@@ -495,6 +497,19 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
          where recipient_member_id = $1 and thread_id = $2 and acknowledged = false`,
         [memberId, threadId],
       );
+    },
+
+    async hasExistingThread(memberA, memberB) {
+      const a = memberA < memberB ? memberA : memberB;
+      const b = memberA < memberB ? memberB : memberA;
+      const result = await pool.query<{ id: string }>(
+        `select id from app.threads
+         where kind = 'direct' and member_a_id = $1 and member_b_id = $2
+           and archived_at is null
+         limit 1`,
+        [a, b],
+      );
+      return result.rows.length > 0;
     },
   };
 }

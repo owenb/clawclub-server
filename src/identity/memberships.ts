@@ -242,10 +242,12 @@ export async function listMembers(pool: Pool, input: {
 
 export async function createMembership(pool: Pool, input: CreateMembershipInput): Promise<MembershipAdminSummary | null> {
   return withTransaction(pool, async (client) => {
-    if (!(await isClubAdmin(client, input.actorMemberId, input.clubId))) return null;
+    if (!input.skipClubAdminCheck && !(await isClubAdmin(client, input.actorMemberId, input.clubId))) return null;
 
-    // Verify sponsor exists in club (unless actor is sponsor)
-    if (input.sponsorMemberId !== input.actorMemberId) {
+    // Verify sponsor exists in club.
+    // When the club admin check is skipped (superadmin path), always validate —
+    // the actor may not be a member of this club at all.
+    if (input.skipClubAdminCheck || input.sponsorMemberId !== input.actorMemberId) {
       const sponsorCheck = await client.query<{ id: string }>(
         `select cnm.id from app.current_memberships cnm
          where cnm.club_id = $1 and cnm.member_id = $2 and cnm.status = 'active' limit 1`,
@@ -307,7 +309,7 @@ export async function transitionMembershipState(pool: Pool, input: TransitionMem
     const membership = membershipResult.rows[0];
     if (!membership) return null;
 
-    if (!(await isClubAdmin(client, input.actorMemberId, membership.club_id))) return null;
+    if (!input.skipClubAdminCheck && !(await isClubAdmin(client, input.actorMemberId, membership.club_id))) return null;
 
     if (membership.member_id === input.actorMemberId && input.nextStatus !== 'active' && input.nextStatus !== membership.current_status) {
       throw new AppError(403, 'forbidden', 'Admins may not self-revoke or self-reject through this surface');
@@ -539,6 +541,18 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
     }
     if (!sponsorMemberId) {
       sponsorMemberId = clubResult.rows[0].owner_member_id;
+    }
+
+    // Validate explicit sponsor exists and has an active membership in the club
+    if (input.sponsorMemberId) {
+      const sponsorCheck = await client.query<{ id: string }>(
+        `select cnm.id from app.current_memberships cnm
+         where cnm.club_id = $1 and cnm.member_id = $2 and cnm.status = 'active' limit 1`,
+        [input.clubId, input.sponsorMemberId],
+      );
+      if (!sponsorCheck.rows[0]) {
+        throw new AppError(404, 'sponsor_not_found', 'Sponsor not found or does not have an active membership in this club');
+      }
     }
 
     // Check no existing membership

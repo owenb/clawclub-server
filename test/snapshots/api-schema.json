@@ -2818,8 +2818,8 @@
     {
       "action": "clubowner.members.demoteFromAdmin",
       "auth": "clubowner",
-      "authorizationNote": "Only the club owner can demote admins. The owner cannot be demoted.",
-      "description": "Demote a club admin to regular member (owner only).",
+      "authorizationNote": "Requires club owner or superadmin. The club owner cannot be demoted.",
+      "description": "Demote a club admin to regular member.",
       "domain": "clubowner",
       "input": {
         "properties": {
@@ -2983,8 +2983,8 @@
     {
       "action": "clubowner.members.promoteToAdmin",
       "auth": "clubowner",
-      "authorizationNote": "Only the club owner can promote members.",
-      "description": "Promote a club member to admin role (owner only).",
+      "authorizationNote": "Requires club owner or superadmin.",
+      "description": "Promote a club member to admin role.",
       "domain": "clubowner",
       "input": {
         "properties": {
@@ -5398,7 +5398,7 @@
                   "items": {
                     "additionalProperties": false,
                     "properties": {
-                      "id": {
+                      "clubId": {
                         "type": "string"
                       },
                       "name": {
@@ -5409,7 +5409,7 @@
                       }
                     },
                     "required": [
-                      "id",
+                      "clubId",
                       "slug",
                       "name"
                     ],
@@ -5589,7 +5589,7 @@
                   "items": {
                     "additionalProperties": false,
                     "properties": {
-                      "id": {
+                      "clubId": {
                         "type": "string"
                       },
                       "name": {
@@ -5600,7 +5600,7 @@
                       }
                     },
                     "required": [
-                      "id",
+                      "clubId",
                       "slug",
                       "name"
                     ],
@@ -5875,14 +5875,10 @@
     {
       "action": "messages.inbox",
       "auth": "member",
-      "description": "List DM inbox with unread counts.",
+      "description": "List DM inbox with unread counts. Returns all threads regardless of club context.",
       "domain": "messages",
       "input": {
         "properties": {
-          "clubId": {
-            "description": "Restrict to one club",
-            "type": "string"
-          },
           "limit": {
             "description": "Max results (default 8). Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
@@ -5899,68 +5895,6 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "clubScope": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "clubId": {
-                  "type": "string"
-                },
-                "isOwner": {
-                  "type": "boolean"
-                },
-                "joinedAt": {
-                  "type": "string"
-                },
-                "membershipId": {
-                  "type": "string"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "role": {
-                  "enum": [
-                    "clubadmin",
-                    "member"
-                  ],
-                  "type": "string"
-                },
-                "slug": {
-                  "type": "string"
-                },
-                "sponsorMemberId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "status": {
-                  "enum": [
-                    "active",
-                    "renewal_pending",
-                    "cancelled"
-                  ],
-                  "type": "string"
-                },
-                "summary": {
-                  "nullable": true,
-                  "type": "string"
-                }
-              },
-              "required": [
-                "membershipId",
-                "clubId",
-                "slug",
-                "name",
-                "summary",
-                "role",
-                "isOwner",
-                "status",
-                "sponsorMemberId",
-                "joinedAt"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
           "limit": {
             "type": "number"
           },
@@ -5968,9 +5902,6 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "clubId": {
-                  "type": "string"
-                },
                 "counterpartHandle": {
                   "nullable": true,
                   "type": "string"
@@ -6018,6 +5949,29 @@
                 },
                 "messageCount": {
                   "type": "number"
+                },
+                "sharedClubs": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "clubId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "slug": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "clubId",
+                      "slug",
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
                 },
                 "threadId": {
                   "type": "string"
@@ -6050,7 +6004,7 @@
               },
               "required": [
                 "threadId",
-                "clubId",
+                "sharedClubs",
                 "counterpartMemberId",
                 "counterpartPublicName",
                 "counterpartHandle",
@@ -6069,7 +6023,6 @@
         "required": [
           "limit",
           "unreadOnly",
-          "clubScope",
           "results"
         ],
         "type": "object"
@@ -6079,14 +6032,10 @@
     {
       "action": "messages.list",
       "auth": "member",
-      "description": "List DM threads.",
+      "description": "List DM threads. Returns all threads regardless of club context.",
       "domain": "messages",
       "input": {
         "properties": {
-          "clubId": {
-            "description": "Restrict to one club",
-            "type": "string"
-          },
           "limit": {
             "description": "Max results (default 8). Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
@@ -6099,68 +6048,6 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "clubScope": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "clubId": {
-                  "type": "string"
-                },
-                "isOwner": {
-                  "type": "boolean"
-                },
-                "joinedAt": {
-                  "type": "string"
-                },
-                "membershipId": {
-                  "type": "string"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "role": {
-                  "enum": [
-                    "clubadmin",
-                    "member"
-                  ],
-                  "type": "string"
-                },
-                "slug": {
-                  "type": "string"
-                },
-                "sponsorMemberId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "status": {
-                  "enum": [
-                    "active",
-                    "renewal_pending",
-                    "cancelled"
-                  ],
-                  "type": "string"
-                },
-                "summary": {
-                  "nullable": true,
-                  "type": "string"
-                }
-              },
-              "required": [
-                "membershipId",
-                "clubId",
-                "slug",
-                "name",
-                "summary",
-                "role",
-                "isOwner",
-                "status",
-                "sponsorMemberId",
-                "joinedAt"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
           "limit": {
             "type": "number"
           },
@@ -6168,9 +6055,6 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "clubId": {
-                  "type": "string"
-                },
                 "counterpartHandle": {
                   "nullable": true,
                   "type": "string"
@@ -6219,13 +6103,36 @@
                 "messageCount": {
                   "type": "number"
                 },
+                "sharedClubs": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "clubId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "slug": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "clubId",
+                      "slug",
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
                 "threadId": {
                   "type": "string"
                 }
               },
               "required": [
                 "threadId",
-                "clubId",
+                "sharedClubs",
                 "counterpartMemberId",
                 "counterpartPublicName",
                 "counterpartHandle",
@@ -6239,7 +6146,6 @@
         },
         "required": [
           "limit",
-          "clubScope",
           "results"
         ],
         "type": "object"
@@ -6249,7 +6155,7 @@
     {
       "action": "messages.read",
       "auth": "member",
-      "description": "Read a DM thread.",
+      "description": "Read a DM thread. Only participants can read a thread.",
       "domain": "messages",
       "input": {
         "properties": {
@@ -6395,9 +6301,6 @@
           "thread": {
             "additionalProperties": false,
             "properties": {
-              "clubId": {
-                "type": "string"
-              },
               "counterpartHandle": {
                 "nullable": true,
                 "type": "string"
@@ -6446,13 +6349,36 @@
               "messageCount": {
                 "type": "number"
               },
+              "sharedClubs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "clubId",
+                    "slug",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "threadId": {
                 "type": "string"
               }
             },
             "required": [
               "threadId",
-              "clubId",
+              "sharedClubs",
               "counterpartMemberId",
               "counterpartPublicName",
               "counterpartHandle",
@@ -6500,9 +6426,6 @@
           "removal": {
             "additionalProperties": false,
             "properties": {
-              "clubId": {
-                "type": "string"
-              },
               "messageId": {
                 "type": "string"
               },
@@ -6519,7 +6442,6 @@
             },
             "required": [
               "messageId",
-              "clubId",
               "removedByMemberId",
               "reason",
               "removedAt"
@@ -6537,7 +6459,7 @@
     {
       "action": "messages.send",
       "auth": "member",
-      "description": "Send a direct message to another member.",
+      "description": "Send a direct message to another member. Requires at least one shared club, or an existing thread between the participants.",
       "domain": "messages",
       "input": {
         "properties": {
@@ -6545,10 +6467,6 @@
             "description": "Idempotency key — duplicate sends with the same key return the original message",
             "maxLength": 250000,
             "nullable": true,
-            "type": "string"
-          },
-          "clubId": {
-            "description": "Restrict to one club",
             "type": "string"
           },
           "messageText": {
@@ -6573,9 +6491,6 @@
           "message": {
             "additionalProperties": false,
             "properties": {
-              "clubId": {
-                "type": "string"
-              },
               "createdAt": {
                 "type": "string"
               },
@@ -6591,6 +6506,29 @@
               "senderMemberId": {
                 "type": "string"
               },
+              "sharedClubs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "clubId",
+                    "slug",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "threadId": {
                 "type": "string"
               },
@@ -6600,7 +6538,7 @@
             },
             "required": [
               "threadId",
-              "clubId",
+              "sharedClubs",
               "senderMemberId",
               "recipientMemberId",
               "messageId",
@@ -6668,7 +6606,7 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "id": {
+                "clubId": {
                   "type": "string"
                 },
                 "name": {
@@ -6679,7 +6617,7 @@
                 }
               },
               "required": [
-                "id",
+                "clubId",
                 "slug",
                 "name"
               ],
@@ -6854,7 +6792,7 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "id": {
+                "clubId": {
                   "type": "string"
                 },
                 "name": {
@@ -6865,7 +6803,7 @@
                 }
               },
               "required": [
-                "id",
+                "clubId",
                 "slug",
                 "name"
               ],
@@ -8076,8 +8014,7 @@
             "type": "string"
           },
           "handle": {
-            "description": "Optional handle (auto-generated if omitted)",
-            "maxLength": 250000,
+            "description": "Optional handle (auto-generated if omitted). Lowercase alphanumeric with hyphens.",
             "nullable": true,
             "type": "string"
           },
@@ -8237,7 +8174,7 @@
                     "items": {
                       "additionalProperties": false,
                       "properties": {
-                        "id": {
+                        "clubId": {
                           "type": "string"
                         },
                         "name": {
@@ -8248,7 +8185,7 @@
                         }
                       },
                       "required": [
-                        "id",
+                        "clubId",
                         "slug",
                         "name"
                       ],
@@ -8773,12 +8710,6 @@
           "thread": {
             "additionalProperties": false,
             "properties": {
-              "clubId": {
-                "type": "string"
-              },
-              "clubName": {
-                "type": "string"
-              },
               "latestMessageAt": {
                 "type": "string"
               },
@@ -8809,14 +8740,36 @@
                 },
                 "type": "array"
               },
+              "sharedClubs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "clubId",
+                    "slug",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "threadId": {
                 "type": "string"
               }
             },
             "required": [
               "threadId",
-              "clubId",
-              "clubName",
+              "sharedClubs",
               "participants",
               "messageCount",
               "latestMessageAt"
@@ -8835,14 +8788,10 @@
     {
       "action": "superadmin.messages.threads",
       "auth": "superadmin",
-      "description": "List DM threads across the platform.",
+      "description": "List DM threads across the platform. DMs are not club-scoped; each thread shows currently shared clubs between participants.",
       "domain": "superadmin",
       "input": {
         "properties": {
-          "clubId": {
-            "description": "Filter by club",
-            "type": "string"
-          },
           "cursor": {
             "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
             "nullable": true,
@@ -8868,12 +8817,6 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "clubId": {
-                  "type": "string"
-                },
-                "clubName": {
-                  "type": "string"
-                },
                 "latestMessageAt": {
                   "type": "string"
                 },
@@ -8904,14 +8847,36 @@
                   },
                   "type": "array"
                 },
+                "sharedClubs": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "clubId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "slug": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "clubId",
+                      "slug",
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
                 "threadId": {
                   "type": "string"
                 }
               },
               "required": [
                 "threadId",
-                "clubId",
-                "clubName",
+                "sharedClubs",
                 "participants",
                 "messageCount",
                 "latestMessageAt"
@@ -9436,6 +9401,7 @@
               "additionalProperties": false,
               "properties": {
                 "clubId": {
+                  "nullable": true,
                   "type": "string"
                 },
                 "createdAt": {
@@ -9529,6 +9495,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "clubId": {
+                      "nullable": true,
                       "type": "string"
                     },
                     "createdAt": {
@@ -9982,6 +9949,7 @@
                     "items": {
                       "properties": {
                         "clubId": {
+                          "nullable": true,
                           "type": "string"
                         },
                         "createdAt": {
@@ -10180,6 +10148,10 @@
         "status": 400
       },
       {
+        "code": "not_found",
+        "status": 404
+      },
+      {
         "code": "unsupported_media_type",
         "status": 415
       },
@@ -10196,12 +10168,20 @@
         "status": 429
       },
       {
+        "code": "too_many_streams",
+        "status": 429
+      },
+      {
         "code": "payload_too_large",
         "status": 413
       },
       {
         "code": "internal_error",
         "status": 500
+      },
+      {
+        "code": "not_available",
+        "status": 501
       },
       {
         "code": "not_implemented",
@@ -10274,6 +10254,7 @@
                   "items": {
                     "properties": {
                       "clubId": {
+                        "nullable": true,
                         "type": "string"
                       },
                       "createdAt": {
@@ -10426,6 +10407,7 @@
           "update": {
             "properties": {
               "clubId": {
+                "nullable": true,
                 "type": "string"
               },
               "createdAt": {
@@ -10489,10 +10471,31 @@
             "type": "object"
           }
         },
-        "note": "Browser EventSource cannot set Authorization headers; use fetch with a streaming reader."
+        "heartbeat": {
+          "comment": "keepalive",
+          "intervalMs": 15000
+        },
+        "maxConcurrentStreamsPerMember": 3,
+        "note": "Browser EventSource cannot set Authorization headers; use fetch with a streaming reader.",
+        "queryParameters": {
+          "after": {
+            "description": "Opaque cursor or \"latest\". Falls back to Last-Event-ID header if omitted.",
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "description": "Max updates per poll cycle inside the stream (1-20).",
+            "maximum": 20,
+            "type": "integer"
+          }
+        },
+        "resumeHeaders": {
+          "Last-Event-ID": "Set automatically by EventSource on reconnect. Used as `after` cursor when query param is absent."
+        },
+        "sseIdBehavior": "The compound cursor is attached as `id:` on the last update event in each batch, enabling automatic resume via Last-Event-ID."
       }
     }
   },
-  "version": "0.1.0",
-  "schemaHash": "59b795da723e7803"
+  "version": "0.2.0",
+  "schemaHash": "b6f0ba0b9c0fd00d"
 }

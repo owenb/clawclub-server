@@ -184,6 +184,7 @@ const clubadminMembershipsCreate: ActionDefinition = {
     const { clubId, memberId, sponsorMemberId, initialStatus, reason, metadata } = input as MembershipsCreateInput;
     ctx.requireClubAdmin(clubId);
 
+    const isSuperadmin = ctx.actor.globalRoles.includes('superadmin');
     const membership = await ctx.repository.createMembership({
       actorMemberId: ctx.actor.member.id,
       clubId,
@@ -193,6 +194,7 @@ const clubadminMembershipsCreate: ActionDefinition = {
       initialStatus,
       reason,
       metadata,
+      skipClubAdminCheck: isSuperadmin,
     });
 
     if (!membership) {
@@ -246,12 +248,14 @@ const clubadminMembershipsTransition: ActionDefinition = {
     const { clubId, membershipId, status, reason } = input as MembershipsTransitionInput;
     ctx.requireClubAdmin(clubId);
 
+    const isSuperadmin = ctx.actor.globalRoles.includes('superadmin');
     const membership = await ctx.repository.transitionMembershipState({
       actorMemberId: ctx.actor.member.id,
       membershipId,
       nextStatus: status,
       reason,
       accessibleClubIds: [clubId],
+      skipClubAdminCheck: isSuperadmin,
     });
 
     if (!membership) {

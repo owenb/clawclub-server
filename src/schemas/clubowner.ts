@@ -2,9 +2,9 @@
  * Club owner action contracts: clubowner.members.promoteToAdmin,
  * clubowner.members.demoteFromAdmin
  *
- * All actions require auth: 'clubowner' — the caller must be the club owner.
- * Superadmins also pass the clubadmin gate but must still be the club owner
- * for these actions. All actions require an explicit clubId.
+ * All actions require auth: 'clubowner' — the caller must be the club owner
+ * or a superadmin. Superadmins are root and pass all authorization gates.
+ * All actions require an explicit clubId.
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -17,10 +17,10 @@ import { registerActions, type ActionDefinition, type HandlerContext, type Actio
 const clubownerMembersPromote: ActionDefinition = {
   action: 'clubowner.members.promoteToAdmin',
   domain: 'clubowner',
-  description: 'Promote a club member to admin role (owner only).',
+  description: 'Promote a club member to admin role.',
   auth: 'clubowner',
   safety: 'mutating',
-  authorizationNote: 'Only the club owner can promote members.',
+  authorizationNote: 'Requires club owner or superadmin.',
 
   requiredCapability: 'promoteMemberToAdmin',
 
@@ -67,10 +67,10 @@ const clubownerMembersPromote: ActionDefinition = {
 const clubownerMembersDemote: ActionDefinition = {
   action: 'clubowner.members.demoteFromAdmin',
   domain: 'clubowner',
-  description: 'Demote a club admin to regular member (owner only).',
+  description: 'Demote a club admin to regular member.',
   auth: 'clubowner',
   safety: 'mutating',
-  authorizationNote: 'Only the club owner can demote admins. The owner cannot be demoted.',
+  authorizationNote: 'Requires club owner or superadmin. The club owner cannot be demoted.',
 
   requiredCapability: 'demoteMemberFromAdmin',
 

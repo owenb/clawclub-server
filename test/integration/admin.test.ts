@@ -1400,3 +1400,105 @@ describe('platform authorization', () => {
     assert.equal(status, 401);
   });
 });
+
+// ── superadmin.members.create handle validation ─────────────────────────────
+
+describe('superadmin.members.create handle validation', () => {
+  it('rejects invalid explicit handles', async () => {
+    const admin = await h.seedSuperadmin('Handle Admin', 'handle-admin');
+    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+      publicName: 'Bad Handle User',
+      handle: 'Bad Handle!!!',
+    });
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /handle/i);
+  });
+
+  it('accepts valid explicit handles', async () => {
+    const admin = await h.seedSuperadmin('Handle Admin OK', 'handle-admin-ok');
+    const result = await h.apiOk(admin.token, 'superadmin.members.create', {
+      publicName: 'Good Handle User',
+      handle: 'good-handle-42',
+    });
+    const member = (result.data as Record<string, unknown>).member as Record<string, unknown>;
+    assert.equal(member.handle, 'good-handle-42');
+  });
+
+  it('auto-generates handle when omitted', async () => {
+    const admin = await h.seedSuperadmin('Handle Admin Auto', 'handle-admin-auto');
+    const result = await h.apiOk(admin.token, 'superadmin.members.create', {
+      publicName: 'Auto Handle User',
+    });
+    const member = (result.data as Record<string, unknown>).member as Record<string, unknown>;
+    assert.ok(typeof member.handle === 'string' && member.handle.length > 0, 'should auto-generate a handle');
+  });
+});
+
+// ── Billing sync date validation ────────────────────────────────────────────
+
+describe('billing sync date validation', () => {
+  it('activateMembership rejects invalid paidThrough with 400', async () => {
+    const admin = await h.seedSuperadmin('Billing Date Admin', 'billing-date-admin');
+    const owner = await h.seedOwner('billing-date-club', 'Billing Date Club');
+    const member = await h.seedMember('Billing Date Member', 'billing-date-member');
+
+    // Create a payment_pending membership
+    const createResult = await h.apiOk(owner.token, 'clubadmin.memberships.create', {
+      clubId: owner.club.id,
+      memberId: member.id,
+      sponsorMemberId: owner.id,
+      initialStatus: 'payment_pending',
+    });
+    const membershipId = ((createResult.data as Record<string, unknown>).membership as Record<string, unknown>).membershipId as string;
+
+    const err = await h.apiErr(admin.token, 'superadmin.billing.activateMembership', {
+      membershipId,
+      paidThrough: 'not-a-date',
+    });
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+  });
+
+  it('renewMembership rejects invalid newPaidThrough with 400', async () => {
+    const admin = await h.seedSuperadmin('Renew Date Admin', 'renew-date-admin');
+    const owner = await h.seedOwner('renew-date-club', 'Renew Date Club');
+    const member = await h.seedMember('Renew Date Member', 'renew-date-member');
+
+    // Create active membership
+    const createResult = await h.apiOk(owner.token, 'clubadmin.memberships.create', {
+      clubId: owner.club.id,
+      memberId: member.id,
+      sponsorMemberId: owner.id,
+      initialStatus: 'active',
+    });
+    const membershipId = ((createResult.data as Record<string, unknown>).membership as Record<string, unknown>).membershipId as string;
+
+    const err = await h.apiErr(admin.token, 'superadmin.billing.renewMembership', {
+      membershipId,
+      newPaidThrough: 'garbage',
+    });
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+  });
+
+  it('activateMembership accepts valid ISO date', async () => {
+    const admin = await h.seedSuperadmin('Billing OK Admin', 'billing-ok-admin');
+    const owner = await h.seedOwner('billing-ok-club', 'Billing OK Club');
+    const member = await h.seedMember('Billing OK Member', 'billing-ok-member');
+
+    const createResult = await h.apiOk(owner.token, 'clubadmin.memberships.create', {
+      clubId: owner.club.id,
+      memberId: member.id,
+      sponsorMemberId: owner.id,
+      initialStatus: 'payment_pending',
+    });
+    const membershipId = ((createResult.data as Record<string, unknown>).membership as Record<string, unknown>).membershipId as string;
+
+    const result = await h.apiOk(admin.token, 'superadmin.billing.activateMembership', {
+      membershipId,
+      paidThrough: '2027-12-31T23:59:59Z',
+    });
+    assert.equal((result.data as Record<string, unknown>).ok, true);
+  });
+});

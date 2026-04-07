@@ -1,5 +1,9 @@
 /**
  * Action contracts: messages.send, messages.list, messages.read, messages.inbox, messages.remove
+ *
+ * DMs are not club-scoped. Clubs are only an eligibility check:
+ * two members may DM if they currently share at least one club.
+ * Existing threads continue to function even if clubs diverge.
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -13,7 +17,7 @@ import {
 import {
   directMessageSummary, directMessageThreadSummary,
   directMessageEntry, directMessageInboxSummary,
-  membershipSummary, messageRemovalResult,
+  messageRemovalResult,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -21,21 +25,19 @@ import { registerActions, type ActionDefinition, type HandlerContext, type Actio
 
 type SendInput = {
   recipientMemberId: string;
-  clubId?: string;
   messageText: string;
 };
 
 const messagesSend: ActionDefinition = {
   action: 'messages.send',
   domain: 'messages',
-  description: 'Send a direct message to another member.',
+  description: 'Send a direct message to another member. Requires at least one shared club, or an existing thread between the participants.',
   auth: 'member',
   safety: 'mutating',
 
   wire: {
     input: z.object({
       recipientMemberId: wireRequiredString.describe('Recipient member ID'),
-      clubId: wireRequiredString.optional().describe('Restrict to one club'),
       messageText: wireMessageText.describe('Message text'),
       clientKey: wireOptionalString.describe('Idempotency key — duplicate sends with the same key return the original message'),
     }),
@@ -45,14 +47,13 @@ const messagesSend: ActionDefinition = {
   parse: {
     input: z.object({
       recipientMemberId: parseRequiredString,
-      clubId: parseRequiredString.optional(),
       messageText: parseMessageText,
       clientKey: parseTrimmedNullableString.default(null),
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { recipientMemberId, clubId, messageText, clientKey } = input as SendInput & { clientKey?: string | null };
+    const { recipientMemberId, messageText, clientKey } = input as SendInput & { clientKey?: string | null };
 
     if (recipientMemberId === ctx.actor.member.id) {
       throw new AppError(400, 'invalid_input', 'Cannot send a message to yourself');
@@ -62,73 +63,56 @@ const messagesSend: ActionDefinition = {
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map((club) => club.clubId),
       recipientMemberId,
-      clubId: clubId === undefined ? undefined : ctx.requireAccessibleClub(clubId).clubId,
       messageText,
       clientKey,
     });
 
     if (!message) {
-      throw new AppError(404, 'not_found', 'Recipient not found inside the actor scope');
+      throw new AppError(404, 'not_found', 'Recipient not found or no shared club with recipient');
     }
 
-    return {
-      data: { message },
-      requestScope: { requestedClubId: message.clubId, activeClubIds: [message.clubId] },
-    };
+    return { data: { message } };
   },
 };
 
 // ── messages.list ───────────────────────────────────────
 
 type ListInput = {
-  clubId?: string;
   limit: number;
 };
 
 const messagesList: ActionDefinition = {
   action: 'messages.list',
   domain: 'messages',
-  description: 'List DM threads.',
+  description: 'List DM threads. Returns all threads regardless of club context.',
   auth: 'member',
   safety: 'read_only',
 
   wire: {
     input: z.object({
-      clubId: wireRequiredString.optional().describe('Restrict to one club'),
       limit: wireLimit,
     }),
     output: z.object({
       limit: z.number(),
-      clubScope: z.array(membershipSummary),
       results: z.array(directMessageThreadSummary),
     }),
   },
 
   parse: {
     input: z.object({
-      clubId: parseRequiredString.optional(),
       limit: parseLimit,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, limit } = input as ListInput;
-    const clubScope = ctx.resolveScopedClubs(clubId);
-    const clubIds = clubScope.map((club) => club.clubId);
+    const { limit } = input as ListInput;
 
     const results = await ctx.repository.listDirectMessageThreads({
       actorMemberId: ctx.actor.member.id,
-      clubIds,
       limit,
     });
 
-    return {
-      data: { limit, clubScope, results },
-      requestScope: {
-        requestedClubId: clubId ?? null,
-        activeClubIds: clubIds,
-      },
-    };
+    return { data: { limit, results } };
   },
 };
 
@@ -142,7 +126,7 @@ type ReadInput = {
 const messagesRead: ActionDefinition = {
   action: 'messages.read',
   domain: 'messages',
-  description: 'Read a DM thread.',
+  description: 'Read a DM thread. Only participants can read a thread.',
   auth: 'member',
   safety: 'read_only',
 
@@ -169,29 +153,21 @@ const messagesRead: ActionDefinition = {
 
     const result = await ctx.repository.readDirectMessageThread({
       actorMemberId: ctx.actor.member.id,
-      accessibleClubIds: ctx.actor.memberships.map((club) => club.clubId),
       threadId,
       limit,
     });
 
     if (!result) {
-      throw new AppError(404, 'not_found', 'Thread not found inside the actor scope');
+      throw new AppError(404, 'not_found', 'Thread not found or not a participant');
     }
 
-    return {
-      data: result,
-      requestScope: {
-        requestedClubId: result.thread.clubId,
-        activeClubIds: [result.thread.clubId],
-      },
-    };
+    return { data: result };
   },
 };
 
 // ── messages.inbox ──────────────────────────────────────
 
 type InboxInput = {
-  clubId?: string;
   limit: number;
   unreadOnly: boolean;
 };
@@ -199,51 +175,39 @@ type InboxInput = {
 const messagesInbox: ActionDefinition = {
   action: 'messages.inbox',
   domain: 'messages',
-  description: 'List DM inbox with unread counts.',
+  description: 'List DM inbox with unread counts. Returns all threads regardless of club context.',
   auth: 'member',
   safety: 'read_only',
 
   wire: {
     input: z.object({
-      clubId: wireRequiredString.optional().describe('Restrict to one club'),
       limit: wireLimit,
       unreadOnly: wireOptionalBoolean.describe('Only show threads with unread messages'),
     }),
     output: z.object({
       limit: z.number(),
       unreadOnly: z.boolean(),
-      clubScope: z.array(membershipSummary),
       results: z.array(directMessageInboxSummary),
     }),
   },
 
   parse: {
     input: z.object({
-      clubId: parseRequiredString.optional(),
       limit: parseLimit,
       unreadOnly: z.boolean().optional().default(false),
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, limit, unreadOnly } = input as InboxInput;
-    const clubScope = ctx.resolveScopedClubs(clubId);
-    const clubIds = clubScope.map((club) => club.clubId);
+    const { limit, unreadOnly } = input as InboxInput;
 
     const results = await ctx.repository.listDirectMessageInbox({
       actorMemberId: ctx.actor.member.id,
-      clubIds,
       limit,
       unreadOnly,
     });
 
-    return {
-      data: { limit, unreadOnly, clubScope, results },
-      requestScope: {
-        requestedClubId: clubId ?? null,
-        activeClubIds: clubIds,
-      },
-    };
+    return { data: { limit, unreadOnly, results } };
   },
 };
 
@@ -294,13 +258,7 @@ const messagesRemove: ActionDefinition = {
       throw new AppError(404, 'not_found', 'Message not found inside the actor scope');
     }
 
-    return {
-      data: { removal: result },
-      requestScope: {
-        requestedClubId: result.clubId,
-        activeClubIds: [result.clubId],
-      },
-    };
+    return { data: { removal: result } };
   },
 };
 

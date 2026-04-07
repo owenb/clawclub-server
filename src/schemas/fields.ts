@@ -131,6 +131,17 @@ export const wireRequiredString = z.string()
 /** Parse: required non-empty string, trimmed */
 export const parseRequiredString = safeString.pipe(z.string().trim().min(1));
 
+/** Wire: ISO 8601 date or datetime string for billing/subscription fields. */
+export const wireIsoDatetime = z.string()
+  .describe('ISO 8601 date or datetime (e.g. "2025-12-31" or "2025-12-31T23:59:59Z").');
+
+/** Parse: validates the string is a strict ISO 8601 date or datetime. */
+export const parseIsoDatetime = safeString.pipe(z.string().trim().min(1))
+  .refine(
+    s => /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(s) && !isNaN(Date.parse(s)),
+    'Must be a valid ISO 8601 date or datetime (e.g. "2025-12-31" or "2025-12-31T23:59:59Z")',
+  );
+
 /** Wire: message text with a bounded max length */
 export const wireMessageText = z.string().max(250_000)
   .describe('Required, max 250 000 characters. Server trims whitespace; whitespace-only strings are rejected.');

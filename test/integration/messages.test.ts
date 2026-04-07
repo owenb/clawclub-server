@@ -233,36 +233,181 @@ describe('messages', () => {
     assert.equal(err.status, 400);
   });
 
-  it('omitting clubId with multiple shared clubs returns 400', async () => {
-    // Create first club with owner
+  it('members sharing multiple clubs can DM without providing clubId', async () => {
     const owner = await h.seedOwner('msg-multi-1', 'MsgMulti1');
-    // Create second club with the same owner
     const club2 = await h.seedClub('msg-multi-2', 'MsgMulti2', owner.id);
-    // Create alice as a member and add her to both clubs
     const alice = await h.seedClubMember(owner.club.id, 'Alice Multi', 'alice-multi-club', { sponsorId: owner.id });
-    await h.seedMembership(club2.id, alice.id, { sponsorId: owner.id });
-
-    const err = await h.apiErr(owner.token, 'messages.send', {
-      recipientMemberId: alice.id,
-      messageText: 'Which club?',
-    });
-    assert.equal(err.status, 400);
-    assert.match(err.message, /clubId/);
-  });
-
-  it('explicit clubId with multiple shared clubs succeeds', async () => {
-    const owner = await h.seedOwner('msg-multi-ok-1', 'MsgMultiOk1');
-    const club2 = await h.seedClub('msg-multi-ok-2', 'MsgMultiOk2', owner.id);
-    const alice = await h.seedClubMember(owner.club.id, 'Alice MultiOk', 'alice-multi-ok', { sponsorId: owner.id });
     await h.seedMembership(club2.id, alice.id, { sponsorId: owner.id });
 
     const result = await h.apiOk(owner.token, 'messages.send', {
       recipientMemberId: alice.id,
-      clubId: owner.club.id,
-      messageText: 'Explicit club',
+      messageText: 'No club needed',
     });
     const message = (result.data as Record<string, unknown>).message as Record<string, unknown>;
-    assert.equal(message.clubId, owner.club.id);
+    assert.ok(message.threadId, 'should succeed without clubId');
+    assert.equal(message.messageText, 'No club needed');
+
+    // sharedClubs should include both clubs
+    const sharedClubs = message.sharedClubs as Array<Record<string, unknown>>;
+    assert.ok(Array.isArray(sharedClubs), 'send response should have sharedClubs');
+    assert.ok(sharedClubs.length >= 2, 'should show both shared clubs');
+    const slugs = sharedClubs.map(c => c.slug);
+    assert.ok(slugs.includes('msg-multi-1'));
+    assert.ok(slugs.includes('msg-multi-2'));
+  });
+
+  it('send response has sharedClubs not clubId', async () => {
+    const owner = await h.seedOwner('msg-shape-1', 'MsgShape1');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice Shape', 'alice-shape-1', { sponsorId: owner.id });
+
+    const result = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Shape check',
+    });
+    const message = (result.data as Record<string, unknown>).message as Record<string, unknown>;
+    assert.ok(!('clubId' in message), 'send response should not have clubId');
+    const sharedClubs = message.sharedClubs as Array<Record<string, unknown>>;
+    assert.ok(Array.isArray(sharedClubs), 'send response should have sharedClubs');
+    assert.ok(sharedClubs.length >= 1);
+    assert.ok(sharedClubs[0].clubId);
+    assert.ok(sharedClubs[0].slug);
+    assert.ok(sharedClubs[0].name);
+  });
+
+  it('messages.read returns sharedClubs on thread', async () => {
+    const owner = await h.seedOwner('msg-read-sc', 'MsgReadSC');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice ReadSC', 'alice-read-sc', { sponsorId: owner.id });
+
+    const sent = await h.apiOk(owner.token, 'messages.send', { recipientMemberId: alice.id, messageText: 'SC test' });
+    const threadId = ((sent.data as Record<string, unknown>).message as Record<string, unknown>).threadId as string;
+
+    const readResult = await h.apiOk(owner.token, 'messages.read', { threadId });
+    const thread = (readResult.data as Record<string, unknown>).thread as Record<string, unknown>;
+    assert.ok(!('clubId' in thread), 'thread should not have clubId');
+    const sharedClubs = thread.sharedClubs as Array<Record<string, unknown>>;
+    assert.ok(Array.isArray(sharedClubs));
+    assert.ok(sharedClubs.length >= 1);
+  });
+
+  it('messages.list returns sharedClubs on threads', async () => {
+    const owner = await h.seedOwner('msg-list-sc', 'MsgListSC');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice ListSC', 'alice-list-sc', { sponsorId: owner.id });
+
+    await h.apiOk(owner.token, 'messages.send', { recipientMemberId: alice.id, messageText: 'list SC test' });
+
+    const list = await h.apiOk(owner.token, 'messages.list', {});
+    const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    assert.ok(results.length >= 1);
+    assert.ok(!('clubId' in results[0]), 'thread should not have clubId');
+    assert.ok(Array.isArray(results[0].sharedClubs));
+  });
+
+  it('messages.inbox returns sharedClubs on threads', async () => {
+    const owner = await h.seedOwner('msg-inbox-sc', 'MsgInboxSC');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice InboxSC', 'alice-inbox-sc', { sponsorId: owner.id });
+
+    await h.apiOk(alice.token, 'messages.send', { recipientMemberId: owner.id, messageText: 'inbox SC test' });
+
+    const inbox = await h.apiOk(owner.token, 'messages.inbox', {});
+    const results = (inbox.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    assert.ok(results.length >= 1);
+    assert.ok(!('clubId' in results[0]), 'inbox thread should not have clubId');
+    assert.ok(Array.isArray(results[0].sharedClubs));
+  });
+
+  it('members with no shared clubs cannot start a DM', async () => {
+    const ownerA = await h.seedOwner('msg-no-share-a', 'MsgNoShareA');
+    const ownerB = await h.seedOwner('msg-no-share-b', 'MsgNoShareB');
+
+    const err = await h.apiErr(ownerA.token, 'messages.send', {
+      recipientMemberId: ownerB.id,
+      messageText: 'Should fail',
+    });
+    assert.equal(err.code, 'not_found');
+  });
+
+  it('DM update payload includes sharedClubs', async () => {
+    const owner = await h.seedOwner('msg-upd-sc', 'MsgUpdSC');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice UpdSC', 'alice-upd-sc', { sponsorId: owner.id });
+
+    await h.apiOk(alice.token, 'messages.send', { recipientMemberId: owner.id, messageText: 'Update SC test' });
+
+    const result = await h.apiOk(owner.token, 'updates.list', {});
+    const updates = (result.data as Record<string, unknown>).updates as Record<string, unknown>;
+    const items = updates.items as Array<Record<string, unknown>>;
+    const dmUpdate = items.find(u => u.topic === 'dm.message.created');
+    assert.ok(dmUpdate, 'should have a DM update');
+    assert.equal(dmUpdate.clubId, null, 'DM update clubId should be null');
+    const payload = dmUpdate.payload as Record<string, unknown>;
+    const sharedClubs = payload.sharedClubs as Array<Record<string, unknown>>;
+    assert.ok(Array.isArray(sharedClubs), 'DM update payload should have sharedClubs');
+    assert.ok(sharedClubs.length >= 1);
+  });
+
+  it('existing thread remains replyable after shared clubs drop to zero', async () => {
+    const owner = await h.seedOwner('msg-diverge', 'MsgDiverge');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice Diverge', 'alice-diverge', { sponsorId: owner.id });
+
+    // Start a DM while they share a club
+    const sent = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Before diverge',
+    });
+    const threadId = ((sent.data as Record<string, unknown>).message as Record<string, unknown>).threadId as string;
+
+    // Remove alice from the club — shared clubs drop to zero
+    await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+      clubId: owner.club.id,
+      membershipId: alice.membership.id,
+      status: 'revoked',
+      reason: 'testing diverge',
+    });
+
+    // Alice can still reply in the existing thread
+    const reply = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: owner.id,
+      messageText: 'After diverge',
+    });
+    const replyMsg = (reply.data as Record<string, unknown>).message as Record<string, unknown>;
+    assert.equal(replyMsg.threadId, threadId, 'reply should be in the same thread');
+    const sharedClubs = replyMsg.sharedClubs as Array<Record<string, unknown>>;
+    assert.equal(sharedClubs.length, 0, 'sharedClubs should be empty after diverge');
+
+    // Owner can also reply
+    const ownerReply = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Owner after diverge',
+    });
+    assert.equal(((ownerReply.data as Record<string, unknown>).message as Record<string, unknown>).threadId, threadId);
+
+    // Thread is readable with sharedClubs: []
+    const readResult = await h.apiOk(owner.token, 'messages.read', { threadId });
+    const thread = (readResult.data as Record<string, unknown>).thread as Record<string, unknown>;
+    assert.deepEqual(thread.sharedClubs, []);
+    const messages = (readResult.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    assert.ok(messages.length >= 3);
+  });
+
+  it('DM ack receipt returns clubId null not empty string', async () => {
+    const owner = await h.seedOwner('msg-ack-null', 'MsgAckNull');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice Ack', 'alice-ack-null', { sponsorId: owner.id });
+
+    await h.apiOk(alice.token, 'messages.send', { recipientMemberId: owner.id, messageText: 'Ack test' });
+
+    // Get update IDs
+    const updates = await h.apiOk(owner.token, 'updates.list', {});
+    const items = ((updates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
+    const dmUpdate = items.find(u => u.topic === 'dm.message.created');
+    assert.ok(dmUpdate);
+
+    // Acknowledge the DM update
+    const ackResult = await h.apiOk(owner.token, 'updates.acknowledge', {
+      updateIds: [dmUpdate.updateId],
+      state: 'processed',
+    });
+    const receipts = (ackResult.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
+    assert.equal(receipts.length, 1);
+    assert.equal(receipts[0].clubId, null, 'DM ack receipt clubId should be null, not empty string');
   });
 
   it('oversized messageText returns 400', async () => {

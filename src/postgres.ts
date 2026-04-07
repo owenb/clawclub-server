@@ -133,6 +133,111 @@ async function readAdmissionEnriched(
   };
 }
 
+// ── Shared-club helpers for DMs ─────────────────────────────
+// DMs are not club-scoped. These helpers resolve clubs currently shared
+// between two members, used only for eligibility checks and response enrichment.
+
+type SharedClubRow = { club_id: string; slug: string; name: string };
+
+/** Resolve shared clubs between actor and another member, scoped to actor's accessible clubs. */
+async function resolveSharedClubs(
+  pool: Pool, actorMemberId: string, otherMemberId: string, accessibleClubIds: string[],
+): Promise<Array<{ clubId: string; slug: string; name: string }>> {
+  const result = await pool.query<SharedClubRow>(
+    `select c.id as club_id, c.slug, c.name
+     from app.accessible_memberships a
+     join app.accessible_memberships b on b.club_id = a.club_id and b.member_id = $3
+     join app.clubs c on c.id = a.club_id and c.archived_at is null
+     where a.member_id = $1 and a.club_id = any($2::text[])
+     order by c.name asc`,
+    [actorMemberId, accessibleClubIds, otherMemberId],
+  );
+  return result.rows.map(r => ({ clubId: r.club_id, slug: r.slug, name: r.name }));
+}
+
+/** Resolve shared clubs between two members without scoping to accessible clubs. */
+async function resolveSharedClubsUnscoped(
+  pool: Pool, memberA: string, memberB: string,
+): Promise<Array<{ clubId: string; slug: string; name: string }>> {
+  const result = await pool.query<SharedClubRow>(
+    `select c.id as club_id, c.slug, c.name
+     from app.accessible_memberships a
+     join app.accessible_memberships b on b.club_id = a.club_id and b.member_id = $2
+     join app.clubs c on c.id = a.club_id and c.archived_at is null
+     where a.member_id = $1
+     order by c.name asc`,
+    [memberA, memberB],
+  );
+  return result.rows.map(r => ({ clubId: r.club_id, slug: r.slug, name: r.name }));
+}
+
+/** Batch-resolve shared clubs for multiple counterparts in one query. */
+async function batchResolveSharedClubs(
+  pool: Pool, actorMemberId: string, counterpartMemberIds: string[],
+): Promise<Map<string, Array<{ clubId: string; slug: string; name: string }>>> {
+  const map = new Map<string, Array<{ clubId: string; slug: string; name: string }>>();
+  if (counterpartMemberIds.length === 0) return map;
+
+  const result = await pool.query<SharedClubRow & { counterpart_member_id: string }>(
+    `select b.member_id as counterpart_member_id, c.id as club_id, c.slug, c.name
+     from app.accessible_memberships a
+     join app.accessible_memberships b on b.club_id = a.club_id and b.member_id = any($2::text[])
+     join app.clubs c on c.id = a.club_id and c.archived_at is null
+     where a.member_id = $1
+     order by b.member_id, c.name asc`,
+    [actorMemberId, counterpartMemberIds],
+  );
+
+  for (const r of result.rows) {
+    let arr = map.get(r.counterpart_member_id);
+    if (!arr) {
+      arr = [];
+      map.set(r.counterpart_member_id, arr);
+    }
+    arr.push({ clubId: r.club_id, slug: r.slug, name: r.name });
+  }
+  return map;
+}
+
+/** Batch-resolve shared clubs for multiple member pairs keyed by an opaque ID (e.g. threadId). */
+async function batchResolveSharedClubsPairs(
+  pool: Pool, pairs: Map<string, [string, string]>,
+): Promise<Map<string, Array<{ clubId: string; slug: string; name: string }>>> {
+  const result = new Map<string, Array<{ clubId: string; slug: string; name: string }>>();
+  if (pairs.size === 0) return result;
+
+  // Build VALUES list for all pairs
+  const values: string[] = [];
+  const params: string[] = [];
+  let idx = 1;
+  for (const [key, [a, b]] of pairs) {
+    values.push(`($${idx}::text, $${idx + 1}::text, $${idx + 2}::text)`);
+    params.push(key, a, b);
+    idx += 3;
+  }
+
+  const rows = await pool.query<{ pair_key: string; club_id: string; slug: string; name: string }>(
+    `with pairs(pair_key, member_a, member_b) as (values ${values.join(', ')})
+     select p.pair_key, c.id as club_id, c.slug, c.name
+     from pairs p
+     join app.accessible_memberships a on a.member_id = p.member_a
+     join app.accessible_memberships b on b.club_id = a.club_id and b.member_id = p.member_b
+     join app.clubs c on c.id = a.club_id and c.archived_at is null
+     order by p.pair_key, c.name asc`,
+    params,
+  );
+
+  for (const r of rows.rows) {
+    let arr = result.get(r.pair_key);
+    if (!arr) {
+      arr = [];
+      result.set(r.pair_key, arr);
+    }
+    arr.push({ clubId: r.club_id, slug: r.slug, name: r.name });
+  }
+  return result;
+}
+
 // ── Factory ─────────────────────────────────────────────────
 
 export function createRepository(pool: Pool): Repository {
@@ -627,30 +732,18 @@ export function createRepository(pool: Pool): Repository {
     },
 
     // ── Messages ─────────────────────────────────────────
+    // DMs are not club-scoped. Clubs are only an eligibility check for starting
+    // a conversation. Existing threads continue even if clubs diverge.
+
     async sendDirectMessage(input) {
-      // Check shared clubs — DMs require at least one shared club
-      const sharedClubResult = await pool.query<{ club_id: string }>(
-        `with actor_scope as (
-           select distinct club_id from app.accessible_memberships
-           where member_id = $1 and club_id = any($2::text[])
-         )
-         select actor_scope.club_id
-         from actor_scope
-         join app.accessible_memberships recipient_scope
-           on recipient_scope.club_id = actor_scope.club_id
-         where recipient_scope.member_id = $3
-           and ($4::text is null or actor_scope.club_id = $4)
-         order by actor_scope.club_id asc`,
-        [input.actorMemberId, input.accessibleClubIds, input.recipientMemberId, input.clubId ?? null],
-      );
-
-      if (sharedClubResult.rows.length === 0) return null;
-
-      if (!input.clubId && sharedClubResult.rows.length > 1) {
-        throw new AppError(400, 'invalid_input', 'Sender and recipient share multiple clubs. Provide clubId to specify which club context to use.');
+      // Clubs are an eligibility check for *starting* a DM. If an existing
+      // thread already exists between the two members, sending is always
+      // allowed (the thread was started when they did share a club).
+      const sharedClubs = await resolveSharedClubs(pool, input.actorMemberId, input.recipientMemberId, input.accessibleClubIds);
+      if (sharedClubs.length === 0) {
+        const hasThread = await messaging.hasExistingThread(input.actorMemberId, input.recipientMemberId);
+        if (!hasThread) return null;
       }
-
-      const clubId = sharedClubResult.rows[0]!.club_id;
 
       const msg = await messaging.sendMessage({
         senderMemberId: input.actorMemberId,
@@ -661,7 +754,7 @@ export function createRepository(pool: Pool): Repository {
 
       return {
         threadId: msg.threadId,
-        clubId,
+        sharedClubs,
         senderMemberId: msg.senderMemberId,
         recipientMemberId: msg.recipientMemberId,
         messageId: msg.messageId,
@@ -673,10 +766,12 @@ export function createRepository(pool: Pool): Repository {
 
     async listDirectMessageThreads({ actorMemberId, limit }) {
       const threads = await messaging.listThreads({ memberId: actorMemberId, limit });
+      const counterpartIds = threads.map((t) => t.counterpartMemberId);
+      const sharedClubsMap = await batchResolveSharedClubs(pool, actorMemberId, counterpartIds);
 
       return threads.map((t) => ({
         threadId: t.threadId,
-        clubId: '',
+        sharedClubs: sharedClubsMap.get(t.counterpartMemberId) ?? [],
         counterpartMemberId: t.counterpartMemberId,
         counterpartPublicName: t.counterpartPublicName,
         counterpartHandle: t.counterpartHandle,
@@ -687,10 +782,12 @@ export function createRepository(pool: Pool): Repository {
 
     async listDirectMessageInbox({ actorMemberId, limit, unreadOnly }) {
       const entries = await messaging.listInbox({ memberId: actorMemberId, limit, unreadOnly });
+      const counterpartIds = entries.map((e) => e.counterpartMemberId);
+      const sharedClubsMap = await batchResolveSharedClubs(pool, actorMemberId, counterpartIds);
 
       return entries.map((e) => ({
         threadId: e.threadId,
-        clubId: '',
+        sharedClubs: sharedClubsMap.get(e.counterpartMemberId) ?? [],
         counterpartMemberId: e.counterpartMemberId,
         counterpartPublicName: e.counterpartPublicName,
         counterpartHandle: e.counterpartHandle,
@@ -709,10 +806,12 @@ export function createRepository(pool: Pool): Repository {
       const result = await messaging.readThread({ memberId: actorMemberId, threadId, limit });
       if (!result) return null;
 
+      const sharedClubs = await resolveSharedClubsUnscoped(pool, actorMemberId, result.thread.counterpartMemberId);
+
       return {
         thread: {
           threadId: result.thread.threadId,
-          clubId: '',
+          sharedClubs,
           counterpartMemberId: result.thread.counterpartMemberId,
           counterpartPublicName: result.thread.counterpartPublicName,
           counterpartHandle: result.thread.counterpartHandle,
@@ -737,7 +836,6 @@ export function createRepository(pool: Pool): Repository {
       if (!result) return null;
       return {
         messageId: result.messageId,
-        clubId: '', // messaging has no club_id
         removedByMemberId: result.removedByMemberId,
         reason: result.reason,
         removedAt: result.removedAt,
@@ -886,15 +984,22 @@ export function createRepository(pool: Pool): Repository {
         createdByMemberId: (item.createdByMemberId as string) ?? null,
       }));
 
+      // Resolve shared clubs for DM senders in batch
+      const dmSenderIds = [...new Set(
+        inboxResult.rows.map(ie => dmDetails.get(ie.message_id)?.sender_member_id).filter((id): id is string => !!id),
+      )];
+      const dmSharedClubsMap = await batchResolveSharedClubs(pool, input.actorMemberId, dmSenderIds);
+
       const inboxItems = inboxResult.rows.map((ie, idx) => {
         const dm = dmDetails.get(ie.message_id);
         const tsMs = Date.parse(ie.created_at) || Date.now();
+        const senderSharedClubs = dm?.sender_member_id ? (dmSharedClubsMap.get(dm.sender_member_id) ?? []) : [];
         return {
           updateId: `inbox:${ie.id}`,
           streamSeq: tsMs + idx,
           source: 'inbox' as const,
           recipientMemberId: ie.recipient_member_id,
-          clubId: '',
+          clubId: null,
           entityId: null,
           entityVersionId: null,
           dmMessageId: ie.message_id,
@@ -908,6 +1013,7 @@ export function createRepository(pool: Pool): Repository {
             senderHandle: dm?.sender_handle ?? null,
             recipientMemberId: ie.recipient_member_id,
             messageText: dm?.message_text ?? null,
+            sharedClubs: senderSharedClubs,
           },
           createdAt: ie.created_at,
           createdByMemberId: dm?.sender_member_id ?? null,
@@ -996,7 +1102,7 @@ export function createRepository(pool: Pool): Repository {
           receiptId: updateId,
           updateId,
           recipientMemberId: input.actorMemberId,
-          clubId: '',
+          clubId: updateId.startsWith('inbox:') ? null : '',
           state: input.state,
           suppressionReason: input.suppressionReason ?? null,
           versionNo: 1,
@@ -1210,8 +1316,17 @@ export function createRepository(pool: Pool): Repository {
         [cursor?.createdAt ?? null, cursor?.id ?? null, limit],
       );
 
+      // Batch-resolve shared clubs for all thread participant pairs
+      const pairMap = new Map<string, [string, string]>();
+      for (const r of result.rows) {
+        const ids = r.participants.map(p => p.memberId);
+        if (ids.length === 2) pairMap.set(r.thread_id, [ids[0], ids[1]]);
+      }
+      const sharedClubsByThread = await batchResolveSharedClubsPairs(pool, pairMap);
+
       return result.rows.map((r) => ({
-        threadId: r.thread_id, clubId: '', clubName: '',
+        threadId: r.thread_id,
+        sharedClubs: sharedClubsByThread.get(r.thread_id) ?? [],
         participants: r.participants,
         messageCount: r.message_count,
         latestMessageAt: r.latest_message_at ?? '',
@@ -1256,9 +1371,15 @@ export function createRepository(pool: Pool): Repository {
 
       const latestMsg = messages.rows[0];
 
+      const participantIds = thread.rows[0].participants.map(p => p.memberId);
+      const threadSharedClubs = participantIds.length === 2
+        ? await resolveSharedClubsUnscoped(pool, participantIds[0], participantIds[1])
+        : [];
+
       return {
         thread: {
-          threadId: thread.rows[0].thread_id, clubId: '', clubName: '',
+          threadId: thread.rows[0].thread_id,
+          sharedClubs: threadSharedClubs,
           participants: thread.rows[0].participants,
           messageCount: thread.rows[0].message_count,
           latestMessageAt: latestMsg?.created_at ?? '',

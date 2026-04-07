@@ -20,6 +20,7 @@ import {
   wireSlug, parseSlug,
   entityKind,
   membershipRole, membershipCreateInitialStatus,
+  wireHandle, parseHandle,
 } from './fields.ts';
 import {
   adminOverview, adminMemberSummary, adminMemberDetail,
@@ -540,7 +541,6 @@ const superadminContentList: ActionDefinition = {
 // ── superadmin.messages.threads ──────────────────────────
 
 type SuperadminMessagesThreadsInput = {
-  clubId?: string;
   limit: number;
   cursor: string | null;
 };
@@ -548,7 +548,7 @@ type SuperadminMessagesThreadsInput = {
 const superadminMessagesThreads: ActionDefinition = {
   action: 'superadmin.messages.threads',
   domain: 'superadmin',
-  description: 'List DM threads across the platform.',
+  description: 'List DM threads across the platform. DMs are not club-scoped; each thread shows currently shared clubs between participants.',
   auth: 'superadmin',
   safety: 'read_only',
 
@@ -556,7 +556,6 @@ const superadminMessagesThreads: ActionDefinition = {
 
   wire: {
     input: z.object({
-      clubId: wireRequiredString.optional().describe('Filter by club'),
       limit: wireLimit,
       cursor: wireCursor,
     }),
@@ -565,7 +564,6 @@ const superadminMessagesThreads: ActionDefinition = {
 
   parse: {
     input: z.object({
-      clubId: parseRequiredString.optional(),
       limit: parseLimit,
       cursor: parseCursor,
     }),
@@ -574,12 +572,11 @@ const superadminMessagesThreads: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     ctx.requireCapability('adminListThreads');
-    const { clubId, limit, cursor: rawCursor } = input as SuperadminMessagesThreadsInput;
+    const { limit, cursor: rawCursor } = input as SuperadminMessagesThreadsInput;
     const cursor = rawCursor ? decodeSuperadminCursor(rawCursor) : null;
 
     const threads = await ctx.repository.adminListThreads!({
       actorMemberId: ctx.actor.member.id,
-      clubId,
       limit,
       cursor,
     });
@@ -747,7 +744,7 @@ const superadminMembersCreate: ActionDefinition = {
   wire: {
     input: z.object({
       publicName: wireRequiredString.describe('Display name for the new member'),
-      handle: wireOptionalString.describe('Optional handle (auto-generated if omitted)'),
+      handle: wireHandle.describe('Optional handle (auto-generated if omitted). Lowercase alphanumeric with hyphens.'),
       email: wireOptionalString.describe('Optional private contact email'),
     }),
     output: z.object({
@@ -759,8 +756,11 @@ const superadminMembersCreate: ActionDefinition = {
   parse: {
     input: z.object({
       publicName: parseRequiredString,
-      handle: parseTrimmedNullableString.default(null),
-      email: parseTrimmedNullableString.default(null),
+      handle: parseHandle.default(null),
+      email: parseTrimmedNullableString.default(null).refine(
+        val => val === null || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val),
+        'email must be a valid email address',
+      ),
     }),
   },
 

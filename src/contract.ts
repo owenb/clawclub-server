@@ -77,6 +77,7 @@ export type CreateMembershipInput = {
   reason?: string | null;
   metadata: Record<string, unknown>;
   sourceAdmissionId?: string | null;
+  skipClubAdminCheck?: boolean;
 };
 
 export type MembershipReviewSummary = MembershipAdminSummary & {
@@ -215,6 +216,7 @@ export type TransitionMembershipInput = {
   nextStatus: MembershipState;
   reason?: string | null;
   accessibleClubIds: string[];
+  skipClubAdminCheck?: boolean;
 };
 
 export type ClubSummary = {
@@ -286,7 +288,7 @@ export type PendingUpdate = {
   streamSeq: number;
   source: 'activity' | 'inbox' | 'signal';
   recipientMemberId: string;
-  clubId: string;
+  clubId: string | null;
   entityId: string | null;
   entityVersionId: string | null;
   dmMessageId: string | null;
@@ -318,7 +320,7 @@ export type UpdateReceipt = {
   receiptId: string;
   updateId: string;
   recipientMemberId: string;
-  clubId: string;
+  clubId: string | null;
   state: UpdateReceiptState;
   suppressionReason: string | null;
   versionNo: number;
@@ -345,7 +347,7 @@ export type MemberSearchResult = {
   knownFor: string | null;
   servicesSummary: string | null;
   websiteUrl: string | null;
-  sharedClubs: Array<{ id: string; slug: string; name: string }>;
+  sharedClubs: SharedClubRef[];
 };
 
 export type ClubMemberSummary = {
@@ -381,7 +383,7 @@ export type MemberProfile = {
     createdAt: string | null;
     createdByMemberId: string | null;
   };
-  sharedClubs: Array<{ id: string; slug: string; name: string }>;
+  sharedClubs: SharedClubRef[];
 };
 
 export type UpdateOwnProfileInput = {
@@ -454,9 +456,14 @@ export type RemoveMessageInput = {
   skipNotification?: boolean;
 };
 
+export type SharedClubRef = {
+  clubId: string;
+  slug: string;
+  name: string;
+};
+
 export type MessageRemovalResult = {
   messageId: string;
-  clubId: string;
   removedByMemberId: string;
   reason: string | null;
   removedAt: string;
@@ -580,7 +587,7 @@ export type RevokeBearerTokenInput = {
 
 export type DirectMessageSummary = {
   threadId: string;
-  clubId: string;
+  sharedClubs: SharedClubRef[];
   senderMemberId: string;
   recipientMemberId: string;
   messageId: string;
@@ -591,7 +598,7 @@ export type DirectMessageSummary = {
 
 export type DirectMessageThreadSummary = {
   threadId: string;
-  clubId: string;
+  sharedClubs: SharedClubRef[];
   counterpartMemberId: string;
   counterpartPublicName: string;
   counterpartHandle: string | null;
@@ -645,7 +652,6 @@ export type SendDirectMessageInput = {
   actorMemberId: string;
   accessibleClubIds: string[];
   recipientMemberId: string;
-  clubId?: string;
   messageText: string;
   clientKey?: string | null;
 };
@@ -763,8 +769,7 @@ export type AdminContentSummary = {
 
 export type AdminThreadSummary = {
   threadId: string;
-  clubId: string;
-  clubName: string;
+  sharedClubs: SharedClubRef[];
   participants: Array<{
     memberId: string;
     publicName: string;
@@ -843,16 +848,14 @@ export type Repository = {
   getLatestCursor?(input: { actorMemberId: string; clubIds: string[] }): Promise<string | null>;
   acknowledgeUpdates?(input: AcknowledgeUpdatesInput): Promise<UpdateReceipt[]>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
-  listDirectMessageThreads(input: { actorMemberId: string; clubIds: string[]; limit: number }): Promise<DirectMessageThreadSummary[]>;
+  listDirectMessageThreads(input: { actorMemberId: string; limit: number }): Promise<DirectMessageThreadSummary[]>;
   listDirectMessageInbox(input: {
     actorMemberId: string;
-    clubIds: string[];
     limit: number;
     unreadOnly: boolean;
   }): Promise<DirectMessageInboxSummary[]>;
   readDirectMessageThread(input: {
     actorMemberId: string;
-    accessibleClubIds: string[];
     threadId: string;
     limit: number;
   }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageEntry[] } | null>;
@@ -874,7 +877,7 @@ export type Repository = {
   adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;
   adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
   adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminContentSummary[]>;
-  adminListThreads?(input: { actorMemberId: string; clubId?: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminThreadSummary[]>;
+  adminListThreads?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminThreadSummary[]>;
   adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] } | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
   adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;

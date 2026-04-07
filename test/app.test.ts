@@ -228,7 +228,7 @@ function makeClaimedDelivery(overrides: Partial<ClaimedDelivery> = {}): ClaimedD
 function makeDirectMessage(overrides: Partial<DirectMessageSummary> = {}): DirectMessageSummary {
   return {
     threadId: 'thread-1',
-    clubId: 'club-1',
+    sharedClubs: [{ clubId: 'club-1', slug: 'alpha', name: 'Alpha' }],
     senderMemberId: 'member-1',
     recipientMemberId: 'member-2',
     messageId: 'message-1',
@@ -242,7 +242,7 @@ function makeDirectMessage(overrides: Partial<DirectMessageSummary> = {}): Direc
 function makeDirectMessageThread(overrides: Partial<DirectMessageThreadSummary> = {}): DirectMessageThreadSummary {
   return {
     threadId: 'thread-1',
-    clubId: 'club-1',
+    sharedClubs: [{ clubId: 'club-1', slug: 'alpha', name: 'Alpha' }],
     counterpartMemberId: 'member-2',
     counterpartPublicName: 'Member Two',
     counterpartHandle: 'member-two',
@@ -440,7 +440,7 @@ function makeProfile(memberId = 'member-1'): MemberProfile {
       createdByMemberId: memberId,
       embedding: null,
     },
-    sharedClubs: [{ id: 'club-1', slug: 'alpha', name: 'Alpha' }],
+    sharedClubs: [{ clubId: 'club-1', slug: 'alpha', name: 'Alpha' }],
   };
 }
 
@@ -834,6 +834,7 @@ test('memberships.create derives scope server-side and preserves sponsor semanti
     initialStatus: 'invited',
     reason: 'Trusted intro',
     metadata: { source: 'operator' },
+    skipClubAdminCheck: true,
   });
   assert.equal(result.action, 'clubadmin.memberships.create');
   assert.equal(result.data.membership.sponsor.memberId, 'member-1');
@@ -879,6 +880,7 @@ test('memberships.transition appends a new membership state version inside owner
     nextStatus: 'active',
     reason: 'Fit check complete',
     accessibleClubIds: ['club-2'],
+    skipClubAdminCheck: true,
   });
   assert.equal(result.action, 'clubadmin.memberships.transition');
   assert.equal(result.data.membership.state.versionNo, 2);
@@ -2382,7 +2384,6 @@ test('messages.send picks a shared club, appends the request scope, and returns 
     async sendDirectMessage(input) {
       capturedInput = input as Record<string, unknown>;
       return makeDirectMessage({
-        clubId: 'club-2',
         recipientMemberId: 'member-9',
         messageText: input.messageText,
         updateCount: 2,
@@ -2413,7 +2414,6 @@ test('messages.send picks a shared club, appends the request scope, and returns 
     action: 'messages.send',
     payload: {
       recipientMemberId: 'member-9',
-      clubId: 'club-2',
       messageText: 'Hello from the club edge',
     },
   });
@@ -2422,13 +2422,10 @@ test('messages.send picks a shared club, appends the request scope, and returns 
     actorMemberId: 'member-1',
     accessibleClubIds: ['club-1', 'club-2'],
     recipientMemberId: 'member-9',
-    clubId: 'club-2',
     messageText: 'Hello from the club edge',
     clientKey: null,
   });
   assert.equal(result.action, 'messages.send');
-  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
-  assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.message.updateCount, 2);
   assert.equal(result.data.message.messageText, 'Hello from the club edge');
 });
@@ -2583,7 +2580,7 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
     },
     async listDirectMessageThreads(input) {
       capturedInput = input as Record<string, unknown>;
-      return [makeDirectMessageThread({ clubId: 'club-2' })];
+      return [makeDirectMessageThread()];
     },
     async readDirectMessageThread() {
       return {
@@ -2600,17 +2597,15 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.list',
-    payload: { clubId: 'club-2', limit: 4 },
+    payload: { limit: 4 },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    clubIds: ['club-2'],
     limit: 4,
   });
   assert.equal(result.action, 'messages.list');
-  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
-  assert.equal(result.data.results[0]?.clubId, 'club-2');
+  assert.ok(Array.isArray(result.data.results[0]?.sharedClubs));
   assert.equal(result.data.results[0]?.counterpartMemberId, 'member-2');
 });
 
@@ -2676,7 +2671,6 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
       capturedInput = input as Record<string, unknown>;
       return [
         makeDirectMessageInbox({
-          clubId: 'club-2',
           unread: {
             hasUnread: true,
             unreadMessageCount: 2,
@@ -2701,19 +2695,17 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.inbox',
-    payload: { clubId: 'club-2', limit: 4, unreadOnly: true },
+    payload: { limit: 4, unreadOnly: true },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    clubIds: ['club-2'],
     limit: 4,
     unreadOnly: true,
   });
   assert.equal(result.action, 'messages.inbox');
-  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.equal(result.data.unreadOnly, true);
-  assert.equal(result.data.results[0]?.clubId, 'club-2');
+  assert.ok(Array.isArray(result.data.results[0]?.sharedClubs));
   assert.equal(result.data.results[0]?.unread.unreadMessageCount, 2);
   assert.equal(result.data.results[0]?.unread.unreadUpdateCount, 3);
 });
@@ -2779,7 +2771,7 @@ test('messages.read scopes thread access server-side and returns DM entries', as
     async readDirectMessageThread(input) {
       capturedInput = input as Record<string, unknown>;
       return {
-        thread: makeDirectMessageThread({ clubId: 'club-2' }),
+        thread: makeDirectMessageThread(),
         messages: [
           makeDirectMessageTranscriptEntry({
             messageId: 'message-1',
@@ -2835,12 +2827,10 @@ test('messages.read scopes thread access server-side and returns DM entries', as
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    accessibleClubIds: ['club-1', 'club-2'],
     threadId: 'thread-1',
     limit: 2,
   });
   assert.equal(result.action, 'messages.read');
-  assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.equal(result.data.thread.threadId, 'thread-1');
   assert.equal(result.data.messages.length, 2);
   assert.equal(result.data.messages[1]?.inReplyToMessageId, 'message-1');

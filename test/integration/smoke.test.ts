@@ -171,13 +171,25 @@ describe('smoke', () => {
     assert.ok(events.ready, 'should have stream ready event schema');
     assert.ok(events.update, 'should have stream update event schema');
 
+    // Stream contract
+    const streamQp = stream.queryParameters as Record<string, unknown>;
+    assert.ok(streamQp.after, 'stream should document after param');
+    assert.ok(streamQp.limit, 'stream should document limit param');
+    assert.ok(stream.resumeHeaders, 'stream should document resume headers');
+    assert.ok(stream.sseIdBehavior, 'stream should document SSE id behavior');
+    assert.ok(stream.heartbeat, 'stream should document heartbeat');
+    assert.ok(typeof stream.maxConcurrentStreamsPerMember === 'number', 'stream should document max concurrent streams');
+
     // Transport error codes
     const errorCodes = transport.transportErrorCodes as Array<Record<string, unknown>>;
-    assert.ok(errorCodes.length >= 8, 'should have transport error codes');
+    assert.ok(errorCodes.length >= 13, 'should have all transport error codes');
     const codes = errorCodes.map(e => e.code);
     assert.ok(codes.includes('invalid_input'));
     assert.ok(codes.includes('unauthorized'));
     assert.ok(codes.includes('unknown_action'));
+    assert.ok(codes.includes('not_found'), 'should include not_found for unsupported routes');
+    assert.ok(codes.includes('too_many_streams'), 'should include too_many_streams');
+    assert.ok(codes.includes('not_available'), 'should include not_available for missing capabilities');
 
     // schemaHash covers full payload
     assert.ok(typeof data.schemaHash === 'string');

@@ -417,3 +417,63 @@ describe('non-owner cannot use owner actions', () => {
     assert.equal(err.code, 'forbidden');
   });
 });
+
+// ── Superadmin as root: clubadmin membership actions ────────────────────────
+
+describe('superadmin can create memberships in unrelated clubs', () => {
+  it('superadmin calls clubadmin.memberships.create on a club they do not belong to', async () => {
+    const admin = await h.seedSuperadmin('SA Create', 'sa-create-ms');
+    const owner = await h.seedOwner('sa-create-club', 'SA Create Club');
+    const member = await h.seedMember('Target Member', 'sa-target-member');
+
+    const result = await h.apiOk(admin.token, 'clubadmin.memberships.create', {
+      clubId: owner.club.id,
+      memberId: member.id,
+      sponsorMemberId: owner.id,
+      initialStatus: 'active',
+    });
+
+    const membership = (result.data as Record<string, unknown>).membership as Record<string, unknown>;
+    assert.ok(membership.membershipId, 'should return created membership');
+    assert.equal((membership.state as Record<string, unknown>).status, 'active');
+
+    // Verify the member now sees the club
+    const session = await h.apiOk(member.token, 'session.describe', {});
+    const hasClub = activeMemberships(session).some((m) => m.clubId === owner.club.id);
+    assert.equal(hasClub, true, 'member should see club after superadmin-created membership');
+  });
+});
+
+describe('superadmin can transition memberships in unrelated clubs', () => {
+  it('superadmin calls clubadmin.memberships.transition on a club they do not belong to', async () => {
+    const admin = await h.seedSuperadmin('SA Transition', 'sa-transition-ms');
+    const owner = await h.seedOwner('sa-transition-club', 'SA Transition Club');
+    const member = await h.seedMember('SA Trans Target', 'sa-trans-target');
+
+    // Owner creates an invited membership
+    const createResult = await h.apiOk(owner.token, 'clubadmin.memberships.create', {
+      clubId: owner.club.id,
+      memberId: member.id,
+      sponsorMemberId: owner.id,
+      initialStatus: 'invited',
+    });
+
+    const membershipId = ((createResult.data as Record<string, unknown>).membership as Record<string, unknown>).membershipId as string;
+
+    // Superadmin transitions it to active
+    const transitionResult = await h.apiOk(admin.token, 'clubadmin.memberships.transition', {
+      clubId: owner.club.id,
+      membershipId,
+      status: 'active',
+      reason: 'superadmin override',
+    });
+
+    const transitioned = (transitionResult.data as Record<string, unknown>).membership as Record<string, unknown>;
+    assert.equal((transitioned.state as Record<string, unknown>).status, 'active');
+
+    // Verify the member now has access
+    const session = await h.apiOk(member.token, 'session.describe', {});
+    const hasClub = activeMemberships(session).some((m) => m.clubId === owner.club.id);
+    assert.equal(hasClub, true, 'member should have access after superadmin transition');
+  });
+});
