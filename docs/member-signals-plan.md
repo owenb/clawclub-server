@@ -80,7 +80,7 @@ The stack decomposes into four tiers. Each tier is independently useful, and eac
 │  runner.ts (lifecycle, pools, health), worker_state table   │
 ├─────────────────────────────────────────────────────────────┤
 │  Transport primitives                                       │
-│  member_signals table, compound cursor, notifier/SSE        │
+│  signals table, compound cursor, notifier/SSE               │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -147,9 +147,9 @@ DMs are conversations between people. They create threads, have senders, expect 
 
 Using DMs would pollute the messaging system with non-conversational noise and force the agent to distinguish "real messages from people" from "system notifications pretending to be messages." A separate source type keeps the semantics clean.
 
-### Why not extend club_activity
+### Why not extend activity
 
-`club_activity` is broadcast -- every member in the club sees the same activity entries (filtered by audience tier). Signals are targeted to one specific member. "This ask matches *your* profile" is meaningless to anyone else. Adding per-recipient targeting to club_activity would complicate its simple broadcast model and break the assumption that all members (within their audience tier) see the same activity log.
+`activity` is broadcast -- every member in the club sees the same activity entries (filtered by audience tier). Signals are targeted to one specific member. "This ask matches *your* profile" is meaningless to anyone else. Adding per-recipient targeting to `activity` would complicate its simple broadcast model and break the assumption that all members (within their audience tier) see the same activity log.
 
 ### Migration
 
@@ -170,26 +170,26 @@ CREATE TABLE app.signals (
     suppression_reason      text,
     created_at              timestamptz NOT NULL DEFAULT now(),
 
-    CONSTRAINT member_signals_pkey PRIMARY KEY (id),
-    CONSTRAINT member_signals_seq_unique UNIQUE (seq),
-    CONSTRAINT member_signals_topic_check CHECK (length(btrim(topic)) > 0),
-    CONSTRAINT member_signals_entity_fkey
+    CONSTRAINT signals_pkey PRIMARY KEY (id),
+    CONSTRAINT signals_seq_unique UNIQUE (seq),
+    CONSTRAINT signals_topic_check CHECK (length(btrim(topic)) > 0),
+    CONSTRAINT signals_entity_fkey
         FOREIGN KEY (entity_id) REFERENCES app.entities(id),
-    CONSTRAINT member_signals_ack_state_check CHECK (
+    CONSTRAINT signals_ack_state_check CHECK (
         acknowledged_state IS NULL
         OR acknowledged_state IN ('processed', 'suppressed')
     ),
-    CONSTRAINT member_signals_suppression_check CHECK (
+    CONSTRAINT signals_suppression_check CHECK (
         (acknowledged_state = 'suppressed' AND suppression_reason IS NOT NULL)
         OR (acknowledged_state IS DISTINCT FROM 'suppressed')
     )
 );
 
-CREATE INDEX member_signals_recipient_poll_idx
+CREATE INDEX signals_recipient_poll_idx
     ON app.signals (recipient_member_id, club_id, seq)
     WHERE acknowledged_state IS NULL;
 
-CREATE INDEX member_signals_match_idx
+CREATE INDEX signals_match_idx
     ON app.signals (match_id)
     WHERE match_id IS NOT NULL;
 ```
@@ -205,7 +205,7 @@ CREATE FUNCTION app.notify_member_signal() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
-    PERFORM pg_notify('club_activity', json_build_object(
+    PERFORM pg_notify('updates', json_build_object(
         'clubId', NEW.club_id,
         'recipientMemberId', NEW.recipient_member_id
     )::text);
@@ -213,12 +213,12 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER member_signals_notify
+CREATE TRIGGER signals_notify
     AFTER INSERT ON app.signals
     FOR EACH ROW EXECUTE FUNCTION app.notify_member_signal();
 ```
 
-**Known tradeoff**: The `MemberUpdateNotifier` (`src/member-updates-notifier.ts:115-128`) filters `club_activity` notifications by `clubId` only, not by `recipientMemberId`. One signal to one member wakes every SSE waiter in that club. Woken waiters re-poll and find nothing new, which is wasted work. This is acceptable at launch (single-node, small clubs). If it becomes a performance concern at scale, extend the notifier to optionally filter by `recipientMemberId` when the notification payload includes it.
+**Known tradeoff**: The `MemberUpdateNotifier` (`src/member-updates-notifier.ts`) filters `updates` notifications by `clubId` only, not by `recipientMemberId`. One signal to one member wakes every SSE waiter in that club. Woken waiters re-poll and find nothing new, which is wasted work. This is acceptable at launch (single-node, small clubs). If it becomes a performance concern at scale, extend the notifier to optionally filter by `recipientMemberId` when the notification payload includes it.
 
 ### Signal topic conventions
 
@@ -410,7 +410,7 @@ A reusable table for tracking background member-targeted match computations. It 
 
 The scope is deliberately specific: every match targets a member. This is not a universal matching substrate for arbitrary object pairs -- it is a primitive for "the system computed that member X should know about thing Y." That scope covers all current and foreseeable recommendation use cases (synchronicity, digest highlights, billing nudges, moderation notifications) without pretending to solve a more general problem. If a future system needs non-member-targeted matching, it should have its own table rather than forcing `background_matches` into a shape it wasn't designed for.
 
-### Why this is separate from member_signals
+### Why this is separate from signals
 
 `signals` is the delivery channel -- it carries the notification. The match table is the computation state -- it tracks whether a match was computed, whether it was worth delivering, and links to the signal that delivered it.
 
@@ -464,7 +464,7 @@ Note: no CHECK constraint on `match_kind` values. New match kinds can be added b
 ### State machine
 
 ```
-pending ──> delivered    (signal written to member_signals)
+pending ──> delivered    (signal written to signals)
 pending ──> expired      (TTL passed, source removed, or superseded)
 ```
 
@@ -497,7 +497,7 @@ The worker uses two trigger sources, because entity publications and profile upd
 
 **Source A: Club activity** (entity-triggered matching)
 
-Polls `club_activity` for new entity publications:
+Polls `activity` for new entity publications:
 ```sql
 select seq, club_id, entity_id, topic, payload, created_by_member_id
 from app.activity
@@ -833,8 +833,8 @@ Note: `matchContext` is absent from v1 payloads. The receiving agent has enough 
 
 | Feature | Primitives used | Trigger |
 |---------|----------------|---------|
-| Ask matching | 1 + 2 + 3 + 4 + 5 | New ask published (club_activity) |
-| Offer matching | 1 + 2 + 3 + 4 + 5 | New service/opportunity published (club_activity) |
+| Ask matching | 1 + 2 + 3 + 4 + 5 | New ask published (activity) |
+| Offer matching | 1 + 2 + 3 + 4 + 5 | New service/opportunity published (activity) |
 | Introductions | 1 + 2 + 3 + 4 + 5 | Profile embedding update (identity) + periodic sweep |
 | Event suggestions | 1 + 2 + 3 + 4 + 5 | Periodic (approaching events) |
 | Subscription expiring | 1 + 2 only | Billing code inserts a signal row |
@@ -879,7 +879,7 @@ The first four features require all five primitives. Every other notification ne
 ### Phase 4: Synchronicity Worker (Primitive 5)
 
 1. Create `src/workers/synchronicity.ts` using the shared runner.
-2. Implement dual trigger detection (club_activity + identity profile artifacts with `updated_at`).
+2. Implement dual trigger detection (activity + profile embeddings with `updated_at`).
 3. Implement ask matching and offer matching (entity-triggered).
 4. Implement introduction matching (profile-triggered + periodic sweep) with batch DM thread filtering.
 5. Implement event suggestion matching (periodic).

@@ -1028,7 +1028,7 @@ describe('quotas.status', () => {
     const ownerCtx = await h.seedOwner('quota-supported', 'Quota Supported Club');
     // Seed all three action types to verify filtering
     await h.sqlClubs(
-      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
+      `insert into app.quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
       [ownerCtx.club.id],
     );
 
@@ -1044,7 +1044,7 @@ describe('quotas.status', () => {
     const ownerCtx = await h.seedOwner('quota-kind-isolation', 'Quota Kind Club');
     // Seed quotas for both actions
     await h.sqlClubs(
-      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
+      `insert into app.quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
       [ownerCtx.club.id],
     );
 
@@ -1072,7 +1072,7 @@ describe('quotas.status', () => {
   it('events do NOT consume entities.create quota', async () => {
     const ownerCtx = await h.seedOwner('quota-event-isolation', 'Quota Event Club');
     await h.sqlClubs(
-      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
+      `insert into app.quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
       [ownerCtx.club.id],
     );
 
@@ -1097,7 +1097,7 @@ describe('quotas.status', () => {
     const ownerCtx = await h.seedOwner('quota-enforce-kind', 'Quota Enforce Club');
     // Set entities.create max to 1 (not events)
     await h.sqlClubs(
-      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 1)`,
+      `insert into app.quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 1)`,
       [ownerCtx.club.id],
     );
 

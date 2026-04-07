@@ -152,14 +152,14 @@ export const wireApplicationText = z.string().max(4000)
 export const parseApplicationText = safeString.pipe(z.string().trim().min(1).max(4000));
 
 /** Wire: optional JSON object */
-export const wireOptionalRecord = z.record(z.unknown()).optional()
+export const wireOptionalRecord = z.record(z.string(), z.unknown()).optional()
   .describe('Optional JSON object. Defaults to {} if omitted.');
 
 /** Parse: optional JSON object, defaults to {} */
-export const parseOptionalRecord = z.record(z.unknown()).optional().default({});
+export const parseOptionalRecord = z.record(z.string(), z.unknown()).optional().default({});
 
 /** Wire: required JSON object */
-export const wireRequiredRecord = z.record(z.unknown());
+export const wireRequiredRecord = z.record(z.string(), z.unknown());
 
 /**
  * Wire: handle format (lowercase alphanumeric with single hyphens).
@@ -346,5 +346,5 @@ export const wireLinks = z.array(z.unknown()).optional()
   .describe('Array of link objects.');
 
 /** Wire: profile freeform object */
-export const wireProfileObject = z.record(z.unknown()).optional()
+export const wireProfileObject = z.record(z.string(), z.unknown()).optional()
   .describe('Freeform profile metadata.');

@@ -103,7 +103,7 @@ async function mintBearerToken(pool: Pool, memberId: string, label: string): Pro
 
   await pool.query(
     `
-      insert into app.member_bearer_tokens (id, member_id, label, token_hash, metadata)
+      insert into app.bearer_tokens (id, member_id, label, token_hash, metadata)
       values ($1, $2, $3, $4, '{}'::jsonb)
     `,
     [token.tokenId, memberId, label, token.tokenHash],
@@ -118,7 +118,7 @@ async function mintBearerToken(pool: Pool, memberId: string, label: string): Pro
 async function revokeBearerToken(pool: Pool, tokenId: string): Promise<void> {
   await pool.query(
     `
-      update app.member_bearer_tokens
+      update app.bearer_tokens
       set revoked_at = coalesce(revoked_at, now())
       where id = $1
     `,
@@ -193,7 +193,7 @@ export async function runHttpSmoke(): Promise<{
   clubId: string;
   actions: string[];
 }> {
-  const identityUrl = requireEnv('IDENTITY_DATABASE_URL');
+  const identityUrl = requireEnv('DATABASE_URL');
   const setupPool = new Pool({ connectionString: identityUrl });
   const memberHandle = readSmokeHandle();
   const actions = ['GET /updates', 'GET /updates/stream', 'session.describe', 'members.fullTextSearch', 'profile.get', 'messages.inbox', 'entities.list', 'events.list'];

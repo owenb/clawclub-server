@@ -1,8 +1,5 @@
 /**
- * Identity plane — single source of truth for members, auth, profiles,
- * clubs, memberships, subscriptions, and routing.
- *
- * All queries run against the identity database pool.
+ * Identity domain — members, auth, profiles, clubs, memberships, subscriptions.
  */
 
 import type { Pool } from 'pg';
@@ -28,8 +25,7 @@ import type {
   UpdateClubInput,
   UpdateOwnProfileInput,
 } from '../contract.ts';
-import type { DbClient, MemberDisplay } from '../db.ts';
-import { fetchMemberDisplayBatch } from '../db.ts';
+import type { DbClient } from '../db.ts';
 import { authenticateBearerToken, readActor } from './auth.ts';
 import * as tokens from './tokens.ts';
 import * as memberships from './memberships.ts';
@@ -40,9 +36,6 @@ export type IdentityRepository = {
   // Auth
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
   readActor(memberId: string): Promise<ActorContext | null>;
-
-  // Member display (cross-plane enrichment)
-  getMemberDisplayBatch(memberIds: string[]): Promise<Map<string, MemberDisplay>>;
 
   // Tokens
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
@@ -59,7 +52,7 @@ export type IdentityRepository = {
   promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
   demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
 
-  // Cross-plane saga helpers (for admission acceptance)
+  // Admission acceptance helpers
   createMemberFromAdmission(input: { name: string; email: string; displayName: string; details: Record<string, unknown>; admissionId: string }): Promise<string>;
   createCompedSubscription(membershipId: string, payerMemberId: string): Promise<void>;
   hasLiveSubscription(membershipId: string): Promise<boolean>;
@@ -86,7 +79,6 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
   return {
     authenticateBearerToken: (bearerToken) => authenticateBearerToken(pool, bearerToken),
     readActor: (memberId) => readActor(pool, memberId),
-    getMemberDisplayBatch: (memberIds) => fetchMemberDisplayBatch(pool, memberIds),
 
     // Tokens
     listBearerTokens: ({ actorMemberId }) => tokens.listBearerTokens(pool, actorMemberId),
@@ -103,7 +95,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     promoteMemberToAdmin: (input) => memberships.promoteMemberToAdmin(pool, input),
     demoteMemberFromAdmin: (input) => memberships.demoteMemberFromAdmin(pool, input),
 
-    // Cross-plane saga helpers
+    // Admission acceptance helpers
     createMemberFromAdmission: (input) => memberships.createMemberFromAdmission(pool, input),
     createCompedSubscription: (membershipId, payerMemberId) => {
       // Run outside a transaction — caller manages the saga

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const execFileAsync = promisify(execFile);
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
-test('healthcheck reports per-plane status and skips api check without a health token', async () => {
+test('healthcheck reports database status and skips api check without a health token', async () => {
   const tmpDir = '/tmp/clawclub-healthcheck-test';
   await mkdir(tmpDir, { recursive: true });
 
@@ -33,36 +33,25 @@ test('healthcheck reports per-plane status and skips api check without a health 
     env: {
       ...process.env,
       PATH: `${stubDir}:${process.env.PATH}`,
-      IDENTITY_DATABASE_URL: 'postgres://example.test/identity',
-      MESSAGING_DATABASE_URL: 'postgres://example.test/messaging',
-      CLUBS_DATABASE_URL: 'postgres://example.test/clubs',
+      DATABASE_URL: 'postgres://example.test/clawclub',
     },
   });
 
-  assert.match(stdout, /== IDENTITY database ==/);
-  assert.match(stdout, /== MESSAGING database ==/);
-  assert.match(stdout, /== CLUBS database ==/);
+  assert.match(stdout, /== database ==/);
   assert.match(stdout, /role=clawclub_app/);
   assert.match(stdout, /migrations: 1 applied/);
   assert.match(stdout, /tables: 10 in app schema/);
   assert.match(stdout, /skipped \(set CLAWCLUB_HEALTH_TOKEN to enable\)/);
 });
 
-test('healthcheck skips planes with missing URLs', async () => {
-  const tmpDir = '/tmp/clawclub-healthcheck-skip-test';
-  await mkdir(tmpDir, { recursive: true });
-
+test('healthcheck skips database with missing URL', async () => {
   const { stdout } = await execFileAsync('./scripts/healthcheck.sh', {
     cwd: repoRoot,
     env: {
       ...process.env,
-      IDENTITY_DATABASE_URL: '',
-      MESSAGING_DATABASE_URL: '',
-      CLUBS_DATABASE_URL: '',
+      DATABASE_URL: '',
     },
   });
 
-  assert.match(stdout, /SKIP: IDENTITY_DATABASE_URL not set/);
-  assert.match(stdout, /SKIP: MESSAGING_DATABASE_URL not set/);
-  assert.match(stdout, /SKIP: CLUBS_DATABASE_URL not set/);
+  assert.match(stdout, /SKIP: DATABASE_URL not set/);
 });

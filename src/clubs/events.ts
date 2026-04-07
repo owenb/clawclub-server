@@ -1,8 +1,7 @@
 /**
- * Club plane — event operations (create, list, RSVP).
+ * Clubs domain — event operations (create, list, RSVP).
  *
  * Events are entities with kind='event' and extra version fields.
- * No member name JOINs — enrichment happens in the composition layer.
  */
 
 import type { Pool } from 'pg';
@@ -32,24 +31,28 @@ type EventRow = {
   version_created_at: string;
   content: Record<string, unknown> | null;
   entity_created_at: string;
+  author_public_name: string;
+  author_handle: string | null;
   viewer_response: EventRsvpState | null;
   yes_count: number;
   maybe_count: number;
   no_count: number;
   waitlist_count: number;
   attendees: Array<{
-    membershipId: string; memberId: string; response: EventRsvpState;
+    membershipId: string; memberId: string;
+    publicName: string; handle: string | null;
+    response: EventRsvpState;
     note: string | null; createdAt: string;
   }> | null;
 };
 
-/** Map event row. Author/attendee names are empty — enriched by composition layer. */
+/** Map event row. Author + attendee names come from JOINed member data. */
 function mapEventRow(row: EventRow): EventSummary {
   return {
     entityId: row.entity_id,
     entityVersionId: row.entity_version_id,
     clubId: row.club_id,
-    author: { memberId: row.author_member_id, publicName: '', handle: null },
+    author: { memberId: row.author_member_id, publicName: row.author_public_name, handle: row.author_handle },
     version: {
       versionNo: row.version_no,
       state: row.state as EventSummary['version']['state'],
@@ -69,7 +72,7 @@ function mapEventRow(row: EventRow): EventSummary {
       },
       attendees: (row.attendees ?? []).map((a) => ({
         membershipId: a.membershipId, memberId: a.memberId,
-        publicName: '', handle: null, // enriched by composition
+        publicName: a.publicName, handle: a.handle,
         response: a.response, note: a.note, createdAt: a.createdAt,
       })),
     },
@@ -80,7 +83,7 @@ function mapEventRow(row: EventRow): EventSummary {
 async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): Promise<void> {
   const profile = EMBEDDING_PROFILES['entity'];
   await client.query(
-    `insert into app.embeddings_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
+    `insert into app.embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
      values ('entity_version', $1, $2, $3, $4)
      on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
     [subjectVersionId, profile.model, profile.dimensions, profile.sourceVersion],
@@ -97,22 +100,27 @@ export async function readEventSummary(client: DbClient, entityId: string, viewe
               cev.timezone, cev.recurrence_rule, cev.capacity,
               cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
               cev.created_at::text as version_created_at, cev.content,
-              e.created_at::text as entity_created_at
+              e.created_at::text as entity_created_at,
+              m.public_name as author_public_name, m.handle as author_handle
        from app.entities e
        join app.current_entity_versions cev on cev.entity_id = e.id
+       join app.members m on m.id = e.author_member_id
        where e.id = $1 and e.kind = 'event' and e.archived_at is null and e.deleted_at is null
          and ($3::text is null or cev.id = $3)
      ),
      attendee_rows as (
        select cer.event_entity_id, cer.membership_id, cer.created_by_member_id as member_id,
+              am.public_name, am.handle,
               cer.response, cer.note, cer.created_at::text as created_at
-       from app.current_event_rsvps cer
+       from app.current_rsvps cer
        join event_base eb on eb.entity_id = cer.event_entity_id
+       join app.members am on am.id = cer.created_by_member_id
      ),
      attendee_agg as (
        select event_entity_id,
               jsonb_agg(jsonb_build_object(
                 'membershipId', membership_id, 'memberId', member_id,
+                'publicName', public_name, 'handle', handle,
                 'response', response, 'note', note, 'createdAt', created_at
               ) order by created_at asc) as attendees,
               count(*) filter (where response = 'yes')::int as yes_count,
@@ -123,7 +131,7 @@ export async function readEventSummary(client: DbClient, entityId: string, viewe
      ),
      viewer_rsvp as (
        select cer.event_entity_id, cer.response
-       from app.current_event_rsvps cer
+       from app.current_rsvps cer
        where cer.membership_id = any($2::text[])
      )
      select eb.*,
@@ -226,21 +234,26 @@ export async function listEvents(pool: Pool, input: {
               cev.timezone, cev.recurrence_rule, cev.capacity,
               cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
               cev.created_at::text as version_created_at, cev.content,
-              e.created_at::text as entity_created_at
+              e.created_at::text as entity_created_at,
+              m.public_name as author_public_name, m.handle as author_handle
        from app.entities e
        join app.current_entity_versions cev on cev.entity_id = e.id
+       join app.members m on m.id = e.author_member_id
        where e.id = any($1::text[]) and e.kind = 'event'
      ),
      attendee_rows as (
        select cer.event_entity_id, cer.membership_id, cer.created_by_member_id as member_id,
+              am.public_name, am.handle,
               cer.response, cer.note, cer.created_at::text as created_at
-       from app.current_event_rsvps cer
+       from app.current_rsvps cer
        join event_base eb on eb.entity_id = cer.event_entity_id
+       join app.members am on am.id = cer.created_by_member_id
      ),
      attendee_agg as (
        select event_entity_id,
               jsonb_agg(jsonb_build_object(
                 'membershipId', membership_id, 'memberId', member_id,
+                'publicName', public_name, 'handle', handle,
                 'response', response, 'note', note, 'createdAt', created_at
               ) order by created_at asc) as attendees,
               count(*) filter (where response = 'yes')::int as yes_count,
@@ -251,7 +264,7 @@ export async function listEvents(pool: Pool, input: {
      ),
      viewer_rsvp as (
        select cer.event_entity_id, cer.response
-       from app.current_event_rsvps cer
+       from app.current_rsvps cer
        where cer.membership_id = any($2::text[])
      )
      select eb.*,
@@ -290,7 +303,7 @@ export async function rsvpEvent(pool: Pool, input: {
 
     // Get current RSVP version
     const currentRsvp = await client.query<{ version_no: number; id: string }>(
-      `select version_no, id from app.current_event_rsvps
+      `select version_no, id from app.current_rsvps
        where event_entity_id = $1 and membership_id = $2 limit 1`,
       [input.eventEntityId, input.membershipId],
     );
@@ -299,7 +312,7 @@ export async function rsvpEvent(pool: Pool, input: {
     const supersedesId = currentRsvp.rows[0]?.id ?? null;
 
     await client.query(
-      `insert into app.event_rsvps (event_entity_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id)
+      `insert into app.rsvps (event_entity_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id)
        values ($1, $2, $3, $4, $5, $6, $7)`,
       [input.eventEntityId, input.membershipId, input.response, input.note ?? null, versionNo, supersedesId, input.memberId],
     );

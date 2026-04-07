@@ -59,7 +59,6 @@ export async function runQualityGate(
       model,
       system: GATE_WRAPPER,
       messages: [{ role: 'user', content: JSON.stringify(payload) }],
-      maxSteps: 1,
     });
   } catch (err: unknown) {
     const errorCode = normalizeProviderErrorCode(err);
@@ -68,8 +67,8 @@ export async function runQualityGate(
   }
 
   const usage: LlmUsage = {
-    promptTokens: result.usage?.promptTokens ?? 0,
-    completionTokens: result.usage?.completionTokens ?? 0,
+    promptTokens: result.usage?.inputTokens ?? 0,
+    completionTokens: result.usage?.outputTokens ?? 0,
   };
 
   const text = result.text.trim();
@@ -116,7 +115,6 @@ export async function runAdmissionGate(
       model,
       system,
       messages: [{ role: 'user', content: JSON.stringify(payload) }],
-      maxSteps: 1,
     });
   } catch (err: unknown) {
     const errorCode = normalizeProviderErrorCode(err);
@@ -125,8 +123,8 @@ export async function runAdmissionGate(
   }
 
   const usage: LlmUsage = {
-    promptTokens: result.usage?.promptTokens ?? 0,
-    completionTokens: result.usage?.completionTokens ?? 0,
+    promptTokens: result.usage?.inputTokens ?? 0,
+    completionTokens: result.usage?.outputTokens ?? 0,
   };
 
   const text = result.text.trim();

@@ -30,11 +30,11 @@ function makeVector(values: number[]): string {
   return `[${full.join(',')}]`;
 }
 
-/** Seed a profile embedding for a member in the identity DB. */
+/** Seed a profile embedding for a member. */
 async function seedProfileEmbedding(memberId: string, vector: string): Promise<void> {
   // Get or create a profile version
   const pvRows = await h.sql<{ id: string }>(
-    `select id from app.current_member_profiles where member_id = $1`,
+    `select id from app.current_profiles where member_id = $1`,
     [memberId],
   );
   let profileVersionId: string;
@@ -42,7 +42,7 @@ async function seedProfileEmbedding(memberId: string, vector: string): Promise<v
     profileVersionId = pvRows[0].id;
   } else {
     const insertRows = await h.sql<{ id: string }>(
-      `insert into app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
+      `insert into app.profile_versions (member_id, version_no, display_name, created_by_member_id)
        values ($1, 1, 'test', $1) returning id`,
       [memberId],
     );
@@ -50,7 +50,7 @@ async function seedProfileEmbedding(memberId: string, vector: string): Promise<v
   }
 
   await h.sql(
-    `insert into app.embeddings_member_profile_artifacts
+    `insert into app.profile_embeddings
        (member_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
      values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
      on conflict (member_id, model, dimensions, source_version, chunk_index)
@@ -59,7 +59,7 @@ async function seedProfileEmbedding(memberId: string, vector: string): Promise<v
   );
 }
 
-/** Seed an entity with an embedding in the clubs DB. */
+/** Seed an entity with an embedding. */
 async function seedEntityWithEmbedding(
   clubId: string,
   authorMemberId: string,
@@ -81,7 +81,7 @@ async function seedEntityWithEmbedding(
   const entityVersionId = versionRows[0].id;
 
   await h.sqlClubs(
-    `insert into app.embeddings_entity_artifacts
+    `insert into app.entity_embeddings
        (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
      values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
      on conflict (entity_id, model, dimensions, source_version, chunk_index)
@@ -92,7 +92,7 @@ async function seedEntityWithEmbedding(
   return entityId;
 }
 
-describe('cross-plane similarity', () => {
+describe('embedding similarity', () => {
   describe('findMembersMatchingEntity', () => {
     it('returns members ranked by cosine distance', async () => {
       const owner = await h.seedOwner('simclub1', 'SimClub1');
@@ -111,7 +111,7 @@ describe('cross-plane similarity', () => {
       await seedProfileEmbedding(bob.id, makeVector([0.1, 0.9, 0]));
 
       const results = await findMembersMatchingEntity(
-        h.pools.clubs.super, h.pools.identity.super,
+        h.pools.super,
         entityId, owner.club.id, owner.id, 10,
       );
 
@@ -131,7 +131,7 @@ describe('cross-plane similarity', () => {
       );
 
       const results = await findMembersMatchingEntity(
-        h.pools.clubs.super, h.pools.identity.super,
+        h.pools.super,
         entityId, owner.club.id, owner.id, 10,
       );
 
@@ -152,7 +152,7 @@ describe('cross-plane similarity', () => {
 
       // Search in club 3b — Alice should NOT appear
       const results = await findMembersMatchingEntity(
-        h.pools.clubs.super, h.pools.identity.super,
+        h.pools.super,
         entityId, owner2.club.id, owner2.id, 10,
       );
 
@@ -175,7 +175,7 @@ describe('cross-plane similarity', () => {
       await seedProfileEmbedding(bob.id, makeVector([0.3, 0.7, 0]));
 
       const results = await findSimilarMembers(
-        h.pools.identity.super,
+        h.pools.super,
         owner.id, owner.club.id, 10,
       );
 
@@ -189,7 +189,7 @@ describe('cross-plane similarity', () => {
       await seedProfileEmbedding(owner.id, makeVector([1, 0, 0]));
 
       const results = await findSimilarMembers(
-        h.pools.identity.super,
+        h.pools.super,
         owner.id, owner.club.id, 10,
       );
 
@@ -213,7 +213,7 @@ describe('cross-plane similarity', () => {
       );
 
       const results = await findAskMatchingOffer(
-        h.pools.clubs.super,
+        h.pools.super,
         serviceId, owner.club.id, 10,
       );
 
@@ -236,7 +236,7 @@ describe('cross-plane similarity', () => {
       );
 
       const results = await findAskMatchingOffer(
-        h.pools.clubs.super,
+        h.pools.super,
         serviceId, owner.club.id, 10,
       );
 
@@ -257,7 +257,7 @@ describe('cross-plane similarity', () => {
       });
 
       const [a, b] = canonicalPair(owner.id, alice.id);
-      const pairs = await findExistingThreadPairs(h.pools.messaging.super, [a], [b]);
+      const pairs = await findExistingThreadPairs(h.pools.super, [a], [b]);
 
       assert.equal(pairs.size, 1, 'should find the existing thread');
       assert.ok(pairs.has(`${a}:${b}`));
@@ -268,7 +268,7 @@ describe('cross-plane similarity', () => {
       const alice = await h.seedClubMember(owner.club.id, 'Alice Sim9', 'alice-sim9', { sponsorId: owner.id });
 
       const [a, b] = canonicalPair(owner.id, alice.id);
-      const pairs = await findExistingThreadPairs(h.pools.messaging.super, [a], [b]);
+      const pairs = await findExistingThreadPairs(h.pools.super, [a], [b]);
 
       assert.equal(pairs.size, 0, 'should find no threads');
     });

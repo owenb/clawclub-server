@@ -6,7 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { zodToJsonSchema } from 'zod-to-json-schema';
+import { z } from 'zod';
 import { getRegistry } from './schemas/registry.ts';
 
 const PACKAGE_VERSION: string = JSON.parse(
@@ -69,7 +69,7 @@ function buildSchema(): unknown {
   const actions: SchemaAction[] = [];
 
   for (const [, def] of registry) {
-    const inputSchema = relaxInputSchema(zodToJsonSchema(def.wire.input, { target: 'openApi3' }));
+    const inputSchema = relaxInputSchema(z.toJSONSchema(def.wire.input, { target: 'openapi-3.0' }));
 
     const entry: SchemaAction = {
       action: def.action,
@@ -78,7 +78,7 @@ function buildSchema(): unknown {
       auth: def.auth,
       safety: def.safety,
       input: inputSchema,
-      output: zodToJsonSchema(def.wire.output, { target: 'openApi3' }),
+      output: z.toJSONSchema(def.wire.output, { target: 'openapi-3.0' }),
     };
 
     if (def.authorizationNote) {

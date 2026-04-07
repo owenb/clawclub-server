@@ -101,7 +101,7 @@ const profileUpdate: ActionDefinition = {
       servicesSummary: parsePatchString,
       websiteUrl: parsePatchString,
       links: z.array(z.unknown()).optional(),
-      profile: z.record(z.unknown()).optional(),
+      profile: z.record(z.string(), z.unknown()).optional(),
     }),
   },
 

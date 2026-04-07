@@ -32,7 +32,7 @@ describe('member signals', () => {
 
     // Insert a signal directly via SQL
     await h.sqlClubs(
-      `insert into app.member_signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signals (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.test', $3::jsonb)`,
       [owen.club.id, owen.id, JSON.stringify({ kind: 'test', message: 'hello' })],
     );
@@ -63,7 +63,7 @@ describe('member signals', () => {
 
     // Insert a signal
     await h.sqlClubs(
-      `insert into app.member_signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signals (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.ack_test', '{}'::jsonb)`,
       [owen.club.id, owen.id],
     );
@@ -82,7 +82,7 @@ describe('member signals', () => {
 
     // Verify durable state in DB
     const dbRows = await h.sqlClubs<{ acknowledged_state: string; suppression_reason: string | null }>(
-      `select acknowledged_state, suppression_reason from app.member_signals where id = $1`,
+      `select acknowledged_state, suppression_reason from app.signals where id = $1`,
       [signalId.replace('signal:', '')],
     );
     assert.equal(dbRows.length, 1);
@@ -101,7 +101,7 @@ describe('member signals', () => {
     const cursor = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 })).nextAfter;
 
     await h.sqlClubs(
-      `insert into app.member_signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signals (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.suppress_test', '{}'::jsonb)`,
       [owen.club.id, owen.id],
     );
@@ -116,7 +116,7 @@ describe('member signals', () => {
     });
 
     const dbRows = await h.sqlClubs<{ acknowledged_state: string; suppression_reason: string | null }>(
-      `select acknowledged_state, suppression_reason from app.member_signals where id = $1`,
+      `select acknowledged_state, suppression_reason from app.signals where id = $1`,
       [signalId.replace('signal:', '')],
     );
     assert.equal(dbRows[0].acknowledged_state, 'suppressed');
@@ -130,14 +130,14 @@ describe('member signals', () => {
 
     // Insert a signal
     await h.sqlClubs(
-      `insert into app.member_signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signals (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.cursor_test', '{}'::jsonb)`,
       [owen.club.id, owen.id],
     );
 
     // Insert activity directly (avoids needing LLM quality gate)
     await h.sqlClubs(
-      `insert into app.club_activity (club_id, topic, payload, created_by_member_id)
+      `insert into app.activity (club_id, topic, payload, created_by_member_id)
        values ($1, 'entity.version.published', '{}'::jsonb, $2)`,
       [owen.club.id, owen.id],
     );
@@ -170,7 +170,7 @@ describe('member signals', () => {
 
     // Insert a signal
     await h.sqlClubs(
-      `insert into app.member_signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signals (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.compat_test', '{}'::jsonb)`,
       [owen.club.id, owen.id],
     );

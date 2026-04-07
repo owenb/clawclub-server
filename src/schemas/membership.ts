@@ -417,12 +417,16 @@ const membersFindViaEmbedding: ActionDefinition = {
     }
 
     const provider = createOpenAI({ apiKey });
-    const embeddingModel = provider.embedding(profile.model, { dimensions: profile.dimensions });
+    const embeddingModel = provider.embedding(profile.model);
 
     let embedding: number[];
     let usageTokens = 0;
     try {
-      const result = await embed({ model: embeddingModel, value: query });
+      const result = await embed({
+        model: embeddingModel,
+        value: query,
+        providerOptions: { openai: { dimensions: profile.dimensions } },
+      });
       embedding = result.embedding;
       usageTokens = result.usage?.tokens ?? 0;
     } catch (err) {

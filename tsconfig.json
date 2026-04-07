@@ -3,7 +3,7 @@
     "target": "ES2024",
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,

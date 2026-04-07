@@ -74,19 +74,11 @@ Together, these two are the complete client contract.
 
 ### Database architecture
 
-ClawClub uses three separate Postgres databases instead of one:
+ClawClub uses a single Postgres database with all tables in the `app` schema. The canonical schema is `db/init.sql`. Authorization is enforced at the application layer — no RLS.
 
-| Database | What it owns | Why it's separate |
-|----------|-------------|-------------------|
-| **Identity** | Members, auth tokens, profiles, clubs, memberships, subscriptions, routing | Single source of truth for "who are you and what can you access." Never shards. |
-| **Messaging** | Threads, messages, inbox state, receipts | Conversations are between people, not tied to any club. Can scale independently of club content. |
-| **Club** (shard 1) | Entities, events, RSVPs, admissions, vouches, activity feed, quotas, embeddings | All club content lives here. When a single shard fills up, clone the schema and route new clubs to shard 2. |
+Code is organized by domain module (identity, messaging, clubs) sharing one connection pool. Proper foreign keys connect all tables.
 
-All three run on the same Postgres instance today. The split exists so that each plane can move to its own server, add read replicas, or shard independently when the time comes — without rewriting the application layer.
-
-Cross-plane data (member names in club content, counterpart names in message threads) is resolved at the application layer via batch lookups against the identity database. No replication between databases.
-
-**[`docs/identity-club-split.md`](docs/identity-club-split.md)** — the full architectural plan: table assignments, cross-plane operations, and implementation phases.
+**[`docs/design-decisions.md`](docs/design-decisions.md)** — the canonical record of durable design decisions: append-only data model, application-layer authorization, versioning standard, update transport, quality gate policy, and more.
 
 
 ## Development
@@ -103,9 +95,9 @@ npm run test:integration:with-llm # Integration tests — runs through the real 
 npm run test:integration:all      # Runs both integration suites
 ```
 
-Integration tests create and destroy three databases (`clawclub_identity_test`, `clawclub_messaging_test`, `clawclub_clubs_test`) automatically. They exercise every API action against real Postgres databases with bearer token auth.
+Integration tests create and destroy a test database (`clawclub_test`) automatically. They exercise every API action against a real Postgres database with bearer token auth.
 
-For local manual testing there are three dev databases with seeded test data — see `CLAUDE.md` for setup instructions.
+For local manual testing there is a dev database with seeded test data — see `CLAUDE.md` for setup instructions.
 
 
 ## Open source stance

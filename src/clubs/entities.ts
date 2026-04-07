@@ -1,8 +1,5 @@
 /**
- * Club plane — entity CRUD (posts, opportunities, services, asks).
- *
- * No member name JOINs — the clubs DB has no members table.
- * Author display info is enriched by the composition layer.
+ * Clubs domain — entity CRUD (posts, opportunities, services, asks).
  */
 
 import type { Pool } from 'pg';
@@ -17,6 +14,8 @@ type EntityRow = {
   club_id: string;
   kind: EntitySummary['kind'];
   author_member_id: string;
+  author_public_name: string;
+  author_handle: string | null;
   version_no: number;
   state: string;
   title: string | null;
@@ -29,14 +28,13 @@ type EntityRow = {
   entity_created_at: string;
 };
 
-/** Map a row to EntitySummary. Author names are empty — enriched by composition layer. */
 function mapEntityRow(row: EntityRow): EntitySummary {
   return {
     entityId: row.entity_id,
     entityVersionId: row.entity_version_id,
     clubId: row.club_id,
     kind: row.kind,
-    author: { memberId: row.author_member_id, publicName: '', handle: null },
+    author: { memberId: row.author_member_id, publicName: row.author_public_name, handle: row.author_handle },
     version: {
       versionNo: row.version_no,
       state: row.state as EntitySummary['version']['state'],
@@ -54,7 +52,8 @@ function mapEntityRow(row: EntityRow): EntitySummary {
 
 const ENTITY_SELECT = `
   e.id as entity_id, cev.id as entity_version_id, e.club_id, e.kind,
-  e.author_member_id, cev.version_no, cev.state,
+  e.author_member_id, m.public_name as author_public_name, m.handle as author_handle,
+  cev.version_no, cev.state,
   cev.title, cev.summary, cev.body,
   cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
   cev.created_at::text as version_created_at, cev.content,
@@ -64,7 +63,7 @@ const ENTITY_SELECT = `
 async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): Promise<void> {
   const profile = EMBEDDING_PROFILES['entity'];
   await client.query(
-    `insert into app.embeddings_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
+    `insert into app.embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
      values ('entity_version', $1, $2, $3, $4)
      on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
     [subjectVersionId, profile.model, profile.dimensions, profile.sourceVersion],
@@ -76,6 +75,7 @@ export async function readEntitySummary(client: DbClient, entityId: string, enti
     `select ${ENTITY_SELECT}
      from app.entities e
      join app.current_entity_versions cev on cev.entity_id = e.id
+     join app.members m on m.id = e.author_member_id
      where e.id = $1 and e.deleted_at is null
        and ($2::text is null or cev.id = $2)`,
     [entityId, entityVersionId ?? null],
@@ -195,6 +195,7 @@ export async function removeEntity(pool: Pool, input: {
       `select ${ENTITY_SELECT}
        from app.entities e
        join app.current_entity_versions cev on cev.entity_id = e.id
+       join app.members m on m.id = e.author_member_id
        where e.id = $1 and e.club_id = any($2::text[])
          and e.deleted_at is null and cev.state = 'removed'`,
       [input.entityId, input.clubIds],
@@ -260,6 +261,7 @@ export async function listEntities(pool: Pool, input: ListEntitiesInput): Promis
      join app.live_entities le on le.club_id = s.club_id::app.short_id
      join app.entities e on e.id = le.entity_id
      join app.current_entity_versions cev on cev.id = le.entity_version_id
+     join app.members m on m.id = e.author_member_id
      where le.kind = any($2::app.entity_kind[])
        and ($4::text is null
          or coalesce(le.title, '') ilike $4 escape '\\'
@@ -297,7 +299,7 @@ export async function appendClubActivity(client: DbClient, input: {
   audience?: 'members' | 'clubadmins' | 'owners';
 }): Promise<void> {
   await client.query(
-    `insert into app.club_activity (club_id, entity_id, entity_version_id, topic, payload, created_by_member_id, audience)
+    `insert into app.activity (club_id, entity_id, entity_version_id, topic, payload, created_by_member_id, audience)
      values ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
     [
       input.clubId,

@@ -204,10 +204,10 @@ If `stream_seq` generation becomes a bottleneck under high write concurrency, sw
 - **`members.fullTextSearch`**: Real PostgreSQL FTS (tsvector/tsquery + GIN index) with handle/name prefix boosting. Replaces old ILIKE-based `members.search`.
 - **`members.findViaEmbedding`**: Semantic member discovery via OpenAI embedding similarity. Replaces old `members.discover`.
 - **`entities.findViaEmbedding`**: Semantic entity search via OpenAI embedding similarity. New action.
-- **Separate artifact tables**: `embeddings_member_profile_artifacts` and `embeddings_entity_artifacts` (not polymorphic).
-- **Shared job queue**: `embeddings_jobs` with lease-based claiming, failure_kind distinction (config vs work), and safe release for outages.
+- **Separate artifact tables**: `profile_embeddings` and `entity_embeddings` (not polymorphic).
+- **Shared job queue**: `embedding_jobs` with lease-based claiming, failure_kind distinction (config vs work), and safe release for outages.
 - **Code-configured profiles**: `EMBEDDING_PROFILES` in `src/ai.ts` — model, dimensions, source_version per surface.
-- **Worker and backfill**: `embedding-worker.ts` and `embedding-backfill.ts` rewritten for new artifact tables.
+- **Worker and backfill**: `src/workers/embedding.ts` and `src/workers/embedding-backfill.ts` rewritten for new artifact tables.
 - **Embedding metadata removed from API responses**: profile.get and entities.list no longer expose embedding internals.
 - **All legacy dropped**: old `app.embeddings` table, views, functions, `members.search`, `members.discover`, `members.findSimilar`.
 
@@ -279,41 +279,21 @@ Must implement:
 
 ---
 
-## 14. Database Sharding: Identity Plane / Club Plane Split
+## 14. Horizontal Scaling via Distributed SQL
 **Effort: Weeks | Impact: Path to hundreds of thousands of clubs**
 
 ### Context
-The current single-database architecture handles launch comfortably. If ClawClub takes off, the intended long-term shape is:
+The current single-database architecture handles launch comfortably. If ClawClub takes off, the intended path is managed distributed SQL (DSQL, CockroachDB, YugabyteDB) rather than manual sharding. See `docs/hyperscale.md` for the full analysis.
 
-- **club-scoped canonical writes**
-- **member-scoped cross-club reads**
-- **a central query/control plane for first-class cross-club UX**
-- **club shards for truth**
-
-This is no longer just an “identity plane” split. The central system must become a **query/control plane** that owns:
-
-- authentication and bearer tokens
-- member identity and profiles
-- global roles
-- `club_routing`
-- `member_club_access`
-- a narrow set of first-class cross-club projections
-
-Canonical club data stays in the **club data plane**, sharded by `club_id`.
-
-Important consequences:
+Key design constraints for any future scaling work:
 
 - We should **not** force `clubId` onto core member-facing read surfaces purely for sharding convenience.
 - We should make only a few cross-club experiences first-class at first:
   - unified inbox / notifications
   - cross-club events index (“Are any events going on tonight?”)
   - cross-club activity index (“What happened while I was away?”)
-- We should **not** reintroduce per-member fanout for club activity. `club_activity` should be written once on the club shard, then projected centrally as a club-scoped fact and filtered by `member_club_access` at read time.
-- `updates.list` now merges two sources (`activity` and `inbox`); only inbox is explicitly ackable, and `updates.acknowledge` should be forgiving of activity IDs.
-
-The durable reference for this plan is now:
-
-- [docs/horizontal-scaling-plan.md](docs/horizontal-scaling-plan.md)
+- We should **not** reintroduce per-member fanout for club activity. `club_activity` should be written once, then filtered by membership at read time.
+- `updates.list` merges three sources (`activity`, `signals`, and `inbox`); only inbox and signals are explicitly ackable.
 
 ---
 

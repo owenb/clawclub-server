@@ -191,7 +191,7 @@ This is analogous to `club_activity_cursors` but for the worker, not for members
 
 ### Worker design
 
-Follows the pattern established by `embedding-worker.ts`: a standalone process with a poll loop, `LISTEN/NOTIFY` wakeup, and lease-based claiming.
+Follows the pattern established by `src/workers/embedding.ts`: a standalone process with a poll loop, `LISTEN/NOTIFY` wakeup, and lease-based claiming.
 
 ```
 digest-worker.ts
@@ -317,7 +317,7 @@ For a single-club digest with thousands of entities, we don't need to scan them 
 
 For cross-club digests, we run this per-club in parallel, then merge. 20 clubs × ~100 candidates each = ~2000 total candidates, which is still well within pgvector's comfort zone for exact (non-ANN) queries.
 
-If we later need to answer "find me anything in this club's entire history that matches my interests" (the discovery case), that's a pgvector ANN query against `embeddings_entity_artifacts` — which is what `entities.findViaEmbedding` already does. The digest system doesn't replace it; it complements it for the temporal catch-up case.
+If we later need to answer "find me anything in this club's entire history that matches my interests" (the discovery case), that's a pgvector ANN query against `entity_embeddings` — which is what `entities.findViaEmbedding` already does. The digest system doesn't replace it; it complements it for the temporal catch-up case.
 
 ---
 
@@ -596,7 +596,7 @@ For very high-traffic cross-club digests, rollup summaries could be projected to
 - `club_activity_rollups` table + migration
 - `digest_worker_progress` table + migration
 - `digest_cursors` table + migration
-- `digest-worker.ts` — rollup producer, following `embedding-worker.ts` patterns
+- `digest-worker.ts` — rollup producer, following `src/workers/embedding.ts` patterns
   - Deterministic fields only in pass 1 (entity refs, stats, events, open loops from SQL)
   - LLM pass 2 for topic labels + summary_text (gracefully degraded if LLM unavailable)
 - `digest.read` action — **single-club only**, no cross-club

@@ -107,7 +107,7 @@ const entitiesUpdate: ActionDefinition = {
       summary: wirePatchString.describe('New summary'),
       body: wirePatchString.describe('New body text'),
       expiresAt: wirePatchString.describe('New expiration timestamp'),
-      content: z.record(z.unknown()).optional().describe('New structured metadata'),
+      content: z.record(z.string(), z.unknown()).optional().describe('New structured metadata'),
     }),
     output: z.object({ entity: entitySummary }),
   },
@@ -119,7 +119,7 @@ const entitiesUpdate: ActionDefinition = {
       summary: parsePatchString,
       body: parsePatchString,
       expiresAt: parsePatchString,
-      content: z.record(z.unknown()).optional(),
+      content: z.record(z.string(), z.unknown()).optional(),
     }).refine(input => {
       const { entityId: _, ...patch } = input;
       return Object.values(patch).some(v => v !== undefined);
@@ -358,12 +358,16 @@ const entitiesFindViaEmbedding: ActionDefinition = {
     }
 
     const provider = createOpenAI({ apiKey });
-    const embeddingModel = provider.embedding(profile.model, { dimensions: profile.dimensions });
+    const embeddingModel = provider.embedding(profile.model);
 
     let embedding: number[];
     let usageTokens = 0;
     try {
-      const result = await embed({ model: embeddingModel, value: query });
+      const result = await embed({
+        model: embeddingModel,
+        value: query,
+        providerOptions: { openai: { dimensions: profile.dimensions } },
+      });
       embedding = result.embedding;
       usageTokens = result.usage?.tokens ?? 0;
     } catch (err) {

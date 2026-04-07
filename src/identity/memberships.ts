@@ -1,8 +1,7 @@
 /**
- * Identity plane — membership management.
+ * Identity domain — membership management.
  *
  * Club memberships, state transitions, member listings, promote/demote.
- * Vouches (edges) are NOT here — they live in the clubs database.
  */
 
 import type { Pool } from 'pg';
@@ -79,7 +78,7 @@ const MEMBERSHIP_SELECT = `
 `;
 
 const MEMBERSHIP_FROM = `
-  from app.current_club_memberships cnm
+  from app.current_memberships cnm
   join app.members m on m.id = cnm.member_id
   join app.clubs n on n.id = cnm.club_id
   left join app.members sponsor on sponsor.id = cnm.sponsor_member_id
@@ -96,7 +95,7 @@ async function readMembershipSummary(client: DbClient, membershipId: string): Pr
 async function isClubAdmin(client: DbClient, memberId: string, clubId: string): Promise<boolean> {
   const result = await client.query<{ ok: boolean }>(
     `select exists(
-       select 1 from app.current_club_memberships
+       select 1 from app.current_memberships
        where club_id = $1 and member_id = $2 and role = 'clubadmin'
      ) as ok`,
     [clubId, memberId],
@@ -145,7 +144,7 @@ export async function listMemberships(pool: Pool, input: {
 
 /**
  * Returns reviews with sponsorStats but empty vouches array.
- * The composition layer fills in vouches from the clubs database.
+ * The composition layer fills in vouches from the clubs module.
  */
 export async function listMembershipReviews(pool: Pool, input: {
   clubIds: string[]; limit: number; statuses: MembershipState[];
@@ -161,7 +160,7 @@ export async function listMembershipReviews(pool: Pool, input: {
          sponsored.sponsor_member_id, sponsored.club_id,
          count(*) filter (where sponsored.status = 'active')::int as active_sponsored_count,
          count(*) filter (where date_trunc('month', sponsored.joined_at) = date_trunc('month', now()))::int as sponsored_this_month_count
-       from app.current_club_memberships sponsored
+       from app.current_memberships sponsored
        where sponsored.club_id = any($1::app.short_id[])
          and sponsored.sponsor_member_id is not null
        group by sponsored.sponsor_member_id, sponsored.club_id
@@ -184,7 +183,7 @@ export async function listMembershipReviews(pool: Pool, input: {
       activeSponsoredCount: Number(row.sponsor_active_sponsored_count ?? 0),
       sponsoredThisMonthCount: Number(row.sponsor_sponsored_this_month_count ?? 0),
     },
-    vouches: [], // filled by composition layer from clubs DB
+    vouches: [], // filled by composition layer
   }));
 }
 
@@ -213,10 +212,10 @@ export async function listMembers(pool: Pool, input: {
          'sponsorMemberId', anm.sponsor_member_id, 'joinedAt', anm.joined_at::text
        )) filter (where anm.id is not null) as memberships
      from scope s
-     join app.accessible_club_memberships anm on anm.club_id = s.club_id
+     join app.accessible_memberships anm on anm.club_id = s.club_id
      join app.members m on m.id = anm.member_id and m.state = 'active'
      join app.clubs n on n.id = anm.club_id and n.archived_at is null
-     left join app.current_member_profiles cmp on cmp.member_id = m.id
+     left join app.current_profiles cmp on cmp.member_id = m.id
      group by m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline,
               cmp.summary, cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
      order by min(n.name) asc, display_name asc, m.id asc
@@ -246,7 +245,7 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
     // Verify sponsor exists in club (unless actor is sponsor)
     if (input.sponsorMemberId !== input.actorMemberId) {
       const sponsorCheck = await client.query<{ id: string }>(
-        `select cnm.id from app.current_club_memberships cnm
+        `select cnm.id from app.current_memberships cnm
          where cnm.club_id = $1 and cnm.member_id = $2 and cnm.status = 'active' limit 1`,
         [input.clubId, input.sponsorMemberId],
       );
@@ -255,7 +254,7 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
 
     // Check no existing membership
     const existing = await client.query<{ id: string }>(
-      `select id from app.club_memberships where club_id = $1 and member_id = $2 limit 1`,
+      `select id from app.memberships where club_id = $1 and member_id = $2 limit 1`,
       [input.clubId, input.memberId],
     );
     if (existing.rows[0]) {
@@ -264,7 +263,7 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
 
     // Insert membership (verify target member is active)
     const membershipResult = await client.query<{ id: string }>(
-      `insert into app.club_memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata, source_admission_id)
+      `insert into app.memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata, source_admission_id)
        select $1::app.short_id, $6::app.short_id, $2::app.short_id, $3::app.membership_role, $4::app.membership_state, now(), $5::jsonb, $7
        where exists (select 1 from app.members where id = $6::app.short_id and state = 'active')
        returning id`,
@@ -275,7 +274,7 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
     if (!membershipId) return null;
 
     await client.query(
-      `insert into app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+      `insert into app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        values ($1, $2, $3, 1, $4)`,
       [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
     );
@@ -297,7 +296,7 @@ export async function transitionMembershipState(pool: Pool, input: TransitionMem
       `select cnm.id as membership_id, cnm.club_id, cnm.member_id,
               cnm.status as current_status, cnm.state_version_no as current_version_no,
               cnm.state_version_id as current_state_version_id
-       from app.current_club_memberships cnm
+       from app.current_memberships cnm
        where cnm.id = $1 and cnm.club_id = any($2::app.short_id[])
        limit 1`,
       [input.membershipId, input.accessibleClubIds],
@@ -313,7 +312,7 @@ export async function transitionMembershipState(pool: Pool, input: TransitionMem
     }
 
     await client.query(
-      `insert into app.club_membership_state_versions
+      `insert into app.membership_state_versions
        (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
        values ($1, $2, $3, $4, $5, $6)`,
       [membership.membership_id, input.nextStatus, input.reason ?? null,
@@ -335,14 +334,14 @@ export async function promoteMemberToAdmin(pool: Pool, input: {
 }): Promise<MembershipAdminSummary | null> {
   return withTransaction(pool, async (client) => {
     const result = await client.query<{ id: string; role: string }>(
-      `select cnm.id, cnm.role from app.current_club_memberships cnm
+      `select cnm.id, cnm.role from app.current_memberships cnm
        where cnm.club_id = $1 and cnm.member_id = $2 and cnm.status = 'active' limit 1`,
       [input.clubId, input.memberId],
     );
     const membership = result.rows[0];
     if (!membership) return null;
     if (membership.role !== 'clubadmin') {
-      await client.query(`update app.club_memberships set role = 'clubadmin' where id = $1`, [membership.id]);
+      await client.query(`update app.memberships set role = 'clubadmin' where id = $1`, [membership.id]);
     }
     return readMembershipSummary(client, membership.id);
   });
@@ -361,7 +360,7 @@ export async function demoteMemberFromAdmin(pool: Pool, input: {
     }
 
     const result = await client.query<{ id: string; role: string }>(
-      `select cnm.id, cnm.role from app.current_club_memberships cnm
+      `select cnm.id, cnm.role from app.current_memberships cnm
        where cnm.club_id = $1 and cnm.member_id = $2 and cnm.status = 'active' limit 1`,
       [input.clubId, input.memberId],
     );
@@ -370,7 +369,7 @@ export async function demoteMemberFromAdmin(pool: Pool, input: {
     if (membership.role === 'clubadmin') {
       const ownerId = ownerCheck.rows[0]?.owner_member_id ?? null;
       await client.query(
-        `update app.club_memberships set role = 'member', sponsor_member_id = coalesce(sponsor_member_id, $2) where id = $1`,
+        `update app.memberships set role = 'member', sponsor_member_id = coalesce(sponsor_member_id, $2) where id = $1`,
         [membership.id, ownerId],
       );
     }
@@ -378,14 +377,7 @@ export async function demoteMemberFromAdmin(pool: Pool, input: {
   });
 }
 
-/**
- * Create a comped subscription for a membership (exported for cross-plane saga use).
- */
 export { createCompedSubscription };
-
-/**
- * Check if a membership has a live subscription (exported for cross-plane saga use).
- */
 export { hasLiveSubscription };
 
 /**
@@ -429,7 +421,7 @@ export async function createMemberFromAdmission(pool: Pool, input: {
 
     // Create initial profile version
     await client.query(
-      `insert into app.member_profile_versions (member_id, version_no, display_name)
+      `insert into app.profile_versions (member_id, version_no, display_name)
        values ($1, 1, $2)`,
       [memberId, input.displayName],
     );
@@ -437,7 +429,7 @@ export async function createMemberFromAdmission(pool: Pool, input: {
     // Store private contact email
     if (input.email) {
       await client.query(
-        `insert into app.member_private_contacts (member_id, email) values ($1, $2)`,
+        `insert into app.private_contacts (member_id, email) values ($1, $2)`,
         [memberId, input.email],
       );
     }
@@ -455,7 +447,7 @@ export async function getMemberPublicContact(pool: Pool, memberId: string): Prom
   const result = await pool.query<{ public_name: string; email: string | null }>(
     `select m.public_name, mpc.email
      from app.members m
-     left join app.member_private_contacts mpc on mpc.member_id = m.id
+     left join app.private_contacts mpc on mpc.member_id = m.id
      where m.id = $1 limit 1`,
     [memberId],
   );

@@ -118,7 +118,7 @@ railway service logs --service <service-name>
 You should see migration output followed by:
 ```
 clawclub api listening on http://127.0.0.1:8787/api
-auth mode: hashed API-style bearer tokens in app.member_bearer_tokens
+auth mode: hashed API-style bearer tokens in app.bearer_tokens
 ```
 
 ## Step 7: Bootstrap your first club

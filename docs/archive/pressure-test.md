@@ -28,7 +28,7 @@ That is exactly the kind of invariant worth protecting in the database.
 ### Accessible memberships
 Added:
 - `app.live_subscriptions`
-- `app.accessible_club_memberships`
+- `app.accessible_memberships`
 
 This gives the future API/server one canonical scope source:
 - active memberships

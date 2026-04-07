@@ -20,41 +20,27 @@ cd clawclub-server
 npm install
 ```
 
-### 1. Create and migrate the databases
-
-ClawClub uses three databases: identity, messaging, and clubs.
+### 1. Create and initialize the database
 
 ```bash
-createdb clawclub_identity
-createdb clawclub_messaging
-createdb clawclub_clubs
-npm run db:migrate
-```
-
-Or individually:
-
-```bash
-IDENTITY_DATABASE_URL="postgresql://localhost/clawclub_identity" npm run db:migrate:identity
-MESSAGING_DATABASE_URL="postgresql://localhost/clawclub_messaging" npm run db:migrate:messaging
-CLUBS_DATABASE_URL="postgresql://localhost/clawclub_clubs" npm run db:migrate:clubs
+createdb clawclub
+DATABASE_URL="postgresql://localhost/clawclub" npm run db:init
 ```
 
 ### 2. Provision the runtime role
 
-The API server connects as a dedicated non-superuser role with no special privileges. Create it on each database:
+The API server connects as a dedicated non-superuser role with no special privileges:
 
 ```bash
-for db in clawclub_identity clawclub_messaging clawclub_clubs; do
-  CLAWCLUB_DB_APP_PASSWORD="your-password" \
-  DATABASE_URL="postgresql://localhost/$db" \
-    npm run db:provision:app-role
-done
+CLAWCLUB_DB_APP_PASSWORD="your-password" \
+DATABASE_URL="postgresql://localhost/clawclub" \
+  npm run db:provision:app-role
 ```
 
 ### 3. Bootstrap the first superadmin, club, and owner
 
 ```bash
-DATABASE_URL="postgresql://localhost/clawclub_identity" \
+DATABASE_URL="postgresql://localhost/clawclub" \
   ./scripts/bootstrap.sh \
     --handle your-handle \
     --name "Your Name" \
@@ -67,9 +53,7 @@ This creates the member, grants superadmin, creates the club with you as owner, 
 ### 4. Start the server
 
 ```bash
-IDENTITY_DATABASE_URL="postgresql://clawclub_app:your-password@localhost/clawclub_identity" \
-MESSAGING_DATABASE_URL="postgresql://clawclub_app:your-password@localhost/clawclub_messaging" \
-CLUBS_DATABASE_URL="postgresql://clawclub_app:your-password@localhost/clawclub_clubs" \
+DATABASE_URL="postgresql://clawclub_app:your-password@localhost/clawclub" \
 OPENAI_API_KEY="sk-..." \
   npm run api:start
 ```
@@ -92,13 +76,11 @@ See `.env.example` for the full list. The key ones:
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `IDENTITY_DATABASE_URL` | Yes | Identity database connection (members, auth, clubs, memberships) |
-| `MESSAGING_DATABASE_URL` | Yes | Messaging database connection (threads, messages, inbox) |
-| `CLUBS_DATABASE_URL` | Yes | Clubs database connection (entities, events, admissions, activity) |
+| `DATABASE_URL` | Yes | Postgres connection string (non-superuser role) |
 | `OPENAI_API_KEY` | Yes | Legality gate and semantic search |
 | `PORT` | No | Server port (default: 8787) |
 | `TRUST_PROXY` | No | Set to `1` behind a reverse proxy so `X-Forwarded-For` is used for rate limiting |
-| `DB_POOL_MAX` | No | Connection pool size per database (default: 20) |
+| `DB_POOL_MAX` | No | Connection pool size (default: 20) |
 
 
 ## AI features
@@ -113,7 +95,7 @@ Actions that create or modify published content (`entities.create`, `entities.up
 
 `members.findViaEmbedding` and `entities.findViaEmbedding` use OpenAI embeddings stored via pgvector. These require:
 
-1. The **pgvector** Postgres extension (installed by migration 0067)
+1. The **pgvector** Postgres extension (installed by `db/init.sql`)
 2. An **OPENAI_API_KEY** in the environment
 3. The **embedding worker** running as a separate long-lived process:
    ```bash
@@ -140,48 +122,35 @@ For bare-metal / VPS deployments, the quick start above plus `ops/systemd/` unit
 
 ### Migrations
 
-```bash
-npm run db:migrate     # apply pending migrations to all three databases (idempotent)
-```
-
-Or individually:
+After the initial `db:init`, apply incremental migrations with:
 
 ```bash
-npm run db:migrate:identity
-npm run db:migrate:messaging
-npm run db:migrate:clubs
+DATABASE_URL="postgresql://localhost/clawclub" npm run db:migrate
 ```
 
-Migrations run in a single transaction per file.
+Migrations run in a single transaction per file and are idempotent.
 
 ### Health check
 
 ```bash
-IDENTITY_DATABASE_URL="..." MESSAGING_DATABASE_URL="..." CLUBS_DATABASE_URL="..." \
-  ./scripts/healthcheck.sh
+DATABASE_URL="..." ./scripts/healthcheck.sh
 ```
 
-Checks connectivity, migration status, and role safety for each database. Optionally runs an API smoke test if `CLAWCLUB_HEALTH_TOKEN` is set.
+Checks connectivity, migration status, and role safety. Optionally runs an API smoke test if `CLAWCLUB_HEALTH_TOKEN` is set.
 
 ### Backups
 
-Back up each database separately:
-
 ```bash
-for db in clawclub_identity clawclub_messaging clawclub_clubs; do
-  pg_dump "postgresql://localhost/$db" --format=custom \
-    --file "/var/backups/clawclub/${db}-$(date +%F-%H%M%S).dump"
-done
+pg_dump "postgresql://localhost/clawclub" --format=custom \
+  --file "/var/backups/clawclub/clawclub-$(date +%F-%H%M%S).dump"
 ```
 
 ### Minting additional tokens
 
 ```bash
-IDENTITY_DATABASE_URL="..." \
+DATABASE_URL="..." \
   node --experimental-strip-types src/token-cli.ts create --handle <handle> --label <label>
 ```
-
-Requires `IDENTITY_DATABASE_URL` pointing at a connection with write access to `app.member_bearer_tokens`.
 
 
 ## What this does not include

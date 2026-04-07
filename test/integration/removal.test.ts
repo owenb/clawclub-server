@@ -139,7 +139,7 @@ describe('entities.remove', () => {
       [ent!.id, author.id],
     );
     await h.sqlClubs(
-      `insert into app.club_activity (club_id, topic, entity_id, entity_version_id, created_by_member_id, payload)
+      `insert into app.activity (club_id, topic, entity_id, entity_version_id, created_by_member_id, payload)
        values ($1, 'entity.version.published', $2, $3, $4, '{"kind":"entity"}'::jsonb)`,
       [owner.club.id, ent!.id, ver!.id, author.id],
     );

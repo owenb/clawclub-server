@@ -7,7 +7,7 @@
  * Usage:
  *   import { createPools, runWorkerLoop } from './runner.ts';
  *
- *   const pools = createPools({ identity: true, clubs: true });
+ *   const pools = createPools();
  *   await runWorkerLoop('my-worker', pools, process, { pollIntervalMs: 5000 });
  */
 import { Pool } from 'pg';
@@ -16,15 +16,10 @@ import * as http from 'node:http';
 // ── Types ─────────────────────────────────────────────────
 
 export type WorkerPools = {
-  identity: Pool;
-  clubs: Pool;
-  messaging?: Pool;
+  db: Pool;
 };
 
 export type PoolConfig = {
-  identity: boolean;
-  clubs: boolean;
-  messaging?: boolean;
   maxConnections?: number;
 };
 
@@ -35,42 +30,22 @@ export type WorkerLoopOptions = {
 
 // ── Pool management ───────────────────────────────────────
 
-export function createPools(config: PoolConfig): WorkerPools {
+export function createPools(config: PoolConfig = {}): WorkerPools {
   const max = config.maxConnections ?? 3;
 
-  const identityUrl = process.env.IDENTITY_DATABASE_URL;
-  const clubsUrl = process.env.CLUBS_DATABASE_URL;
-
-  if (config.identity && !identityUrl) {
-    console.error('IDENTITY_DATABASE_URL must be set');
-    process.exit(1);
-  }
-  if (config.clubs && !clubsUrl) {
-    console.error('CLUBS_DATABASE_URL must be set');
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    console.error('DATABASE_URL must be set');
     process.exit(1);
   }
 
-  const pools: WorkerPools = {
-    identity: new Pool({ connectionString: identityUrl, max }),
-    clubs: new Pool({ connectionString: clubsUrl, max }),
+  return {
+    db: new Pool({ connectionString: databaseUrl, max }),
   };
-
-  if (config.messaging) {
-    const messagingUrl = process.env.MESSAGING_DATABASE_URL;
-    if (!messagingUrl) {
-      console.error('MESSAGING_DATABASE_URL must be set');
-      process.exit(1);
-    }
-    pools.messaging = new Pool({ connectionString: messagingUrl, max });
-  }
-
-  return pools;
 }
 
 export async function closePools(pools: WorkerPools): Promise<void> {
-  await pools.identity.end();
-  await pools.clubs.end();
-  if (pools.messaging) await pools.messaging.end();
+  await pools.db.end();
 }
 
 // ── Health endpoint ───────────────────────────────────────

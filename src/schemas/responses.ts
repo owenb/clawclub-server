@@ -62,14 +62,14 @@ export const membershipAdminSummary = z.object({
   }),
   joinedAt: z.string(),
   acceptedCovenantAt: z.string().nullable(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
 });
 
 export const vouchSummary = z.object({
   edgeId: z.string(),
   fromMember: memberRef,
   reason: z.string(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
   createdByMemberId: z.string().nullable(),
 });
@@ -113,8 +113,8 @@ export const admissionSummary = z.object({
     createdAt: z.string(),
     createdByMemberId: z.string().nullable(),
   }),
-  admissionDetails: z.record(z.unknown()),
-  metadata: z.record(z.unknown()),
+  admissionDetails: z.record(z.string(), z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
 });
 
@@ -194,7 +194,7 @@ export const memberProfile = z.object({
   servicesSummary: z.string().nullable(),
   websiteUrl: z.string().nullable(),
   links: z.array(z.unknown()),
-  profile: z.record(z.unknown()),
+  profile: z.record(z.string(), z.unknown()),
   version: z.object({
     id: z.string().nullable(),
     versionNo: z.number().nullable(),
@@ -221,7 +221,7 @@ export const entitySummary = z.object({
     effectiveAt: z.string(),
     expiresAt: z.string().nullable(),
     createdAt: z.string(),
-    content: z.record(z.unknown()),
+    content: z.record(z.string(), z.unknown()),
   }),
   createdAt: z.string(),
 });
@@ -258,7 +258,7 @@ export const eventSummary = z.object({
     effectiveAt: z.string(),
     expiresAt: z.string().nullable(),
     createdAt: z.string(),
-    content: z.record(z.unknown()),
+    content: z.record(z.string(), z.unknown()),
   }),
   rsvps: z.object({
     viewerResponse: eventRsvpState.nullable(),
@@ -289,7 +289,7 @@ export const directMessageThreadSummary = z.object({
   counterpartHandle: z.string().nullable(),
   latestMessage: z.object({
     messageId: z.string(),
-    senderMemberId: z.string(),
+    senderMemberId: z.string().nullable(),
     role: messageRole,
     messageText: z.string().nullable(),
     createdAt: z.string(),
@@ -318,7 +318,7 @@ export const directMessageEntry = z.object({
   senderMemberId: z.string().nullable(),
   role: messageRole,
   messageText: z.string().nullable(),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
   inReplyToMessageId: z.string().nullable(),
   updateReceipts: z.array(directMessageUpdateReceipt),
@@ -343,7 +343,7 @@ export const bearerTokenSummary = z.object({
   lastUsedAt: z.string().nullable(),
   revokedAt: z.string().nullable(),
   expiresAt: z.string().nullable(),
-  metadata: z.record(z.unknown()),
+  metadata: z.record(z.string(), z.unknown()),
 });
 
 export const createdBearerToken = z.object({
@@ -373,7 +373,7 @@ export const pendingUpdate = z.object({
   entityVersionId: z.string().nullable(),
   dmMessageId: z.string().nullable(),
   topic: z.string(),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
   createdByMemberId: z.string().nullable(),
 });
@@ -480,10 +480,10 @@ export const adminClubStats = z.object({
   slug: z.string(),
   name: z.string(),
   archivedAt: z.string().nullable(),
-  memberCounts: z.record(z.number()),
+  memberCounts: z.record(z.string(), z.number()),
   entityCount: z.number(),
   messageCount: z.number(),
-  admissionCounts: z.record(z.number()),
+  admissionCounts: z.record(z.string(), z.number()),
 });
 
 export const adminContentSummary = z.object({

@@ -39,6 +39,8 @@ export type RepositoryCapability =
   | 'transitionAdmission'
   | 'createAdmissionChallenge'
   | 'solveAdmissionChallenge'
+  | 'createCrossAdmissionChallenge'
+  | 'solveCrossAdmissionChallenge'
   | 'removeEntity'
   | 'removeEvent'
   | 'removeMessage'
@@ -187,7 +189,7 @@ export function getAction(action: string): ActionDefinition | undefined {
 export function parseActionInput<T>(def: ActionDefinition, payload: unknown): T {
   const result = def.parse.input.safeParse(payload);
   if (!result.success) {
-    const err = result.error.errors[0];
+    const err = result.error.issues[0];
     const path = err.path.length > 0 ? `${err.path.join('.')}: ` : '';
     throw new AppError(400, 'invalid_input', `${path}${err.message}`);
   }

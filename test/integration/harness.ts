@@ -1,7 +1,7 @@
 /**
  * Integration test harness for ClawClub.
  *
- * Manages a real Postgres database, real app-role RLS, a real HTTP server
+ * Manages a real Postgres database, real app-role permissions, a real HTTP server
  * on a random port, and real bearer-token authentication.
  *
  * Usage:
@@ -15,7 +15,7 @@ import { Pool } from 'pg';
 import http from 'node:http';
 import { execSync } from 'node:child_process';
 import { createServer } from '../../src/server.ts';
-import { createRepository } from '../../src/repository.ts';
+import { createRepository } from '../../src/postgres.ts';
 import { createPostgresMemberUpdateNotifier } from '../../src/member-updates-notifier.ts';
 import { buildBearerToken } from '../../src/token.ts';
 import { z } from 'zod';
@@ -45,7 +45,7 @@ function strictify(schema: z.ZodType): z.ZodType {
     for (const [key, value] of Object.entries(shape)) {
       strictShape[key] = strictify(value as z.ZodType);
     }
-    return z.object(strictShape).strict();
+    return z.object(strictShape).catchall(z.never());
   }
   if (schema instanceof z.ZodArray) {
     return z.array(strictify(schema.element));
@@ -57,16 +57,11 @@ function strictify(schema: z.ZodType): z.ZodType {
     return strictify(schema.unwrap()).optional();
   }
   // ZodIntersection, ZodUnion, ZodLazy, etc. — pass through as-is.
-  // These are rare in our response schemas and adding full support
-  // would be complex. The main drift vectors are plain objects.
   return schema;
 }
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
 const DB_NAME = 'clawclub_test';
-const IDENTITY_DB_NAME = 'clawclub_identity_test';
-const MESSAGING_DB_NAME = 'clawclub_messaging_test';
-const CLUBS_DB_NAME = 'clawclub_clubs_test';
 const APP_ROLE = 'clawclub_app';
 const APP_PASSWORD = 'integration_test';
 
@@ -92,103 +87,64 @@ export type SeededMembership = {
   status: string;
 };
 
-export type SplitPools = {
-  identity: { super: Pool; app: Pool };
-  messaging: { super: Pool; app: Pool };
-  clubs: { super: Pool; app: Pool };
-};
-
 export class TestHarness {
-  private pools: SplitPools;
-  private dbNames: { identity: string; messaging: string; clubs: string };
+  pools: { super: Pool; app: Pool };
+  private dbName: string;
   private httpServer: ReturnType<typeof createServer>['server'];
   private shutdown: () => Promise<void>;
   port: number;
 
   private constructor(
-    pools: SplitPools,
-    dbNames: { identity: string; messaging: string; clubs: string },
+    pools: { super: Pool; app: Pool },
+    dbName: string,
     httpServer: ReturnType<typeof createServer>['server'],
     shutdown: () => Promise<void>,
     port: number,
   ) {
     this.pools = pools;
-    this.dbNames = dbNames;
+    this.dbName = dbName;
     this.httpServer = httpServer;
     this.shutdown = shutdown;
     this.port = port;
   }
 
   static async start(options: { qualityGate?: QualityGateFn } = {}): Promise<TestHarness> {
-    const dbNames = {
-      identity: IDENTITY_DB_NAME,
-      messaging: MESSAGING_DB_NAME,
-      clubs: CLUBS_DB_NAME,
-    };
-
-    // 1. Create databases (terminate stale connections first)
+    // 1. Create database (terminate stale connections first)
     const bootstrapPool = new Pool({ connectionString: 'postgresql://localhost/postgres' });
     try {
-      for (const name of Object.values(dbNames)) {
-        await bootstrapPool.query(
-          `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
-          [name],
-        );
-        await bootstrapPool.query(`DROP DATABASE IF EXISTS ${name}`);
-        await bootstrapPool.query(`CREATE DATABASE ${name}`);
-      }
+      await bootstrapPool.query(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+        [DB_NAME],
+      );
+      await bootstrapPool.query(`DROP DATABASE IF EXISTS ${DB_NAME}`);
+      await bootstrapPool.query(`CREATE DATABASE ${DB_NAME}`);
     } finally {
       await bootstrapPool.end();
     }
 
-    // 2. Run per-plane migrations
+    // 2. Apply unified schema
     execSync(
-      `IDENTITY_DATABASE_URL="postgresql://localhost/${dbNames.identity}" ${ROOT}/scripts/migrate-db.sh identity`,
-      { stdio: 'pipe' },
-    );
-    execSync(
-      `MESSAGING_DATABASE_URL="postgresql://localhost/${dbNames.messaging}" ${ROOT}/scripts/migrate-db.sh messaging`,
-      { stdio: 'pipe' },
-    );
-    execSync(
-      `CLUBS_DATABASE_URL="postgresql://localhost/${dbNames.clubs}" ${ROOT}/scripts/migrate-db.sh clubs`,
+      `psql "postgresql://localhost/${DB_NAME}" -v ON_ERROR_STOP=1 --single-transaction -f "${ROOT}/db/init.sql"`,
       { stdio: 'pipe' },
     );
 
-    // 3. Provision app role on each
-    for (const name of Object.values(dbNames)) {
-      execSync(
-        `CLAWCLUB_DB_APP_PASSWORD="${APP_PASSWORD}" DATABASE_URL="postgresql://localhost/${name}" ${ROOT}/scripts/provision-app-role.sh`,
-        { stdio: 'pipe' },
-      );
-    }
+    // 3. Provision app role
+    execSync(
+      `CLAWCLUB_DB_APP_PASSWORD="${APP_PASSWORD}" DATABASE_URL="postgresql://localhost/${DB_NAME}" ${ROOT}/scripts/provision-app-role.sh`,
+      { stdio: 'pipe' },
+    );
 
     // 4. Open pools
-    const pools: SplitPools = {
-      identity: {
-        super: new Pool({ connectionString: `postgresql://localhost/${dbNames.identity}` }),
-        app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbNames.identity}` }),
-      },
-      messaging: {
-        super: new Pool({ connectionString: `postgresql://localhost/${dbNames.messaging}` }),
-        app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbNames.messaging}` }),
-      },
-      clubs: {
-        super: new Pool({ connectionString: `postgresql://localhost/${dbNames.clubs}` }),
-        app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbNames.clubs}` }),
-      },
+    const pools = {
+      super: new Pool({ connectionString: `postgresql://localhost/${DB_NAME}` }),
+      app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${DB_NAME}` }),
     };
 
-    // 5. Create composed repository, notifier, and start server on random port
-    const repository = createRepository({
-      identity: pools.identity.app,
-      messaging: pools.messaging.app,
-      clubs: pools.clubs.app,
-    });
+    // 5. Create repository, notifier, and start server
+    const repository = createRepository(pools.app);
 
     const updatesNotifier = createPostgresMemberUpdateNotifier(
-      `postgresql://localhost/${dbNames.clubs}`,
-      `postgresql://localhost/${dbNames.messaging}`,
+      `postgresql://localhost/${DB_NAME}`,
     );
 
     const serverInstance = createServer({ repository, updatesNotifier, qualityGate: options.qualityGate });
@@ -201,7 +157,7 @@ export class TestHarness {
 
     return new TestHarness(
       pools,
-      dbNames,
+      DB_NAME,
       serverInstance.server,
       serverInstance.shutdown,
       port,
@@ -210,49 +166,30 @@ export class TestHarness {
 
   async stop(): Promise<void> {
     await this.shutdown();
-    for (const plane of Object.values(this.pools)) {
-      await plane.app.end();
-      await plane.super.end();
-    }
+    await this.pools.app.end();
+    await this.pools.super.end();
 
     const bootstrapPool = new Pool({ connectionString: 'postgresql://localhost/postgres' });
     try {
-      for (const name of Object.values(this.dbNames)) {
-        await bootstrapPool.query(`DROP DATABASE IF EXISTS ${name}`);
-      }
+      await bootstrapPool.query(`DROP DATABASE IF EXISTS ${this.dbName}`);
     } finally {
       await bootstrapPool.end();
     }
   }
 
-  // ── SQL helpers (run as superuser) ──
+  // ── SQL helper (run as superuser) ──
 
-  /** Run SQL against the identity database (default for seeding). */
   async sql<T extends Record<string, unknown> = Record<string, unknown>>(
     query: string,
     params: unknown[] = [],
   ): Promise<T[]> {
-    const result = await this.pools.identity.super.query<T>(query, params);
+    const result = await this.pools.super.query<T>(query, params);
     return result.rows;
   }
 
-  /** Run SQL against the clubs database. */
-  async sqlClubs<T extends Record<string, unknown> = Record<string, unknown>>(
-    query: string,
-    params: unknown[] = [],
-  ): Promise<T[]> {
-    const result = await this.pools.clubs.super.query<T>(query, params);
-    return result.rows;
-  }
-
-  /** Run SQL against the messaging database. */
-  async sqlMessaging<T extends Record<string, unknown> = Record<string, unknown>>(
-    query: string,
-    params: unknown[] = [],
-  ): Promise<T[]> {
-    const result = await this.pools.messaging.super.query<T>(query, params);
-    return result.rows;
-  }
+  // Convenience aliases used in tests that interact with specific domain tables
+  sqlClubs = this.sql.bind(this);
+  sqlMessaging = this.sql.bind(this);
 
   // ── Seeding helpers ──
 
@@ -267,7 +204,7 @@ export class TestHarness {
     const id = rows[0]!.id;
 
     await this.sql(
-      `INSERT INTO app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
+      `INSERT INTO app.profile_versions (member_id, version_no, display_name, created_by_member_id)
        VALUES ($1, 1, $2, $1) ON CONFLICT DO NOTHING`,
       [id, publicName.split(' ')[0]],
     );
@@ -279,7 +216,7 @@ export class TestHarness {
   async seedSuperadmin(publicName: string, handle: string): Promise<SeededMember> {
     const member = await this.seedMember(publicName, handle);
     await this.sql(
-      `INSERT INTO app.member_global_role_versions (member_id, role, version_no, created_by_member_id)
+      `INSERT INTO app.global_role_versions (member_id, role, version_no, created_by_member_id)
        VALUES ($1, 'superadmin', 1, $1) ON CONFLICT DO NOTHING`,
       [member.id],
     );
@@ -298,23 +235,23 @@ export class TestHarness {
 
     // Owner membership + state
     await this.sql(
-      `INSERT INTO app.club_memberships (club_id, member_id, role)
+      `INSERT INTO app.memberships (club_id, member_id, role)
        VALUES ($1::app.short_id, $2::app.short_id, 'clubadmin') ON CONFLICT (club_id, member_id) DO NOTHING`,
       [clubId, ownerMemberId],
     );
     const membershipRows = await this.sql<{ id: string }>(
-      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM app.memberships WHERE club_id = $1 AND member_id = $2`,
       [clubId, ownerMemberId],
     );
     const membershipId = membershipRows[0]!.id;
     await this.sql(
-      `INSERT INTO app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+      `INSERT INTO app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        SELECT $1::app.short_id, 'active', 'seed', coalesce(max(version_no), 0) + 1, $2::app.short_id
-       FROM app.club_membership_state_versions WHERE membership_id = $1::app.short_id`,
+       FROM app.membership_state_versions WHERE membership_id = $1::app.short_id`,
       [membershipId, ownerMemberId],
     );
 
-    // Club version (needed by current_club_versions view used by superadmin queries)
+    // Club version (needed by current_club_versions view)
     await this.sql(
       `INSERT INTO app.club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
        VALUES ($1::app.short_id, $2::app.short_id, $3, $4, null, 1, $2::app.short_id) ON CONFLICT DO NOTHING`,
@@ -334,20 +271,20 @@ export class TestHarness {
     const sponsorId = options.sponsorId ?? null;
 
     await this.sql(
-      `INSERT INTO app.club_memberships (club_id, member_id, role, sponsor_member_id)
+      `INSERT INTO app.memberships (club_id, member_id, role, sponsor_member_id)
        VALUES ($1::app.short_id, $2::app.short_id, $3::app.membership_role, $4::app.short_id) ON CONFLICT (club_id, member_id) DO NOTHING`,
       [clubId, memberId, role, sponsorId],
     );
     const rows = await this.sql<{ id: string }>(
-      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM app.memberships WHERE club_id = $1 AND member_id = $2`,
       [clubId, memberId],
     );
     const membershipId = rows[0]!.id;
 
     await this.sql(
-      `INSERT INTO app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+      `INSERT INTO app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        SELECT $1::app.short_id, $2::app.membership_state, 'seed', coalesce(max(version_no), 0) + 1, $3::app.short_id
-       FROM app.club_membership_state_versions WHERE membership_id = $1::app.short_id`,
+       FROM app.membership_state_versions WHERE membership_id = $1::app.short_id`,
       [membershipId, status, memberId],
     );
 
@@ -370,7 +307,7 @@ export class TestHarness {
   async createToken(memberId: string, label = 'test'): Promise<string> {
     const token = buildBearerToken();
     await this.sql(
-      `INSERT INTO app.member_bearer_tokens (id, member_id, label, token_hash, metadata)
+      `INSERT INTO app.bearer_tokens (id, member_id, label, token_hash, metadata)
        VALUES ($1, $2, $3, $4, '{}'::jsonb)`,
       [token.tokenId, memberId, label, token.tokenHash],
     );
@@ -410,9 +347,6 @@ export class TestHarness {
               const parsed = JSON.parse(text);
 
               // ── Test-enforced contract validation ──
-              // Validate every HTTP response against the transport + action schemas.
-              // Uses strict mode to catch extra/unexpected fields — Zod strips
-              // unknown keys by default, so without this, drift goes unnoticed.
               if (parsed.ok === true) {
                 const def = getAction(action);
                 if (def?.auth === 'none') {
@@ -429,7 +363,6 @@ export class TestHarness {
                   }
                 }
 
-                // Validate action-specific data against wire.output (strict)
                 if (def?.wire?.output) {
                   const dataResult = strictify(def.wire.output).safeParse(parsed.data);
                   if (!dataResult.success) {
@@ -547,7 +480,6 @@ export class TestHarness {
             try {
               const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
 
-              // Validate polling response against transport schema
               if (parsed.ok === true) {
                 const result = strictify(pollingResponse).safeParse(parsed);
                 if (!result.success) {
@@ -632,9 +564,8 @@ export class TestHarness {
         let buffer = '';
         res.on('data', (chunk: Buffer) => {
           buffer += chunk.toString('utf8');
-          // Parse complete SSE messages (terminated by double newline)
           const parts = buffer.split('\n\n');
-          buffer = parts.pop()!; // keep incomplete part
+          buffer = parts.pop()!;
           for (const part of parts) {
             if (!part.trim() || part.trim().startsWith(':')) continue;
             let event = 'message';
@@ -648,7 +579,6 @@ export class TestHarness {
             if (data) {
               try {
                 const parsed = JSON.parse(data);
-                // Validate SSE events against transport schemas (strict — fails test on drift)
                 if (event === 'ready') {
                   const result = strictify(sseReadyEvent).safeParse(parsed);
                   if (!result.success) {
@@ -663,7 +593,6 @@ export class TestHarness {
                 events.push({ event, data: parsed, id });
               } catch { /* ignore non-JSON */ }
             }
-            // Check waiters
             for (const w of [...waiters]) {
               if (events.length >= w.target) {
                 waiters.splice(waiters.indexOf(w), 1);
@@ -674,7 +603,7 @@ export class TestHarness {
         });
       },
     );
-    req.on('error', () => {}); // swallow errors on abort
+    req.on('error', () => {});
     req.end();
 
     return {

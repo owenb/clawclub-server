@@ -87,7 +87,7 @@ async function assertProvisionedRoleWorks({
 
     await client.query(
       `
-        insert into app.member_global_role_versions (member_id, role, status, version_no, created_by_member_id)
+        insert into app.global_role_versions (member_id, role, status, version_no, created_by_member_id)
         values ($1, 'superadmin', 'active', 1, $1)
       `,
       [ownerId],
@@ -105,7 +105,7 @@ async function assertProvisionedRoleWorks({
 
     const membershipId = (await client.query<{ id: string }>(
       `
-        insert into app.club_memberships (club_id, member_id, role)
+        insert into app.memberships (club_id, member_id, role)
         values ($1, $2, 'clubadmin')
         returning id
       `,
@@ -114,7 +114,7 @@ async function assertProvisionedRoleWorks({
 
     await client.query(
       `
-        insert into app.club_membership_state_versions (
+        insert into app.membership_state_versions (
           membership_id,
           status,
           version_no,
@@ -145,7 +145,7 @@ async function assertProvisionedRoleWorks({
 
     const tokenInsert = await client.query<{ member_id: string }>(
       `
-        insert into app.member_bearer_tokens (member_id, label, token_hash, metadata)
+        insert into app.bearer_tokens (member_id, label, token_hash, metadata)
         values ($1, 'provision-test', $2, '{}'::jsonb)
         returning member_id
       `,

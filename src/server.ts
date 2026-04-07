@@ -8,7 +8,7 @@ import { AppError, type Repository } from './contract.ts';
 import { buildDispatcher, type QualityGateFn } from './dispatch.ts';
 import { getAction } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
-import { createRepository } from './repository.ts';
+import { createRepository } from './postgres.ts';
 import { getSchemaPayload } from './schema-endpoint.ts';
 
 const PACKAGE_VERSION: string = JSON.parse(
@@ -340,22 +340,17 @@ export function createServer(options: {
     return value;
   }
 
-  // Three pools — one per database plane. All three URLs must be set explicitly.
-  const pools = options.repository ? null : {
-    identity: new Pool({ ...poolConfig, connectionString: requireEnv('IDENTITY_DATABASE_URL') }),
-    messaging: new Pool({ ...poolConfig, connectionString: requireEnv('MESSAGING_DATABASE_URL') }),
-    clubs: new Pool({ ...poolConfig, connectionString: requireEnv('CLUBS_DATABASE_URL') }),
-  };
-  if (pools) {
-    for (const [name, pool] of Object.entries(pools)) {
-      pool.on('error', (err) => { console.error(`Unexpected ${name} pool error:`, err); });
-    }
+  const pool = options.repository ? null : new Pool({
+    ...poolConfig,
+    connectionString: requireEnv('DATABASE_URL'),
+  });
+  if (pool) {
+    pool.on('error', (err) => { console.error('Unexpected pool error:', err); });
   }
-  const repository = options.repository ?? createRepository(pools!);
-  const clubsUrl = process.env.CLUBS_DATABASE_URL;
-  const messagingUrl = process.env.MESSAGING_DATABASE_URL;
+  const repository = options.repository ?? createRepository(pool!);
+  const dbUrl = process.env.DATABASE_URL;
   const updatesNotifier = options.updatesNotifier
-    ?? (clubsUrl ? createPostgresMemberUpdateNotifier(clubsUrl, messagingUrl) : createTimeoutOnlyNotifier());
+    ?? (dbUrl ? createPostgresMemberUpdateNotifier(dbUrl) : createTimeoutOnlyNotifier());
   const coldAdmissionRateLimits: Record<ColdAdmissionAction, FixedWindowRateLimit> = {
     'admissions.challenge': options.coldAdmissionRateLimits?.['admissions.challenge'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.challenge'],
     'admissions.apply': options.coldAdmissionRateLimits?.['admissions.apply'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.apply'],
@@ -735,8 +730,8 @@ export function createServer(options: {
     }
     await closePromise;
 
-    if (pools) {
-      await Promise.all(Object.values(pools).map((p) => p.end()));
+    if (pool) {
+      await pool.end();
     }
 
     await updatesNotifier.close();
@@ -751,7 +746,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   server.listen(port, () => {
     console.log(`clawclub api listening on http://127.0.0.1:${port}/api`);
-    console.log('auth mode: hashed API-style bearer tokens in app.member_bearer_tokens');
+    console.log('auth mode: hashed API-style bearer tokens in app.bearer_tokens');
   });
 
   const stop = async () => {

@@ -1,8 +1,5 @@
 /**
- * Identity plane — authentication and actor resolution.
- *
- * All queries run against the identity database.
- * No RLS, no session variables, no security definer functions.
+ * Identity domain — authentication and actor resolution.
  */
 
 import type { Pool } from 'pg';
@@ -87,10 +84,10 @@ export async function readActor(pool: Pool, memberId: string): Promise<ActorCont
       from app.members m
       left join lateral (
         select array_agg(cmgr.role order by cmgr.role) as global_roles
-        from app.current_member_global_roles cmgr
+        from app.current_global_roles cmgr
         where cmgr.member_id = m.id
       ) gr on true
-      left join app.accessible_club_memberships anm
+      left join app.accessible_memberships anm
         on anm.member_id = m.id
       left join app.clubs n
         on n.id = anm.club_id
@@ -112,7 +109,7 @@ export async function authenticateBearerToken(pool: Pool, bearerToken: string): 
   // Inline the old security definer function: validate token + update last_used_at
   const tokenResult = await pool.query<{ member_id: string }>(
     `
-      update app.member_bearer_tokens
+      update app.bearer_tokens
       set last_used_at = now()
       where id = $1
         and token_hash = $2

@@ -368,7 +368,7 @@ const clubadminAdmissionsTransition: ActionDefinition = {
       status: admissionStatus,
       notes: parseTrimmedNullableString.default(null),
       intake: parseIntake,
-      metadata: z.record(z.unknown()).optional(),
+      metadata: z.record(z.string(), z.unknown()).optional(),
     }),
   },
 

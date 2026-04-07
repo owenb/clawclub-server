@@ -83,10 +83,9 @@ function parseFlags(argv: string[]): { command: string; flags: Flags } {
 }
 
 function requireDatabaseUrl(): string {
-  // Token operations run against the identity database.
-  const databaseUrl = process.env.IDENTITY_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.DATABASE_MIGRATOR_URL;
+  const databaseUrl = process.env.DATABASE_URL ?? process.env.DATABASE_MIGRATOR_URL;
   if (!databaseUrl) {
-    console.error('IDENTITY_DATABASE_URL (or DATABASE_URL) must be set for this command');
+    console.error('DATABASE_URL must be set for this command');
     process.exit(1);
   }
   return databaseUrl;
@@ -137,7 +136,7 @@ async function createToken(pool: Pool, flags: Flags) {
     : null;
 
   await pool.query(
-    `insert into app.member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
+    `insert into app.bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
      values ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)`,
     [token.tokenId, memberId, flags.label ?? 'default', token.tokenHash, expiresAt, JSON.stringify(flags.metadata ?? {})],
   );
@@ -162,7 +161,7 @@ async function listTokens(pool: Pool, flags: Flags) {
   const memberId = await resolveMemberId(pool, flags);
   const result = await pool.query(
     `select id as "tokenId", member_id as "memberId", label, created_at as "createdAt", last_used_at as "lastUsedAt", revoked_at as "revokedAt", expires_at as "expiresAt", metadata
-     from app.member_bearer_tokens
+     from app.bearer_tokens
      where member_id = $1
      order by created_at desc, id desc`,
     [memberId],
@@ -178,7 +177,7 @@ async function revokeToken(pool: Pool, flags: Flags) {
 
   const memberId = await resolveMemberId(pool, flags);
   const result = await pool.query(
-    `update app.member_bearer_tokens
+    `update app.bearer_tokens
      set revoked_at = coalesce(revoked_at, now())
      where id = $1 and member_id = $2
      returning id as "tokenId", member_id as "memberId", label, created_at as "createdAt", last_used_at as "lastUsedAt", revoked_at as "revokedAt", expires_at as "expiresAt", metadata`,

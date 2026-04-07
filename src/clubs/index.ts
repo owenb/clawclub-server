@@ -1,9 +1,5 @@
 /**
- * Club plane — all club content operations.
- *
- * Entities, events, admissions, activity, vouches, quotas, LLM, embeddings.
- * No member or club name JOINs — the clubs DB has no identity tables.
- * Display names are enriched by the composition layer.
+ * Clubs domain — entities, events, admissions, activity, vouches, quotas, LLM, embeddings.
  */
 
 import type { Pool } from 'pg';
@@ -35,19 +31,19 @@ export { appendClubActivity } from './entities.ts';
 
 export async function createVouch(pool: Pool, input: {
   actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null;
-}): Promise<{ edgeId: string; fromMemberId: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null> {
-  // The clubs DB has no membership data. The composition layer must verify
-  // club membership before calling this. As defense in depth, we use a
-  // subquery that checks the edges table doesn't already have a conflicting
-  // self-vouch (the schema has a check constraint for this).
-  // Target membership verification happens in the composition layer via identity.
+}): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null> {
+  // Membership verification happens in the composition layer (postgres.ts).
+  // The DB has a CHECK constraint preventing self-vouches.
   const result = await pool.query<{
-    id: string; from_member_id: string; reason: string;
-    metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
+    id: string; from_member_id: string; from_public_name: string; from_handle: string | null;
+    reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
   }>(
     `insert into app.edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, client_key)
      values ($1::text, 'vouched_for', $2::text, $3::text, $4, $2::text, $5)
-     returning id, from_member_id, reason, metadata, created_at::text as created_at, created_by_member_id`,
+     returning id, from_member_id,
+       (select public_name from app.members where id = from_member_id) as from_public_name,
+       (select handle from app.members where id = from_member_id) as from_handle,
+       reason, metadata, created_at::text as created_at, created_by_member_id`,
     [input.clubId, input.actorMemberId, input.targetMemberId, input.reason, input.clientKey ?? null],
   );
 
@@ -56,6 +52,8 @@ export async function createVouch(pool: Pool, input: {
   return {
     edgeId: row.id,
     fromMemberId: row.from_member_id,
+    fromPublicName: row.from_public_name ?? 'Unknown',
+    fromHandle: row.from_handle,
     reason: row.reason,
     metadata: row.metadata,
     createdAt: row.created_at,
@@ -65,14 +63,16 @@ export async function createVouch(pool: Pool, input: {
 
 export async function listVouches(pool: Pool, input: {
   clubIds: string[]; targetMemberId: string; limit: number;
-}): Promise<Array<{ edgeId: string; fromMemberId: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null }>> {
+}): Promise<Array<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null }>> {
   const result = await pool.query<{
-    id: string; from_member_id: string; reason: string;
-    metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
+    id: string; from_member_id: string; from_public_name: string; from_handle: string | null;
+    reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
   }>(
-    `select e.id, e.from_member_id, e.reason, e.metadata,
+    `select e.id, e.from_member_id, m.public_name as from_public_name, m.handle as from_handle,
+            e.reason, e.metadata,
             e.created_at::text as created_at, e.created_by_member_id
      from app.edges e
+     join app.members m on m.id = e.from_member_id
      where e.club_id = any($1::text[]) and e.kind = 'vouched_for'
        and e.to_member_id = $2 and e.archived_at is null
      order by e.created_at desc limit $3`,
@@ -82,6 +82,8 @@ export async function listVouches(pool: Pool, input: {
   return result.rows.map((row) => ({
     edgeId: row.id,
     fromMemberId: row.from_member_id,
+    fromPublicName: row.from_public_name,
+    fromHandle: row.from_handle,
     reason: row.reason,
     metadata: row.metadata,
     createdAt: row.created_at,
@@ -94,7 +96,7 @@ export async function listVouches(pool: Pool, input: {
 /**
  * Mapping from quota action name to the entity kinds it covers.
  * This is the single source of truth for both enforcement and reporting.
- * Actions not in this map are not supported for clubs-plane quota counting.
+ * Actions not in this map are not supported for quota counting.
  */
 const QUOTA_ENTITY_KINDS: Record<string, string[]> = {
   'entities.create': ['post', 'opportunity', 'service', 'ask'],
@@ -110,7 +112,7 @@ export async function enforceQuota(client: DbClient, memberId: string, clubId: s
   if (!kinds) return; // unsupported action for quota counting
 
   const result = await client.query<{ max_per_day: number }>(
-    `select max_per_day from app.club_quota_policies where club_id = $1 and action_name = $2`,
+    `select max_per_day from app.quota_policies where club_id = $1 and action_name = $2`,
     [clubId, action],
   );
   if (!result.rows[0]) return; // no policy = unlimited
@@ -133,14 +135,14 @@ export async function getQuotaStatus(pool: Pool, input: {
 }): Promise<QuotaAllowance[]> {
   if (input.clubIds.length === 0) return [];
 
-  // Only report on actions that have clubs-plane quota counting support
+  // Only report on actions that have quota counting support
   const supportedActions = Object.keys(QUOTA_ENTITY_KINDS);
 
   const result = await pool.query<{
     action: string; club_id: string; max_per_day: number;
   }>(
     `select qp.action_name as action, qp.club_id, qp.max_per_day
-     from app.club_quota_policies qp
+     from app.quota_policies qp
      where qp.club_id = any($1::text[])
        and qp.action_name = any($2::text[])`,
     [input.clubIds, supportedActions],
@@ -205,7 +207,7 @@ export async function listClubActivity(pool: Pool, input: {
   // Seed cursor if needed
   if (input.afterSeq == null) {
     const seedResult = await pool.query<{ max_seq: number }>(
-      `select coalesce(max(seq), 0)::int as max_seq from app.club_activity
+      `select coalesce(max(seq), 0)::int as max_seq from app.activity
        where club_id = any($1::text[])`,
       [input.clubIds],
     );
@@ -219,7 +221,7 @@ export async function listClubActivity(pool: Pool, input: {
   }>(
     `select seq, club_id, entity_id, entity_version_id, topic, payload,
             created_by_member_id, created_at::text as created_at, audience
-     from app.club_activity ca
+     from app.activity ca
      where ca.club_id = any($1::text[]) and ca.seq > $2
        and (
          ca.audience = 'members'
@@ -262,29 +264,32 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
 
   const result = await pool.query<{
     entity_id: string; entity_version_id: string; club_id: string; kind: string;
-    author_member_id: string; version_no: number; state: string;
+    author_member_id: string; author_public_name: string; author_handle: string | null;
+    version_no: number; state: string;
     title: string | null; summary: string | null; body: string | null;
     effective_at: string; expires_at: string | null;
     version_created_at: string; content: Record<string, unknown> | null;
     entity_created_at: string;
   }>(
     `select e.id as entity_id, cev.id as entity_version_id, e.club_id, e.kind,
-            e.author_member_id, cev.version_no, cev.state,
+            e.author_member_id, m.public_name as author_public_name, m.handle as author_handle,
+            cev.version_no, cev.state,
             cev.title, cev.summary, cev.body,
             cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
             cev.created_at::text as version_created_at, cev.content,
             e.created_at::text as entity_created_at
      from app.entities e
      join app.current_entity_versions cev on cev.entity_id = e.id
+     join app.members m on m.id = e.author_member_id
      where e.club_id = any($1::text[]) and e.deleted_at is null
        and cev.state = 'published'
        and ($3::text[] is null or e.kind::text = any($3))
        and exists (
-         select 1 from app.embeddings_entity_artifacts eea where eea.entity_id = e.id
+         select 1 from app.entity_embeddings eea where eea.entity_id = e.id
        )
      order by (
        select min(eea.embedding <=> $2::vector)
-       from app.embeddings_entity_artifacts eea where eea.entity_id = e.id
+       from app.entity_embeddings eea where eea.entity_id = e.id
      ) asc
      limit $4`,
     [input.clubIds, input.queryEmbedding, input.kinds ?? null, input.limit],
@@ -295,7 +300,7 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
     entityVersionId: row.entity_version_id,
     clubId: row.club_id,
     kind: row.kind as EntitySummary['kind'],
-    author: { memberId: row.author_member_id, publicName: '', handle: null },
+    author: { memberId: row.author_member_id, publicName: row.author_public_name, handle: row.author_handle },
     version: {
       versionNo: row.version_no,
       state: row.state as EntitySummary['version']['state'],
@@ -315,8 +320,8 @@ export type ClubsRepository = {
   removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean; kindFilter?: string }): Promise<EntitySummary | null>;
   listEntities(input: ListEntitiesInput): Promise<EntitySummary[]>;
 
-  createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
-  listVouches(input: { clubIds: string[]; targetMemberId: string; limit: number }): Promise<Array<{ edgeId: string; fromMemberId: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null }>>;
+  createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
+  listVouches(input: { clubIds: string[]; targetMemberId: string; limit: number }): Promise<Array<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null }>>;
 
   enforceQuota(memberId: string, clubId: string, action: string): Promise<void>;
   getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;

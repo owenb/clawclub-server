@@ -30,7 +30,7 @@ Most requests require a bearer token:
 Authorization: Bearer cc_live_...
 ```
 
-Two admissions actions are intentionally unauthenticated: `admissions.challenge` and `admissions.apply`.
+Two admissions actions are intentionally unauthenticated: `admissions.challenge` and `admissions.apply`. Two additional actions provide a cross-apply path for existing network members: `admissions.crossChallenge` and `admissions.crossApply` (authenticated, reduced PoW difficulty, name/email locked to profile).
 
 ### Action reference
 
@@ -142,6 +142,8 @@ Action families and individual actions:
 **Admissions**
 - `admissions.challenge` — get a PoW puzzle bound to a specific club (unauthenticated, requires `clubSlug`)
 - `admissions.apply` — submit a solved PoW with application details (unauthenticated)
+- `admissions.crossChallenge` — get a reduced-difficulty PoW puzzle for an existing network member (member, requires `clubSlug`)
+- `admissions.crossApply` — submit a solved cross-apply PoW with application (member; name/email locked to profile)
 - `admissions.sponsor` — sponsor an outsider for admission (member)
 
 **Profile**
@@ -338,10 +340,20 @@ Ask: what, when, where, remote/in-person, paid/unpaid, duration, why recommend i
 
 Some actions are structurally valid long before they are conversationally ready. The schema tells you what JSON is accepted. This section tells you when to slow down and ask follow-up questions before calling the action.
 
+### DM vs public post
+
+Before calling `entities.create`, verify that the user intends to address the club publicly, not a specific person privately.
+
+- If the content is addressed to one named person and reads like a private 1:1 note, use `messages.send` instead
+- If the content includes private arrangements, personal contact details, financial details, or other sensitive information, treat it as a DM unless the user explicitly says they want it posted publicly
+- If the intent is ambiguous, ask: `Did you want to post this publicly to the club, or send it as a private message to [person]?`
+- Never convert a DM request into a public post without explicit user confirmation
+
 ### `entities.create`
 
 Treat this as publish-now, not draft-save.
 
+- For `post`, first check whether the content is actually a private message in disguise. Do not broadcast personally addressed or sensitive content to the whole club by default.
 - `post` — do not publish generic filler or a body with no concrete point
 - `opportunity` — ask for what it is, who it is for, how to engage, and compensation/budget or an explicit note that it is negotiable or voluntary
 - `service` — ask what is offered, who it is for, and how to engage
@@ -354,6 +366,7 @@ Treat `events.create` as publish-ready, not a draft save. Ask for: what it is ca
 
 ### DM a member
 Use club context. Keep messages clear and human. Do not reveal private memberships. Never send a message to the user themselves. If the sender and recipient share multiple clubs, ask which club context to use before sending — the server requires an explicit `clubId` when multiple clubs are shared.
+Do not use `entities.create` as a substitute for a DM. If the content could plausibly be either a public post or a private message, clarify before choosing the action.
 
 ### Vouch for a member
 Use `vouches.create` for endorsing someone **already in the same club**. Push back on vague reasons. A good vouch includes:

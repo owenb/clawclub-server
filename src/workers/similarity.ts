@@ -1,14 +1,11 @@
 /**
- * Cross-plane vector similarity helpers.
+ * Vector similarity helpers.
  *
- * Each method follows a two-step pattern:
- *   1. Load the source embedding from its owning DB plane
- *   2. Query the target plane by vector similarity
+ * Each method loads a source embedding and queries for similar items.
+ * These are worker-side helpers with no API surface. They take a single
+ * DB pool as argument and are usable by any worker that needs similarity queries.
  *
- * These are worker-side helpers with no API surface. They take DB pools
- * as arguments and are usable by any worker that needs similarity queries.
- *
- * All member-scoped queries use accessible_club_memberships to match
+ * All member-scoped queries use accessible_memberships to match
  * the current product visibility model (subscription-gated access).
  */
 import type { Pool } from 'pg';
@@ -28,13 +25,13 @@ export type EntityMatchResult = {
 // ── Helpers ───────────────────────────────────────────────
 
 /**
- * Load the latest embedding vector for an entity from the clubs DB.
+ * Load the latest embedding vector for an entity.
  * Returns null if no embedding exists.
  */
-async function loadEntityVector(clubsPool: Pool, entityId: string): Promise<string | null> {
-  const result = await clubsPool.query<{ embedding: string }>(
+async function loadEntityVector(pool: Pool, entityId: string): Promise<string | null> {
+  const result = await pool.query<{ embedding: string }>(
     `select eea.embedding::text as embedding
-     from app.embeddings_entity_artifacts eea
+     from app.entity_embeddings eea
      join app.current_entity_versions cev
        on cev.entity_id = eea.entity_id and cev.state = 'published'
      where eea.entity_id = $1
@@ -54,11 +51,11 @@ async function loadEntityVector(clubsPool: Pool, entityId: string): Promise<stri
  * new embedding isn't ready yet, returns null — preferring to skip
  * the member over matching on stale semantics.
  */
-async function loadProfileVector(identityPool: Pool, memberId: string): Promise<string | null> {
-  const result = await identityPool.query<{ embedding: string }>(
+async function loadProfileVector(pool: Pool, memberId: string): Promise<string | null> {
+  const result = await pool.query<{ embedding: string }>(
     `select empa.embedding::text as embedding
-     from app.embeddings_member_profile_artifacts empa
-     join app.current_member_profiles cmp
+     from app.profile_embeddings empa
+     join app.current_profiles cmp
        on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
      where empa.member_id = $1
      limit 1`,
@@ -73,29 +70,26 @@ async function loadProfileVector(identityPool: Pool, memberId: string): Promise<
  * Find members whose profiles are semantically similar to an entity.
  *
  * Use case: "who might be able to help with this ask?"
- * Step 1: load entity vector from clubs DB
- * Step 2: query identity DB for similar profiles in the same club
  */
 export async function findMembersMatchingEntity(
-  clubsPool: Pool,
-  identityPool: Pool,
+  pool: Pool,
   entityId: string,
   clubId: string,
   excludeMemberId: string,
   limit: number,
 ): Promise<SimilarityResult[]> {
-  const vector = await loadEntityVector(clubsPool, entityId);
+  const vector = await loadEntityVector(pool, entityId);
   if (!vector) return [];
 
   // Only match against embeddings for the current profile version.
   // Members whose profile has advanced but whose new embedding isn't ready
   // are skipped — prefer missing a match over matching on stale semantics.
-  const result = await identityPool.query<{ member_id: string; distance: number }>(
+  const result = await pool.query<{ member_id: string; distance: number }>(
     `select empa.member_id, min(empa.embedding <=> $1::vector) as distance
-     from app.embeddings_member_profile_artifacts empa
-     join app.current_member_profiles cmp
+     from app.profile_embeddings empa
+     join app.current_profiles cmp
        on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
-     join app.accessible_club_memberships acm
+     join app.accessible_memberships acm
        on acm.member_id = empa.member_id
        and acm.club_id = $2
      where empa.member_id <> $3
@@ -112,27 +106,24 @@ export async function findMembersMatchingEntity(
  * Find members with similar profiles in the same club.
  *
  * Use case: "who should this member meet?"
- * Step 1: load member's profile vector from identity DB
- * Step 2: query identity DB for similar profiles in the same club
- *
- * DM thread existence filtering is done by the caller (requires messaging DB).
+ * DM thread existence filtering is done by the caller.
  */
 export async function findSimilarMembers(
-  identityPool: Pool,
+  pool: Pool,
   memberId: string,
   clubId: string,
   limit: number,
 ): Promise<SimilarityResult[]> {
-  const vector = await loadProfileVector(identityPool, memberId);
+  const vector = await loadProfileVector(pool, memberId);
   if (!vector) return [];
 
   // Only match against current-version embeddings for target members too.
-  const result = await identityPool.query<{ member_id: string; distance: number }>(
+  const result = await pool.query<{ member_id: string; distance: number }>(
     `select empa.member_id, min(empa.embedding <=> $1::vector) as distance
-     from app.embeddings_member_profile_artifacts empa
-     join app.current_member_profiles cmp
+     from app.profile_embeddings empa
+     join app.current_profiles cmp
        on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
-     join app.accessible_club_memberships acm
+     join app.accessible_memberships acm
        on acm.member_id = empa.member_id
        and acm.club_id = $2
      where empa.member_id <> $3
@@ -149,29 +140,26 @@ export async function findSimilarMembers(
  * Find existing ask entities that a new offer (service/opportunity) could fulfil.
  *
  * Use case: "does this new service match any existing asks?"
- * Step 1: load offer entity vector from clubs DB
- * Step 2: query clubs DB for similar ask entities in the same club
- *
  * Returns the ask's author_member_id so the caller knows who to signal.
  */
 export async function findAskMatchingOffer(
-  clubsPool: Pool,
+  pool: Pool,
   offerEntityId: string,
   clubId: string,
   limit: number,
   excludeAuthorId?: string,
 ): Promise<EntityMatchResult[]> {
-  const vector = await loadEntityVector(clubsPool, offerEntityId);
+  const vector = await loadEntityVector(pool, offerEntityId);
   if (!vector) return [];
 
-  const result = await clubsPool.query<{
+  const result = await pool.query<{
     entity_id: string; entity_version_id: string; author_member_id: string; distance: number;
   }>(
     `select eea.entity_id,
             cev.id as entity_version_id,
             e.author_member_id,
             min(eea.embedding <=> $1::vector) as distance
-     from app.embeddings_entity_artifacts eea
+     from app.entity_embeddings eea
      join app.current_entity_versions cev
        on cev.entity_id = eea.entity_id and cev.state = 'published'
      join app.entities e on e.id = eea.entity_id
@@ -205,15 +193,15 @@ export async function findAskMatchingOffer(
  * Used by introduction matching to filter out already-connected members.
  */
 export async function findExistingThreadPairs(
-  messagingPool: Pool,
+  pool: Pool,
   memberAIds: string[],
   memberBIds: string[],
 ): Promise<Set<string>> {
   if (memberAIds.length === 0) return new Set();
 
-  const result = await messagingPool.query<{ member_a_id: string; member_b_id: string }>(
+  const result = await pool.query<{ member_a_id: string; member_b_id: string }>(
     `select member_a_id, member_b_id
-     from app.messaging_threads
+     from app.threads
      where archived_at is null
        and (member_a_id, member_b_id) in (
          select * from unnest($1::text[], $2::text[])

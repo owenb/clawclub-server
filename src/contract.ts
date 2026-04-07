@@ -174,6 +174,19 @@ export type AdmissionApplyResult =
   | { status: 'needs_revision'; feedback: string; attemptsRemaining: number }
   | { status: 'attempts_exhausted'; message: string };
 
+export type CreateCrossAdmissionChallengeInput = {
+  actorMemberId: string;
+  clubSlug: string;
+};
+
+export type SolveCrossAdmissionChallengeInput = {
+  actorMemberId: string;
+  challengeId: string;
+  nonce: string;
+  socials: string;
+  application: string;
+};
+
 export type TransitionAdmissionInput = {
   actorMemberId: string;
   admissionId: string;
@@ -581,7 +594,7 @@ export type DirectMessageThreadSummary = {
   counterpartHandle: string | null;
   latestMessage: {
     messageId: string;
-    senderMemberId: string;
+    senderMemberId: string | null;
     role: 'member' | 'agent' | 'system';
     messageText: string | null;
     createdAt: string;
@@ -790,6 +803,8 @@ export type Repository = {
   transitionAdmission?(input: TransitionAdmissionInput): Promise<AdmissionSummary | null>;
   createAdmissionChallenge?(input: CreateAdmissionChallengeInput): Promise<AdmissionChallengeResult>;
   solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<AdmissionApplyResult>;
+  createCrossAdmissionChallenge?(input: CreateCrossAdmissionChallengeInput): Promise<AdmissionChallengeResult>;
+  solveCrossAdmissionChallenge?(input: SolveCrossAdmissionChallengeInput): Promise<AdmissionApplyResult>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: {

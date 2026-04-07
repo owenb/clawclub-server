@@ -1,12 +1,7 @@
 /**
- * Messaging plane — threads, messages, inbox.
+ * Messaging domain — threads, messages, inbox.
  *
- * All queries run against the messaging database.
- * No club_id, no member names — just member IDs and message data.
- * Display names and club context are enriched by the composition layer.
- *
- * Table names: messaging_threads, messaging_messages, messaging_inbox_entries,
- * messaging_thread_participants, messaging_inbox_receipts, messaging_message_removals.
+ * Tables: threads, messages, inbox_entries, thread_participants, message_removals.
  */
 
 import type { Pool } from 'pg';
@@ -27,6 +22,8 @@ export type MessageSummary = {
 export type ThreadSummary = {
   threadId: string;
   counterpartMemberId: string;
+  counterpartPublicName: string;
+  counterpartHandle: string | null;
   latestMessage: {
     messageId: string;
     senderMemberId: string | null;
@@ -116,8 +113,8 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
           }>(
             `select m.id, m.thread_id, t.member_a_id, t.member_b_id,
                     m.message_text, m.created_at::text as created_at
-             from app.messaging_messages m
-             join app.messaging_threads t on t.id = m.thread_id
+             from app.messages m
+             join app.threads t on t.id = m.thread_id
              where m.sender_member_id = $1 and m.client_key = $2`,
             [senderMemberId, clientKey],
           );
@@ -147,7 +144,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
 
         // Find or create thread
         const threadResult = await client.query<{ id: string }>(
-          `insert into app.messaging_threads (kind, created_by_member_id, member_a_id, member_b_id)
+          `insert into app.threads (kind, created_by_member_id, member_a_id, member_b_id)
            values ('direct', $1, $2, $3)
            on conflict do nothing
            returning id`,
@@ -157,7 +154,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         let threadId = threadResult.rows[0]?.id;
         if (!threadId) {
           const existing = await client.query<{ id: string }>(
-            `select id from app.messaging_threads
+            `select id from app.threads
              where kind = 'direct' and member_a_id = $1 and member_b_id = $2
                and archived_at is null
              limit 1`,
@@ -167,14 +164,14 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
           if (!threadId) throw new AppError(500, 'thread_not_found', 'Failed to find or create direct thread');
         } else {
           await client.query(
-            `insert into app.messaging_thread_participants (thread_id, member_id) values ($1, $2), ($1, $3)`,
+            `insert into app.thread_participants (thread_id, member_id) values ($1, $2), ($1, $3)`,
             [threadId, senderMemberId, recipientMemberId],
           );
         }
 
         // Insert message
         const msgResult = await client.query<{ id: string; created_at: string }>(
-          `insert into app.messaging_messages (thread_id, sender_member_id, role, message_text, client_key)
+          `insert into app.messages (thread_id, sender_member_id, role, message_text, client_key)
            values ($1, $2, 'member', $3, $4)
            returning id, created_at::text as created_at`,
           [threadId, senderMemberId, messageText, clientKey ?? null],
@@ -183,7 +180,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
 
         // Create inbox entry for recipient (idempotent via unique constraint)
         await client.query(
-          `insert into app.messaging_inbox_entries (recipient_member_id, thread_id, message_id)
+          `insert into app.inbox_entries (recipient_member_id, thread_id, message_id)
            values ($1, $2, $3)
            on conflict (recipient_member_id, message_id) do nothing`,
           [recipientMemberId, threadId, msg.id],
@@ -203,21 +200,22 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
     async listThreads({ memberId, limit }) {
       const result = await pool.query<{
         thread_id: string; counterpart_member_id: string;
+        counterpart_public_name: string; counterpart_handle: string | null;
         latest_message_id: string; latest_sender_member_id: string | null;
         latest_role: string; latest_message_text: string | null;
         latest_created_at: string; message_count: number;
       }>(
         `with my_threads as (
            select tp.thread_id
-           from app.messaging_thread_participants tp
+           from app.thread_participants tp
            where tp.member_id = $1 and tp.left_at is null
          ),
          counterparts as (
            select mt.thread_id,
                   tp.member_id as counterpart_member_id
            from my_threads mt
-           join app.messaging_threads t on t.id = mt.thread_id and t.kind = 'direct'
-           join app.messaging_thread_participants tp on tp.thread_id = mt.thread_id
+           join app.threads t on t.id = mt.thread_id and t.kind = 'direct'
+           join app.thread_participants tp on tp.thread_id = mt.thread_id
              and tp.member_id <> $1
          ),
          ranked as (
@@ -230,14 +228,18 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                   count(*) over (partition by c.thread_id)::int as message_count,
                   row_number() over (partition by c.thread_id order by m.created_at desc, m.id desc) as rn
            from counterparts c
-           join app.messaging_messages m on m.thread_id = c.thread_id
-           left join app.messaging_message_removals rmv on rmv.message_id = m.id
+           join app.messages m on m.thread_id = c.thread_id
+           left join app.message_removals rmv on rmv.message_id = m.id
          )
-         select thread_id, counterpart_member_id,
-                latest_message_id, latest_sender_member_id,
-                latest_role, latest_message_text, latest_created_at, message_count
-         from ranked where rn = 1
-         order by latest_created_at desc, thread_id desc
+         select r.thread_id, r.counterpart_member_id,
+                mbr.public_name as counterpart_public_name,
+                mbr.handle as counterpart_handle,
+                r.latest_message_id, r.latest_sender_member_id,
+                r.latest_role, r.latest_message_text, r.latest_created_at, r.message_count
+         from ranked r
+         join app.members mbr on mbr.id = r.counterpart_member_id
+         where r.rn = 1
+         order by r.latest_created_at desc, r.thread_id desc
          limit $2`,
         [memberId, limit],
       );
@@ -245,6 +247,8 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       return result.rows.map((row) => ({
         threadId: row.thread_id,
         counterpartMemberId: row.counterpart_member_id,
+        counterpartPublicName: row.counterpart_public_name,
+        counterpartHandle: row.counterpart_handle,
         latestMessage: {
           messageId: row.latest_message_id,
           senderMemberId: row.latest_sender_member_id,
@@ -259,6 +263,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
     async listInbox({ memberId, limit, unreadOnly }) {
       const result = await pool.query<{
         thread_id: string; counterpart_member_id: string;
+        counterpart_public_name: string; counterpart_handle: string | null;
         latest_message_id: string; latest_sender_member_id: string | null;
         latest_role: string; latest_message_text: string | null;
         latest_created_at: string; message_count: number;
@@ -266,15 +271,15 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       }>(
         `with my_threads as (
            select tp.thread_id
-           from app.messaging_thread_participants tp
+           from app.thread_participants tp
            where tp.member_id = $1 and tp.left_at is null
          ),
          counterparts as (
            select mt.thread_id,
                   tp.member_id as counterpart_member_id
            from my_threads mt
-           join app.messaging_threads t on t.id = mt.thread_id and t.kind = 'direct'
-           join app.messaging_thread_participants tp on tp.thread_id = mt.thread_id
+           join app.threads t on t.id = mt.thread_id and t.kind = 'direct'
+           join app.thread_participants tp on tp.thread_id = mt.thread_id
              and tp.member_id <> $1
          ),
          inbox_stats as (
@@ -282,7 +287,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                   count(*) filter (where not ie.acknowledged)::int as unread_count,
                   bool_or(not ie.acknowledged) as has_unread,
                   max(ie.created_at) filter (where not ie.acknowledged)::text as latest_unread_at
-           from app.messaging_inbox_entries ie
+           from app.inbox_entries ie
            where ie.recipient_member_id = $1
            group by ie.thread_id
          ),
@@ -294,13 +299,15 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                   m.role::text as latest_role,
                   case when rmv.message_id is not null then '[Message removed]' else m.message_text end as latest_message_text,
                   m.created_at::text as latest_created_at,
-                  (select count(*)::int from app.messaging_messages mm where mm.thread_id = c.thread_id) as message_count
+                  (select count(*)::int from app.messages mm where mm.thread_id = c.thread_id) as message_count
            from counterparts c
-           join app.messaging_messages m on m.thread_id = c.thread_id
-           left join app.messaging_message_removals rmv on rmv.message_id = m.id
+           join app.messages m on m.thread_id = c.thread_id
+           left join app.message_removals rmv on rmv.message_id = m.id
            order by c.thread_id, m.created_at desc, m.id desc
          )
          select lm.thread_id, lm.counterpart_member_id,
+                mbr.public_name as counterpart_public_name,
+                mbr.handle as counterpart_handle,
                 lm.latest_message_id, lm.latest_sender_member_id,
                 lm.latest_role, lm.latest_message_text, lm.latest_created_at,
                 lm.message_count,
@@ -308,6 +315,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                 coalesce(ist.has_unread, false) as has_unread,
                 ist.latest_unread_at
          from latest_msg lm
+         join app.members mbr on mbr.id = lm.counterpart_member_id
          left join inbox_stats ist on ist.thread_id = lm.thread_id
          where ($3::boolean = false or coalesce(ist.has_unread, false))
          order by coalesce(ist.has_unread, false) desc,
@@ -320,6 +328,8 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       return result.rows.map((row) => ({
         threadId: row.thread_id,
         counterpartMemberId: row.counterpart_member_id,
+        counterpartPublicName: row.counterpart_public_name,
+        counterpartHandle: row.counterpart_handle,
         latestMessage: {
           messageId: row.latest_message_id,
           senderMemberId: row.latest_sender_member_id,
@@ -335,12 +345,19 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
     },
 
     async readThread({ memberId, threadId, limit }) {
-      // Verify participation
-      const participantCheck = await pool.query<{ counterpart_member_id: string }>(
-        `select tp2.member_id as counterpart_member_id
-         from app.messaging_thread_participants tp1
-         join app.messaging_thread_participants tp2
+      // Verify participation and get counterpart info
+      const participantCheck = await pool.query<{
+        counterpart_member_id: string;
+        counterpart_public_name: string;
+        counterpart_handle: string | null;
+      }>(
+        `select tp2.member_id as counterpart_member_id,
+                mbr.public_name as counterpart_public_name,
+                mbr.handle as counterpart_handle
+         from app.thread_participants tp1
+         join app.thread_participants tp2
            on tp2.thread_id = tp1.thread_id and tp2.member_id <> $1
+         join app.members mbr on mbr.id = tp2.member_id
          where tp1.thread_id = $2 and tp1.member_id = $1
          limit 1`,
         [memberId, threadId],
@@ -348,6 +365,8 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       if (!participantCheck.rows[0]) return null;
 
       const counterpartMemberId = participantCheck.rows[0].counterpart_member_id;
+      const counterpartPublicName = participantCheck.rows[0].counterpart_public_name;
+      const counterpartHandle = participantCheck.rows[0].counterpart_handle;
 
       // Thread summary
       const threadResult = await pool.query<{
@@ -359,9 +378,9 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                 m.role::text as latest_role,
                 case when rmv.message_id is not null then '[Message removed]' else m.message_text end as latest_message_text,
                 m.created_at::text as latest_created_at,
-                (select count(*)::int from app.messaging_messages mm where mm.thread_id = $1) as message_count
-         from app.messaging_messages m
-         left join app.messaging_message_removals rmv on rmv.message_id = m.id
+                (select count(*)::int from app.messages mm where mm.thread_id = $1) as message_count
+         from app.messages m
+         left join app.message_removals rmv on rmv.message_id = m.id
          where m.thread_id = $1
          order by m.created_at desc, m.id desc
          limit 1`,
@@ -374,6 +393,8 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       const thread: ThreadSummary = {
         threadId,
         counterpartMemberId,
+        counterpartPublicName,
+        counterpartHandle,
         latestMessage: {
           messageId: threadRow.latest_message_id,
           senderMemberId: threadRow.latest_sender_member_id,
@@ -396,8 +417,8 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                 case when rmv.message_id is not null then null else m.payload end as payload,
                 m.created_at::text as created_at,
                 m.in_reply_to_message_id
-         from app.messaging_messages m
-         left join app.messaging_message_removals rmv on rmv.message_id = m.id
+         from app.messages m
+         left join app.message_removals rmv on rmv.message_id = m.id
          where m.thread_id = $1
          order by m.created_at desc, m.id desc
          limit $2`,
@@ -422,7 +443,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       // Verify the caller is the message sender (unless skipAuthCheck for admin)
       if (!skipAuthCheck) {
         const msgCheck = await pool.query<{ sender_member_id: string | null }>(
-          `select sender_member_id from app.messaging_messages where id = $1`,
+          `select sender_member_id from app.messages where id = $1`,
           [messageId],
         );
         if (!msgCheck.rows[0]) return null;
@@ -437,7 +458,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         reason: string | null; removed_at: string;
       }>(
         `select message_id, removed_by_member_id, reason, removed_at::text as removed_at
-         from app.messaging_message_removals where message_id = $1`,
+         from app.message_removals where message_id = $1`,
         [messageId],
       );
       if (existing.rows[0]) {
@@ -453,7 +474,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         message_id: string; removed_by_member_id: string;
         reason: string | null; removed_at: string;
       }>(
-        `insert into app.messaging_message_removals (message_id, removed_by_member_id, reason)
+        `insert into app.message_removals (message_id, removed_by_member_id, reason)
          values ($1, $2, $3)
          returning message_id, removed_by_member_id, reason, removed_at::text as removed_at`,
         [messageId, removedByMemberId, reason ?? null],
@@ -469,7 +490,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
 
     async acknowledgeInbox({ memberId, threadId }) {
       await pool.query(
-        `update app.messaging_inbox_entries
+        `update app.inbox_entries
          set acknowledged = true
          where recipient_member_id = $1 and thread_id = $2 and acknowledged = false`,
         [memberId, threadId],

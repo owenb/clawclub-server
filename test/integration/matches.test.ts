@@ -25,7 +25,7 @@ describe('background_matches', () => {
   it('createMatch inserts a match and returns its ID', async () => {
     const owner = await h.seedOwner('matchclub1', 'MatchClub1');
 
-    const matchId = await createMatch(h.pools.clubs.super, {
+    const matchId = await createMatch(h.pools.super, {
       clubId: owner.club.id,
       matchKind: 'ask_to_member',
       sourceId: 'entity_abc',
@@ -47,7 +47,7 @@ describe('background_matches', () => {
   it('createMatch skips duplicate (same kind + source + target)', async () => {
     const owner = await h.seedOwner('matchclub2', 'MatchClub2');
 
-    const id1 = await createMatch(h.pools.clubs.super, {
+    const id1 = await createMatch(h.pools.super, {
       clubId: owner.club.id,
       matchKind: 'ask_to_member',
       sourceId: 'entity_dup',
@@ -55,7 +55,7 @@ describe('background_matches', () => {
       score: 0.1,
     });
 
-    const id2 = await createMatch(h.pools.clubs.super, {
+    const id2 = await createMatch(h.pools.super, {
       clubId: owner.club.id,
       matchKind: 'ask_to_member',
       sourceId: 'entity_dup',
@@ -70,7 +70,7 @@ describe('background_matches', () => {
   it('claimPendingMatches returns matches ordered by score', async () => {
     const owner = await h.seedOwner('matchclub3', 'MatchClub3');
 
-    await createMatch(h.pools.clubs.super, {
+    await createMatch(h.pools.super, {
       clubId: owner.club.id,
       matchKind: 'ask_to_member',
       sourceId: 'entity_worse',
@@ -78,7 +78,7 @@ describe('background_matches', () => {
       score: 0.5,
     });
 
-    await createMatch(h.pools.clubs.super, {
+    await createMatch(h.pools.super, {
       clubId: owner.club.id,
       matchKind: 'ask_to_member',
       sourceId: 'entity_better',
@@ -86,7 +86,7 @@ describe('background_matches', () => {
       score: 0.1,
     });
 
-    const matches = await claimPendingMatches(h.pools.clubs.super, 10);
+    const matches = await claimPendingMatches(h.pools.super, 10);
     const ours = matches.filter(m => m.targetMemberId === owner.id);
 
     assert.ok(ours.length >= 2);
@@ -99,7 +99,7 @@ describe('background_matches', () => {
   it('markDelivered transitions state and sets signal_id', async () => {
     const owner = await h.seedOwner('matchclub4', 'MatchClub4');
 
-    const matchId = await createMatch(h.pools.clubs.super, {
+    const matchId = await createMatch(h.pools.super, {
       clubId: owner.club.id,
       matchKind: 'ask_to_member',
       sourceId: 'entity_deliver',
@@ -109,12 +109,12 @@ describe('background_matches', () => {
 
     // Create a signal to link
     const signalRows = await h.sqlClubs<{ id: string }>(
-      `insert into app.member_signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signals (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.test', '{}'::jsonb) returning id`,
       [owner.club.id, owner.id],
     );
 
-    await markDelivered(h.pools.clubs.super, matchId!, signalRows[0].id);
+    await markDelivered(h.pools.super, matchId!, signalRows[0].id);
 
     const rows = await h.sqlClubs<{ state: string; signal_id: string; delivered_at: string }>(
       `select state, signal_id, delivered_at::text as delivered_at
@@ -129,7 +129,7 @@ describe('background_matches', () => {
   it('markExpired transitions state', async () => {
     const owner = await h.seedOwner('matchclub5', 'MatchClub5');
 
-    const matchId = await createMatch(h.pools.clubs.super, {
+    const matchId = await createMatch(h.pools.super, {
       clubId: owner.club.id,
       matchKind: 'ask_to_member',
       sourceId: 'entity_expire',
@@ -137,7 +137,7 @@ describe('background_matches', () => {
       score: 0.3,
     });
 
-    await markExpired(h.pools.clubs.super, matchId!);
+    await markExpired(h.pools.super, matchId!);
 
     const rows = await h.sqlClubs<{ state: string }>(
       `select state from app.background_matches where id = $1`,
@@ -157,7 +157,7 @@ describe('background_matches', () => {
       [owner.club.id, owner.id],
     );
 
-    const expired = await expireStaleMatches(h.pools.clubs.super);
+    const expired = await expireStaleMatches(h.pools.super);
     assert.ok(expired >= 1, 'should expire at least one match');
   });
 
@@ -176,17 +176,17 @@ describe('background_matches', () => {
     );
 
     const allCount = await countRecentDeliveries(
-      h.pools.clubs.super, owner.id, 86400000,
+      h.pools.super, owner.id, 86400000,
     );
     assert.ok(allCount >= 3, 'should count all recent deliveries');
 
     const askCount = await countRecentDeliveries(
-      h.pools.clubs.super, owner.id, 86400000, 'ask_to_member',
+      h.pools.super, owner.id, 86400000, 'ask_to_member',
     );
     assert.ok(askCount >= 2, 'should count ask deliveries');
 
     const introCount = await countRecentDeliveries(
-      h.pools.clubs.super, owner.id, 86400000, 'member_to_member',
+      h.pools.super, owner.id, 86400000, 'member_to_member',
     );
     assert.ok(introCount >= 1, 'should count intro deliveries');
   });
@@ -195,11 +195,11 @@ describe('background_matches', () => {
     const owner = await h.seedOwner('matchclub8', 'MatchClub8');
 
     const exists1 = await matchExists(
-      h.pools.clubs.super, 'ask_to_member', 'entity_exists_test', owner.id,
+      h.pools.super, 'ask_to_member', 'entity_exists_test', owner.id,
     );
     assert.equal(exists1, false, 'should not exist before creation');
 
-    await createMatch(h.pools.clubs.super, {
+    await createMatch(h.pools.super, {
       clubId: owner.club.id,
       matchKind: 'ask_to_member',
       sourceId: 'entity_exists_test',
@@ -208,7 +208,7 @@ describe('background_matches', () => {
     });
 
     const exists2 = await matchExists(
-      h.pools.clubs.super, 'ask_to_member', 'entity_exists_test', owner.id,
+      h.pools.super, 'ask_to_member', 'entity_exists_test', owner.id,
     );
     assert.equal(exists2, true, 'should exist after creation');
   });
