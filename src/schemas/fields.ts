@@ -95,14 +95,14 @@ export const parseCursor = z.string().trim().min(1).nullable().optional().defaul
  * Wire: optional string that may be null.
  * Empty strings are treated as null by the server.
  */
-export const wireOptionalString = z.string().max(500_000).nullable().optional()
-  .describe('Optional, max 500 000 characters. Empty strings are treated as null.');
+export const wireOptionalString = z.string().max(250_000).nullable().optional()
+  .describe('Optional, max 250 000 characters. Empty strings are treated as null.');
 
 /**
  * Parse: trims whitespace; empty string → null.
  * Preserves undefined (omitted) vs null (explicit clear) vs string (set).
  */
-export const parseTrimmedNullableString = safeString.pipe(z.string().max(500_000).trim())
+export const parseTrimmedNullableString = safeString.pipe(z.string().max(250_000).trim())
   .transform(s => s === '' ? null : s)
   .nullable()
   .optional();
@@ -111,14 +111,14 @@ export const parseTrimmedNullableString = safeString.pipe(z.string().max(500_000
  * Wire: patch field (for update/patch actions).
  * Same as wireOptionalString — the three-state semantics are documented.
  */
-export const wirePatchString = z.string().max(500_000).nullable().optional()
-  .describe('Omit to leave unchanged, null to clear, string to set. Max 500 000 characters. Empty strings treated as null.');
+export const wirePatchString = z.string().max(250_000).nullable().optional()
+  .describe('Omit to leave unchanged, null to clear, string to set. Max 250 000 characters. Empty strings treated as null.');
 
 /**
  * Parse: patch field preserving three-state: undefined (omit), null (clear), string (set).
  * Does NOT default — preserving undefined is critical for patch semantics.
  */
-export const parsePatchString = safeString.pipe(z.string().max(500_000).trim())
+export const parsePatchString = safeString.pipe(z.string().max(250_000).trim())
   .transform(s => s === '' ? null : s)
   .nullable()
   .optional();
@@ -131,11 +131,11 @@ export const wireRequiredString = z.string()
 export const parseRequiredString = safeString.pipe(z.string().trim().min(1));
 
 /** Wire: message text with a bounded max length */
-export const wireMessageText = z.string().max(500_000)
-  .describe('Required, max 500 000 characters. Server trims whitespace; whitespace-only strings are rejected.');
+export const wireMessageText = z.string().max(250_000)
+  .describe('Required, max 250 000 characters. Server trims whitespace; whitespace-only strings are rejected.');
 
-/** Parse: message text, trimmed, max 500 000 characters */
-export const parseMessageText = safeString.pipe(z.string().trim().min(1).max(500_000));
+/** Parse: message text, trimmed, max 250 000 characters */
+export const parseMessageText = safeString.pipe(z.string().trim().min(1).max(250_000));
 
 /** Wire: string capped at 500 characters. Server trims whitespace. */
 export const wireBoundedString = z.string().max(500)

@@ -20,7 +20,7 @@ Already covered: `CONSTRAINT redactions_unique_target UNIQUE (target_kind, targe
 ---
 
 ## ~~4. Message & Body Length Validation~~ DONE
-All text fields in `fields.ts` now capped at 500,000 characters: `wireMessageText`/`parseMessageText` (was 5,000), `wireOptionalString`/`parseTrimmedNullableString` (was unbounded), `wirePatchString`/`parsePatchString` (was unbounded). Covers messages, entity bodies, summaries, and patch updates.
+All text fields in `fields.ts` now capped at 250,000 characters: `wireMessageText`/`parseMessageText` (was 5,000), `wireOptionalString`/`parseTrimmedNullableString` (was unbounded), `wirePatchString`/`parsePatchString` (was unbounded). Covers messages, entity bodies, summaries, and patch updates.
 
 ---
 
