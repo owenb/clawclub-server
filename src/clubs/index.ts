@@ -288,43 +288,84 @@ export async function enforceQuota(client: DbClient, memberId: string, clubId: s
 
 export async function getQuotaStatus(pool: Pool, input: {
   actorMemberId: string; clubIds: string[];
+  memberships: Array<{ clubId: string; role: 'member' | 'clubadmin'; isOwner: boolean }>;
 }): Promise<QuotaAllowance[]> {
   if (input.clubIds.length === 0) return [];
 
   // Only report on actions that have quota counting support
   const supportedActions = Object.keys(QUOTA_ENTITY_KINDS);
 
-  const result = await pool.query<{
+  // Build a lookup for actor's role per club
+  const roleByClub = new Map<string, QuotaActorInfo>();
+  for (const m of input.memberships) {
+    roleByClub.set(m.clubId, { role: m.role, isOwner: m.isOwner });
+  }
+
+  // Load club-specific overrides
+  const clubOverrides = await pool.query<{
     action: string; club_id: string; max_per_day: number;
   }>(
     `select qp.action_name as action, qp.club_id, qp.max_per_day
-     from club_quota_policies qp
-     where qp.club_id = any($1::text[])
+     from quota_policies qp
+     where qp.scope = 'club'
+       and qp.club_id = any($1::text[])
        and qp.action_name = any($2::text[])`,
     [input.clubIds, supportedActions],
   );
 
-  // Count usage per action using kind-specific filters
-  const allowances: QuotaAllowance[] = [];
-  for (const row of result.rows) {
-    const kinds = getQuotaKindFilter(row.action);
-    if (!kinds) continue;
+  // Load global defaults
+  const globalDefaults = await pool.query<{
+    action: string; max_per_day: number;
+  }>(
+    `select qp.action_name as action, qp.max_per_day
+     from quota_policies qp
+     where qp.scope = 'global'
+       and qp.action_name = any($1::text[])`,
+    [supportedActions],
+  );
 
-    const countResult = await pool.query<{ count: string }>(
-      `select count(*)::text as count from entities
-       where author_member_id = $1 and club_id = $2
-         and kind::text = any($3::text[])
-         and created_at >= date_trunc('day', now() at time zone 'UTC')`,
-      [input.actorMemberId, row.club_id, kinds],
-    );
-    const usedToday = Number(countResult.rows[0]?.count ?? 0);
-    allowances.push({
-      action: row.action,
-      clubId: row.club_id,
-      maxPerDay: row.max_per_day,
-      usedToday,
-      remaining: Math.max(0, row.max_per_day - usedToday),
-    });
+  // Build a map of club overrides keyed by "clubId:action"
+  const overrideMap = new Map<string, number>();
+  for (const row of clubOverrides.rows) {
+    overrideMap.set(`${row.club_id}:${row.action}`, row.max_per_day);
+  }
+
+  // Build a map of global defaults keyed by action
+  const globalMap = new Map<string, number>();
+  for (const row of globalDefaults.rows) {
+    globalMap.set(row.action, row.max_per_day);
+  }
+
+  // For each club and each supported action, produce a quota row
+  const allowances: QuotaAllowance[] = [];
+  for (const clubId of input.clubIds) {
+    const actorInfo = roleByClub.get(clubId) ?? { role: 'member' as const, isOwner: false };
+    const multiplier = effectiveMultiplier(actorInfo);
+
+    for (const action of supportedActions) {
+      const base = overrideMap.get(`${clubId}:${action}`) ?? globalMap.get(action);
+      if (base === undefined) continue; // no policy at all (bootstrap bug)
+
+      const effectiveMax = base * multiplier;
+      const kinds = getQuotaKindFilter(action);
+      if (!kinds) continue;
+
+      const countResult = await pool.query<{ count: string }>(
+        `select count(*)::text as count from entities
+         where author_member_id = $1 and club_id = $2
+           and kind::text = any($3::text[])
+           and created_at >= date_trunc('day', now() at time zone 'UTC')`,
+        [input.actorMemberId, clubId, kinds],
+      );
+      const usedToday = Number(countResult.rows[0]?.count ?? 0);
+      allowances.push({
+        action,
+        clubId,
+        maxPerDay: effectiveMax,
+        usedToday,
+        remaining: Math.max(0, effectiveMax - usedToday),
+      });
+    }
   }
 
   return allowances;
@@ -501,8 +542,8 @@ export type ClubsRepository = {
   createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
   listVouches(input: { clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<PaginatedVouches>;
 
-  enforceQuota(memberId: string, clubId: string, action: string): Promise<void>;
-  getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;
+  enforceQuota(memberId: string, clubId: string, action: string, actorInfo: QuotaActorInfo): Promise<void>;
+  getQuotaStatus(input: { actorMemberId: string; clubIds: string[]; memberships: Array<{ clubId: string; role: 'member' | 'clubadmin'; isOwner: boolean }> }): Promise<QuotaAllowance[]>;
 
   logLlmUsage(input: LogLlmUsageInput): Promise<void>;
 
@@ -527,10 +568,10 @@ export function createClubsRepository(pool: Pool): ClubsRepository {
     createVouch: (input) => createVouch(pool, input),
     listVouches: (input) => listVouches(pool, input),
 
-    enforceQuota: (memberId, clubId, action) => {
+    enforceQuota: (memberId, clubId, action, actorInfo) => {
       // For top-level quota enforcement, run outside transaction
       return pool.connect().then(async (client) => {
-        try { await enforceQuota(client, memberId, clubId, action); }
+        try { await enforceQuota(client, memberId, clubId, action, actorInfo); }
         finally { client.release(); }
       });
     },

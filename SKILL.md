@@ -178,7 +178,7 @@ All respect club scope. Lexical and semantic search are separate — no hidden f
 
 ### Default quotas
 
-Daily quotas per member per club: entities 20, events 10, messages 100. Exceeding returns 429 `quota_exceeded`.
+Daily quotas per member per club: content 30, events 20. Clubs can override these defaults. Admins and owners get 3x the base limit. Exceeding returns 429 `quota_exceeded`. Direct messages are not subject to quotas.
 
 ---
 
@@ -308,7 +308,7 @@ Short factual changes are fine. Push back only when the human is asking you to i
 
 ### `quotas.getUsage`
 
-Use this when the human asks how much posting, event, or messaging allowance is left, or after a 429 `quota_exceeded` response.
+Use this when the human asks how much posting or event allowance is left, or after a 429 `quota_exceeded` response. Returns the effective daily limit after applying role multiplier (admins/owners get 3x), current usage, and remaining allowance for each club. DMs are not included.
 
 ### `updates.list` / `updates.acknowledge`
 

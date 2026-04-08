@@ -309,7 +309,10 @@ export function createRepository(pool: Pool): Repository {
 
     // ── Entities ──────────────────────────────────────────
     async createEntity(input) {
-      await clubs.enforceQuota(input.authorMemberId, input.clubId, 'content.create');
+      const actor = await identity.readActor(input.authorMemberId);
+      const membership = actor?.memberships.find((m) => m.clubId === input.clubId);
+      const actorInfo = { role: membership?.role ?? 'member' as const, isOwner: membership?.isOwner ?? false };
+      await clubs.enforceQuota(input.authorMemberId, input.clubId, 'content.create', actorInfo);
       return clubs.createEntity(input);
     },
 
@@ -329,7 +332,10 @@ export function createRepository(pool: Pool): Repository {
 
     // ── Events ──────────────────────────────────────────
     async createEvent(input) {
-      await clubs.enforceQuota(input.authorMemberId, input.clubId, 'events.create');
+      const actor = await identity.readActor(input.authorMemberId);
+      const membership = actor?.memberships.find((m) => m.clubId === input.clubId);
+      const actorInfo = { role: membership?.role ?? 'member' as const, isOwner: membership?.isOwner ?? false };
+      await clubs.enforceQuota(input.authorMemberId, input.clubId, 'events.create', actorInfo);
       return clubs.createEvent(input);
     },
 
@@ -1230,7 +1236,10 @@ export function createRepository(pool: Pool): Repository {
     },
 
     // ── Quotas ─────────────────────────────────────────────
-    getQuotaStatus: (input) => clubs.getQuotaStatus(input),
+    getQuotaStatus: (input) => clubs.getQuotaStatus({
+      ...input,
+      memberships: input.memberships ?? [],
+    }),
 
     // ── LLM ────────────────────────────────────────────────
     logLlmUsage: (input) => clubs.logLlmUsage(input),

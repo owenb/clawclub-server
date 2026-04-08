@@ -243,13 +243,16 @@ See `docs/member-signals-plan.md` for the full design rationale and implementati
 
 ## Write quotas
 
-- `content.create` and `events.create` are subject to per-club daily quotas
+- `content.create` and `events.create` are subject to daily quotas
 - quotas are kind-specific: entity quotas count only `post`/`opportunity`/`service`/`ask`; event quotas count only `event`
-- per-club overrides are stored in `club_quota_policies`
-- when no policy row exists, no quota is enforced
-- quota status is exposed via the `quotas.getUsage` action
+- quota policies are stored in `quota_policies` with an explicit scope:
+  - `global` — default base quotas (content.create = 30/day, events.create = 20/day); exactly one per action; `club_id` must be NULL
+  - `club` — optional club-specific overrides that replace the global base for that club/action; `club_id` must be set
+- global defaults are bootstrap data inserted in `db/init.sql`; if no policy exists at all, quota enforcement fails closed (not unlimited)
+- role-based multiplier: normal members get the base limit (1x); clubadmins and club owners get 3x the resolved base
+- `quotas.getUsage` returns effective per-actor limits (after multiplier) for every accessible club and every supported action, even when only global defaults exist
 - exceeding a quota returns 429 `quota_exceeded`
-- `messages.send` is not subject to club quotas — messaging is club-free
+- `messages.send` is not subject to club quotas — messaging is not club-scoped and is intentionally excluded from this quota model
 
 ## Media and UI assumptions
 

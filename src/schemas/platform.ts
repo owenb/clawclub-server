@@ -35,6 +35,11 @@ const quotasStatus: ActionDefinition = {
     const quotas = await ctx.repository.getQuotaStatus({
       actorMemberId: ctx.actor.member.id,
       clubIds: ctx.actor.memberships.map(m => m.clubId),
+      memberships: ctx.actor.memberships.map(m => ({
+        clubId: m.clubId,
+        role: m.role,
+        isOwner: m.isOwner,
+      })),
     });
 
     return { data: { quotas } };

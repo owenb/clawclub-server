@@ -242,7 +242,7 @@ describe('admissions.sponsorCandidate (LLM-gated)', () => {
       sponsorId: owner.id,
     });
 
-    const result = await h.apiOk(sponsor.token, 'admissions.sponsorCandidateCandidate', {
+    const result = await h.apiOk(sponsor.token, 'admissions.sponsorCandidate', {
       clubId: owner.club.id,
       name: 'Jane Morrison',
       email: 'jane.morrison@greenfield.io',

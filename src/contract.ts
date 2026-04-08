@@ -874,7 +874,7 @@ export type Repository = {
   demoteMemberFromAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
   createAdmissionSponsorship(input: CreateAdmissionSponsorInput): Promise<AdmissionSummary>;
   issueAdmissionAccess?(input: IssueAdmissionAccessInput): Promise<IssueAdmissionAccessResult | null>;
-  getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;
+  getQuotaStatus(input: { actorMemberId: string; clubIds: string[]; memberships?: Array<{ clubId: string; role: 'member' | 'clubadmin'; isOwner: boolean }> }): Promise<QuotaAllowance[]>;
 
   removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 
