@@ -32,7 +32,7 @@ type AdmissionsSponsorInput = {
 };
 
 const admissionsSponsor: ActionDefinition = {
-  action: 'admissions.sponsor',
+  action: 'admissions.sponsorCandidate',
   domain: 'admissions',
   description: 'Sponsor a candidate for admission to a club.',
   auth: 'member',
@@ -60,7 +60,7 @@ const admissionsSponsor: ActionDefinition = {
     }),
   },
 
-  qualityGate: 'admissions-sponsor',
+  qualityGate: 'admissions-sponsorCandidate',
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { clubId, name, email, socials, reason } = input as AdmissionsSponsorInput;
@@ -91,7 +91,7 @@ type MembersFullTextSearchInput = {
 };
 
 const membersFullTextSearch: ActionDefinition = {
-  action: 'members.fullTextSearch',
+  action: 'members.searchByFullText',
   domain: 'members',
   description: 'Full-text search for members across accessible clubs using PostgreSQL FTS.',
   auth: 'member',
@@ -218,7 +218,7 @@ type VouchesCreateInput = {
 
 const vouchesCreate: ActionDefinition = {
   action: 'vouches.create',
-  domain: 'admissions',
+  domain: 'vouches',
   description: 'Vouch for another member in a club.',
   auth: 'member',
   safety: 'mutating',
@@ -293,7 +293,7 @@ type VouchesListInput = {
 
 const vouchesList: ActionDefinition = {
   action: 'vouches.list',
-  domain: 'admissions',
+  domain: 'vouches',
   description: 'List vouches for a member.',
   auth: 'member',
   safety: 'read_only',
@@ -352,7 +352,7 @@ type MembersFindViaEmbeddingInput = {
 };
 
 const membersFindViaEmbedding: ActionDefinition = {
-  action: 'members.findViaEmbedding',
+  action: 'members.searchBySemanticSimilarity',
   domain: 'members',
   description: 'Find members by natural-language query using embedding similarity.',
   auth: 'member',

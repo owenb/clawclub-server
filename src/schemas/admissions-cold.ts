@@ -23,8 +23,8 @@ type ChallengeInput = {
 };
 
 const admissionsChallenge: ActionDefinition = {
-  action: 'admissions.challenge',
-  domain: 'cold-admissions',
+  action: 'admissions.public.requestChallenge',
+  domain: 'admissions',
   description: 'Request a proof-of-work challenge bound to a specific club.',
   auth: 'none',
   safety: 'mutating',
@@ -63,8 +63,8 @@ type ApplyInput = {
 };
 
 const admissionsApply: ActionDefinition = {
-  action: 'admissions.apply',
-  domain: 'cold-admissions',
+  action: 'admissions.public.submitApplication',
+  domain: 'admissions',
   description: 'Submit a solved proof-of-work challenge with an application.',
   auth: 'none',
   safety: 'mutating',

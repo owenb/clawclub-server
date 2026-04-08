@@ -60,7 +60,7 @@ async function seedCrossApplyAdmission(
 /** Add an email to a member's private_contacts (harness seedMember doesn't do this). */
 async function seedEmail(memberId: string, email: string): Promise<void> {
   await h.sql(
-    `insert into app.private_contacts (member_id, email) values ($1, $2) on conflict (member_id) do update set email = $2`,
+    `insert into app.member_private_contacts (member_id, email) values ($1, $2) on conflict (member_id) do update set email = $2`,
     [memberId, email],
   );
 }
@@ -108,7 +108,7 @@ describe('cross-apply journey 1: existing member accepted to new club', () => {
     );
 
     // Owner B accepts — should NOT create a new member, just a membership
-    const afterAccepted = await h.apiOk(ownerB.token, 'clubadmin.admissions.transition', {
+    const afterAccepted = await h.apiOk(ownerB.token, 'clubadmin.admissions.setStatus', {
       clubId: ownerB.club.id,
       admissionId,
       status: 'accepted',
@@ -123,8 +123,8 @@ describe('cross-apply journey 1: existing member accepted to new club', () => {
     );
     assert.ok(accepted.membershipId, 'Accepted cross-apply should have membershipId');
 
-    // Member can see Club B in session.describe
-    const sessionBody = await h.apiOk(member.token, 'session.describe', {});
+    // Member can see Club B in session.getContext
+    const sessionBody = await h.apiOk(member.token, 'session.getContext', {});
     const hasClubB = activeMemberships(sessionBody).some((m) => m.clubId === ownerB.club.id);
     assert.equal(hasClubB, true, 'Cross-applied member should now see Club B in session');
   });
@@ -133,7 +133,7 @@ describe('cross-apply journey 1: existing member accepted to new club', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('cross-apply journey 2: guards and validation', () => {
-  it('admissions.crossChallenge requires at least one active membership', async () => {
+  it('admissions.crossClub.requestChallenge requires at least one active membership', async () => {
     // Member with no memberships
     const loner = await h.seedMember('Lonely Loner', 'lonely-loner');
     await seedEmail(loner.id, 'loner@example.com');
@@ -141,13 +141,13 @@ describe('cross-apply journey 2: guards and validation', () => {
     const targetOwner = await h.seedOwner('guard-club-1', 'Guard Club 1');
     await setAdmissionPolicy(targetOwner.club.id, 'Tell us why you want to join.');
 
-    const err = await h.apiErr(loner.token, 'admissions.crossChallenge', {
+    const err = await h.apiErr(loner.token, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'guard-club-1',
     });
     assert.equal(err.code, 'no_active_membership');
   });
 
-  it('admissions.crossChallenge rejects if already a member of target club', async () => {
+  it('admissions.crossClub.requestChallenge rejects if already a member of target club', async () => {
     const owner = await h.seedOwner('guard-club-2', 'Guard Club 2');
     await setAdmissionPolicy(owner.club.id, 'Tell us why you want to join.');
     const member = await h.seedClubMember(owner.club.id, 'Already Member', 'already-member', {
@@ -155,13 +155,13 @@ describe('cross-apply journey 2: guards and validation', () => {
     });
     await seedEmail(member.id, 'already@example.com');
 
-    const err = await h.apiErr(member.token, 'admissions.crossChallenge', {
+    const err = await h.apiErr(member.token, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'guard-club-2',
     });
     assert.equal(err.code, 'membership_exists');
   });
 
-  it('admissions.crossChallenge rejects if profile has no email', async () => {
+  it('admissions.crossClub.requestChallenge rejects if profile has no email', async () => {
     const ownerA = await h.seedOwner('guard-club-3a', 'Guard Club 3A');
     const ownerB = await h.seedOwner('guard-club-3b', 'Guard Club 3B');
     await setAdmissionPolicy(ownerB.club.id, 'Tell us why you want to join.');
@@ -171,13 +171,13 @@ describe('cross-apply journey 2: guards and validation', () => {
     });
     // Deliberately not seeding email
 
-    const err = await h.apiErr(member.token, 'admissions.crossChallenge', {
+    const err = await h.apiErr(member.token, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'guard-club-3b',
     });
     assert.equal(err.code, 'incomplete_profile');
   });
 
-  it('admissions.crossChallenge rejects if pending admission exists in target club', async () => {
+  it('admissions.crossClub.requestChallenge rejects if pending admission exists in target club', async () => {
     const ownerA = await h.seedOwner('guard-club-4a', 'Guard Club 4A');
     const ownerB = await h.seedOwner('guard-club-4b', 'Guard Club 4B');
     await setAdmissionPolicy(ownerB.club.id, 'Tell us why you want to join.');
@@ -193,13 +193,13 @@ describe('cross-apply journey 2: guards and validation', () => {
       email: 'dupe@example.com',
     });
 
-    const err = await h.apiErr(member.token, 'admissions.crossChallenge', {
+    const err = await h.apiErr(member.token, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'guard-club-4b',
     });
     assert.equal(err.code, 'admission_pending');
   });
 
-  it('admissions.crossChallenge rejects when 3 pending cross-applications exist', async () => {
+  it('admissions.crossClub.requestChallenge rejects when 3 pending cross-applications exist', async () => {
     const homeOwner = await h.seedOwner('cap-home', 'Cap Home');
     const member = await h.seedClubMember(homeOwner.club.id, 'Cap Test', 'cap-test', {
       sponsorId: homeOwner.id,
@@ -219,13 +219,13 @@ describe('cross-apply journey 2: guards and validation', () => {
     const targetOwner4 = await h.seedOwner('cap-target-4', 'Cap Target 4');
     await setAdmissionPolicy(targetOwner4.club.id, 'Tell us why you want to join.');
 
-    const err = await h.apiErr(member.token, 'admissions.crossChallenge', {
+    const err = await h.apiErr(member.token, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'cap-target-4',
     });
     assert.equal(err.code, 'too_many_pending');
   });
 
-  it('admissions.crossApply rejects if challenge is bound to a different member', async () => {
+  it('admissions.crossClub.submitApplication rejects if challenge is bound to a different member', async () => {
     const ownerA = await h.seedOwner('bind-club-a', 'Bind Club A');
     const ownerB = await h.seedOwner('bind-club-b', 'Bind Club B');
     await setAdmissionPolicy(ownerB.club.id, 'Tell us about yourself.');
@@ -236,14 +236,14 @@ describe('cross-apply journey 2: guards and validation', () => {
     await seedEmail(member2.id, 'bind2@example.com');
 
     // Member1 gets a challenge
-    const challengeBody = await h.apiOk(member1.token, 'admissions.crossChallenge', {
+    const challengeBody = await h.apiOk(member1.token, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'bind-club-b',
     });
     const challengeId = (challengeBody.data as Record<string, unknown>).challengeId as string;
     assert.ok(challengeId, 'Challenge should be created');
 
     // Member2 tries to use it — should fail
-    const err = await h.apiErr(member2.token, 'admissions.crossApply', {
+    const err = await h.apiErr(member2.token, 'admissions.crossClub.submitApplication', {
       challengeId,
       nonce: '0',
       socials: '@bind2',
@@ -256,7 +256,7 @@ describe('cross-apply journey 2: guards and validation', () => {
     const owner = await h.seedOwner('unauth-cross-club', 'Unauth Cross Club');
     await setAdmissionPolicy(owner.club.id, 'Tell us why.');
 
-    const err = await h.apiErr(null, 'admissions.crossChallenge', {
+    const err = await h.apiErr(null, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'unauth-cross-club',
     });
     // auth:member actions return 400 invalid_input when no token is provided
@@ -274,13 +274,13 @@ describe('cross-apply journey 2: guards and validation', () => {
     await seedEmail(member.id, 'sneaker@example.com');
 
     // Get a cross-apply challenge (difficulty 5, bound to member)
-    const challengeBody = await h.apiOk(member.token, 'admissions.crossChallenge', {
+    const challengeBody = await h.apiOk(member.token, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'cold-reject-b',
     });
     const challengeId = (challengeBody.data as Record<string, unknown>).challengeId as string;
 
     // Try to redeem it through the cold path — should fail
-    const err = await h.apiErr(null, 'admissions.apply', {
+    const err = await h.apiErr(null, 'admissions.public.submitApplication', {
       challengeId,
       nonce: '0',
       name: 'Cold Sneaker',
@@ -302,23 +302,23 @@ describe('cross-apply journey 2: guards and validation', () => {
     await seedEmail(member.id, 'revoked@example.com');
 
     // Get a cross-apply challenge while still active
-    const challengeBody = await h.apiOk(member.token, 'admissions.crossChallenge', {
+    const challengeBody = await h.apiOk(member.token, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'recheck-b',
     });
     const challengeId = (challengeBody.data as Record<string, unknown>).challengeId as string;
 
     // Revoke their membership (simulate admin action)
     await h.sql(
-      `insert into app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+      `insert into app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        select m.id, 'revoked', 'test revocation',
-              (select coalesce(max(version_no), 0) + 1 from app.membership_state_versions where membership_id = m.id),
+              (select coalesce(max(version_no), 0) + 1 from app.club_membership_state_versions where membership_id = m.id),
               $2
-       from app.memberships m where m.club_id = $1 and m.member_id = $3`,
+       from app.club_memberships m where m.club_id = $1 and m.member_id = $3`,
       [ownerA.club.id, ownerA.id, member.id],
     );
 
     // Try to solve — should fail because no active membership remains
-    const err = await h.apiErr(member.token, 'admissions.crossApply', {
+    const err = await h.apiErr(member.token, 'admissions.crossClub.submitApplication', {
       challengeId,
       nonce: '0',
       socials: '@revoked',

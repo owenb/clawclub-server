@@ -38,14 +38,14 @@ describe('membership lifecycle: invited → active → access', () => {
     assert.equal(created.membershipId !== undefined, true, 'membershipId should be present');
     assert.equal((created.state as Record<string, unknown>).status, 'invited');
 
-    // Invited member should NOT see the club in session.describe
-    const sessionBefore = await h.apiOk(member.token, 'session.describe', {});
+    // Invited member should NOT see the club in session.getContext
+    const sessionBefore = await h.apiOk(member.token, 'session.getContext', {});
     const membershipsBefore = activeMemberships(sessionBefore);
     const hasClubBefore = membershipsBefore.some((m) => m.clubId === owner.club.id);
     assert.equal(hasClubBefore, false, 'invited member should not see club in activeMemberships');
 
     // Owner transitions to 'active'
-    const transitionBody = await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+    const transitionBody = await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
       membershipId: created.membershipId,
       status: 'active',
@@ -56,15 +56,15 @@ describe('membership lifecycle: invited → active → access', () => {
     assert.equal((transitioned.state as Record<string, unknown>).status, 'active');
 
     // Member should now see the club
-    const sessionAfter = await h.apiOk(member.token, 'session.describe', {});
+    const sessionAfter = await h.apiOk(member.token, 'session.getContext', {});
     const membershipsAfter = activeMemberships(sessionAfter);
     const hasClubAfter = membershipsAfter.some((m) => m.clubId === owner.club.id);
     assert.equal(hasClubAfter, true, 'active member should see club in activeMemberships');
 
-    // Active member can use member actions (entities.list)
-    const entitiesBody = await h.apiOk(member.token, 'entities.list', { clubId: owner.club.id });
+    // Active member can use member actions (content.list)
+    const entitiesBody = await h.apiOk(member.token, 'content.list', { clubId: owner.club.id });
     const entitiesData = entitiesBody.data as Record<string, unknown>;
-    assert.ok(Array.isArray(entitiesData.results), 'entities.list should return results array');
+    assert.ok(Array.isArray(entitiesData.results), 'content.list should return results array');
   });
 });
 
@@ -82,7 +82,7 @@ describe('membership create with active status gives immediate access', () => {
       initialStatus: 'active',
     });
 
-    const sessionBody = await h.apiOk(member.token, 'session.describe', {});
+    const sessionBody = await h.apiOk(member.token, 'session.getContext', {});
     const memberships = activeMemberships(sessionBody);
     const hasClub = memberships.some((m) => m.clubId === owner.club.id);
     assert.equal(hasClub, true, 'member should immediately see club after active creation');
@@ -92,19 +92,19 @@ describe('membership create with active status gives immediate access', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('pausing/removing a membership revokes access', () => {
-  it('paused member loses the club from session.describe', async () => {
+  it('paused member loses the club from session.getContext', async () => {
     const owner = await h.seedOwner('pause-club', 'Pause Club');
     const clubMember = await h.seedClubMember(owner.club.id, 'Carol Paused', 'carol-paused', {
       sponsorId: owner.id,
     });
 
     // Confirm access before pause
-    const sessionBefore = await h.apiOk(clubMember.token, 'session.describe', {});
+    const sessionBefore = await h.apiOk(clubMember.token, 'session.getContext', {});
     const hasBefore = activeMemberships(sessionBefore).some((m) => m.clubId === owner.club.id);
     assert.equal(hasBefore, true, 'active member should see club before pause');
 
     // Owner pauses the membership
-    await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+    await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
       membershipId: clubMember.membership.id,
       status: 'paused',
@@ -112,7 +112,7 @@ describe('pausing/removing a membership revokes access', () => {
     });
 
     // Member should no longer see the club
-    const sessionAfter = await h.apiOk(clubMember.token, 'session.describe', {});
+    const sessionAfter = await h.apiOk(clubMember.token, 'session.getContext', {});
     const hasAfter = activeMemberships(sessionAfter).some((m) => m.clubId === owner.club.id);
     assert.equal(hasAfter, false, 'paused member should not see club in activeMemberships');
   });
@@ -151,7 +151,7 @@ describe('memberships.list and memberships.review work for owners', () => {
       initialStatus: 'invited',
     });
 
-    const reviewBody = await h.apiOk(owner.token, 'clubadmin.memberships.review', {
+    const reviewBody = await h.apiOk(owner.token, 'clubadmin.memberships.listForReview', {
       clubId: owner.club.id,
       statuses: ['invited'],
     });
@@ -186,7 +186,7 @@ describe('payment_pending member has no access', () => {
     const created = (createBody.data as Record<string, unknown>).membership as Record<string, unknown>;
     assert.equal((created.state as Record<string, unknown>).status, 'payment_pending');
 
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     const hasClub = activeMemberships(session).some((m) => m.clubId === owner.club.id);
     assert.equal(hasClub, false, 'payment_pending member should not see club');
   });
@@ -200,20 +200,20 @@ describe('banned member loses access', () => {
     });
 
     // Confirm access before ban
-    const before = await h.apiOk(member.token, 'session.describe', {});
+    const before = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(before).some((m) => m.clubId === owner.club.id),
       true, 'member should have access before ban',
     );
 
-    await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+    await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
       membershipId: member.membership.id,
       status: 'banned',
       reason: 'lost dispute',
     });
 
-    const after = await h.apiOk(member.token, 'session.describe', {});
+    const after = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(after).some((m) => m.clubId === owner.club.id),
       false, 'banned member should not see club',
@@ -228,14 +228,14 @@ describe('expired member has no access', () => {
       sponsorId: owner.id,
     });
 
-    await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+    await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
       membershipId: member.membership.id,
       status: 'expired',
       reason: 'period ended',
     });
 
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(session).some((m) => m.clubId === owner.club.id),
       false, 'expired member should not see club',
@@ -251,7 +251,7 @@ describe('is_comped grants access without subscription', () => {
     });
 
     // Verify access
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(session).some((m) => m.clubId === owner.club.id),
       true, 'comped member should see club',
@@ -259,7 +259,7 @@ describe('is_comped grants access without subscription', () => {
 
     // Verify no subscription row exists (comp is via flag, not subscription)
     const subs = await h.sql<{ count: string }>(
-      `SELECT count(*)::text as count FROM app.subscriptions WHERE membership_id = $1`,
+      `SELECT count(*)::text as count FROM app.club_subscriptions WHERE membership_id = $1`,
       [member.membership.id],
     );
     assert.equal(subs[0]!.count, '0', 'comped member should have no subscription rows');
@@ -273,14 +273,14 @@ describe('renewal_pending grants grace period access', () => {
       sponsorId: owner.id,
     });
 
-    await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+    await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
       membershipId: member.membership.id,
       status: 'renewal_pending',
       reason: 'payment failed',
     });
 
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     const membership = activeMemberships(session).find((m) => m.clubId === owner.club.id);
     assert.ok(membership, 'renewal_pending member should still see club during grace period');
     assert.equal(membership.status, 'renewal_pending');
@@ -302,20 +302,20 @@ describe('trialing subscription grants access', () => {
       initialStatus: 'active',
     });
     const msRows = await h.sql<{ id: string }>(
-      `SELECT id FROM app.memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;
 
     // Remove the auto-comp and add a trialing subscription instead
-    await h.sql(`UPDATE app.memberships SET is_comped = false WHERE id = $1`, [msId]);
+    await h.sql(`UPDATE app.club_memberships SET is_comped = false WHERE id = $1`, [msId]);
     await h.sql(
-      `INSERT INTO app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+      `INSERT INTO app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
        VALUES ($1, $2, 'trialing', 29, now() + interval '30 days')`,
       [msId, member.id],
     );
 
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(session).some((m) => m.clubId === owner.club.id),
       true, 'trialing subscription should grant access',
@@ -335,20 +335,20 @@ describe('ended_at revokes access even if current_period_end is future', () => {
       initialStatus: 'active',
     });
     const msRows = await h.sql<{ id: string }>(
-      `SELECT id FROM app.memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;
 
     // Remove auto-comp, add a subscription that ended early but has future period_end
-    await h.sql(`UPDATE app.memberships SET is_comped = false WHERE id = $1`, [msId]);
+    await h.sql(`UPDATE app.club_memberships SET is_comped = false WHERE id = $1`, [msId]);
     await h.sql(
-      `INSERT INTO app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end, ended_at)
+      `INSERT INTO app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end, ended_at)
        VALUES ($1, $2, 'active', 29, now() + interval '60 days', now() - interval '1 hour')`,
       [msId, member.id],
     );
 
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(session).some((m) => m.clubId === owner.club.id),
       false, 'ended subscription should not grant access even with future period_end',
@@ -372,13 +372,13 @@ describe('reactivating member with past_due subscription does not auto-comp', ()
 
     // Manually add a past_due subscription (simulating Stripe sync)
     await h.sql(
-      `INSERT INTO app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+      `INSERT INTO app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
        VALUES ($1, $2, 'past_due', 29, now() + interval '30 days')`,
       [msId, member.id],
     );
 
     // Admin transitions to active
-    await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+    await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
       membershipId: msId,
       status: 'active',
@@ -386,13 +386,13 @@ describe('reactivating member with past_due subscription does not auto-comp', ()
 
     // Member should NOT be comped — they have a live (past_due) subscription
     const compRows = await h.sql<{ is_comped: boolean }>(
-      `SELECT is_comped FROM app.memberships WHERE id = $1`,
+      `SELECT is_comped FROM app.club_memberships WHERE id = $1`,
       [msId],
     );
     assert.equal(compRows[0]!.is_comped, false, 'member with past_due subscription should not be auto-comped');
 
     // But member should have access (via subscription)
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(session).some((m) => m.clubId === owner.club.id),
       true, 'member with past_due subscription should have access after reactivation',
@@ -438,14 +438,14 @@ describe('superadmin can create memberships in unrelated clubs', () => {
     assert.equal((membership.state as Record<string, unknown>).status, 'active');
 
     // Verify the member now sees the club
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     const hasClub = activeMemberships(session).some((m) => m.clubId === owner.club.id);
     assert.equal(hasClub, true, 'member should see club after superadmin-created membership');
   });
 });
 
 describe('superadmin can transition memberships in unrelated clubs', () => {
-  it('superadmin calls clubadmin.memberships.transition on a club they do not belong to', async () => {
+  it('superadmin calls clubadmin.memberships.setStatus on a club they do not belong to', async () => {
     const admin = await h.seedSuperadmin('SA Transition', 'sa-transition-ms');
     const owner = await h.seedOwner('sa-transition-club', 'SA Transition Club');
     const member = await h.seedMember('SA Trans Target', 'sa-trans-target');
@@ -461,7 +461,7 @@ describe('superadmin can transition memberships in unrelated clubs', () => {
     const membershipId = ((createResult.data as Record<string, unknown>).membership as Record<string, unknown>).membershipId as string;
 
     // Superadmin transitions it to active
-    const transitionResult = await h.apiOk(admin.token, 'clubadmin.memberships.transition', {
+    const transitionResult = await h.apiOk(admin.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
       membershipId,
       status: 'active',
@@ -472,7 +472,7 @@ describe('superadmin can transition memberships in unrelated clubs', () => {
     assert.equal((transitioned.state as Record<string, unknown>).status, 'active');
 
     // Verify the member now has access
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     const hasClub = activeMemberships(session).some((m) => m.clubId === owner.club.id);
     assert.equal(hasClub, true, 'member should have access after superadmin transition');
   });

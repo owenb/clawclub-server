@@ -7,7 +7,7 @@
  * Usage:
  *   const h = await TestHarness.start();
  *   const owen = await h.seedOwner('DogClub');
- *   const result = await h.api(owen.token, 'session.describe', {});
+ *   const result = await h.api(owen.token, 'session.getContext', {});
  *   await h.stop();
  */
 
@@ -25,7 +25,6 @@ import {
   authenticatedSuccessEnvelope,
   unauthenticatedSuccessEnvelope,
   errorEnvelope,
-  pollingResponse,
   sseReadyEvent,
 } from '../../src/schemas/transport.ts';
 import { pendingUpdate } from '../../src/schemas/responses.ts';
@@ -204,7 +203,7 @@ export class TestHarness {
     const id = rows[0]!.id;
 
     await this.sql(
-      `INSERT INTO app.profile_versions (member_id, version_no, display_name, created_by_member_id)
+      `INSERT INTO app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
        VALUES ($1, 1, $2, $1) ON CONFLICT DO NOTHING`,
       [id, publicName.split(' ')[0]],
     );
@@ -216,7 +215,7 @@ export class TestHarness {
   async seedSuperadmin(publicName: string, handle: string): Promise<SeededMember> {
     const member = await this.seedMember(publicName, handle);
     await this.sql(
-      `INSERT INTO app.global_role_versions (member_id, role, version_no, created_by_member_id)
+      `INSERT INTO app.member_global_role_versions (member_id, role, version_no, created_by_member_id)
        VALUES ($1, 'superadmin', 1, $1) ON CONFLICT DO NOTHING`,
       [member.id],
     );
@@ -235,19 +234,19 @@ export class TestHarness {
 
     // Owner membership + state
     await this.sql(
-      `INSERT INTO app.memberships (club_id, member_id, role)
+      `INSERT INTO app.club_memberships (club_id, member_id, role)
        VALUES ($1::app.short_id, $2::app.short_id, 'clubadmin') ON CONFLICT (club_id, member_id) DO NOTHING`,
       [clubId, ownerMemberId],
     );
     const membershipRows = await this.sql<{ id: string }>(
-      `SELECT id FROM app.memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
       [clubId, ownerMemberId],
     );
     const membershipId = membershipRows[0]!.id;
     await this.sql(
-      `INSERT INTO app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+      `INSERT INTO app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        SELECT $1::app.short_id, 'active', 'seed', coalesce(max(version_no), 0) + 1, $2::app.short_id
-       FROM app.membership_state_versions WHERE membership_id = $1::app.short_id`,
+       FROM app.club_membership_state_versions WHERE membership_id = $1::app.short_id`,
       [membershipId, ownerMemberId],
     );
 
@@ -271,27 +270,27 @@ export class TestHarness {
     const sponsorId = options.sponsorId ?? null;
 
     await this.sql(
-      `INSERT INTO app.memberships (club_id, member_id, role, sponsor_member_id)
+      `INSERT INTO app.club_memberships (club_id, member_id, role, sponsor_member_id)
        VALUES ($1::app.short_id, $2::app.short_id, $3::app.membership_role, $4::app.short_id) ON CONFLICT (club_id, member_id) DO NOTHING`,
       [clubId, memberId, role, sponsorId],
     );
     const rows = await this.sql<{ id: string }>(
-      `SELECT id FROM app.memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
       [clubId, memberId],
     );
     const membershipId = rows[0]!.id;
 
     await this.sql(
-      `INSERT INTO app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+      `INSERT INTO app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        SELECT $1::app.short_id, $2::app.membership_state, 'seed', coalesce(max(version_no), 0) + 1, $3::app.short_id
-       FROM app.membership_state_versions WHERE membership_id = $1::app.short_id`,
+       FROM app.club_membership_state_versions WHERE membership_id = $1::app.short_id`,
       [membershipId, status, memberId],
     );
 
     // Comp non-owners with active status so they get access
     if (role !== 'clubadmin' && status === 'active') {
       await this.sql(
-        `UPDATE app.memberships SET is_comped = true, comped_at = now() WHERE id = $1`,
+        `UPDATE app.club_memberships SET is_comped = true, comped_at = now() WHERE id = $1`,
         [membershipId],
       );
     }
@@ -302,7 +301,7 @@ export class TestHarness {
   async createToken(memberId: string, label = 'test'): Promise<string> {
     const token = buildBearerToken();
     await this.sql(
-      `INSERT INTO app.bearer_tokens (id, member_id, label, token_hash, metadata)
+      `INSERT INTO app.member_bearer_tokens (id, member_id, label, token_hash, metadata)
        VALUES ($1, $2, $3, $4, '{}'::jsonb)`,
       [token.tokenId, memberId, label, token.tokenHash],
     );
@@ -454,51 +453,21 @@ export class TestHarness {
     token: string,
     params: { limit?: number; after?: number | 'latest' } = {},
   ): Promise<{ status: number; body: Record<string, unknown> }> {
-    const qs = new URLSearchParams();
-    if (params.limit !== undefined) qs.set('limit', String(params.limit));
-    if (params.after !== undefined) qs.set('after', String(params.after));
-    const path = `/updates${qs.toString() ? `?${qs}` : ''}`;
+    const input: Record<string, unknown> = {};
+    if (params.limit !== undefined) input.limit = params.limit;
+    if (params.after !== undefined) input.after = String(params.after);
 
-    return new Promise((resolve, reject) => {
-      const req = http.request(
-        {
-          hostname: '127.0.0.1',
-          port: this.port,
-          path,
-          method: 'GET',
-          headers: { authorization: `Bearer ${token}` },
-        },
-        (res) => {
-          const chunks: Buffer[] = [];
-          res.on('data', (chunk: Buffer) => chunks.push(chunk));
-          res.on('end', () => {
-            try {
-              const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const { status, body } = await this.api(token, 'updates.list', input);
 
-              if (parsed.ok === true) {
-                const result = strictify(pollingResponse).safeParse(parsed);
-                if (!result.success) {
-                  reject(new Error(`[contract] GET /updates polling response validation failed: ${result.error.message}`));
-                  return;
-                }
-              } else if (parsed.ok === false) {
-                const result = strictify(errorEnvelope).safeParse(parsed);
-                if (!result.success) {
-                  reject(new Error(`[contract] GET /updates error envelope validation failed: ${result.error.message}`));
-                  return;
-                }
-              }
-
-              resolve({ status: res.statusCode ?? 0, body: parsed });
-            } catch (error) {
-              reject(error);
-            }
-          });
-        },
-      );
-      req.on('error', reject);
-      req.end();
-    });
+    // Unwrap: callers expect { status, body: { ok, updates: { items, nextAfter } } }
+    // The action envelope is { ok, member, requestScope, data: { updates: { items, nextAfter } } }.
+    // Re-shape so body.updates = body.data.updates (the inner updates payload).
+    if (body.ok === true && body.data) {
+      const data = body.data as Record<string, unknown>;
+      const reshaped: Record<string, unknown> = { ok: true, updates: data.updates };
+      return { status, body: reshaped };
+    }
+    return { status, body };
   }
 
   async getSchema(): Promise<{ status: number; body: Record<string, unknown> }> {

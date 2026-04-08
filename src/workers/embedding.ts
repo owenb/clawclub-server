@@ -64,11 +64,11 @@ type EntityVersionRow = {
 
 async function claimJobs(pool: Pool, limit: number): Promise<EmbeddingJob[]> {
   const result = await pool.query<EmbeddingJob>(
-    `update app.embedding_jobs
+    `update app.ai_embedding_jobs
      set attempt_count = attempt_count + 1,
          next_attempt_at = now() + interval '5 minutes'
      where id in (
-       select id from app.embedding_jobs
+       select id from app.ai_embedding_jobs
        where attempt_count < $1 and next_attempt_at <= now()
        order by next_attempt_at asc
        limit $2
@@ -86,8 +86,8 @@ async function loadProfileVersion(pool: Pool, versionId: string): Promise<Profil
             mpv.display_name, m.handle,
             mpv.tagline, mpv.summary, mpv.what_i_do, mpv.known_for,
             mpv.services_summary, mpv.website_url, mpv.links,
-            (mpv.version_no = (select max(version_no) from app.profile_versions where member_id = mpv.member_id)) as is_current
-     from app.profile_versions mpv
+            (mpv.version_no = (select max(version_no) from app.member_profile_versions where member_id = mpv.member_id)) as is_current
+     from app.member_profile_versions mpv
      join app.members m on m.id = mpv.member_id
      where mpv.id = $1`,
     [versionId],
@@ -114,13 +114,13 @@ async function loadEntityVersion(pool: Pool, versionId: string): Promise<EntityV
 
 async function completeJobs(pool: Pool, jobIds: string[]): Promise<void> {
   if (jobIds.length === 0) return;
-  await pool.query(`delete from app.embedding_jobs where id = any($1::text[])`, [jobIds]);
+  await pool.query(`delete from app.ai_embedding_jobs where id = any($1::text[])`, [jobIds]);
 }
 
 async function retryJobs(pool: Pool, jobIds: string[], error: string): Promise<void> {
   if (jobIds.length === 0) return;
   await pool.query(
-    `update app.embedding_jobs set failure_kind = 'work_error', last_error = $2,
+    `update app.ai_embedding_jobs set failure_kind = 'work_error', last_error = $2,
             next_attempt_at = now() + (attempt_count * interval '1 minute')
      where id = any($1::text[])`,
     [jobIds, error.slice(0, 1000)],
@@ -130,7 +130,7 @@ async function retryJobs(pool: Pool, jobIds: string[], error: string): Promise<v
 async function releaseJobs(pool: Pool, jobIds: string[]): Promise<void> {
   if (jobIds.length === 0) return;
   await pool.query(
-    `update app.embedding_jobs set attempt_count = greatest(attempt_count - 1, 0),
+    `update app.ai_embedding_jobs set attempt_count = greatest(attempt_count - 1, 0),
             next_attempt_at = now() + interval '30 seconds'
      where id = any($1::text[])`,
     [jobIds],
@@ -149,7 +149,7 @@ function logEmbeddingSpend(
   providerErrorCode: string | null,
 ): void {
   pool.query(
-    `insert into app.llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
+    `insert into app.ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [null, null, actionName, 'embedding_index', 'openai', EMBEDDING_PROFILES.member_profile.model, gateStatus, skipReason, promptTokens, completionTokens, providerErrorCode],
   ).catch(err => console.error('Failed to log embedding spend:', err));
@@ -267,14 +267,14 @@ async function processPlane(pool: Pool, planeName: string, insertArtifact: (pool
 
 async function insertProfileArtifact(pool: Pool, job: EmbeddingJob, sourceText: string, sourceHash: string, vectorStr: string): Promise<void> {
   const memberResult = await pool.query<{ member_id: string }>(
-    `select member_id from app.profile_versions where id = $1`,
+    `select member_id from app.member_profile_versions where id = $1`,
     [job.subject_version_id],
   );
   const memberId = memberResult.rows[0]?.member_id;
   if (!memberId) throw new Error(`No member found for profile version ${job.subject_version_id}`);
 
   await pool.query(
-    `insert into app.profile_embeddings (member_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding, metadata)
+    `insert into app.member_profile_embeddings (member_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding, metadata)
      values ($1, $2, $3, $4, $5, 0, $6, $7, $8::vector, '{}'::jsonb)
      on conflict (member_id, model, dimensions, source_version, chunk_index) do update
        set profile_version_id = excluded.profile_version_id,

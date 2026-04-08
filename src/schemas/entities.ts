@@ -28,7 +28,7 @@ type CreateInput = {
 };
 
 const entitiesCreate: ActionDefinition = {
-  action: 'entities.create',
+  action: 'content.create',
   domain: 'content',
   description: 'Create a new post, ask, opportunity, or service.',
   auth: 'member',
@@ -62,7 +62,7 @@ const entitiesCreate: ActionDefinition = {
     }),
   },
 
-  qualityGate: 'entities-create',
+  qualityGate: 'content-create',
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { clubId, kind, title, summary, body, expiresAt, content, clientKey } = input as CreateInput & { clientKey?: string | null };
@@ -93,7 +93,7 @@ type UpdateInput = {
 };
 
 const entitiesUpdate: ActionDefinition = {
-  action: 'entities.update',
+  action: 'content.update',
   domain: 'content',
   description: 'Update an existing entity (author only).',
   auth: 'member',
@@ -126,7 +126,7 @@ const entitiesUpdate: ActionDefinition = {
     }, 'entities.update requires at least one field to change'),
   },
 
-  qualityGate: 'entities-create',
+  qualityGate: 'content-create',
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { entityId, ...patchFields } = input as UpdateInput;
@@ -164,7 +164,7 @@ const entitiesUpdate: ActionDefinition = {
 // ── entities.remove ──────────────────────────────────────
 
 const entitiesRemove: ActionDefinition = {
-  action: 'entities.remove',
+  action: 'content.remove',
   domain: 'content',
   description: 'Remove an entity (author only).',
   auth: 'member',
@@ -220,7 +220,7 @@ type ListInput = {
 };
 
 const entitiesList: ActionDefinition = {
-  action: 'entities.list',
+  action: 'content.list',
   domain: 'content',
   description: 'List posts, asks, opportunities, or services.',
   auth: 'member',
@@ -290,8 +290,8 @@ type EntitiesFindViaEmbeddingInput = {
 };
 
 const entitiesFindViaEmbedding: ActionDefinition = {
-  action: 'entities.findViaEmbedding',
-  domain: 'entities',
+  action: 'content.searchBySemanticSimilarity',
+  domain: 'content',
   description: 'Find entities by natural-language query using embedding similarity.',
   auth: 'member',
   safety: 'read_only',

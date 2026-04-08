@@ -37,7 +37,7 @@ describe('background_matches', () => {
     assert.ok(matchId, 'should return a match ID');
 
     const rows = await h.sqlClubs<{ state: string; score: number }>(
-      `select state, score from app.background_matches where id = $1`,
+      `select state, score from app.signal_background_matches where id = $1`,
       [matchId],
     );
     assert.equal(rows[0].state, 'pending');
@@ -109,7 +109,7 @@ describe('background_matches', () => {
 
     // Create a signal to link
     const signalRows = await h.sqlClubs<{ id: string }>(
-      `insert into app.signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signal_deliveries (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.test', '{}'::jsonb) returning id`,
       [owner.club.id, owner.id],
     );
@@ -118,7 +118,7 @@ describe('background_matches', () => {
 
     const rows = await h.sqlClubs<{ state: string; signal_id: string; delivered_at: string }>(
       `select state, signal_id, delivered_at::text as delivered_at
-       from app.background_matches where id = $1`,
+       from app.signal_background_matches where id = $1`,
       [matchId!],
     );
     assert.equal(rows[0].state, 'delivered');
@@ -140,7 +140,7 @@ describe('background_matches', () => {
     await markExpired(h.pools.super, matchId!);
 
     const rows = await h.sqlClubs<{ state: string }>(
-      `select state from app.background_matches where id = $1`,
+      `select state from app.signal_background_matches where id = $1`,
       [matchId!],
     );
     assert.equal(rows[0].state, 'expired');
@@ -151,7 +151,7 @@ describe('background_matches', () => {
 
     // Insert a match with expires_at in the past
     await h.sqlClubs(
-      `insert into app.background_matches
+      `insert into app.signal_background_matches
          (club_id, match_kind, source_id, target_member_id, score, expires_at)
        values ($1, 'ask_to_member', 'entity_stale', $2, 0.1, now() - interval '1 hour')`,
       [owner.club.id, owner.id],
@@ -166,7 +166,7 @@ describe('background_matches', () => {
 
     // Insert delivered matches of different kinds
     await h.sqlClubs(
-      `insert into app.background_matches
+      `insert into app.signal_background_matches
          (club_id, match_kind, source_id, target_member_id, score, state, delivered_at)
        values
          ($1, 'ask_to_member', 'e1', $2, 0.1, 'delivered', now()),

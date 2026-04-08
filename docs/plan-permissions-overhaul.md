@@ -22,9 +22,9 @@ The current system has three problems:
 - **Superadmin calling `clubadmin.*` actions**: Superadmins may not have a membership in the target club. The `requireClubAdmin()` helper handles this by loading real club metadata from the repository (not a synthetic membership). See the dispatch section below for the concrete design. Superadmins can call ALL `clubadmin.*` actions EXCEPT `clubadmin.members.promoteToAdmin` and `clubadmin.members.demoteFromAdmin`, which require the caller to be the club owner (superadmin can transfer ownership instead via `superadmin.clubs.assignOwner`).
 - **Only the club owner can promote/demote admins.** Not any admin — only the owner. This prevents admin escalation.
 - **Verbose action names** like `clubadmin.memberships.list` and `clubadmin.members.promoteToAdmin` are intentional. Agents benefit from clarity over brevity.
-- **`session.describe` adds `isOwner: boolean`** to each membership in the response, so agents can distinguish the owner from other admins.
+- **`session.getContext` adds `isOwner: boolean`** to each membership in the response, so agents can distinguish the owner from other admins.
 - **All remaining `admin.*` actions are resolved** — moved to either `clubadmin.*` or `superadmin.*`. The `admin.ts` file is deleted.
-- **Entity archiving/redaction and message redaction are NOT changed in this PR.** Those actions (`entities.archive`, `entities.redact`, `messages.redact`) still use their current owner-based auth. They will be replaced by `entities.remove` / `messages.remove` (which will use `clubadmin` auth) in a follow-up content removal PR. No point fixing something we're about to replace.
+- **Entity archiving/redaction and message redaction are NOT changed in this PR.** Those actions (`entities.archive`, `entities.redact`, `messages.redact`) still use their current owner-based auth. They will be replaced by `content.remove` / `messages.remove` (which will use `clubadmin` auth) in a follow-up content removal PR. No point fixing something we're about to replace.
 
 ## Important: read these files first
 
@@ -281,7 +281,7 @@ function createRequireClubAdmin(actor: ActorContext) {
 
 No `ClubAdminContext` type needed. No `getClubById` repository method needed. No async. Synchronous, zero allocations, no DB call. If the club doesn't exist, repository calls downstream return empty results or null — the handler handles that naturally.
 
-**Drop `clubScope` from clubadmin action responses entirely.** The current list actions (`memberships.list`, `memberships.review`, `admissions.list`) return `clubScope: MembershipSummary[]` echoing back the caller's membership context. With mandatory `clubId`, this is redundant — the caller already knows which club they asked about, and they have club metadata from `session.describe`. Remove `clubScope` from the wire output schemas of all clubadmin actions. This eliminates the superadmin response-shape problem completely — no need to construct membership summaries for callers who don't have memberships.
+**Drop `clubScope` from clubadmin action responses entirely.** The current list actions (`memberships.list`, `memberships.review`, `admissions.list`) return `clubScope: MembershipSummary[]` echoing back the caller's membership context. With mandatory `clubId`, this is redundant — the caller already knows which club they asked about, and they have club metadata from `session.getContext`. Remove `clubScope` from the wire output schemas of all clubadmin actions. This eliminates the superadmin response-shape problem completely — no need to construct membership summaries for callers who don't have memberships.
 
 **A simpler alternative for `requireClubAdmin()`:** If `getClubById` doesn't exist on the repository yet, you can add it — it's a trivial single-row lookup. Or: pre-populate a `clubMetadataCache` on the handler context during dispatch setup by querying the club table for the `clubId` found in the parsed input. This keeps `requireClubAdmin()` synchronous.
 
@@ -301,9 +301,9 @@ export type HandlerContext = {
 };
 ```
 
-`requireClubOwner(clubId)` checks that the actor's member ID matches the club's `owner_member_id`. This is the `isOwner` field on the actor's membership (already loaded by `session.describe`). If the actor is not a member of the club, or `isOwner` is false, throw 403. Superadmins do NOT bypass this check — only the actual club owner can promote/demote. Superadmins can transfer ownership via `superadmin.clubs.assignOwner` instead.
+`requireClubOwner(clubId)` checks that the actor's member ID matches the club's `owner_member_id`. This is the `isOwner` field on the actor's membership (already loaded by `session.getContext`). If the actor is not a member of the club, or `isOwner` is false, throw 403. Superadmins do NOT bypass this check — only the actual club owner can promote/demote. Superadmins can transfer ownership via `superadmin.clubs.assignOwner` instead.
 
-**Remove `resolveScopedClubs` from clubadmin handlers.** The current owner actions use `resolveScopedClubs()` to infer clubs when `clubId` is omitted. With the new design, all `clubadmin.*` actions require explicit `clubId`, so this helper is no longer used by clubadmin handlers (it may still be used by member-level actions like `entities.list`).
+**Remove `resolveScopedClubs` from clubadmin handlers.** The current owner actions use `resolveScopedClubs()` to infer clubs when `clubId` is omitted. With the new design, all `clubadmin.*` actions require explicit `clubId`, so this helper is no longer used by clubadmin handlers (it may still be used by member-level actions like `content.list`).
 
 **f. `src/postgres.ts` — `readActorByMemberId()`:**
 
@@ -323,12 +323,12 @@ All 7 actions in `src/schemas/membership.ts` get renamed and their auth level ch
 | Old name | New name | Old auth | New auth |
 |---|---|---|---|
 | `memberships.list` | `clubadmin.memberships.list` | `owner` | `clubadmin` |
-| `memberships.review` | `clubadmin.memberships.review` | `owner` | `clubadmin` |
+| `memberships.review` | `clubadmin.memberships.listForReview` | `owner` | `clubadmin` |
 | `memberships.create` | `clubadmin.memberships.create` | `owner` | `clubadmin` |
-| `memberships.transition` | `clubadmin.memberships.transition` | `owner` | `clubadmin` |
+| `memberships.transition` | `clubadmin.memberships.setStatus` | `owner` | `clubadmin` |
 | `admissions.list` | `clubadmin.admissions.list` | `owner` | `clubadmin` |
-| `admissions.transition` | `clubadmin.admissions.transition` | `owner` | `clubadmin` |
-| `admissions.issueAccess` | `clubadmin.admissions.issueAccess` | `owner` | `clubadmin` |
+| `admissions.transition` | `clubadmin.admissions.setStatus` | `owner` | `clubadmin` |
+| `admissions.issueAccess` | `clubadmin.admissions.issueAccessToken` | `owner` | `clubadmin` |
 
 **Move these to a new file: `src/schemas/clubadmin.ts`** (or keep in membership.ts and rename the file — your call, but a new file is cleaner).
 
@@ -416,10 +416,10 @@ Move all 9 remaining actions out of `src/schemas/admin.ts`:
 
 | Old name | New name |
 |---|---|
-| `admin.tokens.list` | `superadmin.tokens.list` |
-| `admin.tokens.revoke` | `superadmin.tokens.revoke` |
-| `admin.messages.threads` | `superadmin.messages.threads` |
-| `admin.messages.read` | `superadmin.messages.read` |
+| `admin.tokens.list` | `superadmin.accessTokens.list` |
+| `admin.tokens.revoke` | `superadmin.accessTokens.revoke` |
+| `admin.messages.threads` | `superadmin.messages.listThreads` |
+| `admin.messages.read` | `superadmin.messages.getThread` |
 | `admin.content.list` | `superadmin.content.list` |
 | `admin.content.archive` | `superadmin.content.archive` |
 | `admin.content.redact` | `superadmin.content.redact` |
@@ -429,7 +429,7 @@ Move all 9 remaining actions out of `src/schemas/admin.ts`:
 
 | Old name | New name | Changes needed |
 |---|---|---|
-| `admin.clubs.stats` | `clubadmin.clubs.stats` | Change `auth` from `superadmin` to `clubadmin`. Update handler to use `requireClubAdmin(clubId)` instead of `requireSuperadmin()`. The repository call already takes a `clubId`, so scoping is natural. |
+| `admin.clubs.stats` | `clubadmin.clubs.getStatistics` | Change `auth` from `superadmin` to `clubadmin`. Update handler to use `requireClubAdmin(clubId)` instead of `requireSuperadmin()`. The repository call already takes a `clubId`, so scoping is natural. |
 
 **Delete `src/schemas/admin.ts`** entirely. Remove its import from `src/dispatch.ts`.
 
@@ -450,7 +450,7 @@ Alternatively, keep allowing `role: 'member' | 'clubadmin'` if the caller is the
 ### 8. Update SKILL.md
 
 - Update all action names (7 owner actions → `clubadmin.*`, 9 admin actions → resolved)
-- Add new actions: `clubadmin.members.promoteToAdmin`, `clubadmin.members.demoteFromAdmin`, `clubadmin.clubs.stats`
+- Add new actions: `clubadmin.members.promoteToAdmin`, `clubadmin.members.demoteFromAdmin`, `clubadmin.clubs.getStatistics`
 - Update auth descriptions: replace "owner" with "club admin" everywhere
 - Update the "Resolving club IDs" section: mention `isOwner` field
 - Update membership states section: document the role values
@@ -499,7 +499,7 @@ Alternatively, keep allowing `role: 'member' | 'clubadmin'` if the caller is the
 - Demoting an ex-owner (null sponsor) assigns current owner as sponsor
 - Promoted clubadmin can immediately call clubadmin actions
 - Demoted member immediately loses clubadmin access
-- `clubadmin.clubs.stats` returns real stats for the specified club
+- `clubadmin.clubs.getStatistics` returns real stats for the specified club
 - All clubadmin actions reject missing `clubId` with 400
 
 ### 11. Schema snapshot
@@ -532,41 +532,41 @@ ALL must pass.
 After this work, the full action list by auth level:
 
 **`none` (unauthenticated):**
-- `admissions.challenge`
-- `admissions.apply`
+- `admissions.public.requestChallenge`
+- `admissions.public.submitApplication`
 
 **`member` (any authenticated member):**
-- `session.describe`
+- `session.getContext`
 - `profile.get`, `profile.update`
-- `members.list`, `members.fullTextSearch`, `members.findViaEmbedding`
-- `entities.create`, `entities.list`, `entities.update`, `entities.archive`, `entities.redact`, `entities.findViaEmbedding`
+- `members.list`, `members.searchByFullText`, `members.searchBySemanticSimilarity`
+- `content.create`, `content.list`, `content.update`, `entities.archive`, `entities.redact`, `content.searchBySemanticSimilarity`
 - `events.create`, `events.list`, `events.rsvp`
-- `messages.send`, `messages.list`, `messages.read`, `messages.inbox`, `messages.redact`
+- `messages.send`, `messages.getInbox`, `messages.getThread`, `messages.redact`
 - `updates.list`, `updates.acknowledge`
 - `vouches.create`, `vouches.list`
-- `quotas.status`
-- `tokens.list`, `tokens.create`, `tokens.revoke`
-- `admissions.sponsor`
+- `quotas.getUsage`
+- `accessTokens.list`, `accessTokens.create`, `accessTokens.revoke`
+- `admissions.sponsorCandidate`
 
-(Note: `entities.archive`, `entities.redact`, `messages.redact` will be replaced by `entities.remove` / `messages.remove` in the follow-up content removal PR.)
+(Note: `entities.archive`, `entities.redact`, `messages.redact` will be replaced by `content.remove` / `messages.remove` in the follow-up content removal PR.)
 
 **`clubadmin` (club admin, club owner, or superadmin):**
 - `clubadmin.memberships.list`
-- `clubadmin.memberships.review`
+- `clubadmin.memberships.listForReview`
 - `clubadmin.memberships.create`
-- `clubadmin.memberships.transition`
+- `clubadmin.memberships.setStatus`
 - `clubadmin.admissions.list`
-- `clubadmin.admissions.transition`
-- `clubadmin.admissions.issueAccess`
+- `clubadmin.admissions.setStatus`
+- `clubadmin.admissions.issueAccessToken`
 - `clubadmin.members.promoteToAdmin` (owner-only at handler level)
 - `clubadmin.members.demoteFromAdmin` (owner-only at handler level)
-- `clubadmin.clubs.stats`
+- `clubadmin.clubs.getStatistics`
 
 **`superadmin` (server operator only):**
-- `superadmin.overview`
+- `superadmin.platform.getOverview`
 - `superadmin.members.list`, `superadmin.members.get`
 - `superadmin.clubs.list`, `superadmin.clubs.create`, `superadmin.clubs.archive`, `superadmin.clubs.assignOwner`
-- `superadmin.diagnostics.health`
-- `superadmin.tokens.list`, `superadmin.tokens.revoke`
+- `superadmin.diagnostics.getHealth`
+- `superadmin.accessTokens.list`, `superadmin.accessTokens.revoke`
 - `superadmin.content.list`, `superadmin.content.archive`, `superadmin.content.redact`
-- `superadmin.messages.threads`, `superadmin.messages.read`, `superadmin.messages.redact`
+- `superadmin.messages.listThreads`, `superadmin.messages.getThread`, `superadmin.messages.redact`

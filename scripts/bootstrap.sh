@@ -43,11 +43,11 @@ values ('Superadmin', 'superadmin', 'active');
 select id as member_id from app.members where handle = 'superadmin' \gset
 
 -- Grant superadmin role
-insert into app.global_role_versions (member_id, role, status, version_no, created_by_member_id)
+insert into app.member_global_role_versions (member_id, role, status, version_no, created_by_member_id)
 values (:'member_id', 'superadmin', 'active', 1, :'member_id');
 
 -- Create a profile
-insert into app.profile_versions (member_id, version_no, display_name, created_by_member_id)
+insert into app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
 values (:'member_id', 1, 'Superadmin', :'member_id');
 
 commit;

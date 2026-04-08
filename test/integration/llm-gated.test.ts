@@ -4,8 +4,8 @@
  * These tests require OPENAI_API_KEY — the quality gate calls gpt-5.4-nano
  * to evaluate content quality before allowing the action through.
  *
- * Gated actions tested here: profile.update, vouches.create, entities.create,
- * admissions.sponsor
+ * Gated actions tested here: profile.update, vouches.create, content.create,
+ * admissions.sponsorCandidate
  *
  * Run with: npm run test:integration:with-llm
  */
@@ -153,7 +153,7 @@ describe('Vouching (LLM-gated)', () => {
   });
 });
 
-// ── Entity Update Fan-out (gated: entities.create) ──────────────────────────
+// ── Entity Update Fan-out (gated: content.create) ──────────────────────────
 
 describe('entity update fan-out (LLM-gated)', () => {
   it('club members get entity updates after content is created', async () => {
@@ -167,7 +167,7 @@ describe('entity update fan-out (LLM-gated)', () => {
     const seedUpdates = (seedResult.data as Record<string, unknown>).updates as Record<string, unknown>;
     const seedAfter = seedUpdates.nextAfter as string;
 
-    await h.apiOk(author.token, 'entities.create', {
+    await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Three patterns for building reliable event-driven systems',
@@ -187,14 +187,14 @@ describe('entity update fan-out (LLM-gated)', () => {
   });
 });
 
-// ── Admin Content (gated: entities.create as setup) ─────────────────────────
+// ── Admin Content (gated: content.create as setup) ─────────────────────────
 
 describe('superadmin.content (LLM-gated)', () => {
   it('admin.content.list — lists content across clubs', async () => {
     const admin = await h.seedSuperadmin('Admin Content', 'llm-admin-content-list');
     const ownerCtx = await h.seedOwner('llm-content-list-club', 'LLM Content List Club');
 
-    await h.apiOk(ownerCtx.token, 'entities.create', {
+    await h.apiOk(ownerCtx.token, 'content.create', {
       clubId: ownerCtx.club.id,
       kind: 'post',
       title: 'How we reduced our cloud costs by 40 percent last quarter',
@@ -216,7 +216,7 @@ describe('superadmin.content (LLM-gated)', () => {
     const admin = await h.seedSuperadmin('Admin Archiver Content', 'llm-admin-content-archive');
     const ownerCtx = await h.seedOwner('llm-content-archive-club', 'LLM Content Archive Club');
 
-    const createResult = await h.apiOk(ownerCtx.token, 'entities.create', {
+    const createResult = await h.apiOk(ownerCtx.token, 'content.create', {
       clubId: ownerCtx.club.id,
       kind: 'post',
       title: 'Lessons from our first year running a remote engineering team',
@@ -226,23 +226,23 @@ describe('superadmin.content (LLM-gated)', () => {
     const entity = createData.entity as Record<string, unknown>;
     const entityId = entity.entityId as string;
 
-    const result = await h.apiOk(admin.token, 'clubadmin.entities.remove', { clubId: ownerCtx.club.id, entityId, reason: 'Content policy violation' });
+    const result = await h.apiOk(admin.token, 'clubadmin.content.remove', { clubId: ownerCtx.club.id, entityId, reason: 'Content policy violation' });
     const data = result.data as Record<string, unknown>;
     const removedEntity = data.entity as Record<string, unknown>;
     assert.equal(removedEntity.entityId, entityId);
   });
 });
 
-// ── Admissions Sponsor (gated: admissions.sponsor) ──────────────────────────
+// ── Admissions Sponsor (gated: admissions.sponsorCandidate) ──────────────────────────
 
-describe('admissions.sponsor (LLM-gated)', () => {
+describe('admissions.sponsorCandidate (LLM-gated)', () => {
   it('member sponsors an outsider for admission', async () => {
     const owner = await h.seedOwner('llm-sponsor-club', 'LLM Sponsor Club');
     const sponsor = await h.seedClubMember(owner.club.id, 'Sponsor Member', 'llm-sponsor-member', {
       sponsorId: owner.id,
     });
 
-    const result = await h.apiOk(sponsor.token, 'admissions.sponsor', {
+    const result = await h.apiOk(sponsor.token, 'admissions.sponsorCandidateCandidate', {
       clubId: owner.club.id,
       name: 'Jane Morrison',
       email: 'jane.morrison@greenfield.io',
@@ -250,7 +250,7 @@ describe('admissions.sponsor (LLM-gated)', () => {
       reason: 'I have worked with Jane for three years at Greenfield building the carbon tracking platform. She designed the data ingestion pipeline that processes 2 million records daily and mentored two junior engineers to production readiness. She would be a strong fit for this club because she brings deep technical expertise in exactly the B2B SaaS infrastructure space that several members work in.',
     });
     const adm = (result.data as Record<string, unknown>).admission as Record<string, unknown>;
-    assert.ok(adm.admissionId, 'admissions.sponsor should return an admissionId');
+    assert.ok(adm.admissionId, 'admissions.sponsorCandidate should return an admissionId');
     assert.equal(adm.origin, 'member_sponsored');
     assert.equal((adm.sponsor as Record<string, unknown>).memberId, sponsor.id);
   });

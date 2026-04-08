@@ -34,7 +34,7 @@ function makeVector(values: number[]): string {
 async function seedProfileEmbedding(memberId: string, vector: string): Promise<void> {
   // Get or create a profile version
   const pvRows = await h.sql<{ id: string }>(
-    `select id from app.current_profiles where member_id = $1`,
+    `select id from app.current_member_profiles where member_id = $1`,
     [memberId],
   );
   let profileVersionId: string;
@@ -42,7 +42,7 @@ async function seedProfileEmbedding(memberId: string, vector: string): Promise<v
     profileVersionId = pvRows[0].id;
   } else {
     const insertRows = await h.sql<{ id: string }>(
-      `insert into app.profile_versions (member_id, version_no, display_name, created_by_member_id)
+      `insert into app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
        values ($1, 1, 'test', $1) returning id`,
       [memberId],
     );
@@ -50,7 +50,7 @@ async function seedProfileEmbedding(memberId: string, vector: string): Promise<v
   }
 
   await h.sql(
-    `insert into app.profile_embeddings
+    `insert into app.member_profile_embeddings
        (member_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
      values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
      on conflict (member_id, model, dimensions, source_version, chunk_index)

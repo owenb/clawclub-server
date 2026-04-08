@@ -1,6 +1,6 @@
 /**
  * Integration tests for the billing sync surface (superadmin.billing.*),
- * paid admission fork, billing.status, and paid-club guards.
+ * paid admission fork, billing.getMembershipStatus, and paid-club guards.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -49,7 +49,7 @@ describe('paid admission creates payment_pending membership', () => {
     assert.equal((created.state as Record<string, unknown>).status, 'payment_pending');
 
     // Member should NOT have access
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(session).some((m) => m.clubId === owner.club.id),
       false, 'payment_pending member should not see club',
@@ -78,13 +78,13 @@ describe('superadmin.billing.activateMembership creates access', () => {
       initialStatus: 'payment_pending',
     });
     const msRows = await h.sql<{ id: string }>(
-      `SELECT id FROM app.memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;
 
     // No access yet
-    let session = await h.apiOk(member.token, 'session.describe', {});
+    let session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(activeMemberships(session).some((m) => m.clubId === owner.club.id), false);
 
     // Activate via billing sync
@@ -95,7 +95,7 @@ describe('superadmin.billing.activateMembership creates access', () => {
     });
 
     // Now has access
-    session = await h.apiOk(member.token, 'session.describe', {});
+    session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(session).some((m) => m.clubId === owner.club.id),
       true, 'activated member should see club',
@@ -103,36 +103,17 @@ describe('superadmin.billing.activateMembership creates access', () => {
 
     // Verify subscription row exists
     const subs = await h.sql<{ status: string; current_period_end: string }>(
-      `SELECT status, current_period_end::text FROM app.subscriptions WHERE membership_id = $1`,
+      `SELECT status, current_period_end::text FROM app.club_subscriptions WHERE membership_id = $1`,
       [msId],
     );
     assert.equal(subs.length, 1);
     assert.equal(subs[0]!.status, 'active');
 
-    const before = await h.sql<{ count: string }>(
-      `select count(*)::text as count
-       from app.mutation_confirmations
-       where action_name = 'superadmin.billing.activateMembership'
-         and confirmation_kind = 'already_applied'
-         and subject_id = $1`,
-      [msId],
-    );
-
-    // Idempotent: calling again confirms the existing write and records a durable confirmation
+    // Idempotent: calling again is a no-op
     await h.apiOk(admin.token, 'superadmin.billing.activateMembership', {
       membershipId: msId,
       paidThrough: futureDate,
     });
-
-    const after = await h.sql<{ count: string }>(
-      `select count(*)::text as count
-       from app.mutation_confirmations
-       where action_name = 'superadmin.billing.activateMembership'
-         and confirmation_kind = 'already_applied'
-         and subject_id = $1`,
-      [msId],
-    );
-    assert.equal(Number(after[0]!.count), Number(before[0]!.count) + 1);
   });
 });
 
@@ -155,7 +136,7 @@ describe('superadmin.billing.cancelAtPeriodEnd preserves access', () => {
       initialStatus: 'payment_pending',
     });
     const msRows = await h.sql<{ id: string }>(
-      `SELECT id FROM app.memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;
@@ -173,7 +154,7 @@ describe('superadmin.billing.cancelAtPeriodEnd preserves access', () => {
     });
 
     // Access should be preserved (subscription still active with future period_end)
-    const session = await h.apiOk(member.token, 'session.describe', {});
+    const session = await h.apiOk(member.token, 'session.getContext', {});
     const membership = activeMemberships(session).find((m) => m.clubId === owner.club.id);
     assert.ok(membership, 'cancelled member should retain access until period end');
     assert.equal(membership.status, 'cancelled');
@@ -195,7 +176,7 @@ describe('superadmin.billing.expireMembership removes access', () => {
     });
 
     // Confirm access
-    let session = await h.apiOk(member.token, 'session.describe', {});
+    let session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(activeMemberships(session).some((m) => m.clubId === owner.club.id), true);
 
     // Expire
@@ -204,7 +185,7 @@ describe('superadmin.billing.expireMembership removes access', () => {
     });
 
     // Access revoked
-    session = await h.apiOk(member.token, 'session.describe', {});
+    session = await h.apiOk(member.token, 'session.getContext', {});
     assert.equal(
       activeMemberships(session).some((m) => m.clubId === owner.club.id),
       false, 'expired member should not see club',
@@ -235,14 +216,6 @@ describe('superadmin.billing.setClubPrice is idempotent', () => {
       `SELECT count(*)::text as count FROM app.club_versions WHERE club_id = $1`,
       [owner.club.id],
     );
-    const confirmationsBefore = await h.sql<{ count: string }>(
-      `select count(*)::text as count
-       from app.mutation_confirmations
-       where action_name = 'superadmin.billing.setClubPrice'
-         and confirmation_kind = 'already_applied'
-         and subject_id = $1`,
-      [owner.club.id],
-    );
 
     // Set same price again
     await h.apiOk(admin.token, 'superadmin.billing.setClubPrice', {
@@ -257,16 +230,6 @@ describe('superadmin.billing.setClubPrice is idempotent', () => {
       [owner.club.id],
     );
     assert.equal(v1[0]!.count, v2[0]!.count, 'idempotent setClubPrice should not create extra version');
-
-    const confirmationsAfter = await h.sql<{ count: string }>(
-      `select count(*)::text as count
-       from app.mutation_confirmations
-       where action_name = 'superadmin.billing.setClubPrice'
-         and confirmation_kind = 'already_applied'
-         and subject_id = $1`,
-      [owner.club.id],
-    );
-    assert.equal(Number(confirmationsAfter[0]!.count), Number(confirmationsBefore[0]!.count) + 1);
 
     // Verify price is set
     const club = await h.sql<{ membership_price_amount: string }>(
@@ -337,16 +300,16 @@ describe('paid club guards', () => {
   });
 });
 
-// ── billing.status ──────────────────────────────────────────────────────────
+// ── billing.getMembershipStatus ─────────────────────────────────────────────
 
-describe('billing.status returns membership billing info', () => {
+describe('billing.getMembershipStatus returns membership billing info', () => {
   it('returns comped status for free club member', async () => {
     const owner = await h.seedOwner('status-free-club', 'StatusFree Club');
     const member = await h.seedClubMember(owner.club.id, 'Status Sam', 'status-sam', {
       sponsorId: owner.id,
     });
 
-    const body = await h.apiOk(member.token, 'billing.status', {
+    const body = await h.apiOk(member.token, 'billing.getMembershipStatus', {
       clubId: owner.club.id,
     });
     const data = body.data as Record<string, unknown>;
@@ -365,7 +328,7 @@ describe('billing.status returns membership billing info', () => {
     const otherOwner = await h.seedOwner('outsider-home', 'Outsider Home');
     await h.seedMembership(otherOwner.club.id, outsider.id, { sponsorId: otherOwner.id });
 
-    const body = await h.apiOk(outsider.token, 'billing.status', {
+    const body = await h.apiOk(outsider.token, 'billing.getMembershipStatus', {
       clubId: owner.club.id,
     });
     const data = body.data as Record<string, unknown>;
@@ -386,7 +349,7 @@ describe('parseIsoDatetime rejects non-ISO date formats', () => {
     });
     const member = await h.seedClubMember(owner.club.id, 'Iso Member', 'iso-member', { sponsorId: owner.id, status: 'payment_pending' });
     const msRows = await h.sql<{ id: string }>(
-      `select id from app.memberships where club_id = $1 and member_id = $2`,
+      `select id from app.club_memberships where club_id = $1 and member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;

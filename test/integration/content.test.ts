@@ -15,11 +15,11 @@ after(async () => {
 // ── Entities ──────────────────────────────────────────────────────────────────
 
 describe('entities', () => {
-  it('member creates a post and sees it in entities.list', async () => {
+  it('member creates a post and sees it in content.list', async () => {
     const owner = await h.seedOwner('entity-club-1', 'EntityClub1');
     const author = await h.seedClubMember(owner.club.id, 'Alice Author', 'alice-entity-1', { sponsorId: owner.id });
 
-    const created = await h.apiOk(author.token, 'entities.create', {
+    const created = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Three things I learned running a bakery for 10 years',
@@ -32,18 +32,18 @@ describe('entities', () => {
     assert.equal(version.title, 'Three things I learned running a bakery for 10 years');
     assert.equal(version.state, 'published');
 
-    const list = await h.apiOk(author.token, 'entities.list', { clubId: owner.club.id });
+    const list = await h.apiOk(author.token, 'content.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = results.find((e) => e.entityId === entity.entityId);
-    assert.ok(found, 'created post should appear in entities.list');
+    assert.ok(found, 'created post should appear in content.list');
   });
 
-  it('another club member also sees the post in their entities.list', async () => {
+  it('another club member also sees the post in their content.list', async () => {
     const owner = await h.seedOwner('entity-club-2', 'EntityClub2');
     const author = await h.seedClubMember(owner.club.id, 'Bob Author', 'bob-entity-2', { sponsorId: owner.id });
     const viewer = await h.seedClubMember(owner.club.id, 'Carol Viewer', 'carol-entity-2', { sponsorId: owner.id });
 
-    const created = await h.apiOk(author.token, 'entities.create', {
+    const created = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'How we cut onboarding time from two weeks to three days',
@@ -51,7 +51,7 @@ describe('entities', () => {
     });
     const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
 
-    const list = await h.apiOk(viewer.token, 'entities.list', { clubId: owner.club.id });
+    const list = await h.apiOk(viewer.token, 'content.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = results.find((e) => e.entityId === entity.entityId);
     assert.ok(found, 'club member should see post created by another member');
@@ -66,7 +66,7 @@ describe('entities', () => {
     const otherOwner = await h.seedOwner('entity-other-club-3', 'OtherClub3');
     await h.seedMembership(otherOwner.club.id, outsider.id, { sponsorId: otherOwner.id });
 
-    await h.apiOk(author.token, 'entities.create', {
+    await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Why we moved our entire backend from REST to event sourcing',
@@ -74,15 +74,15 @@ describe('entities', () => {
     });
 
     // Outsider requesting the specific club should be forbidden
-    const err = await h.apiErr(outsider.token, 'entities.list', { clubId: owner.club.id });
+    const err = await h.apiErr(outsider.token, 'content.list', { clubId: owner.club.id });
     assert.equal(err.code, 'forbidden');
   });
 
-  it('author can update the post via entities.update and change is visible in list', async () => {
+  it('author can update the post via content.update and change is visible in list', async () => {
     const owner = await h.seedOwner('entity-club-4', 'EntityClub4');
     const author = await h.seedClubMember(owner.club.id, 'Frank Author', 'frank-entity-4', { sponsorId: owner.id });
 
-    const created = await h.apiOk(author.token, 'entities.create', {
+    const created = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Lessons from scaling our Postgres database to 500 million rows',
@@ -91,7 +91,7 @@ describe('entities', () => {
     const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
     const entityId = entity.entityId as string;
 
-    const updated = await h.apiOk(author.token, 'entities.update', {
+    const updated = await h.apiOk(author.token, 'content.update', {
       entityId,
       title: 'Updated: Lessons from scaling Postgres to 500 million rows',
       summary: 'Partitioning, vacuuming, and connection pooling deep dive with real numbers',
@@ -102,7 +102,7 @@ describe('entities', () => {
     assert.equal(updatedVersion.title, 'Updated: Lessons from scaling Postgres to 500 million rows');
     assert.equal(updatedVersion.summary, 'Partitioning, vacuuming, and connection pooling deep dive with real numbers');
 
-    const list = await h.apiOk(author.token, 'entities.list', { clubId: owner.club.id });
+    const list = await h.apiOk(author.token, 'content.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = results.find((e) => e.entityId === entityId) as Record<string, unknown> | undefined;
     assert.ok(found, 'updated entity should appear in list');
@@ -114,7 +114,7 @@ describe('entities', () => {
     const owner = await h.seedOwner('entity-club-5', 'EntityClub5');
     const author = await h.seedClubMember(owner.club.id, 'Grace Author', 'grace-entity-5', { sponsorId: owner.id });
 
-    const created = await h.apiOk(author.token, 'entities.create', {
+    const created = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'How we automated our entire deployment pipeline in one sprint',
@@ -123,12 +123,12 @@ describe('entities', () => {
     const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
     const entityId = entity.entityId as string;
 
-    await h.apiOk(author.token, 'entities.remove', { entityId });
+    await h.apiOk(author.token, 'content.remove', { entityId });
 
-    const list = await h.apiOk(author.token, 'entities.list', { clubId: owner.club.id });
+    const list = await h.apiOk(author.token, 'content.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = results.find((e) => e.entityId === entityId);
-    assert.equal(found, undefined, 'removed post should not appear in entities.list');
+    assert.equal(found, undefined, 'removed post should not appear in content.list');
   });
 
   it('all entity kinds can be created: post, opportunity, service, ask', async () => {
@@ -157,7 +157,7 @@ describe('entities', () => {
     const kinds = ['post', 'opportunity', 'service', 'ask'] as const;
     for (const kind of kinds) {
       const payload = kindPayloads[kind];
-      const created = await h.apiOk(author.token, 'entities.create', {
+      const created = await h.apiOk(author.token, 'content.create', {
         clubId: owner.club.id,
         kind,
         title: payload.title,
@@ -168,7 +168,7 @@ describe('entities', () => {
     }
 
     // Each kind should appear in a filtered list
-    const list = await h.apiOk(author.token, 'entities.list', {
+    const list = await h.apiOk(author.token, 'content.list', {
       clubId: owner.club.id,
       kinds: ['post', 'opportunity', 'service', 'ask'],
       limit: 20,

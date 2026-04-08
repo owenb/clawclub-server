@@ -122,7 +122,7 @@ test('makeRepository includes new search methods', async () => {
 test('members.fullTextSearch action is registered', async () => {
   await import('../src/dispatch.ts');
   const { getAction } = await import('../src/schemas/registry.ts');
-  const action = getAction('members.fullTextSearch');
+  const action = getAction('members.searchByFullText');
   assert.ok(action, 'members.fullTextSearch should be registered');
   assert.equal(action?.auth, 'member');
   assert.equal(action?.safety, 'read_only');
@@ -130,13 +130,13 @@ test('members.fullTextSearch action is registered', async () => {
 
 test('members.findViaEmbedding action is registered', async () => {
   const { getAction } = await import('../src/schemas/registry.ts');
-  const action = getAction('members.findViaEmbedding');
+  const action = getAction('members.searchBySemanticSimilarity');
   assert.ok(action, 'members.findViaEmbedding should be registered');
 });
 
 test('entities.findViaEmbedding action is registered', async () => {
   const { getAction } = await import('../src/schemas/registry.ts');
-  const action = getAction('entities.findViaEmbedding');
+  const action = getAction('content.searchBySemanticSimilarity');
   assert.ok(action, 'entities.findViaEmbedding should be registered');
 });
 

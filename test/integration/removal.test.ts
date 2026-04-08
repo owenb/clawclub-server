@@ -1,8 +1,8 @@
 /**
  * Integration tests for the content removal system.
  *
- * Covers: entities.remove, events.remove, messages.remove,
- * clubadmin.entities.remove, clubadmin.events.remove.
+ * Covers: content.remove, events.remove, messages.remove,
+ * clubadmin.content.remove, clubadmin.events.remove.
  * Verifies version-based entity removal, dm_message_removals table,
  * content blanking in read paths, updates-feed filtering, and
  * superadmin bypass via clubadmin actions.
@@ -38,7 +38,7 @@ function event(result: Record<string, unknown>) {
 
 // ── Entity Removal (self-service) ─────────────────────────────────────────────
 
-describe('entities.remove', () => {
+describe('content.remove', () => {
   it('author removes own entity — disappears from list', async () => {
     const owner = await h.seedOwner('entity-remove-author', 'Entity Remove Author Club');
     const author = await h.seedClubMember(owner.club.id, 'Author Remove', 'author-remove-entity', { sponsorId: owner.id });
@@ -53,12 +53,12 @@ describe('entities.remove', () => {
       [ent!.id, author.id],
     );
 
-    const result = await h.apiOk(author.token, 'entities.remove', { entityId: ent!.id });
+    const result = await h.apiOk(author.token, 'content.remove', { entityId: ent!.id });
     const e = entity(result);
     assert.equal(e.entityId, ent!.id);
     assert.equal((e.version as Record<string, unknown>).state, 'removed');
 
-    const list = await h.apiOk(author.token, 'entities.list', { clubId: owner.club.id });
+    const list = await h.apiOk(author.token, 'content.list', { clubId: owner.club.id });
     const items = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     assert.ok(!items.find((i) => i.entityId === ent!.id), 'removed entity should not appear in list');
   });
@@ -77,7 +77,7 @@ describe('entities.remove', () => {
       [ent!.id, author.id],
     );
 
-    const result = await h.apiOk(author.token, 'entities.remove', { entityId: ent!.id, reason: 'Posted by mistake' });
+    const result = await h.apiOk(author.token, 'content.remove', { entityId: ent!.id, reason: 'Posted by mistake' });
     const e = entity(result);
     assert.equal((e.version as Record<string, unknown>).state, 'removed');
   });
@@ -97,7 +97,7 @@ describe('entities.remove', () => {
       [ent!.id, author.id],
     );
 
-    const err = await h.apiErr(bystander.token, 'entities.remove', { entityId: ent!.id });
+    const err = await h.apiErr(bystander.token, 'content.remove', { entityId: ent!.id });
     assert.equal(err.status, 404);
   });
 
@@ -115,8 +115,8 @@ describe('entities.remove', () => {
       [ent!.id, author.id],
     );
 
-    const first = await h.apiOk(author.token, 'entities.remove', { entityId: ent!.id });
-    const second = await h.apiOk(author.token, 'entities.remove', { entityId: ent!.id });
+    const first = await h.apiOk(author.token, 'content.remove', { entityId: ent!.id });
+    const second = await h.apiOk(author.token, 'content.remove', { entityId: ent!.id });
     assert.equal((entity(first) as Record<string, unknown>).entityId, (entity(second) as Record<string, unknown>).entityId);
   });
 
@@ -139,7 +139,7 @@ describe('entities.remove', () => {
       [ent!.id, author.id],
     );
     await h.sqlClubs(
-      `insert into app.activity (club_id, topic, entity_id, entity_version_id, created_by_member_id, payload)
+      `insert into app.club_activity (club_id, topic, entity_id, entity_version_id, created_by_member_id, payload)
        values ($1, 'entity.version.published', $2, $3, $4, '{"kind":"entity"}'::jsonb)`,
       [owner.club.id, ent!.id, ver!.id, author.id],
     );
@@ -148,7 +148,7 @@ describe('entities.remove', () => {
     const beforeItems = ((beforeUpdates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
     assert.ok(beforeItems.some((u) => u.entityId === ent!.id), 'entity update should exist before removal');
 
-    await h.apiOk(author.token, 'entities.remove', { entityId: ent!.id });
+    await h.apiOk(author.token, 'content.remove', { entityId: ent!.id });
 
     const afterUpdates = await h.apiOk(viewer.token, 'updates.list', { after: seedAfter });
     const afterItems = ((afterUpdates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
@@ -179,7 +179,7 @@ describe('messages.remove', () => {
     const r = removal(result);
     assert.equal(r.messageId, msgId);
 
-    const thread = await h.apiOk(alice.token, 'messages.read', { threadId });
+    const thread = await h.apiOk(alice.token, 'messages.getThread', { threadId });
     const messages = (thread.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
     const removedMsg = messages.find((m) => m.messageId === msgId);
     assert.ok(removedMsg);
@@ -242,7 +242,7 @@ describe('messages.remove', () => {
 
 // ── Club Admin Moderation ─────────────────────────────────────────────────────
 
-describe('clubadmin.entities.remove', () => {
+describe('clubadmin.content.remove', () => {
   it('club admin removes any entity with required reason', async () => {
     const owner = await h.seedOwner('admin-entity-remove', 'Admin Entity Remove Club');
     const author = await h.seedClubMember(owner.club.id, 'Author AdminRemove', 'author-admin-remove', { sponsorId: owner.id });
@@ -257,7 +257,7 @@ describe('clubadmin.entities.remove', () => {
       [ent!.id, author.id],
     );
 
-    const result = await h.apiOk(owner.token, 'clubadmin.entities.remove', {
+    const result = await h.apiOk(owner.token, 'clubadmin.content.remove', {
       clubId: owner.club.id,
       entityId: ent!.id,
       reason: 'Violates community guidelines',
@@ -266,16 +266,16 @@ describe('clubadmin.entities.remove', () => {
     assert.equal((e.version as Record<string, unknown>).state, 'removed');
   });
 
-  it('clubadmin.entities.remove without reason — 400', async () => {
+  it('clubadmin.content.remove without reason — 400', async () => {
     const owner = await h.seedOwner('admin-entity-no-reason', 'Admin Entity No Reason Club');
-    const err = await h.apiErr(owner.token, 'clubadmin.entities.remove', {
+    const err = await h.apiErr(owner.token, 'clubadmin.content.remove', {
       clubId: owner.club.id,
       entityId: 'fake-id',
     });
     assert.equal(err.status, 400);
   });
 
-  it('superadmin calls clubadmin.entities.remove successfully', async () => {
+  it('superadmin calls clubadmin.content.remove successfully', async () => {
     const admin = await h.seedSuperadmin('Admin EntityRemove', 'admin-entity-remove-super');
     const owner = await h.seedOwner('super-entity-remove', 'Super Entity Remove Club');
 
@@ -289,7 +289,7 @@ describe('clubadmin.entities.remove', () => {
       [ent!.id, owner.id],
     );
 
-    const result = await h.apiOk(admin.token, 'clubadmin.entities.remove', {
+    const result = await h.apiOk(admin.token, 'clubadmin.content.remove', {
       clubId: owner.club.id,
       entityId: ent!.id,
       reason: 'Platform policy enforcement',
@@ -305,7 +305,7 @@ describe('clubadmin.entities.remove', () => {
 // ── Moderation Audit ──────────────────────────────────────────────────────────
 
 describe('moderation removal emits feed events', () => {
-  it('clubadmin.entities.remove emits entity.removed in club activity', async () => {
+  it('clubadmin.content.remove emits entity.removed in club activity', async () => {
     const owner = await h.seedOwner('mod-audit-entity', 'Mod Audit Entity Club');
     const author = await h.seedClubMember(owner.club.id, 'Author ModAudit', 'author-mod-audit', { sponsorId: owner.id });
     const viewer = await h.seedClubMember(owner.club.id, 'Viewer ModAudit', 'viewer-mod-audit', { sponsorId: owner.id });
@@ -325,7 +325,7 @@ describe('moderation removal emits feed events', () => {
     const seedAfter = ((seedResult.data as Record<string, unknown>).updates as Record<string, unknown>).nextAfter as string;
 
     // Moderator removes
-    await h.apiOk(owner.token, 'clubadmin.entities.remove', {
+    await h.apiOk(owner.token, 'clubadmin.content.remove', {
       clubId: owner.club.id,
       entityId: ent!.id,
       reason: 'Policy violation',

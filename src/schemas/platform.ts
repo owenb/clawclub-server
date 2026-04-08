@@ -16,8 +16,8 @@ import { registerActions, type ActionDefinition, type HandlerContext, type Actio
 // ── quotas.status ───────────────────────────────────────
 
 const quotasStatus: ActionDefinition = {
-  action: 'quotas.status',
-  domain: 'platform',
+  action: 'quotas.getUsage',
+  domain: 'quotas',
   description: 'Get quota usage for the current member across accessible clubs.',
   auth: 'member',
   safety: 'read_only',
@@ -44,8 +44,8 @@ const quotasStatus: ActionDefinition = {
 // ── tokens.list ─────────────────────────────────────────
 
 const tokensList: ActionDefinition = {
-  action: 'tokens.list',
-  domain: 'platform',
+  action: 'accessTokens.list',
+  domain: 'accessTokens',
   description: 'List bearer tokens for the current member.',
   auth: 'member',
   safety: 'read_only',
@@ -77,8 +77,8 @@ type TokensCreateInput = {
 };
 
 const tokensCreate: ActionDefinition = {
-  action: 'tokens.create',
-  domain: 'platform',
+  action: 'accessTokens.create',
+  domain: 'accessTokens',
   description: 'Create a new bearer token.',
   auth: 'member',
   safety: 'mutating',
@@ -117,8 +117,8 @@ const tokensCreate: ActionDefinition = {
 // ── tokens.revoke ───────────────────────────────────────
 
 const tokensRevoke: ActionDefinition = {
-  action: 'tokens.revoke',
-  domain: 'platform',
+  action: 'accessTokens.revoke',
+  domain: 'accessTokens',
   description: 'Revoke a bearer token.',
   auth: 'member',
   safety: 'mutating',

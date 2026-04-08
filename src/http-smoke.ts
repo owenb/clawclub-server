@@ -6,7 +6,7 @@ import { buildBearerToken } from './token.ts';
 
 type SessionDescribeResponse = {
   ok: true;
-  action: 'session.describe';
+  action: 'session.getContext';
   actor: {
     member: {
       id: string;
@@ -18,21 +18,6 @@ type SessionDescribeResponse = {
     }>;
   };
   data: Record<string, never>;
-};
-
-type UpdatesResponse = {
-  ok: true;
-  member: {
-    id: string;
-  };
-  requestScope: {
-    activeClubIds: string[];
-  };
-  updates: {
-    items: unknown[];
-    nextAfter: string | null;
-    polledAt: string;
-  };
 };
 
 async function assertUpdatesStreamReady(baseUrl: string, bearerToken: string): Promise<void> {
@@ -103,7 +88,7 @@ async function mintBearerToken(pool: Pool, memberId: string, label: string): Pro
 
   await pool.query(
     `
-      insert into app.bearer_tokens (id, member_id, label, token_hash, metadata)
+      insert into app.member_bearer_tokens (id, member_id, label, token_hash, metadata)
       values ($1, $2, $3, $4, '{}'::jsonb)
     `,
     [token.tokenId, memberId, label, token.tokenHash],
@@ -118,7 +103,7 @@ async function mintBearerToken(pool: Pool, memberId: string, label: string): Pro
 async function revokeBearerToken(pool: Pool, tokenId: string): Promise<void> {
   await pool.query(
     `
-      update app.bearer_tokens
+      update app.member_bearer_tokens
       set revoked_at = coalesce(revoked_at, now())
       where id = $1
     `,
@@ -164,30 +149,6 @@ async function postAction(baseUrl: string, bearerToken: string, action: string, 
   return body;
 }
 
-async function getUpdates(baseUrl: string, bearerToken: string, limit: number): Promise<UpdatesResponse> {
-  const response = await fetch(`${baseUrl}/updates?limit=${limit}`, {
-    headers: {
-      authorization: `Bearer ${bearerToken}`,
-    },
-  });
-
-  const bodyText = await response.text();
-  let body: Record<string, any>;
-
-  try {
-    body = bodyText.length === 0 ? {} : JSON.parse(bodyText);
-  } catch {
-    throw new Error(`HTTP smoke GET /updates returned non-JSON response: ${bodyText}`);
-  }
-
-  if (!response.ok) {
-    throw new Error(`HTTP smoke GET /updates failed with ${response.status}: ${JSON.stringify(body)}`);
-  }
-
-  assert.equal(body.ok, true, 'HTTP smoke GET /updates should return ok=true');
-  return body as UpdatesResponse;
-}
-
 export async function runHttpSmoke(): Promise<{
   memberId: string;
   clubId: string;
@@ -196,7 +157,7 @@ export async function runHttpSmoke(): Promise<{
   const identityUrl = requireEnv('DATABASE_URL');
   const setupPool = new Pool({ connectionString: identityUrl });
   const memberHandle = readSmokeHandle();
-  const actions = ['GET /updates', 'GET /updates/stream', 'session.describe', 'members.fullTextSearch', 'profile.get', 'messages.inbox', 'entities.list', 'events.list'];
+  const actions = ['GET /updates/stream', 'session.getContext', 'members.searchByFullText', 'profile.get', 'messages.getInbox', 'content.list', 'events.list'];
   let tokenId: string | null = null;
   let shutdown: (() => Promise<void>) | null = null;
 
@@ -210,43 +171,37 @@ export async function runHttpSmoke(): Promise<{
     const port = await listenOnLoopback(serverState.server);
     const baseUrl = `http://127.0.0.1:${port}`;
 
-    const session = await postAction(baseUrl, token.bearerToken, 'session.describe', {}) as SessionDescribeResponse;
+    const session = await postAction(baseUrl, token.bearerToken, 'session.getContext', {}) as SessionDescribeResponse;
     assert.equal(session.actor.member.id, memberId);
     assert.ok(session.actor.activeMemberships.length > 0, 'HTTP smoke member must have at least one active membership');
 
     const clubId = session.actor.activeMemberships[0]!.clubId;
-    const updates = await getUpdates(baseUrl, token.bearerToken, 5);
-    assert.equal(updates.member.id, memberId);
-    assert.ok(Array.isArray(updates.updates.items), 'GET /updates should return an items array');
-    assert.ok(updates.updates.nextAfter === null || typeof updates.updates.nextAfter === 'string', 'GET /updates should return a string nextAfter cursor when present');
-    assert.equal(typeof updates.updates.polledAt, 'string');
-    assert.ok(updates.requestScope.activeClubIds.includes(clubId), 'GET /updates should reflect actor club scope');
 
     await assertUpdatesStreamReady(baseUrl, token.bearerToken);
 
     const memberQuery = session.actor.member.handle ?? session.actor.member.publicName.split(/\s+/)[0] ?? memberHandle;
 
-    const members = await postAction(baseUrl, token.bearerToken, 'members.fullTextSearch', {
+    const members = await postAction(baseUrl, token.bearerToken, 'members.searchByFullText', {
       query: memberQuery,
       clubId,
       limit: 5,
     });
-    assert.ok(Array.isArray(members.data?.results), 'members.fullTextSearch should return a results array');
+    assert.ok(Array.isArray(members.data?.results), 'members.searchByFullText should return a results array');
 
     const profile = await postAction(baseUrl, token.bearerToken, 'profile.get', {});
     assert.equal(profile.data?.memberId, memberId);
 
-    const inbox = await postAction(baseUrl, token.bearerToken, 'messages.inbox', {
+    const inbox = await postAction(baseUrl, token.bearerToken, 'messages.getInbox', {
       clubId,
       limit: 5,
     });
-    assert.ok(Array.isArray(inbox.data?.results), 'messages.inbox should return a results array');
+    assert.ok(Array.isArray(inbox.data?.results), 'messages.getInbox should return a results array');
 
-    const entities = await postAction(baseUrl, token.bearerToken, 'entities.list', {
+    const entities = await postAction(baseUrl, token.bearerToken, 'content.list', {
       clubId,
       limit: 5,
     });
-    assert.ok(Array.isArray(entities.data?.results), 'entities.list should return a results array');
+    assert.ok(Array.isArray(entities.data?.results), 'content.list should return a results array');
 
     const events = await postAction(baseUrl, token.bearerToken, 'events.list', {
       clubId,

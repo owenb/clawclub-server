@@ -49,7 +49,7 @@ function decodeSuperadminCursor(cursor: string): { createdAt: string; id: string
 // ── superadmin.overview ────────────────────────────────
 
 const superadminOverview: ActionDefinition = {
-  action: 'superadmin.overview',
+  action: 'superadmin.platform.getOverview',
   domain: 'superadmin',
   description: 'Get platform-wide overview statistics.',
   auth: 'superadmin',
@@ -169,7 +169,7 @@ const superadminMembersGet: ActionDefinition = {
 // ── superadmin.diagnostics.health ──────────────────────
 
 const superadminDiagnosticsHealth: ActionDefinition = {
-  action: 'superadmin.diagnostics.health',
+  action: 'superadmin.diagnostics.getHealth',
   domain: 'superadmin',
   description: 'Get platform diagnostics and health status.',
   auth: 'superadmin',
@@ -546,7 +546,7 @@ type SuperadminMessagesThreadsInput = {
 };
 
 const superadminMessagesThreads: ActionDefinition = {
-  action: 'superadmin.messages.threads',
+  action: 'superadmin.messages.listThreads',
   domain: 'superadmin',
   description: 'List DM threads across the platform. DMs are not club-scoped; each thread shows currently shared clubs between participants.',
   auth: 'superadmin',
@@ -596,7 +596,7 @@ type SuperadminMessagesReadInput = {
 };
 
 const superadminMessagesRead: ActionDefinition = {
-  action: 'superadmin.messages.read',
+  action: 'superadmin.messages.getThread',
   domain: 'superadmin',
   description: 'Read a DM thread as superadmin.',
   auth: 'superadmin',
@@ -644,7 +644,7 @@ const superadminMessagesRead: ActionDefinition = {
 // ── superadmin.tokens.list ───────────────────────────────
 
 const superadminTokensList: ActionDefinition = {
-  action: 'superadmin.tokens.list',
+  action: 'superadmin.accessTokens.list',
   domain: 'superadmin',
   description: 'List bearer tokens for a specific member.',
   auth: 'superadmin',
@@ -682,7 +682,7 @@ const superadminTokensList: ActionDefinition = {
 // ── superadmin.tokens.revoke ─────────────────────────────
 
 const superadminTokensRevoke: ActionDefinition = {
-  action: 'superadmin.tokens.revoke',
+  action: 'superadmin.accessTokens.revoke',
   domain: 'superadmin',
   description: 'Revoke a bearer token for a specific member.',
   auth: 'superadmin',
@@ -733,7 +733,7 @@ type SuperadminMembersCreateInput = {
 };
 
 const superadminMembersCreate: ActionDefinition = {
-  action: 'superadmin.members.create',
+  action: 'superadmin.members.createWithAccessToken',
   domain: 'superadmin',
   description: 'Create a new platform member with a bearer token (no club membership).',
   auth: 'superadmin',

@@ -55,7 +55,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        action: 'admissions.challenge',
+        action: 'admissions.public.requestChallenge',
         input: { clubSlug: 'test' },
       }),
     });
@@ -63,7 +63,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
     const body = await response.json();
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.action, 'admissions.challenge');
+    assert.equal(body.action, 'admissions.public.requestChallenge');
     assert.equal(body.data.challengeId, 'challenge-1');
     assert.equal(body.data.difficulty, 7);
     assert.equal(body.data.maxAttempts, 5);
@@ -98,7 +98,7 @@ test('createServer returns accepted for admissions.apply', async () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        action: 'admissions.apply',
+        action: 'admissions.public.submitApplication',
         input: {
           challengeId: 'challenge-1', nonce: '12345',
           name: 'Jane Doe', email: 'j@x.com',
@@ -143,8 +143,8 @@ test('createServer rate limits cold application actions per IP and per action', 
     repository,
     updatesNotifier: makeUpdatesNotifier(),
     coldAdmissionRateLimits: {
-      'admissions.challenge': { limit: 1, windowMs: 60_000 },
-      'admissions.apply': { limit: 1, windowMs: 60_000 },
+      'admissions.public.requestChallenge': { limit: 1, windowMs: 60_000 },
+      'admissions.public.submitApplication': { limit: 1, windowMs: 60_000 },
     },
   });
 
@@ -154,7 +154,7 @@ test('createServer rate limits cold application actions per IP and per action', 
     const port = typeof address === 'object' && address ? address.port : 0;
 
     const challengeInput = {
-      action: 'admissions.challenge',
+      action: 'admissions.public.requestChallenge',
       input: { clubSlug: 'test' },
     };
 
@@ -179,7 +179,7 @@ test('createServer rate limits cold application actions per IP and per action', 
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        action: 'admissions.apply',
+        action: 'admissions.public.submitApplication',
         input: {
           challengeId: 'challenge-1',
           nonce: '123456',
@@ -229,7 +229,7 @@ test('createServer enforces request body limits by byte size, not decoded string
     const port = typeof address === 'object' && address ? address.port : 0;
     const oversizedPayload = '😀'.repeat(300_000);
     const body = JSON.stringify({
-      action: 'admissions.challenge',
+      action: 'admissions.public.requestChallenge',
       input: { clubSlug: 'test', padding: oversizedPayload },
     });
 
@@ -247,91 +247,6 @@ test('createServer enforces request body limits by byte size, not decoded string
     assert.equal(responseBody.ok, false);
     assert.equal(responseBody.error.code, 'payload_too_large');
     assert.equal(challengeCalls, 0);
-  } finally {
-    await shutdown();
-  }
-});
-
-test('createServer serves GET /updates through repository-backed update listing', async () => {
-  const requestFetch = globalThis.fetch;
-  let capturedInput: Record<string, unknown> | null = null;
-
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken(token) {
-      return token === 'cc_live_test' ? makeAuthResult() : null;
-    },
-    async listMemberUpdates(input) {
-      capturedInput = input;
-      return {
-        items: [makePendingUpdate()],
-        nextAfter: 'test-cursor',
-        polledAt: '2026-03-14T11:05:00Z',
-      };
-    },
-  };
-
-  const { server, shutdown } = createServer({
-    repository,
-    updatesNotifier: makeUpdatesNotifier(),
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const response = await requestFetch(`http://127.0.0.1:${port}/updates?limit=3&after=0`, {
-      headers: {
-        authorization: 'Bearer cc_live_test',
-      },
-    });
-
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('cache-control'), 'no-store, no-cache, max-age=0');
-    assert.equal(response.headers.get('pragma'), 'no-cache');
-    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
-    assert.equal(capturedInput?.actorMemberId, 'member-1');
-    assert.equal(capturedInput?.limit, 3);
-    assert.equal(capturedInput?.after, '0');
-    assert.ok(Array.isArray(capturedInput?.clubIds));
-
-    const body = await response.json();
-    assert.equal(body.ok, true);
-    assert.equal(body.member.id, 'member-1');
-    assert.equal(body.updates.items[0]?.updateId, 'update-1');
-    assert.equal(body.updates.nextAfter, 'test-cursor');
-    assert.equal(body.updates.polledAt, '2026-03-14T11:05:00Z');
-  } finally {
-    await shutdown();
-  }
-});
-
-test('createServer rejects GET /updates without a valid bearer token', async () => {
-  const requestFetch = globalThis.fetch;
-  const repository: Repository = {
-    ...makeRepository(),
-    async authenticateBearerToken() {
-      return null;
-    },
-  };
-
-  const { server, shutdown } = createServer({
-    repository,
-    updatesNotifier: makeUpdatesNotifier(),
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const response = await requestFetch(`http://127.0.0.1:${port}/updates`);
-    const body = await response.json();
-
-    assert.equal(response.status, 401);
-    assert.equal(body.ok, false);
-    assert.equal(body.error.code, 'unauthorized');
   } finally {
     await shutdown();
   }
@@ -546,7 +461,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
   const { server: serverNoProxy, shutdown: shutdownNoProxy } = createServer({
     repository,
     updatesNotifier: makeUpdatesNotifier(),
-    coldAdmissionRateLimits: { 'admissions.challenge': { limit: 1, windowMs: 60_000 }, 'admissions.apply': { limit: 1, windowMs: 60_000 } },
+    coldAdmissionRateLimits: { 'admissions.public.requestChallenge': { limit: 1, windowMs: 60_000 }, 'admissions.public.submitApplication': { limit: 1, windowMs: 60_000 } },
     trustProxy: false,
   });
 
@@ -555,7 +470,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     const address = serverNoProxy.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const body = JSON.stringify({ action: 'admissions.challenge', input: { clubSlug: 'test' } });
+    const body = JSON.stringify({ action: 'admissions.public.requestChallenge', input: { clubSlug: 'test' } });
 
     await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
@@ -593,7 +508,7 @@ test('createServer rejects POST /api with wrong content-type and accepts charset
     const wrongContentType = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
       headers: { 'content-type': 'text/plain' },
-      body: JSON.stringify({ action: 'session.describe', input: {} }),
+      body: JSON.stringify({ action: 'session.getContext', input: {} }),
     });
     const wrongCtBody = await wrongContentType.json();
     assert.equal(wrongContentType.status, 415);
@@ -603,14 +518,14 @@ test('createServer rejects POST /api with wrong content-type and accepts charset
     const jsonpType = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
       headers: { 'content-type': 'application/jsonp' },
-      body: JSON.stringify({ action: 'session.describe', input: {} }),
+      body: JSON.stringify({ action: 'session.getContext', input: {} }),
     });
     assert.equal(jsonpType.status, 415, 'application/jsonp must not be accepted');
 
     const withCharset = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
       headers: { 'content-type': 'application/json; charset=utf-8' },
-      body: JSON.stringify({ action: 'session.describe', input: {} }),
+      body: JSON.stringify({ action: 'session.getContext', input: {} }),
     });
     assert.notEqual(withCharset.status, 415, 'application/json with charset should not be rejected as unsupported media type');
   } finally {

@@ -54,7 +54,7 @@ test('superadmin.overview returns platform stats for superadmin', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.overview');
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.platform.getOverview');
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.overview.totalMembers, 42);
@@ -83,7 +83,7 @@ test('admin actions reject non-superadmin users with 403', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_user', 'superadmin.overview');
+    const { response, body } = await postAction(port, 'cc_live_user', 'superadmin.platform.getOverview');
     assert.equal(response.status, 403);
     assert.equal(body.ok, false);
     assert.equal(body.error.code, 'forbidden');
@@ -217,7 +217,7 @@ test('admin.clubs.stats returns club statistics', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'clubadmin.clubs.stats', { clubId: 'club-1' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'clubadmin.clubs.getStatistics', { clubId: 'club-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.stats.entityCount, 25);
@@ -256,7 +256,7 @@ test('superadmin.diagnostics.health returns system diagnostics', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.diagnostics.health');
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.diagnostics.getHealth');
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.diagnostics.migrationCount, 43);
@@ -329,7 +329,7 @@ test('admin.tokens.revoke revokes a token for any member', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.tokens.revoke', {
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.accessTokens.revoke', {
       memberId: 'member-99',
       tokenId: 'token-42',
     });
@@ -694,7 +694,7 @@ test('admin.messages.threads returns thread list', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.threads', { limit: 10 });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.listThreads', { limit: 10 });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.threads.length, 1);
@@ -747,7 +747,7 @@ test('admin.messages.read returns thread with messages', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.read', { threadId: 'thread-1' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.getThread', { threadId: 'thread-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.thread.threadId, 'thread-1');
@@ -779,7 +779,7 @@ test('admin.messages.read returns 404 for non-existent thread', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.read', { threadId: 'ghost' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.messages.getThread', { threadId: 'ghost' });
     assert.equal(response.status, 404);
     assert.equal(body.ok, false);
   } finally {
@@ -822,7 +822,7 @@ test('admin.tokens.list returns tokens for a member', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.tokens.list', { memberId: 'member-1' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.accessTokens.list', { memberId: 'member-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.tokens.length, 1);

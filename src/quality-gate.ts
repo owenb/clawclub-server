@@ -4,12 +4,12 @@ import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
 
 /** Actions that must pass the legality gate before execution. */
 const GATED_ACTIONS = new Set([
-  'entities.create',
-  'entities.update',
+  'content.create',
+  'content.update',
   'events.create',
   'profile.update',
   'vouches.create',
-  'admissions.sponsor',
+  'admissions.sponsorCandidate',
 ]);
 
 const GATE_WRAPPER = `You are a content legality gate for a private members club platform. Your only job is to block submissions that solicit or facilitate clearly illegal activity.

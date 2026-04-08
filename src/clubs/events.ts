@@ -7,7 +7,7 @@
 import type { Pool } from 'pg';
 import { AppError, type CreateEventInput, type EventSummary, type EventRsvpState, type ListEventsInput } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
-import { recordMutationConfirmation, withTransaction, type DbClient } from '../db.ts';
+import { withTransaction, type DbClient } from '../db.ts';
 import { appendClubActivity } from './entities.ts';
 
 type EventRow = {
@@ -83,7 +83,7 @@ function mapEventRow(row: EventRow): EventSummary {
 async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): Promise<void> {
   const profile = EMBEDDING_PROFILES['entity'];
   await client.query(
-    `insert into app.embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
+    `insert into app.ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
      values ('entity_version', $1, $2, $3, $4)
      on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
     [subjectVersionId, profile.model, profile.dimensions, profile.sourceVersion],
@@ -112,7 +112,7 @@ export async function readEventSummary(client: DbClient, entityId: string, viewe
        select cer.event_entity_id, cer.membership_id, cer.created_by_member_id as member_id,
               am.public_name, am.handle,
               cer.response, cer.note, cer.created_at::text as created_at
-       from app.current_rsvps cer
+       from app.current_event_rsvps cer
        join event_base eb on eb.entity_id = cer.event_entity_id
        join app.members am on am.id = cer.created_by_member_id
      ),
@@ -131,7 +131,7 @@ export async function readEventSummary(client: DbClient, entityId: string, viewe
      ),
      viewer_rsvp as (
        select cer.event_entity_id, cer.response
-       from app.current_rsvps cer
+       from app.current_event_rsvps cer
        where cer.membership_id = any($2::text[])
      )
      select eb.*,
@@ -164,19 +164,7 @@ export async function createEvent(pool: Pool, input: CreateEventInput): Promise<
             'This clientKey was already used for a different event. Use a unique key per event.');
         }
         const summary = await readEventSummary(client, existing.rows[0].id, []);
-        if (summary) {
-          await recordMutationConfirmation(client, {
-            actionName: 'events.create',
-            confirmationKind: 'idempotent_retry',
-            actorMemberId: input.authorMemberId,
-            subjectId: summary.entityId,
-            metadata: {
-              clientKey: input.clientKey,
-              clubId: input.clubId,
-            },
-          });
-          return summary;
-        }
+        if (summary) return summary;
       }
     }
 
@@ -261,7 +249,7 @@ export async function listEvents(pool: Pool, input: {
        select cer.event_entity_id, cer.membership_id, cer.created_by_member_id as member_id,
               am.public_name, am.handle,
               cer.response, cer.note, cer.created_at::text as created_at
-       from app.current_rsvps cer
+       from app.current_event_rsvps cer
        join event_base eb on eb.entity_id = cer.event_entity_id
        join app.members am on am.id = cer.created_by_member_id
      ),
@@ -280,7 +268,7 @@ export async function listEvents(pool: Pool, input: {
      ),
      viewer_rsvp as (
        select cer.event_entity_id, cer.response
-       from app.current_rsvps cer
+       from app.current_event_rsvps cer
        where cer.membership_id = any($2::text[])
      )
      select eb.*,
@@ -319,7 +307,7 @@ export async function rsvpEvent(pool: Pool, input: {
 
     // Get current RSVP version
     const currentRsvp = await client.query<{ version_no: number; id: string }>(
-      `select version_no, id from app.current_rsvps
+      `select version_no, id from app.current_event_rsvps
        where event_entity_id = $1 and membership_id = $2 limit 1`,
       [input.eventEntityId, input.membershipId],
     );
@@ -328,7 +316,7 @@ export async function rsvpEvent(pool: Pool, input: {
     const supersedesId = currentRsvp.rows[0]?.id ?? null;
 
     await client.query(
-      `insert into app.rsvps (event_entity_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id)
+      `insert into app.event_rsvps (event_entity_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id)
        values ($1, $2, $3, $4, $5, $6, $7)`,
       [input.eventEntityId, input.membershipId, input.response, input.note ?? null, versionNo, supersedesId, input.memberId],
     );
@@ -351,12 +339,6 @@ export async function removeEvent(pool: Pool, input: {
       [input.entityId, input.clubIds],
     );
     if (alreadyRemoved.rows[0]) {
-      await recordMutationConfirmation(client, {
-        actionName: 'events.remove',
-        confirmationKind: 'already_removed',
-        actorMemberId: input.actorMemberId,
-        subjectId: input.entityId,
-      });
       return readEventSummary(client, input.entityId, []);
     }
 

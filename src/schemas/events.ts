@@ -33,7 +33,7 @@ type EventCreateInput = {
 
 const eventsCreate: ActionDefinition = {
   action: 'events.create',
-  domain: 'content',
+  domain: 'events',
   description: 'Create a new event.',
   auth: 'member',
   safety: 'mutating',
@@ -119,7 +119,7 @@ type EventListInput = {
 
 const eventsList: ActionDefinition = {
   action: 'events.list',
-  domain: 'content',
+  domain: 'events',
   description: 'List upcoming events.',
   auth: 'member',
   safety: 'read_only',
@@ -175,7 +175,7 @@ type RsvpInput = {
 
 const eventsRsvp: ActionDefinition = {
   action: 'events.rsvp',
-  domain: 'content',
+  domain: 'events',
   description: 'RSVP to an event.',
   auth: 'member',
   safety: 'mutating',
@@ -226,7 +226,7 @@ const eventsRsvp: ActionDefinition = {
 
 const eventsRemove: ActionDefinition = {
   action: 'events.remove',
-  domain: 'content',
+  domain: 'events',
   description: 'Remove an event (author only).',
   auth: 'member',
   safety: 'mutating',

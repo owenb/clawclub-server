@@ -33,7 +33,7 @@ const SKILL_MD: string = [
   '',
 ].join('\n') + SKILL_MD_BODY;
 
-type ColdAdmissionAction = 'admissions.challenge' | 'admissions.apply';
+type ColdAdmissionAction = 'admissions.public.requestChallenge' | 'admissions.public.submitApplication';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
 type FixedWindowRateLimitState = { count: number; resetAt: number };
 
@@ -50,11 +50,11 @@ export const DEFAULT_SERVER_LIMITS = {
 } as const;
 
 export const DEFAULT_COLD_APPLICATION_RATE_LIMITS: Record<ColdAdmissionAction, FixedWindowRateLimit> = {
-  'admissions.challenge': {
+  'admissions.public.requestChallenge': {
     limit: 10,
     windowMs: 60 * 60 * 1000,
   },
-  'admissions.apply': {
+  'admissions.public.submitApplication': {
     limit: 30,
     windowMs: 60 * 60 * 1000,
   },
@@ -239,7 +239,7 @@ function writeSseComment(response: http.ServerResponse, comment: string) {
 function isColdAdmissionAction(value: unknown): value is ColdAdmissionAction {
   if (typeof value !== 'string') return false;
   const def = getAction(value);
-  return def?.auth === 'none' && (value === 'admissions.challenge' || value === 'admissions.apply');
+  return def?.auth === 'none' && (value === 'admissions.public.requestChallenge' || value === 'admissions.public.submitApplication');
 }
 
 function getClientIp(request: http.IncomingMessage, trustProxy: boolean): string {
@@ -352,8 +352,8 @@ export function createServer(options: {
   const updatesNotifier = options.updatesNotifier
     ?? (dbUrl ? createPostgresMemberUpdateNotifier(dbUrl) : createTimeoutOnlyNotifier());
   const coldAdmissionRateLimits: Record<ColdAdmissionAction, FixedWindowRateLimit> = {
-    'admissions.challenge': options.coldAdmissionRateLimits?.['admissions.challenge'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.challenge'],
-    'admissions.apply': options.coldAdmissionRateLimits?.['admissions.apply'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.apply'],
+    'admissions.public.requestChallenge': options.coldAdmissionRateLimits?.['admissions.public.requestChallenge'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.public.requestChallenge'],
+    'admissions.public.submitApplication': options.coldAdmissionRateLimits?.['admissions.public.submitApplication'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.public.submitApplication'],
   };
   const coldAdmissionRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
   const activeStreams = new Map<string, number>();
@@ -362,65 +362,6 @@ export function createServer(options: {
 
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-
-    if (request.method === 'GET' && url.pathname === '/updates') {
-      try {
-        const bearerToken = getBearerToken(request);
-        if (!bearerToken) {
-          throw new AppError(401, 'unauthorized', 'Unknown bearer token');
-        }
-
-        const auth = await repository.authenticateBearerToken(bearerToken);
-        if (!auth) {
-          throw new AppError(401, 'unauthorized', 'Unknown bearer token');
-        }
-
-        if (!repository.listMemberUpdates) {
-          throw new Error('Repository does not implement listMemberUpdates');
-        }
-
-        const clubIds = auth.actor.memberships.map(m => m.clubId);
-        const afterRaw = normalizeUpdatesAfter(url.searchParams.get('after'));
-        const after = afterRaw === 'latest' && repository.getLatestCursor
-          ? await repository.getLatestCursor({ actorMemberId: auth.actor.member.id, clubIds })
-          : afterRaw === 'latest' ? null : afterRaw;
-
-        const updates = await repository.listMemberUpdates({
-          actorMemberId: auth.actor.member.id,
-          clubIds,
-          limit: normalizeUpdatesLimit(url.searchParams.get('limit')),
-          after,
-        });
-
-        writeJson(request, response, 200, {
-          ok: true,
-          member: auth.actor.member,
-          requestScope: auth.requestScope,
-          updates,
-        });
-      } catch (error) {
-        if (error instanceof AppError) {
-          writeJson(request, response, error.statusCode, {
-            ok: false,
-            error: {
-              code: error.code,
-              message: error.message,
-            },
-          });
-          return;
-        }
-
-        console.error(error);
-        writeJson(request, response, 500, {
-          ok: false,
-          error: {
-            code: 'internal_error',
-            message: 'Unexpected server error',
-          },
-        });
-      }
-      return;
-    }
 
     if (request.method === 'GET' && url.pathname === '/updates/stream') {
       const abortController = new AbortController();
@@ -611,7 +552,7 @@ export function createServer(options: {
         ok: false,
         error: {
           code: 'not_found',
-          message: 'Only GET /, GET /skill, GET /updates, GET /updates/stream, GET /api/schema, and POST /api are supported',
+          message: 'Only GET /, GET /skill, GET /updates/stream, GET /api/schema, and POST /api are supported',
         },
       });
       return;
@@ -754,7 +695,7 @@ export function createServer(options: {
         `select count(*)::text as count from app.clubs where membership_price_amount is not null and archived_at is null`,
       );
       const pendingCheck = await pool.query<{ count: string }>(
-        `select count(*)::text as count from app.memberships where status = 'payment_pending'`,
+        `select count(*)::text as count from app.club_memberships where status = 'payment_pending'`,
       );
       const paidCount = Number(paidCheck.rows[0]?.count ?? 0);
       const pendingCount = Number(pendingCheck.rows[0]?.count ?? 0);
@@ -784,7 +725,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   server.listen(port, () => {
     console.log(`clawclub api listening on http://127.0.0.1:${port}/api`);
-    console.log('auth mode: hashed API-style bearer tokens in app.bearer_tokens');
+    console.log('auth mode: hashed API-style bearer tokens in app.member_bearer_tokens');
   });
 
   const stop = async () => {

@@ -59,7 +59,7 @@ OPENAI_API_KEY="sk-..." \
 curl http://127.0.0.1:8787/api \
   -H 'Authorization: Bearer <your-token>' \
   -H 'Content-Type: application/json' \
-  -d '{"action":"session.describe","input":{}}'
+  -d '{"action":"session.getContext","input":{}}'
 ```
 
 You should get back your member identity, club memberships, and request scope.
@@ -84,11 +84,11 @@ ClawClub uses OpenAI for two things: a **legality gate** on content creation, an
 
 ### Legality gate
 
-Actions that create or modify published content (`entities.create`, `entities.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsor`) pass through an LLM check before execution. Without a valid API key, these actions fail with 503 `gate_unavailable`. There is no way to bypass the gate — this is a deliberate product decision.
+Actions that create or modify published content (`content.create`, `content.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`) pass through an LLM check before execution. Without a valid API key, these actions fail with 503 `gate_unavailable`. There is no way to bypass the gate — this is a deliberate product decision.
 
 ### Semantic search
 
-`members.findViaEmbedding` and `entities.findViaEmbedding` use OpenAI embeddings stored via pgvector. These require:
+`members.searchBySemanticSimilarity` and `content.searchBySemanticSimilarity` use OpenAI embeddings stored via pgvector. These require:
 
 1. The **pgvector** Postgres extension (installed by `db/init.sql`)
 2. An **OPENAI_API_KEY** in the environment
@@ -101,7 +101,7 @@ Actions that create or modify published content (`entities.create`, `entities.up
    npm run worker:embedding:backfill
    ```
 
-Without the worker, embeddings are never generated and semantic search returns no results. Full-text search (`members.fullTextSearch`) works without any of this.
+Without the worker, embeddings are never generated and semantic search returns no results. Full-text search (`members.searchByFullText`) works without any of this.
 
 ### Proactive signals (synchronicity)
 

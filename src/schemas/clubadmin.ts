@@ -92,7 +92,7 @@ type MembershipsReviewInput = {
 };
 
 const clubadminMembershipsReview: ActionDefinition = {
-  action: 'clubadmin.memberships.review',
+  action: 'clubadmin.memberships.listForReview',
   domain: 'clubadmin',
   description: 'List memberships pending review in the specified club.',
   auth: 'clubadmin',
@@ -218,7 +218,7 @@ type MembershipsTransitionInput = {
 };
 
 const clubadminMembershipsTransition: ActionDefinition = {
-  action: 'clubadmin.memberships.transition',
+  action: 'clubadmin.memberships.setStatus',
   domain: 'clubadmin',
   description: 'Transition a membership to a new status.',
   auth: 'clubadmin',
@@ -345,7 +345,7 @@ type AdmissionsTransitionInput = {
 };
 
 const clubadminAdmissionsTransition: ActionDefinition = {
-  action: 'clubadmin.admissions.transition',
+  action: 'clubadmin.admissions.setStatus',
   domain: 'clubadmin',
   description: 'Transition an admission to a new status.',
   auth: 'clubadmin',
@@ -410,7 +410,7 @@ const clubadminAdmissionsTransition: ActionDefinition = {
 // ── clubadmin.admissions.issueAccess ───────────────────
 
 const clubadminAdmissionsIssueAccess: ActionDefinition = {
-  action: 'clubadmin.admissions.issueAccess',
+  action: 'clubadmin.admissions.issueAccessToken',
   domain: 'clubadmin',
   description: 'Issue access credentials for an accepted admission.',
   auth: 'clubadmin',
@@ -466,7 +466,7 @@ const clubadminAdmissionsIssueAccess: ActionDefinition = {
 // ── clubadmin.clubs.stats ──────────────────────────────
 
 const clubadminClubsStats: ActionDefinition = {
-  action: 'clubadmin.clubs.stats',
+  action: 'clubadmin.clubs.getStatistics',
   domain: 'clubadmin',
   description: 'Get statistics for the specified club.',
   auth: 'clubadmin',
@@ -509,7 +509,7 @@ const clubadminClubsStats: ActionDefinition = {
 // ── clubadmin.entities.remove ─────────────────────────────
 
 const clubadminEntitiesRemove: ActionDefinition = {
-  action: 'clubadmin.entities.remove',
+  action: 'clubadmin.content.remove',
   domain: 'clubadmin',
   description: 'Remove any entity in the specified club (moderation).',
   auth: 'clubadmin',

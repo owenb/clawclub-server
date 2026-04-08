@@ -35,9 +35,9 @@ after(async () => {
 }, { timeout: 15_000 });
 
 describe('smoke', () => {
-  it('owner can call session.describe and see their club', async () => {
+  it('owner can call session.getContext and see their club', async () => {
     const owen = await h.seedOwner('smokeclub', 'SmokeClub');
-    const result = await h.apiOk(owen.token, 'session.describe', {});
+    const result = await h.apiOk(owen.token, 'session.getContext', {});
     const actor = result.actor as Record<string, unknown>;
     const memberships = actor.activeMemberships as Array<Record<string, unknown>>;
     assert.equal(memberships.length, 1);
@@ -61,7 +61,7 @@ describe('smoke', () => {
       }>;
     };
     assert.ok(data.version, 'schema should have a version');
-    assert.equal(data.actions.length, 70, 'schema should have all 70 actions');
+    assert.equal(data.actions.length, 69, 'schema should have all 69 actions');
 
     for (const a of data.actions) {
       assert.ok(a.input, `${a.action} should have input schema`);
@@ -78,8 +78,8 @@ describe('smoke', () => {
     assert.deepEqual(names, [...names].sort());
 
     // Verify key actions across all auth levels
-    assert.ok(names.includes('session.describe'), 'should include session.describe');
-    assert.ok(names.includes('entities.create'), 'should include entities.create');
+    assert.ok(names.includes('session.getContext'), 'should include session.getContext');
+    assert.ok(names.includes('content.create'), 'should include content.create');
     assert.ok(names.some(n => n.startsWith('clubadmin.')), 'should include clubadmin.*');
     assert.ok(names.some(n => n.startsWith('superadmin.')), 'should include superadmin.*');
     assert.ok(!names.some(n => n.startsWith('admin.')), 'should not include admin.*');
@@ -97,9 +97,9 @@ describe('smoke', () => {
     assert.match((body.error as any).message, /top-level/i);
   });
 
-  it('rejects top-level parameters outside input (entities.list)', async () => {
+  it('rejects top-level parameters outside input (content.list)', async () => {
     const owner = await h.seedOwner('transport-entities', 'TransportEntities');
-    const { status, body } = await rawPost(h.port, owner.token, { action: 'entities.list', clubId: owner.club.id });
+    const { status, body } = await rawPost(h.port, owner.token, { action: 'content.list', clubId: owner.club.id });
     assert.equal(status, 400);
     assert.match((body.error as any).message, /top-level/i);
   });
@@ -125,7 +125,7 @@ describe('smoke', () => {
   });
 
   it('accepts request without input key (treated as empty input)', async () => {
-    const { status, body } = await rawPost(h.port, null, { action: 'admissions.challenge' });
+    const { status, body } = await rawPost(h.port, null, { action: 'admissions.public.requestChallenge' });
     // Should be 400 from the ACTION's validation (missing clubSlug), not from transport validation.
     // The key indicator: if the transport rejected it, the error code would be 'invalid_input' with 'top-level'.
     // The action rejection gives 'invalid_input' about the missing required field.
@@ -143,7 +143,6 @@ describe('smoke', () => {
     const endpoints = transport.endpoints as Record<string, unknown>;
     assert.ok(endpoints.action, 'should have action endpoint');
     assert.ok(endpoints.schema, 'should have schema endpoint');
-    assert.ok(endpoints.updates, 'should have updates endpoint');
     assert.ok(endpoints.stream, 'should have stream endpoint');
 
     // Auth
@@ -164,8 +163,6 @@ describe('smoke', () => {
 
     // Updates
     const updates = transport.updates as Record<string, unknown>;
-    const polling = updates.polling as Record<string, unknown>;
-    assert.ok(polling.responseSchema, 'should have polling response schema');
     const stream = updates.stream as Record<string, unknown>;
     const events = stream.events as Record<string, unknown>;
     assert.ok(events.ready, 'should have stream ready event schema');
@@ -198,25 +195,25 @@ describe('smoke', () => {
 
   it('error response includes requestTemplate for wrong envelope', async () => {
     const owner = await h.seedOwner('template-envelope', 'TemplateEnvelope');
-    const { status, body } = await rawPost(h.port, owner.token, { action: 'session.describe', bogusKey: 'x' });
+    const { status, body } = await rawPost(h.port, owner.token, { action: 'session.getContext', bogusKey: 'x' });
     assert.equal(status, 400);
     const error = body.error as Record<string, unknown>;
     assert.equal(error.code, 'invalid_input');
     const template = error.requestTemplate as Record<string, unknown>;
     assert.ok(template, 'should include requestTemplate');
-    assert.equal(template.action, 'session.describe');
+    assert.equal(template.action, 'session.getContext');
     assert.ok(template.input !== undefined, 'template should have input');
   });
 
   it('error response includes requestTemplate for missing required fields', async () => {
     const owner = await h.seedOwner('template-fields', 'TemplateFields');
-    const { status, body } = await rawPost(h.port, owner.token, { action: 'entities.create', input: {} });
+    const { status, body } = await rawPost(h.port, owner.token, { action: 'content.create', input: {} });
     assert.equal(status, 400);
     const error = body.error as Record<string, unknown>;
     assert.equal(error.code, 'invalid_input');
     const template = error.requestTemplate as Record<string, unknown>;
     assert.ok(template, 'should include requestTemplate');
-    assert.equal(template.action, 'entities.create');
+    assert.equal(template.action, 'content.create');
     const input = template.input as Record<string, string>;
     assert.ok(input.clubId, 'template should show clubId');
     assert.ok(input.clubId.includes('required'), 'clubId should be marked required');

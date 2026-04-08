@@ -43,10 +43,16 @@ const updatesList: ActionDefinition = {
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { after, limit } = input as ListInput;
+    const { after: afterRaw, limit } = input as ListInput;
     ctx.requireCapability('listMemberUpdates');
 
     const clubIds = ctx.actor.memberships.map(m => m.clubId);
+
+    // Resolve 'latest' to the actual cursor so callers can skip backlog
+    const after = afterRaw === 'latest' && ctx.repository.getLatestCursor
+      ? await ctx.repository.getLatestCursor({ actorMemberId: ctx.actor.member.id, clubIds })
+      : afterRaw === 'latest' ? null : afterRaw;
+
     const updates = await ctx.repository.listMemberUpdates!({
       actorMemberId: ctx.actor.member.id,
       clubIds,

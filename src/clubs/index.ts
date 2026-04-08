@@ -38,7 +38,7 @@ export async function createVouch(pool: Pool, input: {
     id: string; from_member_id: string; from_public_name: string; from_handle: string | null;
     reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
   }>(
-    `insert into app.edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, client_key)
+    `insert into app.club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, client_key)
      values ($1::text, 'vouched_for', $2::text, $3::text, $4, $2::text, $5)
      returning id, from_member_id,
        (select public_name from app.members where id = from_member_id) as from_public_name,
@@ -71,7 +71,7 @@ export async function listVouches(pool: Pool, input: {
     `select e.id, e.from_member_id, m.public_name as from_public_name, m.handle as from_handle,
             e.reason, e.metadata,
             e.created_at::text as created_at, e.created_by_member_id
-     from app.edges e
+     from app.club_edges e
      join app.members m on m.id = e.from_member_id
      where e.club_id = any($1::text[]) and e.kind = 'vouched_for'
        and e.to_member_id = $2 and e.archived_at is null
@@ -99,7 +99,7 @@ export async function listVouches(pool: Pool, input: {
  * Actions not in this map are not supported for quota counting.
  */
 const QUOTA_ENTITY_KINDS: Record<string, string[]> = {
-  'entities.create': ['post', 'opportunity', 'service', 'ask'],
+  'content.create': ['post', 'opportunity', 'service', 'ask'],
   'events.create': ['event'],
 };
 
@@ -112,7 +112,7 @@ export async function enforceQuota(client: DbClient, memberId: string, clubId: s
   if (!kinds) return; // unsupported action for quota counting
 
   const result = await client.query<{ max_per_day: number }>(
-    `select max_per_day from app.quota_policies where club_id = $1 and action_name = $2`,
+    `select max_per_day from app.club_quota_policies where club_id = $1 and action_name = $2`,
     [clubId, action],
   );
   if (!result.rows[0]) return; // no policy = unlimited
@@ -142,7 +142,7 @@ export async function getQuotaStatus(pool: Pool, input: {
     action: string; club_id: string; max_per_day: number;
   }>(
     `select qp.action_name as action, qp.club_id, qp.max_per_day
-     from app.quota_policies qp
+     from app.club_quota_policies qp
      where qp.club_id = any($1::text[])
        and qp.action_name = any($2::text[])`,
     [input.clubIds, supportedActions],
@@ -178,7 +178,7 @@ export async function getQuotaStatus(pool: Pool, input: {
 
 export async function logLlmUsage(pool: Pool, input: LogLlmUsageInput): Promise<void> {
   await pool.query(
-    `insert into app.llm_usage_log (
+    `insert into app.ai_llm_usage_log (
        member_id, requested_club_id, action_name, gate_name, provider, model,
        gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code
      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
@@ -207,7 +207,7 @@ export async function listClubActivity(pool: Pool, input: {
   // Seed cursor if needed
   if (input.afterSeq == null) {
     const seedResult = await pool.query<{ max_seq: number }>(
-      `select coalesce(max(seq), 0)::int as max_seq from app.activity
+      `select coalesce(max(seq), 0)::int as max_seq from app.club_activity
        where club_id = any($1::text[])`,
       [input.clubIds],
     );
@@ -221,7 +221,7 @@ export async function listClubActivity(pool: Pool, input: {
   }>(
     `select seq, club_id, entity_id, entity_version_id, topic, payload,
             created_by_member_id, created_at::text as created_at, audience
-     from app.activity ca
+     from app.club_activity ca
      where ca.club_id = any($1::text[]) and ca.seq > $2
        and (
          ca.audience = 'members'

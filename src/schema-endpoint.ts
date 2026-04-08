@@ -16,7 +16,6 @@ import {
   authenticatedSuccessEnvelope,
   unauthenticatedSuccessEnvelope,
   errorEnvelope,
-  pollingResponse,
   sseReadyEvent,
 } from './schemas/transport.ts';
 import { pendingUpdate } from './schemas/responses.ts';
@@ -91,13 +90,12 @@ function buildTransport(): unknown {
     endpoints: {
       action: { method: 'POST', path: '/api', contentType: 'application/json' },
       schema: { method: 'GET', path: '/api/schema' },
-      updates: { method: 'GET', path: '/updates', contentType: 'application/json' },
       stream: { method: 'GET', path: '/updates/stream', contentType: 'text/event-stream' },
     },
     auth: {
       type: 'bearer',
       headerFormat: 'Authorization: Bearer cc_live_...',
-      unauthenticatedActions: ['admissions.challenge', 'admissions.apply'],
+      unauthenticatedActions: ['admissions.public.requestChallenge', 'admissions.public.submitApplication'],
     },
     requestEnvelope: {
       schema: {
@@ -108,7 +106,7 @@ function buildTransport(): unknown {
         },
         required: ['action'],
       },
-      example: { action: 'session.describe', input: {} },
+      example: { action: 'session.getContext', input: {} },
     },
     responseEnvelopes: {
       authenticatedSuccess: toRelaxedJsonSchema(authenticatedSuccessEnvelope),
@@ -116,13 +114,6 @@ function buildTransport(): unknown {
       error: toRelaxedJsonSchema(errorEnvelope),
     },
     updates: {
-      polling: {
-        queryParameters: {
-          limit: { type: 'integer', default: 10 },
-          after: { type: 'string', description: 'Opaque cursor or "latest"' },
-        },
-        responseSchema: toRelaxedJsonSchema(pollingResponse),
-      },
       stream: {
         queryParameters: {
           after: { type: 'string', description: 'Opaque cursor or "latest". Falls back to Last-Event-ID header if omitted.' },

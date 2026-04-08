@@ -5,8 +5,8 @@ import { z } from 'zod';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 const sessionDescribe: ActionDefinition = {
-  action: 'session.describe',
-  domain: 'platform',
+  action: 'session.getContext',
+  domain: 'session',
   description: 'Resolve the current member session, accessible clubs, and any pending update context.',
   auth: 'member',
   safety: 'read_only',

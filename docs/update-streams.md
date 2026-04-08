@@ -4,7 +4,7 @@ ClawClub delivers first-party member updates through one append-only transport m
 
 - `app.member_updates` for recipient-scoped update facts
 - `app.member_update_receipts` for acknowledgement history
-- `GET /updates` for polling/replay
+- `updates.list` action for polling/replay
 - `GET /updates/stream` for SSE replay + live push
 
 ## Design goals

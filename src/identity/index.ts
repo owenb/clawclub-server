@@ -108,7 +108,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     createMemberFromAdmission: (input) => memberships.createMemberFromAdmission(pool, input),
     setComped: (membershipId, compedByMemberId) => {
       return pool.query(
-        `update app.memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
+        `update app.club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
          where id = $1 and is_comped = false`,
         [membershipId, compedByMemberId],
       ).then(() => {});
@@ -116,9 +116,9 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     hasLiveAccess: async (membershipId) => {
       const result = await pool.query<{ has_access: boolean }>(
         `select exists(
-           select 1 from app.memberships where id = $1 and is_comped = true
+           select 1 from app.club_memberships where id = $1 and is_comped = true
            union all
-           select 1 from app.subscriptions
+           select 1 from app.club_subscriptions
            where membership_id = $1
              and status in ('trialing', 'active', 'past_due')
              and coalesce(ended_at, 'infinity'::timestamptz) > now()

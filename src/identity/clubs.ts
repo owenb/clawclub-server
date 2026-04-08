@@ -55,7 +55,7 @@ const SELECT_CLUB = `
   from app.clubs n
   join app.current_club_versions cv on cv.club_id = n.id
   join app.members m on m.id = cv.owner_member_id
-  left join app.private_contacts mpc on mpc.member_id = m.id
+  left join app.member_private_contacts mpc on mpc.member_id = m.id
 `;
 
 async function readClub(client: DbClient, clubId: string): Promise<ClubSummary | null> {
@@ -96,19 +96,19 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
     // Create owner's clubadmin membership + active state + comp
     await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
     const ownerMsResult = await client.query<{ id: string }>(
-      `insert into app.memberships (club_id, member_id, role, sponsor_member_id)
+      `insert into app.club_memberships (club_id, member_id, role, sponsor_member_id)
        values ($1::app.short_id, $2::app.short_id, 'clubadmin', null)
        returning id`,
       [clubId, input.ownerMemberId],
     );
     const ownerMsId = ownerMsResult.rows[0]!.id;
     await client.query(
-      `insert into app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+      `insert into app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        values ($1::app.short_id, 'active', 'club_created', 1, $2::app.short_id)`,
       [ownerMsId, input.actorMemberId],
     );
     await client.query(
-      `update app.memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
+      `update app.club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
        where id = $1 and is_comped = false`,
       [ownerMsId, input.actorMemberId],
     );
@@ -159,7 +159,7 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
     // 2. Ensure new owner has clubadmin membership
     await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
     await client.query(
-      `insert into app.memberships (club_id, member_id, role, sponsor_member_id)
+      `insert into app.club_memberships (club_id, member_id, role, sponsor_member_id)
        values ($1::app.short_id, $2::app.short_id, 'clubadmin', null)
        on conflict (club_id, member_id) do update set role = 'clubadmin', sponsor_member_id = null`,
       [input.clubId, input.ownerMemberId],
@@ -167,14 +167,14 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
 
     // 3. Ensure active membership state for new owner
     const newMsRows = await client.query<{ id: string }>(
-      `select id from app.memberships where club_id = $1 and member_id = $2`,
+      `select id from app.club_memberships where club_id = $1 and member_id = $2`,
       [input.clubId, input.ownerMemberId],
     );
     await client.query(
-      `insert into app.membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+      `insert into app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        select $1::app.short_id, 'active', 'owner_assignment',
               coalesce(max(version_no), 0) + 1, $2::app.short_id
-       from app.membership_state_versions where membership_id = $1::app.short_id`,
+       from app.club_membership_state_versions where membership_id = $1::app.short_id`,
       [newMsRows.rows[0]!.id, input.actorMemberId],
     );
 
@@ -182,7 +182,7 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
     if (current.current_owner_member_id !== input.ownerMemberId) {
       await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
       await client.query(
-        `update app.memberships set role = 'member', sponsor_member_id = $3
+        `update app.club_memberships set role = 'member', sponsor_member_id = $3
          where club_id = $1 and member_id = $2 and role = 'clubadmin'`,
         [input.clubId, current.current_owner_member_id, input.ownerMemberId],
       );
@@ -190,12 +190,12 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
 
       // 5. Comp demoted owner to retain access
       const oldMsRows = await client.query<{ id: string }>(
-        `select id from app.memberships where club_id = $1 and member_id = $2`,
+        `select id from app.club_memberships where club_id = $1 and member_id = $2`,
         [input.clubId, current.current_owner_member_id],
       );
       if (oldMsRows.rows[0]) {
         await client.query(
-          `update app.memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
+          `update app.club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
            where id = $1 and is_comped = false`,
           [oldMsRows.rows[0].id, input.ownerMemberId],
         );

@@ -384,8 +384,8 @@ describe('superadmin.clubs.assignOwner', () => {
       ownerMemberId: newOwner.id,
     });
 
-    // New owner should see the club in session.describe
-    const newOwnerSession = await h.apiOk(newOwner.token, 'session.describe', {});
+    // New owner should see the club in session.getContext
+    const newOwnerSession = await h.apiOk(newOwner.token, 'session.getContext', {});
     const newActor = newOwnerSession.actor as Record<string, unknown>;
     const newMemberships = (newActor.activeMemberships ?? []) as Array<Record<string, unknown>>;
     const newClubMembership = newMemberships.find((m) => m.clubId === oldOwnerCtx.club.id);
@@ -393,7 +393,7 @@ describe('superadmin.clubs.assignOwner', () => {
     assert.equal(newClubMembership!.role, 'clubadmin', 'new owner membership should have clubadmin role');
 
     // Old owner should still be a member but no longer owner
-    const oldOwnerSession = await h.apiOk(oldOwnerCtx.token, 'session.describe', {});
+    const oldOwnerSession = await h.apiOk(oldOwnerCtx.token, 'session.getContext', {});
     const oldActor = oldOwnerSession.actor as Record<string, unknown>;
     const oldMemberships = (oldActor.activeMemberships ?? []) as Array<Record<string, unknown>>;
     const oldClubMembership = oldMemberships.find((m) => m.clubId === oldOwnerCtx.club.id);
@@ -602,11 +602,11 @@ describe('superadmin.clubs.update', () => {
 
 // ── Admin Dashboard Actions ──────────────────────────────────────────────────
 
-describe('superadmin.overview', () => {
+describe('superadmin.platform.getOverview', () => {
   it('returns platform stats with correct shape', async () => {
     const admin = await h.seedSuperadmin('Admin Overview', 'admin-overview-test');
 
-    const result = await h.apiOk(admin.token, 'superadmin.overview', {});
+    const result = await h.apiOk(admin.token, 'superadmin.platform.getOverview', {});
     const data = result.data as Record<string, unknown>;
     const overview = data.overview as Record<string, unknown>;
     assert.ok(typeof overview.totalMembers === 'number');
@@ -621,9 +621,9 @@ describe('superadmin.overview', () => {
     assert.ok((overview.totalMembers as number) >= (overview.activeMembers as number), 'totalMembers >= activeMembers');
   });
 
-  it('non-superadmin cannot access superadmin.overview', async () => {
+  it('non-superadmin cannot access superadmin.platform.getOverview', async () => {
     const member = await h.seedMember('Regular Overview', 'regular-overview');
-    const err = await h.apiErr(member.token, 'superadmin.overview', {});
+    const err = await h.apiErr(member.token, 'superadmin.platform.getOverview', {});
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
@@ -702,13 +702,13 @@ describe('superadmin.members.get', () => {
   });
 });
 
-describe('clubadmin.clubs.stats', () => {
+describe('clubadmin.clubs.getStatistics', () => {
   it('returns club stats with member counts', async () => {
     const admin = await h.seedSuperadmin('Admin Stats', 'admin-clubs-stats');
     const ownerCtx = await h.seedOwner('stats-club', 'Stats Club');
     await h.seedClubMember(ownerCtx.club.id, 'Stats Member', 'stats-club-member', { sponsorId: ownerCtx.id });
 
-    const result = await h.apiOk(admin.token, 'clubadmin.clubs.stats', { clubId: ownerCtx.club.id });
+    const result = await h.apiOk(admin.token, 'clubadmin.clubs.getStatistics', { clubId: ownerCtx.club.id });
     const data = result.data as Record<string, unknown>;
     const stats = data.stats as Record<string, unknown>;
     assert.equal(stats.clubId, ownerCtx.club.id);
@@ -720,28 +720,28 @@ describe('clubadmin.clubs.stats', () => {
 
   it('rejects missing clubId', async () => {
     const admin = await h.seedSuperadmin('Admin StatsNoId', 'admin-stats-no-id');
-    const err = await h.apiErr(admin.token, 'clubadmin.clubs.stats', {});
+    const err = await h.apiErr(admin.token, 'clubadmin.clubs.getStatistics', {});
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
   });
 
   it('returns 404 for non-existent club', async () => {
     const admin = await h.seedSuperadmin('Admin StatsGhost', 'admin-stats-ghost');
-    const err = await h.apiErr(admin.token, 'clubadmin.clubs.stats', { clubId: 'nonexistent-club' });
+    const err = await h.apiErr(admin.token, 'clubadmin.clubs.getStatistics', { clubId: 'nonexistent-club' });
     assert.equal(err.status, 404);
   });
 
   it('regular member cannot access club stats', async () => {
     const ownerCtx = await h.seedOwner('stats-auth-club', 'Stats Auth Club');
     const member = await h.seedClubMember(ownerCtx.club.id, 'Stats Regular', 'stats-regular-member', { sponsorId: ownerCtx.id });
-    const err = await h.apiErr(member.token, 'clubadmin.clubs.stats', { clubId: ownerCtx.club.id });
+    const err = await h.apiErr(member.token, 'clubadmin.clubs.getStatistics', { clubId: ownerCtx.club.id });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
 
   it('club owner can access club stats', async () => {
     const ownerCtx = await h.seedOwner('stats-owner-club', 'Stats Owner Club');
-    const result = await h.apiOk(ownerCtx.token, 'clubadmin.clubs.stats', { clubId: ownerCtx.club.id });
+    const result = await h.apiOk(ownerCtx.token, 'clubadmin.clubs.getStatistics', { clubId: ownerCtx.club.id });
     const stats = (result.data as Record<string, unknown>).stats as Record<string, unknown>;
     assert.equal(stats.clubId, ownerCtx.club.id);
   });
@@ -770,7 +770,7 @@ describe('clubowner.members.promoteToAdmin', () => {
     const member = await h.seedClubMember(owner.club.id, 'Promo Access', 'promo-access', { sponsorId: owner.id });
 
     // Before promotion — regular member cannot access stats
-    const errBefore = await h.apiErr(member.token, 'clubadmin.clubs.stats', { clubId: owner.club.id });
+    const errBefore = await h.apiErr(member.token, 'clubadmin.clubs.getStatistics', { clubId: owner.club.id });
     assert.equal(errBefore.status, 403);
 
     // Promote
@@ -780,7 +780,7 @@ describe('clubowner.members.promoteToAdmin', () => {
     });
 
     // After promotion — now has admin access
-    const stats = await h.apiOk(member.token, 'clubadmin.clubs.stats', { clubId: owner.club.id });
+    const stats = await h.apiOk(member.token, 'clubadmin.clubs.getStatistics', { clubId: owner.club.id });
     const data = stats.data as Record<string, unknown>;
     assert.ok(data.stats);
   });
@@ -897,14 +897,14 @@ describe('clubowner.members.demoteFromAdmin', () => {
       clubId: owner.club.id,
       memberId: member.id,
     });
-    await h.apiOk(member.token, 'clubadmin.clubs.stats', { clubId: owner.club.id });
+    await h.apiOk(member.token, 'clubadmin.clubs.getStatistics', { clubId: owner.club.id });
 
     // Demote then verify loss of access
     await h.apiOk(owner.token, 'clubowner.members.demoteFromAdmin', {
       clubId: owner.club.id,
       memberId: member.id,
     });
-    const err = await h.apiErr(member.token, 'clubadmin.clubs.stats', { clubId: owner.club.id });
+    const err = await h.apiErr(member.token, 'clubadmin.clubs.getStatistics', { clubId: owner.club.id });
     assert.equal(err.status, 403);
   });
 
@@ -1006,10 +1006,10 @@ describe('superadmin.content.list', () => {
 });
 
 // superadmin.content.archive, superadmin.content.redact, superadmin.messages.redact
-// have been removed — superadmins use clubadmin.entities.remove, clubadmin.events.remove,
+// have been removed — superadmins use clubadmin.content.remove, clubadmin.events.remove,
 // clubadmin.messages.remove directly. See test/integration/removal.test.ts for coverage.
 
-describe('superadmin.messages.threads', () => {
+describe('superadmin.messages.listThreads', () => {
   it('lists threads across all clubs', async () => {
     const admin = await h.seedSuperadmin('Admin Threads', 'admin-msg-threads');
     const ownerCtx = await h.seedOwner('threads-club', 'Threads Club');
@@ -1021,7 +1021,7 @@ describe('superadmin.messages.threads', () => {
       messageText: 'Hello threads test!',
     });
 
-    const result = await h.apiOk(admin.token, 'superadmin.messages.threads', {
+    const result = await h.apiOk(admin.token, 'superadmin.messages.listThreads', {
       clubId: ownerCtx.club.id,
       limit: 10,
     });
@@ -1036,12 +1036,12 @@ describe('superadmin.messages.threads', () => {
 
   it('non-superadmin cannot list admin threads', async () => {
     const member = await h.seedMember('Regular Threads', 'regular-threads');
-    const err = await h.apiErr(member.token, 'superadmin.messages.threads', { limit: 10 });
+    const err = await h.apiErr(member.token, 'superadmin.messages.listThreads', { limit: 10 });
     assert.equal(err.status, 403);
   });
 });
 
-describe('superadmin.messages.read', () => {
+describe('superadmin.messages.getThread', () => {
   it('reads any thread', async () => {
     const admin = await h.seedSuperadmin('Admin Read Thread', 'admin-msg-read');
     const ownerCtx = await h.seedOwner('read-thread-club', 'Read Thread Club');
@@ -1056,7 +1056,7 @@ describe('superadmin.messages.read', () => {
     const msg = sendData.message as Record<string, unknown>;
     const threadId = msg.threadId as string;
 
-    const result = await h.apiOk(admin.token, 'superadmin.messages.read', { threadId });
+    const result = await h.apiOk(admin.token, 'superadmin.messages.getThread', { threadId });
     const data = result.data as Record<string, unknown>;
     const thread = data.thread as Record<string, unknown>;
     assert.equal(thread.threadId, threadId);
@@ -1068,24 +1068,24 @@ describe('superadmin.messages.read', () => {
 
   it('returns 404 for non-existent thread', async () => {
     const admin = await h.seedSuperadmin('Admin ReadGhost', 'admin-read-ghost-thread');
-    const err = await h.apiErr(admin.token, 'superadmin.messages.read', { threadId: 'nonexistent-thread-id' });
+    const err = await h.apiErr(admin.token, 'superadmin.messages.getThread', { threadId: 'nonexistent-thread-id' });
     assert.equal(err.status, 404);
     assert.equal(err.code, 'not_found');
   });
 
   it('non-superadmin cannot read admin threads', async () => {
     const member = await h.seedMember('Regular Read', 'regular-read-thread');
-    const err = await h.apiErr(member.token, 'superadmin.messages.read', { threadId: 'fake-thread-id' });
+    const err = await h.apiErr(member.token, 'superadmin.messages.getThread', { threadId: 'fake-thread-id' });
     assert.equal(err.status, 403);
   });
 });
 
-describe('superadmin.tokens.list', () => {
+describe('superadmin.accessTokens.list', () => {
   it('lists tokens for any member', async () => {
     const admin = await h.seedSuperadmin('Admin Token List', 'admin-tokens-list');
     const member = await h.seedMember('Token Listed Member', 'token-listed-member');
 
-    const result = await h.apiOk(admin.token, 'superadmin.tokens.list', { memberId: member.id });
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.list', { memberId: member.id });
     const data = result.data as Record<string, unknown>;
     const tokens = data.tokens as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(tokens));
@@ -1096,7 +1096,7 @@ describe('superadmin.tokens.list', () => {
 
   it('rejects missing memberId', async () => {
     const admin = await h.seedSuperadmin('Admin TokenNoId', 'admin-tokens-no-id');
-    const err = await h.apiErr(admin.token, 'superadmin.tokens.list', {});
+    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.list', {});
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
   });
@@ -1104,23 +1104,23 @@ describe('superadmin.tokens.list', () => {
   it('non-superadmin cannot list other members tokens', async () => {
     const member = await h.seedMember('Regular Tokens', 'regular-tokens-list');
     const target = await h.seedMember('Target Tokens', 'target-tokens-list');
-    const err = await h.apiErr(member.token, 'superadmin.tokens.list', { memberId: target.id });
+    const err = await h.apiErr(member.token, 'superadmin.accessTokens.list', { memberId: target.id });
     assert.equal(err.status, 403);
   });
 });
 
-describe('superadmin.tokens.revoke', () => {
+describe('superadmin.accessTokens.revoke', () => {
   it('revokes any member token', async () => {
     const admin = await h.seedSuperadmin('Admin Revoke Token', 'admin-tokens-revoke');
     const member = await h.seedMember('Revoke Target Member', 'revoke-target-member');
 
-    const listResult = await h.apiOk(admin.token, 'superadmin.tokens.list', { memberId: member.id });
+    const listResult = await h.apiOk(admin.token, 'superadmin.accessTokens.list', { memberId: member.id });
     const listData = listResult.data as Record<string, unknown>;
     const tokens = listData.tokens as Array<Record<string, unknown>>;
     const tokenId = tokens[0]?.tokenId as string;
     assert.ok(tokenId, 'member should have at least one token');
 
-    const result = await h.apiOk(admin.token, 'superadmin.tokens.revoke', {
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.revoke', {
       memberId: member.id,
       tokenId,
     });
@@ -1130,14 +1130,14 @@ describe('superadmin.tokens.revoke', () => {
     assert.ok(revokedToken.revokedAt !== null, 'revokedAt should be set');
 
     // Revoked token should no longer authenticate
-    const { status } = await h.api(member.token, 'session.describe', {});
+    const { status } = await h.api(member.token, 'session.getContext', {});
     assert.equal(status, 401, 'revoked token should be rejected');
   });
 
   it('non-superadmin cannot revoke other members tokens', async () => {
     const member = await h.seedMember('Regular Revoke', 'regular-revoke-tokens');
     const target = await h.seedMember('Revoke Target', 'revoke-target-tokens');
-    const err = await h.apiErr(member.token, 'superadmin.tokens.revoke', {
+    const err = await h.apiErr(member.token, 'superadmin.accessTokens.revoke', {
       memberId: target.id,
       tokenId: 'fake-token-id',
     });
@@ -1145,11 +1145,11 @@ describe('superadmin.tokens.revoke', () => {
   });
 });
 
-describe('superadmin.diagnostics.health', () => {
+describe('superadmin.diagnostics.getHealth', () => {
   it('returns diagnostics with correct shape', async () => {
     const admin = await h.seedSuperadmin('Admin Diag', 'admin-diag-health');
 
-    const result = await h.apiOk(admin.token, 'superadmin.diagnostics.health', {});
+    const result = await h.apiOk(admin.token, 'superadmin.diagnostics.getHealth', {});
     const data = result.data as Record<string, unknown>;
     const diagnostics = data.diagnostics as Record<string, unknown>;
     assert.ok(typeof diagnostics.migrationCount === 'number');
@@ -1163,7 +1163,7 @@ describe('superadmin.diagnostics.health', () => {
 
   it('non-superadmin cannot access diagnostics', async () => {
     const member = await h.seedMember('Regular Diag', 'regular-diag');
-    const err = await h.apiErr(member.token, 'superadmin.diagnostics.health', {});
+    const err = await h.apiErr(member.token, 'superadmin.diagnostics.getHealth', {});
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
   });
@@ -1171,11 +1171,11 @@ describe('superadmin.diagnostics.health', () => {
 
 // ── Token Lifecycle ──────────────────────────────────────────────────────────
 
-describe('tokens.list', () => {
+describe('accessTokens.list', () => {
   it('member sees their own tokens', async () => {
     const member = await h.seedMember('Token Lister', 'token-lister-member');
 
-    const result = await h.apiOk(member.token, 'tokens.list', {});
+    const result = await h.apiOk(member.token, 'accessTokens.list', {});
     const data = result.data as Record<string, unknown>;
     const tokens = data.tokens as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(tokens));
@@ -1184,11 +1184,11 @@ describe('tokens.list', () => {
   });
 });
 
-describe('tokens.create', () => {
+describe('accessTokens.create', () => {
   it('member creates new token; new token works', async () => {
     const member = await h.seedMember('Token Creator', 'token-creator-member');
 
-    const createResult = await h.apiOk(member.token, 'tokens.create', { label: 'my-new-token' });
+    const createResult = await h.apiOk(member.token, 'accessTokens.create', { label: 'my-new-token' });
     const data = createResult.data as Record<string, unknown>;
     const tokenSummary = data.token as Record<string, unknown>;
     const newBearerToken = data.bearerToken as string;
@@ -1198,7 +1198,7 @@ describe('tokens.create', () => {
     assert.equal(tokenSummary.memberId, member.id);
 
     // Verify the new token actually works
-    const sessionResult = await h.apiOk(newBearerToken, 'session.describe', {});
+    const sessionResult = await h.apiOk(newBearerToken, 'session.getContext', {});
     assert.ok(sessionResult.ok !== false, 'new token should authenticate successfully');
     const actor = sessionResult.actor as Record<string, unknown>;
     const actorMember = actor.member as Record<string, unknown>;
@@ -1206,29 +1206,29 @@ describe('tokens.create', () => {
   });
 });
 
-describe('tokens.revoke', () => {
+describe('accessTokens.revoke', () => {
   it('member revokes token; revoked token stops working', async () => {
     const member = await h.seedMember('Token Revoker', 'token-revoker-member');
 
     // Create a second token to revoke
-    const createResult = await h.apiOk(member.token, 'tokens.create', { label: 'to-revoke' });
+    const createResult = await h.apiOk(member.token, 'accessTokens.create', { label: 'to-revoke' });
     const data = createResult.data as Record<string, unknown>;
     const tokenSummary = data.token as Record<string, unknown>;
     const tokenToRevoke = data.bearerToken as string;
     const tokenId = tokenSummary.tokenId as string;
 
     // Confirm it works before revocation
-    await h.apiOk(tokenToRevoke, 'session.describe', {});
+    await h.apiOk(tokenToRevoke, 'session.getContext', {});
 
     // Revoke it
-    const revokeResult = await h.apiOk(member.token, 'tokens.revoke', { tokenId });
+    const revokeResult = await h.apiOk(member.token, 'accessTokens.revoke', { tokenId });
     const revokeData = revokeResult.data as Record<string, unknown>;
     const revokedToken = revokeData.token as Record<string, unknown>;
     assert.equal(revokedToken.tokenId, tokenId);
     assert.ok(revokedToken.revokedAt !== null, 'revokedAt should be set after revocation');
 
     // Token should now be rejected
-    const { status } = await h.api(tokenToRevoke, 'session.describe', {});
+    const { status } = await h.api(tokenToRevoke, 'session.getContext', {});
     assert.equal(status, 401, 'revoked token should no longer be accepted');
   });
 
@@ -1237,23 +1237,23 @@ describe('tokens.revoke', () => {
     const memberB = await h.seedMember('Revoke B', 'revoke-cross-b');
 
     // Get memberB's token ID
-    const listResult = await h.apiOk(memberB.token, 'tokens.list', {});
+    const listResult = await h.apiOk(memberB.token, 'accessTokens.list', {});
     const tokens = (listResult.data as Record<string, unknown>).tokens as Array<Record<string, unknown>>;
     const tokenId = tokens[0]?.tokenId as string;
 
     // memberA tries to revoke memberB's token
-    const err = await h.apiErr(memberA.token, 'tokens.revoke', { tokenId });
+    const err = await h.apiErr(memberA.token, 'accessTokens.revoke', { tokenId });
     assert.equal(err.status, 404, 'should not find token outside own scope');
   });
 });
 
 // ── Quotas ───────────────────────────────────────────────────────────────────
 
-describe('quotas.status', () => {
+describe('quotas.getUsage', () => {
   it('returns quota info for club members', async () => {
     const ownerCtx = await h.seedOwner('quota-club', 'Quota Club');
 
-    const result = await h.apiOk(ownerCtx.token, 'quotas.status', {});
+    const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});
     const data = result.data as Record<string, unknown>;
     const quotas = data.quotas as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(quotas));
@@ -1270,14 +1270,14 @@ describe('quotas.status', () => {
     const ownerCtx = await h.seedOwner('quota-supported', 'Quota Supported Club');
     // Seed all three action types to verify filtering
     await h.sqlClubs(
-      `insert into app.quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
+      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 20), ($1, 'events.create', 10)`,
       [ownerCtx.club.id],
     );
 
-    const result = await h.apiOk(ownerCtx.token, 'quotas.status', {});
+    const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
     const actions = quotas.map((q) => q.action);
-    assert.ok(actions.includes('entities.create'));
+    assert.ok(actions.includes('content.create'));
     assert.ok(actions.includes('events.create'));
     assert.ok(!actions.includes('messages.send'), 'messages.send should not be in quota status');
   });
@@ -1286,7 +1286,7 @@ describe('quotas.status', () => {
     const ownerCtx = await h.seedOwner('quota-kind-isolation', 'Quota Kind Club');
     // Seed quotas for both actions
     await h.sqlClubs(
-      `insert into app.quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
+      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 20), ($1, 'events.create', 10)`,
       [ownerCtx.club.id],
     );
 
@@ -1300,21 +1300,21 @@ describe('quotas.status', () => {
       );
     }
 
-    const result = await h.apiOk(ownerCtx.token, 'quotas.status', {});
+    const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
-    const entityQuota = quotas.find((q) => q.action === 'entities.create' && q.clubId === ownerCtx.club.id);
+    const entityQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
     const eventQuota = quotas.find((q) => q.action === 'events.create' && q.clubId === ownerCtx.club.id);
 
-    assert.ok(entityQuota, 'entities.create quota should exist');
-    assert.equal(entityQuota!.usedToday, 2, 'entities.create should count the 2 posts');
+    assert.ok(entityQuota, 'content.create quota should exist');
+    assert.equal(entityQuota!.usedToday, 2, 'content.create should count the 2 posts');
     assert.ok(eventQuota, 'events.create quota should exist');
     assert.equal(eventQuota!.usedToday, 0, 'events.create should be 0 (no events created)');
   });
 
-  it('events do NOT consume entities.create quota', async () => {
+  it('events do NOT consume content.create quota', async () => {
     const ownerCtx = await h.seedOwner('quota-event-isolation', 'Quota Event Club');
     await h.sqlClubs(
-      `insert into app.quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 20), ($1, 'events.create', 10)`,
+      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 20), ($1, 'events.create', 10)`,
       [ownerCtx.club.id],
     );
 
@@ -1326,24 +1326,24 @@ describe('quotas.status', () => {
       [ownerCtx.club.id, ownerCtx.id],
     );
 
-    const result = await h.apiOk(ownerCtx.token, 'quotas.status', {});
+    const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
-    const entityQuota = quotas.find((q) => q.action === 'entities.create' && q.clubId === ownerCtx.club.id);
+    const entityQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
     const eventQuota = quotas.find((q) => q.action === 'events.create' && q.clubId === ownerCtx.club.id);
 
-    assert.equal(entityQuota!.usedToday, 0, 'entities.create should be 0 (no posts created)');
+    assert.equal(entityQuota!.usedToday, 0, 'content.create should be 0 (no posts created)');
     assert.equal(eventQuota!.usedToday, 1, 'events.create should count the 1 event');
   });
 
   it('quota enforcement is kind-specific (posts do not block events)', async () => {
     const ownerCtx = await h.seedOwner('quota-enforce-kind', 'Quota Enforce Club');
-    // Set entities.create max to 1 (not events)
+    // Set content.create max to 1 (not events)
     await h.sqlClubs(
-      `insert into app.quota_policies (club_id, action_name, max_per_day) values ($1, 'entities.create', 1)`,
+      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 1)`,
       [ownerCtx.club.id],
     );
 
-    // Create one event via SQL — should NOT consume the entities.create quota
+    // Create one event via SQL — should NOT consume the content.create quota
     await h.sqlClubs(
       `with ent as (insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id)
        insert into app.entity_versions (entity_id, version_no, state, title, summary, location, starts_at, created_by_member_id)
@@ -1351,13 +1351,13 @@ describe('quotas.status', () => {
       [ownerCtx.club.id, ownerCtx.id],
     );
 
-    // Verify entities.create quota is still at 0 used (the event didn't consume it)
-    const result = await h.apiOk(ownerCtx.token, 'quotas.status', {});
+    // Verify content.create quota is still at 0 used (the event didn't consume it)
+    const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
-    const entityQuota = quotas.find((q) => q.action === 'entities.create' && q.clubId === ownerCtx.club.id);
+    const entityQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
     assert.ok(entityQuota);
-    assert.equal(entityQuota!.usedToday, 0, 'event should not consume entities.create quota');
-    assert.equal(entityQuota!.remaining, 1, 'entities.create should still have full quota');
+    assert.equal(entityQuota!.usedToday, 0, 'event should not consume content.create quota');
+    assert.equal(entityQuota!.remaining, 1, 'content.create should still have full quota');
   });
 });
 
@@ -1371,16 +1371,16 @@ describe('platform authorization', () => {
       ['superadmin.clubs.create', { slug: 'x', name: 'X', summary: 'X', ownerMemberId: 'x' }],
       ['superadmin.clubs.archive', { clubId: 'x' }],
       ['superadmin.clubs.assignOwner', { clubId: 'x', ownerMemberId: 'x' }],
-      ['superadmin.overview', {}],
+      ['superadmin.platform.getOverview', {}],
       ['superadmin.members.list', { limit: 1 }],
       ['superadmin.members.get', { memberId: 'x' }],
-      ['clubadmin.clubs.stats', { clubId: 'x' }],
+      ['clubadmin.clubs.getStatistics', { clubId: 'x' }],
       ['superadmin.content.list', { limit: 1 }],
-      ['superadmin.messages.threads', { limit: 1 }],
-      ['superadmin.messages.read', { threadId: 'x' }],
-      ['superadmin.tokens.list', { memberId: 'x' }],
-      ['superadmin.tokens.revoke', { memberId: 'x', tokenId: 'x' }],
-      ['superadmin.diagnostics.health', {}],
+      ['superadmin.messages.listThreads', { limit: 1 }],
+      ['superadmin.messages.getThread', { threadId: 'x' }],
+      ['superadmin.accessTokens.list', { memberId: 'x' }],
+      ['superadmin.accessTokens.revoke', { memberId: 'x', tokenId: 'x' }],
+      ['superadmin.diagnostics.getHealth', {}],
     ] as const;
 
     for (const [action, input] of superadminActions) {
@@ -1401,12 +1401,12 @@ describe('platform authorization', () => {
   });
 });
 
-// ── superadmin.members.create handle validation ─────────────────────────────
+// ── superadmin.members.createWithAccessToken handle validation ───────────────
 
-describe('superadmin.members.create handle validation', () => {
+describe('superadmin.members.createWithAccessToken handle validation', () => {
   it('rejects invalid explicit handles', async () => {
     const admin = await h.seedSuperadmin('Handle Admin', 'handle-admin');
-    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Bad Handle User',
       handle: 'Bad Handle!!!',
     });
@@ -1417,7 +1417,7 @@ describe('superadmin.members.create handle validation', () => {
 
   it('accepts valid explicit handles', async () => {
     const admin = await h.seedSuperadmin('Handle Admin OK', 'handle-admin-ok');
-    const result = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Good Handle User',
       handle: 'good-handle-42',
     });
@@ -1427,7 +1427,7 @@ describe('superadmin.members.create handle validation', () => {
 
   it('auto-generates handle when omitted', async () => {
     const admin = await h.seedSuperadmin('Handle Admin Auto', 'handle-admin-auto');
-    const result = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Auto Handle User',
     });
     const member = (result.data as Record<string, unknown>).member as Record<string, unknown>;

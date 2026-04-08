@@ -34,7 +34,7 @@ values
   (:'owner_membership_id', 'active', 1, :'owner_id'),
   (:'member_membership_id', 'active', 1, :'owner_id');
 
-insert into app.subscriptions (membership_id, payer_member_id, amount)
+insert into app.club_subscriptions (membership_id, payer_member_id, amount)
 values (:'member_membership_id', :'owner_id', 25);
 
 insert into app.member_profile_versions (member_id, version_no, display_name, what_i_do, known_for)
@@ -82,10 +82,10 @@ returning id as complaint_entity_id \gset
 insert into app.entity_versions (entity_id, version_no, title, body, created_by_member_id)
 values (:'complaint_entity_id', 1, 'Noise concern', 'Complaint logged for review', :'owner_id');
 
-insert into app.edges (club_id, kind, from_entity_id, to_entity_id, created_by_member_id, reason)
+insert into app.club_edges (club_id, kind, from_entity_id, to_entity_id, created_by_member_id, reason)
 values (:'club_id', 'about', :'complaint_entity_id', :'post_entity_id', :'owner_id', 'Complaint refers to the Lisbon post');
 
-insert into app.edges (club_id, kind, from_member_id, to_member_id, created_by_member_id, reason)
+insert into app.club_edges (club_id, kind, from_member_id, to_member_id, created_by_member_id, reason)
 values (:'club_id', 'vouched_for', :'owner_id', :'member_id', :'owner_id', 'Trusts follow-through');
 
 insert into app.event_rsvps (event_entity_id, membership_id, response, note)

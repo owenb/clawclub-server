@@ -6,6 +6,7 @@ ClawClub an agent-first platform, where agents are the primary API consumers.
 
 - **Never change the OpenAI model name.** The model is `gpt-5.4-nano`. Do not rename, swap, or "upgrade" it under any circumstances. It is set in `src/ai.ts` as `CLAWCLUB_OPENAI_MODEL`.
 - **Never use destructive git commands on the working tree.** Do not run `git checkout --`, `git restore`, `git clean`, `rm` on tracked/untracked files, or `git stash` unless explicitly asked. The working tree contains uncommitted work from multiple concurrent agents. Leave files you did not create alone.
+- **Always bump the patch version in `package.json` before committing.** Increment the third number (e.g. `0.2.0` → `0.2.1`). If multiple commits land in one session, bump once at commit time — don't skip it.
 
 ## Local development
 
@@ -36,7 +37,7 @@ Tests are split into two suites:
 
 **Non-LLM** (`test:integration:non-llm`) — tests every action that does not pass through the legality gate. No OpenAI key needed. Fast and free. Files: `smoke`, `memberships`, `messages`, `profiles`, `admin`, `admissions`.
 
-**With-LLM** (`test:integration:with-llm`) — tests actions gated by the LLM legality gate (`entities.create`, `entities.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsor`). Runs through the real LLM exactly as production does. The OPENAI_API_KEY is loaded from `.env.local`. Files: `content`, `llm-gated`, `quality-gate`.
+**With-LLM** (`test:integration:with-llm`) — tests actions gated by the LLM legality gate (`content.create`, `content.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`). Runs through the real LLM exactly as production does. The OPENAI_API_KEY is loaded from `.env.local`. Files: `content`, `llm-gated`, `quality-gate`.
 
 **Requires:** Local Postgres running on `localhost`.
 

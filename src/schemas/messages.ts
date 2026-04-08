@@ -1,5 +1,5 @@
 /**
- * Action contracts: messages.send, messages.list, messages.read, messages.inbox, messages.remove
+ * Action contracts: messages.send, messages.getInbox, messages.getThread, messages.remove
  *
  * DMs are not club-scoped. Clubs are only an eligibility check:
  * two members may DM if they currently share at least one club.
@@ -75,105 +75,15 @@ const messagesSend: ActionDefinition = {
   },
 };
 
-// ── messages.list ───────────────────────────────────────
+// ── messages.getInbox ───────────────────────────────────
 
-type ListInput = {
-  limit: number;
-};
-
-const messagesList: ActionDefinition = {
-  action: 'messages.list',
-  domain: 'messages',
-  description: 'List DM threads. Returns all threads regardless of club context.',
-  auth: 'member',
-  safety: 'read_only',
-
-  wire: {
-    input: z.object({
-      limit: wireLimit,
-    }),
-    output: z.object({
-      limit: z.number(),
-      results: z.array(directMessageThreadSummary),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      limit: parseLimit,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { limit } = input as ListInput;
-
-    const results = await ctx.repository.listDirectMessageThreads({
-      actorMemberId: ctx.actor.member.id,
-      limit,
-    });
-
-    return { data: { limit, results } };
-  },
-};
-
-// ── messages.read ───────────────────────────────────────
-
-type ReadInput = {
-  threadId: string;
-  limit: number;
-};
-
-const messagesRead: ActionDefinition = {
-  action: 'messages.read',
-  domain: 'messages',
-  description: 'Read a DM thread. Only participants can read a thread.',
-  auth: 'member',
-  safety: 'read_only',
-
-  wire: {
-    input: z.object({
-      threadId: wireRequiredString.describe('Thread ID to read'),
-      limit: wireLimit,
-    }),
-    output: z.object({
-      thread: directMessageThreadSummary,
-      messages: z.array(directMessageEntry),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      threadId: parseRequiredString,
-      limit: parseLimit,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { threadId, limit } = input as ReadInput;
-
-    const result = await ctx.repository.readDirectMessageThread({
-      actorMemberId: ctx.actor.member.id,
-      threadId,
-      limit,
-    });
-
-    if (!result) {
-      throw new AppError(404, 'not_found', 'Thread not found or not a participant');
-    }
-
-    return { data: result };
-  },
-};
-
-// ── messages.inbox ──────────────────────────────────────
-
-type InboxInput = {
+type GetInboxInput = {
   limit: number;
   unreadOnly: boolean;
 };
 
-const messagesInbox: ActionDefinition = {
-  action: 'messages.inbox',
+const messagesGetInbox: ActionDefinition = {
+  action: 'messages.getInbox',
   domain: 'messages',
   description: 'List DM inbox with unread counts. Returns all threads regardless of club context.',
   auth: 'member',
@@ -199,7 +109,7 @@ const messagesInbox: ActionDefinition = {
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { limit, unreadOnly } = input as InboxInput;
+    const { limit, unreadOnly } = input as GetInboxInput;
 
     const results = await ctx.repository.listDirectMessageInbox({
       actorMemberId: ctx.actor.member.id,
@@ -208,6 +118,55 @@ const messagesInbox: ActionDefinition = {
     });
 
     return { data: { limit, unreadOnly, results } };
+  },
+};
+
+// ── messages.getThread ──────────────────────────────────
+
+type GetThreadInput = {
+  threadId: string;
+  limit: number;
+};
+
+const messagesGetThread: ActionDefinition = {
+  action: 'messages.getThread',
+  domain: 'messages',
+  description: 'Read a DM thread. Only participants can read a thread.',
+  auth: 'member',
+  safety: 'read_only',
+
+  wire: {
+    input: z.object({
+      threadId: wireRequiredString.describe('Thread ID to read'),
+      limit: wireLimit,
+    }),
+    output: z.object({
+      thread: directMessageThreadSummary,
+      messages: z.array(directMessageEntry),
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      threadId: parseRequiredString,
+      limit: parseLimit,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { threadId, limit } = input as GetThreadInput;
+
+    const result = await ctx.repository.readDirectMessageThread({
+      actorMemberId: ctx.actor.member.id,
+      threadId,
+      limit,
+    });
+
+    if (!result) {
+      throw new AppError(404, 'not_found', 'Thread not found or not a participant');
+    }
+
+    return { data: result };
   },
 };
 
@@ -262,4 +221,4 @@ const messagesRemove: ActionDefinition = {
   },
 };
 
-registerActions([messagesSend, messagesList, messagesRead, messagesInbox, messagesRemove]);
+registerActions([messagesSend, messagesGetInbox, messagesGetThread, messagesRemove]);

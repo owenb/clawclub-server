@@ -616,10 +616,10 @@ test('session.describe returns the canonical actor session envelope once', async
   const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'session.describe',
+    action: 'session.getContext',
   });
 
-  assert.equal(result.action, 'session.describe');
+  assert.equal(result.action, 'session.getContext');
   assert.equal(result.actor.member.id, 'member-1');
   assert.deepEqual(result.actor.globalRoles, ['superadmin']);
   assert.equal(result.actor.activeMemberships.length, 2);
@@ -776,7 +776,7 @@ test('memberships.review defaults to admissions-focused statuses and returns spo
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'clubadmin.memberships.review',
+    action: 'clubadmin.memberships.listForReview',
     payload: {
       clubId: 'club-2',
       limit: 3,
@@ -789,7 +789,7 @@ test('memberships.review defaults to admissions-focused statuses and returns spo
     limit: 3,
     statuses: ['invited', 'pending_review'],
   });
-  assert.equal(result.action, 'clubadmin.memberships.review');
+  assert.equal(result.action, 'clubadmin.memberships.listForReview');
   assert.equal(result.data.results[0]?.sponsorStats.sponsoredThisMonthCount, 2);
   assert.equal(result.data.results[0]?.vouches[0]?.fromMember.memberId, 'member-2');
 });
@@ -865,7 +865,7 @@ test('memberships.transition appends a new membership state version inside owner
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'clubadmin.memberships.transition',
+    action: 'clubadmin.memberships.setStatus',
     payload: {
       clubId: 'club-2',
       membershipId: 'membership-10',
@@ -882,7 +882,7 @@ test('memberships.transition appends a new membership state version inside owner
     accessibleClubIds: ['club-2'],
     skipClubAdminCheck: true,
   });
-  assert.equal(result.action, 'clubadmin.memberships.transition');
+  assert.equal(result.action, 'clubadmin.memberships.setStatus');
   assert.equal(result.data.membership.state.versionNo, 2);
   assert.equal(result.data.membership.state.status, 'active');
 });
@@ -949,7 +949,7 @@ test('admissions.transition can append accepted interview state and activate the
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'clubadmin.admissions.transition',
+    action: 'clubadmin.admissions.setStatus',
     payload: {
       clubId: 'club-2',
       admissionId: 'application-9',
@@ -971,7 +971,7 @@ test('admissions.transition can append accepted interview state and activate the
     },
     metadataPatch: { outcome: 'strong_yes' },
   });
-  assert.equal(result.action, 'clubadmin.admissions.transition');
+  assert.equal(result.action, 'clubadmin.admissions.setStatus');
   assert.equal(result.data.admission.state.versionNo, 3);
   assert.equal(result.data.admission.membershipId, 'membership-10');
 });
@@ -996,11 +996,11 @@ test('admissions.challenge creates a cold application challenge bound to a club'
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: null,
-    action: 'admissions.challenge',
+    action: 'admissions.public.requestChallenge',
     payload: { clubSlug: 'alpha' },
   });
 
-  assert.equal(result.action, 'admissions.challenge');
+  assert.equal(result.action, 'admissions.public.requestChallenge');
   assert.equal(result.data.challengeId, 'challenge-1');
   assert.equal(result.data.difficulty, 7);
   assert.equal(result.data.maxAttempts, 5);
@@ -1025,7 +1025,7 @@ test('admissions.apply submits a cold application with all required fields', asy
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: null,
-    action: 'admissions.apply',
+    action: 'admissions.public.submitApplication',
     payload: {
       challengeId: 'challenge-1',
       nonce: '183729471',
@@ -1044,7 +1044,7 @@ test('admissions.apply submits a cold application with all required fields', asy
     socials: '@janedoe',
     application: 'Love the community',
   });
-  assert.equal(result.action, 'admissions.apply');
+  assert.equal(result.action, 'admissions.public.submitApplication');
   assert.equal(result.data.status, 'accepted');
   assert.equal('actor' in result, false);
 });
@@ -1125,7 +1125,7 @@ test('members.fullTextSearch narrows scope when a permitted club is requested', 
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'members.fullTextSearch',
+    action: 'members.searchByFullText',
     payload: {
       query: 'Chris',
       clubId: 'club-2',
@@ -1133,7 +1133,7 @@ test('members.fullTextSearch narrows scope when a permitted club is requested', 
     },
   });
 
-  assert.equal(result.action, 'members.fullTextSearch');
+  assert.equal(result.action, 'members.searchByFullText');
   assert.deepEqual(capturedClubIds, ['club-2']);
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.equal(result.data.clubScope.length, 1);
@@ -1522,7 +1522,7 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'entities.create',
+    action: 'content.create',
     payload: {
       clubId: 'club-2',
       kind: 'service',
@@ -1545,7 +1545,7 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
     content: { priceHint: '£120/hour' },
     clientKey: null,
   });
-  assert.equal(result.action, 'entities.create');
+  assert.equal(result.action, 'content.create');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.entity.kind, 'service');
@@ -1612,7 +1612,7 @@ test('entities.update appends a new version on the shared entity surface', async
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'entities.update',
+    action: 'content.update',
     payload: {
       entityId: 'entity-1',
       title: 'Hello again',
@@ -1631,7 +1631,7 @@ test('entities.update appends a new version on the shared entity surface', async
       content: { mood: 'fresh' },
     },
   });
-  assert.equal(result.action, 'entities.update');
+  assert.equal(result.action, 'content.update');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.entity.entityVersionId, 'entity-version-2');
@@ -1701,7 +1701,7 @@ test('entities.remove appends a removed version on the shared entity surface', a
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'entities.remove',
+    action: 'content.remove',
     payload: {
       entityId: 'entity-1',
     },
@@ -1713,7 +1713,7 @@ test('entities.remove appends a removed version on the shared entity surface', a
     entityId: 'entity-1',
     reason: null,
   });
-  assert.equal(result.action, 'entities.remove');
+  assert.equal(result.action, 'content.remove');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.entity.entityVersionId, 'entity-version-3');
@@ -1728,7 +1728,7 @@ test('entities.update rejects empty patches', async () => {
     () =>
       dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        action: 'entities.update',
+        action: 'content.update',
         payload: {
           entityId: 'entity-1',
         },
@@ -1797,7 +1797,7 @@ test('entities.update rejects non-author updates', async () => {
     () =>
       dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        action: 'entities.update',
+        action: 'content.update',
         payload: {
           entityId: 'entity-1',
           body: 'Nope',
@@ -2150,7 +2150,7 @@ test('entities.list can span accessible clubs and filter by kinds with optional 
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'entities.list',
+    action: 'content.list',
     payload: {
       query: 'backend',
       kinds: ['ask', 'service'],
@@ -2165,7 +2165,7 @@ test('entities.list can span accessible clubs and filter by kinds with optional 
     limit: 5,
     query: 'backend',
   });
-  assert.equal(result.action, 'entities.list');
+  assert.equal(result.action, 'content.list');
   assert.equal(result.data.query, 'backend');
   assert.equal(result.data.results[0]?.kind, 'ask');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-1', 'club-2']);
@@ -2209,7 +2209,7 @@ test('members.fullTextSearch rejects a club outside the actor scope', async () =
     () =>
       dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        action: 'members.fullTextSearch',
+        action: 'members.searchByFullText',
         payload: {
           query: 'Chris',
           clubId: 'club-999',
@@ -2523,7 +2523,7 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
   );
 });
 
-test('messages.list stays inside accessible scope and returns dm thread summaries', async () => {
+test('messages.getInbox stays inside accessible scope and returns inbox summaries', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -2578,9 +2578,9 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
     async sendDirectMessage() {
       return makeDirectMessage();
     },
-    async listDirectMessageThreads(input) {
+    async listDirectMessageInbox(input) {
       capturedInput = input as Record<string, unknown>;
-      return [makeDirectMessageThread()];
+      return [makeDirectMessageInbox()];
     },
     async readDirectMessageThread() {
       return {
@@ -2596,20 +2596,23 @@ test('messages.list stays inside accessible scope and returns dm thread summarie
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'messages.list',
+    action: 'messages.getInbox',
     payload: { limit: 4 },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
     limit: 4,
+    unreadOnly: false,
   });
-  assert.equal(result.action, 'messages.list');
+  assert.equal(result.action, 'messages.getInbox');
+  assert.equal(result.data.unreadOnly, false);
   assert.ok(Array.isArray(result.data.results[0]?.sharedClubs));
   assert.equal(result.data.results[0]?.counterpartMemberId, 'member-2');
+  assert.equal(result.data.results[0]?.unread.hasUnread, true);
 });
 
-test('messages.inbox returns thread-focused unread summaries inside actor scope', async () => {
+test('messages.getInbox with unreadOnly returns thread-focused unread summaries inside actor scope', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -2663,9 +2666,6 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
     },
     async sendDirectMessage() {
       return makeDirectMessage();
-    },
-    async listDirectMessageThreads() {
-      return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox(input) {
       capturedInput = input as Record<string, unknown>;
@@ -2694,7 +2694,7 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'messages.inbox',
+    action: 'messages.getInbox',
     payload: { limit: 4, unreadOnly: true },
   });
 
@@ -2703,7 +2703,7 @@ test('messages.inbox returns thread-focused unread summaries inside actor scope'
     limit: 4,
     unreadOnly: true,
   });
-  assert.equal(result.action, 'messages.inbox');
+  assert.equal(result.action, 'messages.getInbox');
   assert.equal(result.data.unreadOnly, true);
   assert.ok(Array.isArray(result.data.results[0]?.sharedClubs));
   assert.equal(result.data.results[0]?.unread.unreadMessageCount, 2);
@@ -2821,7 +2821,7 @@ test('messages.read scopes thread access server-side and returns DM entries', as
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'messages.read',
+    action: 'messages.getThread',
     payload: { threadId: 'thread-1', limit: 2 },
   });
 
@@ -2830,7 +2830,7 @@ test('messages.read scopes thread access server-side and returns DM entries', as
     threadId: 'thread-1',
     limit: 2,
   });
-  assert.equal(result.action, 'messages.read');
+  assert.equal(result.action, 'messages.getThread');
   assert.equal(result.data.thread.threadId, 'thread-1');
   assert.equal(result.data.messages.length, 2);
   assert.equal(result.data.messages[1]?.inReplyToMessageId, 'message-1');
@@ -2842,10 +2842,10 @@ test('tokens.list returns the actor token inventory', async () => {
   const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'tokens.list',
+    action: 'accessTokens.list',
   });
 
-  assert.equal(result.action, 'tokens.list');
+  assert.equal(result.action, 'accessTokens.list');
   assert.equal(result.data.tokens.length, 1);
   assert.equal(result.data.tokens[0]?.tokenId, 'token-1');
 });
@@ -2931,7 +2931,7 @@ test('tokens.create mints a new bearer token for the actor member', async () => 
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'tokens.create',
+    action: 'accessTokens.create',
     payload: {
       label: 'laptop',
       metadata: { device: 'mbp' },
@@ -2944,7 +2944,7 @@ test('tokens.create mints a new bearer token for the actor member', async () => 
     expiresAt: null,
     metadata: { device: 'mbp' },
   });
-  assert.equal(result.action, 'tokens.create');
+  assert.equal(result.action, 'accessTokens.create');
   assert.equal(result.data.token.tokenId, 'token-2');
   assert.equal(result.data.bearerToken, 'cc_live_3456789abcde_3456789abcdefghjkmnpqrst');
 });
@@ -3025,7 +3025,7 @@ test('tokens.revoke only revokes actor-owned tokens', async () => {
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'tokens.revoke',
+    action: 'accessTokens.revoke',
     payload: {
       tokenId: 'token-9',
     },
@@ -3035,7 +3035,7 @@ test('tokens.revoke only revokes actor-owned tokens', async () => {
     actorMemberId: 'member-1',
     tokenId: 'token-9',
   });
-  assert.equal(result.action, 'tokens.revoke');
+  assert.equal(result.action, 'accessTokens.revoke');
   assert.equal(result.data.token.tokenId, 'token-9');
   assert.equal(result.data.token.revokedAt, '2026-03-12T01:00:00Z');
 });
@@ -3215,7 +3215,7 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
     () =>
       dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        action: 'messages.read',
+        action: 'messages.getThread',
         payload: {
           threadId: 'thread-404',
         },
@@ -3236,7 +3236,7 @@ test('session.describe rejects unknown bearer tokens', async () => {
     () =>
       dispatcher.dispatch({
         bearerToken: 'cc_live_aaaaaaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbb',
-        action: 'session.describe',
+        action: 'session.getContext',
       }),
     (error: unknown) => {
       assert.ok(error instanceof AppError);
@@ -3258,7 +3258,7 @@ test('gated actions fail with 503 gate_unavailable when the gate returns failed'
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-      action: 'entities.create',
+      action: 'content.create',
       payload: { clubId: 'club-1', kind: 'post', title: 'Test', body: 'Test body' },
     }),
     (error: unknown) => {
@@ -3282,7 +3282,7 @@ test('gated actions fail with 422 gate_rejected when the gate returns a non-PASS
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-      action: 'entities.create',
+      action: 'content.create',
       payload: { clubId: 'club-1', kind: 'post', title: 'Test', body: 'Test body' },
     }),
     (error: unknown) => {

@@ -12,12 +12,12 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-// ── superadmin.members.create ───────────────────────────────
+// ── superadmin.members.createWithAccessToken ───────────────────────────────
 
-describe('superadmin.members.create', () => {
+describe('superadmin.members.createWithAccessTokenWithAccessToken', () => {
   it('creates a member with bearer token', async () => {
     const admin = await h.seedSuperadmin('Provisioner', 'provisioner');
-    const result = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'New Person',
     });
     const data = result.data as { member: { memberId: string; publicName: string; handle: string }; bearerToken: string };
@@ -28,15 +28,15 @@ describe('superadmin.members.create', () => {
     assert.ok(data.bearerToken.startsWith('cc_live_'), 'should return cc_live_ token');
   });
 
-  it('created member can authenticate and call session.describe', async () => {
+  it('created member can authenticate and call session.getContext', async () => {
     const admin = await h.seedSuperadmin('Provisioner2', 'provisioner2');
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Auth Test Member',
     });
     const data = createResult.data as { member: { memberId: string }; bearerToken: string };
 
     // Use the new token to authenticate
-    const session = await h.apiOk(data.bearerToken, 'session.describe', {});
+    const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
     const actor = session.actor as { member: { id: string; publicName: string } };
     assert.equal(actor.member.id, data.member.memberId);
     assert.equal(actor.member.publicName, 'Auth Test Member');
@@ -44,19 +44,19 @@ describe('superadmin.members.create', () => {
 
   it('created member has no club memberships', async () => {
     const admin = await h.seedSuperadmin('Provisioner3', 'provisioner3');
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'No Club Member',
     });
     const data = createResult.data as { bearerToken: string };
 
-    const session = await h.apiOk(data.bearerToken, 'session.describe', {});
+    const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
     const actor = session.actor as { activeMemberships: unknown[] };
     assert.equal(actor.activeMemberships.length, 0);
   });
 
   it('accepts optional handle', async () => {
     const admin = await h.seedSuperadmin('Provisioner4', 'provisioner4');
-    const result = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Handle Person',
       handle: 'custom-handle-xyz',
     });
@@ -66,7 +66,7 @@ describe('superadmin.members.create', () => {
 
   it('accepts optional email', async () => {
     const admin = await h.seedSuperadmin('Provisioner5', 'provisioner5');
-    const result = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Email Person',
       email: 'test@example.com',
     });
@@ -74,7 +74,7 @@ describe('superadmin.members.create', () => {
 
     // Verify email stored in private_contacts
     const rows = await h.sql<{ email: string }>(
-      `select email from app.private_contacts where member_id = $1`,
+      `select email from app.member_private_contacts where member_id = $1`,
       [data.member.memberId],
     );
     assert.equal(rows.length, 1);
@@ -83,11 +83,11 @@ describe('superadmin.members.create', () => {
 
   it('rejects duplicate handle', async () => {
     const admin = await h.seedSuperadmin('Provisioner6', 'provisioner6');
-    await h.apiOk(admin.token, 'superadmin.members.create', {
+    await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'First',
       handle: 'unique-dup-handle',
     });
-    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Second',
       handle: 'unique-dup-handle',
     });
@@ -97,7 +97,7 @@ describe('superadmin.members.create', () => {
 
   it('rejects invalid handle format', async () => {
     const admin = await h.seedSuperadmin('Provisioner-hv', 'provisioner-hv');
-    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Bad Handle',
       handle: 'Bad Handle',
     });
@@ -107,7 +107,7 @@ describe('superadmin.members.create', () => {
 
   it('rejects handle with uppercase', async () => {
     const admin = await h.seedSuperadmin('Provisioner-hv2', 'provisioner-hv2');
-    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Upper',
       handle: 'UpperCase',
     });
@@ -116,7 +116,7 @@ describe('superadmin.members.create', () => {
 
   it('rejects invalid email', async () => {
     const admin = await h.seedSuperadmin('Provisioner-ev', 'provisioner-ev');
-    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Bad Email',
       email: 'not-an-email',
     });
@@ -126,7 +126,7 @@ describe('superadmin.members.create', () => {
 
   it('rejects email without TLD', async () => {
     const admin = await h.seedSuperadmin('Provisioner-ev2', 'provisioner-ev2');
-    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'No TLD',
       email: 'user@localhost',
     });
@@ -135,7 +135,7 @@ describe('superadmin.members.create', () => {
 
   it('rejects empty publicName', async () => {
     const admin = await h.seedSuperadmin('Provisioner7', 'provisioner7');
-    const err = await h.apiErr(admin.token, 'superadmin.members.create', {
+    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: '   ',
     });
     assert.equal(err.code, 'invalid_input');
@@ -143,7 +143,7 @@ describe('superadmin.members.create', () => {
 
   it('non-superadmin cannot create members', async () => {
     const owner = await h.seedOwner('prov-club', 'ProvClub');
-    const err = await h.apiErr(owner.token, 'superadmin.members.create', {
+    const err = await h.apiErr(owner.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Unauthorized',
     });
     assert.equal(err.status, 403);
@@ -158,7 +158,7 @@ describe('superadmin.memberships.create', () => {
     const owner = await h.seedOwner('ms-club', 'MsClub');
 
     // Create a fresh member
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Club Joiner',
     });
     const memberId = (createResult.data as any).member.memberId;
@@ -182,7 +182,7 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin2', 'ms-admin2');
     const owner = await h.seedOwner('ms-club2', 'MsClub2');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'New Admin',
     });
     const memberId = (createResult.data as any).member.memberId;
@@ -202,7 +202,7 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin3', 'ms-admin3');
     const owner = await h.seedOwner('ms-club3', 'MsClub3');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Interactive Member',
     });
     const { memberId } = (createResult.data as any).member;
@@ -214,7 +214,7 @@ describe('superadmin.memberships.create', () => {
     });
 
     // The new member should see the club in their session
-    const session = await h.apiOk(memberToken, 'session.describe', {});
+    const session = await h.apiOk(memberToken, 'session.getContext', {});
     const memberships = (session.actor as any).activeMemberships as any[];
     assert.equal(memberships.length, 1);
     assert.equal(memberships[0].slug, 'ms-club3');
@@ -227,7 +227,7 @@ describe('superadmin.memberships.create', () => {
     // Seed a sponsor who is a member of the club
     const sponsor = await h.seedClubMember(owner.club.id, 'The Sponsor', 'the-sponsor', { sponsorId: owner.id });
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Sponsored Member',
     });
     const memberId = (createResult.data as any).member.memberId;
@@ -245,7 +245,7 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdminSp1', 'ms-admin-sp1');
     const owner = await h.seedOwner('ms-club-sp1', 'MsClubSp1');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Ghost Sponsor Target',
     });
     const memberId = (createResult.data as any).member.memberId;
@@ -266,7 +266,7 @@ describe('superadmin.memberships.create', () => {
     // Seed a member only in club B
     const crossSponsor = await h.seedClubMember(ownerB.club.id, 'Cross Sponsor', 'cross-sponsor', { sponsorId: ownerB.id });
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Cross Target',
     });
     const memberId = (createResult.data as any).member.memberId;
@@ -284,7 +284,7 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdminSelf', 'ms-admin-self');
     const owner = await h.seedOwner('ms-club-self', 'MsClubSelf');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Self Sponsor Target',
     });
     const memberId = (createResult.data as any).member.memberId;
@@ -324,7 +324,7 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin7', 'ms-admin7');
     const owner = await h.seedOwner('ms-club7', 'MsClub7');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Double Joiner',
     });
     const memberId = (createResult.data as any).member.memberId;
@@ -356,7 +356,7 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin9', 'ms-admin9');
     const owner = await h.seedOwner('ms-club9', 'MsClub9');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Invited Member',
     });
     const memberId = (createResult.data as any).member.memberId;
@@ -378,7 +378,7 @@ describe('superadmin.clubs.create owner membership', () => {
     const admin = await h.seedSuperadmin('ClubCreator', 'club-creator');
 
     // Create a member to be the owner
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'New Owner',
     });
     const ownerData = (createResult.data as any);
@@ -395,7 +395,7 @@ describe('superadmin.clubs.create owner membership', () => {
     const club = (clubResult.data as any).club;
 
     // Owner should immediately see the club in their session
-    const session = await h.apiOk(ownerToken, 'session.describe', {});
+    const session = await h.apiOk(ownerToken, 'session.getContext', {});
     const memberships = (session.actor as any).activeMemberships as any[];
     assert.equal(memberships.length, 1, 'owner should have 1 club membership');
     assert.equal(memberships[0].slug, 'auto-ms-club');
@@ -406,7 +406,7 @@ describe('superadmin.clubs.create owner membership', () => {
   it('owner can perform club admin actions immediately after club creation', async () => {
     const admin = await h.seedSuperadmin('ClubCreator2', 'club-creator2');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'Active Owner',
     });
     const ownerId = (createResult.data as any).member.memberId;
@@ -437,7 +437,7 @@ describe('full superadmin provisioning workflow', () => {
     const admin = await h.seedSuperadmin('E2EAdmin', 'e2e-admin');
 
     // 1. Create the owner
-    const ownerResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const ownerResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'E2E Owner',
       email: 'owner@e2e.test',
     });
@@ -453,7 +453,7 @@ describe('full superadmin provisioning workflow', () => {
     const clubId = (clubResult.data as any).club.clubId;
 
     // 3. Create a regular member
-    const memberResult = await h.apiOk(admin.token, 'superadmin.members.create', {
+    const memberResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessTokenWithAccessToken', {
       publicName: 'E2E Member',
     });
     const memberId = (memberResult.data as any).member.memberId;
@@ -466,7 +466,7 @@ describe('full superadmin provisioning workflow', () => {
     });
 
     // 5. Verify: member sees the club
-    const session = await h.apiOk(memberToken, 'session.describe', {});
+    const session = await h.apiOk(memberToken, 'session.getContext', {});
     const memberships = (session.actor as any).activeMemberships as any[];
     assert.equal(memberships.length, 1);
     assert.equal(memberships[0].slug, 'e2e-club');

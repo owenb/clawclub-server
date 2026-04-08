@@ -8,7 +8,7 @@
 
 import type { Pool } from 'pg';
 import { AppError, type Repository, type EntitySummary, type MembershipVouchSummary, type AdmissionStatus, type PendingUpdate } from './contract.ts';
-import { recordMutationConfirmation, withTransaction } from './db.ts';
+import { withTransaction } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
 import { createClubsRepository, type ClubsRepository } from './clubs/index.ts';
@@ -145,8 +145,8 @@ async function resolveSharedClubs(
 ): Promise<Array<{ clubId: string; slug: string; name: string }>> {
   const result = await pool.query<SharedClubRow>(
     `select c.id as club_id, c.slug, c.name
-     from app.accessible_memberships a
-     join app.accessible_memberships b on b.club_id = a.club_id and b.member_id = $3
+     from app.accessible_club_memberships a
+     join app.accessible_club_memberships b on b.club_id = a.club_id and b.member_id = $3
      join app.clubs c on c.id = a.club_id and c.archived_at is null
      where a.member_id = $1 and a.club_id = any($2::text[])
      order by c.name asc`,
@@ -161,8 +161,8 @@ async function resolveSharedClubsUnscoped(
 ): Promise<Array<{ clubId: string; slug: string; name: string }>> {
   const result = await pool.query<SharedClubRow>(
     `select c.id as club_id, c.slug, c.name
-     from app.accessible_memberships a
-     join app.accessible_memberships b on b.club_id = a.club_id and b.member_id = $2
+     from app.accessible_club_memberships a
+     join app.accessible_club_memberships b on b.club_id = a.club_id and b.member_id = $2
      join app.clubs c on c.id = a.club_id and c.archived_at is null
      where a.member_id = $1
      order by c.name asc`,
@@ -180,8 +180,8 @@ async function batchResolveSharedClubs(
 
   const result = await pool.query<SharedClubRow & { counterpart_member_id: string }>(
     `select b.member_id as counterpart_member_id, c.id as club_id, c.slug, c.name
-     from app.accessible_memberships a
-     join app.accessible_memberships b on b.club_id = a.club_id and b.member_id = any($2::text[])
+     from app.accessible_club_memberships a
+     join app.accessible_club_memberships b on b.club_id = a.club_id and b.member_id = any($2::text[])
      join app.clubs c on c.id = a.club_id and c.archived_at is null
      where a.member_id = $1
      order by b.member_id, c.name asc`,
@@ -220,8 +220,8 @@ async function batchResolveSharedClubsPairs(
     `with pairs(pair_key, member_a, member_b) as (values ${values.join(', ')})
      select p.pair_key, c.id as club_id, c.slug, c.name
      from pairs p
-     join app.accessible_memberships a on a.member_id = p.member_a
-     join app.accessible_memberships b on b.club_id = a.club_id and b.member_id = p.member_b
+     join app.accessible_club_memberships a on a.member_id = p.member_a
+     join app.accessible_club_memberships b on b.club_id = a.club_id and b.member_id = p.member_b
      join app.clubs c on c.id = a.club_id and c.archived_at is null
      order by p.pair_key, c.name asc`,
     params,
@@ -302,7 +302,7 @@ export function createRepository(pool: Pool): Repository {
 
     // ── Entities ──────────────────────────────────────────
     async createEntity(input) {
-      await clubs.enforceQuota(input.authorMemberId, input.clubId, 'entities.create');
+      await clubs.enforceQuota(input.authorMemberId, input.clubId, 'content.create');
       return clubs.createEntity(input);
     },
 
@@ -376,7 +376,7 @@ export function createRepository(pool: Pool): Repository {
       // Verify the target member has an accessible membership in this club (identity check)
       const targetCheck = await pool.query<{ ok: boolean }>(
         `select exists(
-           select 1 from app.accessible_memberships
+           select 1 from app.accessible_club_memberships
            where member_id = $1 and club_id = $2
          ) as ok`,
         [input.targetMemberId, input.clubId],
@@ -527,7 +527,7 @@ export function createRepository(pool: Pool): Repository {
           // Retry safety — three-layer lookup:
           // 1. Check if membership already exists (source_admission_id anchor)
           const existingMembership = await pool.query<{ member_id: string; id: string }>(
-            `select member_id, id from app.memberships where source_admission_id = $1 limit 1`,
+            `select member_id, id from app.club_memberships where source_admission_id = $1 limit 1`,
             [adm.admission_id],
           );
           if (existingMembership.rows[0]) {
@@ -592,7 +592,7 @@ export function createRepository(pool: Pool): Repository {
             if (isPaidClub) {
               const priceRow = clubPriceResult.rows[0]!;
               await pool.query(
-                `update app.memberships set approved_price_amount = $2, approved_price_currency = $3
+                `update app.club_memberships set approved_price_amount = $2, approved_price_currency = $3
                  where id = $1`,
                 [membershipResult.membershipId, priceRow.membership_price_amount, priceRow.membership_price_currency],
               );
@@ -869,7 +869,7 @@ export function createRepository(pool: Pool): Repository {
       if (afterSignalSeq == null) {
         // First poll: seed signal cursor from max(seq)
         const seedResult = await pool.query<{ max_seq: string }>(
-          `select coalesce(max(seq), 0)::text as max_seq from app.signals
+          `select coalesce(max(seq), 0)::text as max_seq from app.signal_deliveries
            where recipient_member_id = $1 and club_id = any($2::text[])`,
           [input.actorMemberId, input.clubIds],
         );
@@ -882,7 +882,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select id, club_id, recipient_member_id, seq::text as seq, topic, payload,
                   entity_id, match_id, created_at::text as created_at
-           from app.signals ms
+           from app.signal_deliveries ms
            where recipient_member_id = $1
              and club_id = any($2::text[])
              and acknowledged_state is null
@@ -934,11 +934,11 @@ export function createRepository(pool: Pool): Repository {
       }>(
         `select ie.id, ie.recipient_member_id, ie.thread_id, ie.message_id,
                 ie.created_at::text as created_at
-         from app.inbox_entries ie
+         from app.dm_inbox_entries ie
          where ie.recipient_member_id = $1 and ie.acknowledged = false
            and ($3::timestamptz is null or ie.created_at > $3)
            and not exists (
-             select 1 from app.message_removals rmv where rmv.message_id = ie.message_id
+             select 1 from app.dm_message_removals rmv where rmv.message_id = ie.message_id
            )
          order by ie.created_at desc limit $2`,
         [input.actorMemberId, input.limit, cursorTimestamp],
@@ -957,7 +957,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select m.id as message_id, m.sender_member_id, m.message_text, m.thread_id,
                   mbr.public_name as sender_public_name, mbr.handle as sender_handle
-           from app.messages m
+           from app.dm_messages m
            left join app.members mbr on mbr.id = m.sender_member_id
            where m.id = any($1::text[])`,
           [inboxMessageIds],
@@ -1042,7 +1042,7 @@ export function createRepository(pool: Pool): Repository {
       });
       // Seed signal cursor from max(seq)
       const signalSeed = await pool.query<{ max_seq: string }>(
-        `select coalesce(max(seq), 0)::text as max_seq from app.signals
+        `select coalesce(max(seq), 0)::text as max_seq from app.signal_deliveries
          where recipient_member_id = $1 and club_id = any($2::text[])`,
         [input.actorMemberId, input.clubIds],
       );
@@ -1075,7 +1075,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (inboxIds.length > 0) {
           const result = await client.query<{ id: string }>(
-            `update app.inbox_entries
+            `update app.dm_inbox_entries
              set acknowledged = true
              where id = any($1::text[]) and recipient_member_id = $2
              returning id`,
@@ -1118,7 +1118,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (signalIds.length > 0) {
           const result = await client.query<{ id: string; club_id: string; acknowledged_at: string }>(
-            `update app.signals
+            `update app.signal_deliveries
              set acknowledged_state = coalesce(acknowledged_state, $3),
                  acknowledged_at = coalesce(acknowledged_at, now()),
                  suppression_reason = case when acknowledged_state is null then $4 else suppression_reason end
@@ -1145,71 +1145,10 @@ export function createRepository(pool: Pool): Repository {
           }
         }
 
-        const activitySeqs = input.updateIds
-          .filter((id) => id.startsWith('activity:'))
-          .map((id) => Number.parseInt(id.replace('activity:', ''), 10))
-          .filter((seq) => Number.isInteger(seq) && seq > 0);
-
-        const activityReceipts = new Map<string, {
-          receiptId: string;
-          updateId: string;
-          recipientMemberId: string;
-          clubId: string | null;
-          state: typeof input.state;
-          suppressionReason: string | null;
-          versionNo: number;
-          supersedesReceiptId: null;
-          createdAt: string;
-          createdByMemberId: string | null;
-        }>();
-
-        if (activitySeqs.length > 0) {
-          const visibleActivity = await client.query<{ seq: string; club_id: string }>(
-            `select a.seq::text as seq, a.club_id
-             from app.activity a
-             where a.seq = any($1::bigint[])
-               and exists (
-                 select 1
-                 from app.accessible_memberships am
-                 where am.member_id = $2
-                   and am.club_id = a.club_id
-               )`,
-            [activitySeqs, input.actorMemberId],
-          );
-
-          for (const row of visibleActivity.rows) {
-            const updateId = `activity:${row.seq}`;
-            const confirmation = await recordMutationConfirmation(client, {
-              actionName: 'updates.acknowledge',
-              confirmationKind: 'activity_receipt',
-              actorMemberId: input.actorMemberId,
-              subjectId: updateId,
-              metadata: {
-                clubId: row.club_id,
-                state: input.state,
-                suppressionReason: input.suppressionReason ?? null,
-              },
-            });
-            activityReceipts.set(updateId, {
-              receiptId: confirmation.confirmationId,
-              updateId,
-              recipientMemberId: input.actorMemberId,
-              clubId: row.club_id,
-              state: input.state,
-              suppressionReason: input.suppressionReason ?? null,
-              versionNo: 1,
-              supersedesReceiptId: null,
-              createdAt: confirmation.createdAt,
-              createdByMemberId: input.actorMemberId,
-            });
-          }
-        }
-
         return input.updateIds
           .map((updateId) => (
             inboxReceipts.get(updateId)
             ?? signalReceipts.get(updateId)
-            ?? activityReceipts.get(updateId)
           ))
           .filter((receipt): receipt is NonNullable<typeof receipt> => receipt !== undefined);
       });
@@ -1235,7 +1174,7 @@ export function createRepository(pool: Pool): Repository {
         pool.query<{ count: string }>(`select count(*)::text as count from app.members where state = 'active'`),
         pool.query<{ count: string }>(`select count(*)::text as count from app.clubs where archived_at is null`),
         pool.query<{ count: string }>(`select count(*)::text as count from app.entities where deleted_at is null`),
-        pool.query<{ count: string }>(`select count(*)::text as count from app.messages`),
+        pool.query<{ count: string }>(`select count(*)::text as count from app.dm_messages`),
         pool.query<{ count: string }>(`select count(*)::text as count from app.admissions`),
       ]);
 
@@ -1270,8 +1209,8 @@ export function createRepository(pool: Pool): Repository {
       }>(
         `select m.id as member_id, m.public_name, m.handle, m.state::text as state,
                 m.created_at::text as created_at,
-                (select count(*)::int from app.memberships cm where cm.member_id = m.id) as membership_count,
-                (select count(*)::int from app.bearer_tokens t where t.member_id = m.id and t.revoked_at is null) as token_count
+                (select count(*)::int from app.club_memberships cm where cm.member_id = m.id) as membership_count,
+                (select count(*)::int from app.member_bearer_tokens t where t.member_id = m.id and t.revoked_at is null) as token_count
          from app.members m
          where ($1::timestamptz is null or m.created_at < $1 or (m.created_at = $1 and m.id < $2))
          order by m.created_at desc, m.id desc
@@ -1304,7 +1243,7 @@ export function createRepository(pool: Pool): Repository {
       }>(
         `select cm.id as membership_id, cm.club_id, c.name as club_name, c.slug as club_slug,
                 cm.role::text as role, cm.status::text as status, cm.joined_at::text as joined_at
-         from app.memberships cm
+         from app.club_memberships cm
          join app.clubs c on c.id = cm.club_id
          where cm.member_id = $1
          order by cm.joined_at desc`,
@@ -1312,7 +1251,7 @@ export function createRepository(pool: Pool): Repository {
       );
 
       const tokenCount = await pool.query<{ count: string }>(
-        `select count(*)::text as count from app.bearer_tokens where member_id = $1 and revoked_at is null`,
+        `select count(*)::text as count from app.member_bearer_tokens where member_id = $1 and revoked_at is null`,
         [memberId],
       );
 
@@ -1338,7 +1277,7 @@ export function createRepository(pool: Pool): Repository {
         ),
         pool.query<{ status: string; count: string }>(
           `select cm.status::text as status, count(*)::text as count
-           from app.memberships cm where cm.club_id = $1 group by cm.status`,
+           from app.club_memberships cm where cm.club_id = $1 group by cm.status`,
           [clubId],
         ),
         pool.query<{ count: string }>(
@@ -1357,14 +1296,14 @@ export function createRepository(pool: Pool): Repository {
 
       const messageCount = await pool.query<{ count: string }>(
         `select count(*)::text as count
-         from app.messages m
-         join app.threads t on t.id = m.thread_id
+         from app.dm_messages m
+         join app.dm_threads t on t.id = m.thread_id
          where exists (
-           select 1 from app.accessible_memberships am
+           select 1 from app.accessible_club_memberships am
            where am.member_id = t.member_a_id and am.club_id = $1
          )
          and exists (
-           select 1 from app.accessible_memberships am
+           select 1 from app.accessible_club_memberships am
            where am.member_id = t.member_b_id and am.club_id = $1
          )`,
         [clubId],
@@ -1416,15 +1355,15 @@ export function createRepository(pool: Pool): Repository {
         participants: Array<{ memberId: string; publicName: string; handle: string | null }>;
       }>(
         `select t.id as thread_id,
-                (select count(*)::int from app.messages m where m.thread_id = t.id) as message_count,
-                (select max(m.created_at)::text from app.messages m where m.thread_id = t.id) as latest_message_at,
+                (select count(*)::int from app.dm_messages m where m.thread_id = t.id) as message_count,
+                (select max(m.created_at)::text from app.dm_messages m where m.thread_id = t.id) as latest_message_at,
                 (select coalesce(json_agg(json_build_object(
                   'memberId', mbr.id, 'publicName', mbr.public_name, 'handle', mbr.handle
                 )), '[]'::json)
-                from app.thread_participants tp
+                from app.dm_thread_participants tp
                 join app.members mbr on mbr.id = tp.member_id
                 where tp.thread_id = t.id) as participants
-         from app.threads t
+         from app.dm_threads t
          where ($1::timestamptz is null or t.created_at < $1 or (t.created_at = $1 and t.id < $2))
          order by t.created_at desc, t.id desc limit $3`,
         [cursor?.createdAt ?? null, cursor?.id ?? null, limit],
@@ -1457,11 +1396,11 @@ export function createRepository(pool: Pool): Repository {
                 (select coalesce(json_agg(json_build_object(
                   'memberId', mbr.id, 'publicName', mbr.public_name, 'handle', mbr.handle
                 )), '[]'::json)
-                from app.thread_participants tp
+                from app.dm_thread_participants tp
                 join app.members mbr on mbr.id = tp.member_id
                 where tp.thread_id = t.id) as participants,
-                (select count(*)::int from app.messages mm where mm.thread_id = t.id) as message_count
-         from app.threads t where t.id = $1 limit 1`,
+                (select count(*)::int from app.dm_messages mm where mm.thread_id = t.id) as message_count
+         from app.dm_threads t where t.id = $1 limit 1`,
         [threadId],
       );
       if (!thread.rows[0]) return null;
@@ -1476,8 +1415,8 @@ export function createRepository(pool: Pool): Repository {
                 case when rmv.message_id is not null then '[Message removed]' else m.message_text end as message_text,
                 case when rmv.message_id is not null then null else m.payload end as payload,
                 m.created_at::text as created_at, m.in_reply_to_message_id
-         from app.messages m
-         left join app.message_removals rmv on rmv.message_id = m.id
+         from app.dm_messages m
+         left join app.dm_message_removals rmv on rmv.message_id = m.id
          where m.thread_id = $1
          order by m.created_at desc, m.id desc limit $2`,
         [threadId, limit],
@@ -1557,8 +1496,8 @@ export function createRepository(pool: Pool): Repository {
            s.current_period_end::text as current_period_end,
            m.approved_price_amount::text as approved_price_amount,
            m.approved_price_currency
-         from app.memberships m
-         left join app.subscriptions s on s.membership_id = m.id
+         from app.club_memberships m
+         left join app.club_subscriptions s on s.membership_id = m.id
            and s.status in ('trialing', 'active', 'past_due')
          where m.club_id = $1 and m.member_id = $2
          limit 1`,
@@ -1596,7 +1535,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.member_id, cnm.club_id,
                   cnm.status::text as status, cnm.state_version_no, cnm.state_version_id
-           from app.current_memberships cnm
+           from app.current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1605,7 +1544,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (m.status === 'active') {
           const subRow = await client.query<{ id: string; current_period_end: string | null }>(
-            `select id, current_period_end::text as current_period_end from app.subscriptions
+            `select id, current_period_end::text as current_period_end from app.club_subscriptions
              where membership_id = $1 and status in ('active', 'trialing')
              order by started_at desc limit 1`,
             [membershipId],
@@ -1613,16 +1552,11 @@ export function createRepository(pool: Pool): Repository {
           const liveSubscription = subRow.rows[0];
           if (liveSubscription?.current_period_end &&
               new Date(liveSubscription.current_period_end) >= new Date(paidThrough)) {
-            await recordMutationConfirmation(client, {
-              actionName: 'superadmin.billing.activateMembership',
-              confirmationKind: 'already_applied',
-              subjectId: membershipId,
-            });
             return;
           }
 
           const priceRow = await client.query<{ approved_price_amount: string | null }>(
-            `select approved_price_amount::text from app.memberships where id = $1`,
+            `select approved_price_amount::text from app.club_memberships where id = $1`,
             [membershipId],
           );
           const amount = priceRow.rows[0]?.approved_price_amount != null
@@ -1630,7 +1564,7 @@ export function createRepository(pool: Pool): Repository {
 
           if (liveSubscription) {
             await client.query(
-              `update app.subscriptions
+              `update app.club_subscriptions
                set current_period_end = $2,
                    status = 'active',
                    ended_at = null
@@ -1639,7 +1573,7 @@ export function createRepository(pool: Pool): Repository {
             );
           } else {
             await client.query(
-              `insert into app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+              `insert into app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
                values ($1::app.short_id, $2::app.short_id, 'active', $3, $4)`,
               [membershipId, m.member_id, amount, paidThrough],
             );
@@ -1654,7 +1588,7 @@ export function createRepository(pool: Pool): Repository {
 
         // Transition membership state: payment_pending → active
         await client.query(
-          `insert into app.membership_state_versions
+          `insert into app.club_membership_state_versions
            (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
            values ($1, 'active', 'Billing activation', $2, $3, null)`,
           [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
@@ -1662,13 +1596,13 @@ export function createRepository(pool: Pool): Repository {
 
         // Create subscription row
         const priceRow = await client.query<{ approved_price_amount: string | null }>(
-          `select approved_price_amount::text from app.memberships where id = $1`,
+          `select approved_price_amount::text from app.club_memberships where id = $1`,
           [membershipId],
         );
         const amount = priceRow.rows[0]?.approved_price_amount != null
           ? Number(priceRow.rows[0].approved_price_amount) : 0;
         await client.query(
-          `insert into app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+          `insert into app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
            values ($1::app.short_id, $2::app.short_id, 'active', $3, $4)`,
           [membershipId, m.member_id, amount, paidThrough],
         );
@@ -1682,7 +1616,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_memberships cnm
+           from app.current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1696,7 +1630,7 @@ export function createRepository(pool: Pool): Repository {
         // If cancelled or renewal_pending, transition back to active
         if (m.status === 'cancelled' || m.status === 'renewal_pending') {
           await client.query(
-            `insert into app.membership_state_versions
+            `insert into app.club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'active', 'Billing renewal', $2, $3, null)`,
             [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
@@ -1705,7 +1639,7 @@ export function createRepository(pool: Pool): Repository {
 
         // Update subscription current_period_end forward only, and ensure status is active
         const updated = await client.query<{ id: string }>(
-          `update app.subscriptions
+          `update app.club_subscriptions
            set current_period_end = greatest(current_period_end, $2::timestamptz),
                status = 'active',
                ended_at = null
@@ -1718,10 +1652,10 @@ export function createRepository(pool: Pool): Repository {
         // If no live subscription exists (e.g., was ended), create one
         if (updated.rows.length === 0) {
           await client.query(
-            `insert into app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+            `insert into app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
              select $1, ms.member_id, 'active',
                     coalesce(ms.approved_price_amount, 0), $2
-             from app.memberships ms where ms.id = $1`,
+             from app.club_memberships ms where ms.id = $1`,
             [membershipId, newPaidThrough],
           );
         }
@@ -1735,7 +1669,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_memberships cnm
+           from app.current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1746,33 +1680,21 @@ export function createRepository(pool: Pool): Repository {
           throw new AppError(409, 'invalid_state', `Cannot mark renewal pending for membership in state '${m.status}'; expected 'active'`);
         }
 
-        let wrote = false;
-
         if (m.status === 'active') {
           await client.query(
-            `insert into app.membership_state_versions
+            `insert into app.club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'renewal_pending', 'Payment past due', $2, $3, null)`,
             [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
           );
-          wrote = true;
         }
 
-        const updatedSubscriptions = await client.query<{ id: string }>(
-          `update app.subscriptions set status = 'past_due'
+        await client.query(
+          `update app.club_subscriptions set status = 'past_due'
            where membership_id = $1 and status in ('active', 'trialing')
            returning id`,
           [membershipId],
         );
-        wrote = wrote || updatedSubscriptions.rows.length > 0;
-
-        if (!wrote) {
-          await recordMutationConfirmation(client, {
-            actionName: 'superadmin.billing.markRenewalPending',
-            confirmationKind: 'already_applied',
-            subjectId: membershipId,
-          });
-        }
       });
     },
 
@@ -1783,7 +1705,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_memberships cnm
+           from app.current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1795,33 +1717,21 @@ export function createRepository(pool: Pool): Repository {
           throw new AppError(409, 'invalid_state', `Cannot expire membership in state '${m.status}'`);
         }
 
-        let wrote = false;
-
         if (m.status !== 'expired') {
           await client.query(
-            `insert into app.membership_state_versions
+            `insert into app.club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'expired', 'Billing expiration', $2, $3, null)`,
             [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
           );
-          wrote = true;
         }
 
-        const endedSubscriptions = await client.query<{ id: string }>(
-          `update app.subscriptions set status = 'ended', ended_at = now()
+        await client.query(
+          `update app.club_subscriptions set status = 'ended', ended_at = now()
            where membership_id = $1 and status in ('active', 'trialing', 'past_due')
            returning id`,
           [membershipId],
         );
-        wrote = wrote || endedSubscriptions.rows.length > 0;
-
-        if (!wrote) {
-          await recordMutationConfirmation(client, {
-            actionName: 'superadmin.billing.expireMembership',
-            confirmationKind: 'already_applied',
-            subjectId: membershipId,
-          });
-        }
       });
     },
 
@@ -1832,7 +1742,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_memberships cnm
+           from app.current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1845,19 +1755,12 @@ export function createRepository(pool: Pool): Repository {
 
         if (m.status === 'active') {
           await client.query(
-            `insert into app.membership_state_versions
+            `insert into app.club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'cancelled', 'Cancelled at period end', $2, $3, null)`,
             [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
           );
-          return;
         }
-
-        await recordMutationConfirmation(client, {
-          actionName: 'superadmin.billing.cancelAtPeriodEnd',
-          confirmationKind: 'already_applied',
-          subjectId: membershipId,
-        });
       });
     },
 
@@ -1871,14 +1774,11 @@ export function createRepository(pool: Pool): Repository {
         const member = memberRow.rows[0];
         if (!member) throw new AppError(404, 'not_found', 'Member not found');
 
-        let wrote = false;
-
         if (member.state !== 'banned') {
           await client.query(
             `update app.members set state = 'banned' where id = $1`,
             [memberId],
           );
-          wrote = true;
         }
 
         // Find all non-terminal memberships
@@ -1888,17 +1788,15 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_memberships cnm
+           from app.current_club_memberships cnm
            where cnm.member_id = $1
              and cnm.status::text <> all($2::text[])`,
           [memberId, terminalStates],
         );
-        wrote = wrote || membershipsResult.rows.length > 0;
-
         // Transition each non-terminal membership to banned
         for (const ms of membershipsResult.rows) {
           await client.query(
-            `insert into app.membership_state_versions
+            `insert into app.club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'banned', $2, $3, $4, null)`,
             [ms.membership_id, reason, Number(ms.state_version_no) + 1, ms.state_version_id],
@@ -1906,22 +1804,12 @@ export function createRepository(pool: Pool): Repository {
         }
 
         // End all live subscriptions for this member
-        const endedSubscriptions = await client.query<{ id: string }>(
-          `update app.subscriptions set status = 'ended', ended_at = now()
+        await client.query(
+          `update app.club_subscriptions set status = 'ended', ended_at = now()
            where payer_member_id = $1 and status in ('active', 'trialing', 'past_due')
            returning id`,
           [memberId],
         );
-        wrote = wrote || endedSubscriptions.rows.length > 0;
-
-        if (!wrote) {
-          await recordMutationConfirmation(client, {
-            actionName: 'superadmin.billing.banMember',
-            confirmationKind: 'already_applied',
-            subjectId: memberId,
-            metadata: { reason },
-          });
-        }
       });
     },
 
@@ -1948,12 +1836,6 @@ export function createRepository(pool: Pool): Repository {
 
         const currentAmount = current.membership_price_amount != null ? Number(current.membership_price_amount) : null;
         if (currentAmount === amount && (amount === null || current.membership_price_currency === currency)) {
-          await recordMutationConfirmation(client, {
-            actionName: 'superadmin.billing.setClubPrice',
-            confirmationKind: 'already_applied',
-            subjectId: clubId,
-            metadata: { amount, currency },
-          });
           return;
         }
 

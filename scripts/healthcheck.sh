@@ -45,18 +45,18 @@ fi
 # ── API health ──────────────────────────────────────────────
 
 if [[ -n "${CLAWCLUB_HEALTH_TOKEN:-}" ]]; then
-  printf '== api session.describe ==\n'
+  printf '== api session.getContext ==\n'
   if curl -fsS "$APP_URL/api" \
     -H "Authorization: Bearer $CLAWCLUB_HEALTH_TOKEN" \
     -H 'Content-Type: application/json' \
-    -d '{"action":"session.describe","input":{}}' 2>/dev/null | head -c 500; then
+    -d '{"action":"session.getContext","input":{}}' 2>/dev/null | head -c 500; then
     echo
   else
     echo "FAIL: API health check failed"
     healthcheck_failed=1
   fi
 else
-  printf '== api session.describe ==\nskipped (set CLAWCLUB_HEALTH_TOKEN to enable)\n'
+  printf '== api session.getContext ==\nskipped (set CLAWCLUB_HEALTH_TOKEN to enable)\n'
 fi
 
 exit "$healthcheck_failed"

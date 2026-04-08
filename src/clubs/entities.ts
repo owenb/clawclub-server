@@ -6,7 +6,7 @@ import type { Pool } from 'pg';
 import type { CreateEntityInput, EntitySummary, ListEntitiesInput, UpdateEntityInput } from '../contract.ts';
 import { AppError } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
-import { recordMutationConfirmation, withTransaction, type DbClient } from '../db.ts';
+import { withTransaction, type DbClient } from '../db.ts';
 
 type EntityRow = {
   entity_id: string;
@@ -63,7 +63,7 @@ const ENTITY_SELECT = `
 async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): Promise<void> {
   const profile = EMBEDDING_PROFILES['entity'];
   await client.query(
-    `insert into app.embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
+    `insert into app.ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
      values ('entity_version', $1, $2, $3, $4)
      on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
     [subjectVersionId, profile.model, profile.dimensions, profile.sourceVersion],
@@ -98,19 +98,7 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
             'This clientKey was already used for a different entity. Use a unique key per entity.');
         }
         const summary = await readEntitySummary(client, existing.rows[0].id);
-        if (summary) {
-          await recordMutationConfirmation(client, {
-            actionName: 'entities.create',
-            confirmationKind: 'idempotent_retry',
-            actorMemberId: input.authorMemberId,
-            subjectId: summary.entityId,
-            metadata: {
-              clientKey: input.clientKey,
-              clubId: input.clubId,
-            },
-          });
-          return summary;
-        }
+        if (summary) return summary;
       }
     }
     const entityResult = await client.query<{ id: string; created_at: string }>(
@@ -221,12 +209,6 @@ export async function removeEntity(pool: Pool, input: {
       if (!input.skipAuthCheck && alreadyRemoved.rows[0].author_member_id !== input.actorMemberId) {
         return null;
       }
-      await recordMutationConfirmation(client, {
-        actionName: input.kindFilter === 'event' ? 'events.remove' : 'entities.remove',
-        confirmationKind: 'already_removed',
-        actorMemberId: input.actorMemberId,
-        subjectId: input.entityId,
-      });
       return mapEntityRow(alreadyRemoved.rows[0]);
     }
 
@@ -325,7 +307,7 @@ export async function appendClubActivity(client: DbClient, input: {
   audience?: 'members' | 'clubadmins' | 'owners';
 }): Promise<void> {
   await client.query(
-    `insert into app.activity (club_id, entity_id, entity_version_id, topic, payload, created_by_member_id, audience)
+    `insert into app.club_activity (club_id, entity_id, entity_version_id, topic, payload, created_by_member_id, audience)
      values ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
     [
       input.clubId,

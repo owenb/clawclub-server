@@ -54,8 +54,8 @@ This section should be updated continuously from the active bug list.
 - [ ] Verify the HTTP smoke path still works:
   - server starts
   - bearer-token auth works
-  - `session.describe` works
-  - `GET /updates` works
+  - `session.getContext` works
+  - `updates.list` works
   - `GET /updates/stream` emits a ready event
   - representative read actions work
 - [ ] Confirm the test database and local dev database stories are clear and separate.

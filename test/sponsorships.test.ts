@@ -49,7 +49,7 @@ test('admissions.sponsor creates a sponsorship for an outsider', async () => {
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
-    action: 'admissions.sponsor',
+    action: 'admissions.sponsorCandidate',
     payload: {
       clubId: 'club-1',
       name: 'Jane Doe',
@@ -59,7 +59,7 @@ test('admissions.sponsor creates a sponsorship for an outsider', async () => {
     },
   });
 
-  assert.equal(result.action, 'admissions.sponsor');
+  assert.equal(result.action, 'admissions.sponsorCandidate');
   assert.equal(result.data.admission.admissionId, 'admission-1');
   assert.equal(capturedInput.candidateName, 'Jane Doe');
   assert.equal(capturedInput.candidateEmail, 'jane@example.com');
@@ -76,7 +76,7 @@ test('admissions.sponsor rejects single-word name', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
-      action: 'admissions.sponsor',
+      action: 'admissions.sponsorCandidate',
       payload: { clubId: 'club-1', name: 'Jane', email: 'j@x.com', socials: '@j', reason: 'test' },
     }),
     (err: any) => {
@@ -97,7 +97,7 @@ test('admissions.sponsor rejects invalid email', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
-      action: 'admissions.sponsor',
+      action: 'admissions.sponsorCandidate',
       payload: { clubId: 'club-1', name: 'Jane Doe', email: 'nope', socials: '@j', reason: 'test' },
     }),
     (err: any) => {
@@ -118,7 +118,7 @@ test('admissions.sponsor rejects reason exceeding 500 characters', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
-      action: 'admissions.sponsor',
+      action: 'admissions.sponsorCandidate',
       payload: { clubId: 'club-1', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'x'.repeat(501) },
     }),
     (err: any) => {
@@ -139,7 +139,7 @@ test('admissions.sponsor rejects club outside actor scope', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
-      action: 'admissions.sponsor',
+      action: 'admissions.sponsorCandidate',
       payload: { clubId: 'club-999', name: 'Jane Doe', email: 'j@x.com', socials: '@j', reason: 'test' },
     }),
     (err: any) => {

@@ -35,7 +35,7 @@ describe('messages', () => {
     assert.equal(message.messageText, 'Hello Bob!');
   });
 
-  it('sender sees the thread in messages.inbox', async () => {
+  it('sender sees the thread in messages.getInbox', async () => {
     const owner = await h.seedOwner('msg-club-2', 'MsgClub2');
     const alice = await h.seedClubMember(owner.club.id, 'Alice Inbox', 'alice-msg-2', { sponsorId: owner.id });
     const bob = await h.seedClubMember(owner.club.id, 'Bob Inbox', 'bob-msg-2', { sponsorId: owner.id });
@@ -47,14 +47,14 @@ describe('messages', () => {
     const sentMessage = (sent.data as Record<string, unknown>).message as Record<string, unknown>;
     const threadId = sentMessage.threadId as string;
 
-    const inbox = await h.apiOk(alice.token, 'messages.inbox', {});
+    const inbox = await h.apiOk(alice.token, 'messages.getInbox', {});
     const results = (inbox.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = results.find((t) => t.threadId === threadId);
     assert.ok(found, 'sender should see the thread in their inbox');
     assert.equal(found.counterpartMemberId, bob.id);
   });
 
-  it('recipient sees the thread in messages.inbox', async () => {
+  it('recipient sees the thread in messages.getInbox', async () => {
     const owner = await h.seedOwner('msg-club-3', 'MsgClub3');
     const alice = await h.seedClubMember(owner.club.id, 'Alice Recv', 'alice-msg-3', { sponsorId: owner.id });
     const bob = await h.seedClubMember(owner.club.id, 'Bob Recv', 'bob-msg-3', { sponsorId: owner.id });
@@ -66,7 +66,7 @@ describe('messages', () => {
     const sentMessage = (sent.data as Record<string, unknown>).message as Record<string, unknown>;
     const threadId = sentMessage.threadId as string;
 
-    const inbox = await h.apiOk(bob.token, 'messages.inbox', {});
+    const inbox = await h.apiOk(bob.token, 'messages.getInbox', {});
     const results = (inbox.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = results.find((t) => t.threadId === threadId);
     assert.ok(found, 'recipient should see the thread in their inbox');
@@ -78,7 +78,7 @@ describe('messages', () => {
     assert.ok(typeof unread.unreadMessageCount === 'number', 'unreadMessageCount should be a number');
   });
 
-  it('messages.read returns the thread and message list', async () => {
+  it('messages.getThread returns the thread and message list', async () => {
     const owner = await h.seedOwner('msg-club-4', 'MsgClub4');
     const alice = await h.seedClubMember(owner.club.id, 'Alice Read', 'alice-msg-4', { sponsorId: owner.id });
     const bob = await h.seedClubMember(owner.club.id, 'Bob Read', 'bob-msg-4', { sponsorId: owner.id });
@@ -91,11 +91,11 @@ describe('messages', () => {
     const threadId = sentMessage.threadId as string;
     const messageId = sentMessage.messageId as string;
 
-    const readResult = await h.apiOk(alice.token, 'messages.read', { threadId });
+    const readResult = await h.apiOk(alice.token, 'messages.getThread', { threadId });
     const data = readResult.data as Record<string, unknown>;
 
     const thread = data.thread as Record<string, unknown>;
-    assert.ok(thread, 'messages.read should return a thread summary');
+    assert.ok(thread, 'messages.getThread should return a thread summary');
     assert.equal(thread.threadId, threadId);
     assert.equal(thread.counterpartMemberId, bob.id);
     assert.ok(thread.messageCount, 'thread should have a messageCount');
@@ -109,27 +109,27 @@ describe('messages', () => {
     assert.equal(msg.messageText, 'First message in thread.');
   });
 
-  it('messages.list returns the thread summary', async () => {
+  it('messages.getInbox returns the thread summary', async () => {
     const owner = await h.seedOwner('msg-club-5', 'MsgClub5');
     const alice = await h.seedClubMember(owner.club.id, 'Alice List', 'alice-msg-5', { sponsorId: owner.id });
     const bob = await h.seedClubMember(owner.club.id, 'Bob List', 'bob-msg-5', { sponsorId: owner.id });
 
     const sent = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
-      messageText: 'Thread for messages.list.',
+      messageText: 'Thread for messages.getInbox.',
     });
     const sentMessage = (sent.data as Record<string, unknown>).message as Record<string, unknown>;
     const threadId = sentMessage.threadId as string;
 
-    const list = await h.apiOk(alice.token, 'messages.list', {});
+    const list = await h.apiOk(alice.token, 'messages.getInbox', {});
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = results.find((t) => t.threadId === threadId);
-    assert.ok(found, 'thread should appear in messages.list');
+    assert.ok(found, 'thread should appear in messages.getInbox');
     assert.equal(found.counterpartMemberId, bob.id);
 
     const latestMessage = found.latestMessage as Record<string, unknown>;
     assert.ok(latestMessage, 'thread should have latestMessage');
-    assert.equal(latestMessage.messageText, 'Thread for messages.list.');
+    assert.equal(latestMessage.messageText, 'Thread for messages.getInbox.');
   });
 
   it('a third member not in the conversation cannot read the thread', async () => {
@@ -146,7 +146,7 @@ describe('messages', () => {
     const threadId = sentMessage.threadId as string;
 
     // Carol is not a participant — she should get not_found
-    const err = await h.apiErr(carol.token, 'messages.read', { threadId });
+    const err = await h.apiErr(carol.token, 'messages.getThread', { threadId });
     assert.equal(err.code, 'not_found');
   });
 
@@ -165,7 +165,7 @@ describe('messages', () => {
     assert.equal(msg1.recipientMemberId, owner.id);
 
     // Owner sees it in their inbox
-    const ownerInbox = await h.apiOk(owner.token, 'messages.inbox', {});
+    const ownerInbox = await h.apiOk(owner.token, 'messages.getInbox', {});
     const ownerThreads = (ownerInbox.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const found = ownerThreads.find((t) => t.threadId === threadId);
     assert.ok(found, 'owner should see the thread in their inbox');
@@ -180,7 +180,7 @@ describe('messages', () => {
     assert.equal(msg2.senderMemberId, owner.id);
 
     // Both messages visible in thread
-    const readResult = await h.apiOk(alice.token, 'messages.read', { threadId });
+    const readResult = await h.apiOk(alice.token, 'messages.getThread', { threadId });
     const messages = (readResult.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
     assert.ok(messages.length >= 2, 'thread should have at least two messages');
     const texts = messages.map((m) => m.messageText);
@@ -215,7 +215,7 @@ describe('messages', () => {
     assert.equal(((r3.data as Record<string, unknown>).message as Record<string, unknown>).threadId, threadId);
 
     // Read full thread
-    const readResult = await h.apiOk(alice.token, 'messages.read', { threadId });
+    const readResult = await h.apiOk(alice.token, 'messages.getThread', { threadId });
     const messages = (readResult.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
     assert.equal(messages.length, 3, 'thread should have exactly 3 messages');
     assert.deepEqual(
@@ -274,14 +274,14 @@ describe('messages', () => {
     assert.ok(sharedClubs[0].name);
   });
 
-  it('messages.read returns sharedClubs on thread', async () => {
+  it('messages.getThread returns sharedClubs on thread', async () => {
     const owner = await h.seedOwner('msg-read-sc', 'MsgReadSC');
     const alice = await h.seedClubMember(owner.club.id, 'Alice ReadSC', 'alice-read-sc', { sponsorId: owner.id });
 
     const sent = await h.apiOk(owner.token, 'messages.send', { recipientMemberId: alice.id, messageText: 'SC test' });
     const threadId = ((sent.data as Record<string, unknown>).message as Record<string, unknown>).threadId as string;
 
-    const readResult = await h.apiOk(owner.token, 'messages.read', { threadId });
+    const readResult = await h.apiOk(owner.token, 'messages.getThread', { threadId });
     const thread = (readResult.data as Record<string, unknown>).thread as Record<string, unknown>;
     assert.ok(!('clubId' in thread), 'thread should not have clubId');
     const sharedClubs = thread.sharedClubs as Array<Record<string, unknown>>;
@@ -289,26 +289,26 @@ describe('messages', () => {
     assert.ok(sharedClubs.length >= 1);
   });
 
-  it('messages.list returns sharedClubs on threads', async () => {
+  it('messages.getInbox returns sharedClubs on threads', async () => {
     const owner = await h.seedOwner('msg-list-sc', 'MsgListSC');
     const alice = await h.seedClubMember(owner.club.id, 'Alice ListSC', 'alice-list-sc', { sponsorId: owner.id });
 
     await h.apiOk(owner.token, 'messages.send', { recipientMemberId: alice.id, messageText: 'list SC test' });
 
-    const list = await h.apiOk(owner.token, 'messages.list', {});
+    const list = await h.apiOk(owner.token, 'messages.getInbox', {});
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     assert.ok(results.length >= 1);
     assert.ok(!('clubId' in results[0]), 'thread should not have clubId');
     assert.ok(Array.isArray(results[0].sharedClubs));
   });
 
-  it('messages.inbox returns sharedClubs on threads', async () => {
+  it('messages.getInbox returns sharedClubs on threads (unreadOnly)', async () => {
     const owner = await h.seedOwner('msg-inbox-sc', 'MsgInboxSC');
     const alice = await h.seedClubMember(owner.club.id, 'Alice InboxSC', 'alice-inbox-sc', { sponsorId: owner.id });
 
     await h.apiOk(alice.token, 'messages.send', { recipientMemberId: owner.id, messageText: 'inbox SC test' });
 
-    const inbox = await h.apiOk(owner.token, 'messages.inbox', {});
+    const inbox = await h.apiOk(owner.token, 'messages.getInbox', {});
     const results = (inbox.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     assert.ok(results.length >= 1);
     assert.ok(!('clubId' in results[0]), 'inbox thread should not have clubId');
@@ -356,7 +356,7 @@ describe('messages', () => {
     const threadId = ((sent.data as Record<string, unknown>).message as Record<string, unknown>).threadId as string;
 
     // Remove alice from the club — shared clubs drop to zero
-    await h.apiOk(owner.token, 'clubadmin.memberships.transition', {
+    await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
       membershipId: alice.membership.id,
       status: 'revoked',
@@ -381,7 +381,7 @@ describe('messages', () => {
     assert.equal(((ownerReply.data as Record<string, unknown>).message as Record<string, unknown>).threadId, threadId);
 
     // Thread is readable with sharedClubs: []
-    const readResult = await h.apiOk(owner.token, 'messages.read', { threadId });
+    const readResult = await h.apiOk(owner.token, 'messages.getThread', { threadId });
     const thread = (readResult.data as Record<string, unknown>).thread as Record<string, unknown>;
     assert.deepEqual(thread.sharedClubs, []);
     const messages = (readResult.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
@@ -410,7 +410,7 @@ describe('messages', () => {
     assert.equal(receipts[0].clubId, null, 'DM ack receipt clubId should be null, not empty string');
   });
 
-  it('duplicate clientKey sends persist a confirmation row', async () => {
+  it('duplicate clientKey sends return the original message without creating another row', async () => {
     const owner = await h.seedOwner('msg-client-key', 'MsgClientKey');
     const alice = await h.seedClubMember(owner.club.id, 'Alice ClientKey', 'alice-client-key', { sponsorId: owner.id });
     const clientKey = 'retry-key-1';
@@ -422,15 +422,6 @@ describe('messages', () => {
     });
     const firstMessage = (first.data as Record<string, unknown>).message as Record<string, unknown>;
 
-    const before = await h.sqlMessaging<{ count: string }>(
-      `select count(*)::text as count
-       from app.mutation_confirmations
-       where action_name = 'messages.send'
-         and confirmation_kind = 'idempotent_retry'
-         and subject_id = $1`,
-      [firstMessage.messageId],
-    );
-
     const second = await h.apiOk(owner.token, 'messages.send', {
       recipientMemberId: alice.id,
       messageText: 'Retry me',
@@ -440,16 +431,13 @@ describe('messages', () => {
 
     assert.equal(secondMessage.messageId, firstMessage.messageId);
     assert.equal(secondMessage.threadId, firstMessage.threadId);
-
-    const after = await h.sqlMessaging<{ count: string }>(
+    const messages = await h.sqlMessaging<{ count: string }>(
       `select count(*)::text as count
-       from app.mutation_confirmations
-       where action_name = 'messages.send'
-         and confirmation_kind = 'idempotent_retry'
-         and subject_id = $1`,
-      [firstMessage.messageId],
+       from app.dm_messages
+       where sender_member_id = $1 and client_key = $2`,
+      [owner.id, clientKey],
     );
-    assert.equal(Number(after[0]!.count), Number(before[0]!.count) + 1);
+    assert.equal(Number(messages[0]!.count), 1);
   });
 
   it('oversized messageText returns 400', async () => {
@@ -517,14 +505,14 @@ describe('updates', () => {
     assert.equal(receipts[0]!.state, 'processed');
   });
 
-  it('GET /updates endpoint returns pending updates with bearer token', async () => {
+  it('updates.list returns pending updates with bearer token', async () => {
     const owner = await h.seedOwner('upd-club-4', 'UpdClub4');
     const alice = await h.seedClubMember(owner.club.id, 'Alice GET', 'alice-upd-4', { sponsorId: owner.id });
     const bob = await h.seedClubMember(owner.club.id, 'Bob GET', 'bob-upd-4', { sponsorId: owner.id });
 
     await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
-      messageText: 'This triggers a GET /updates update.',
+      messageText: 'This triggers an updates.list update.',
     });
 
     const { status, body } = await h.getUpdates(bob.token, { limit: 10 });
@@ -538,7 +526,7 @@ describe('updates', () => {
     assert.ok(items.length >= 1, 'Bob should have at least one pending update from the DM');
   });
 
-  it('GET /updates?after=latest returns no backlog', async () => {
+  it('updates.list with after=latest returns no backlog', async () => {
     const owner = await h.seedOwner('upd-club-5', 'UpdClub5');
     const alice = await h.seedClubMember(owner.club.id, 'Alice Latest', 'alice-upd-5', { sponsorId: owner.id });
     const bob = await h.seedClubMember(owner.club.id, 'Bob Latest', 'bob-upd-5', { sponsorId: owner.id });

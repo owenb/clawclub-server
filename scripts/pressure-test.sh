@@ -30,7 +30,7 @@ returning id as club_id \gset
 insert into app.club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
 values (:'club_id', :'owner_id', 'Pressure Club', 'Schema pressure test', null, 1, :'owner_id');
 
-insert into app.memberships (club_id, member_id, role, sponsor_member_id, accepted_covenant_at)
+insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, accepted_covenant_at)
 values
   (:'club_id', :'owner_id', 'clubadmin', null, now()),
   (:'club_id', :'sponsor_id', 'member', :'owner_id', now()),
@@ -38,17 +38,17 @@ values
   (:'club_id', :'lapsed_id', 'member', :'owner_id', now())
 returning id, member_id;
 
-select id from app.memberships where club_id = :'club_id' and member_id = :'member_id' \gset
+select id from app.club_memberships where club_id = :'club_id' and member_id = :'member_id' \gset
 \set member_membership_id :id
-select id from app.memberships where club_id = :'club_id' and member_id = :'lapsed_id' \gset
+select id from app.club_memberships where club_id = :'club_id' and member_id = :'lapsed_id' \gset
 \set lapsed_membership_id :id
 
-insert into app.membership_state_versions (membership_id, status, version_no, created_by_member_id)
+insert into app.club_membership_state_versions (membership_id, status, version_no, created_by_member_id)
 select id, 'active', 1, member_id
-from app.memberships
+from app.club_memberships
 where club_id = :'club_id';
 
-insert into app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+insert into app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
 values
   (:'member_membership_id', :'sponsor_id', 'active', 0, now() + interval '14 days'),
   (:'lapsed_membership_id', :'owner_id', 'active', 0, now() - interval '1 day');
@@ -82,7 +82,7 @@ declare
 begin
   select count(*)
   into accessible_count
-  from app.accessible_memberships
+  from app.accessible_club_memberships
   where club_id = p_club_id;
 
   if accessible_count <> 2 then
@@ -91,7 +91,7 @@ begin
 
   select response
   into latest_rsvp
-  from app.current_rsvps
+  from app.current_event_rsvps
   where event_entity_id = p_event_entity_id
     and membership_id = p_membership_id;
 
@@ -100,7 +100,7 @@ begin
   end if;
 
   begin
-    update app.memberships
+    update app.club_memberships
     set sponsor_member_id = p_owner_id
     where id = p_membership_id;
 
@@ -117,8 +117,8 @@ $$;
 select pg_temp.assert_club_hardening(:'club_id', :'event_entity_id', :'member_membership_id', :'owner_id');
 
 select
-  (select count(*) from app.accessible_memberships where club_id = :'club_id') as accessible_memberships,
-  (select response from app.current_rsvps where event_entity_id = :'event_entity_id' and membership_id = :'member_membership_id') as latest_rsvp;
+  (select count(*) from app.accessible_club_memberships where club_id = :'club_id') as accessible_memberships,
+  (select response from app.current_event_rsvps where event_entity_id = :'event_entity_id' and membership_id = :'member_membership_id') as latest_rsvp;
 
 rollback;
 SQL

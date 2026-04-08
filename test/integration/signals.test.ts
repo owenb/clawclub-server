@@ -32,7 +32,7 @@ describe('member signals', () => {
 
     // Insert a signal directly via SQL
     await h.sqlClubs(
-      `insert into app.signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signal_deliveries (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.test', $3::jsonb)`,
       [owen.club.id, owen.id, JSON.stringify({ kind: 'test', message: 'hello' })],
     );
@@ -63,7 +63,7 @@ describe('member signals', () => {
 
     // Insert a signal
     await h.sqlClubs(
-      `insert into app.signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signal_deliveries (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.ack_test', '{}'::jsonb)`,
       [owen.club.id, owen.id],
     );
@@ -82,7 +82,7 @@ describe('member signals', () => {
 
     // Verify durable state in DB
     const dbRows = await h.sqlClubs<{ acknowledged_state: string; suppression_reason: string | null }>(
-      `select acknowledged_state, suppression_reason from app.signals where id = $1`,
+      `select acknowledged_state, suppression_reason from app.signal_deliveries where id = $1`,
       [signalId.replace('signal:', '')],
     );
     assert.equal(dbRows.length, 1);
@@ -101,7 +101,7 @@ describe('member signals', () => {
     const cursor = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 })).nextAfter;
 
     await h.sqlClubs(
-      `insert into app.signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signal_deliveries (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.suppress_test', '{}'::jsonb)`,
       [owen.club.id, owen.id],
     );
@@ -116,21 +116,21 @@ describe('member signals', () => {
     });
 
     const dbRows = await h.sqlClubs<{ acknowledged_state: string; suppression_reason: string | null }>(
-      `select acknowledged_state, suppression_reason from app.signals where id = $1`,
+      `select acknowledged_state, suppression_reason from app.signal_deliveries where id = $1`,
       [signalId.replace('signal:', '')],
     );
     assert.equal(dbRows[0].acknowledged_state, 'suppressed');
     assert.equal(dbRows[0].suppression_reason, 'not relevant');
   });
 
-  it('activity acknowledgements persist a confirmation row', async () => {
+  it('activity acknowledgements are rejected because activity is cursor-driven', async () => {
     const owen = await h.seedOwner('sigactivityclub', 'SignalActivityClub');
 
     const cursor = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 })).nextAfter;
     assert.ok(cursor, 'expected a cursor from initial poll');
 
     const activityRows = await h.sqlClubs<{ seq: string }>(
-      `insert into app.activity (club_id, topic, payload, created_by_member_id)
+      `insert into app.club_activity (club_id, topic, payload, created_by_member_id)
        values ($1, 'entity.version.published', '{}'::jsonb, $2)
        returning seq::text as seq`,
       [owen.club.id, owen.id],
@@ -141,34 +141,11 @@ describe('member signals', () => {
     const activity = poll.items.find((item) => item.updateId === activityUpdateId);
     assert.ok(activity, 'expected the activity update to be visible');
 
-    const before = await h.sqlClubs<{ count: string }>(
-      `select count(*)::text as count
-       from app.mutation_confirmations
-       where action_name = 'updates.acknowledge'
-         and confirmation_kind = 'activity_receipt'
-         and subject_id = $1`,
-      [activityUpdateId],
-    );
-
-    const ack = await h.apiOk(owen.token, 'updates.acknowledge', {
+    const ack = await h.apiErr(owen.token, 'updates.acknowledge', {
       updateIds: [activityUpdateId],
       state: 'processed',
     });
-    const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
-    assert.equal(receipts.length, 1);
-    assert.equal(receipts[0].updateId, activityUpdateId);
-    assert.equal(receipts[0].clubId, owen.club.id);
-    assert.notEqual(receipts[0].receiptId, activityUpdateId, 'activity receipt should come from the durable confirmation row');
-
-    const after = await h.sqlClubs<{ count: string }>(
-      `select count(*)::text as count
-       from app.mutation_confirmations
-       where action_name = 'updates.acknowledge'
-         and confirmation_kind = 'activity_receipt'
-         and subject_id = $1`,
-      [activityUpdateId],
-    );
-    assert.equal(Number(after[0]!.count), Number(before[0]!.count) + 1);
+    assert.equal(ack.code, 'not_found');
   });
 
   it('signal cursor tracks independently from activity cursor', async () => {
@@ -178,14 +155,14 @@ describe('member signals', () => {
 
     // Insert a signal
     await h.sqlClubs(
-      `insert into app.signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signal_deliveries (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.cursor_test', '{}'::jsonb)`,
       [owen.club.id, owen.id],
     );
 
     // Insert activity directly (avoids needing LLM quality gate)
     await h.sqlClubs(
-      `insert into app.activity (club_id, topic, payload, created_by_member_id)
+      `insert into app.club_activity (club_id, topic, payload, created_by_member_id)
        values ($1, 'entity.version.published', '{}'::jsonb, $2)`,
       [owen.club.id, owen.id],
     );
@@ -218,7 +195,7 @@ describe('member signals', () => {
 
     // Insert a signal
     await h.sqlClubs(
-      `insert into app.signals (club_id, recipient_member_id, topic, payload)
+      `insert into app.signal_deliveries (club_id, recipient_member_id, topic, payload)
        values ($1, $2, 'signal.compat_test', '{}'::jsonb)`,
       [owen.club.id, owen.id],
     );

@@ -251,10 +251,10 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     const challenge = challengeResult.rows[0];
     if (!challenge) { await client1.query('ROLLBACK'); throw new AppError(404, 'challenge_not_found', 'Challenge not found'); }
 
-    // Reject member-bound challenges — they must go through admissions.crossApply
+    // Reject member-bound challenges — they must go through admissions.crossClub.submitApplication
     if (challenge.member_id !== null) {
       await client1.query('ROLLBACK');
-      throw new AppError(400, 'challenge_not_cold', 'This challenge is bound to an authenticated member. Use admissions.crossApply instead.');
+      throw new AppError(400, 'challenge_not_cold', 'This challenge is bound to an authenticated member. Use admissions.crossClub.submitApplication instead.');
     }
 
     if (Date.parse(challenge.expires_at) < Date.now()) {
@@ -378,9 +378,9 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
       // Log LLM usage (fire and forget — errors don't block)
       const usage = 'usage' in gateResult ? gateResult.usage : null;
       client.query(
-        `insert into app.llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
+        `insert into app.ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [null, challengeData.club_id, 'admissions.apply', 'admission_gate', QUALITY_GATE_PROVIDER, CLAWCLUB_OPENAI_MODEL, gateStatus, null, usage?.promptTokens ?? null, usage?.completionTokens ?? null, null],
+        [null, challengeData.club_id, 'admissions.public.submitApplication', 'admission_gate', QUALITY_GATE_PROVIDER, CLAWCLUB_OPENAI_MODEL, gateStatus, null, usage?.promptTokens ?? null, usage?.completionTokens ?? null, null],
       ).catch(() => {});
 
       return {
@@ -406,7 +406,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
  */
 async function assertCrossEligibility(client: DbClient, memberId: string, clubId: string): Promise<void> {
   const hasActive = await client.query<{ ok: boolean }>(
-    `select exists(select 1 from app.current_memberships where member_id = $1 and status = 'active') as ok`,
+    `select exists(select 1 from app.current_club_memberships where member_id = $1 and status = 'active') as ok`,
     [memberId],
   );
   if (!hasActive.rows[0]?.ok) {
@@ -414,7 +414,7 @@ async function assertCrossEligibility(client: DbClient, memberId: string, clubId
   }
 
   const existingMembership = await client.query<{ id: string }>(
-    `select id from app.memberships where club_id = $1 and member_id = $2 limit 1`,
+    `select id from app.club_memberships where club_id = $1 and member_id = $2 limit 1`,
     [clubId, memberId],
   );
   if (existingMembership.rows[0]) {
@@ -457,7 +457,7 @@ export async function createCrossChallenge(pool: Pool, input: {
   const contact = await pool.query<{ public_name: string; email: string | null }>(
     `select m.public_name, mpc.email
      from app.members m
-     left join app.private_contacts mpc on mpc.member_id = m.id
+     left join app.member_private_contacts mpc on mpc.member_id = m.id
      where m.id = $1`,
     [input.memberId],
   );
@@ -555,7 +555,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
     const contactResult = await client1.query<{ public_name: string; email: string | null }>(
       `select m.public_name, mpc.email
        from app.members m
-       left join app.private_contacts mpc on mpc.member_id = m.id
+       left join app.member_private_contacts mpc on mpc.member_id = m.id
        where m.id = $1`,
       [input.memberId],
     );
@@ -672,9 +672,9 @@ export async function solveCrossChallenge(pool: Pool, input: {
       // Log LLM usage
       const usage = 'usage' in gateResult ? gateResult.usage : null;
       client.query(
-        `insert into app.llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
+        `insert into app.ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [input.memberId, challengeData.club_id, 'admissions.crossApply', 'admission_gate', QUALITY_GATE_PROVIDER, CLAWCLUB_OPENAI_MODEL, gateStatus, null, usage?.promptTokens ?? null, usage?.completionTokens ?? null, null],
+        [input.memberId, challengeData.club_id, 'admissions.crossClub.submitApplication', 'admission_gate', QUALITY_GATE_PROVIDER, CLAWCLUB_OPENAI_MODEL, gateStatus, null, usage?.promptTokens ?? null, usage?.completionTokens ?? null, null],
       ).catch(() => {});
 
       return {

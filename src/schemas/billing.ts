@@ -12,7 +12,7 @@ import { registerActions, type ActionDefinition, type HandlerContext, type Actio
 // ── billing.status ──────────────────────────────────────
 
 const billingStatus: ActionDefinition = {
-  action: 'billing.status',
+  action: 'billing.getMembershipStatus',
   domain: 'billing',
   description: 'Get billing/subscription status for a membership in a specific club. Returns product-local state only.',
   auth: 'member',

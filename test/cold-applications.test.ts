@@ -20,7 +20,7 @@ test('admissions.challenge returns a PoW challenge bound to a club', async () =>
   const dispatcher = buildDispatcher({ repository });
   const result: any = await dispatcher.dispatch({
     bearerToken: null,
-    action: 'admissions.challenge',
+    action: 'admissions.public.requestChallenge',
     payload: { clubSlug: 'alpha' },
   });
 
@@ -42,7 +42,7 @@ test('admissions.challenge rejects missing clubSlug', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: null,
-      action: 'admissions.challenge',
+      action: 'admissions.public.requestChallenge',
       payload: {},
     }),
     (err: any) => {
@@ -62,7 +62,7 @@ test('admissions.apply rejects single-word name', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: null,
-      action: 'admissions.apply',
+      action: 'admissions.public.submitApplication',
       payload: {
         challengeId: 'c1', nonce: '123',
         name: 'Jane',
@@ -87,7 +87,7 @@ test('admissions.apply rejects invalid email', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: null,
-      action: 'admissions.apply',
+      action: 'admissions.public.submitApplication',
       payload: {
         challengeId: 'c1', nonce: '123',
         name: 'Jane Doe',
@@ -112,7 +112,7 @@ test('admissions.apply rejects missing socials', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: null,
-      action: 'admissions.apply',
+      action: 'admissions.public.submitApplication',
       payload: {
         challengeId: 'c1', nonce: '123',
         name: 'Jane Doe',
@@ -136,7 +136,7 @@ test('admissions.apply rejects missing application', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: null,
-      action: 'admissions.apply',
+      action: 'admissions.public.submitApplication',
       payload: {
         challengeId: 'c1', nonce: '123',
         name: 'Jane Doe',
@@ -163,7 +163,7 @@ test('admissions.apply forwards all fields to repository', async () => {
   const dispatcher = buildDispatcher({ repository });
   const result: any = await dispatcher.dispatch({
     bearerToken: null,
-    action: 'admissions.apply',
+    action: 'admissions.public.submitApplication',
     payload: {
       challengeId: 'c1', nonce: '123',
       name: '  Jane   Doe  ',
@@ -192,7 +192,7 @@ test('admissions.apply returns needs_revision from repository', async () => {
   const dispatcher = buildDispatcher({ repository });
   const result: any = await dispatcher.dispatch({
     bearerToken: null,
-    action: 'admissions.apply',
+    action: 'admissions.public.submitApplication',
     payload: {
       challengeId: 'c1', nonce: '123',
       name: 'Jane Doe',
@@ -216,7 +216,7 @@ test('admissions.apply returns attempts_exhausted from repository', async () => 
   const dispatcher = buildDispatcher({ repository });
   const result: any = await dispatcher.dispatch({
     bearerToken: null,
-    action: 'admissions.apply',
+    action: 'admissions.public.submitApplication',
     payload: {
       challengeId: 'c1', nonce: '123',
       name: 'Jane Doe',
@@ -240,7 +240,7 @@ test('admissions.apply accepts application up to 4000 characters', async () => {
   // 4000 chars should succeed
   const result: any = await dispatcher.dispatch({
     bearerToken: null,
-    action: 'admissions.apply',
+    action: 'admissions.public.submitApplication',
     payload: {
       challengeId: 'c1', nonce: '123',
       name: 'Jane Doe',
@@ -253,7 +253,7 @@ test('admissions.apply accepts application up to 4000 characters', async () => {
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: null,
-      action: 'admissions.apply',
+      action: 'admissions.public.submitApplication',
       payload: {
         challengeId: 'c1', nonce: '123',
         name: 'Jane Doe',
@@ -287,7 +287,7 @@ test('admissions.apply rejects name, email, socials exceeding 500 characters', a
     await assert.rejects(
       () => dispatcher.dispatch({
         bearerToken: null,
-        action: 'admissions.apply',
+        action: 'admissions.public.submitApplication',
         payload,
       }),
       (err: any) => {

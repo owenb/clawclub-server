@@ -20,7 +20,7 @@ type CrossChallengeInput = {
 };
 
 const admissionsCrossChallenge: ActionDefinition = {
-  action: 'admissions.crossChallenge',
+  action: 'admissions.crossClub.requestChallenge',
   domain: 'admissions',
   description: 'Request a reduced-difficulty PoW challenge for an existing network member applying to a new club.',
   auth: 'member',
@@ -62,7 +62,7 @@ type CrossApplyInput = {
 };
 
 const admissionsCrossApply: ActionDefinition = {
-  action: 'admissions.crossApply',
+  action: 'admissions.crossClub.submitApplication',
   domain: 'admissions',
   description: 'Submit a solved cross-apply PoW challenge with an application. Name and email are locked to your profile.',
   auth: 'member',

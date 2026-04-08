@@ -27,7 +27,7 @@ after(async () => {
 describe('legality gate: passes legal content regardless of quality', () => {
   it('passes a post with no body (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-entity-1', 'QG Entity Club 1');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Hello',
@@ -38,7 +38,7 @@ describe('legality gate: passes legal content regardless of quality', () => {
 
   it('passes a vague opportunity (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-entity-2', 'QG Entity Club 2');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'opportunity',
       title: 'Great role',
@@ -50,7 +50,7 @@ describe('legality gate: passes legal content regardless of quality', () => {
 
   it('passes a vague service listing (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-entity-3', 'QG Entity Club 3');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'service',
       title: 'Consulting',
@@ -62,7 +62,7 @@ describe('legality gate: passes legal content regardless of quality', () => {
 
   it('passes a well-formed post', async () => {
     const owner = await h.seedOwner('qg-entity-4', 'QG Entity Club 4');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Three things I learned running a bakery for 10 years',
@@ -127,7 +127,7 @@ describe('legality gate: passes legal content regardless of quality', () => {
     const owner = await h.seedOwner('qg-sponsor-1', 'QG Sponsor Club 1');
     const member = await h.seedClubMember(owner.club.id, 'Sponsor Member', 'qg-sponsor-member-1', { sponsorId: owner.id });
 
-    const result = await h.apiOk(member.token, 'admissions.sponsor', {
+    const result = await h.apiOk(member.token, 'admissions.sponsorCandidate', {
       clubId: owner.club.id,
       name: 'Jane Doe',
       email: 'jane@example.com',
@@ -170,7 +170,7 @@ describe('legality gate: schema validation still applies', () => {
 describe('legality gate: rejects clearly illegal content', () => {
   it('rejects a post soliciting fraud', async () => {
     const owner = await h.seedOwner('qg-illegal-1', 'QG Illegal Club 1');
-    const err = await h.apiErr(owner.token, 'entities.create', {
+    const err = await h.apiErr(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Need help with documents',
@@ -181,7 +181,7 @@ describe('legality gate: rejects clearly illegal content', () => {
 
   it('rejects a service offering drug trafficking', async () => {
     const owner = await h.seedOwner('qg-illegal-2', 'QG Illegal Club 2');
-    const err = await h.apiErr(owner.token, 'entities.create', {
+    const err = await h.apiErr(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'service',
       title: 'Bulk supply available',
@@ -192,7 +192,7 @@ describe('legality gate: rejects clearly illegal content', () => {
 
   it('rejects a post containing threats of violence', async () => {
     const owner = await h.seedOwner('qg-illegal-3', 'QG Illegal Club 3');
-    const err = await h.apiErr(owner.token, 'entities.create', {
+    const err = await h.apiErr(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Had enough',
@@ -205,7 +205,7 @@ describe('legality gate: rejects clearly illegal content', () => {
 describe('legality gate: allows legal but edgy content', () => {
   it('passes a post with heavy profanity but a clear point', async () => {
     const owner = await h.seedOwner('qg-edgy-1', 'QG Edgy Club 1');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Fundraising is broken',
@@ -217,7 +217,7 @@ describe('legality gate: allows legal but edgy content', () => {
 
   it('passes a harsh critique of a public figure', async () => {
     const owner = await h.seedOwner('qg-edgy-2', 'QG Edgy Club 2');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Why I think Elon Musk is a terrible CEO',
@@ -229,7 +229,7 @@ describe('legality gate: allows legal but edgy content', () => {
 
   it('passes a politically extreme but legal opinion', async () => {
     const owner = await h.seedOwner('qg-edgy-3', 'QG Edgy Club 3');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Abolish all intellectual property law',
@@ -241,7 +241,7 @@ describe('legality gate: allows legal but edgy content', () => {
 
   it('passes a sexually suggestive but legal post', async () => {
     const owner = await h.seedOwner('qg-edgy-4', 'QG Edgy Club 4');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Starting a dating app for kink-positive professionals',
@@ -253,7 +253,7 @@ describe('legality gate: allows legal but edgy content', () => {
 
   it('passes a post discussing legal recreational drug use', async () => {
     const owner = await h.seedOwner('qg-edgy-5', 'QG Edgy Club 5');
-    const result = await h.apiOk(owner.token, 'entities.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       title: 'Microdosing changed how I work',

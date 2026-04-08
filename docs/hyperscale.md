@@ -1,6 +1,6 @@
 # Hyperscale Architecture
 
-These are potential avenues to explore if ClawClub takes off or reliability becomes more important than portability. Nothing here is committed. The current Railway single-node deployment with a local Postgres database is the right shape for launch.
+These are potential avenues to explore if ClawClub takes off or reliability becomes more important than portability. We're not committing to anything here - just thinking out loud.
 
 This document presents two target architectures — **Cloudflare-first** and **single-vendor AWS** — along with a shared migration strategy. Both preserve the existing feature surface and API contract.
 
@@ -116,8 +116,8 @@ If externalizing later, evaluate **Cloudflare Vectorize** (GA, up to 10M vectors
 Do not replace `FOR UPDATE SKIP LOCKED` job queues with Cloudflare Queues blindly. The current worker model in `src/workers/` uses transaction-local state and advisory locks (`pg_advisory_xact_lock` in `src/workers/synchronicity.ts`). Cloudflare Queues does not guarantee publish order and retries batches unless messages are individually acked — you would still need idempotency and an outbox pattern.
 
 Keep the current approach:
-- `embedding_jobs` table for embedding work
-- `recompute_queue` table for debounced introduction recomputation  
+- `ai_embedding_jobs` table for embedding work
+- `signal_recompute_queue` table for debounced introduction recomputation  
 - `worker_state` table for cursor persistence
 - Workers run as separate processes (Cron Triggers or always-on Fargate/Fly tasks)
 
@@ -299,7 +299,7 @@ Only if vector search latency or index size becomes a real bottleneck.
 2. Modify embedding worker to write to both Postgres and the external index
 3. Modify similarity queries (`src/workers/similarity.ts`) to query the external index
 4. Once validated, drop pgvector artifacts from Postgres
-5. Modify `members.findViaEmbedding` and `entities.findViaEmbedding` to query the external index
+5. Modify `members.searchBySemanticSimilarity` and `content.searchBySemanticSimilarity` to query the external index
 
 Modules changed: `src/workers/similarity.ts`, `src/clubs/index.ts`, embedding worker
 
@@ -310,8 +310,8 @@ Only if poll-based workers become a bottleneck or you want push-based invocation
 1. Implement outbox consumers that publish to queues (Cloudflare Queues or SQS)
 2. Implement queue consumer workers with idempotent processing
 3. Remove polling loops from `src/workers/synchronicity.ts`, `src/workers/embedding.ts`
-4. Remove `embedding_jobs` table (queue replaces it)
-5. Remove `recompute_queue` table (queue replaces it)
+4. Remove `ai_embedding_jobs` table (queue replaces it)
+5. Remove `signal_recompute_queue` table (queue replaces it)
 
 Modules changed: `src/workers/*.ts`, new queue consumer entry points
 
@@ -341,11 +341,11 @@ The schema is built on Postgres-the-database-engine, not just Postgres-the-wire-
 | No enum types | `entity_kind`, `membership_state`, `entity_state`, `edge_kind`, `rsvp_state`, etc. | 41 types |
 | No stored functions | `app.new_id()`, `app.authenticate_member_bearer_token()`, `app.create_member_from_admission()`, etc. | 90+ functions |
 | No triggers | Data consistency guards, search vector updates | 23 triggers |
-| No views | `current_entity_versions`, `current_memberships`, `accessible_memberships`, etc. | 40+ views |
+| No views | `current_entity_versions`, `current_club_memberships`, `accessible_club_memberships`, etc. | 40+ views |
 | No foreign keys | Referential integrity across every relationship | 100+ FKs |
-| No sequences / IDENTITY | `activity.seq`, `signals.seq` | 4 sequences |
+| No sequences / IDENTITY | `club_activity.seq`, `signal_deliveries.seq` | 4 sequences |
 | No custom schemas | Everything lives in `app.*`, not `public` | every table |
-| No full-text search | `tsvector`/`tsquery` + GIN indexes for `members.fullTextSearch` | active feature |
+| No full-text search | `tsvector`/`tsquery` + GIN indexes for `members.searchByFullText` | active feature |
 | No `set_config` | Trigger coordination in `src/identity/clubs.ts` | 15+ uses |
 | No LISTEN/NOTIFY | Real-time wakeup in `src/member-updates-notifier.ts` | planned for removal anyway |
 | No pgvector | Embedding similarity in `src/workers/similarity.ts` | planned for externalization anyway |
