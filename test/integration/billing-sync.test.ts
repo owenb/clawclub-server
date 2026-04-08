@@ -78,7 +78,7 @@ describe('superadmin.billing.activateMembership creates access', () => {
       initialStatus: 'payment_pending',
     });
     const msRows = await h.sql<{ id: string }>(
-      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM club_memberships WHERE club_id = $1 AND member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;
@@ -103,7 +103,7 @@ describe('superadmin.billing.activateMembership creates access', () => {
 
     // Verify subscription row exists
     const subs = await h.sql<{ status: string; current_period_end: string }>(
-      `SELECT status, current_period_end::text FROM app.club_subscriptions WHERE membership_id = $1`,
+      `SELECT status, current_period_end::text FROM club_subscriptions WHERE membership_id = $1`,
       [msId],
     );
     assert.equal(subs.length, 1);
@@ -136,7 +136,7 @@ describe('superadmin.billing.cancelAtPeriodEnd preserves access', () => {
       initialStatus: 'payment_pending',
     });
     const msRows = await h.sql<{ id: string }>(
-      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM club_memberships WHERE club_id = $1 AND member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;
@@ -213,7 +213,7 @@ describe('superadmin.billing.setClubPrice is idempotent', () => {
 
     // Get version count
     const v1 = await h.sql<{ count: string }>(
-      `SELECT count(*)::text as count FROM app.club_versions WHERE club_id = $1`,
+      `SELECT count(*)::text as count FROM club_versions WHERE club_id = $1`,
       [owner.club.id],
     );
 
@@ -226,14 +226,14 @@ describe('superadmin.billing.setClubPrice is idempotent', () => {
 
     // Version count should not increase
     const v2 = await h.sql<{ count: string }>(
-      `SELECT count(*)::text as count FROM app.club_versions WHERE club_id = $1`,
+      `SELECT count(*)::text as count FROM club_versions WHERE club_id = $1`,
       [owner.club.id],
     );
     assert.equal(v1[0]!.count, v2[0]!.count, 'idempotent setClubPrice should not create extra version');
 
     // Verify price is set
     const club = await h.sql<{ membership_price_amount: string }>(
-      `SELECT membership_price_amount::text FROM app.clubs WHERE id = $1`,
+      `SELECT membership_price_amount::text FROM clubs WHERE id = $1`,
       [owner.club.id],
     );
     assert.equal(club[0]!.membership_price_amount, '200.00');
@@ -293,7 +293,7 @@ describe('paid club guards', () => {
 
     // Verify archived
     const club = await h.sql<{ archived_at: string | null }>(
-      `SELECT archived_at::text FROM app.clubs WHERE id = $1`,
+      `SELECT archived_at::text FROM clubs WHERE id = $1`,
       [owner.club.id],
     );
     assert.ok(club[0]!.archived_at, 'club should be archived');
@@ -349,7 +349,7 @@ describe('parseIsoDatetime rejects non-ISO date formats', () => {
     });
     const member = await h.seedClubMember(owner.club.id, 'Iso Member', 'iso-member', { sponsorId: owner.id, status: 'payment_pending' });
     const msRows = await h.sql<{ id: string }>(
-      `select id from app.club_memberships where club_id = $1 and member_id = $2`,
+      `select id from club_memberships where club_id = $1 and member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;

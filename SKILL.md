@@ -50,7 +50,6 @@ Action families and individual actions:
 - `clubadmin.clubs.getStatistics` — get statistics for a club
 - `clubadmin.content.remove` — remove any entity in a club (moderation; reason required)
 - `clubadmin.events.remove` — remove any event in a club (moderation; reason required)
-- `clubadmin.messages.remove` — remove any message in a club (moderation; reason required)
 
 **Club Owner**
 - `clubowner.members.promoteToAdmin` — promote a club member to admin role (owner only)

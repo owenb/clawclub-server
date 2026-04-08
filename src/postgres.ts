@@ -89,9 +89,9 @@ async function readAdmissionEnriched(
             ca.created_at::text as created_at,
             am.public_name as applicant_public_name, am.handle as applicant_handle,
             sm.public_name as sponsor_public_name, sm.handle as sponsor_handle
-     from app.current_admissions ca
-     left join app.members am on am.id = ca.applicant_member_id
-     left join app.members sm on sm.id = ca.sponsor_member_id
+     from current_admissions ca
+     left join members am on am.id = ca.applicant_member_id
+     left join members sm on sm.id = ca.sponsor_member_id
      where ca.id = $1 limit 1`,
     [admissionId],
   );
@@ -145,9 +145,9 @@ async function resolveSharedClubs(
 ): Promise<Array<{ clubId: string; slug: string; name: string }>> {
   const result = await pool.query<SharedClubRow>(
     `select c.id as club_id, c.slug, c.name
-     from app.accessible_club_memberships a
-     join app.accessible_club_memberships b on b.club_id = a.club_id and b.member_id = $3
-     join app.clubs c on c.id = a.club_id and c.archived_at is null
+     from accessible_club_memberships a
+     join accessible_club_memberships b on b.club_id = a.club_id and b.member_id = $3
+     join clubs c on c.id = a.club_id and c.archived_at is null
      where a.member_id = $1 and a.club_id = any($2::text[])
      order by c.name asc`,
     [actorMemberId, accessibleClubIds, otherMemberId],
@@ -161,9 +161,9 @@ async function resolveSharedClubsUnscoped(
 ): Promise<Array<{ clubId: string; slug: string; name: string }>> {
   const result = await pool.query<SharedClubRow>(
     `select c.id as club_id, c.slug, c.name
-     from app.accessible_club_memberships a
-     join app.accessible_club_memberships b on b.club_id = a.club_id and b.member_id = $2
-     join app.clubs c on c.id = a.club_id and c.archived_at is null
+     from accessible_club_memberships a
+     join accessible_club_memberships b on b.club_id = a.club_id and b.member_id = $2
+     join clubs c on c.id = a.club_id and c.archived_at is null
      where a.member_id = $1
      order by c.name asc`,
     [memberA, memberB],
@@ -180,9 +180,9 @@ async function batchResolveSharedClubs(
 
   const result = await pool.query<SharedClubRow & { counterpart_member_id: string }>(
     `select b.member_id as counterpart_member_id, c.id as club_id, c.slug, c.name
-     from app.accessible_club_memberships a
-     join app.accessible_club_memberships b on b.club_id = a.club_id and b.member_id = any($2::text[])
-     join app.clubs c on c.id = a.club_id and c.archived_at is null
+     from accessible_club_memberships a
+     join accessible_club_memberships b on b.club_id = a.club_id and b.member_id = any($2::text[])
+     join clubs c on c.id = a.club_id and c.archived_at is null
      where a.member_id = $1
      order by b.member_id, c.name asc`,
     [actorMemberId, counterpartMemberIds],
@@ -220,9 +220,9 @@ async function batchResolveSharedClubsPairs(
     `with pairs(pair_key, member_a, member_b) as (values ${values.join(', ')})
      select p.pair_key, c.id as club_id, c.slug, c.name
      from pairs p
-     join app.accessible_club_memberships a on a.member_id = p.member_a
-     join app.accessible_club_memberships b on b.club_id = a.club_id and b.member_id = p.member_b
-     join app.clubs c on c.id = a.club_id and c.archived_at is null
+     join accessible_club_memberships a on a.member_id = p.member_a
+     join accessible_club_memberships b on b.club_id = a.club_id and b.member_id = p.member_b
+     join clubs c on c.id = a.club_id and c.archived_at is null
      order by p.pair_key, c.name asc`,
     params,
   );
@@ -341,7 +341,7 @@ export function createRepository(pool: Pool): Repository {
     async rsvpEvent(input) {
       // Look up the event's club to find the right membership
       const eventClubResult = await pool.query<{ club_id: string }>(
-        `select e.club_id from app.entities e where e.id = $1 and e.kind = 'event' limit 1`,
+        `select e.club_id from entities e where e.id = $1 and e.kind = 'event' limit 1`,
         [input.eventEntityId],
       );
       const eventClubId = eventClubResult.rows[0]?.club_id;
@@ -376,7 +376,7 @@ export function createRepository(pool: Pool): Repository {
       // Verify the target member has an accessible membership in this club (identity check)
       const targetCheck = await pool.query<{ ok: boolean }>(
         `select exists(
-           select 1 from app.accessible_club_memberships
+           select 1 from accessible_club_memberships
            where member_id = $1 and club_id = $2
          ) as ok`,
         [input.targetMemberId, input.clubId],
@@ -400,7 +400,7 @@ export function createRepository(pool: Pool): Repository {
     // ── Admissions ─────────────────────────────────────────
     async createAdmissionSponsorship(input) {
       const sponsorRow = await pool.query<{ public_name: string; handle: string | null }>(
-        `select public_name, handle from app.members where id = $1 and state = 'active'`,
+        `select public_name, handle from members where id = $1 and state = 'active'`,
         [input.actorMemberId],
       );
       const sponsorName = sponsorRow.rows[0]?.public_name ?? 'Unknown';
@@ -412,7 +412,7 @@ export function createRepository(pool: Pool): Repository {
         created_at: string;
       }>(
         `with inserted_admission as (
-           insert into app.admissions (club_id, sponsor_member_id, origin, applicant_email, applicant_name, admission_details)
+           insert into admissions (club_id, sponsor_member_id, origin, applicant_email, applicant_name, admission_details)
            values ($1, $2, 'member_sponsored', $3, $4, $5::jsonb)
            returning id, club_id, sponsor_member_id, created_at
          )
@@ -426,7 +426,7 @@ export function createRepository(pool: Pool): Repository {
       if (!row) throw new Error('Admission row was not returned after insert');
 
       await pool.query(
-        `insert into app.admission_versions (admission_id, status, notes, version_no, created_by_member_id)
+        `insert into admission_versions (admission_id, status, notes, version_no, created_by_member_id)
          values ($1, 'submitted', 'Sponsored admission created by member', 1, $2)`,
         [row.admission_id, input.actorMemberId],
       );
@@ -459,9 +459,9 @@ export function createRepository(pool: Pool): Repository {
                 ca.created_at::text as created_at,
                 am.public_name as applicant_public_name, am.handle as applicant_handle,
                 sm.public_name as sponsor_public_name, sm.handle as sponsor_handle
-         from app.current_admissions ca
-         left join app.members am on am.id = ca.applicant_member_id
-         left join app.members sm on sm.id = ca.sponsor_member_id
+         from current_admissions ca
+         left join members am on am.id = ca.applicant_member_id
+         left join members sm on sm.id = ca.sponsor_member_id
          where ca.club_id = any($1::text[])
            and ($2::text[] is null or ca.status::text = any($2::text[]))
          order by ca.version_created_at desc, ca.id asc
@@ -527,7 +527,7 @@ export function createRepository(pool: Pool): Repository {
           // Retry safety — three-layer lookup:
           // 1. Check if membership already exists (source_admission_id anchor)
           const existingMembership = await pool.query<{ member_id: string; id: string }>(
-            `select member_id, id from app.club_memberships where source_admission_id = $1 limit 1`,
+            `select member_id, id from club_memberships where source_admission_id = $1 limit 1`,
             [adm.admission_id],
           );
           if (existingMembership.rows[0]) {
@@ -536,7 +536,7 @@ export function createRepository(pool: Pool): Repository {
           } else {
             // 2. Check if member was created but membership wasn't (clubs-side link exists)
             const clubsSideLink = await pool.query<{ applicant_member_id: string | null }>(
-              `select applicant_member_id from app.admissions where id = $1`,
+              `select applicant_member_id from admissions where id = $1`,
               [adm.admission_id],
             );
             if (clubsSideLink.rows[0]?.applicant_member_id) {
@@ -558,7 +558,7 @@ export function createRepository(pool: Pool): Repository {
 
               // Immediately link the member in clubs so retries can find it
               await pool.query(
-                `update app.admissions set applicant_member_id = $2 where id = $1`,
+                `update admissions set applicant_member_id = $2 where id = $1`,
                 [adm.admission_id, memberId],
               );
             }
@@ -568,7 +568,7 @@ export function createRepository(pool: Pool): Repository {
         if (memberId) {
           // Check if this is a paid club — determines initial membership state
           const clubPriceResult = await pool.query<{ membership_price_amount: string | null; membership_price_currency: string }>(
-            `select membership_price_amount, membership_price_currency from app.clubs where id = $1`,
+            `select membership_price_amount, membership_price_currency from clubs where id = $1`,
             [clubId],
           );
           const isPaidClub = clubPriceResult.rows[0]?.membership_price_amount != null;
@@ -592,7 +592,7 @@ export function createRepository(pool: Pool): Repository {
             if (isPaidClub) {
               const priceRow = clubPriceResult.rows[0]!;
               await pool.query(
-                `update app.club_memberships set approved_price_amount = $2, approved_price_currency = $3
+                `update club_memberships set approved_price_amount = $2, approved_price_currency = $3
                  where id = $1`,
                 [membershipResult.membershipId, priceRow.membership_price_amount, priceRow.membership_price_currency],
               );
@@ -615,7 +615,7 @@ export function createRepository(pool: Pool): Repository {
         admission_policy: string; owner_member_id: string;
       }>(
         `select c.id as club_id, c.name, c.summary, c.admission_policy, c.owner_member_id
-         from app.clubs c
+         from clubs c
          where c.slug = $1 and c.archived_at is null and c.admission_policy is not null
          limit 1`,
         [input.clubSlug],
@@ -660,7 +660,7 @@ export function createRepository(pool: Pool): Repository {
         admission_policy: string; owner_member_id: string;
       }>(
         `select c.id as club_id, c.name, c.summary, c.admission_policy, c.owner_member_id
-         from app.clubs c
+         from clubs c
          where c.slug = $1 and c.archived_at is null and c.admission_policy is not null
          limit 1`,
         [input.clubSlug],
@@ -708,7 +708,7 @@ export function createRepository(pool: Pool): Repository {
         admission_id: string; applicant_member_id: string | null; status: string;
       }>(
         `select ca.id as admission_id, ca.applicant_member_id, ca.status
-         from app.current_admissions ca
+         from current_admissions ca
          where ca.id = $1 and ca.club_id = any($2::text[])
          limit 1`,
         [input.admissionId, input.accessibleClubIds],
@@ -851,30 +851,39 @@ export function createRepository(pool: Pool): Repository {
 
       const cursor = input.after ? decodeCursor(input.after) : null;
 
+      // Budget: distribute limit across sources so total never exceeds input.limit
+      // AND no source is starved under sustained load from another.
+      // Each source gets a guaranteed share; any underflow redistributes to later sources.
+      const activityShare = Math.ceil(input.limit / 3);
+      let remaining = input.limit;
+
       // ── Source 1: Club activity ──
       const activity = await clubs.listClubActivity({
         memberId: input.actorMemberId,
         clubIds: input.clubIds,
-        limit: input.limit,
+        limit: activityShare,
         afterSeq: cursor?.a ?? null,
         adminClubIds,
         ownerClubIds,
       });
+      remaining -= activity.items.length;
 
       // ── Source 2: Member signals ──
       const afterSignalSeq = cursor?.s ?? null;
       let signalSeq: number;
       let signalItems: PendingUpdate[] = [];
+      // Signals get half the remaining budget (after activity consumed its share).
+      const signalShare = Math.ceil(remaining / 2);
 
       if (afterSignalSeq == null) {
         // First poll: seed signal cursor from max(seq)
         const seedResult = await pool.query<{ max_seq: string }>(
-          `select coalesce(max(seq), 0)::text as max_seq from app.signal_deliveries
+          `select coalesce(max(seq), 0)::text as max_seq from signal_deliveries
            where recipient_member_id = $1 and club_id = any($2::text[])`,
           [input.actorMemberId, input.clubIds],
         );
         signalSeq = parseInt(seedResult.rows[0]?.max_seq ?? '0', 10);
-      } else {
+      } else if (signalShare > 0) {
         const signalResult = await pool.query<{
           id: string; club_id: string; recipient_member_id: string; seq: string;
           topic: string; payload: Record<string, unknown>; entity_id: string | null;
@@ -882,7 +891,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select id, club_id, recipient_member_id, seq::text as seq, topic, payload,
                   entity_id, match_id, created_at::text as created_at
-           from app.signal_deliveries ms
+           from signal_deliveries ms
            where recipient_member_id = $1
              and club_id = any($2::text[])
              and acknowledged_state is null
@@ -890,7 +899,7 @@ export function createRepository(pool: Pool): Repository {
              and (
                ms.entity_id is null
                or exists (
-                 select 1 from app.current_entity_versions cev
+                 select 1 from current_entity_versions cev
                  where cev.entity_id = ms.entity_id and cev.state = 'published'
                )
              )
@@ -898,12 +907,12 @@ export function createRepository(pool: Pool): Repository {
                ms.topic <> 'signal.offer_match'
                or ms.payload->>'yourAskEntityId' is null
                or exists (
-                 select 1 from app.current_entity_versions cev
+                 select 1 from current_entity_versions cev
                  where cev.entity_id = ms.payload->>'yourAskEntityId' and cev.state = 'published'
                )
              )
            order by seq asc limit $4`,
-          [input.actorMemberId, input.clubIds, afterSignalSeq, input.limit],
+          [input.actorMemberId, input.clubIds, afterSignalSeq, signalShare],
         );
 
         signalItems = signalResult.rows.map(s => ({
@@ -924,25 +933,41 @@ export function createRepository(pool: Pool): Repository {
         signalSeq = signalResult.rows.length > 0
           ? parseInt(signalResult.rows[signalResult.rows.length - 1].seq, 10)
           : afterSignalSeq;
+      } else {
+        // No budget left for signals — keep cursor unchanged
+        signalSeq = afterSignalSeq;
       }
+      remaining -= signalItems.length;
 
       // ── Source 3: Inbox (DMs) ──
+      // Order ASC (oldest first) so repeated polls drain the backlog in order.
+      // Cursor.t advances to the last item's created_at, not wall-clock time.
+      // Inbox gets whatever budget remains after activity and signals.
       const cursorTimestamp = cursor?.t ?? null;
-      const inboxResult = await pool.query<{
-        id: string; recipient_member_id: string; thread_id: string;
-        message_id: string; created_at: string;
-      }>(
-        `select ie.id, ie.recipient_member_id, ie.thread_id, ie.message_id,
-                ie.created_at::text as created_at
-         from app.dm_inbox_entries ie
-         where ie.recipient_member_id = $1 and ie.acknowledged = false
-           and ($3::timestamptz is null or ie.created_at > $3)
-           and not exists (
-             select 1 from app.dm_message_removals rmv where rmv.message_id = ie.message_id
-           )
-         order by ie.created_at desc limit $2`,
-        [input.actorMemberId, input.limit, cursorTimestamp],
-      );
+      const inboxBudget = Math.max(0, remaining);
+      const inboxResult = inboxBudget > 0
+        ? await pool.query<{
+            id: string; recipient_member_id: string; thread_id: string;
+            message_id: string; created_at: string;
+          }>(
+            `select ie.id, ie.recipient_member_id, ie.thread_id, ie.message_id,
+                    ie.created_at::text as created_at
+             from dm_inbox_entries ie
+             where ie.recipient_member_id = $1 and ie.acknowledged = false
+               and ($3::timestamptz is null or ie.created_at > $3)
+               and not exists (
+                 select 1 from dm_message_removals rmv where rmv.message_id = ie.message_id
+               )
+             order by ie.created_at asc limit $2`,
+            [input.actorMemberId, inboxBudget, cursorTimestamp],
+          )
+        : { rows: [] as Array<{ id: string; recipient_member_id: string; thread_id: string; message_id: string; created_at: string }> };
+
+      // Advance inbox cursor to the last (most recent) item returned, not wall-clock.
+      // If no items, keep the existing cursor timestamp unchanged.
+      const nextInboxTimestamp = inboxResult.rows.length > 0
+        ? inboxResult.rows[inboxResult.rows.length - 1].created_at
+        : cursorTimestamp;
 
       // Get sender info for DM updates in one query
       const inboxMessageIds = inboxResult.rows.map((ie) => ie.message_id);
@@ -957,8 +982,8 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select m.id as message_id, m.sender_member_id, m.message_text, m.thread_id,
                   mbr.public_name as sender_public_name, mbr.handle as sender_handle
-           from app.dm_messages m
-           left join app.members mbr on mbr.id = m.sender_member_id
+           from dm_messages m
+           left join members mbr on mbr.id = m.sender_member_id
            where m.id = any($1::text[])`,
           [inboxMessageIds],
         );
@@ -1024,11 +1049,13 @@ export function createRepository(pool: Pool): Repository {
       const allItems = [...activityItems, ...signalItems, ...inboxItems];
       const polledAt = new Date().toISOString();
 
+      // Build cursor: always produce a cursor even when activity has no clubs.
+      // Activity seq: from activity result, or keep existing cursor value, or 0.
+      const nextActivitySeq = activity.nextAfterSeq ?? cursor?.a ?? 0;
+
       return {
         items: allItems,
-        nextAfter: activity.nextAfterSeq != null
-          ? encodeCursor({ a: activity.nextAfterSeq, s: signalSeq, t: polledAt })
-          : null,
+        nextAfter: encodeCursor({ a: nextActivitySeq, s: signalSeq, t: nextInboxTimestamp ?? polledAt }),
         polledAt,
       };
     },
@@ -1042,14 +1069,13 @@ export function createRepository(pool: Pool): Repository {
       });
       // Seed signal cursor from max(seq)
       const signalSeed = await pool.query<{ max_seq: string }>(
-        `select coalesce(max(seq), 0)::text as max_seq from app.signal_deliveries
+        `select coalesce(max(seq), 0)::text as max_seq from signal_deliveries
          where recipient_member_id = $1 and club_id = any($2::text[])`,
         [input.actorMemberId, input.clubIds],
       );
       const signalSeq = parseInt(signalSeed.rows[0]?.max_seq ?? '0', 10);
 
-      if (activity.nextAfterSeq == null) return null;
-      return encodeCursor({ a: activity.nextAfterSeq, s: signalSeq, t: new Date().toISOString() });
+      return encodeCursor({ a: activity.nextAfterSeq ?? 0, s: signalSeq, t: new Date().toISOString() });
     },
 
     async acknowledgeUpdates(input) {
@@ -1075,7 +1101,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (inboxIds.length > 0) {
           const result = await client.query<{ id: string }>(
-            `update app.dm_inbox_entries
+            `update dm_inbox_entries
              set acknowledged = true
              where id = any($1::text[]) and recipient_member_id = $2
              returning id`,
@@ -1118,7 +1144,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (signalIds.length > 0) {
           const result = await client.query<{ id: string; club_id: string; acknowledged_at: string }>(
-            `update app.signal_deliveries
+            `update signal_deliveries
              set acknowledged_state = coalesce(acknowledged_state, $3),
                  acknowledged_at = coalesce(acknowledged_at, now()),
                  suppression_reason = case when acknowledged_state is null then $4 else suppression_reason end
@@ -1170,19 +1196,19 @@ export function createRepository(pool: Pool): Repository {
     // ── Admin ───────────────────────────────────────────
     async adminGetOverview() {
       const [totalMemberCount, activeMemberCount, clubCount, entityCount, messageCount, admissionCount] = await Promise.all([
-        pool.query<{ count: string }>(`select count(*)::text as count from app.members`),
-        pool.query<{ count: string }>(`select count(*)::text as count from app.members where state = 'active'`),
-        pool.query<{ count: string }>(`select count(*)::text as count from app.clubs where archived_at is null`),
-        pool.query<{ count: string }>(`select count(*)::text as count from app.entities where deleted_at is null`),
-        pool.query<{ count: string }>(`select count(*)::text as count from app.dm_messages`),
-        pool.query<{ count: string }>(`select count(*)::text as count from app.admissions`),
+        pool.query<{ count: string }>(`select count(*)::text as count from members`),
+        pool.query<{ count: string }>(`select count(*)::text as count from members where state = 'active'`),
+        pool.query<{ count: string }>(`select count(*)::text as count from clubs where archived_at is null`),
+        pool.query<{ count: string }>(`select count(*)::text as count from entities where deleted_at is null`),
+        pool.query<{ count: string }>(`select count(*)::text as count from dm_messages`),
+        pool.query<{ count: string }>(`select count(*)::text as count from admissions`),
       ]);
 
       const recentMembers = await pool.query<{
         member_id: string; public_name: string; handle: string | null; created_at: string;
       }>(
         `select id as member_id, public_name, handle, created_at::text as created_at
-         from app.members
+         from members
          order by created_at desc limit 5`,
       );
 
@@ -1209,9 +1235,9 @@ export function createRepository(pool: Pool): Repository {
       }>(
         `select m.id as member_id, m.public_name, m.handle, m.state::text as state,
                 m.created_at::text as created_at,
-                (select count(*)::int from app.club_memberships cm where cm.member_id = m.id) as membership_count,
-                (select count(*)::int from app.member_bearer_tokens t where t.member_id = m.id and t.revoked_at is null) as token_count
-         from app.members m
+                (select count(*)::int from club_memberships cm where cm.member_id = m.id) as membership_count,
+                (select count(*)::int from member_bearer_tokens t where t.member_id = m.id and t.revoked_at is null) as token_count
+         from members m
          where ($1::timestamptz is null or m.created_at < $1 or (m.created_at = $1 and m.id < $2))
          order by m.created_at desc, m.id desc
          limit $3`,
@@ -1231,7 +1257,7 @@ export function createRepository(pool: Pool): Repository {
         state: string; created_at: string;
       }>(
         `select id as member_id, public_name, handle, state::text as state, created_at::text as created_at
-         from app.members where id = $1 limit 1`,
+         from members where id = $1 limit 1`,
         [memberId],
       );
       if (!memberResult.rows[0]) return null;
@@ -1243,15 +1269,15 @@ export function createRepository(pool: Pool): Repository {
       }>(
         `select cm.id as membership_id, cm.club_id, c.name as club_name, c.slug as club_slug,
                 cm.role::text as role, cm.status::text as status, cm.joined_at::text as joined_at
-         from app.club_memberships cm
-         join app.clubs c on c.id = cm.club_id
+         from club_memberships cm
+         join clubs c on c.id = cm.club_id
          where cm.member_id = $1
          order by cm.joined_at desc`,
         [memberId],
       );
 
       const tokenCount = await pool.query<{ count: string }>(
-        `select count(*)::text as count from app.member_bearer_tokens where member_id = $1 and revoked_at is null`,
+        `select count(*)::text as count from member_bearer_tokens where member_id = $1 and revoked_at is null`,
         [memberId],
       );
 
@@ -1272,21 +1298,21 @@ export function createRepository(pool: Pool): Repository {
     async adminGetClubStats({ clubId }) {
       const [clubResult, memberCounts, entityCount, admissionCounts] = await Promise.all([
         pool.query<{ club_id: string; slug: string; name: string; archived_at: string | null }>(
-          `select id as club_id, slug, name, archived_at::text as archived_at from app.clubs where id = $1 limit 1`,
+          `select id as club_id, slug, name, archived_at::text as archived_at from clubs where id = $1 limit 1`,
           [clubId],
         ),
         pool.query<{ status: string; count: string }>(
           `select cm.status::text as status, count(*)::text as count
-           from app.club_memberships cm where cm.club_id = $1 group by cm.status`,
+           from club_memberships cm where cm.club_id = $1 group by cm.status`,
           [clubId],
         ),
         pool.query<{ count: string }>(
-          `select count(*)::text as count from app.entities where club_id = $1 and deleted_at is null`,
+          `select count(*)::text as count from entities where club_id = $1 and deleted_at is null`,
           [clubId],
         ),
         pool.query<{ status: string; count: string }>(
           `select cav.status::text as status, count(*)::text as count
-           from app.current_admissions cav where cav.club_id = $1 group by cav.status`,
+           from current_admissions cav where cav.club_id = $1 group by cav.status`,
           [clubId],
         ),
       ]);
@@ -1296,14 +1322,14 @@ export function createRepository(pool: Pool): Repository {
 
       const messageCount = await pool.query<{ count: string }>(
         `select count(*)::text as count
-         from app.dm_messages m
-         join app.dm_threads t on t.id = m.thread_id
+         from dm_messages m
+         join dm_threads t on t.id = m.thread_id
          where exists (
-           select 1 from app.accessible_club_memberships am
+           select 1 from accessible_club_memberships am
            where am.member_id = t.member_a_id and am.club_id = $1
          )
          and exists (
-           select 1 from app.accessible_club_memberships am
+           select 1 from accessible_club_memberships am
            where am.member_id = t.member_b_id and am.club_id = $1
          )`,
         [clubId],
@@ -1328,10 +1354,10 @@ export function createRepository(pool: Pool): Repository {
                 e.kind::text as kind, e.author_member_id,
                 m.public_name as author_public_name, m.handle as author_handle,
                 cev.title, cev.state::text as state, e.created_at::text as created_at
-         from app.entities e
-         join app.current_entity_versions cev on cev.entity_id = e.id
-         join app.members m on m.id = e.author_member_id
-         join app.clubs c on c.id = e.club_id
+         from entities e
+         join current_entity_versions cev on cev.entity_id = e.id
+         join members m on m.id = e.author_member_id
+         join clubs c on c.id = e.club_id
          where e.deleted_at is null
            and ($1::text is null or e.club_id = $1)
            and ($2::text is null or e.kind::text = $2)
@@ -1355,15 +1381,15 @@ export function createRepository(pool: Pool): Repository {
         participants: Array<{ memberId: string; publicName: string; handle: string | null }>;
       }>(
         `select t.id as thread_id,
-                (select count(*)::int from app.dm_messages m where m.thread_id = t.id) as message_count,
-                (select max(m.created_at)::text from app.dm_messages m where m.thread_id = t.id) as latest_message_at,
+                (select count(*)::int from dm_messages m where m.thread_id = t.id) as message_count,
+                (select max(m.created_at)::text from dm_messages m where m.thread_id = t.id) as latest_message_at,
                 (select coalesce(json_agg(json_build_object(
                   'memberId', mbr.id, 'publicName', mbr.public_name, 'handle', mbr.handle
                 )), '[]'::json)
-                from app.dm_thread_participants tp
-                join app.members mbr on mbr.id = tp.member_id
+                from dm_thread_participants tp
+                join members mbr on mbr.id = tp.member_id
                 where tp.thread_id = t.id) as participants
-         from app.dm_threads t
+         from dm_threads t
          where ($1::timestamptz is null or t.created_at < $1 or (t.created_at = $1 and t.id < $2))
          order by t.created_at desc, t.id desc limit $3`,
         [cursor?.createdAt ?? null, cursor?.id ?? null, limit],
@@ -1396,11 +1422,11 @@ export function createRepository(pool: Pool): Repository {
                 (select coalesce(json_agg(json_build_object(
                   'memberId', mbr.id, 'publicName', mbr.public_name, 'handle', mbr.handle
                 )), '[]'::json)
-                from app.dm_thread_participants tp
-                join app.members mbr on mbr.id = tp.member_id
+                from dm_thread_participants tp
+                join members mbr on mbr.id = tp.member_id
                 where tp.thread_id = t.id) as participants,
-                (select count(*)::int from app.dm_messages mm where mm.thread_id = t.id) as message_count
-         from app.dm_threads t where t.id = $1 limit 1`,
+                (select count(*)::int from dm_messages mm where mm.thread_id = t.id) as message_count
+         from dm_threads t where t.id = $1 limit 1`,
         [threadId],
       );
       if (!thread.rows[0]) return null;
@@ -1415,8 +1441,8 @@ export function createRepository(pool: Pool): Repository {
                 case when rmv.message_id is not null then '[Message removed]' else m.message_text end as message_text,
                 case when rmv.message_id is not null then null else m.payload end as payload,
                 m.created_at::text as created_at, m.in_reply_to_message_id
-         from app.dm_messages m
-         left join app.dm_message_removals rmv on rmv.message_id = m.id
+         from dm_messages m
+         left join dm_message_removals rmv on rmv.message_id = m.id
          where m.thread_id = $1
          order by m.created_at desc, m.id desc limit $2`,
         [threadId, limit],
@@ -1459,10 +1485,10 @@ export function createRepository(pool: Pool): Repository {
           `select count(*)::text as count, max(filename) as latest from public.schema_migrations
            where exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'schema_migrations')`,
         ).catch(() => ({ rows: [{ count: '0', latest: null }] })),
-        pool.query<{ count: string }>(`select count(*)::text as count from app.members`),
-        pool.query<{ count: string }>(`select count(*)::text as count from app.clubs`),
+        pool.query<{ count: string }>(`select count(*)::text as count from members`),
+        pool.query<{ count: string }>(`select count(*)::text as count from clubs`),
         pool.query<{ count: string }>(
-          `select count(*)::text as count from information_schema.tables where table_schema = 'app'`,
+          `select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_name <> 'schema_migrations'`,
         ),
         pool.query<{ size: string }>(`select pg_size_pretty(pg_database_size(current_database())) as size`),
       ]);
@@ -1496,8 +1522,8 @@ export function createRepository(pool: Pool): Repository {
            s.current_period_end::text as current_period_end,
            m.approved_price_amount::text as approved_price_amount,
            m.approved_price_currency
-         from app.club_memberships m
-         left join app.club_subscriptions s on s.membership_id = m.id
+         from club_memberships m
+         left join club_subscriptions s on s.membership_id = m.id
            and s.status in ('trialing', 'active', 'past_due')
          where m.club_id = $1 and m.member_id = $2
          limit 1`,
@@ -1519,7 +1545,7 @@ export function createRepository(pool: Pool): Repository {
 
     async isPaidClub(clubId: string): Promise<boolean> {
       const result = await pool.query<{ is_paid: boolean }>(
-        `select (membership_price_amount is not null) as is_paid from app.clubs where id = $1`,
+        `select (membership_price_amount is not null) as is_paid from clubs where id = $1`,
         [clubId],
       );
       return result.rows[0]?.is_paid === true;
@@ -1535,7 +1561,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.member_id, cnm.club_id,
                   cnm.status::text as status, cnm.state_version_no, cnm.state_version_id
-           from app.current_club_memberships cnm
+           from current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1544,7 +1570,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (m.status === 'active') {
           const subRow = await client.query<{ id: string; current_period_end: string | null }>(
-            `select id, current_period_end::text as current_period_end from app.club_subscriptions
+            `select id, current_period_end::text as current_period_end from club_subscriptions
              where membership_id = $1 and status in ('active', 'trialing')
              order by started_at desc limit 1`,
             [membershipId],
@@ -1556,7 +1582,7 @@ export function createRepository(pool: Pool): Repository {
           }
 
           const priceRow = await client.query<{ approved_price_amount: string | null }>(
-            `select approved_price_amount::text from app.club_memberships where id = $1`,
+            `select approved_price_amount::text from club_memberships where id = $1`,
             [membershipId],
           );
           const amount = priceRow.rows[0]?.approved_price_amount != null
@@ -1564,7 +1590,7 @@ export function createRepository(pool: Pool): Repository {
 
           if (liveSubscription) {
             await client.query(
-              `update app.club_subscriptions
+              `update club_subscriptions
                set current_period_end = $2,
                    status = 'active',
                    ended_at = null
@@ -1573,8 +1599,8 @@ export function createRepository(pool: Pool): Repository {
             );
           } else {
             await client.query(
-              `insert into app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
-               values ($1::app.short_id, $2::app.short_id, 'active', $3, $4)`,
+              `insert into club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+               values ($1::short_id, $2::short_id, 'active', $3, $4)`,
               [membershipId, m.member_id, amount, paidThrough],
             );
           }
@@ -1588,7 +1614,7 @@ export function createRepository(pool: Pool): Repository {
 
         // Transition membership state: payment_pending → active
         await client.query(
-          `insert into app.club_membership_state_versions
+          `insert into club_membership_state_versions
            (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
            values ($1, 'active', 'Billing activation', $2, $3, null)`,
           [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
@@ -1596,14 +1622,14 @@ export function createRepository(pool: Pool): Repository {
 
         // Create subscription row
         const priceRow = await client.query<{ approved_price_amount: string | null }>(
-          `select approved_price_amount::text from app.club_memberships where id = $1`,
+          `select approved_price_amount::text from club_memberships where id = $1`,
           [membershipId],
         );
         const amount = priceRow.rows[0]?.approved_price_amount != null
           ? Number(priceRow.rows[0].approved_price_amount) : 0;
         await client.query(
-          `insert into app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
-           values ($1::app.short_id, $2::app.short_id, 'active', $3, $4)`,
+          `insert into club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+           values ($1::short_id, $2::short_id, 'active', $3, $4)`,
           [membershipId, m.member_id, amount, paidThrough],
         );
       });
@@ -1616,7 +1642,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_club_memberships cnm
+           from current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1630,7 +1656,7 @@ export function createRepository(pool: Pool): Repository {
         // If cancelled or renewal_pending, transition back to active
         if (m.status === 'cancelled' || m.status === 'renewal_pending') {
           await client.query(
-            `insert into app.club_membership_state_versions
+            `insert into club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'active', 'Billing renewal', $2, $3, null)`,
             [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
@@ -1639,7 +1665,7 @@ export function createRepository(pool: Pool): Repository {
 
         // Update subscription current_period_end forward only, and ensure status is active
         const updated = await client.query<{ id: string }>(
-          `update app.club_subscriptions
+          `update club_subscriptions
            set current_period_end = greatest(current_period_end, $2::timestamptz),
                status = 'active',
                ended_at = null
@@ -1652,10 +1678,10 @@ export function createRepository(pool: Pool): Repository {
         // If no live subscription exists (e.g., was ended), create one
         if (updated.rows.length === 0) {
           await client.query(
-            `insert into app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+            `insert into club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
              select $1, ms.member_id, 'active',
                     coalesce(ms.approved_price_amount, 0), $2
-             from app.club_memberships ms where ms.id = $1`,
+             from club_memberships ms where ms.id = $1`,
             [membershipId, newPaidThrough],
           );
         }
@@ -1669,7 +1695,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_club_memberships cnm
+           from current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1682,7 +1708,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (m.status === 'active') {
           await client.query(
-            `insert into app.club_membership_state_versions
+            `insert into club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'renewal_pending', 'Payment past due', $2, $3, null)`,
             [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
@@ -1690,7 +1716,7 @@ export function createRepository(pool: Pool): Repository {
         }
 
         await client.query(
-          `update app.club_subscriptions set status = 'past_due'
+          `update club_subscriptions set status = 'past_due'
            where membership_id = $1 and status in ('active', 'trialing')
            returning id`,
           [membershipId],
@@ -1705,7 +1731,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_club_memberships cnm
+           from current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1719,7 +1745,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (m.status !== 'expired') {
           await client.query(
-            `insert into app.club_membership_state_versions
+            `insert into club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'expired', 'Billing expiration', $2, $3, null)`,
             [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
@@ -1727,7 +1753,7 @@ export function createRepository(pool: Pool): Repository {
         }
 
         await client.query(
-          `update app.club_subscriptions set status = 'ended', ended_at = now()
+          `update club_subscriptions set status = 'ended', ended_at = now()
            where membership_id = $1 and status in ('active', 'trialing', 'past_due')
            returning id`,
           [membershipId],
@@ -1742,7 +1768,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_club_memberships cnm
+           from current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
         );
@@ -1755,7 +1781,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (m.status === 'active') {
           await client.query(
-            `insert into app.club_membership_state_versions
+            `insert into club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'cancelled', 'Cancelled at period end', $2, $3, null)`,
             [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
@@ -1768,7 +1794,7 @@ export function createRepository(pool: Pool): Repository {
       await withTransaction(pool, async (client) => {
         // Check member exists and current state
         const memberRow = await client.query<{ id: string; state: string }>(
-          `select id, state::text as state from app.members where id = $1 limit 1`,
+          `select id, state::text as state from members where id = $1 limit 1`,
           [memberId],
         );
         const member = memberRow.rows[0];
@@ -1776,7 +1802,7 @@ export function createRepository(pool: Pool): Repository {
 
         if (member.state !== 'banned') {
           await client.query(
-            `update app.members set state = 'banned' where id = $1`,
+            `update members set state = 'banned' where id = $1`,
             [memberId],
           );
         }
@@ -1788,7 +1814,7 @@ export function createRepository(pool: Pool): Repository {
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
                   cnm.state_version_no, cnm.state_version_id
-           from app.current_club_memberships cnm
+           from current_club_memberships cnm
            where cnm.member_id = $1
              and cnm.status::text <> all($2::text[])`,
           [memberId, terminalStates],
@@ -1796,7 +1822,7 @@ export function createRepository(pool: Pool): Repository {
         // Transition each non-terminal membership to banned
         for (const ms of membershipsResult.rows) {
           await client.query(
-            `insert into app.club_membership_state_versions
+            `insert into club_membership_state_versions
              (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
              values ($1, 'banned', $2, $3, $4, null)`,
             [ms.membership_id, reason, Number(ms.state_version_no) + 1, ms.state_version_id],
@@ -1805,7 +1831,7 @@ export function createRepository(pool: Pool): Repository {
 
         // End all live subscriptions for this member
         await client.query(
-          `update app.club_subscriptions set status = 'ended', ended_at = now()
+          `update club_subscriptions set status = 'ended', ended_at = now()
            where payer_member_id = $1 and status in ('active', 'trialing', 'past_due')
            returning id`,
           [memberId],
@@ -1825,8 +1851,8 @@ export function createRepository(pool: Pool): Repository {
                   cv.owner_member_id, cv.name, cv.summary, cv.admission_policy,
                   cv.membership_price_amount::text as membership_price_amount,
                   cv.membership_price_currency
-           from app.clubs n
-           join app.current_club_versions cv on cv.club_id = n.id
+           from clubs n
+           join current_club_versions cv on cv.club_id = n.id
            where n.id = $1 limit 1`,
           [clubId],
         );
@@ -1841,7 +1867,7 @@ export function createRepository(pool: Pool): Repository {
 
         // Create new club version with updated price
         await client.query(
-          `insert into app.club_versions
+          `insert into club_versions
            (club_id, owner_member_id, name, summary, admission_policy,
             membership_price_amount, membership_price_currency,
             version_no, supersedes_version_id, created_by_member_id)
@@ -1855,7 +1881,7 @@ export function createRepository(pool: Pool): Repository {
 
     async billingArchiveClub({ clubId }) {
       const result = await pool.query<{ club_id: string }>(
-        `update app.clubs set archived_at = coalesce(archived_at, now())
+        `update clubs set archived_at = coalesce(archived_at, now())
          where id = $1 returning id as club_id`,
         [clubId],
       );

@@ -9,7 +9,7 @@ This document presents two target architectures — **Cloudflare-first** and **s
 ## What stays the same regardless of direction
 
 - The action dispatch model and API contract (`POST /api`, `GET /api/schema`)
-- Single unified Postgres database with all tables in `app` schema
+- Single unified Postgres database
 - Append-only versioned data model
 - Application-layer authorization (no RLS)
 - LLM legality gate via OpenAI (`gpt-5.4-nano`)
@@ -88,7 +88,7 @@ What changes in the codebase:
 ### Database: Neon (serverless Postgres) or Aurora
 
 **Neon** is the lower-ops option:
-- Full Postgres (not "compatible" — actual Postgres engine). Migrations, custom domains (`app.short_id`, `app.new_id()`), triggers, pgvector — all work unchanged
+- Full Postgres (not "compatible" — actual Postgres engine). Migrations, custom domains (`short_id`, `new_id()`), triggers, pgvector — all work unchanged
 - Serverless: scales to zero when idle, scales up under load
 - Built-in connection pooling (use via Hyperdrive, not stacked)
 - Branching: instant copy-on-write database clones for testing and migration previews
@@ -163,7 +163,7 @@ Lambda runs your dispatch function per-request. Cold starts are 200-500ms for No
 
 Key considerations:
 - RDS Proxy is required between Lambda and Aurora for connection pooling
-- RDS Proxy pins PostgreSQL sessions on `SET` and `set_config` — the codebase uses `set_config` for `app.current_member_id` in some paths. This causes pinning, which limits connection reuse. Audit and remove `set_config` usage before migrating to Lambda
+- RDS Proxy pins PostgreSQL sessions on `SET` and `set_config` — the codebase uses `set_config` for session-scoped configuration variables in some paths. This causes pinning, which limits connection reuse. Audit and remove `set_config` usage before migrating to Lambda
 - Lambda is not "fresh every request" — AWS reuses execution environments. Similar mental model to Workers: mostly stateless, not guaranteed pristine
 - The `--once` mode on workers (`src/workers/synchronicity.ts`, `src/workers/embedding.ts`) already fits Lambda-style invocation
 
@@ -337,28 +337,27 @@ The schema is built on Postgres-the-database-engine, not just Postgres-the-wire-
 
 | DSQL limitation | ClawClub usage | Scope |
 |---|---|---|
-| No custom domains | `app.short_id` is the ID type for every table | pervasive |
+| No custom domains | `short_id` is the ID type for every table | pervasive |
 | No enum types | `entity_kind`, `membership_state`, `entity_state`, `edge_kind`, `rsvp_state`, etc. | 41 types |
-| No stored functions | `app.new_id()`, `app.authenticate_member_bearer_token()`, `app.create_member_from_admission()`, etc. | 90+ functions |
+| No stored functions | `new_id()`, trigger functions, etc. | 90+ functions |
 | No triggers | Data consistency guards, search vector updates | 23 triggers |
 | No views | `current_entity_versions`, `current_club_memberships`, `accessible_club_memberships`, etc. | 40+ views |
 | No foreign keys | Referential integrity across every relationship | 100+ FKs |
 | No sequences / IDENTITY | `club_activity.seq`, `signal_deliveries.seq` | 4 sequences |
-| No custom schemas | Everything lives in `app.*`, not `public` | every table |
+| No custom schemas | Everything lives in `public` | every table |
 | No full-text search | `tsvector`/`tsquery` + GIN indexes for `members.searchByFullText` | active feature |
 | No `set_config` | Trigger coordination in `src/identity/clubs.ts` | 15+ uses |
 | No LISTEN/NOTIFY | Real-time wakeup in `src/member-updates-notifier.ts` | planned for removal anyway |
 | No pgvector | Embedding similarity in `src/workers/similarity.ts` | planned for externalization anyway |
 
 Concretely, the migration work is:
-- Replace `app.short_id` domain with `text` + application-layer validation
+- Replace `short_id` domain with `text` + application-layer validation
 - Replace 41 enum types with `text` columns (CHECK constraints are supported)
 - Move 90+ stored functions into TypeScript (most are already thin wrappers around queries)
 - Move 23 triggers into pre/post-write logic in action handlers
 - Inline 40+ views as CTEs or subqueries (or use application-layer query builders)
 - Drop 100+ foreign keys — rely on application-layer referential integrity
-- Replace `GENERATED ALWAYS AS IDENTITY` with application-generated IDs (e.g. Snowflake-style or the existing `app.new_id()` logic moved to TypeScript)
-- Move everything from `app` schema to `public`
+- Replace `GENERATED ALWAYS AS IDENTITY` with application-generated IDs (e.g. Snowflake-style or the existing `new_id()` logic moved to TypeScript)
 - Move full-text search to an external service or application-layer implementation
 - Remove `set_config` coordination (already planned for other reasons)
 

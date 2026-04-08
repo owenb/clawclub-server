@@ -38,11 +38,11 @@ export async function createVouch(pool: Pool, input: {
     id: string; from_member_id: string; from_public_name: string; from_handle: string | null;
     reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
   }>(
-    `insert into app.club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, client_key)
+    `insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, client_key)
      values ($1::text, 'vouched_for', $2::text, $3::text, $4, $2::text, $5)
      returning id, from_member_id,
-       (select public_name from app.members where id = from_member_id) as from_public_name,
-       (select handle from app.members where id = from_member_id) as from_handle,
+       (select public_name from members where id = from_member_id) as from_public_name,
+       (select handle from members where id = from_member_id) as from_handle,
        reason, metadata, created_at::text as created_at, created_by_member_id`,
     [input.clubId, input.actorMemberId, input.targetMemberId, input.reason, input.clientKey ?? null],
   );
@@ -71,8 +71,8 @@ export async function listVouches(pool: Pool, input: {
     `select e.id, e.from_member_id, m.public_name as from_public_name, m.handle as from_handle,
             e.reason, e.metadata,
             e.created_at::text as created_at, e.created_by_member_id
-     from app.club_edges e
-     join app.members m on m.id = e.from_member_id
+     from club_edges e
+     join members m on m.id = e.from_member_id
      where e.club_id = any($1::text[]) and e.kind = 'vouched_for'
        and e.to_member_id = $2 and e.archived_at is null
      order by e.created_at desc limit $3`,
@@ -112,13 +112,13 @@ export async function enforceQuota(client: DbClient, memberId: string, clubId: s
   if (!kinds) return; // unsupported action for quota counting
 
   const result = await client.query<{ max_per_day: number }>(
-    `select max_per_day from app.club_quota_policies where club_id = $1 and action_name = $2`,
+    `select max_per_day from club_quota_policies where club_id = $1 and action_name = $2`,
     [clubId, action],
   );
   if (!result.rows[0]) return; // no policy = unlimited
 
   const countResult = await client.query<{ count: string }>(
-    `select count(*)::text as count from app.entities
+    `select count(*)::text as count from entities
      where author_member_id = $1 and club_id = $2
        and kind::text = any($3::text[])
        and created_at >= date_trunc('day', now() at time zone 'UTC')`,
@@ -142,7 +142,7 @@ export async function getQuotaStatus(pool: Pool, input: {
     action: string; club_id: string; max_per_day: number;
   }>(
     `select qp.action_name as action, qp.club_id, qp.max_per_day
-     from app.club_quota_policies qp
+     from club_quota_policies qp
      where qp.club_id = any($1::text[])
        and qp.action_name = any($2::text[])`,
     [input.clubIds, supportedActions],
@@ -155,7 +155,7 @@ export async function getQuotaStatus(pool: Pool, input: {
     if (!kinds) continue;
 
     const countResult = await pool.query<{ count: string }>(
-      `select count(*)::text as count from app.entities
+      `select count(*)::text as count from entities
        where author_member_id = $1 and club_id = $2
          and kind::text = any($3::text[])
          and created_at >= date_trunc('day', now() at time zone 'UTC')`,
@@ -178,7 +178,7 @@ export async function getQuotaStatus(pool: Pool, input: {
 
 export async function logLlmUsage(pool: Pool, input: LogLlmUsageInput): Promise<void> {
   await pool.query(
-    `insert into app.ai_llm_usage_log (
+    `insert into ai_llm_usage_log (
        member_id, requested_club_id, action_name, gate_name, provider, model,
        gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code
      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
@@ -207,7 +207,7 @@ export async function listClubActivity(pool: Pool, input: {
   // Seed cursor if needed
   if (input.afterSeq == null) {
     const seedResult = await pool.query<{ max_seq: number }>(
-      `select coalesce(max(seq), 0)::int as max_seq from app.club_activity
+      `select coalesce(max(seq), 0)::int as max_seq from club_activity
        where club_id = any($1::text[])`,
       [input.clubIds],
     );
@@ -221,7 +221,7 @@ export async function listClubActivity(pool: Pool, input: {
   }>(
     `select seq, club_id, entity_id, entity_version_id, topic, payload,
             created_by_member_id, created_at::text as created_at, audience
-     from app.club_activity ca
+     from club_activity ca
      where ca.club_id = any($1::text[]) and ca.seq > $2
        and (
          ca.audience = 'members'
@@ -232,7 +232,7 @@ export async function listClubActivity(pool: Pool, input: {
          ca.entity_id is null
          or ca.topic = 'entity.removed'
          or not exists (
-           select 1 from app.current_entity_versions cev
+           select 1 from current_entity_versions cev
            where cev.entity_id = ca.entity_id and cev.state = 'removed'
          )
        )
@@ -278,18 +278,20 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
             cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
             cev.created_at::text as version_created_at, cev.content,
             e.created_at::text as entity_created_at
-     from app.entities e
-     join app.current_entity_versions cev on cev.entity_id = e.id
-     join app.members m on m.id = e.author_member_id
+     from entities e
+     join current_entity_versions cev on cev.entity_id = e.id
+     join members m on m.id = e.author_member_id
      where e.club_id = any($1::text[]) and e.deleted_at is null
        and cev.state = 'published'
        and ($3::text[] is null or e.kind::text = any($3))
        and exists (
-         select 1 from app.entity_embeddings eea where eea.entity_id = e.id
+         select 1 from entity_embeddings eea
+         where eea.entity_id = e.id and eea.entity_version_id = cev.id
        )
      order by (
        select min(eea.embedding <=> $2::vector)
-       from app.entity_embeddings eea where eea.entity_id = e.id
+       from entity_embeddings eea
+       where eea.entity_id = e.id and eea.entity_version_id = cev.id
      ) asc
      limit $4`,
     [input.clubIds, input.queryEmbedding, input.kinds ?? null, input.limit],

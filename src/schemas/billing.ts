@@ -1,5 +1,5 @@
 /**
- * Action contracts: billing.status
+ * Action contracts: billing.getMembershipStatus
  *
  * Member-facing billing actions. Returns only product-local state —
  * no Stripe data, no balance, no checkout URLs.
@@ -9,7 +9,7 @@ import { AppError } from '../contract.ts';
 import { wireRequiredString, parseRequiredString } from './fields.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
-// ── billing.status ──────────────────────────────────────
+// ── billing.getMembershipStatus ──────────────────────────────────────
 
 const billingStatus: ActionDefinition = {
   action: 'billing.getMembershipStatus',

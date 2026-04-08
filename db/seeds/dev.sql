@@ -8,7 +8,7 @@ begin;
 -- Members (12 active + 1 suspended)
 -- ============================================================
 
-insert into app.members (public_name, handle, state, created_at) values
+insert into members (public_name, handle, state, created_at) values
   ('Owen Barnes',     'owen-barnes',     'active',    now() - interval '60 days'),
   ('Alice Hound',     'alice-hound',     'active',    now() - interval '50 days'),
   ('Bob Whiskers',    'bob-whiskers',    'active',    now() - interval '50 days'),
@@ -24,25 +24,25 @@ insert into app.members (public_name, handle, state, created_at) values
   ('Sam Shadow',      'sam-shadow',      'suspended', now() - interval '45 days')
 on conflict (handle) do nothing;
 
-select id as owen_id    from app.members where handle = 'owen-barnes' \gset
-select id as alice_id   from app.members where handle = 'alice-hound' \gset
-select id as bob_id     from app.members where handle = 'bob-whiskers' \gset
-select id as charlie_id from app.members where handle = 'charlie-paws' \gset
-select id as diana_id   from app.members where handle = 'diana-feathers' \gset
-select id as eddie_id   from app.members where handle = 'eddie-scales' \gset
-select id as fiona_id   from app.members where handle = 'fiona-hooves' \gset
-select id as george_id  from app.members where handle = 'george-wings' \gset
-select id as hannah_id  from app.members where handle = 'hannah-fins' \gset
-select id as ivan_id    from app.members where handle = 'ivan-tusks' \gset
-select id as julia_id   from app.members where handle = 'julia-stripes' \gset
-select id as kevin_id   from app.members where handle = 'kevin-spots' \gset
-select id as sam_id     from app.members where handle = 'sam-shadow' \gset
+select id as owen_id    from members where handle = 'owen-barnes' \gset
+select id as alice_id   from members where handle = 'alice-hound' \gset
+select id as bob_id     from members where handle = 'bob-whiskers' \gset
+select id as charlie_id from members where handle = 'charlie-paws' \gset
+select id as diana_id   from members where handle = 'diana-feathers' \gset
+select id as eddie_id   from members where handle = 'eddie-scales' \gset
+select id as fiona_id   from members where handle = 'fiona-hooves' \gset
+select id as george_id  from members where handle = 'george-wings' \gset
+select id as hannah_id  from members where handle = 'hannah-fins' \gset
+select id as ivan_id    from members where handle = 'ivan-tusks' \gset
+select id as julia_id   from members where handle = 'julia-stripes' \gset
+select id as kevin_id   from members where handle = 'kevin-spots' \gset
+select id as sam_id     from members where handle = 'sam-shadow' \gset
 
 -- ============================================================
 -- Member profiles (rich data for all members)
 -- ============================================================
 
-insert into app.member_profile_versions
+insert into member_profile_versions
   (member_id, version_no, display_name, tagline, summary, what_i_do, known_for, services_summary, website_url, links, created_by_member_id, created_at)
 values
   -- Owen v1 (initial)
@@ -93,7 +93,7 @@ on conflict do nothing;
 -- Private contacts (emails for some members)
 -- ============================================================
 
-insert into app.member_private_contacts (member_id, email, created_at) values
+insert into member_private_contacts (member_id, email, created_at) values
   (:'owen_id',   'owen@clawclub.example.com',     now() - interval '60 days'),
   (:'alice_id',  'alice@alicehound.example.com',   now() - interval '50 days'),
   (:'diana_id',  'diana@drdianafeathers.example.com', now() - interval '40 days'),
@@ -105,7 +105,7 @@ on conflict do nothing;
 -- Global roles (Owen is superadmin)
 -- ============================================================
 
-insert into app.member_global_role_versions
+insert into member_global_role_versions
   (member_id, role, status, version_no, created_by_member_id, created_at)
 values
   (:'owen_id', 'superadmin', 'active', 1, :'owen_id', now() - interval '60 days')
@@ -115,18 +115,18 @@ on conflict do nothing;
 -- Clubs (3 clubs with admission policies)
 -- ============================================================
 
-insert into app.clubs (slug, name, owner_member_id, summary, created_at) values
+insert into clubs (slug, name, owner_member_id, summary, created_at) values
   ('dogclub', 'DogClub', :'owen_id', 'A club for dog lovers and canine professionals.', now() - interval '58 days'),
   ('catclub', 'CatClub', :'owen_id', 'A club for cat enthusiasts and feline experts.',   now() - interval '58 days'),
   ('foxclub', 'FoxClub', :'owen_id', 'A club for wildlife enthusiasts focused on foxes.', now() - interval '58 days')
 on conflict (slug) do nothing;
 
-select id as dogclub_id from app.clubs where slug = 'dogclub' \gset
-select id as catclub_id from app.clubs where slug = 'catclub' \gset
-select id as foxclub_id from app.clubs where slug = 'foxclub' \gset
+select id as dogclub_id from clubs where slug = 'dogclub' \gset
+select id as catclub_id from clubs where slug = 'catclub' \gset
+select id as foxclub_id from clubs where slug = 'foxclub' \gset
 
 -- Club versions (with admission policies)
-insert into app.club_versions
+insert into club_versions
   (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id, created_at)
 values
   (:'dogclub_id', :'owen_id', 'DogClub', 'A club for dog lovers and canine professionals.',
@@ -145,117 +145,117 @@ on conflict do nothing;
 -- ============================================================
 
 -- Owen: clubadmin of all three
-insert into app.club_memberships (club_id, member_id, role, joined_at) values
+insert into club_memberships (club_id, member_id, role, joined_at) values
   (:'dogclub_id', :'owen_id', 'clubadmin', now() - interval '58 days'),
   (:'catclub_id', :'owen_id', 'clubadmin', now() - interval '58 days'),
   (:'foxclub_id', :'owen_id', 'clubadmin', now() - interval '58 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Alice: member of DogClub and CatClub
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'dogclub_id', :'alice_id', 'member', :'owen_id', now() - interval '50 days'),
   (:'catclub_id', :'alice_id', 'member', :'owen_id', now() - interval '50 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Bob: member of CatClub and FoxClub
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'catclub_id', :'bob_id', 'member', :'owen_id', now() - interval '50 days'),
   (:'foxclub_id', :'bob_id', 'member', :'owen_id', now() - interval '50 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Charlie: member of DogClub and FoxClub
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'dogclub_id', :'charlie_id', 'member', :'owen_id', now() - interval '50 days'),
   (:'foxclub_id', :'charlie_id', 'member', :'owen_id', now() - interval '50 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Diana: member of DogClub and FoxClub, clubadmin of CatClub
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'dogclub_id', :'diana_id', 'member', :'owen_id', now() - interval '40 days'),
   (:'foxclub_id', :'diana_id', 'member', :'owen_id', now() - interval '40 days')
 on conflict (club_id, member_id) do nothing;
-insert into app.club_memberships (club_id, member_id, role, joined_at) values
+insert into club_memberships (club_id, member_id, role, joined_at) values
   (:'catclub_id', :'diana_id', 'clubadmin', now() - interval '40 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Eddie: member of DogClub (active) and CatClub (will be paused)
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'dogclub_id', :'eddie_id', 'member', :'alice_id', now() - interval '38 days'),
   (:'catclub_id', :'eddie_id', 'member', :'alice_id', now() - interval '38 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Fiona: member of FoxClub (active) and DogClub (invited, not yet accepted)
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'foxclub_id', :'fiona_id', 'member', :'bob_id',   now() - interval '28 days'),
   (:'dogclub_id', :'fiona_id', 'member', :'alice_id', now() - interval '7 days')
 on conflict (club_id, member_id) do nothing;
 
 -- George: member of CatClub (active) and FoxClub (removed)
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'catclub_id', :'george_id', 'member', :'bob_id',  now() - interval '28 days'),
   (:'foxclub_id', :'george_id', 'member', :'bob_id',  now() - interval '28 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Hannah: member of DogClub (pending_review)
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'dogclub_id', :'hannah_id', 'member', :'charlie_id', now() - interval '3 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Ivan: member of DogClub and FoxClub
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'dogclub_id', :'ivan_id', 'member', :'charlie_id', now() - interval '18 days'),
   (:'foxclub_id', :'ivan_id', 'member', :'charlie_id', now() - interval '18 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Julia: member of CatClub
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'catclub_id', :'julia_id', 'member', :'diana_id', now() - interval '15 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Kevin: member of DogClub (recently accepted via admission)
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'dogclub_id', :'kevin_id', 'member', :'owen_id', now() - interval '5 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Sam: member of DogClub and CatClub (both will be revoked)
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
   (:'dogclub_id', :'sam_id', 'member', :'owen_id', now() - interval '44 days'),
   (:'catclub_id', :'sam_id', 'member', :'owen_id', now() - interval '44 days')
 on conflict (club_id, member_id) do nothing;
 
 -- Capture all membership IDs
-select id as owen_dog_mid    from app.club_memberships where club_id = :'dogclub_id' and member_id = :'owen_id' \gset
-select id as owen_cat_mid    from app.club_memberships where club_id = :'catclub_id' and member_id = :'owen_id' \gset
-select id as owen_fox_mid    from app.club_memberships where club_id = :'foxclub_id' and member_id = :'owen_id' \gset
-select id as alice_dog_mid   from app.club_memberships where club_id = :'dogclub_id' and member_id = :'alice_id' \gset
-select id as alice_cat_mid   from app.club_memberships where club_id = :'catclub_id' and member_id = :'alice_id' \gset
-select id as bob_cat_mid     from app.club_memberships where club_id = :'catclub_id' and member_id = :'bob_id' \gset
-select id as bob_fox_mid     from app.club_memberships where club_id = :'foxclub_id' and member_id = :'bob_id' \gset
-select id as charlie_dog_mid from app.club_memberships where club_id = :'dogclub_id' and member_id = :'charlie_id' \gset
-select id as charlie_fox_mid from app.club_memberships where club_id = :'foxclub_id' and member_id = :'charlie_id' \gset
-select id as diana_dog_mid   from app.club_memberships where club_id = :'dogclub_id' and member_id = :'diana_id' \gset
-select id as diana_cat_mid   from app.club_memberships where club_id = :'catclub_id' and member_id = :'diana_id' \gset
-select id as diana_fox_mid   from app.club_memberships where club_id = :'foxclub_id' and member_id = :'diana_id' \gset
-select id as eddie_dog_mid   from app.club_memberships where club_id = :'dogclub_id' and member_id = :'eddie_id' \gset
-select id as eddie_cat_mid   from app.club_memberships where club_id = :'catclub_id' and member_id = :'eddie_id' \gset
-select id as fiona_fox_mid   from app.club_memberships where club_id = :'foxclub_id' and member_id = :'fiona_id' \gset
-select id as fiona_dog_mid   from app.club_memberships where club_id = :'dogclub_id' and member_id = :'fiona_id' \gset
-select id as george_cat_mid  from app.club_memberships where club_id = :'catclub_id' and member_id = :'george_id' \gset
-select id as george_fox_mid  from app.club_memberships where club_id = :'foxclub_id' and member_id = :'george_id' \gset
-select id as hannah_dog_mid  from app.club_memberships where club_id = :'dogclub_id' and member_id = :'hannah_id' \gset
-select id as ivan_dog_mid    from app.club_memberships where club_id = :'dogclub_id' and member_id = :'ivan_id' \gset
-select id as ivan_fox_mid    from app.club_memberships where club_id = :'foxclub_id' and member_id = :'ivan_id' \gset
-select id as julia_cat_mid   from app.club_memberships where club_id = :'catclub_id' and member_id = :'julia_id' \gset
-select id as kevin_dog_mid   from app.club_memberships where club_id = :'dogclub_id' and member_id = :'kevin_id' \gset
-select id as sam_dog_mid     from app.club_memberships where club_id = :'dogclub_id' and member_id = :'sam_id' \gset
-select id as sam_cat_mid     from app.club_memberships where club_id = :'catclub_id' and member_id = :'sam_id' \gset
+select id as owen_dog_mid    from club_memberships where club_id = :'dogclub_id' and member_id = :'owen_id' \gset
+select id as owen_cat_mid    from club_memberships where club_id = :'catclub_id' and member_id = :'owen_id' \gset
+select id as owen_fox_mid    from club_memberships where club_id = :'foxclub_id' and member_id = :'owen_id' \gset
+select id as alice_dog_mid   from club_memberships where club_id = :'dogclub_id' and member_id = :'alice_id' \gset
+select id as alice_cat_mid   from club_memberships where club_id = :'catclub_id' and member_id = :'alice_id' \gset
+select id as bob_cat_mid     from club_memberships where club_id = :'catclub_id' and member_id = :'bob_id' \gset
+select id as bob_fox_mid     from club_memberships where club_id = :'foxclub_id' and member_id = :'bob_id' \gset
+select id as charlie_dog_mid from club_memberships where club_id = :'dogclub_id' and member_id = :'charlie_id' \gset
+select id as charlie_fox_mid from club_memberships where club_id = :'foxclub_id' and member_id = :'charlie_id' \gset
+select id as diana_dog_mid   from club_memberships where club_id = :'dogclub_id' and member_id = :'diana_id' \gset
+select id as diana_cat_mid   from club_memberships where club_id = :'catclub_id' and member_id = :'diana_id' \gset
+select id as diana_fox_mid   from club_memberships where club_id = :'foxclub_id' and member_id = :'diana_id' \gset
+select id as eddie_dog_mid   from club_memberships where club_id = :'dogclub_id' and member_id = :'eddie_id' \gset
+select id as eddie_cat_mid   from club_memberships where club_id = :'catclub_id' and member_id = :'eddie_id' \gset
+select id as fiona_fox_mid   from club_memberships where club_id = :'foxclub_id' and member_id = :'fiona_id' \gset
+select id as fiona_dog_mid   from club_memberships where club_id = :'dogclub_id' and member_id = :'fiona_id' \gset
+select id as george_cat_mid  from club_memberships where club_id = :'catclub_id' and member_id = :'george_id' \gset
+select id as george_fox_mid  from club_memberships where club_id = :'foxclub_id' and member_id = :'george_id' \gset
+select id as hannah_dog_mid  from club_memberships where club_id = :'dogclub_id' and member_id = :'hannah_id' \gset
+select id as ivan_dog_mid    from club_memberships where club_id = :'dogclub_id' and member_id = :'ivan_id' \gset
+select id as ivan_fox_mid    from club_memberships where club_id = :'foxclub_id' and member_id = :'ivan_id' \gset
+select id as julia_cat_mid   from club_memberships where club_id = :'catclub_id' and member_id = :'julia_id' \gset
+select id as kevin_dog_mid   from club_memberships where club_id = :'dogclub_id' and member_id = :'kevin_id' \gset
+select id as sam_dog_mid     from club_memberships where club_id = :'dogclub_id' and member_id = :'sam_id' \gset
+select id as sam_cat_mid     from club_memberships where club_id = :'catclub_id' and member_id = :'sam_id' \gset
 
 -- ============================================================
 -- Membership state versions
 -- ============================================================
 
 -- Round 1: initial states for all memberships
-insert into app.club_membership_state_versions
+insert into club_membership_state_versions
   (membership_id, status, reason, version_no, created_by_member_id, created_at)
 values
   -- Owen (clubadmin, active)
@@ -299,7 +299,7 @@ values
 on conflict do nothing;
 
 -- Round 2: state transitions
-insert into app.club_membership_state_versions
+insert into club_membership_state_versions
   (membership_id, status, reason, version_no, created_by_member_id, created_at)
 values
   -- Eddie paused in CatClub (unpaid dues)
@@ -315,7 +315,7 @@ on conflict do nothing;
 -- Subscriptions
 -- ============================================================
 
-insert into app.club_subscriptions
+insert into club_subscriptions
   (membership_id, payer_member_id, status, amount, currency, started_at, current_period_end)
 values
   -- Alice (comped by Owen)
@@ -359,7 +359,7 @@ on conflict do nothing;
 -- Quota policies
 -- ============================================================
 
-insert into app.club_quota_policies (club_id, action_name, max_per_day) values
+insert into club_quota_policies (club_id, action_name, max_per_day) values
   (:'dogclub_id', 'content.create', 20),
   (:'dogclub_id', 'events.create',   5),
   (:'catclub_id', 'content.create', 15),
@@ -373,11 +373,11 @@ on conflict do nothing;
 -- ============================================================
 
 -- dog_post1: "Annual Dog Show 2026 Recap" by Alice
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'dogclub_id', 'post', :'alice_id', now() - interval '14 days')
 returning id as dog_post1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'dog_post1', 1, 'published',
   'Annual Dog Show 2026 Recap',
   'Highlights and winners from this year''s spectacular show',
@@ -385,11 +385,11 @@ values (:'dog_post1', 1, 'published',
   now() - interval '14 days', now() - interval '14 days', :'alice_id');
 
 -- dog_post2: "Best Dog-Friendly Hiking Trails" by Charlie
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'dogclub_id', 'post', :'charlie_id', now() - interval '7 days')
 returning id as dog_post2 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'dog_post2', 1, 'published',
   'Best Dog-Friendly Hiking Trails',
   'My top 5 trails tested with three huskies',
@@ -397,38 +397,36 @@ values (:'dog_post2', 1, 'published',
   now() - interval '7 days', now() - interval '7 days', :'charlie_id');
 
 -- dog_opp1: "Dog Walking Business Partnership" by Owen
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'dogclub_id', 'opportunity', :'owen_id', now() - interval '10 days')
 returning id as dog_opp1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, work_mode, compensation, effective_at, expires_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
 values (:'dog_opp1', 1, 'published',
   'Dog Walking Business Partnership',
   'Looking for a partner to co-run a premium dog walking service',
   'I''m exploring launching a premium dog walking service in the downtown area. Looking for someone with professional dog handling experience to partner on this. We would split the business 50/50. Initial investment is minimal — mainly insurance and marketing. Ideal partner has flexible schedule and genuine love for dogs.',
-  'hybrid', 'paid',
   now() - interval '10 days', now() + interval '50 days',
   now() - interval '10 days', :'owen_id');
 
 -- dog_svc1: "Professional Obedience Training" by Alice
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'dogclub_id', 'service', :'alice_id', now() - interval '21 days')
 returning id as dog_svc1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, compensation, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'dog_svc1', 1, 'published',
   'Professional Obedience Training',
   'Private and group sessions for dogs of all ages',
   'Offering professional obedience training using positive reinforcement methods. Private sessions: 1 hour, tailored to your dog''s specific needs. Group classes: 6-week programs for puppies, adolescents, and adults. Specializing in rescue dog rehabilitation — fearful and reactive dogs welcome. First consultation is free for club members.',
-  'paid',
   now() - interval '21 days', now() - interval '21 days', :'alice_id');
 
 -- dog_ask1: "Vet Recommendations Near Downtown?" by Charlie
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'dogclub_id', 'ask', :'charlie_id', now() - interval '3 days')
 returning id as dog_ask1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
 values (:'dog_ask1', 1, 'published',
   'Vet Recommendations Near Downtown?',
   'Need a new vet for my three huskies',
@@ -437,43 +435,49 @@ values (:'dog_ask1', 1, 'published',
   now() - interval '3 days', :'charlie_id');
 
 -- dog_evt1: "DogClub Monthly Meetup - April" by Owen (future)
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'dogclub_id', 'event', :'owen_id', now() - interval '8 days')
 returning id as dog_evt1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, location, starts_at, ends_at, timezone, capacity, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'dog_evt1', 1, 'published',
   'DogClub Monthly Meetup - April',
   'Our regular monthly gathering at Riverside Park',
   'Join us for the April edition of our monthly meetup! We''ll have an off-leash play session followed by a brief club business discussion. New members especially welcome. Please bring water for your dogs and clean up after them.',
-  'Riverside Park, Shelter #3',
+  now() - interval '8 days', now() - interval '8 days', :'owen_id')
+returning id as dog_evt1_v \gset
+
+insert into event_version_details (entity_version_id, location, starts_at, ends_at, timezone, capacity)
+values (:'dog_evt1_v', 'Riverside Park, Shelter #3',
   now() + interval '5 days' + interval '10 hours',
   now() + interval '5 days' + interval '13 hours',
-  'America/New_York', 20,
-  now() - interval '8 days', now() - interval '8 days', :'owen_id');
+  'America/New_York', 20);
 
 -- dog_evt2: "Puppy Socialization Workshop" by Alice (past)
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'dogclub_id', 'event', :'alice_id', now() - interval '20 days')
 returning id as dog_evt2 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, location, starts_at, ends_at, timezone, capacity, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'dog_evt2', 1, 'published',
   'Puppy Socialization Workshop',
   'Controlled introduction sessions for puppies under 6 months',
   'A structured socialization workshop for puppies. We''ll cover: proper greeting behavior, handling exercises, exposure to new surfaces and sounds, and supervised play. Limited to 8 puppies to ensure quality interactions.',
-  'Alice''s Training Center, 42 Oak Street',
+  now() - interval '20 days', now() - interval '20 days', :'alice_id')
+returning id as dog_evt2_v \gset
+
+insert into event_version_details (entity_version_id, location, starts_at, ends_at, timezone, capacity)
+values (:'dog_evt2_v', 'Alice''s Training Center, 42 Oak Street',
   now() - interval '10 days' + interval '9 hours',
   now() - interval '10 days' + interval '12 hours',
-  'America/New_York', 8,
-  now() - interval '20 days', now() - interval '20 days', :'alice_id');
+  'America/New_York', 8);
 
 -- dog_post3: "Training Tips for Stubborn Breeds" by Ivan
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'dogclub_id', 'post', :'ivan_id', now() - interval '2 days')
 returning id as dog_post3 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'dog_post3', 1, 'published',
   'Training Tips for Stubborn Breeds',
   'What I learned photographing working dogs',
@@ -481,20 +485,20 @@ values (:'dog_post3', 1, 'published',
   now() - interval '2 days', now() - interval '2 days', :'ivan_id');
 
 -- Comments on dog_post1
-insert into app.entities (club_id, kind, author_member_id, parent_entity_id, created_at)
+insert into entities (club_id, kind, author_member_id, parent_entity_id, created_at)
 values (:'dogclub_id', 'comment', :'charlie_id', :'dog_post1', now() - interval '13 days')
 returning id as dog_cmt1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
 values (:'dog_cmt1', 1, 'published',
   'Great recap Alice! My husky Blizzard had such a blast in the agility ring. Third place felt like a win — those border collies are impossibly fast. Already training for next year!',
   now() - interval '13 days', now() - interval '13 days', :'charlie_id');
 
-insert into app.entities (club_id, kind, author_member_id, parent_entity_id, created_at)
+insert into entities (club_id, kind, author_member_id, parent_entity_id, created_at)
 values (:'dogclub_id', 'comment', :'owen_id', :'dog_post1', now() - interval '13 days' + interval '2 hours')
 returning id as dog_cmt2 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
 values (:'dog_cmt2', 1, 'published',
   'Fantastic write-up! The rescue dog showcase idea is brilliant. I''ll set up a planning thread — let''s make it happen for next year.',
   now() - interval '13 days' + interval '2 hours', now() - interval '13 days' + interval '2 hours', :'owen_id');
@@ -504,11 +508,11 @@ values (:'dog_cmt2', 1, 'published',
 -- ============================================================
 
 -- cat_post1: "Understanding Feline Body Language" by Alice
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'catclub_id', 'post', :'alice_id', now() - interval '20 days')
 returning id as cat_post1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'cat_post1', 1, 'published',
   'Understanding Feline Body Language',
   'A dog trainer''s journey into decoding cat signals',
@@ -516,11 +520,11 @@ values (:'cat_post1', 1, 'published',
   now() - interval '20 days', now() - interval '20 days', :'alice_id');
 
 -- cat_post2: "Top Cat Toys of 2026" by Bob
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'catclub_id', 'post', :'bob_id', now() - interval '12 days')
 returning id as cat_post2 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'cat_post2', 1, 'published',
   'Top Cat Toys of 2026',
   'Tested by 30+ shelter cats — here are the winners',
@@ -528,38 +532,36 @@ values (:'cat_post2', 1, 'published',
   now() - interval '12 days', now() - interval '12 days', :'bob_id');
 
 -- cat_opp1: "Cat Cafe Opening" by Diana
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'catclub_id', 'opportunity', :'diana_id', now() - interval '8 days')
 returning id as cat_opp1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, work_mode, compensation, effective_at, expires_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
 values (:'cat_opp1', 1, 'published',
   'Cat Cafe Opening — Seeking Partners',
   'Looking for collaborators to open a rescue cat cafe downtown',
   'Planning to open a cat cafe that doubles as an adoption center. Looking for partners: 1) Business ops — food service or retail experience. 2) Cat welfare — a certified behaviorist to ensure cats thrive. 3) Marketing — social media is everything for cat cafes. Revenue model: cafe operations fund the rescue program.',
-  'in_person', 'paid',
   now() - interval '8 days', now() + interval '52 days',
   now() - interval '8 days', :'diana_id');
 
 -- cat_svc1: "Cat Sitting & Pet Care" by Bob
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'catclub_id', 'service', :'bob_id', now() - interval '15 days')
 returning id as cat_svc1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, compensation, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'cat_svc1', 1, 'published',
   'Cat Sitting & Pet Care',
   'Experienced cat care for when you''re away',
   'Offering reliable cat sitting for club members. Services: daily visits (feeding, litter, play), overnight stays, medication administration, multi-cat household management. Experience with special needs cats, seniors, and anxious cats. Club member discount: 15% off regular rates.',
-  'paid',
   now() - interval '15 days', now() - interval '15 days', :'bob_id');
 
 -- cat_ask1: "Help with a Shy Rescue Cat" by Julia
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'catclub_id', 'ask', :'julia_id', now() - interval '4 days')
 returning id as cat_ask1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'cat_ask1', 1, 'published',
   'Help with a Shy Rescue Cat',
   'New rescue cat hiding under the bed for two weeks straight',
@@ -567,37 +569,40 @@ values (:'cat_ask1', 1, 'published',
   now() - interval '4 days', now() - interval '4 days', :'julia_id');
 
 -- cat_evt1: "CatClub Virtual Q&A with a Vet" by Diana (future)
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'catclub_id', 'event', :'diana_id', now() - interval '6 days')
 returning id as cat_evt1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, location, starts_at, ends_at, timezone, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'cat_evt1', 1, 'published',
   'CatClub Virtual Q&A with a Vet',
   'Live Q&A session — bring your cat health questions',
   'I''ll be hosting a live virtual Q&A covering common cat health concerns: dental health, weight management, senior cat care, and when to seek emergency care. Submit questions in advance or ask live.',
-  'Zoom (link sent day of event)',
+  now() - interval '6 days', now() - interval '6 days', :'diana_id')
+returning id as cat_evt1_v \gset
+
+insert into event_version_details (entity_version_id, location, starts_at, ends_at, timezone)
+values (:'cat_evt1_v', 'Zoom (link sent day of event)',
   now() + interval '3 days' + interval '19 hours',
   now() + interval '3 days' + interval '20 hours' + interval '30 minutes',
-  'America/New_York',
-  now() - interval '6 days', now() - interval '6 days', :'diana_id');
+  'America/New_York');
 
 -- Comment on cat_post1 by Bob
-insert into app.entities (club_id, kind, author_member_id, parent_entity_id, created_at)
+insert into entities (club_id, kind, author_member_id, parent_entity_id, created_at)
 values (:'catclub_id', 'comment', :'bob_id', :'cat_post1', now() - interval '19 days')
 returning id as cat_cmt1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
 values (:'cat_cmt1', 1, 'published',
   'The belly trap is so real! Our shelter cats teach new volunteers this lesson on day one. Great overview Alice — I''m sharing this with our foster families.',
   now() - interval '19 days', now() - interval '19 days', :'bob_id');
 
 -- cat_spam: spam post by George (published then removed by admin Diana)
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'catclub_id', 'post', :'george_id', now() - interval '16 days')
 returning id as cat_spam \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'cat_spam', 1, 'published',
   'CHECK OUT MY BIRD FEEDER STORE!!!',
   'Best bird feeders at unbeatable prices',
@@ -605,7 +610,7 @@ values (:'cat_spam', 1, 'published',
   now() - interval '16 days', now() - interval '16 days', :'george_id');
 
 -- Removal version (by admin Diana)
-insert into app.entity_versions (entity_id, version_no, state, reason, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, reason, effective_at, created_at, created_by_member_id)
 values (:'cat_spam', 2, 'removed',
   'Promotional spam unrelated to the club. Please review our posting guidelines.',
   now() - interval '15 days', now() - interval '15 days', :'diana_id');
@@ -615,11 +620,11 @@ values (:'cat_spam', 2, 'removed',
 -- ============================================================
 
 -- fox_post1: "Fox Conservation Update Q1 2026" by Bob
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'foxclub_id', 'post', :'bob_id', now() - interval '18 days')
 returning id as fox_post1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'fox_post1', 1, 'published',
   'Fox Conservation Update Q1 2026',
   'Population trends, new research, and policy developments',
@@ -627,11 +632,11 @@ values (:'fox_post1', 1, 'published',
   now() - interval '18 days', now() - interval '18 days', :'bob_id');
 
 -- fox_post2: "Wildlife Photography Tips & Tricks" by Charlie
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'foxclub_id', 'post', :'charlie_id', now() - interval '9 days')
 returning id as fox_post2 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'fox_post2', 1, 'published',
   'Wildlife Photography Tips & Tricks',
   'Lessons from an amateur who learned from Ivan',
@@ -639,38 +644,36 @@ values (:'fox_post2', 1, 'published',
   now() - interval '9 days', now() - interval '9 days', :'charlie_id');
 
 -- fox_opp1: "Fox Sanctuary Volunteer Positions" by Owen
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'foxclub_id', 'opportunity', :'owen_id', now() - interval '6 days')
 returning id as fox_opp1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, work_mode, compensation, effective_at, expires_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
 values (:'fox_opp1', 1, 'published',
   'Fox Sanctuary Volunteer Positions',
   'Help at the local fox rescue and rehabilitation center',
   'The Woodland Fox Sanctuary needs volunteers. Roles: feeding and enrichment (mornings), enclosure maintenance (weekends), educational tour guides (Saturdays), transport for vet visits. Commitment: minimum 4 hours/week for 3 months. Training provided.',
-  'in_person', 'unpaid',
   now() - interval '6 days', now() + interval '54 days',
   now() - interval '6 days', :'owen_id');
 
 -- fox_svc1: "Wildlife Photography Workshops" by Charlie
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'foxclub_id', 'service', :'charlie_id', now() - interval '14 days')
 returning id as fox_svc1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, compensation, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'fox_svc1', 1, 'published',
   'Wildlife Photography Workshops',
   'Field workshops in partnership with Ivan Tusks',
   'Hands-on wildlife photography workshops with professional photographer Ivan Tusks. Includes: dawn fox photography sessions, gear and settings masterclass, post-processing walkthrough, and ethical wildlife photography guidelines. Small groups of 4-6, all skill levels.',
-  'paid',
   now() - interval '14 days', now() - interval '14 days', :'charlie_id');
 
 -- fox_ask1: "Fox Sighting Tracking Apps?" by Ivan
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'foxclub_id', 'ask', :'ivan_id', now() - interval '5 days')
 returning id as fox_ask1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'fox_ask1', 1, 'published',
   'Fox Sighting Tracking Apps?',
   'Looking for the best app to log and share fox sightings',
@@ -678,53 +681,59 @@ values (:'fox_ask1', 1, 'published',
   now() - interval '5 days', now() - interval '5 days', :'ivan_id');
 
 -- fox_evt1: "Fox Watch Night Walk" by Owen (future, capacity-limited)
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'foxclub_id', 'event', :'owen_id', now() - interval '5 days')
 returning id as fox_evt1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, location, starts_at, ends_at, timezone, capacity, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'fox_evt1', 1, 'published',
   'Fox Watch Night Walk',
   'Guided evening walk to observe urban foxes',
   'Guided night walk through the green corridor to observe urban foxes. We''ll cover fox behavior, identification, and ethical observation. Bring: quiet shoes, dark clothing, a red-light torch, and binoculars. Strictly limited to 10 people to minimize disturbance.',
-  'Green Corridor Trailhead, North Entrance',
+  now() - interval '5 days', now() - interval '5 days', :'owen_id')
+returning id as fox_evt1_v \gset
+
+insert into event_version_details (entity_version_id, location, starts_at, ends_at, timezone, capacity)
+values (:'fox_evt1_v', 'Green Corridor Trailhead, North Entrance',
   now() + interval '7 days' + interval '20 hours',
   now() + interval '7 days' + interval '23 hours',
-  'Europe/London', 10,
-  now() - interval '5 days', now() - interval '5 days', :'owen_id');
+  'Europe/London', 10);
 
 -- fox_evt2: "Annual Fox Census" by Bob (past)
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'foxclub_id', 'event', :'bob_id', now() - interval '30 days')
 returning id as fox_evt2 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, location, starts_at, ends_at, timezone, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'fox_evt2', 1, 'published',
   'Annual Fox Census Volunteer Day',
   'Help us count and map the local fox population',
   'Our annual census is the most important data event of the year. Volunteers split into teams of 2-3 and survey assigned quadrants. Training at 7am, field work 8am-4pm. All data feeds into the regional conservation database. Lunch provided. Last year: 47 individuals across 12 territories!',
-  'Woodland Community Center',
+  now() - interval '30 days', now() - interval '30 days', :'bob_id')
+returning id as fox_evt2_v \gset
+
+insert into event_version_details (entity_version_id, location, starts_at, ends_at, timezone)
+values (:'fox_evt2_v', 'Woodland Community Center',
   now() - interval '20 days' + interval '7 hours',
   now() - interval '20 days' + interval '16 hours',
-  'Europe/London',
-  now() - interval '30 days', now() - interval '30 days', :'bob_id');
+  'Europe/London');
 
 -- Comment on fox_post1 by Ivan
-insert into app.entities (club_id, kind, author_member_id, parent_entity_id, created_at)
+insert into entities (club_id, kind, author_member_id, parent_entity_id, created_at)
 values (:'foxclub_id', 'comment', :'ivan_id', :'fox_post1', now() - interval '17 days')
 returning id as fox_cmt1 \gset
 
-insert into app.entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
 values (:'fox_cmt1', 1, 'published',
   'The mange vaccination results are incredible — 40% reduction is better than anyone predicted. I have photos showing the recovery of a vixen I''ve been tracking for two years. Happy to share at the next meetup.',
   now() - interval '17 days', now() - interval '17 days', :'ivan_id');
 
 -- fox_draft: draft post by Ivan (unpublished)
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'foxclub_id', 'post', :'ivan_id', now() - interval '1 day')
 returning id as fox_draft \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'fox_draft', 1, 'draft',
   'Preliminary Fox Migration Data — Spring 2026',
   'Early patterns from GPS collar tracking',
@@ -732,11 +741,11 @@ values (:'fox_draft', 1, 'draft',
   now() - interval '1 day', now() - interval '1 day', :'ivan_id');
 
 -- fox_complaint: complaint by Fiona
-insert into app.entities (club_id, kind, author_member_id, created_at)
+insert into entities (club_id, kind, author_member_id, created_at)
 values (:'foxclub_id', 'complaint', :'fiona_id', now() - interval '2 days')
 returning id as fox_complaint \gset
 
-insert into app.entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
+insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
 values (:'fox_complaint', 1, 'published',
   'Trail Damage from Last Census Event',
   'Some volunteer teams left marked trails through sensitive habitat',
@@ -748,7 +757,7 @@ values (:'fox_complaint', 1, 'published',
 -- ============================================================
 
 -- DogClub Monthly Meetup (dog_evt1)
-insert into app.event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
+insert into event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
   (:'dog_evt1', :'alice_dog_mid',   'yes',   1, :'alice_id',   now() - interval '6 days'),
   (:'dog_evt1', :'charlie_dog_mid', 'yes',   1, :'charlie_id', now() - interval '5 days'),
   (:'dog_evt1', :'eddie_dog_mid',   'maybe', 1, :'eddie_id',   now() - interval '4 days'),
@@ -757,13 +766,13 @@ insert into app.event_rsvps (event_entity_id, membership_id, response, version_n
 on conflict do nothing;
 
 -- Puppy Socialization (dog_evt2) — past event
-insert into app.event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
+insert into event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
   (:'dog_evt2', :'alice_dog_mid',   'yes', 1, :'alice_id',   now() - interval '15 days'),
   (:'dog_evt2', :'charlie_dog_mid', 'no',  1, :'charlie_id', now() - interval '14 days')
 on conflict do nothing;
 
 -- CatClub Virtual Q&A (cat_evt1)
-insert into app.event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
+insert into event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
   (:'cat_evt1', :'alice_cat_mid',  'yes',   1, :'alice_id',  now() - interval '4 days'),
   (:'cat_evt1', :'bob_cat_mid',    'yes',   1, :'bob_id',    now() - interval '3 days'),
   (:'cat_evt1', :'julia_cat_mid',  'maybe', 1, :'julia_id',  now() - interval '2 days'),
@@ -771,7 +780,7 @@ insert into app.event_rsvps (event_entity_id, membership_id, response, version_n
 on conflict do nothing;
 
 -- Fox Watch Night Walk (fox_evt1) — capacity 10
-insert into app.event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
+insert into event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
   (:'fox_evt1', :'bob_fox_mid',     'yes',   1, :'bob_id',    now() - interval '4 days'),
   (:'fox_evt1', :'charlie_fox_mid', 'yes',   1, :'charlie_id', now() - interval '3 days'),
   (:'fox_evt1', :'fiona_fox_mid',   'yes',   1, :'fiona_id',  now() - interval '3 days'),
@@ -779,7 +788,7 @@ insert into app.event_rsvps (event_entity_id, membership_id, response, version_n
 on conflict do nothing;
 
 -- Fox Census (fox_evt2) — past event
-insert into app.event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
+insert into event_rsvps (event_entity_id, membership_id, response, version_no, created_by_member_id, created_at) values
   (:'fox_evt2', :'bob_fox_mid',     'yes', 1, :'bob_id',     now() - interval '25 days'),
   (:'fox_evt2', :'charlie_fox_mid', 'yes', 1, :'charlie_id', now() - interval '24 days'),
   (:'fox_evt2', :'ivan_fox_mid',    'yes', 1, :'ivan_id',    now() - interval '23 days')
@@ -789,7 +798,7 @@ on conflict do nothing;
 -- Vouches (edges with kind='vouched_for')
 -- ============================================================
 
-insert into app.club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, created_at) values
+insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, created_at) values
   -- DogClub vouches
   (:'dogclub_id', 'vouched_for', :'alice_id',   :'charlie_id', 'Charlie is an incredible dog handler and trail guide. His huskies are the best-trained dogs I''ve seen.',             :'alice_id',   now() - interval '40 days'),
   (:'dogclub_id', 'vouched_for', :'charlie_id', :'alice_id',   'Alice transformed my reactive husky into a confident dog. Her training methods are outstanding.',                      :'charlie_id', now() - interval '40 days'),
@@ -815,82 +824,82 @@ on conflict do nothing;
 -- ============================================================
 
 -- 1. Cold application (self_applied) to DogClub — submitted, waiting for review
-insert into app.admissions (club_id, origin, applicant_email, applicant_name, admission_details, created_at)
+insert into admissions (club_id, origin, applicant_email, applicant_name, admission_details, created_at)
 values (:'dogclub_id', 'self_applied', 'liam@example.com', 'Liam Barker',
   '{"socials":"twitter: @liambarker, linkedin: linkedin.com/in/liambarker","application":"I have been working with rescue dogs for over 5 years and would love to join a community of like-minded dog enthusiasts. I currently foster dogs through the local SPCA and organize monthly adoption events in my neighborhood. I specialize in working with large breed dogs that are often overlooked in shelters."}'::jsonb,
   now() - interval '3 days')
 returning id as adm_liam \gset
 
-insert into app.admission_versions (admission_id, status, version_no, created_at)
+insert into admission_versions (admission_id, status, version_no, created_at)
 values (:'adm_liam', 'submitted', 1, now() - interval '3 days');
 
 -- 2. Warm referral (member_sponsored) to CatClub — submitted by Alice
-insert into app.admissions (club_id, origin, sponsor_member_id, applicant_email, applicant_name, admission_details, created_at)
+insert into admissions (club_id, origin, sponsor_member_id, applicant_email, applicant_name, admission_details, created_at)
 values (:'catclub_id', 'member_sponsored', :'alice_id', 'mia@example.com', 'Mia Purrs',
   '{"socials":"instagram: @miapurrs, tiktok: @miapurrs"}'::jsonb,
   now() - interval '4 days')
 returning id as adm_mia \gset
 
-insert into app.admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
+insert into admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
 values (:'adm_mia', 'submitted', 'Alice''s friend — runs a popular cat wellness account with 50k followers', 1, now() - interval '4 days', :'alice_id');
 
 -- 3. Warm referral (member_sponsored) to FoxClub — interview_scheduled
-insert into app.admissions (club_id, origin, sponsor_member_id, applicant_email, applicant_name, admission_details, created_at)
+insert into admissions (club_id, origin, sponsor_member_id, applicant_email, applicant_name, admission_details, created_at)
 values (:'foxclub_id', 'member_sponsored', :'bob_id', 'noah@example.com', 'Noah Trails',
   '{"socials":"linkedin.com/in/noahtrails"}'::jsonb,
   now() - interval '6 days')
 returning id as adm_noah \gset
 
-insert into app.admission_versions (admission_id, status, version_no, created_at, created_by_member_id)
+insert into admission_versions (admission_id, status, version_no, created_at, created_by_member_id)
 values (:'adm_noah', 'submitted', 1, now() - interval '6 days', :'bob_id');
 
-insert into app.admission_versions (admission_id, status, notes, intake_kind, intake_booking_url, intake_booked_at, version_no, created_at, created_by_member_id)
+insert into admission_versions (admission_id, status, notes, intake_kind, intake_booking_url, intake_booked_at, version_no, created_at, created_by_member_id)
 values (:'adm_noah', 'interview_scheduled',
   'Scheduling a fit check call to discuss Noah''s conservation background',
   'fit_check', 'https://calendly.com/clawclub-foxclub/fit-check', now() + interval '2 days',
   2, now() - interval '2 days', :'owen_id');
 
 -- 4. Owner-nominated to DogClub — accepted (Kevin's admission)
-insert into app.admissions (club_id, origin, applicant_member_id, sponsor_member_id, membership_id, created_at)
+insert into admissions (club_id, origin, applicant_member_id, sponsor_member_id, membership_id, created_at)
 values (:'dogclub_id', 'owner_nominated', :'kevin_id', :'owen_id', :'kevin_dog_mid',
   now() - interval '6 days')
 returning id as adm_kevin \gset
 
-insert into app.admission_versions (admission_id, status, version_no, created_at, created_by_member_id)
+insert into admission_versions (admission_id, status, version_no, created_at, created_by_member_id)
 values (:'adm_kevin', 'submitted', 1, now() - interval '6 days', :'owen_id');
 
-insert into app.admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
+insert into admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
 values (:'adm_kevin', 'accepted', 'Kevin runs an exemplary Dalmatian breeding program. Direct nomination.', 2, now() - interval '5 days', :'owen_id');
 
 -- 5. Cold application to CatClub — declined
-insert into app.admissions (club_id, origin, applicant_email, applicant_name, admission_details, created_at)
+insert into admissions (club_id, origin, applicant_email, applicant_name, admission_details, created_at)
 values (:'catclub_id', 'self_applied', 'olive@example.com', 'Olive Claws',
   '{"socials":"none","application":"I want to join because I like cats. I have two cats at home."}'::jsonb,
   now() - interval '10 days')
 returning id as adm_olive \gset
 
-insert into app.admission_versions (admission_id, status, version_no, created_at)
+insert into admission_versions (admission_id, status, version_no, created_at)
 values (:'adm_olive', 'submitted', 1, now() - interval '10 days');
 
-insert into app.admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
+insert into admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
 values (:'adm_olive', 'declined',
   'Application did not demonstrate sufficient involvement in cat welfare or community activities. Encouraged to reapply with more detail.',
   2, now() - interval '7 days', :'diana_id');
 
 -- 6. Warm referral to DogClub — interview_completed, pending decision
-insert into app.admissions (club_id, origin, sponsor_member_id, applicant_email, applicant_name, admission_details, created_at)
+insert into admissions (club_id, origin, sponsor_member_id, applicant_email, applicant_name, admission_details, created_at)
 values (:'dogclub_id', 'member_sponsored', :'charlie_id', 'pete@example.com', 'Pete Runner',
   '{"socials":"strava: pete-runner, instagram: @pete.runs"}'::jsonb,
   now() - interval '8 days')
 returning id as adm_pete \gset
 
-insert into app.admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
+insert into admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
 values (:'adm_pete', 'submitted', 'Pete is my running partner — he just adopted a rescue greyhound and wants to get involved', 1, now() - interval '8 days', :'charlie_id');
 
-insert into app.admission_versions (admission_id, status, intake_kind, intake_booking_url, intake_booked_at, version_no, created_at, created_by_member_id)
+insert into admission_versions (admission_id, status, intake_kind, intake_booking_url, intake_booked_at, version_no, created_at, created_by_member_id)
 values (:'adm_pete', 'interview_scheduled', 'advice_call', 'https://calendly.com/clawclub-dogclub/intro', now() - interval '4 days', 2, now() - interval '6 days', :'owen_id');
 
-insert into app.admission_versions (admission_id, status, notes, intake_kind, intake_completed_at, version_no, created_at, created_by_member_id)
+insert into admission_versions (admission_id, status, notes, intake_kind, intake_completed_at, version_no, created_at, created_by_member_id)
 values (:'adm_pete', 'interview_completed',
   'Great call — Pete is passionate about greyhound rescue. Recommended for acceptance.',
   'advice_call', now() - interval '4 days', 3, now() - interval '4 days', :'owen_id');
@@ -900,21 +909,21 @@ values (:'adm_pete', 'interview_completed',
 -- ============================================================
 
 -- Active challenge for DogClub (expires in 1 hour)
-insert into app.admission_challenges (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at, created_at)
+insert into admission_challenges (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at, created_at)
 values (7, :'dogclub_id',
   'Members must demonstrate genuine passion for dogs and canine welfare.',
   'DogClub', 'A club for dog lovers and canine professionals.', 'Owen Barnes',
   now() + interval '1 hour', now());
 
 -- Expired challenge for CatClub (with an attempt)
-insert into app.admission_challenges (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at, created_at)
+insert into admission_challenges (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at, created_at)
 values (7, :'catclub_id',
   'We welcome cat enthusiasts who contribute positively to feline communities.',
   'CatClub', 'A club for cat enthusiasts and feline experts.', 'Owen Barnes',
   now() - interval '23 hours', now() - interval '1 day')
 returning id as expired_challenge \gset
 
-insert into app.admission_attempts (challenge_id, club_id, attempt_no, applicant_name, applicant_email, payload, gate_status, policy_snapshot, created_at)
+insert into admission_attempts (challenge_id, club_id, attempt_no, applicant_name, applicant_email, payload, gate_status, policy_snapshot, created_at)
 values (:'expired_challenge', :'catclub_id', 1, 'Olive Claws', 'olive@example.com',
   '{"socials":"none","application":"I want to join because I like cats. I have two cats at home."}'::jsonb,
   'passed',
@@ -925,7 +934,7 @@ values (:'expired_challenge', :'catclub_id', 1, 'Olive Claws', 'olive@example.co
 -- Club activity log
 -- ============================================================
 
-insert into app.club_activity (club_id, topic, audience, payload, entity_id, created_by_member_id, created_at) values
+insert into club_activity (club_id, topic, audience, payload, entity_id, created_by_member_id, created_at) values
   -- DogClub
   (:'dogclub_id', 'entity.version.published', 'members',    '{"kind":"service","title":"Professional Obedience Training"}'::jsonb,  :'dog_svc1',  :'alice_id',   now() - interval '21 days'),
   (:'dogclub_id', 'entity.version.published', 'members',    '{"kind":"post","title":"Annual Dog Show 2026 Recap"}'::jsonb,          :'dog_post1', :'alice_id',   now() - interval '14 days'),
@@ -953,7 +962,7 @@ on conflict do nothing;
 -- LLM usage log (quality gate records)
 -- ============================================================
 
-insert into app.ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, prompt_tokens, completion_tokens, created_at) values
+insert into ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, prompt_tokens, completion_tokens, created_at) values
   (:'alice_id',   :'dogclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 320, 45, now() - interval '21 days'),
   (:'alice_id',   :'dogclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 410, 38, now() - interval '14 days'),
   (:'charlie_id', :'dogclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 350, 42, now() - interval '7 days'),
@@ -977,64 +986,64 @@ on conflict do nothing;
 -- Shared clubs: CatClub
 -- ============================================================
 
-insert into app.dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
+insert into dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
 values ('direct', :'alice_id',
   least(:'alice_id', :'bob_id'),
   greatest(:'alice_id', :'bob_id'),
   now() - interval '10 days')
 returning id as t_alice_bob \gset
 
-insert into app.dm_thread_participants (thread_id, member_id, joined_at) values
+insert into dm_thread_participants (thread_id, member_id, joined_at) values
   (:'t_alice_bob', :'alice_id', now() - interval '10 days'),
   (:'t_alice_bob', :'bob_id',   now() - interval '10 days');
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'alice_id', 'member', 'Hey Bob! Have you tried that new grain-free cat food from the local co-op? My cats seem to love it.', now() - interval '10 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'bob_id', :'t_alice_bob', id, true, now() - interval '10 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'bob_id', 'member', 'Yes! We switched the shelter cats over last month. The coat quality improvement has been noticeable. Which variety are you using?', now() - interval '10 days' + interval '30 minutes')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'alice_id', :'t_alice_bob', id, true, now() - interval '10 days' + interval '30 minutes' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'alice_id', 'member', 'The salmon and sweet potato one. My older cat was a bit picky at first but came around after a few days.', now() - interval '9 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'bob_id', :'t_alice_bob', id, true, now() - interval '9 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'bob_id', 'member', 'Good to know. We''ve been using the turkey formula mostly. By the way, did you see Julia''s post about the shy rescue cat? Sounds like she could use some advice.', now() - interval '8 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'alice_id', :'t_alice_bob', id, true, now() - interval '8 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'alice_id', 'member', 'Yes, I commented on it. From my training experience, the key is patience and creating positive associations. Two weeks is still early for a fearful rescue cat.', now() - interval '7 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'bob_id', :'t_alice_bob', id, true, now() - interval '7 days' from msg;
 
 -- Last message from Bob — unread by Alice
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'bob_id', 'member', 'Totally agree. I was thinking we could offer to do a home visit together — your training eye plus my shelter experience might help Julia feel more confident. Want to reach out to her?', now() - interval '1 day')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'alice_id', :'t_alice_bob', id, false, now() - interval '1 day' from msg;
 
 -- ============================================================
@@ -1042,39 +1051,39 @@ select :'alice_id', :'t_alice_bob', id, false, now() - interval '1 day' from msg
 -- Shared clubs: DogClub
 -- ============================================================
 
-insert into app.dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
+insert into dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
 values ('direct', :'alice_id',
   least(:'alice_id', :'charlie_id'),
   greatest(:'alice_id', :'charlie_id'),
   now() - interval '6 days')
 returning id as t_alice_charlie \gset
 
-insert into app.dm_thread_participants (thread_id, member_id, joined_at) values
+insert into dm_thread_participants (thread_id, member_id, joined_at) values
   (:'t_alice_charlie', :'alice_id',   now() - interval '6 days'),
   (:'t_alice_charlie', :'charlie_id', now() - interval '6 days');
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_charlie', :'alice_id', 'member', 'Charlie, are you bringing all three huskies to the April meetup? I want to make sure we have enough space in the off-leash area.', now() - interval '6 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'charlie_id', :'t_alice_charlie', id, true, now() - interval '6 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_charlie', :'charlie_id', 'member', 'Yep, all three! Blizzard, Storm, and Aurora. They''ve been cooped up all week so they''ll be extra energetic. Should I bring the portable agility set?', now() - interval '5 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'alice_id', :'t_alice_charlie', id, true, now() - interval '5 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_charlie', :'alice_id', 'member', 'That would be perfect! Let''s set it up in the flat area near the picnic tables. See you there!', now() - interval '5 days' + interval '1 hour')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'charlie_id', :'t_alice_charlie', id, true, now() - interval '5 days' + interval '1 hour' from msg;
 
 -- ============================================================
@@ -1082,24 +1091,24 @@ select :'charlie_id', :'t_alice_charlie', id, true, now() - interval '5 days' + 
 -- Shared clubs: FoxClub
 -- ============================================================
 
-insert into app.dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
+insert into dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
 values ('direct', :'bob_id',
   least(:'bob_id', :'charlie_id'),
   greatest(:'bob_id', :'charlie_id'),
   now() - interval '4 days')
 returning id as t_bob_charlie \gset
 
-insert into app.dm_thread_participants (thread_id, member_id, joined_at) values
+insert into dm_thread_participants (thread_id, member_id, joined_at) values
   (:'t_bob_charlie', :'bob_id',     now() - interval '4 days'),
   (:'t_bob_charlie', :'charlie_id', now() - interval '4 days');
 
 -- Unread by Charlie
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_bob_charlie', :'bob_id', 'member', 'Charlie, I spotted a vixen with three cubs near the old railway bridge this morning! First sighting in that area in two years. Might be worth checking with Ivan if he can get photos before the den gets disturbed.', now() - interval '4 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'charlie_id', :'t_bob_charlie', id, false, now() - interval '4 days' from msg;
 
 -- ============================================================
@@ -1107,47 +1116,47 @@ select :'charlie_id', :'t_bob_charlie', id, false, now() - interval '4 days' fro
 -- Shared clubs: DogClub, CatClub
 -- ============================================================
 
-insert into app.dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
+insert into dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
 values ('direct', :'owen_id',
   least(:'owen_id', :'alice_id'),
   greatest(:'owen_id', :'alice_id'),
   now() - interval '12 days')
 returning id as t_owen_alice \gset
 
-insert into app.dm_thread_participants (thread_id, member_id, joined_at) values
+insert into dm_thread_participants (thread_id, member_id, joined_at) values
   (:'t_owen_alice', :'owen_id',  now() - interval '12 days'),
   (:'t_owen_alice', :'alice_id', now() - interval '12 days');
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_alice', :'owen_id', 'member', 'Alice, I''m thinking about making you a co-admin for DogClub. You''re already doing so much for the community. Would you be up for it?', now() - interval '12 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'alice_id', :'t_owen_alice', id, true, now() - interval '12 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_alice', :'alice_id', 'member', 'Owen that''s really kind of you! I''d love to help out more. What would the responsibilities look like?', now() - interval '11 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'owen_id', :'t_owen_alice', id, true, now() - interval '11 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_alice', :'owen_id', 'member', 'Mainly reviewing new member applications and helping moderate content. You''d also be able to manage events and approve posts. I''ll handle the technical side.', now() - interval '11 days' + interval '2 hours')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'alice_id', :'t_owen_alice', id, true, now() - interval '11 days' + interval '2 hours' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_alice', :'alice_id', 'member', 'Sounds great, count me in! I''ll start by reviewing the pending applications this week.', now() - interval '10 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'owen_id', :'t_owen_alice', id, true, now() - interval '10 days' from msg;
 
 -- ============================================================
@@ -1155,31 +1164,31 @@ select :'owen_id', :'t_owen_alice', id, true, now() - interval '10 days' from ms
 -- Shared clubs: CatClub, FoxClub
 -- ============================================================
 
-insert into app.dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
+insert into dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
 values ('direct', :'owen_id',
   least(:'owen_id', :'bob_id'),
   greatest(:'owen_id', :'bob_id'),
   now() - interval '7 days')
 returning id as t_owen_bob \gset
 
-insert into app.dm_thread_participants (thread_id, member_id, joined_at) values
+insert into dm_thread_participants (thread_id, member_id, joined_at) values
   (:'t_owen_bob', :'owen_id', now() - interval '7 days'),
   (:'t_owen_bob', :'bob_id',  now() - interval '7 days');
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_bob', :'owen_id', 'member', 'Bob, that Q1 conservation update was excellent. Have you considered writing a monthly newsletter for the club? I think it would keep engagement up.', now() - interval '7 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'bob_id', :'t_owen_bob', id, true, now() - interval '7 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_bob', :'bob_id', 'member', 'Thanks Owen! A monthly newsletter is a great idea. I could include sighting reports, conservation news, and member spotlights. Let me draft a template.', now() - interval '6 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'owen_id', :'t_owen_bob', id, true, now() - interval '6 days' from msg;
 
 -- ============================================================
@@ -1187,48 +1196,48 @@ select :'owen_id', :'t_owen_bob', id, true, now() - interval '6 days' from msg;
 -- Shared clubs: CatClub
 -- ============================================================
 
-insert into app.dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
+insert into dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
 values ('direct', :'diana_id',
   least(:'diana_id', :'julia_id'),
   greatest(:'diana_id', :'julia_id'),
   now() - interval '5 days')
 returning id as t_diana_julia \gset
 
-insert into app.dm_thread_participants (thread_id, member_id, joined_at) values
+insert into dm_thread_participants (thread_id, member_id, joined_at) values
   (:'t_diana_julia', :'diana_id', now() - interval '5 days'),
   (:'t_diana_julia', :'julia_id', now() - interval '5 days');
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_diana_julia', :'diana_id', 'member', 'Julia, I saw your post about the shy rescue cat. I''d be happy to do a free health check if you think stress might be a factor. Sometimes underlying pain makes cats hide.', now() - interval '5 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'julia_id', :'t_diana_julia', id, true, now() - interval '5 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_diana_julia', :'julia_id', 'member', 'That''s so generous, thank you Diana! The shelter said she was healthy but they were quite busy. I''d feel much better with a proper check from you.', now() - interval '4 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'diana_id', :'t_diana_julia', id, true, now() - interval '4 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_diana_julia', :'diana_id', 'member', 'Of course! I can come by this Saturday morning. In the meantime, try placing a worn t-shirt near her hiding spot — your scent helps build familiarity.', now() - interval '3 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'julia_id', :'t_diana_julia', id, true, now() - interval '3 days' from msg;
 
 -- Unread by Diana
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_diana_julia', :'julia_id', 'member', 'Saturday works perfectly! And I tried the t-shirt trick — she actually sniffed it this morning instead of running away. Small progress!', now() - interval '2 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'diana_id', :'t_diana_julia', id, false, now() - interval '2 days' from msg;
 
 -- ============================================================
@@ -1236,39 +1245,39 @@ select :'diana_id', :'t_diana_julia', id, false, now() - interval '2 days' from 
 -- Shared clubs: DogClub, FoxClub
 -- ============================================================
 
-insert into app.dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
+insert into dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
 values ('direct', :'ivan_id',
   least(:'ivan_id', :'charlie_id'),
   greatest(:'ivan_id', :'charlie_id'),
   now() - interval '8 days')
 returning id as t_ivan_charlie \gset
 
-insert into app.dm_thread_participants (thread_id, member_id, joined_at) values
+insert into dm_thread_participants (thread_id, member_id, joined_at) values
   (:'t_ivan_charlie', :'ivan_id',    now() - interval '8 days'),
   (:'t_ivan_charlie', :'charlie_id', now() - interval '8 days');
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_ivan_charlie', :'ivan_id', 'member', 'Charlie, loved your photography tips post! You''re really progressing fast. Want to do a dawn session at the meadow this weekend? The foxes have been active there.', now() - interval '8 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'charlie_id', :'t_ivan_charlie', id, true, now() - interval '8 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_ivan_charlie', :'charlie_id', 'member', 'I''d love that! What time should I be there? And should I bring the 200mm or the 400mm?', now() - interval '7 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'ivan_id', :'t_ivan_charlie', id, true, now() - interval '7 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_ivan_charlie', :'ivan_id', 'member', 'Meet at 5:15am — we want to be set up before first light. Bring the 400mm, the foxes keep their distance at that spot. I''ll bring a hide cloth.', now() - interval '7 days' + interval '3 hours')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'charlie_id', :'t_ivan_charlie', id, true, now() - interval '7 days' + interval '3 hours' from msg;
 
 -- ============================================================
@@ -1276,59 +1285,59 @@ select :'charlie_id', :'t_ivan_charlie', id, true, now() - interval '7 days' + i
 -- Shared clubs: DogClub, CatClub, FoxClub
 -- ============================================================
 
-insert into app.dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
+insert into dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
 values ('direct', :'owen_id',
   least(:'owen_id', :'diana_id'),
   greatest(:'owen_id', :'diana_id'),
   now() - interval '9 days')
 returning id as t_owen_diana \gset
 
-insert into app.dm_thread_participants (thread_id, member_id, joined_at) values
+insert into dm_thread_participants (thread_id, member_id, joined_at) values
   (:'t_owen_diana', :'owen_id',  now() - interval '9 days'),
   (:'t_owen_diana', :'diana_id', now() - interval '9 days');
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_diana', :'owen_id', 'member', 'Diana, thanks for handling the spam post removal so quickly. George seems like a good person but he needs to understand that CatClub isn''t a marketplace.', now() - interval '9 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'diana_id', :'t_owen_diana', id, true, now() - interval '9 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_diana', :'diana_id', 'member', 'Agreed. I sent him a friendly DM explaining the guidelines. He was apologetic. I think it was a genuine mistake — he''s very enthusiastic about his bird feeder business.', now() - interval '8 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'owen_id', :'t_owen_diana', id, true, now() - interval '8 days' from msg;
 
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_diana', :'owen_id', 'member', 'Good call. On another topic — the cat cafe partnership you posted about sounds amazing. I might be interested in the vet welfare side. Can we chat about it?', now() - interval '7 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'diana_id', :'t_owen_diana', id, true, now() - interval '7 days' from msg;
 
 -- This message will be removed
-insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
 values (:'t_owen_diana', :'owen_id', 'member', 'Oops, sent this to the wrong thread — ignore!', now() - interval '6 days')
 returning id as removed_msg \gset
 
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 values (:'diana_id', :'t_owen_diana', :'removed_msg', true, now() - interval '6 days');
 
-insert into app.dm_message_removals (message_id, removed_by_member_id, reason, removed_at)
+insert into dm_message_removals (message_id, removed_by_member_id, reason, removed_at)
 values (:'removed_msg', :'owen_id', 'Sent to wrong thread', now() - interval '6 days' + interval '1 minute');
 
 -- Last message — unread by Owen
 with msg as (
-  insert into app.dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+  insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_owen_diana', :'diana_id', 'member', 'Absolutely! I''d love to discuss the welfare protocols. I have some ideas about stress-free rotation schedules for the cats. Free Saturday afternoon?', now() - interval '3 days')
   returning id
 )
-insert into app.dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'owen_id', :'t_owen_diana', id, false, now() - interval '3 days' from msg;
 
 commit;

@@ -74,7 +74,7 @@ describe('superadmin.members.createWithAccessTokenWithAccessToken', () => {
 
     // Verify email stored in private_contacts
     const rows = await h.sql<{ email: string }>(
-      `select email from app.member_private_contacts where member_id = $1`,
+      `select email from member_private_contacts where member_id = $1`,
       [data.member.memberId],
     );
     assert.equal(rows.length, 1);

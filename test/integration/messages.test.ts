@@ -433,11 +433,31 @@ describe('messages', () => {
     assert.equal(secondMessage.threadId, firstMessage.threadId);
     const messages = await h.sqlMessaging<{ count: string }>(
       `select count(*)::text as count
-       from app.dm_messages
+       from dm_messages
        where sender_member_id = $1 and client_key = $2`,
       [owner.id, clientKey],
     );
     assert.equal(Number(messages[0]!.count), 1);
+  });
+
+  it('clientKey with different messageText returns 409 client_key_conflict', async () => {
+    const owner = await h.seedOwner('msg-ck-conflict', 'MsgCKConflict');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice CKConflict', 'alice-ck-conflict', { sponsorId: owner.id });
+    const clientKey = 'conflict-key-1';
+
+    await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Original message',
+      clientKey,
+    });
+
+    const err = await h.apiErr(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Different message text',
+      clientKey,
+    });
+    assert.equal(err.status, 409);
+    assert.equal(err.code, 'client_key_conflict');
   });
 
   it('oversized messageText returns 400', async () => {
@@ -552,6 +572,110 @@ describe('updates', () => {
     assert.equal(body.ok, true);
     const items = ((body.updates as Record<string, unknown>).items as unknown[]);
     assert.equal(items.length, 0, 'after=latest should skip existing backlog');
+  });
+
+  it('inbox backlog larger than limit drains across repeated polls', async () => {
+    const owner = await h.seedOwner('upd-drain', 'UpdDrainClub');
+    const sender = await h.seedClubMember(owner.club.id, 'Sender Drain', 'sender-drain', { sponsorId: owner.id });
+    const recipient = await h.seedClubMember(owner.club.id, 'Recipient Drain', 'recipient-drain', { sponsorId: owner.id });
+
+    // Seed cursor so activity items are consumed
+    const seedResult = await h.apiOk(recipient.token, 'updates.list', { limit: 20 });
+    let cursor = ((seedResult.data as Record<string, unknown>).updates as Record<string, unknown>).nextAfter as string;
+
+    // Send 6 DMs (backlog larger than the limit we'll use)
+    for (let i = 0; i < 6; i++) {
+      await h.apiOk(sender.token, 'messages.send', {
+        recipientMemberId: recipient.id,
+        messageText: `Drain message ${i + 1}`,
+      });
+    }
+
+    // Poll with limit=2, collecting all inbox updateIds
+    const allUpdateIds = new Set<string>();
+    for (let pass = 0; pass < 10; pass++) {
+      const result = await h.apiOk(recipient.token, 'updates.list', { limit: 2, after: cursor });
+      const updates = (result.data as Record<string, unknown>).updates as Record<string, unknown>;
+      const items = updates.items as Array<Record<string, unknown>>;
+      cursor = updates.nextAfter as string;
+
+      const inboxItems = items.filter((u) => u.source === 'inbox');
+      if (inboxItems.length === 0) break;
+      for (const item of inboxItems) {
+        allUpdateIds.add(item.updateId as string);
+      }
+    }
+
+    assert.equal(allUpdateIds.size, 6, 'all 6 DMs should be reachable via repeated polls');
+  });
+
+  it('updates.list total items never exceeds limit', async () => {
+    const owner = await h.seedOwner('upd-limit', 'UpdLimitClub');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice Limit', 'alice-limit', { sponsorId: owner.id });
+    const bob = await h.seedClubMember(owner.club.id, 'Bob Limit', 'bob-limit', { sponsorId: owner.id });
+
+    // Create activity by seeding entities directly (avoids quality gate)
+    for (let i = 0; i < 5; i++) {
+      const [ent] = await h.sql<{ id: string }>(
+        `insert into entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
+        [owner.club.id, alice.id],
+      );
+      await h.sql(
+        `insert into entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
+         values ($1, 1, 'published', $2, 'Body', $3)`,
+        [ent!.id, `Limit post ${i}`, alice.id],
+      );
+      await h.sql(
+        `insert into club_activity (club_id, entity_id, topic, created_by_member_id)
+         values ($1, $2, 'entity.version.published', $3)`,
+        [owner.club.id, ent!.id, alice.id],
+      );
+    }
+
+    // Create inbox items by sending DMs
+    for (let i = 0; i < 5; i++) {
+      await h.apiOk(alice.token, 'messages.send', {
+        recipientMemberId: bob.id,
+        messageText: `Limit DM ${i}`,
+      });
+    }
+
+    // Poll with small limit — total must not exceed it
+    const result = await h.apiOk(bob.token, 'updates.list', { limit: 3 });
+    const updates = (result.data as Record<string, unknown>).updates as Record<string, unknown>;
+    const items = updates.items as Array<Record<string, unknown>>;
+    assert.ok(items.length <= 3, `total items should be <= 3 but got ${items.length}`);
+  });
+
+  it('after=latest then new DM appears in next poll', async () => {
+    const owner = await h.seedOwner('upd-latest-dm', 'UpdLatestDmClub');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice LatestDM', 'alice-latest-dm', { sponsorId: owner.id });
+    const bob = await h.seedClubMember(owner.club.id, 'Bob LatestDM', 'bob-latest-dm', { sponsorId: owner.id });
+
+    // Send backlog DMs
+    await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Old backlog',
+    });
+
+    // Skip backlog
+    const latest = await h.apiOk(bob.token, 'updates.list', { after: 'latest' });
+    const latestUpdates = (latest.data as Record<string, unknown>).updates as Record<string, unknown>;
+    const cursor = latestUpdates.nextAfter as string;
+    assert.equal((latestUpdates.items as unknown[]).length, 0, 'after=latest should return 0 items');
+
+    // Send a NEW DM after cursor was established
+    await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'New message after latest',
+    });
+
+    // Next poll should see the new DM
+    const poll = await h.apiOk(bob.token, 'updates.list', { after: cursor });
+    const pollUpdates = (poll.data as Record<string, unknown>).updates as Record<string, unknown>;
+    const pollItems = pollUpdates.items as Array<Record<string, unknown>>;
+    const dmUpdate = pollItems.find((u) => u.topic === 'dm.message.created');
+    assert.ok(dmUpdate, 'new DM sent after after=latest should appear in next poll');
   });
 });
 

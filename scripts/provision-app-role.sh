@@ -7,7 +7,6 @@ source "$ROOT_DIR/scripts/lib/database-urls.sh"
 DATABASE_MIGRATOR_URL="$(require_migrator_database_url)"
 APP_ROLE="${CLAWCLUB_DB_APP_ROLE:-clawclub_app}"
 APP_PASSWORD="${CLAWCLUB_DB_APP_PASSWORD:-}"
-SCHEMA_NAME="${CLAWCLUB_DB_SCHEMA:-app}"
 DATABASE_NAME="${CLAWCLUB_DB_NAME:-}"
 
 if [[ -z "$APP_PASSWORD" ]]; then
@@ -27,8 +26,7 @@ run_provision_sql() {
     -v ON_ERROR_STOP=1 \
     --set app_role="$APP_ROLE" \
     --set app_password="$APP_PASSWORD" \
-    --set database_name="$DATABASE_NAME" \
-    --set schema_name="$SCHEMA_NAME" <<'SQL'
+    --set database_name="$DATABASE_NAME" <<'SQL'
 select exists(select 1 from pg_roles where rolname = :'app_role') as app_role_exists \gset
 
 select format(
@@ -43,26 +41,16 @@ select format(
 ) \gexec
 
 select format('grant connect on database %I to %I', :'database_name', :'app_role') \gexec
-select format('grant usage on schema %I to %I', :'schema_name', :'app_role') \gexec
-select format('grant select, insert, update, delete on all tables in schema %I to %I', :'schema_name', :'app_role') \gexec
-select format('grant usage, select on all sequences in schema %I to %I', :'schema_name', :'app_role') \gexec
-select format('grant execute on all functions in schema %I to %I', :'schema_name', :'app_role') \gexec
-select format('alter default privileges in schema %I grant select, insert, update, delete on tables to %I', :'schema_name', :'app_role') \gexec
-select format('alter default privileges in schema %I grant usage, select on sequences to %I', :'schema_name', :'app_role') \gexec
-select format('alter default privileges in schema %I grant execute on functions to %I', :'schema_name', :'app_role') \gexec
+select format('grant usage on schema public to %I', :'app_role') \gexec
+select format('grant select, insert, update, delete on all tables in schema public to %I', :'app_role') \gexec
+select format('grant usage, select on all sequences in schema public to %I', :'app_role') \gexec
+select format('grant execute on all functions in schema public to %I', :'app_role') \gexec
+select format('alter default privileges in schema public grant select, insert, update, delete on tables to %I', :'app_role') \gexec
+select format('alter default privileges in schema public grant usage, select on sequences to %I', :'app_role') \gexec
+select format('alter default privileges in schema public grant execute on functions to %I', :'app_role') \gexec
 
-select exists (
-  select 1
-  from pg_catalog.pg_class c
-  join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-  where n.nspname = 'public'
-    and c.relname = 'schema_migrations'
-    and c.relkind = 'r'
-) as schema_migrations_exists \gset
-
-select case
-  when :'schema_migrations_exists' = 't' then format('grant select on table public.schema_migrations to %I', :'app_role')
-end \gexec
+-- schema_migrations is in public but the app role should only SELECT it
+select format('revoke insert, update, delete on table public.schema_migrations from %I', :'app_role') \gexec
 SQL
 }
 

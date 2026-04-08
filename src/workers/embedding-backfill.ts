@@ -18,9 +18,9 @@ async function backfill(pools: WorkerPools): Promise<void> {
 
   // Enqueue current profile versions that lack artifacts
   const profileResult = await pools.db.query<{ id: string }>(
-    `select cmp.id from app.current_member_profiles cmp
+    `select cmp.id from current_member_profiles cmp
      where not exists (
-       select 1 from app.member_profile_embeddings empa
+       select 1 from member_profile_embeddings empa
        where empa.member_id = cmp.member_id
          and empa.model = $1 and empa.dimensions = $2 and empa.source_version = $3
      )`,
@@ -29,7 +29,7 @@ async function backfill(pools: WorkerPools): Promise<void> {
 
   for (const row of profileResult.rows) {
     await pools.db.query(
-      `insert into app.ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
+      `insert into ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
        values ('member_profile_version', $1, $2, $3, $4)
        on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
       [row.id, profileConfig.model, profileConfig.dimensions, profileConfig.sourceVersion],
@@ -39,11 +39,11 @@ async function backfill(pools: WorkerPools): Promise<void> {
 
   // Enqueue current published entity versions that lack artifacts
   const entityResult = await pools.db.query<{ id: string }>(
-    `select cev.id from app.current_entity_versions cev
-     join app.entities e on e.id = cev.entity_id
+    `select cev.id from current_entity_versions cev
+     join entities e on e.id = cev.entity_id
      where cev.state = 'published' and e.deleted_at is null
        and not exists (
-         select 1 from app.entity_embeddings eea
+         select 1 from entity_embeddings eea
          where eea.entity_id = e.id
            and eea.model = $1 and eea.dimensions = $2 and eea.source_version = $3
        )`,
@@ -52,7 +52,7 @@ async function backfill(pools: WorkerPools): Promise<void> {
 
   for (const row of entityResult.rows) {
     await pools.db.query(
-      `insert into app.ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
+      `insert into ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
        values ('entity_version', $1, $2, $3, $4)
        on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
       [row.id, entityConfig.model, entityConfig.dimensions, entityConfig.sourceVersion],

@@ -35,8 +35,8 @@ else
     echo "migrations: $migration_count applied, latest: $latest_migration"
 
     # Check table count
-    table_count="$(psql "$url" -X -A -t -q -c "select count(*)::text from information_schema.tables where table_schema = 'app'" 2>/dev/null || echo "0")"
-    echo "tables: $table_count in app schema"
+    table_count="$(psql "$url" -X -A -t -q -c "select count(*)::text from information_schema.tables where table_schema = 'public' and table_name <> 'schema_migrations'" 2>/dev/null || echo "0")"
+    echo "tables: $table_count"
 
     printf '\n'
   fi

@@ -46,7 +46,7 @@ const SELECT_COLS = `
 
 export async function listBearerTokens(pool: Pool, actorMemberId: string): Promise<BearerTokenSummary[]> {
   const result = await pool.query<BearerTokenRow>(
-    `select ${SELECT_COLS} from app.member_bearer_tokens
+    `select ${SELECT_COLS} from member_bearer_tokens
      where member_id = $1
      order by created_at desc, id desc`,
     [actorMemberId],
@@ -58,7 +58,7 @@ export async function createBearerToken(pool: Pool, input: CreateBearerTokenInpu
   const token = buildBearerToken();
   return withTransaction(pool, async (client) => {
     const countResult = await client.query<{ count: string }>(
-      `select count(*)::text as count from app.member_bearer_tokens where member_id = $1 and revoked_at is null`,
+      `select count(*)::text as count from member_bearer_tokens where member_id = $1 and revoked_at is null`,
       [input.actorMemberId],
     );
     if (Number(countResult.rows[0]?.count ?? 0) >= MAX_ACTIVE_TOKENS) {
@@ -66,7 +66,7 @@ export async function createBearerToken(pool: Pool, input: CreateBearerTokenInpu
     }
 
     const result = await client.query<BearerTokenRow>(
-      `insert into app.member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
+      `insert into member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
        values ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)
        returning ${SELECT_COLS}`,
       [token.tokenId, input.actorMemberId, input.label ?? null, token.tokenHash, input.expiresAt ?? null, JSON.stringify(input.metadata ?? {})],
@@ -81,7 +81,7 @@ export async function createBearerToken(pool: Pool, input: CreateBearerTokenInpu
 
 export async function revokeBearerToken(pool: Pool, input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null> {
   const result = await pool.query<BearerTokenRow>(
-    `update app.member_bearer_tokens
+    `update member_bearer_tokens
      set revoked_at = coalesce(revoked_at, now())
      where id = $1 and member_id = $2
      returning ${SELECT_COLS}`,
@@ -102,7 +102,7 @@ export async function issueTokenForMember(
 ): Promise<{ bearerToken: string }> {
   const token = buildBearerToken();
   await pool.query(
-    `insert into app.member_bearer_tokens (id, member_id, label, token_hash, metadata)
+    `insert into member_bearer_tokens (id, member_id, label, token_hash, metadata)
      values ($1, $2, $3, $4, $5::jsonb)`,
     [token.tokenId, memberId, label, token.tokenHash, JSON.stringify(metadata)],
   );

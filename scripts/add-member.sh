@@ -37,14 +37,14 @@ fi
 echo "Creating member '$handle' ($public_name)..."
 
 psql "$database_url" -v ON_ERROR_STOP=1 -v handle="$handle" -v public_name="$public_name" <<'SQL'
-insert into app.members (public_name, handle)
+insert into members (public_name, handle)
 values (:'public_name', :'handle')
 on conflict (handle) do update
 set public_name = excluded.public_name;
 SQL
 
 member_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v handle="$handle" \
-  -c "select id from app.members where handle = :'handle'")"
+  -c "select id from members where handle = :'handle'")"
 if [[ -z "$member_id" ]]; then
   echo "Failed to resolve member id for handle '$handle'" >&2
   exit 1
@@ -53,14 +53,14 @@ fi
 echo "Member created: $member_id"
 
 club_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v club_slug="$club_slug" \
-  -c "select id from app.clubs where slug = :'club_slug'")"
+  -c "select id from clubs where slug = :'club_slug'")"
 if [[ -z "$club_id" ]]; then
   echo "No club found with slug '$club_slug'" >&2
   exit 1
 fi
 
 owner_member_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v club_slug="$club_slug" \
-  -c "select owner_member_id from app.clubs where slug = :'club_slug'")"
+  -c "select owner_member_id from clubs where slug = :'club_slug'")"
 
 echo "Adding membership to $club_slug ($club_id)..."
 
@@ -74,7 +74,7 @@ echo "Membership response:"
 echo "$membership_response" | node -e "process.stdin.setEncoding('utf8');let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.stringify(JSON.parse(d),null,2)))" 2>/dev/null || echo "$membership_response"
 
 membership_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v club_id="$club_id" -v member_id="$member_id" \
-  -c "select id from app.club_memberships where club_id = :'club_id' and member_id = :'member_id'")"
+  -c "select id from club_memberships where club_id = :'club_id' and member_id = :'member_id'")"
 if [[ -z "$membership_id" ]]; then
   echo "Failed to resolve membership id — membership may not have been created" >&2
   exit 1
@@ -84,7 +84,7 @@ echo ""
 echo "Creating comped subscription for membership $membership_id..."
 
 psql "$database_url" -v ON_ERROR_STOP=1 -v membership_id="$membership_id" -v owner_member_id="$owner_member_id" <<'SQL'
-insert into app.club_subscriptions (membership_id, payer_member_id, status, amount)
+insert into club_subscriptions (membership_id, payer_member_id, status, amount)
 values (:'membership_id', :'owner_member_id', 'active', 0)
 on conflict do nothing;
 SQL

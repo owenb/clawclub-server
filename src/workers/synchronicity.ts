@@ -70,7 +70,7 @@ function matchExpiresAt(matchKind: string): string {
 
 async function getState(pool: Pool, key: string): Promise<string | null> {
   const result = await pool.query<{ state_value: string }>(
-    `select state_value from app.worker_state
+    `select state_value from worker_state
      where worker_id = 'synchronicity' and state_key = $1`,
     [key],
   );
@@ -79,7 +79,7 @@ async function getState(pool: Pool, key: string): Promise<string | null> {
 
 async function setState(pool: Pool, key: string, value: string): Promise<void> {
   await pool.query(
-    `insert into app.worker_state (worker_id, state_key, state_value, updated_at)
+    `insert into worker_state (worker_id, state_key, state_value, updated_at)
      values ('synchronicity', $1, $2, now())
      on conflict (worker_id, state_key) do update
        set state_value = excluded.state_value, updated_at = now()`,
@@ -103,7 +103,7 @@ export async function enqueueIntroRecompute(
     ? new Date(Date.now() + delayMs).toISOString()
     : new Date().toISOString();
   await pool.query(
-    `insert into app.signal_recompute_queue (queue_name, member_id, club_id, recompute_after)
+    `insert into signal_recompute_queue (queue_name, member_id, club_id, recompute_after)
      values ('introductions', $1, $2, $3::timestamptz)
      on conflict (queue_name, member_id, club_id) do nothing`,
     [memberId, clubId, recomputeAfter],
@@ -120,10 +120,10 @@ const RECOMPUTE_LEASE_MS = 300_000; // 5 minutes
 async function claimRecomputeEntries(pool: Pool, limit: number): Promise<Array<{ id: string; memberId: string; clubId: string }>> {
   const staleThreshold = new Date(Date.now() - RECOMPUTE_LEASE_MS).toISOString();
   const result = await pool.query<{ id: string; member_id: string; club_id: string }>(
-    `update app.signal_recompute_queue
+    `update signal_recompute_queue
      set claimed_at = now()
      where id in (
-       select id from app.signal_recompute_queue
+       select id from signal_recompute_queue
        where queue_name = 'introductions'
          and recompute_after <= now()
          and (claimed_at is null or claimed_at < $2::timestamptz)
@@ -141,7 +141,7 @@ async function claimRecomputeEntries(pool: Pool, limit: number): Promise<Array<{
  * Complete a recompute entry by deleting it. Called after successful processing.
  */
 async function completeRecomputeEntry(pool: Pool, entryId: string): Promise<void> {
-  await pool.query(`delete from app.signal_recompute_queue where id = $1`, [entryId]);
+  await pool.query(`delete from signal_recompute_queue where id = $1`, [entryId]);
 }
 
 /**
@@ -151,7 +151,7 @@ async function completeRecomputeEntry(pool: Pool, entryId: string): Promise<void
  */
 async function expirePendingMatchesForSource(pool: Pool, sourceEntityId: string): Promise<void> {
   await pool.query(
-    `update app.signal_background_matches
+    `update signal_background_matches
      set state = 'expired'
      where source_id = $1 and state = 'pending'
        and match_kind in ('ask_to_member', 'offer_to_ask')`,
@@ -166,7 +166,7 @@ async function expirePendingMatchesForSource(pool: Pool, sourceEntityId: string)
  */
 async function expirePendingMatchesReferencingAsk(pool: Pool, askEntityId: string): Promise<void> {
   await pool.query(
-    `update app.signal_background_matches
+    `update signal_background_matches
      set state = 'expired'
      where state = 'pending'
        and match_kind = 'offer_to_ask'
@@ -182,7 +182,7 @@ async function expirePendingMatchesReferencingAsk(pool: Pool, askEntityId: strin
  */
 async function expirePendingMatchesForProfileChange(pool: Pool, memberId: string): Promise<void> {
   await pool.query(
-    `update app.signal_background_matches
+    `update signal_background_matches
      set state = 'expired'
      where state = 'pending'
        and (
@@ -207,7 +207,7 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
   // Seed on first run
   if (afterSeq === null) {
     const seedResult = await pools.db.query<{ max_seq: string }>(
-      `select coalesce(max(seq), 0)::text as max_seq from app.club_activity`,
+      `select coalesce(max(seq), 0)::text as max_seq from club_activity`,
     );
     await setState(pools.db, 'activity_seq', seedResult.rows[0]?.max_seq ?? '0');
     return 0;
@@ -218,7 +218,7 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
     created_by_member_id: string | null;
   }>(
     `select seq::text as seq, club_id, entity_id, created_by_member_id
-     from app.club_activity
+     from club_activity
      where seq > $1 and topic = 'entity.version.published'
      order by seq asc limit 50`,
     [afterSeq],
@@ -236,8 +236,8 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
       kind: string; author_member_id: string; current_version_id: string;
     }>(
       `select e.kind::text as kind, e.author_member_id, cev.id as current_version_id
-       from app.entities e
-       join app.current_entity_versions cev on cev.entity_id = e.id
+       from entities e
+       join current_entity_versions cev on cev.entity_id = e.id
        where e.id = $1 and cev.state = 'published'`,
       [row.entity_id],
     );
@@ -321,7 +321,7 @@ async function processProfileTriggers(pools: WorkerPools): Promise<number> {
   if (!lastAt) {
     const seedResult = await pools.db.query<{ max_at: string }>(
       `select coalesce(max(updated_at), '1970-01-01T00:00:00Z')::text as max_at
-       from app.member_profile_embeddings`,
+       from member_profile_embeddings`,
     );
     await setState(pools.db, 'profile_artifact_at', seedResult.rows[0]?.max_at ?? '1970-01-01T00:00:00Z');
     await setState(pools.db, 'profile_artifact_member_id', '');
@@ -338,8 +338,8 @@ async function processProfileTriggers(pools: WorkerPools): Promise<number> {
     `select empa.member_id,
             empa.updated_at::text as updated_at,
             mpv.created_at::text as profile_changed_at
-     from app.member_profile_embeddings empa
-     join app.member_profile_versions mpv on mpv.id = empa.profile_version_id
+     from member_profile_embeddings empa
+     join member_profile_versions mpv on mpv.id = empa.profile_version_id
      where (empa.updated_at, empa.member_id) > ($1::timestamptz, $2)
      order by empa.updated_at asc, empa.member_id asc
      limit 50`,
@@ -366,7 +366,7 @@ async function processProfileTriggers(pools: WorkerPools): Promise<number> {
 
     // Find all clubs this member is accessible in
     const clubsResult = await pools.db.query<{ club_id: string }>(
-      `select club_id from app.accessible_club_memberships where member_id = $1`,
+      `select club_id from accessible_club_memberships where member_id = $1`,
       [row.member_id],
     );
 
@@ -406,12 +406,12 @@ async function processMemberAccessibilityTriggers(pools: WorkerPools): Promise<n
   // Source 1: Membership state transitions to 'active'
   const membershipResult = await pools.db.query<{ member_id: string; club_id: string }>(
     `select cm.member_id, cm.club_id
-     from app.club_membership_state_versions sv
-     join app.club_memberships cm on cm.id = sv.membership_id
+     from club_membership_state_versions sv
+     join club_memberships cm on cm.id = sv.membership_id
      where sv.status = 'active'
        and sv.created_at > $1::timestamptz
        and exists (
-         select 1 from app.accessible_club_memberships acm
+         select 1 from accessible_club_memberships acm
          where acm.member_id = cm.member_id and acm.club_id = cm.club_id
        )
      group by cm.member_id, cm.club_id`,
@@ -421,12 +421,12 @@ async function processMemberAccessibilityTriggers(pools: WorkerPools): Promise<n
   // Source 2: Subscriptions that started or were reactivated recently
   const subscriptionResult = await pools.db.query<{ member_id: string; club_id: string }>(
     `select cm.member_id, cm.club_id
-     from app.club_subscriptions s
-     join app.club_memberships cm on cm.id = s.membership_id
+     from club_subscriptions s
+     join club_memberships cm on cm.id = s.membership_id
      where s.status in ('active', 'trialing')
        and s.started_at > $1::timestamptz
        and exists (
-         select 1 from app.accessible_club_memberships acm
+         select 1 from accessible_club_memberships acm
          where acm.member_id = cm.member_id and acm.club_id = cm.club_id
        )
      group by cm.member_id, cm.club_id`,
@@ -470,7 +470,7 @@ async function processIntroRecompute(pools: WorkerPools): Promise<number> {
     // Check member is still accessible in this club
     const accessResult = await pools.db.query<{ exists: boolean }>(
       `select exists(
-         select 1 from app.accessible_club_memberships
+         select 1 from accessible_club_memberships
          where member_id = $1 and club_id = $2
        ) as exists`,
       [entry.memberId, entry.clubId],
@@ -544,7 +544,7 @@ async function deliverMatches(pools: WorkerPools): Promise<number> {
   // Read candidate match IDs (no lock — just a planning query)
   const candidateResult = await pools.db.query<{ id: string; match_kind: string; target_member_id: string }>(
     `select id, match_kind, target_member_id
-     from app.signal_background_matches
+     from signal_background_matches
      where state = 'pending'
        and (expires_at is null or expires_at > now())
      order by score asc, created_at asc
@@ -583,7 +583,7 @@ async function deliverOneMatch(
     }>(
       `select id, club_id, match_kind, source_id, target_member_id, score, payload,
               created_at::text as created_at
-       from app.signal_background_matches
+       from signal_background_matches
        where id = $1 and state = 'pending'
        for update skip locked`,
       [matchId],
@@ -611,7 +611,7 @@ async function deliverOneMatch(
     // ── Throttle check (serialized by advisory lock) ──
     if (match.match_kind === 'member_to_member') {
       const introResult = await client.query<{ count: string }>(
-        `select count(*)::text as count from app.signal_background_matches
+        `select count(*)::text as count from signal_background_matches
          where target_member_id = $1 and match_kind = 'member_to_member'
            and state = 'delivered' and delivered_at > $2`,
         [match.target_member_id, new Date(Date.now() - WEEK_MS).toISOString()],
@@ -622,7 +622,7 @@ async function deliverOneMatch(
       }
     } else {
       const totalResult = await client.query<{ count: string }>(
-        `select count(*)::text as count from app.signal_background_matches
+        `select count(*)::text as count from signal_background_matches
          where target_member_id = $1
            and state = 'delivered' and delivered_at > $2`,
         [match.target_member_id, new Date(Date.now() - DAY_MS).toISOString()],
@@ -653,7 +653,7 @@ async function deliverOneMatch(
       }
 
       const accessResult = await pools.db.query<{ count: string }>(
-        `select count(*)::text as count from app.accessible_club_memberships
+        `select count(*)::text as count from accessible_club_memberships
          where club_id = $1 and member_id = any($2::text[])`,
         [match.club_id, [match.source_id, match.target_member_id]],
       );
@@ -667,7 +667,7 @@ async function deliverOneMatch(
     if (match.match_kind === 'ask_to_member' || match.match_kind === 'offer_to_ask') {
       const recipientAccessible = await pools.db.query<{ exists: boolean }>(
         `select exists(
-           select 1 from app.accessible_club_memberships
+           select 1 from accessible_club_memberships
            where member_id = $1 and club_id = $2
          ) as exists`,
         [match.target_member_id, match.club_id],
@@ -718,7 +718,7 @@ async function deliverOneMatch(
     // ── Insert signal + transition match atomically ──
     // ON CONFLICT DO NOTHING on match_id: idempotent on crash-retry.
     const signalResult = await client.query<{ id: string }>(
-      `insert into app.signal_deliveries (club_id, recipient_member_id, topic, payload, entity_id, match_id)
+      `insert into signal_deliveries (club_id, recipient_member_id, topic, payload, entity_id, match_id)
        values ($1, $2, $3, $4::jsonb, $5, $6)
        on conflict ((match_id)) where match_id is not null do nothing
        returning id`,
@@ -736,7 +736,7 @@ async function deliverOneMatch(
     let signalId = signalResult.rows[0]?.id;
     if (!signalId) {
       const existing = await client.query<{ id: string }>(
-        `select id from app.signal_deliveries where match_id = $1`,
+        `select id from signal_deliveries where match_id = $1`,
         [match.id],
       );
       signalId = existing.rows[0]?.id;
@@ -744,7 +744,7 @@ async function deliverOneMatch(
 
     if (signalId) {
       await client.query(
-        `update app.signal_background_matches
+        `update signal_background_matches
          set state = 'delivered', delivered_at = now(), signal_id = $2
          where id = $1 and state = 'pending'`,
         [match.id, signalId],
@@ -772,7 +772,7 @@ function topicForMatchKind(kind: string): string {
 }
 
 async function expireAndCommit(client: PoolClient, matchId: string): Promise<void> {
-  await client.query(`update app.signal_background_matches set state = 'expired' where id = $1`, [matchId]);
+  await client.query(`update signal_background_matches set state = 'expired' where id = $1`, [matchId]);
   await client.query('COMMIT');
 }
 
@@ -790,7 +790,7 @@ async function hasEntityVersionDrifted(
   if (!recordedVersionId) return true; // no version recorded — assume stale
 
   const result = await queryable.query<{ id: string }>(
-    `select cev.id from app.current_entity_versions cev
+    `select cev.id from current_entity_versions cev
      where cev.entity_id = $1 and cev.state = 'published'`,
     [entityId],
   );
@@ -812,7 +812,7 @@ async function hasAskVersionDrifted(
   if (!recordedVersionId) return true; // no version recorded — assume stale
 
   const result = await queryable.query<{ id: string }>(
-    `select cev.id from app.current_entity_versions cev
+    `select cev.id from current_entity_versions cev
      where cev.entity_id = $1 and cev.state = 'published'`,
     [askEntityId],
   );
@@ -868,8 +868,8 @@ async function buildSignalPayload(
 
 async function isEntityPublished(queryable: Pool | PoolClient, entityId: string): Promise<boolean> {
   const result = await queryable.query<{ state: string }>(
-    `select cev.state from app.current_entity_versions cev
-     join app.entities e on e.id = cev.entity_id
+    `select cev.state from current_entity_versions cev
+     join entities e on e.id = cev.entity_id
      where e.id = $1`,
     [entityId],
   );
@@ -883,8 +883,8 @@ async function loadEntityInfo(pool: Pool, entityId: string): Promise<{
     title: string | null; summary: string | null; kind: string; author_member_id: string;
   }>(
     `select cev.title, cev.summary, e.kind::text as kind, e.author_member_id
-     from app.current_entity_versions cev
-     join app.entities e on e.id = cev.entity_id
+     from current_entity_versions cev
+     join entities e on e.id = cev.entity_id
      where e.id = $1 and cev.state = 'published'`,
     [entityId],
   );
@@ -900,7 +900,7 @@ async function loadMemberInfo(pool: Pool, memberId: string): Promise<{
   memberId: string; publicName: string; handle: string | null;
 } | null> {
   const result = await pool.query<{ public_name: string; handle: string | null }>(
-    `select public_name, handle from app.members where id = $1`,
+    `select public_name, handle from members where id = $1`,
     [memberId],
   );
   return result.rows[0] ? {
@@ -930,7 +930,7 @@ async function processBackstopSweep(pools: WorkerPools): Promise<number> {
 
   // Get all distinct (member_id, club_id) pairs from accessible memberships
   const result = await pools.db.query<{ member_id: string; club_id: string }>(
-    `select distinct member_id, club_id from app.accessible_club_memberships`,
+    `select distinct member_id, club_id from accessible_club_memberships`,
   );
 
   let enqueued = 0;

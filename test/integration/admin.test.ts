@@ -1270,7 +1270,7 @@ describe('quotas.getUsage', () => {
     const ownerCtx = await h.seedOwner('quota-supported', 'Quota Supported Club');
     // Seed all three action types to verify filtering
     await h.sqlClubs(
-      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 20), ($1, 'events.create', 10)`,
+      `insert into club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 20), ($1, 'events.create', 10)`,
       [ownerCtx.club.id],
     );
 
@@ -1286,15 +1286,15 @@ describe('quotas.getUsage', () => {
     const ownerCtx = await h.seedOwner('quota-kind-isolation', 'Quota Kind Club');
     // Seed quotas for both actions
     await h.sqlClubs(
-      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 20), ($1, 'events.create', 10)`,
+      `insert into club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 20), ($1, 'events.create', 10)`,
       [ownerCtx.club.id],
     );
 
     // Create two posts via direct SQL (bypasses LLM gate)
     for (let i = 0; i < 2; i++) {
       await h.sqlClubs(
-        `with ent as (insert into app.entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id)
-         insert into app.entity_versions (entity_id, version_no, state, title, created_by_member_id)
+        `with ent as (insert into entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id)
+         insert into entity_versions (entity_id, version_no, state, title, created_by_member_id)
          select id, 1, 'published', 'Post ' || $3, $2 from ent`,
         [ownerCtx.club.id, ownerCtx.id, i],
       );
@@ -1314,15 +1314,15 @@ describe('quotas.getUsage', () => {
   it('events do NOT consume content.create quota', async () => {
     const ownerCtx = await h.seedOwner('quota-event-isolation', 'Quota Event Club');
     await h.sqlClubs(
-      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 20), ($1, 'events.create', 10)`,
+      `insert into club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 20), ($1, 'events.create', 10)`,
       [ownerCtx.club.id],
     );
 
     // Create one event via direct SQL
     await h.sqlClubs(
-      `with ent as (insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id)
-       insert into app.entity_versions (entity_id, version_no, state, title, summary, location, starts_at, created_by_member_id)
-       select id, 1, 'published', 'Event', 'Summary', 'Online', now() + interval '1 day', $2 from ent`,
+      `with ent as (insert into entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id)
+       insert into entity_versions (entity_id, version_no, state, title, summary, created_by_member_id)
+       select id, 1, 'published', 'Event', 'Summary', $2 from ent`,
       [ownerCtx.club.id, ownerCtx.id],
     );
 
@@ -1339,15 +1339,15 @@ describe('quotas.getUsage', () => {
     const ownerCtx = await h.seedOwner('quota-enforce-kind', 'Quota Enforce Club');
     // Set content.create max to 1 (not events)
     await h.sqlClubs(
-      `insert into app.club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 1)`,
+      `insert into club_quota_policies (club_id, action_name, max_per_day) values ($1, 'content.create', 1)`,
       [ownerCtx.club.id],
     );
 
     // Create one event via SQL — should NOT consume the content.create quota
     await h.sqlClubs(
-      `with ent as (insert into app.entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id)
-       insert into app.entity_versions (entity_id, version_no, state, title, summary, location, starts_at, created_by_member_id)
-       select id, 1, 'published', 'An event', 'Summary', 'Online', now() + interval '1 day', $2 from ent`,
+      `with ent as (insert into entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id)
+       insert into entity_versions (entity_id, version_no, state, title, summary, created_by_member_id)
+       select id, 1, 'published', 'An event', 'Summary', $2 from ent`,
       [ownerCtx.club.id, ownerCtx.id],
     );
 

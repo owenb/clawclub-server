@@ -25,17 +25,23 @@ export type EntityMatchResult = {
 // ── Helpers ───────────────────────────────────────────────
 
 /**
- * Load the latest embedding vector for an entity.
- * Returns null if no embedding exists.
+ * Load the embedding vector for an entity's CURRENT published version.
+ * Returns null if no embedding exists for the current version.
+ *
+ * Only uses embeddings whose entity_version_id matches the current
+ * published version. If the entity has been edited but the new
+ * embedding isn't ready yet, returns null — preferring to skip
+ * over matching on stale semantics.
  */
 async function loadEntityVector(pool: Pool, entityId: string): Promise<string | null> {
   const result = await pool.query<{ embedding: string }>(
     `select eea.embedding::text as embedding
-     from app.entity_embeddings eea
-     join app.current_entity_versions cev
-       on cev.entity_id = eea.entity_id and cev.state = 'published'
+     from entity_embeddings eea
+     join current_entity_versions cev
+       on cev.entity_id = eea.entity_id
+       and cev.id = eea.entity_version_id
+       and cev.state = 'published'
      where eea.entity_id = $1
-     order by eea.updated_at desc
      limit 1`,
     [entityId],
   );
@@ -54,8 +60,8 @@ async function loadEntityVector(pool: Pool, entityId: string): Promise<string | 
 async function loadProfileVector(pool: Pool, memberId: string): Promise<string | null> {
   const result = await pool.query<{ embedding: string }>(
     `select empa.embedding::text as embedding
-     from app.member_profile_embeddings empa
-     join app.current_member_profiles cmp
+     from member_profile_embeddings empa
+     join current_member_profiles cmp
        on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
      where empa.member_id = $1
      limit 1`,
@@ -86,10 +92,10 @@ export async function findMembersMatchingEntity(
   // are skipped — prefer missing a match over matching on stale semantics.
   const result = await pool.query<{ member_id: string; distance: number }>(
     `select empa.member_id, min(empa.embedding <=> $1::vector) as distance
-     from app.member_profile_embeddings empa
-     join app.current_member_profiles cmp
+     from member_profile_embeddings empa
+     join current_member_profiles cmp
        on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
-     join app.accessible_club_memberships acm
+     join accessible_club_memberships acm
        on acm.member_id = empa.member_id
        and acm.club_id = $2
      where empa.member_id <> $3
@@ -120,10 +126,10 @@ export async function findSimilarMembers(
   // Only match against current-version embeddings for target members too.
   const result = await pool.query<{ member_id: string; distance: number }>(
     `select empa.member_id, min(empa.embedding <=> $1::vector) as distance
-     from app.member_profile_embeddings empa
-     join app.current_member_profiles cmp
+     from member_profile_embeddings empa
+     join current_member_profiles cmp
        on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
-     join app.accessible_club_memberships acm
+     join accessible_club_memberships acm
        on acm.member_id = empa.member_id
        and acm.club_id = $2
      where empa.member_id <> $3
@@ -159,10 +165,12 @@ export async function findAskMatchingOffer(
             cev.id as entity_version_id,
             e.author_member_id,
             min(eea.embedding <=> $1::vector) as distance
-     from app.entity_embeddings eea
-     join app.current_entity_versions cev
-       on cev.entity_id = eea.entity_id and cev.state = 'published'
-     join app.entities e on e.id = eea.entity_id
+     from entity_embeddings eea
+     join current_entity_versions cev
+       on cev.entity_id = eea.entity_id
+       and cev.id = eea.entity_version_id
+       and cev.state = 'published'
+     join entities e on e.id = eea.entity_id
      where e.club_id = $2
        and e.kind = 'ask'
        and e.id <> $3
@@ -201,7 +209,7 @@ export async function findExistingThreadPairs(
 
   const result = await pool.query<{ member_a_id: string; member_b_id: string }>(
     `select member_a_id, member_b_id
-     from app.dm_threads
+     from dm_threads
      where archived_at is null
        and (member_a_id, member_b_id) in (
          select * from unnest($1::text[], $2::text[])

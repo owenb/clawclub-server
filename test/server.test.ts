@@ -74,7 +74,7 @@ test('createServer accepts unauthenticated cold application actions over POST /a
   }
 });
 
-test('createServer returns accepted for admissions.apply', async () => {
+test('createServer returns accepted for admissions.public.submitApplication', async () => {
   const requestFetch = globalThis.fetch;
 
   const repository: Repository = {

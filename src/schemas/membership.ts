@@ -1,6 +1,6 @@
 /**
- * Action contracts: admissions.sponsor, members.fullTextSearch, members.list,
- * members.findViaEmbedding, vouches.create, vouches.list
+ * Action contracts: admissions.sponsorCandidate, members.searchByFullText, members.list,
+ * members.searchBySemanticSimilarity, vouches.create, vouches.list
  *
  * Member-auth actions for discovery, sponsorship, and vouching.
  * Club admin actions (memberships, admissions management) are in clubadmin.ts.
@@ -21,7 +21,7 @@ import {
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
-// ── admissions.sponsor ──────────────────────────────────
+// ── admissions.sponsorCandidate ──────────────────────────────────
 
 type AdmissionsSponsorInput = {
   clubId: string;
@@ -82,7 +82,7 @@ const admissionsSponsor: ActionDefinition = {
   },
 };
 
-// ── members.fullTextSearch ──────────────────────────────
+// ── members.searchByFullText ──────────────────────────────
 
 type MembersFullTextSearchInput = {
   query: string;
@@ -343,7 +343,7 @@ const vouchesList: ActionDefinition = {
   },
 };
 
-// ── members.findViaEmbedding ──────────────────────────────
+// ── members.searchBySemanticSimilarity ─────────────────────
 
 type MembersFindViaEmbeddingInput = {
   query: string;
@@ -392,7 +392,7 @@ const membersFindViaEmbedding: ActionDefinition = {
       ctx.repository.logLlmUsage?.({
         memberId: ctx.actor.member.id,
         requestedClubId: clubId ?? null,
-        actionName: 'members.findViaEmbedding',
+        actionName: 'members.searchBySemanticSimilarity',
         gateName: 'embedding_query',
         provider: 'openai',
         model: profile.model,
@@ -430,11 +430,11 @@ const membersFindViaEmbedding: ActionDefinition = {
       embedding = result.embedding;
       usageTokens = result.usage?.tokens ?? 0;
     } catch (err) {
-      console.error('Embedding provider error in members.findViaEmbedding:', err);
+      console.error('Embedding provider error in members.searchBySemanticSimilarity:', err);
       ctx.repository.logLlmUsage?.({
         memberId: ctx.actor.member.id,
         requestedClubId: clubId ?? null,
-        actionName: 'members.findViaEmbedding',
+        actionName: 'members.searchBySemanticSimilarity',
         gateName: 'embedding_query',
         provider: 'openai',
         model: profile.model,
@@ -450,7 +450,7 @@ const membersFindViaEmbedding: ActionDefinition = {
     ctx.repository.logLlmUsage?.({
       memberId: ctx.actor.member.id,
       requestedClubId: clubId ?? null,
-      actionName: 'members.findViaEmbedding',
+      actionName: 'members.searchBySemanticSimilarity',
       gateName: 'embedding_query',
       provider: 'openai',
       model: profile.model,

@@ -34,7 +34,7 @@ function makeVector(values: number[]): string {
 async function seedProfileEmbedding(memberId: string, vector: string): Promise<void> {
   // Get or create a profile version
   const pvRows = await h.sql<{ id: string }>(
-    `select id from app.current_member_profiles where member_id = $1`,
+    `select id from current_member_profiles where member_id = $1`,
     [memberId],
   );
   let profileVersionId: string;
@@ -42,7 +42,7 @@ async function seedProfileEmbedding(memberId: string, vector: string): Promise<v
     profileVersionId = pvRows[0].id;
   } else {
     const insertRows = await h.sql<{ id: string }>(
-      `insert into app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
+      `insert into member_profile_versions (member_id, version_no, display_name, created_by_member_id)
        values ($1, 1, 'test', $1) returning id`,
       [memberId],
     );
@@ -50,7 +50,7 @@ async function seedProfileEmbedding(memberId: string, vector: string): Promise<v
   }
 
   await h.sql(
-    `insert into app.member_profile_embeddings
+    `insert into member_profile_embeddings
        (member_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
      values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
      on conflict (member_id, model, dimensions, source_version, chunk_index)
@@ -67,21 +67,21 @@ async function seedEntityWithEmbedding(
   vector: string,
 ): Promise<string> {
   const entityRows = await h.sqlClubs<{ id: string }>(
-    `insert into app.entities (club_id, kind, author_member_id)
-     values ($1, $2::app.entity_kind, $3) returning id`,
+    `insert into entities (club_id, kind, author_member_id)
+     values ($1, $2::entity_kind, $3) returning id`,
     [clubId, kind, authorMemberId],
   );
   const entityId = entityRows[0].id;
 
   const versionRows = await h.sqlClubs<{ id: string }>(
-    `insert into app.entity_versions (entity_id, version_no, state, title, summary)
+    `insert into entity_versions (entity_id, version_no, state, title, summary)
      values ($1, 1, 'published', 'test entity', 'test summary') returning id`,
     [entityId],
   );
   const entityVersionId = versionRows[0].id;
 
   await h.sqlClubs(
-    `insert into app.entity_embeddings
+    `insert into entity_embeddings
        (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
      values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
      on conflict (entity_id, model, dimensions, source_version, chunk_index)
@@ -279,6 +279,104 @@ describe('embedding similarity', () => {
       assert.deepEqual(canonicalPair('aaa', 'bbb'), ['aaa', 'bbb']);
       assert.deepEqual(canonicalPair('bbb', 'aaa'), ['aaa', 'bbb']);
       assert.deepEqual(canonicalPair('xxx', 'xxx'), ['xxx', 'xxx']);
+    });
+  });
+
+  describe('stale entity embeddings', () => {
+    it('edited source entity with stale v1 embedding produces no match', async () => {
+      const owner = await h.seedOwner('stale-src', 'StaleSourceClub');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice Stale', 'alice-stale', { sponsorId: owner.id });
+
+      // Alice has a profile embedding
+      await seedProfileEmbedding(alice.id, makeVector([0.9, 0.1, 0]));
+
+      // Create ask entity v1 with embedding
+      const entityRows = await h.sql<{ id: string }>(
+        `insert into entities (club_id, kind, author_member_id) values ($1, 'ask', $2) returning id`,
+        [owner.club.id, owner.id],
+      );
+      const entityId = entityRows[0].id;
+      const v1Rows = await h.sql<{ id: string }>(
+        `insert into entity_versions (entity_id, version_no, state, title, summary)
+         values ($1, 1, 'published', 'v1 ask', 'old content') returning id`,
+        [entityId],
+      );
+      const v1Id = v1Rows[0].id;
+      await h.sql(
+        `insert into entity_embeddings (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
+         values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)`,
+        [entityId, v1Id, makeVector([1, 0, 0])],
+      );
+
+      // Edit entity to v2 (no embedding yet)
+      await h.sql(
+        `insert into entity_versions (entity_id, version_no, state, title, summary, supersedes_version_id)
+         values ($1, 2, 'published', 'v2 ask', 'new content', $2)`,
+        [entityId, v1Id],
+      );
+
+      // loadEntityVector should return null (stale v1 embedding, v2 is current)
+      const results = await findMembersMatchingEntity(
+        h.pools.super, entityId, owner.club.id, owner.id, 10,
+      );
+      assert.equal(results.length, 0, 'stale source embedding should not produce matches');
+    });
+
+    it('edited candidate ask with stale embedding is not matched by offer', async () => {
+      const owner = await h.seedOwner('stale-cand', 'StaleCandClub');
+
+      // Create ask entity v1 with embedding
+      const askRows = await h.sql<{ id: string }>(
+        `insert into entities (club_id, kind, author_member_id) values ($1, 'ask', $2) returning id`,
+        [owner.club.id, owner.id],
+      );
+      const askId = askRows[0].id;
+      const askV1 = await h.sql<{ id: string }>(
+        `insert into entity_versions (entity_id, version_no, state, title, summary)
+         values ($1, 1, 'published', 'original ask', 'help me') returning id`,
+        [askId],
+      );
+      await h.sql(
+        `insert into entity_embeddings (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
+         values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)`,
+        [askId, askV1[0].id, makeVector([1, 0, 0])],
+      );
+
+      // Edit ask to v2 (stale: no new embedding)
+      await h.sql(
+        `insert into entity_versions (entity_id, version_no, state, title, summary, supersedes_version_id)
+         values ($1, 2, 'published', 'updated ask', 'different topic', $2)`,
+        [askId, askV1[0].id],
+      );
+
+      // Create a fresh offer with a current-version embedding
+      const offerId = await seedEntityWithEmbedding(
+        owner.club.id, owner.id, 'service', makeVector([0.95, 0.05, 0]),
+      );
+
+      const results = await findAskMatchingOffer(
+        h.pools.super, offerId, owner.club.id, 10,
+      );
+      // The ask should NOT be found because its only embedding is for v1, not current v2
+      const staleMatch = results.find(r => r.entityId === askId);
+      assert.equal(staleMatch, undefined, 'ask with stale v1 embedding should not appear as candidate');
+    });
+
+    it('fresh current-version embeddings still produce matches', async () => {
+      const owner = await h.seedOwner('fresh-emb', 'FreshEmbClub');
+      const alice = await h.seedClubMember(owner.club.id, 'Alice Fresh', 'alice-fresh', { sponsorId: owner.id });
+      await seedProfileEmbedding(alice.id, makeVector([0.9, 0.1, 0]));
+
+      // Entity with current-version embedding (normal case)
+      const entityId = await seedEntityWithEmbedding(
+        owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]),
+      );
+
+      const results = await findMembersMatchingEntity(
+        h.pools.super, entityId, owner.club.id, owner.id, 10,
+      );
+      assert.ok(results.length >= 1, 'fresh embedding should produce matches');
+      assert.equal(results[0].memberId, alice.id);
     });
   });
 });

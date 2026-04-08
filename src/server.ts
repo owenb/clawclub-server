@@ -692,10 +692,10 @@ export function createServer(options: {
     const billingEnabled = process.env.BILLING_ENABLED === 'true' || process.env.BILLING_ENABLED === '1';
     if (!billingEnabled && pool) {
       const paidCheck = await pool.query<{ count: string }>(
-        `select count(*)::text as count from app.clubs where membership_price_amount is not null and archived_at is null`,
+        `select count(*)::text as count from clubs where membership_price_amount is not null and archived_at is null`,
       );
       const pendingCheck = await pool.query<{ count: string }>(
-        `select count(*)::text as count from app.club_memberships where status = 'payment_pending'`,
+        `select count(*)::text as count from club_memberships where status = 'payment_pending'`,
       );
       const paidCount = Number(paidCheck.rows[0]?.count ?? 0);
       const pendingCount = Number(pendingCheck.rows[0]?.count ?? 0);
@@ -725,7 +725,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   server.listen(port, () => {
     console.log(`clawclub api listening on http://127.0.0.1:${port}/api`);
-    console.log('auth mode: hashed API-style bearer tokens in app.member_bearer_tokens');
+    console.log('auth mode: hashed API-style bearer tokens in member_bearer_tokens');
   });
 
   const stop = async () => {

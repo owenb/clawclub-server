@@ -316,7 +316,7 @@
             "type": "string"
           },
           "challengeId": {
-            "description": "Challenge ID from admissions.crossChallenge",
+            "description": "Challenge ID from admissions.crossClub.requestChallenge",
             "type": "string"
           },
           "nonce": {
@@ -492,7 +492,7 @@
             "type": "string"
           },
           "challengeId": {
-            "description": "Challenge ID from admissions.challenge",
+            "description": "Challenge ID from admissions.public.requestChallenge",
             "maxLength": 500,
             "type": "string"
           },
@@ -3388,7 +3388,7 @@
             "type": "string"
           },
           "clientKey": {
-            "description": "Idempotency key — if provided, duplicate creates with the same key are rejected",
+            "description": "Idempotency key — same key with same payload returns the original entity; same key with different payload returns 409 client_key_conflict",
             "maxLength": 250000,
             "nullable": true,
             "type": "string"
@@ -4383,7 +4383,7 @@
             "type": "integer"
           },
           "clientKey": {
-            "description": "Idempotency key",
+            "description": "Idempotency key — same key with same payload returns the original event; same key with different payload returns 409 client_key_conflict",
             "maxLength": 250000,
             "nullable": true,
             "type": "string"
@@ -6569,7 +6569,7 @@
       "input": {
         "properties": {
           "clientKey": {
-            "description": "Idempotency key — duplicate sends with the same key return the original message",
+            "description": "Idempotency key — same key with same payload returns the original message; same key with different payload returns 409 client_key_conflict",
             "maxLength": 250000,
             "nullable": true,
             "type": "string"
@@ -10214,6 +10214,6 @@
       }
     }
   },
-  "version": "0.2.0",
-  "schemaHash": "3338aaf628e98c1f"
+  "version": "0.2.1",
+  "schemaHash": "94d3325ed69279cd"
 }

@@ -101,7 +101,7 @@ async function resolveMemberId(pool: Pool, flags: Flags): Promise<string> {
   }
 
   const result = await pool.query<{ id: string }>(
-    `select app.resolve_active_member_id_by_handle($1) as id`,
+    `select resolve_active_member_id_by_handle($1) as id`,
     [flags.handle],
   );
 
@@ -136,7 +136,7 @@ async function createToken(pool: Pool, flags: Flags) {
     : null;
 
   await pool.query(
-    `insert into app.member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
+    `insert into member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
      values ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)`,
     [token.tokenId, memberId, flags.label ?? 'default', token.tokenHash, expiresAt, JSON.stringify(flags.metadata ?? {})],
   );
@@ -161,7 +161,7 @@ async function listTokens(pool: Pool, flags: Flags) {
   const memberId = await resolveMemberId(pool, flags);
   const result = await pool.query(
     `select id as "tokenId", member_id as "memberId", label, created_at as "createdAt", last_used_at as "lastUsedAt", revoked_at as "revokedAt", expires_at as "expiresAt", metadata
-     from app.member_bearer_tokens
+     from member_bearer_tokens
      where member_id = $1
      order by created_at desc, id desc`,
     [memberId],
@@ -177,7 +177,7 @@ async function revokeToken(pool: Pool, flags: Flags) {
 
   const memberId = await resolveMemberId(pool, flags);
   const result = await pool.query(
-    `update app.member_bearer_tokens
+    `update member_bearer_tokens
      set revoked_at = coalesce(revoked_at, now())
      where id = $1 and member_id = $2
      returning id as "tokenId", member_id as "memberId", label, created_at as "createdAt", last_used_at as "lastUsedAt", revoked_at as "revokedAt", expires_at as "expiresAt", metadata`,

@@ -1,5 +1,5 @@
 /**
- * Action contracts: quotas.status, tokens.list, tokens.create, tokens.revoke
+ * Action contracts: quotas.getUsage, accessTokens.list, accessTokens.create, accessTokens.revoke
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -13,7 +13,7 @@ import {
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
-// ── quotas.status ───────────────────────────────────────
+// ── quotas.getUsage ───────────────────────────────────────
 
 const quotasStatus: ActionDefinition = {
   action: 'quotas.getUsage',
@@ -41,7 +41,7 @@ const quotasStatus: ActionDefinition = {
   },
 };
 
-// ── tokens.list ─────────────────────────────────────────
+// ── accessTokens.list ─────────────────────────────────────────
 
 const tokensList: ActionDefinition = {
   action: 'accessTokens.list',
@@ -68,7 +68,7 @@ const tokensList: ActionDefinition = {
   },
 };
 
-// ── tokens.create ───────────────────────────────────────
+// ── accessTokens.create ───────────────────────────────────────
 
 type TokensCreateInput = {
   label: string | null;
@@ -114,7 +114,7 @@ const tokensCreate: ActionDefinition = {
   },
 };
 
-// ── tokens.revoke ───────────────────────────────────────
+// ── accessTokens.revoke ───────────────────────────────────────
 
 const tokensRevoke: ActionDefinition = {
   action: 'accessTokens.revoke',

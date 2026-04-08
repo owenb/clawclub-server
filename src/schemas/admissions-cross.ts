@@ -1,5 +1,5 @@
 /**
- * Action contracts: admissions.crossChallenge, admissions.crossApply
+ * Action contracts: admissions.crossClub.requestChallenge, admissions.crossClub.submitApplication
  *
  * Authenticated cross-apply path for existing network members.
  * Lower PoW difficulty, but same admission-policy completeness gate as cold.
@@ -13,7 +13,7 @@ import {
 import { admissionChallengeResult, admissionApplyResult } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
-// ── admissions.crossChallenge ──────────────────────────────
+// ── admissions.crossClub.requestChallenge ──────────────────────────────
 
 type CrossChallengeInput = {
   clubSlug: string;
@@ -52,7 +52,7 @@ const admissionsCrossChallenge: ActionDefinition = {
   },
 };
 
-// ── admissions.crossApply ──────────────────────────────────
+// ── admissions.crossClub.submitApplication ──────────────────────────────
 
 type CrossApplyInput = {
   challengeId: string;
@@ -70,7 +70,7 @@ const admissionsCrossApply: ActionDefinition = {
 
   wire: {
     input: z.object({
-      challengeId: wireRequiredString.describe('Challenge ID from admissions.crossChallenge'),
+      challengeId: wireRequiredString.describe('Challenge ID from admissions.crossClub.requestChallenge'),
       nonce: wireBoundedString.describe('Nonce that solves the PoW'),
       socials: wireBoundedString.describe('Social media handles or URLs'),
       application: wireApplicationText.describe('Your application — include all information requested by the club\'s admission policy'),

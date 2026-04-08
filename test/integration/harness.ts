@@ -194,7 +194,7 @@ export class TestHarness {
 
   async seedMember(publicName: string, handle: string): Promise<SeededMember> {
     const rows = await this.sql<{ id: string }>(
-      `INSERT INTO app.members (public_name, handle, state)
+      `INSERT INTO members (public_name, handle, state)
        VALUES ($1, $2, 'active')
        ON CONFLICT (handle) DO UPDATE SET public_name = excluded.public_name
        RETURNING id`,
@@ -203,7 +203,7 @@ export class TestHarness {
     const id = rows[0]!.id;
 
     await this.sql(
-      `INSERT INTO app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
+      `INSERT INTO member_profile_versions (member_id, version_no, display_name, created_by_member_id)
        VALUES ($1, 1, $2, $1) ON CONFLICT DO NOTHING`,
       [id, publicName.split(' ')[0]],
     );
@@ -215,7 +215,7 @@ export class TestHarness {
   async seedSuperadmin(publicName: string, handle: string): Promise<SeededMember> {
     const member = await this.seedMember(publicName, handle);
     await this.sql(
-      `INSERT INTO app.member_global_role_versions (member_id, role, version_no, created_by_member_id)
+      `INSERT INTO member_global_role_versions (member_id, role, version_no, created_by_member_id)
        VALUES ($1, 'superadmin', 1, $1) ON CONFLICT DO NOTHING`,
       [member.id],
     );
@@ -224,7 +224,7 @@ export class TestHarness {
 
   async seedClub(slug: string, name: string, ownerMemberId: string): Promise<SeededClub> {
     const rows = await this.sql<{ id: string }>(
-      `INSERT INTO app.clubs (slug, name, owner_member_id, summary)
+      `INSERT INTO clubs (slug, name, owner_member_id, summary)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (slug) DO UPDATE SET name = excluded.name
        RETURNING id`,
@@ -234,26 +234,26 @@ export class TestHarness {
 
     // Owner membership + state
     await this.sql(
-      `INSERT INTO app.club_memberships (club_id, member_id, role)
-       VALUES ($1::app.short_id, $2::app.short_id, 'clubadmin') ON CONFLICT (club_id, member_id) DO NOTHING`,
+      `INSERT INTO club_memberships (club_id, member_id, role)
+       VALUES ($1::short_id, $2::short_id, 'clubadmin') ON CONFLICT (club_id, member_id) DO NOTHING`,
       [clubId, ownerMemberId],
     );
     const membershipRows = await this.sql<{ id: string }>(
-      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM club_memberships WHERE club_id = $1 AND member_id = $2`,
       [clubId, ownerMemberId],
     );
     const membershipId = membershipRows[0]!.id;
     await this.sql(
-      `INSERT INTO app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-       SELECT $1::app.short_id, 'active', 'seed', coalesce(max(version_no), 0) + 1, $2::app.short_id
-       FROM app.club_membership_state_versions WHERE membership_id = $1::app.short_id`,
+      `INSERT INTO club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+       SELECT $1::short_id, 'active', 'seed', coalesce(max(version_no), 0) + 1, $2::short_id
+       FROM club_membership_state_versions WHERE membership_id = $1::short_id`,
       [membershipId, ownerMemberId],
     );
 
     // Club version (needed by current_club_versions view)
     await this.sql(
-      `INSERT INTO app.club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
-       VALUES ($1::app.short_id, $2::app.short_id, $3, $4, null, 1, $2::app.short_id) ON CONFLICT DO NOTHING`,
+      `INSERT INTO club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
+       VALUES ($1::short_id, $2::short_id, $3, $4, null, 1, $2::short_id) ON CONFLICT DO NOTHING`,
       [clubId, ownerMemberId, name, `Test club ${slug}`],
     );
 
@@ -270,27 +270,27 @@ export class TestHarness {
     const sponsorId = options.sponsorId ?? null;
 
     await this.sql(
-      `INSERT INTO app.club_memberships (club_id, member_id, role, sponsor_member_id)
-       VALUES ($1::app.short_id, $2::app.short_id, $3::app.membership_role, $4::app.short_id) ON CONFLICT (club_id, member_id) DO NOTHING`,
+      `INSERT INTO club_memberships (club_id, member_id, role, sponsor_member_id)
+       VALUES ($1::short_id, $2::short_id, $3::membership_role, $4::short_id) ON CONFLICT (club_id, member_id) DO NOTHING`,
       [clubId, memberId, role, sponsorId],
     );
     const rows = await this.sql<{ id: string }>(
-      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM club_memberships WHERE club_id = $1 AND member_id = $2`,
       [clubId, memberId],
     );
     const membershipId = rows[0]!.id;
 
     await this.sql(
-      `INSERT INTO app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-       SELECT $1::app.short_id, $2::app.membership_state, 'seed', coalesce(max(version_no), 0) + 1, $3::app.short_id
-       FROM app.club_membership_state_versions WHERE membership_id = $1::app.short_id`,
+      `INSERT INTO club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+       SELECT $1::short_id, $2::membership_state, 'seed', coalesce(max(version_no), 0) + 1, $3::short_id
+       FROM club_membership_state_versions WHERE membership_id = $1::short_id`,
       [membershipId, status, memberId],
     );
 
     // Comp non-owners with active status so they get access
     if (role !== 'clubadmin' && status === 'active') {
       await this.sql(
-        `UPDATE app.club_memberships SET is_comped = true, comped_at = now() WHERE id = $1`,
+        `UPDATE club_memberships SET is_comped = true, comped_at = now() WHERE id = $1`,
         [membershipId],
       );
     }
@@ -301,7 +301,7 @@ export class TestHarness {
   async createToken(memberId: string, label = 'test'): Promise<string> {
     const token = buildBearerToken();
     await this.sql(
-      `INSERT INTO app.member_bearer_tokens (id, member_id, label, token_hash, metadata)
+      `INSERT INTO member_bearer_tokens (id, member_id, label, token_hash, metadata)
        VALUES ($1, $2, $3, $4, '{}'::jsonb)`,
       [token.tokenId, memberId, label, token.tokenHash],
     );

@@ -8,7 +8,7 @@ import type { Pool } from 'pg';
 import { AppError, type CreateEventInput, type EventSummary, type EventRsvpState, type ListEventsInput } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
-import { appendClubActivity } from './entities.ts';
+import { appendClubActivity, timestampsEqual, jsonEqual } from './entities.ts';
 
 type EventRow = {
   entity_id: string;
@@ -83,7 +83,7 @@ function mapEventRow(row: EventRow): EventSummary {
 async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): Promise<void> {
   const profile = EMBEDDING_PROFILES['entity'];
   await client.query(
-    `insert into app.ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
+    `insert into ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
      values ('entity_version', $1, $2, $3, $4)
      on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
     [subjectVersionId, profile.model, profile.dimensions, profile.sourceVersion],
@@ -95,16 +95,18 @@ export async function readEventSummary(client: DbClient, entityId: string, viewe
     `with event_base as (
        select e.id as entity_id, cev.id as entity_version_id, e.club_id,
               e.author_member_id, cev.version_no, cev.state,
-              cev.title, cev.summary, cev.body, cev.location,
-              cev.starts_at::text as starts_at, cev.ends_at::text as ends_at,
-              cev.timezone, cev.recurrence_rule, cev.capacity,
+              cev.title, cev.summary, cev.body,
+              evd.location,
+              evd.starts_at::text as starts_at, evd.ends_at::text as ends_at,
+              evd.timezone, evd.recurrence_rule, evd.capacity,
               cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
               cev.created_at::text as version_created_at, cev.content,
               e.created_at::text as entity_created_at,
               m.public_name as author_public_name, m.handle as author_handle
-       from app.entities e
-       join app.current_entity_versions cev on cev.entity_id = e.id
-       join app.members m on m.id = e.author_member_id
+       from entities e
+       join current_entity_versions cev on cev.entity_id = e.id
+       left join event_version_details evd on evd.entity_version_id = cev.id
+       join members m on m.id = e.author_member_id
        where e.id = $1 and e.kind = 'event' and e.archived_at is null and e.deleted_at is null
          and ($3::text is null or cev.id = $3)
      ),
@@ -112,9 +114,9 @@ export async function readEventSummary(client: DbClient, entityId: string, viewe
        select cer.event_entity_id, cer.membership_id, cer.created_by_member_id as member_id,
               am.public_name, am.handle,
               cer.response, cer.note, cer.created_at::text as created_at
-       from app.current_event_rsvps cer
+       from current_event_rsvps cer
        join event_base eb on eb.entity_id = cer.event_entity_id
-       join app.members am on am.id = cer.created_by_member_id
+       join members am on am.id = cer.created_by_member_id
      ),
      attendee_agg as (
        select event_entity_id,
@@ -131,7 +133,7 @@ export async function readEventSummary(client: DbClient, entityId: string, viewe
      ),
      viewer_rsvp as (
        select cer.event_entity_id, cer.response
-       from app.current_event_rsvps cer
+       from current_event_rsvps cer
        where cer.membership_id = any($2::text[])
      )
      select eb.*,
@@ -152,41 +154,75 @@ export async function readEventSummary(client: DbClient, entityId: string, viewe
 
 export async function createEvent(pool: Pool, input: CreateEventInput): Promise<EventSummary> {
   return withTransaction(pool, async (client) => {
-    // Idempotency: if clientKey provided, return existing event
+    // Idempotency: if clientKey provided, return existing event on true replay; reject mismatched payload
     if (input.clientKey) {
-      const existing = await client.query<{ id: string; club_id: string }>(
-        `select id, club_id from app.entities where author_member_id = $1 and client_key = $2`,
+      const existing = await client.query<{
+        id: string; club_id: string;
+        title: string | null; summary: string | null; body: string | null;
+        location: string | null; starts_at: string | null; ends_at: string | null;
+        timezone: string | null; recurrence_rule: string | null; capacity: number | null;
+        expires_at: string | null; content: Record<string, unknown> | null;
+      }>(
+        `select e.id, e.club_id,
+                cev.title, cev.summary, cev.body,
+                evd.location,
+                evd.starts_at::text as starts_at, evd.ends_at::text as ends_at,
+                evd.timezone, evd.recurrence_rule, evd.capacity,
+                cev.expires_at::text as expires_at, cev.content
+         from entities e
+         join current_entity_versions cev on cev.entity_id = e.id
+         left join event_version_details evd on evd.entity_version_id = cev.id
+         where e.author_member_id = $1 and e.client_key = $2`,
         [input.authorMemberId, input.clientKey],
       );
       if (existing.rows[0]) {
-        if (existing.rows[0].club_id !== input.clubId) {
+        const orig = existing.rows[0];
+        if (
+          orig.club_id !== input.clubId
+          || orig.title !== (input.title ?? null)
+          || orig.summary !== (input.summary ?? null)
+          || orig.body !== (input.body ?? null)
+          || orig.location !== (input.location ?? null)
+          || !timestampsEqual(orig.starts_at, input.startsAt)
+          || !timestampsEqual(orig.ends_at, input.endsAt)
+          || (orig.timezone ?? null) !== (input.timezone ?? null)
+          || (orig.recurrence_rule ?? null) !== (input.recurrenceRule ?? null)
+          || (orig.capacity ?? null) !== (input.capacity ?? null)
+          || !timestampsEqual(orig.expires_at, input.expiresAt)
+          || !jsonEqual(orig.content ?? {}, input.content ?? {})
+        ) {
           throw new AppError(409, 'client_key_conflict',
-            'This clientKey was already used for a different event. Use a unique key per event.');
+            'This clientKey was already used with a different payload. Use a unique key per event.');
         }
-        const summary = await readEventSummary(client, existing.rows[0].id, []);
+        const summary = await readEventSummary(client, orig.id, []);
         if (summary) return summary;
       }
     }
 
     const entityResult = await client.query<{ id: string }>(
-      `insert into app.entities (club_id, kind, author_member_id, client_key) values ($1, 'event', $2, $3) returning id`,
+      `insert into entities (club_id, kind, author_member_id, client_key) values ($1, 'event', $2, $3) returning id`,
       [input.clubId, input.authorMemberId, input.clientKey ?? null],
     );
     const entityId = entityResult.rows[0]?.id;
     if (!entityId) throw new AppError(500, 'missing_row', 'Created event entity row was not returned');
 
     const versionResult = await client.query<{ id: string }>(
-      `insert into app.entity_versions (
-         entity_id, version_no, state, title, summary, body, location, starts_at, ends_at,
-         timezone, recurrence_rule, capacity, expires_at, content, created_by_member_id
-       ) values ($1, 1, 'published', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)
+      `insert into entity_versions (
+         entity_id, version_no, state, title, summary, body, expires_at, content, created_by_member_id
+       ) values ($1, 1, 'published', $2, $3, $4, $5, $6::jsonb, $7)
        returning id`,
-      [entityId, input.title, input.summary, input.body, input.location,
-       input.startsAt, input.endsAt, input.timezone, input.recurrenceRule,
-       input.capacity, input.expiresAt, JSON.stringify(input.content), input.authorMemberId],
+      [entityId, input.title, input.summary, input.body,
+       input.expiresAt, JSON.stringify(input.content), input.authorMemberId],
     );
     const versionId = versionResult.rows[0]?.id;
     if (!versionId) throw new AppError(500, 'missing_row', 'Created event version row was not returned');
+
+    await client.query(
+      `insert into event_version_details (entity_version_id, location, starts_at, ends_at, timezone, recurrence_rule, capacity)
+       values ($1, $2, $3, $4, $5, $6, $7)`,
+      [versionId, input.location, input.startsAt, input.endsAt,
+       input.timezone, input.recurrenceRule, input.capacity],
+    );
 
     const event = await readEventSummary(client, entityId, [], versionId);
     if (!event) throw new AppError(500, 'missing_row', 'Created event could not be reloaded');
@@ -214,8 +250,8 @@ export async function listEvents(pool: Pool, input: {
 
   const entityResult = await pool.query<{ entity_id: string }>(
     `select le.entity_id
-     from app.live_entities le
-     where le.club_id = any($1::text[]) and le.kind = 'event'
+     from live_events le
+     where le.club_id = any($1::text[])
        and ($3::text is null
          or coalesce(le.title, '') ilike $3 escape '\\'
          or coalesce(le.summary, '') ilike $3 escape '\\')
@@ -233,25 +269,27 @@ export async function listEvents(pool: Pool, input: {
     `with event_base as (
        select e.id as entity_id, cev.id as entity_version_id, e.club_id,
               e.author_member_id, cev.version_no, cev.state,
-              cev.title, cev.summary, cev.body, cev.location,
-              cev.starts_at::text as starts_at, cev.ends_at::text as ends_at,
-              cev.timezone, cev.recurrence_rule, cev.capacity,
+              cev.title, cev.summary, cev.body,
+              evd.location,
+              evd.starts_at::text as starts_at, evd.ends_at::text as ends_at,
+              evd.timezone, evd.recurrence_rule, evd.capacity,
               cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
               cev.created_at::text as version_created_at, cev.content,
               e.created_at::text as entity_created_at,
               m.public_name as author_public_name, m.handle as author_handle
-       from app.entities e
-       join app.current_entity_versions cev on cev.entity_id = e.id
-       join app.members m on m.id = e.author_member_id
+       from entities e
+       join current_entity_versions cev on cev.entity_id = e.id
+       left join event_version_details evd on evd.entity_version_id = cev.id
+       join members m on m.id = e.author_member_id
        where e.id = any($1::text[]) and e.kind = 'event'
      ),
      attendee_rows as (
        select cer.event_entity_id, cer.membership_id, cer.created_by_member_id as member_id,
               am.public_name, am.handle,
               cer.response, cer.note, cer.created_at::text as created_at
-       from app.current_event_rsvps cer
+       from current_event_rsvps cer
        join event_base eb on eb.entity_id = cer.event_entity_id
-       join app.members am on am.id = cer.created_by_member_id
+       join members am on am.id = cer.created_by_member_id
      ),
      attendee_agg as (
        select event_entity_id,
@@ -268,7 +306,7 @@ export async function listEvents(pool: Pool, input: {
      ),
      viewer_rsvp as (
        select cer.event_entity_id, cer.response
-       from app.current_event_rsvps cer
+       from current_event_rsvps cer
        where cer.membership_id = any($2::text[])
      )
      select eb.*,
@@ -296,8 +334,8 @@ export async function rsvpEvent(pool: Pool, input: {
     // Verify event exists and is published
     const eventCheck = await client.query<{ entity_id: string; club_id: string }>(
       `select e.id as entity_id, e.club_id
-       from app.entities e
-       join app.current_entity_versions cev on cev.entity_id = e.id
+       from entities e
+       join current_entity_versions cev on cev.entity_id = e.id
        where e.id = $1 and e.kind = 'event' and e.club_id = any($2::text[])
          and e.deleted_at is null and cev.state = 'published'
        limit 1`,
@@ -307,7 +345,7 @@ export async function rsvpEvent(pool: Pool, input: {
 
     // Get current RSVP version
     const currentRsvp = await client.query<{ version_no: number; id: string }>(
-      `select version_no, id from app.current_event_rsvps
+      `select version_no, id from current_event_rsvps
        where event_entity_id = $1 and membership_id = $2 limit 1`,
       [input.eventEntityId, input.membershipId],
     );
@@ -316,7 +354,7 @@ export async function rsvpEvent(pool: Pool, input: {
     const supersedesId = currentRsvp.rows[0]?.id ?? null;
 
     await client.query(
-      `insert into app.event_rsvps (event_entity_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id)
+      `insert into event_rsvps (event_entity_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id)
        values ($1, $2, $3, $4, $5, $6, $7)`,
       [input.eventEntityId, input.membershipId, input.response, input.note ?? null, versionNo, supersedesId, input.memberId],
     );
@@ -330,24 +368,28 @@ export async function removeEvent(pool: Pool, input: {
   reason?: string | null; skipAuthCheck?: boolean;
 }): Promise<EventSummary | null> {
   return withTransaction(pool, async (client) => {
-    // Check if already removed — idempotent
-    const alreadyRemoved = await client.query<{ entity_id: string }>(
-      `select e.id as entity_id from app.entities e
-       join app.current_entity_versions cev on cev.entity_id = e.id
+    // Check if already removed — idempotent return
+    const alreadyRemoved = await client.query<{ entity_id: string; author_member_id: string }>(
+      `select e.id as entity_id, e.author_member_id from entities e
+       join current_entity_versions cev on cev.entity_id = e.id
        where e.id = $1 and e.club_id = any($2::text[]) and e.kind = 'event'
          and e.deleted_at is null and cev.state = 'removed'`,
       [input.entityId, input.clubIds],
     );
     if (alreadyRemoved.rows[0]) {
+      // Auth check even on already-removed events (existence-hiding)
+      if (!input.skipAuthCheck && alreadyRemoved.rows[0].author_member_id !== input.actorMemberId) {
+        return null;
+      }
       return readEventSummary(client, input.entityId, []);
     }
 
     const currentResult = await client.query<{
-      entity_id: string; author_member_id: string; version_id: string; version_no: number;
+      entity_id: string; club_id: string; author_member_id: string; version_id: string; version_no: number;
     }>(
-      `select e.id as entity_id, e.author_member_id, cev.id as version_id, cev.version_no
-       from app.entities e
-       join app.current_entity_versions cev on cev.entity_id = e.id
+      `select e.id as entity_id, e.club_id, e.author_member_id, cev.id as version_id, cev.version_no
+       from entities e
+       join current_entity_versions cev on cev.entity_id = e.id
        where e.id = $1 and e.club_id = any($2::text[]) and e.kind = 'event'
          and e.deleted_at is null and cev.state = 'published'`,
       [input.entityId, input.clubIds],
@@ -356,14 +398,24 @@ export async function removeEvent(pool: Pool, input: {
     if (!current) return null;
 
     if (!input.skipAuthCheck && current.author_member_id !== input.actorMemberId) {
-      throw new AppError(403, 'forbidden', 'Only the author can remove this event');
+      return null; // existence-hiding: matches content.remove behavior
     }
 
-    await client.query(
-      `insert into app.entity_versions (entity_id, version_no, state, reason, supersedes_version_id, created_by_member_id)
-       values ($1, $2, 'removed', $3, $4, $5)`,
+    const removeVersion = await client.query<{ id: string }>(
+      `insert into entity_versions (entity_id, version_no, state, reason, supersedes_version_id, created_by_member_id)
+       values ($1, $2, 'removed', $3, $4, $5) returning id`,
       [current.entity_id, current.version_no + 1, input.reason ?? null, current.version_id, input.actorMemberId],
     );
+
+    if (removeVersion.rows[0]) {
+      await appendClubActivity(client, {
+        clubId: current.club_id,
+        entityId: current.entity_id,
+        entityVersionId: removeVersion.rows[0].id,
+        topic: 'entity.removed',
+        createdByMemberId: input.actorMemberId,
+      });
+    }
 
     return readEventSummary(client, current.entity_id, []);
   });

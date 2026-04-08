@@ -11,7 +11,7 @@ const challengeStub = {
   club: { slug: 'alpha', name: 'Alpha Club', summary: 'A test club', ownerName: 'Owner One', admissionPolicy: 'Tell us your name and city.' },
 };
 
-test('admissions.challenge returns a PoW challenge bound to a club', async () => {
+test('admissions.public.requestChallenge returns a PoW challenge bound to a club', async () => {
   const repository = {
     ...makeRepository(),
     async createAdmissionChallenge() { return challengeStub; },
@@ -32,7 +32,7 @@ test('admissions.challenge returns a PoW challenge bound to a club', async () =>
   assert.equal(result.data.club.ownerEmail, undefined);
 });
 
-test('admissions.challenge rejects missing clubSlug', async () => {
+test('admissions.public.requestChallenge rejects missing clubSlug', async () => {
   const repository = {
     ...makeRepository(),
     async createAdmissionChallenge() { return challengeStub; },
@@ -52,7 +52,7 @@ test('admissions.challenge rejects missing clubSlug', async () => {
   );
 });
 
-test('admissions.apply rejects single-word name', async () => {
+test('admissions.public.submitApplication rejects single-word name', async () => {
   const repository = {
     ...makeRepository(),
     async solveAdmissionChallenge() { return { status: 'accepted' as const, message: 'ok' }; },
@@ -77,7 +77,7 @@ test('admissions.apply rejects single-word name', async () => {
   );
 });
 
-test('admissions.apply rejects invalid email', async () => {
+test('admissions.public.submitApplication rejects invalid email', async () => {
   const repository = {
     ...makeRepository(),
     async solveAdmissionChallenge() { return { status: 'accepted' as const, message: 'ok' }; },
@@ -102,7 +102,7 @@ test('admissions.apply rejects invalid email', async () => {
   );
 });
 
-test('admissions.apply rejects missing socials', async () => {
+test('admissions.public.submitApplication rejects missing socials', async () => {
   const repository = {
     ...makeRepository(),
     async solveAdmissionChallenge() { return { status: 'accepted' as const, message: 'ok' }; },
@@ -126,7 +126,7 @@ test('admissions.apply rejects missing socials', async () => {
   );
 });
 
-test('admissions.apply rejects missing application', async () => {
+test('admissions.public.submitApplication rejects missing application', async () => {
   const repository = {
     ...makeRepository(),
     async solveAdmissionChallenge() { return { status: 'accepted' as const, message: 'ok' }; },
@@ -150,7 +150,7 @@ test('admissions.apply rejects missing application', async () => {
   );
 });
 
-test('admissions.apply forwards all fields to repository', async () => {
+test('admissions.public.submitApplication forwards all fields to repository', async () => {
   let capturedInput: any = null;
   const repository = {
     ...makeRepository(),
@@ -181,7 +181,7 @@ test('admissions.apply forwards all fields to repository', async () => {
   assert.equal(capturedInput.clubSlug, undefined);
 });
 
-test('admissions.apply returns needs_revision from repository', async () => {
+test('admissions.public.submitApplication returns needs_revision from repository', async () => {
   const repository = {
     ...makeRepository(),
     async solveAdmissionChallenge() {
@@ -205,7 +205,7 @@ test('admissions.apply returns needs_revision from repository', async () => {
   assert.equal(result.data.attemptsRemaining, 3);
 });
 
-test('admissions.apply returns attempts_exhausted from repository', async () => {
+test('admissions.public.submitApplication returns attempts_exhausted from repository', async () => {
   const repository = {
     ...makeRepository(),
     async solveAdmissionChallenge() {
@@ -227,7 +227,7 @@ test('admissions.apply returns attempts_exhausted from repository', async () => 
   assert.equal(result.data.status, 'attempts_exhausted');
 });
 
-test('admissions.apply accepts application up to 4000 characters', async () => {
+test('admissions.public.submitApplication accepts application up to 4000 characters', async () => {
   const repository = {
     ...makeRepository(),
     async solveAdmissionChallenge() {
@@ -267,7 +267,7 @@ test('admissions.apply accepts application up to 4000 characters', async () => {
   );
 });
 
-test('admissions.apply rejects name, email, socials exceeding 500 characters', async () => {
+test('admissions.public.submitApplication rejects name, email, socials exceeding 500 characters', async () => {
   const repository = {
     ...makeRepository(),
     async solveAdmissionChallenge() { return { status: 'accepted' as const, message: 'ok' }; },

@@ -35,7 +35,7 @@ const sampleAdmission: AdmissionSummary = {
   createdAt: '2026-04-02T00:00:00Z',
 };
 
-test('admissions.sponsor creates a sponsorship for an outsider', async () => {
+test('admissions.sponsorCandidate creates a sponsorship for an outsider', async () => {
   let capturedInput: any = null;
   const auth = makeAuthResult();
   const repository = makeRepository({
@@ -66,7 +66,7 @@ test('admissions.sponsor creates a sponsorship for an outsider', async () => {
   assert.equal(capturedInput.reason, 'Excellent engineer, built production systems at scale');
 });
 
-test('admissions.sponsor rejects single-word name', async () => {
+test('admissions.sponsorCandidate rejects single-word name', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -87,7 +87,7 @@ test('admissions.sponsor rejects single-word name', async () => {
   );
 });
 
-test('admissions.sponsor rejects invalid email', async () => {
+test('admissions.sponsorCandidate rejects invalid email', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -108,7 +108,7 @@ test('admissions.sponsor rejects invalid email', async () => {
   );
 });
 
-test('admissions.sponsor rejects reason exceeding 500 characters', async () => {
+test('admissions.sponsorCandidate rejects reason exceeding 500 characters', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
@@ -129,7 +129,7 @@ test('admissions.sponsor rejects reason exceeding 500 characters', async () => {
   );
 });
 
-test('admissions.sponsor rejects club outside actor scope', async () => {
+test('admissions.sponsorCandidate rejects club outside actor scope', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },

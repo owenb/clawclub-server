@@ -38,7 +38,7 @@ function makeVector(values: number[]): string {
 
 async function seedProfileEmbedding(memberId: string, vector: string): Promise<void> {
   const pvRows = await h.sql<{ id: string }>(
-    `select id from app.current_member_profiles where member_id = $1`,
+    `select id from current_member_profiles where member_id = $1`,
     [memberId],
   );
   let profileVersionId: string;
@@ -46,14 +46,14 @@ async function seedProfileEmbedding(memberId: string, vector: string): Promise<v
     profileVersionId = pvRows[0].id;
   } else {
     const insertRows = await h.sql<{ id: string }>(
-      `insert into app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
+      `insert into member_profile_versions (member_id, version_no, display_name, created_by_member_id)
        values ($1, 1, 'test', $1) returning id`,
       [memberId],
     );
     profileVersionId = insertRows[0].id;
   }
   await h.sql(
-    `insert into app.member_profile_embeddings
+    `insert into member_profile_embeddings
        (member_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
      values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
      on conflict (member_id, model, dimensions, source_version, chunk_index)
@@ -66,18 +66,18 @@ async function seedEntityWithEmbedding(
   clubId: string, authorMemberId: string, kind: string, vector: string,
 ): Promise<string> {
   const entityRows = await h.sqlClubs<{ id: string }>(
-    `insert into app.entities (club_id, kind, author_member_id)
-     values ($1, $2::app.entity_kind, $3) returning id`,
+    `insert into entities (club_id, kind, author_member_id)
+     values ($1, $2::entity_kind, $3) returning id`,
     [clubId, kind, authorMemberId],
   );
   const entityId = entityRows[0].id;
   const versionRows = await h.sqlClubs<{ id: string }>(
-    `insert into app.entity_versions (entity_id, version_no, state, title, summary)
+    `insert into entity_versions (entity_id, version_no, state, title, summary)
      values ($1, 1, 'published', 'test', 'test summary') returning id`,
     [entityId],
   );
   await h.sqlClubs(
-    `insert into app.entity_embeddings
+    `insert into entity_embeddings
        (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
      values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
      on conflict (entity_id, model, dimensions, source_version, chunk_index)
@@ -90,7 +90,7 @@ async function seedEntityWithEmbedding(
 /** Publish an activity entry for an entity (simulates entity creation). */
 async function publishActivity(clubId: string, entityId: string, authorMemberId: string): Promise<void> {
   await h.sqlClubs(
-    `insert into app.club_activity (club_id, entity_id, topic, created_by_member_id)
+    `insert into club_activity (club_id, entity_id, topic, created_by_member_id)
      values ($1, $2, 'entity.version.published', $3)`,
     [clubId, entityId, authorMemberId],
   );
@@ -99,7 +99,7 @@ async function publishActivity(clubId: string, entityId: string, authorMemberId:
 /** Get all signals for a member. */
 async function getSignals(memberId: string): Promise<Array<Record<string, unknown>>> {
   return h.sqlClubs(
-    `select * from app.signal_deliveries where recipient_member_id = $1 order by seq asc`,
+    `select * from signal_deliveries where recipient_member_id = $1 order by seq asc`,
     [memberId],
   );
 }
@@ -107,7 +107,7 @@ async function getSignals(memberId: string): Promise<Array<Record<string, unknow
 /** Get all matches for a member. */
 async function getMatches(memberId: string): Promise<Array<Record<string, unknown>>> {
   return h.sqlClubs(
-    `select * from app.signal_background_matches where target_member_id = $1 order by created_at asc`,
+    `select * from signal_background_matches where target_member_id = $1 order by created_at asc`,
     [memberId],
   );
 }
@@ -176,7 +176,7 @@ describe('synchronicity worker', () => {
       if (offerMatches.length === 0) {
         // Need another activity entry since we consumed the first one
         await h.sqlClubs(
-          `insert into app.club_activity (club_id, entity_id, topic, created_by_member_id)
+          `insert into club_activity (club_id, entity_id, topic, created_by_member_id)
            values ($1, $2, 'entity.version.published', $3)`,
           [owner.club.id, serviceId, bob.id],
         );
@@ -278,7 +278,7 @@ describe('synchronicity worker', () => {
 
       // Verify the entry exists in the queue
       const queueRows = await h.sqlClubs<{ recompute_after: string }>(
-        `select recompute_after::text as recompute_after from app.signal_recompute_queue
+        `select recompute_after::text as recompute_after from signal_recompute_queue
          where member_id = $1 and club_id = $2`,
         [alice.id, owner.club.id],
       );
@@ -333,7 +333,7 @@ describe('synchronicity worker', () => {
       await enqueueIntroRecompute(pools.db, owner.id, owner.club.id);
 
       const queueRows = await h.sqlClubs<{ id: string }>(
-        `select id from app.signal_recompute_queue
+        `select id from signal_recompute_queue
          where member_id = $1 and club_id = $2 and queue_name = 'introductions'`,
         [owner.id, owner.club.id],
       );
@@ -383,7 +383,7 @@ describe('synchronicity worker', () => {
 
       // Remove the entity before delivery
       await h.sqlClubs(
-        `update app.entity_versions set state = 'removed' where entity_id = $1`,
+        `update entity_versions set state = 'removed' where entity_id = $1`,
         [askId],
       );
 
@@ -450,14 +450,14 @@ describe('synchronicity worker', () => {
 
       // Simulate crash-retry: manually insert a second signal with the same match_id
       const matchRows = await h.sqlClubs<{ id: string }>(
-        `select id from app.signal_background_matches where target_member_id = $1 and match_kind = 'ask_to_member'`,
+        `select id from signal_background_matches where target_member_id = $1 and match_kind = 'ask_to_member'`,
         [alice.id],
       );
       assert.ok(matchRows.length >= 1);
 
       // The unique index should prevent this
       const dupResult = await h.sqlClubs<{ id: string }>(
-        `insert into app.signal_deliveries (club_id, recipient_member_id, topic, payload, match_id)
+        `insert into signal_deliveries (club_id, recipient_member_id, topic, payload, match_id)
          values ($1, $2, 'signal.ask_match', '{}'::jsonb, $3)
          on conflict ((match_id)) where match_id is not null do nothing
          returning id`,
@@ -512,7 +512,7 @@ describe('synchronicity worker', () => {
 
       // Verify entry exists
       const before = await h.sqlClubs<{ id: string }>(
-        `select id from app.signal_recompute_queue where member_id = $1 and club_id = $2`,
+        `select id from signal_recompute_queue where member_id = $1 and club_id = $2`,
         [owner.id, owner.club.id],
       );
       assert.equal(before.length, 1, 'queue entry should exist before processing');
@@ -522,7 +522,7 @@ describe('synchronicity worker', () => {
 
       // Entry should be cleaned up, not stuck as a stale lease
       const after = await h.sqlClubs<{ id: string }>(
-        `select id from app.signal_recompute_queue where member_id = $1 and club_id = $2`,
+        `select id from signal_recompute_queue where member_id = $1 and club_id = $2`,
         [owner.id, owner.club.id],
       );
       assert.equal(after.length, 0, 'queue entry should be deleted after zero-candidate processing');
@@ -538,7 +538,7 @@ describe('synchronicity worker', () => {
 
       // Clear any backstop state so the sweep runs
       await h.sqlClubs(
-        `delete from app.worker_state where worker_id = 'synchronicity' and state_key = 'backstop_sweep_at'`,
+        `delete from worker_state where worker_id = 'synchronicity' and state_key = 'backstop_sweep_at'`,
       );
 
       const { processBackstopSweep } = await import('../../src/workers/synchronicity.ts');
@@ -548,7 +548,7 @@ describe('synchronicity worker', () => {
 
       // Verify queue entries exist
       const queueRows = await h.sqlClubs<{ member_id: string }>(
-        `select member_id from app.signal_recompute_queue where queue_name = 'introductions' and club_id = $1`,
+        `select member_id from signal_recompute_queue where queue_name = 'introductions' and club_id = $1`,
         [owner.club.id],
       );
       const memberIds = queueRows.map(r => r.member_id);
@@ -602,7 +602,7 @@ describe('synchronicity worker', () => {
 
       // Artificially age the match past its TTL
       await h.sqlClubs(
-        `update app.signal_background_matches
+        `update signal_background_matches
          set created_at = now() - interval '10 days',
              expires_at = now() - interval '1 hour'
          where id = $1`,
@@ -640,7 +640,7 @@ describe('synchronicity worker', () => {
 
       // "Edit" the ask: create a new version (simulates entity update)
       await h.sqlClubs(
-        `insert into app.entity_versions (entity_id, version_no, state, title, summary)
+        `insert into entity_versions (entity_id, version_no, state, title, summary)
          values ($1, 2, 'published', 'edited ask', 'different content now')`,
         [askId],
       );
@@ -675,7 +675,7 @@ describe('synchronicity worker', () => {
 
       // "Edit" the service
       await h.sqlClubs(
-        `insert into app.entity_versions (entity_id, version_no, state, title, summary)
+        `insert into entity_versions (entity_id, version_no, state, title, summary)
          values ($1, 2, 'published', 'edited service', 'different offering now')`,
         [serviceId],
       );
@@ -701,7 +701,7 @@ describe('synchronicity worker', () => {
 
       // Remove the entity before delivery
       await h.sqlClubs(
-        `update app.entity_versions set state = 'removed' where entity_id = $1`,
+        `update entity_versions set state = 'removed' where entity_id = $1`,
         [askId],
       );
 
@@ -725,7 +725,7 @@ describe('synchronicity worker', () => {
       const pools = workerPools();
 
       // Drain any leftover recompute entries from previous tests
-      await h.sqlClubs(`delete from app.signal_recompute_queue where queue_name = 'introductions'`);
+      await h.sqlClubs(`delete from signal_recompute_queue where queue_name = 'introductions'`);
 
       // First recompute: creates intro match
       await enqueueIntroRecompute(pools.db, owner.id, owner.club.id);
@@ -772,7 +772,7 @@ describe('synchronicity worker', () => {
 
       // Now edit the ASK (new version)
       await h.sqlClubs(
-        `insert into app.entity_versions (entity_id, version_no, state, title, summary)
+        `insert into entity_versions (entity_id, version_no, state, title, summary)
          values ($1, 2, 'published', 'edited ask', 'totally different need now')`,
         [askId],
       );
@@ -798,13 +798,13 @@ describe('synchronicity worker', () => {
       // Simulate a delayed embedding: the profile was changed 5 days ago
       // but the embedding was just completed now (e.g., OpenAI outage recovery)
       const pvRows = await h.sql<{ id: string }>(
-        `select id from app.current_member_profiles where member_id = $1`,
+        `select id from current_member_profiles where member_id = $1`,
         [alice.id],
       );
       let pvId = pvRows[0]?.id;
       if (!pvId) {
         const r = await h.sql<{ id: string }>(
-          `insert into app.member_profile_versions
+          `insert into member_profile_versions
              (member_id, version_no, display_name, created_by_member_id, created_at)
            values ($1, 1, 'test', $1, now() - interval '5 days') returning id`,
           [alice.id],
@@ -813,14 +813,14 @@ describe('synchronicity worker', () => {
       } else {
         // Backdate the profile version
         await h.sql(
-          `update app.member_profile_versions set created_at = now() - interval '5 days' where id = $1`,
+          `update member_profile_versions set created_at = now() - interval '5 days' where id = $1`,
           [pvId],
         );
       }
 
       // Insert the embedding artifact as if it just completed now
       await h.sql(
-        `insert into app.member_profile_embeddings
+        `insert into member_profile_embeddings
            (member_id, profile_version_id, model, dimensions, source_version,
             chunk_index, source_text, source_hash, embedding, updated_at)
          values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'delayed',
@@ -838,7 +838,7 @@ describe('synchronicity worker', () => {
 
       // Verify no recompute was enqueued for this member
       const queueRows = await h.sqlClubs<{ id: string }>(
-        `select id from app.signal_recompute_queue
+        `select id from signal_recompute_queue
          where queue_name = 'introductions' and member_id = $1 and club_id = $2`,
         [alice.id, owner.club.id],
       );
@@ -860,7 +860,7 @@ describe('synchronicity worker', () => {
 
       // Artificially age the match beyond the freshness cutoff but within TTL
       await h.sqlClubs(
-        `update app.signal_background_matches
+        `update signal_background_matches
          set created_at = now() - interval '4 days'
          where target_member_id = $1 and match_kind = 'ask_to_member'`,
         [alice.id],
@@ -893,7 +893,7 @@ describe('synchronicity worker', () => {
 
       // Now remove the entity AFTER signal delivery but BEFORE read
       await h.sqlClubs(
-        `update app.entity_versions set state = 'removed' where entity_id = $1`,
+        `update entity_versions set state = 'removed' where entity_id = $1`,
         [askId],
       );
 
@@ -947,7 +947,7 @@ describe('synchronicity worker', () => {
       await processProfileTriggers(pools); // seed profile cursor
 
       // Drain leftover recompute entries
-      await h.sqlClubs(`delete from app.signal_recompute_queue where queue_name = 'introductions'`);
+      await h.sqlClubs(`delete from signal_recompute_queue where queue_name = 'introductions'`);
 
       // Create intro match
       await enqueueIntroRecompute(pools.db, owner.id, owner.club.id);
@@ -982,17 +982,17 @@ describe('synchronicity worker', () => {
 
       // Remove Alice's access: revoke membership state + end subscription
       const membershipRows = await h.sql<{ id: string }>(
-        `select id from app.club_memberships where member_id = $1 and club_id = $2`,
+        `select id from club_memberships where member_id = $1 and club_id = $2`,
         [alice.id, owner.club.id],
       );
       const membershipId = membershipRows[0]!.id;
       await h.sql(
-        `insert into app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+        `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
          values ($1, 'revoked', 'test', 99, $2)`,
         [membershipId, owner.id],
       );
       await h.sql(
-        `update app.club_subscriptions set status = 'canceled', ended_at = now()
+        `update club_subscriptions set status = 'canceled', ended_at = now()
          where membership_id = $1`,
         [membershipId],
       );
@@ -1025,16 +1025,16 @@ describe('synchronicity worker', () => {
 
       // Revoke Alice's access before delivery
       const membershipRows = await h.sql<{ id: string }>(
-        `select id from app.club_memberships where member_id = $1 and club_id = $2`,
+        `select id from club_memberships where member_id = $1 and club_id = $2`,
         [alice.id, owner.club.id],
       );
       await h.sql(
-        `insert into app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+        `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
          values ($1, 'revoked', 'test', 99, $2)`,
         [membershipRows[0]!.id, owner.id],
       );
       await h.sql(
-        `update app.club_subscriptions set status = 'canceled', ended_at = now()
+        `update club_subscriptions set status = 'canceled', ended_at = now()
          where membership_id = $1`,
         [membershipRows[0]!.id],
       );
@@ -1059,7 +1059,7 @@ describe('synchronicity worker', () => {
 
       // Alice updates her profile to v2 (no new embedding yet — simulates pending embedding job)
       await h.sql(
-        `insert into app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
+        `insert into member_profile_versions (member_id, version_no, display_name, created_by_member_id)
          values ($1, 2, 'updated profile', $1)`,
         [alice.id],
       );
@@ -1091,13 +1091,13 @@ describe('synchronicity worker', () => {
 
       // Alice updates her profile to v2 (embedding still for v1)
       await h.sql(
-        `insert into app.member_profile_versions (member_id, version_no, display_name, created_by_member_id)
+        `insert into member_profile_versions (member_id, version_no, display_name, created_by_member_id)
          values ($1, 2, 'updated profile', $1)`,
         [alice.id],
       );
 
       const pools = workerPools();
-      await h.sqlClubs(`delete from app.signal_recompute_queue where queue_name = 'introductions'`);
+      await h.sqlClubs(`delete from signal_recompute_queue where queue_name = 'introductions'`);
 
       await enqueueIntroRecompute(pools.db, owner.id, owner.club.id);
       await processIntroRecompute(pools);
@@ -1139,7 +1139,7 @@ describe('synchronicity worker', () => {
 
       // Now remove the matched ASK (not the offer)
       await h.sqlClubs(
-        `update app.entity_versions set state = 'removed' where entity_id = $1`,
+        `update entity_versions set state = 'removed' where entity_id = $1`,
         [askId],
       );
 

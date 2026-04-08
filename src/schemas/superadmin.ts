@@ -1,10 +1,10 @@
 /**
- * Action contracts: superadmin.overview, superadmin.members.list, superadmin.members.get,
- * superadmin.members.create, superadmin.memberships.create,
- * superadmin.diagnostics.health, superadmin.clubs.list, superadmin.clubs.create,
+ * Action contracts: superadmin.platform.getOverview, superadmin.members.list, superadmin.members.get,
+ * superadmin.members.createWithAccessToken, superadmin.memberships.create,
+ * superadmin.diagnostics.getHealth, superadmin.clubs.list, superadmin.clubs.create,
  * superadmin.clubs.archive, superadmin.clubs.assignOwner, superadmin.clubs.update,
- * superadmin.content.list, superadmin.messages.threads, superadmin.messages.read,
- * superadmin.tokens.list, superadmin.tokens.revoke
+ * superadmin.content.list, superadmin.messages.listThreads, superadmin.messages.getThread,
+ * superadmin.accessTokens.list, superadmin.accessTokens.revoke
  *
  * Platform-wide actions restricted to server operators (superadmin role).
  */
@@ -46,7 +46,7 @@ function decodeSuperadminCursor(cursor: string): { createdAt: string; id: string
   }
 }
 
-// ── superadmin.overview ────────────────────────────────
+// ── superadmin.platform.getOverview ────────────────────────────────
 
 const superadminOverview: ActionDefinition = {
   action: 'superadmin.platform.getOverview',
@@ -166,7 +166,7 @@ const superadminMembersGet: ActionDefinition = {
   },
 };
 
-// ── superadmin.diagnostics.health ──────────────────────
+// ── superadmin.diagnostics.getHealth ──────────────────────
 
 const superadminDiagnosticsHealth: ActionDefinition = {
   action: 'superadmin.diagnostics.getHealth',
@@ -538,7 +538,7 @@ const superadminContentList: ActionDefinition = {
   },
 };
 
-// ── superadmin.messages.threads ──────────────────────────
+// ── superadmin.messages.listThreads ──────────────────────────
 
 type SuperadminMessagesThreadsInput = {
   limit: number;
@@ -588,7 +588,7 @@ const superadminMessagesThreads: ActionDefinition = {
   },
 };
 
-// ── superadmin.messages.read ─────────────────────────────
+// ── superadmin.messages.getThread ─────────────────────────────
 
 type SuperadminMessagesReadInput = {
   threadId: string;
@@ -641,7 +641,7 @@ const superadminMessagesRead: ActionDefinition = {
   },
 };
 
-// ── superadmin.tokens.list ───────────────────────────────
+// ── superadmin.accessTokens.list ───────────────────────────────
 
 const superadminTokensList: ActionDefinition = {
   action: 'superadmin.accessTokens.list',
@@ -679,7 +679,7 @@ const superadminTokensList: ActionDefinition = {
   },
 };
 
-// ── superadmin.tokens.revoke ─────────────────────────────
+// ── superadmin.accessTokens.revoke ─────────────────────────────
 
 const superadminTokensRevoke: ActionDefinition = {
   action: 'superadmin.accessTokens.revoke',
@@ -724,7 +724,7 @@ const superadminTokensRevoke: ActionDefinition = {
   },
 };
 
-// ── superadmin.members.create ───────────────────────────
+// ── superadmin.members.createWithAccessToken ───────────────────────────
 
 type SuperadminMembersCreateInput = {
   publicName: string;

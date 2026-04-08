@@ -1,8 +1,8 @@
 /**
- * Club admin action contracts: clubadmin.memberships.list, clubadmin.memberships.review,
- * clubadmin.memberships.create, clubadmin.memberships.transition,
- * clubadmin.admissions.list, clubadmin.admissions.transition, clubadmin.admissions.issueAccess,
- * clubadmin.clubs.stats
+ * Club admin action contracts: clubadmin.memberships.list, clubadmin.memberships.listForReview,
+ * clubadmin.memberships.create, clubadmin.memberships.setStatus,
+ * clubadmin.admissions.list, clubadmin.admissions.setStatus, clubadmin.admissions.issueAccessToken,
+ * clubadmin.clubs.getStatistics
  *
  * All actions require auth: 'clubadmin' — the caller must be a club admin,
  * the club owner, or a superadmin. All actions require an explicit clubId.
@@ -83,7 +83,7 @@ const clubadminMembershipsList: ActionDefinition = {
   },
 };
 
-// ── clubadmin.memberships.review ───────────────────────
+// ── clubadmin.memberships.listForReview ───────────────────────
 
 type MembershipsReviewInput = {
   clubId: string;
@@ -208,7 +208,7 @@ const clubadminMembershipsCreate: ActionDefinition = {
   },
 };
 
-// ── clubadmin.memberships.transition ───────────────────
+// ── clubadmin.memberships.setStatus ───────────────────
 
 type MembershipsTransitionInput = {
   clubId: string;
@@ -327,7 +327,7 @@ const clubadminAdmissionsList: ActionDefinition = {
   },
 };
 
-// ── clubadmin.admissions.transition ────────────────────
+// ── clubadmin.admissions.setStatus ────────────────────
 
 type AdmissionsTransitionInput = {
   clubId: string;
@@ -393,7 +393,7 @@ const clubadminAdmissionsTransition: ActionDefinition = {
     });
 
     if (admission === undefined) {
-      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.transition is not implemented');
+      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.setStatus is not implemented');
     }
 
     if (!admission) {
@@ -407,7 +407,7 @@ const clubadminAdmissionsTransition: ActionDefinition = {
   },
 };
 
-// ── clubadmin.admissions.issueAccess ───────────────────
+// ── clubadmin.admissions.issueAccessToken ──────────────
 
 const clubadminAdmissionsIssueAccess: ActionDefinition = {
   action: 'clubadmin.admissions.issueAccessToken',
@@ -449,7 +449,7 @@ const clubadminAdmissionsIssueAccess: ActionDefinition = {
     });
 
     if (result === undefined) {
-      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.issueAccess is not implemented');
+      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.issueAccessToken is not implemented');
     }
 
     if (!result) {
@@ -463,7 +463,7 @@ const clubadminAdmissionsIssueAccess: ActionDefinition = {
   },
 };
 
-// ── clubadmin.clubs.stats ──────────────────────────────
+// ── clubadmin.clubs.getStatistics ──────────────────────────────
 
 const clubadminClubsStats: ActionDefinition = {
   action: 'clubadmin.clubs.getStatistics',
@@ -506,7 +506,7 @@ const clubadminClubsStats: ActionDefinition = {
   },
 };
 
-// ── clubadmin.entities.remove ─────────────────────────────
+// ── clubadmin.content.remove ─────────────────────────────
 
 const clubadminEntitiesRemove: ActionDefinition = {
   action: 'clubadmin.content.remove',

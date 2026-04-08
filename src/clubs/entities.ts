@@ -8,6 +8,34 @@ import { AppError } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 
+// ── clientKey comparison helpers ──────────────────────────
+
+/** Compare two timestamps that may come from different formats (ISO input vs Postgres text output). */
+export function timestampsEqual(a: string | null | undefined, b: string | null | undefined): boolean {
+  const aN = a ?? null;
+  const bN = b ?? null;
+  if (aN === null && bN === null) return true;
+  if (aN === null || bN === null) return false;
+  const aMs = new Date(aN).getTime();
+  const bMs = new Date(bN).getTime();
+  if (Number.isNaN(aMs) || Number.isNaN(bMs)) return aN === bN;
+  return aMs === bMs;
+}
+
+/** Key-order-independent JSON comparison. */
+export function jsonEqual(a: unknown, b: unknown): boolean {
+  return canonicalJson(a) === canonicalJson(b);
+}
+
+function canonicalJson(val: unknown): string {
+  if (val === null || val === undefined) return 'null';
+  if (typeof val !== 'object') return JSON.stringify(val);
+  if (Array.isArray(val)) return '[' + val.map(canonicalJson).join(',') + ']';
+  const obj = val as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
+}
+
 type EntityRow = {
   entity_id: string;
   entity_version_id: string;
@@ -63,7 +91,7 @@ const ENTITY_SELECT = `
 async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): Promise<void> {
   const profile = EMBEDDING_PROFILES['entity'];
   await client.query(
-    `insert into app.ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
+    `insert into ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
      values ('entity_version', $1, $2, $3, $4)
      on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
     [subjectVersionId, profile.model, profile.dimensions, profile.sourceVersion],
@@ -73,9 +101,9 @@ async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): 
 export async function readEntitySummary(client: DbClient, entityId: string, entityVersionId?: string): Promise<EntitySummary | null> {
   const result = await client.query<EntityRow>(
     `select ${ENTITY_SELECT}
-     from app.entities e
-     join app.current_entity_versions cev on cev.entity_id = e.id
-     join app.members m on m.id = e.author_member_id
+     from entities e
+     join current_entity_versions cev on cev.entity_id = e.id
+     join members m on m.id = e.author_member_id
      where e.id = $1 and e.deleted_at is null
        and ($2::text is null or cev.id = $2)`,
     [entityId, entityVersionId ?? null],
@@ -88,21 +116,39 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
     // Idempotent if clientKey provided — return existing entity on duplicate
     let entityId: string;
     if (input.clientKey) {
-      const existing = await client.query<{ id: string; club_id: string; kind: string }>(
-        `select id, club_id, kind from app.entities where author_member_id = $1 and client_key = $2`,
+      const existing = await client.query<{
+        id: string; club_id: string; kind: string;
+        title: string | null; summary: string | null; body: string | null;
+        expires_at: string | null; content: Record<string, unknown> | null;
+      }>(
+        `select e.id, e.club_id, e.kind::text as kind,
+                cev.title, cev.summary, cev.body, cev.expires_at::text as expires_at, cev.content
+         from entities e
+         join current_entity_versions cev on cev.entity_id = e.id
+         where e.author_member_id = $1 and e.client_key = $2`,
         [input.authorMemberId, input.clientKey],
       );
       if (existing.rows[0]) {
-        if (existing.rows[0].club_id !== input.clubId || existing.rows[0].kind !== input.kind) {
+        const orig = existing.rows[0];
+        // Strict idempotency: same key + different payload → 409
+        if (
+          orig.club_id !== input.clubId
+          || orig.kind !== input.kind
+          || orig.title !== (input.title ?? null)
+          || orig.summary !== (input.summary ?? null)
+          || orig.body !== (input.body ?? null)
+          || !timestampsEqual(orig.expires_at, input.expiresAt)
+          || !jsonEqual(orig.content ?? {}, input.content ?? {})
+        ) {
           throw new AppError(409, 'client_key_conflict',
-            'This clientKey was already used for a different entity. Use a unique key per entity.');
+            'This clientKey was already used with a different payload. Use a unique key per entity.');
         }
-        const summary = await readEntitySummary(client, existing.rows[0].id);
+        const summary = await readEntitySummary(client, orig.id);
         if (summary) return summary;
       }
     }
     const entityResult = await client.query<{ id: string; created_at: string }>(
-      `insert into app.entities (club_id, kind, author_member_id, client_key) values ($1, $2, $3, $4)
+      `insert into entities (club_id, kind, author_member_id, client_key) values ($1, $2, $3, $4)
        returning id, created_at::text as created_at`,
       [input.clubId, input.kind, input.authorMemberId, input.clientKey ?? null],
     );
@@ -111,7 +157,7 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
     entityId = entity.id;
 
     const versionResult = await client.query<{ id: string }>(
-      `insert into app.entity_versions (entity_id, version_no, state, title, summary, body, expires_at, content, created_by_member_id)
+      `insert into entity_versions (entity_id, version_no, state, title, summary, body, expires_at, content, created_by_member_id)
        values ($1, 1, 'published', $2, $3, $4, $5, $6::jsonb, $7)
        returning id`,
       [entity.id, input.title, input.summary, input.body, input.expiresAt, JSON.stringify(input.content), input.authorMemberId],
@@ -147,8 +193,8 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
       `select e.id as entity_id, e.club_id, e.author_member_id,
               cev.id as version_id, cev.version_no,
               cev.title, cev.summary, cev.body, cev.expires_at::text as expires_at, cev.content
-       from app.entities e
-       join app.current_entity_versions cev on cev.entity_id = e.id
+       from entities e
+       join current_entity_versions cev on cev.entity_id = e.id
        where e.id = $1 and e.club_id = any($2::text[]) and e.author_member_id = $3
          and e.deleted_at is null and cev.state = 'published'`,
       [input.entityId, input.accessibleClubIds, input.actorMemberId],
@@ -158,7 +204,7 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
     if (!current) return null;
 
     const nextVersionResult = await client.query<{ id: string }>(
-      `insert into app.entity_versions (entity_id, version_no, state, title, summary, body, expires_at, content, supersedes_version_id, created_by_member_id)
+      `insert into entity_versions (entity_id, version_no, state, title, summary, body, expires_at, content, supersedes_version_id, created_by_member_id)
        values ($1, $2, 'published', $3, $4, $5, $6, $7::jsonb, $8, $9) returning id`,
       [
         current.entity_id, current.version_no + 1,
@@ -197,9 +243,9 @@ export async function removeEntity(pool: Pool, input: {
     // Check if already removed — idempotent return
     const alreadyRemoved = await client.query<EntityRow>(
       `select ${ENTITY_SELECT}
-       from app.entities e
-       join app.current_entity_versions cev on cev.entity_id = e.id
-       join app.members m on m.id = e.author_member_id
+       from entities e
+       join current_entity_versions cev on cev.entity_id = e.id
+       join members m on m.id = e.author_member_id
        where e.id = $1 and e.club_id = any($2::text[])
          and e.deleted_at is null and cev.state = 'removed'`,
       [input.entityId, input.clubIds],
@@ -219,8 +265,8 @@ export async function removeEntity(pool: Pool, input: {
     }>(
       `select e.id as entity_id, e.club_id, e.author_member_id,
               cev.id as version_id, cev.version_no
-       from app.entities e
-       join app.current_entity_versions cev on cev.entity_id = e.id
+       from entities e
+       join current_entity_versions cev on cev.entity_id = e.id
        where e.id = $1 and e.club_id = any($2::text[])
          and e.deleted_at is null and cev.state = 'published'
          ${kindClause}`,
@@ -235,7 +281,7 @@ export async function removeEntity(pool: Pool, input: {
     }
 
     const removeVersion = await client.query<{ id: string }>(
-      `insert into app.entity_versions (entity_id, version_no, state, reason, supersedes_version_id, created_by_member_id)
+      `insert into entity_versions (entity_id, version_no, state, reason, supersedes_version_id, created_by_member_id)
        values ($1, $2, 'removed', $3, $4, $5) returning id`,
       [current.entity_id, current.version_no + 1, input.reason ?? null, current.version_id, input.actorMemberId],
     );
@@ -243,7 +289,7 @@ export async function removeEntity(pool: Pool, input: {
     // Emit removal activity
     if (removeVersion.rows[0]) {
       await appendClubActivity(client, {
-        clubId: input.clubIds[0]!,
+        clubId: current.club_id,
         entityId: current.entity_id,
         entityVersionId: removeVersion.rows[0].id,
         topic: 'entity.removed',
@@ -266,11 +312,11 @@ export async function listEntities(pool: Pool, input: ListEntitiesInput): Promis
     `with scope as (select unnest($1::text[]) as club_id)
      select ${ENTITY_SELECT}
      from scope s
-     join app.live_entities le on le.club_id = s.club_id::app.short_id
-     join app.entities e on e.id = le.entity_id
-     join app.current_entity_versions cev on cev.id = le.entity_version_id
-     join app.members m on m.id = e.author_member_id
-     where le.kind = any($2::app.entity_kind[])
+     join live_entities le on le.club_id = s.club_id::short_id
+     join entities e on e.id = le.entity_id
+     join current_entity_versions cev on cev.id = le.entity_version_id
+     join members m on m.id = e.author_member_id
+     where le.kind = any($2::entity_kind[])
        and ($4::text is null
          or coalesce(le.title, '') ilike $4 escape '\\'
          or coalesce(le.summary, '') ilike $4 escape '\\'
@@ -307,7 +353,7 @@ export async function appendClubActivity(client: DbClient, input: {
   audience?: 'members' | 'clubadmins' | 'owners';
 }): Promise<void> {
   await client.query(
-    `insert into app.club_activity (club_id, entity_id, entity_version_id, topic, payload, created_by_member_id, audience)
+    `insert into club_activity (club_id, entity_id, entity_version_id, topic, payload, created_by_member_id, audience)
      values ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
     [
       input.clubId,

@@ -4,7 +4,7 @@ import { buildDispatcher } from '../src/dispatch.ts';
 import type { QuotaAllowance } from '../src/contract.ts';
 import { makeAuthResult, makeRepository } from './fixtures.ts';
 
-test('quotas.status returns quota allowances for all clubs', async () => {
+test('quotas.getUsage returns quota allowances for all clubs', async () => {
   const quotas: QuotaAllowance[] = [
     { action: 'content.create', clubId: 'club-1', maxPerDay: 20, usedToday: 3, remaining: 17 },
     { action: 'events.create', clubId: 'club-1', maxPerDay: 10, usedToday: 0, remaining: 10 },

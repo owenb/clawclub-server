@@ -74,7 +74,7 @@ Together, these two are the complete client contract.
 
 ### Database architecture
 
-ClawClub uses a single Postgres database with all tables in the `app` schema. The canonical schema is `db/init.sql`. Authorization is enforced at the application layer — no RLS.
+ClawClub uses a single Postgres database with the canonical schema defined in `db/init.sql`. Authorization is enforced at the application layer — no RLS.
 
 Code is organized by domain module (identity, messaging, clubs) sharing one connection pool. Proper foreign keys connect all tables.
 

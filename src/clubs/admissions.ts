@@ -93,7 +93,7 @@ const ADMISSION_SELECT = `
 
 export async function readAdmission(client: DbClient, admissionId: string): Promise<AdmissionRow | null> {
   const result = await client.query<AdmissionRow>(
-    `select ${ADMISSION_SELECT} from app.current_admissions ca where ca.id = $1 limit 1`,
+    `select ${ADMISSION_SELECT} from current_admissions ca where ca.id = $1 limit 1`,
     [admissionId],
   );
   return result.rows[0] ?? null;
@@ -140,7 +140,7 @@ export async function transitionAdmission(pool: Pool, input: {
               ca.intake_booked_at::text as current_intake_booked_at,
               ca.intake_completed_at::text as current_intake_completed_at,
               ca.membership_id as current_membership_id, ca.sponsor_member_id
-       from app.current_admissions ca
+       from current_admissions ca
        where ca.id = $1 and ca.club_id = any($2::text[])
        limit 1`,
       [input.admissionId, input.clubIds],
@@ -154,13 +154,13 @@ export async function transitionAdmission(pool: Pool, input: {
 
     // Update admission metadata
     await client.query(
-      `update app.admissions set metadata = $2::jsonb where id = $1`,
+      `update admissions set metadata = $2::jsonb where id = $1`,
       [admission.admission_id, JSON.stringify(mergedMetadata)],
     );
 
     // Insert new admission version
     await client.query(
-      `insert into app.admission_versions (
+      `insert into admission_versions (
          admission_id, status, notes, intake_kind, intake_price_amount, intake_price_currency,
          intake_booking_url, intake_booked_at, intake_completed_at,
          version_no, supersedes_version_id, created_by_member_id
@@ -195,7 +195,7 @@ export async function transitionAdmission(pool: Pool, input: {
  */
 export async function linkAdmissionToMember(pool: Pool, admissionId: string, memberId: string, membershipId: string): Promise<void> {
   await pool.query(
-    `update app.admissions set applicant_member_id = $2, membership_id = $3 where id = $1`,
+    `update admissions set applicant_member_id = $2, membership_id = $3 where id = $1`,
     [admissionId, memberId, membershipId],
   );
 }
@@ -211,7 +211,7 @@ export async function createAdmissionChallenge(pool: Pool, input: {
   ownerName: string;
 }): Promise<{ challengeId: string; difficulty: number; expiresAt: string; maxAttempts: number }> {
   const result = await pool.query<{ id: string; expires_at: string }>(
-    `insert into app.admission_challenges (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
+    `insert into admission_challenges (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
      values ($1, $2, $3, $4, $5, $6, now() + ($7 || ' milliseconds')::interval)
      returning id, expires_at::text as expires_at`,
     [COLD_APPLICATION_DIFFICULTY, input.clubId, input.admissionPolicy, input.clubName, input.clubSummary, input.ownerName, COLD_APPLICATION_CHALLENGE_TTL_MS],
@@ -245,7 +245,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     await client1.query('BEGIN');
     const challengeResult = await client1.query<ChallengeRow>(
       `select id, difficulty, expires_at::text as expires_at, member_id, club_id, policy_snapshot, club_name, club_summary, owner_name
-       from app.admission_challenges where id = $1 for update`,
+       from admission_challenges where id = $1 for update`,
       [input.challengeId],
     );
     const challenge = challengeResult.rows[0];
@@ -258,8 +258,8 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     }
 
     if (Date.parse(challenge.expires_at) < Date.now()) {
-      await client1.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client1.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client1.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client1.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
       throw new AppError(410, 'challenge_expired', 'This challenge has expired');
     }
@@ -273,13 +273,13 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
 
     // Count attempts
     const countResult = await client1.query<{ count: string }>(
-      `select count(*)::text as count from app.admission_attempts where challenge_id = $1`,
+      `select count(*)::text as count from admission_attempts where challenge_id = $1`,
       [input.challengeId],
     );
     attemptCount = Number(countResult.rows[0]?.count ?? 0);
     if (attemptCount >= MAX_ADMISSION_ATTEMPTS) {
-      await client1.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client1.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client1.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client1.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
       return { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' };
     }
@@ -304,25 +304,25 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     // Re-validate challenge
     const recheck = await client.query<ChallengeRow>(
       `select id, difficulty, expires_at::text as expires_at, club_id, policy_snapshot, club_name, club_summary, owner_name
-       from app.admission_challenges where id = $1 for update`,
+       from admission_challenges where id = $1 for update`,
       [input.challengeId],
     );
     if (!recheck.rows[0]) throw new AppError(409, 'challenge_consumed', 'Challenge was consumed by a concurrent request');
     if (Date.parse(recheck.rows[0].expires_at) < Date.now()) {
-      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       throw new AppError(410, 'challenge_expired', 'This challenge has expired');
     }
 
     // Re-count attempts
     const liveCount = await client.query<{ count: string }>(
-      `select count(*)::text as count from app.admission_attempts where challenge_id = $1`,
+      `select count(*)::text as count from admission_attempts where challenge_id = $1`,
       [input.challengeId],
     );
     const attemptNo = Number(liveCount.rows[0]?.count ?? 0) + 1;
     if (attemptNo > MAX_ADMISSION_ATTEMPTS) {
-      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
     }
 
@@ -340,7 +340,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
 
     // Record attempt
     await client.query(
-      `insert into app.admission_attempts (challenge_id, club_id, attempt_no, applicant_name, applicant_email, payload, gate_status, gate_feedback, policy_snapshot)
+      `insert into admission_attempts (challenge_id, club_id, attempt_no, applicant_name, applicant_email, payload, gate_status, gate_feedback, policy_snapshot)
        values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
       [input.challengeId, challengeData.club_id, attemptNo, input.name, input.email, payload, gateStatus, gateFeedback, challengeData.policy_snapshot],
     );
@@ -349,7 +349,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
       // Create admission
       const admissionDetails = JSON.stringify({ socials: input.socials, application: input.application });
       const admissionResult = await client.query<{ id: string }>(
-        `insert into app.admissions (club_id, origin, applicant_email, applicant_name, admission_details)
+        `insert into admissions (club_id, origin, applicant_email, applicant_name, admission_details)
          values ($1, 'self_applied', $2, $3, $4::jsonb) returning id`,
         [challengeData.club_id, input.email, input.name, admissionDetails],
       );
@@ -357,14 +357,14 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
       if (!admissionId) throw new AppError(500, 'admission_creation_failed', 'Failed to create admission');
 
       await client.query(
-        `insert into app.admission_versions (admission_id, status, notes, version_no)
+        `insert into admission_versions (admission_id, status, notes, version_no)
          values ($1, 'submitted', 'Self-applied via cold admission', 1)`,
         [admissionId],
       );
 
       // Delete challenge
-      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
 
       // Notify via activity
       await appendClubActivity(client, {
@@ -378,7 +378,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
       // Log LLM usage (fire and forget — errors don't block)
       const usage = 'usage' in gateResult ? gateResult.usage : null;
       client.query(
-        `insert into app.ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
+        `insert into ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [null, challengeData.club_id, 'admissions.public.submitApplication', 'admission_gate', QUALITY_GATE_PROVIDER, CLAWCLUB_OPENAI_MODEL, gateStatus, null, usage?.promptTokens ?? null, usage?.completionTokens ?? null, null],
       ).catch(() => {});
@@ -388,8 +388,8 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
         message: `Your application has been submitted. ${challengeData.owner_name} will contact you by email to let you know whether an interview has been scheduled. If you don't hear back, know that there are many other clubs you can join.`,
       };
     } else if (attemptNo >= MAX_ADMISSION_ATTEMPTS) {
-      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
     } else {
       return { status: 'needs_revision' as const, feedback: gateFeedback!, attemptsRemaining: MAX_ADMISSION_ATTEMPTS - attemptNo };
@@ -406,7 +406,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
  */
 async function assertCrossEligibility(client: DbClient, memberId: string, clubId: string): Promise<void> {
   const hasActive = await client.query<{ ok: boolean }>(
-    `select exists(select 1 from app.current_club_memberships where member_id = $1 and status = 'active') as ok`,
+    `select exists(select 1 from current_club_memberships where member_id = $1 and status = 'active') as ok`,
     [memberId],
   );
   if (!hasActive.rows[0]?.ok) {
@@ -414,7 +414,7 @@ async function assertCrossEligibility(client: DbClient, memberId: string, clubId
   }
 
   const existingMembership = await client.query<{ id: string }>(
-    `select id from app.club_memberships where club_id = $1 and member_id = $2 limit 1`,
+    `select id from club_memberships where club_id = $1 and member_id = $2 limit 1`,
     [clubId, memberId],
   );
   if (existingMembership.rows[0]) {
@@ -422,7 +422,7 @@ async function assertCrossEligibility(client: DbClient, memberId: string, clubId
   }
 
   const existingAdmission = await client.query<{ id: string }>(
-    `select ca.id from app.current_admissions ca
+    `select ca.id from current_admissions ca
      where ca.club_id = $1 and ca.applicant_member_id = $2
        and ca.status in ('submitted', 'interview_scheduled', 'interview_completed', 'draft')
      limit 1`,
@@ -433,7 +433,7 @@ async function assertCrossEligibility(client: DbClient, memberId: string, clubId
   }
 
   const pendingCount = await client.query<{ count: string }>(
-    `select count(*)::text as count from app.current_admissions ca
+    `select count(*)::text as count from current_admissions ca
      where ca.applicant_member_id = $1
        and ca.status in ('submitted', 'interview_scheduled', 'interview_completed')`,
     [memberId],
@@ -456,8 +456,8 @@ export async function createCrossChallenge(pool: Pool, input: {
   // Guard: profile must have a usable name and email
   const contact = await pool.query<{ public_name: string; email: string | null }>(
     `select m.public_name, mpc.email
-     from app.members m
-     left join app.member_private_contacts mpc on mpc.member_id = m.id
+     from members m
+     left join member_private_contacts mpc on mpc.member_id = m.id
      where m.id = $1`,
     [input.memberId],
   );
@@ -470,7 +470,7 @@ export async function createCrossChallenge(pool: Pool, input: {
   }
 
   const result = await pool.query<{ id: string; expires_at: string }>(
-    `insert into app.admission_challenges (difficulty, club_id, member_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
+    `insert into admission_challenges (difficulty, club_id, member_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
      values ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' milliseconds')::interval)
      returning id, expires_at::text as expires_at`,
     [CROSS_APPLICATION_DIFFICULTY, input.clubId, input.memberId, input.admissionPolicy, input.clubName, input.clubSummary, input.ownerName, COLD_APPLICATION_CHALLENGE_TTL_MS],
@@ -509,7 +509,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
     await client1.query('BEGIN');
     const challengeResult = await client1.query<ChallengeRow>(
       `select id, difficulty, expires_at::text as expires_at, member_id, club_id, policy_snapshot, club_name, club_summary, owner_name
-       from app.admission_challenges where id = $1 for update`,
+       from admission_challenges where id = $1 for update`,
       [input.challengeId],
     );
     const challenge = challengeResult.rows[0];
@@ -525,8 +525,8 @@ export async function solveCrossChallenge(pool: Pool, input: {
     await assertCrossEligibility(client1, input.memberId, challenge.club_id);
 
     if (Date.parse(challenge.expires_at) < Date.now()) {
-      await client1.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client1.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client1.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client1.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
       throw new AppError(410, 'challenge_expired', 'This challenge has expired');
     }
@@ -540,13 +540,13 @@ export async function solveCrossChallenge(pool: Pool, input: {
 
     // Count attempts
     const countResult = await client1.query<{ count: string }>(
-      `select count(*)::text as count from app.admission_attempts where challenge_id = $1`,
+      `select count(*)::text as count from admission_attempts where challenge_id = $1`,
       [input.challengeId],
     );
     const attemptCount = Number(countResult.rows[0]?.count ?? 0);
     if (attemptCount >= MAX_ADMISSION_ATTEMPTS) {
-      await client1.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client1.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client1.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client1.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
       return { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' };
     }
@@ -554,8 +554,8 @@ export async function solveCrossChallenge(pool: Pool, input: {
     // Snapshot name and email from profile
     const contactResult = await client1.query<{ public_name: string; email: string | null }>(
       `select m.public_name, mpc.email
-       from app.members m
-       left join app.member_private_contacts mpc on mpc.member_id = m.id
+       from members m
+       left join member_private_contacts mpc on mpc.member_id = m.id
        where m.id = $1`,
       [input.memberId],
     );
@@ -587,25 +587,25 @@ export async function solveCrossChallenge(pool: Pool, input: {
     // Re-validate challenge
     const recheck = await client.query<ChallengeRow>(
       `select id, difficulty, expires_at::text as expires_at, member_id, club_id, policy_snapshot, club_name, club_summary, owner_name
-       from app.admission_challenges where id = $1 for update`,
+       from admission_challenges where id = $1 for update`,
       [input.challengeId],
     );
     if (!recheck.rows[0]) throw new AppError(409, 'challenge_consumed', 'Challenge was consumed by a concurrent request');
     if (Date.parse(recheck.rows[0].expires_at) < Date.now()) {
-      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       throw new AppError(410, 'challenge_expired', 'This challenge has expired');
     }
 
     // Re-count attempts
     const liveCount = await client.query<{ count: string }>(
-      `select count(*)::text as count from app.admission_attempts where challenge_id = $1`,
+      `select count(*)::text as count from admission_attempts where challenge_id = $1`,
       [input.challengeId],
     );
     const attemptNo = Number(liveCount.rows[0]?.count ?? 0) + 1;
     if (attemptNo > MAX_ADMISSION_ATTEMPTS) {
-      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
     }
 
@@ -623,7 +623,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
 
     // Record attempt
     await client.query(
-      `insert into app.admission_attempts (challenge_id, club_id, attempt_no, applicant_name, applicant_email, payload, gate_status, gate_feedback, policy_snapshot)
+      `insert into admission_attempts (challenge_id, club_id, attempt_no, applicant_name, applicant_email, payload, gate_status, gate_feedback, policy_snapshot)
        values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)`,
       [input.challengeId, challengeData.club_id, attemptNo, memberName, memberEmail, payload, gateStatus, gateFeedback, challengeData.policy_snapshot],
     );
@@ -643,7 +643,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
       // Create admission with applicant_member_id set (existing network member)
       const admissionDetails = JSON.stringify({ socials: input.socials, application: input.application });
       const admissionResult = await client.query<{ id: string }>(
-        `insert into app.admissions (club_id, origin, applicant_member_id, applicant_email, applicant_name, admission_details)
+        `insert into admissions (club_id, origin, applicant_member_id, applicant_email, applicant_name, admission_details)
          values ($1, 'self_applied', $2, $3, $4, $5::jsonb) returning id`,
         [challengeData.club_id, input.memberId, memberEmail, memberName, admissionDetails],
       );
@@ -651,14 +651,14 @@ export async function solveCrossChallenge(pool: Pool, input: {
       if (!admissionId) throw new AppError(500, 'admission_creation_failed', 'Failed to create admission');
 
       await client.query(
-        `insert into app.admission_versions (admission_id, status, notes, version_no, created_by_member_id)
+        `insert into admission_versions (admission_id, status, notes, version_no, created_by_member_id)
          values ($1, 'submitted', 'Cross-applied by existing network member', 1, $2)`,
         [admissionId, input.memberId],
       );
 
       // Delete challenge
-      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
 
       // Notify via activity
       await appendClubActivity(client, {
@@ -672,7 +672,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
       // Log LLM usage
       const usage = 'usage' in gateResult ? gateResult.usage : null;
       client.query(
-        `insert into app.ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
+        `insert into ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [input.memberId, challengeData.club_id, 'admissions.crossClub.submitApplication', 'admission_gate', QUALITY_GATE_PROVIDER, CLAWCLUB_OPENAI_MODEL, gateStatus, null, usage?.promptTokens ?? null, usage?.completionTokens ?? null, null],
       ).catch(() => {});
@@ -682,8 +682,8 @@ export async function solveCrossChallenge(pool: Pool, input: {
         message: `Your application has been submitted. ${challengeData.owner_name} will review your application and contact you if an interview is scheduled.`,
       };
     } else if (attemptNo >= MAX_ADMISSION_ATTEMPTS) {
-      await client.query(`delete from app.admission_attempts where challenge_id = $1`, [input.challengeId]);
-      await client.query(`delete from app.admission_challenges where id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
+      await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
     } else {
       return { status: 'needs_revision' as const, feedback: gateFeedback!, attemptsRemaining: MAX_ADMISSION_ATTEMPTS - attemptNo };

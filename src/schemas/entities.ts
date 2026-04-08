@@ -1,5 +1,5 @@
 /**
- * Action contracts: entities.create, entities.update, entities.remove, entities.list
+ * Action contracts: content.create, content.update, content.remove, content.list
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -15,7 +15,7 @@ import {
 import { entitySummary, membershipSummary } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
-// ── entities.create ──────────────────────────────────────
+// ── content.create ──────────────────────────────────────
 
 type CreateInput = {
   clubId: string;
@@ -44,7 +44,7 @@ const entitiesCreate: ActionDefinition = {
       body: wireOptionalString.describe('Body text'),
       expiresAt: wireOptionalString.describe('ISO 8601 expiration timestamp'),
       content: wireOptionalRecord.describe('Structured metadata'),
-      clientKey: wireOptionalString.describe('Idempotency key — if provided, duplicate creates with the same key are rejected'),
+      clientKey: wireOptionalString.describe('Idempotency key — same key with same payload returns the original entity; same key with different payload returns 409 client_key_conflict'),
     }),
     output: z.object({ entity: entitySummary }),
   },
@@ -81,7 +81,7 @@ const entitiesCreate: ActionDefinition = {
   },
 };
 
-// ── entities.update ──────────────────────────────────────
+// ── content.update ──────────────────────────────────────
 
 type UpdateInput = {
   entityId: string;
@@ -123,7 +123,7 @@ const entitiesUpdate: ActionDefinition = {
     }).refine(input => {
       const { entityId: _, ...patch } = input;
       return Object.values(patch).some(v => v !== undefined);
-    }, 'entities.update requires at least one field to change'),
+    }, 'content.update requires at least one field to change'),
   },
 
   qualityGate: 'content-create',
@@ -161,7 +161,7 @@ const entitiesUpdate: ActionDefinition = {
   },
 };
 
-// ── entities.remove ──────────────────────────────────────
+// ── content.remove ──────────────────────────────────────
 
 const entitiesRemove: ActionDefinition = {
   action: 'content.remove',
@@ -210,7 +210,7 @@ const entitiesRemove: ActionDefinition = {
   },
 };
 
-// ── entities.list ────────────────────────────────────────
+// ── content.list ────────────────────────────────────────
 
 type ListInput = {
   clubId?: string;
@@ -280,7 +280,7 @@ const entitiesList: ActionDefinition = {
   },
 };
 
-// ── entities.findViaEmbedding ──────────────────────────────
+// ── content.searchBySemanticSimilarity ─────────────────────
 
 type EntitiesFindViaEmbeddingInput = {
   query: string;
@@ -333,7 +333,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
       ctx.repository.logLlmUsage?.({
         memberId: ctx.actor.member.id,
         requestedClubId: clubId ?? null,
-        actionName: 'entities.findViaEmbedding',
+        actionName: 'content.searchBySemanticSimilarity',
         gateName: 'embedding_query',
         provider: 'openai',
         model: profile.model,
@@ -371,11 +371,11 @@ const entitiesFindViaEmbedding: ActionDefinition = {
       embedding = result.embedding;
       usageTokens = result.usage?.tokens ?? 0;
     } catch (err) {
-      console.error('Embedding provider error in entities.findViaEmbedding:', err);
+      console.error('Embedding provider error in content.searchBySemanticSimilarity:', err);
       ctx.repository.logLlmUsage?.({
         memberId: ctx.actor.member.id,
         requestedClubId: clubId ?? null,
-        actionName: 'entities.findViaEmbedding',
+        actionName: 'content.searchBySemanticSimilarity',
         gateName: 'embedding_query',
         provider: 'openai',
         model: profile.model,
@@ -391,7 +391,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
     ctx.repository.logLlmUsage?.({
       memberId: ctx.actor.member.id,
       requestedClubId: clubId ?? null,
-      actionName: 'entities.findViaEmbedding',
+      actionName: 'content.searchBySemanticSimilarity',
       gateName: 'embedding_query',
       provider: 'openai',
       model: profile.model,

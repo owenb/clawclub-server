@@ -16,20 +16,18 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- Schema
 -- ============================================================
 
-CREATE SCHEMA IF NOT EXISTS app;
-
 -- ============================================================
 -- Domain
 -- ============================================================
 
-CREATE DOMAIN app.short_id AS text
+CREATE DOMAIN short_id AS text
     CONSTRAINT short_id_check CHECK (VALUE ~ '^[23456789abcdefghjkmnpqrstuvwxyz]{12}$');
 
 -- ============================================================
 -- ID generator
 -- ============================================================
 
-CREATE FUNCTION app.new_id() RETURNS app.short_id
+CREATE FUNCTION new_id() RETURNS short_id
     LANGUAGE plpgsql
 AS $$
 declare
@@ -41,7 +39,7 @@ begin
     output := output || substr(alphabet, 1 + floor(random() * length(alphabet))::integer, 1);
   end loop;
 
-  return output::app.short_id;
+  return output::short_id;
 end;
 $$;
 
@@ -50,44 +48,42 @@ $$;
 -- ============================================================
 
 -- Identity
-CREATE TYPE app.member_state AS ENUM ('pending', 'active', 'suspended', 'deleted', 'banned');
-CREATE TYPE app.membership_role AS ENUM ('clubadmin', 'member');
-CREATE TYPE app.membership_state AS ENUM ('invited', 'active', 'paused', 'left', 'removed', 'pending_review', 'revoked', 'rejected', 'payment_pending', 'renewal_pending', 'cancelled', 'banned', 'expired');
-CREATE TYPE app.global_role AS ENUM ('superadmin');
-CREATE TYPE app.assignment_state AS ENUM ('active', 'revoked');
-CREATE TYPE app.subscription_status AS ENUM ('trialing', 'active', 'past_due', 'paused', 'canceled', 'ended');
-CREATE TYPE app.billing_interval AS ENUM ('month', 'year', 'manual');
+CREATE TYPE member_state AS ENUM ('pending', 'active', 'suspended', 'deleted', 'banned');
+CREATE TYPE membership_role AS ENUM ('clubadmin', 'member');
+CREATE TYPE membership_state AS ENUM ('invited', 'active', 'paused', 'left', 'removed', 'pending_review', 'revoked', 'rejected', 'payment_pending', 'renewal_pending', 'cancelled', 'banned', 'expired');
+CREATE TYPE global_role AS ENUM ('superadmin');
+CREATE TYPE assignment_state AS ENUM ('active', 'revoked');
+CREATE TYPE subscription_status AS ENUM ('trialing', 'active', 'past_due', 'paused', 'canceled', 'ended');
+CREATE TYPE billing_interval AS ENUM ('month', 'year', 'manual');
 
 -- Content
-CREATE TYPE app.entity_kind AS ENUM ('post', 'opportunity', 'service', 'ask', 'event', 'comment', 'complaint');
-CREATE TYPE app.entity_state AS ENUM ('draft', 'published', 'removed');
-CREATE TYPE app.edge_kind AS ENUM ('vouched_for', 'about', 'related_to', 'mentions');
-CREATE TYPE app.rsvp_state AS ENUM ('yes', 'maybe', 'no', 'waitlist');
-CREATE TYPE app.work_mode AS ENUM ('unspecified', 'remote', 'in_person', 'hybrid');
-CREATE TYPE app.compensation_kind AS ENUM ('unspecified', 'paid', 'unpaid', 'mixed', 'exchange');
+CREATE TYPE entity_kind AS ENUM ('post', 'opportunity', 'service', 'ask', 'event', 'comment', 'complaint');
+CREATE TYPE entity_state AS ENUM ('draft', 'published', 'removed');
+CREATE TYPE edge_kind AS ENUM ('vouched_for', 'about', 'related_to', 'mentions');
+CREATE TYPE rsvp_state AS ENUM ('yes', 'maybe', 'no', 'waitlist');
 
 -- Admissions
-CREATE TYPE app.application_status AS ENUM ('draft', 'submitted', 'interview_scheduled', 'interview_completed', 'accepted', 'declined', 'withdrawn');
+CREATE TYPE application_status AS ENUM ('draft', 'submitted', 'interview_scheduled', 'interview_completed', 'accepted', 'declined', 'withdrawn');
 
 -- Quality
-CREATE TYPE app.quality_gate_status AS ENUM ('passed', 'rejected', 'rejected_illegal', 'skipped');
-CREATE TYPE app.club_activity_audience AS ENUM ('members', 'clubadmins', 'owners');
+CREATE TYPE quality_gate_status AS ENUM ('passed', 'rejected', 'rejected_illegal', 'skipped');
+CREATE TYPE club_activity_audience AS ENUM ('members', 'clubadmins', 'owners');
 
 -- Messaging
-CREATE TYPE app.thread_kind AS ENUM ('direct');
-CREATE TYPE app.message_role AS ENUM ('member', 'agent', 'system');
+CREATE TYPE thread_kind AS ENUM ('direct');
+CREATE TYPE message_role AS ENUM ('member', 'agent', 'system');
 
 
 -- ============================================================
 -- Tables: Members & Identity
 -- ============================================================
 
-CREATE TABLE app.members (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
+CREATE TABLE members (
+    id                  short_id DEFAULT new_id() NOT NULL,
     handle              text NOT NULL,
     public_name         text NOT NULL,
-    state               app.member_state DEFAULT 'active' NOT NULL,
-    source_admission_id app.short_id,
+    state               member_state DEFAULT 'active' NOT NULL,
+    source_admission_id short_id,
     metadata            jsonb DEFAULT '{}' NOT NULL,
     created_at          timestamptz DEFAULT now() NOT NULL,
 
@@ -96,15 +92,15 @@ CREATE TABLE app.members (
     CONSTRAINT members_public_name_check CHECK (length(btrim(public_name)) > 0)
 );
 
-CREATE INDEX members_state_idx ON app.members (state);
+CREATE INDEX members_state_idx ON members (state);
 CREATE UNIQUE INDEX members_source_admission_unique_idx
-    ON app.members (source_admission_id) WHERE source_admission_id IS NOT NULL;
+    ON members (source_admission_id) WHERE source_admission_id IS NOT NULL;
 
 -- ── Member bearer tokens ──────────────────────────────────────────
 
-CREATE TABLE app.member_bearer_tokens (
-    id              app.short_id DEFAULT app.new_id() NOT NULL,
-    member_id       app.short_id NOT NULL,
+CREATE TABLE member_bearer_tokens (
+    id              short_id DEFAULT new_id() NOT NULL,
+    member_id       short_id NOT NULL,
     label           text,
     token_hash      text NOT NULL,
     created_at      timestamptz DEFAULT now() NOT NULL,
@@ -115,53 +111,53 @@ CREATE TABLE app.member_bearer_tokens (
 
     CONSTRAINT member_bearer_tokens_pkey PRIMARY KEY (id),
     CONSTRAINT member_bearer_tokens_token_hash_unique UNIQUE (token_hash),
-    CONSTRAINT member_bearer_tokens_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id)
+    CONSTRAINT member_bearer_tokens_member_fkey FOREIGN KEY (member_id) REFERENCES members(id)
 );
 
-CREATE INDEX member_bearer_tokens_member_created_idx ON app.member_bearer_tokens (member_id, created_at DESC);
-CREATE INDEX member_bearer_tokens_active_idx ON app.member_bearer_tokens (id) WHERE revoked_at IS NULL;
+CREATE INDEX member_bearer_tokens_member_created_idx ON member_bearer_tokens (member_id, created_at DESC);
+CREATE INDEX member_bearer_tokens_active_idx ON member_bearer_tokens (id) WHERE revoked_at IS NULL;
 
 -- ── Member global roles ───────────────────────────────────────────
 
-CREATE TABLE app.member_global_role_versions (
-    id                          app.short_id DEFAULT app.new_id() NOT NULL,
-    member_id                   app.short_id NOT NULL,
-    role                        app.global_role NOT NULL,
-    status                      app.assignment_state DEFAULT 'active' NOT NULL,
+CREATE TABLE member_global_role_versions (
+    id                          short_id DEFAULT new_id() NOT NULL,
+    member_id                   short_id NOT NULL,
+    role                        global_role NOT NULL,
+    status                      assignment_state DEFAULT 'active' NOT NULL,
     version_no                  integer NOT NULL,
-    supersedes_role_version_id  app.short_id,
+    supersedes_role_version_id  short_id,
     created_at                  timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id        app.short_id,
+    created_by_member_id        short_id,
 
     CONSTRAINT member_global_role_versions_pkey PRIMARY KEY (id),
     CONSTRAINT member_global_role_versions_version_unique UNIQUE (member_id, role, version_no),
     CONSTRAINT member_global_role_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT member_global_role_versions_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id),
-    CONSTRAINT member_global_role_versions_supersedes_fkey FOREIGN KEY (supersedes_role_version_id) REFERENCES app.member_global_role_versions(id),
-    CONSTRAINT member_global_role_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT member_global_role_versions_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT member_global_role_versions_supersedes_fkey FOREIGN KEY (supersedes_role_version_id) REFERENCES member_global_role_versions(id),
+    CONSTRAINT member_global_role_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
 CREATE INDEX member_global_role_versions_lookup_idx
-    ON app.member_global_role_versions (member_id, role, version_no DESC, created_at DESC);
+    ON member_global_role_versions (member_id, role, version_no DESC, created_at DESC);
 
 -- ── Member private contacts ───────────────────────────────────────
 
-CREATE TABLE app.member_private_contacts (
-    member_id       app.short_id NOT NULL,
+CREATE TABLE member_private_contacts (
+    member_id       short_id NOT NULL,
     email           text,
     created_at      timestamptz DEFAULT now() NOT NULL,
     updated_at      timestamptz DEFAULT now() NOT NULL,
 
     CONSTRAINT member_private_contacts_pkey PRIMARY KEY (member_id),
     CONSTRAINT member_private_contacts_email_check CHECK (email IS NULL OR email LIKE '%@%'),
-    CONSTRAINT member_private_contacts_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id)
+    CONSTRAINT member_private_contacts_member_fkey FOREIGN KEY (member_id) REFERENCES members(id)
 );
 
 -- ── Member profile versions ───────────────────────────────────────
 
-CREATE TABLE app.member_profile_versions (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    member_id               app.short_id NOT NULL,
+CREATE TABLE member_profile_versions (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    member_id               short_id NOT NULL,
     version_no              integer NOT NULL,
     display_name            text NOT NULL,
     tagline                 text,
@@ -174,21 +170,21 @@ CREATE TABLE app.member_profile_versions (
     profile                 jsonb DEFAULT '{}' NOT NULL,
     search_vector           tsvector,
     created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    app.short_id,
+    created_by_member_id    short_id,
 
     CONSTRAINT member_profile_versions_pkey PRIMARY KEY (id),
     CONSTRAINT member_profile_versions_member_version_unique UNIQUE (member_id, version_no),
     CONSTRAINT member_profile_versions_version_no_check CHECK (version_no > 0),
     CONSTRAINT member_profile_versions_display_name_check CHECK (length(btrim(display_name)) > 0),
-    CONSTRAINT member_profile_versions_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id),
-    CONSTRAINT member_profile_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT member_profile_versions_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT member_profile_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
-CREATE INDEX member_profile_versions_member_version_idx ON app.member_profile_versions (member_id, version_no DESC);
-CREATE INDEX member_profile_versions_created_idx ON app.member_profile_versions (created_at DESC);
-CREATE INDEX member_profile_versions_search_idx ON app.member_profile_versions USING gin (search_vector);
+CREATE INDEX member_profile_versions_member_version_idx ON member_profile_versions (member_id, version_no DESC);
+CREATE INDEX member_profile_versions_created_idx ON member_profile_versions (created_at DESC);
+CREATE INDEX member_profile_versions_search_idx ON member_profile_versions USING gin (search_vector);
 
-CREATE FUNCTION app.member_profile_versions_search_vector_trigger() RETURNS trigger
+CREATE FUNCTION member_profile_versions_search_vector_trigger() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -205,21 +201,21 @@ END;
 $$;
 
 CREATE TRIGGER member_profile_versions_search_vector_update
-    BEFORE INSERT OR UPDATE ON app.member_profile_versions
+    BEFORE INSERT OR UPDATE ON member_profile_versions
     FOR EACH ROW
-    EXECUTE FUNCTION app.member_profile_versions_search_vector_trigger();
+    EXECUTE FUNCTION member_profile_versions_search_vector_trigger();
 
 
 -- ============================================================
 -- Tables: Clubs & Membership
 -- ============================================================
 
-CREATE TABLE app.clubs (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
+CREATE TABLE clubs (
+    id                  short_id DEFAULT new_id() NOT NULL,
     slug                text NOT NULL,
     name                text NOT NULL,
     summary             text,
-    owner_member_id     app.short_id NOT NULL,
+    owner_member_id     short_id NOT NULL,
     admission_policy    text,
     membership_price_amount   numeric(12,2),
     membership_price_currency text DEFAULT 'USD' NOT NULL,
@@ -235,10 +231,10 @@ CREATE TABLE app.clubs (
     ),
     CONSTRAINT clubs_price_check CHECK (membership_price_amount IS NULL OR membership_price_amount >= 0),
     CONSTRAINT clubs_currency_check CHECK (membership_price_currency ~ '^[A-Z]{3}$'),
-    CONSTRAINT clubs_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES app.members(id)
+    CONSTRAINT clubs_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES members(id)
 );
 
-CREATE FUNCTION app.normalize_admission_policy() RETURNS trigger
+CREATE FUNCTION normalize_admission_policy() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -253,10 +249,10 @@ END;
 $$;
 
 CREATE TRIGGER clubs_normalize_admission_policy
-    BEFORE INSERT OR UPDATE OF admission_policy ON app.clubs
-    FOR EACH ROW EXECUTE FUNCTION app.normalize_admission_policy();
+    BEFORE INSERT OR UPDATE OF admission_policy ON clubs
+    FOR EACH ROW EXECUTE FUNCTION normalize_admission_policy();
 
-CREATE FUNCTION app.lock_club_versioned_mutation() RETURNS trigger
+CREATE FUNCTION lock_club_versioned_mutation() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -287,24 +283,24 @@ END;
 $$;
 
 CREATE TRIGGER clubs_versioned_field_lock
-    BEFORE UPDATE ON app.clubs
-    FOR EACH ROW EXECUTE FUNCTION app.lock_club_versioned_mutation();
+    BEFORE UPDATE ON clubs
+    FOR EACH ROW EXECUTE FUNCTION lock_club_versioned_mutation();
 
 -- ── Club versions ──────────────────────────────────────────
 
-CREATE TABLE app.club_versions (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id                 app.short_id NOT NULL,
-    owner_member_id         app.short_id NOT NULL,
+CREATE TABLE club_versions (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    club_id                 short_id NOT NULL,
+    owner_member_id         short_id NOT NULL,
     name                    text NOT NULL,
     summary                 text,
     admission_policy        text,
     membership_price_amount   numeric(12,2),
     membership_price_currency text DEFAULT 'USD' NOT NULL,
     version_no              integer NOT NULL,
-    supersedes_version_id   app.short_id,
+    supersedes_version_id   short_id,
     created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    app.short_id,
+    created_by_member_id    short_id,
 
     CONSTRAINT club_versions_pkey PRIMARY KEY (id),
     CONSTRAINT club_versions_club_version_unique UNIQUE (club_id, version_no),
@@ -315,24 +311,24 @@ CREATE TABLE app.club_versions (
     ),
     CONSTRAINT club_versions_price_check CHECK (membership_price_amount IS NULL OR membership_price_amount >= 0),
     CONSTRAINT club_versions_currency_check CHECK (membership_price_currency ~ '^[A-Z]{3}$'),
-    CONSTRAINT club_versions_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
-    CONSTRAINT club_versions_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES app.members(id),
-    CONSTRAINT club_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id),
-    CONSTRAINT club_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES app.club_versions(id)
+    CONSTRAINT club_versions_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT club_versions_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES members(id),
+    CONSTRAINT club_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id),
+    CONSTRAINT club_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES club_versions(id)
 );
 
-CREATE INDEX club_versions_club_idx ON app.club_versions (club_id, version_no DESC, created_at DESC);
+CREATE INDEX club_versions_club_idx ON club_versions (club_id, version_no DESC, created_at DESC);
 
 CREATE TRIGGER club_versions_normalize_admission_policy
-    BEFORE INSERT OR UPDATE OF admission_policy ON app.club_versions
-    FOR EACH ROW EXECUTE FUNCTION app.normalize_admission_policy();
+    BEFORE INSERT OR UPDATE OF admission_policy ON club_versions
+    FOR EACH ROW EXECUTE FUNCTION normalize_admission_policy();
 
-CREATE FUNCTION app.sync_club_version_to_club() RETURNS trigger
+CREATE FUNCTION sync_club_version_to_club() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
     PERFORM set_config('app.allow_club_version_sync', '1', true);
-    UPDATE app.clubs c SET
+    UPDATE clubs c SET
         owner_member_id           = NEW.owner_member_id,
         name                      = NEW.name,
         summary                   = NEW.summary,
@@ -350,46 +346,46 @@ END;
 $$;
 
 CREATE TRIGGER club_versions_sync
-    AFTER INSERT ON app.club_versions
-    FOR EACH ROW EXECUTE FUNCTION app.sync_club_version_to_club();
+    AFTER INSERT ON club_versions
+    FOR EACH ROW EXECUTE FUNCTION sync_club_version_to_club();
 
 -- ── Club memberships ────────────────────────────────────────────
 
-CREATE TABLE app.club_memberships (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id                 app.short_id NOT NULL,
-    member_id               app.short_id NOT NULL,
-    sponsor_member_id       app.short_id,
-    role                    app.membership_role DEFAULT 'member' NOT NULL,
-    status                  app.membership_state DEFAULT 'active' NOT NULL,
+CREATE TABLE club_memberships (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    club_id                 short_id NOT NULL,
+    member_id               short_id NOT NULL,
+    sponsor_member_id       short_id,
+    role                    membership_role DEFAULT 'member' NOT NULL,
+    status                  membership_state DEFAULT 'active' NOT NULL,
     joined_at               timestamptz DEFAULT now() NOT NULL,
     left_at                 timestamptz,
     accepted_covenant_at    timestamptz,
     metadata                jsonb DEFAULT '{}' NOT NULL,
-    source_admission_id     app.short_id,
+    source_admission_id     short_id,
     is_comped               boolean DEFAULT false NOT NULL,
     comped_at               timestamptz,
-    comped_by_member_id     app.short_id,
+    comped_by_member_id     short_id,
     approved_price_amount   numeric(12,2),
     approved_price_currency text,
 
     CONSTRAINT club_memberships_pkey PRIMARY KEY (id),
     CONSTRAINT club_memberships_club_member_unique UNIQUE (club_id, member_id),
     CONSTRAINT club_memberships_sponsor_check CHECK (sponsor_member_id IS NOT NULL OR role = 'clubadmin'),
-    CONSTRAINT club_memberships_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
-    CONSTRAINT club_memberships_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id),
-    CONSTRAINT club_memberships_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES app.members(id),
-    CONSTRAINT club_memberships_comped_by_fkey FOREIGN KEY (comped_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT club_memberships_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT club_memberships_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT club_memberships_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES members(id),
+    CONSTRAINT club_memberships_comped_by_fkey FOREIGN KEY (comped_by_member_id) REFERENCES members(id)
 );
 
 CREATE UNIQUE INDEX club_memberships_source_admission_unique
-    ON app.club_memberships (source_admission_id) WHERE source_admission_id IS NOT NULL;
+    ON club_memberships (source_admission_id) WHERE source_admission_id IS NOT NULL;
 
-CREATE INDEX club_memberships_club_status_idx ON app.club_memberships (club_id, status);
-CREATE INDEX club_memberships_member_status_idx ON app.club_memberships (member_id, status);
-CREATE INDEX club_memberships_sponsor_joined_idx ON app.club_memberships (sponsor_member_id, joined_at);
+CREATE INDEX club_memberships_club_status_idx ON club_memberships (club_id, status);
+CREATE INDEX club_memberships_member_status_idx ON club_memberships (member_id, status);
+CREATE INDEX club_memberships_sponsor_joined_idx ON club_memberships (sponsor_member_id, joined_at);
 
-CREATE FUNCTION app.lock_club_membership_mutation() RETURNS trigger
+CREATE FUNCTION lock_club_membership_mutation() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -419,33 +415,33 @@ END;
 $$;
 
 CREATE TRIGGER club_memberships_guard
-    BEFORE UPDATE ON app.club_memberships
-    FOR EACH ROW EXECUTE FUNCTION app.lock_club_membership_mutation();
+    BEFORE UPDATE ON club_memberships
+    FOR EACH ROW EXECUTE FUNCTION lock_club_membership_mutation();
 
 -- ── Club membership state versions ──────────────────────────────
 
-CREATE TABLE app.club_membership_state_versions (
-    id                              app.short_id DEFAULT app.new_id() NOT NULL,
-    membership_id                   app.short_id NOT NULL,
-    status                          app.membership_state NOT NULL,
+CREATE TABLE club_membership_state_versions (
+    id                              short_id DEFAULT new_id() NOT NULL,
+    membership_id                   short_id NOT NULL,
+    status                          membership_state NOT NULL,
     reason                          text,
     version_no                      integer NOT NULL,
-    supersedes_state_version_id     app.short_id,
+    supersedes_state_version_id     short_id,
     created_at                      timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id            app.short_id,
+    created_by_member_id            short_id,
 
     CONSTRAINT club_membership_state_versions_pkey PRIMARY KEY (id),
     CONSTRAINT club_membership_state_versions_version_unique UNIQUE (membership_id, version_no),
     CONSTRAINT club_membership_state_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT club_membership_state_versions_membership_fkey FOREIGN KEY (membership_id) REFERENCES app.club_memberships(id),
-    CONSTRAINT club_membership_state_versions_supersedes_fkey FOREIGN KEY (supersedes_state_version_id) REFERENCES app.club_membership_state_versions(id),
-    CONSTRAINT club_membership_state_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT club_membership_state_versions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id),
+    CONSTRAINT club_membership_state_versions_supersedes_fkey FOREIGN KEY (supersedes_state_version_id) REFERENCES club_membership_state_versions(id),
+    CONSTRAINT club_membership_state_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
 CREATE INDEX club_membership_state_versions_lookup_idx
-    ON app.club_membership_state_versions (membership_id, version_no DESC, created_at DESC);
+    ON club_membership_state_versions (membership_id, version_no DESC, created_at DESC);
 
-CREATE FUNCTION app.sync_club_membership_state() RETURNS trigger
+CREATE FUNCTION sync_club_membership_state() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 DECLARE
@@ -456,7 +452,7 @@ BEGIN
         ELSE NULL
     END;
     PERFORM set_config('app.allow_membership_state_sync', '1', true);
-    UPDATE app.club_memberships m
+    UPDATE club_memberships m
        SET status = NEW.status,
            left_at = mirrored_left_at
      WHERE m.id = NEW.membership_id;
@@ -470,16 +466,16 @@ END;
 $$;
 
 CREATE TRIGGER club_membership_state_versions_sync
-    AFTER INSERT ON app.club_membership_state_versions
-    FOR EACH ROW EXECUTE FUNCTION app.sync_club_membership_state();
+    AFTER INSERT ON club_membership_state_versions
+    FOR EACH ROW EXECUTE FUNCTION sync_club_membership_state();
 
 -- ── Club subscriptions ──────────────────────────────────────────
 
-CREATE TABLE app.club_subscriptions (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
-    membership_id       app.short_id NOT NULL,
-    payer_member_id     app.short_id NOT NULL,
-    status              app.subscription_status DEFAULT 'active' NOT NULL,
+CREATE TABLE club_subscriptions (
+    id                  short_id DEFAULT new_id() NOT NULL,
+    membership_id       short_id NOT NULL,
+    payer_member_id     short_id NOT NULL,
+    status              subscription_status DEFAULT 'active' NOT NULL,
     amount              numeric(12,2) NOT NULL,
     currency            text DEFAULT 'USD' NOT NULL,
     started_at          timestamptz DEFAULT now() NOT NULL,
@@ -489,26 +485,26 @@ CREATE TABLE app.club_subscriptions (
     CONSTRAINT club_subscriptions_pkey PRIMARY KEY (id),
     CONSTRAINT club_subscriptions_amount_check CHECK (amount >= 0),
     CONSTRAINT club_subscriptions_currency_check CHECK (currency ~ '^[A-Z]{3}$'),
-    CONSTRAINT club_subscriptions_membership_fkey FOREIGN KEY (membership_id) REFERENCES app.club_memberships(id),
-    CONSTRAINT club_subscriptions_payer_fkey FOREIGN KEY (payer_member_id) REFERENCES app.members(id)
+    CONSTRAINT club_subscriptions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id),
+    CONSTRAINT club_subscriptions_payer_fkey FOREIGN KEY (payer_member_id) REFERENCES members(id)
 );
 
-CREATE INDEX club_subscriptions_membership_status_idx ON app.club_subscriptions (membership_id, status);
-CREATE INDEX club_subscriptions_payer_status_idx ON app.club_subscriptions (payer_member_id, status);
+CREATE INDEX club_subscriptions_membership_status_idx ON club_subscriptions (membership_id, status);
+CREATE INDEX club_subscriptions_payer_status_idx ON club_subscriptions (payer_member_id, status);
 CREATE UNIQUE INDEX club_subscriptions_one_live_per_membership
-    ON app.club_subscriptions (membership_id) WHERE status IN ('active', 'trialing', 'past_due');
+    ON club_subscriptions (membership_id) WHERE status IN ('active', 'trialing', 'past_due');
 
 
 -- ============================================================
 -- Tables: Content
 -- ============================================================
 
-CREATE TABLE app.entities (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id             app.short_id NOT NULL,
-    kind                app.entity_kind NOT NULL,
-    author_member_id    app.short_id NOT NULL,
-    parent_entity_id    app.short_id,
+CREATE TABLE entities (
+    id                  short_id DEFAULT new_id() NOT NULL,
+    club_id             short_id NOT NULL,
+    kind                entity_kind NOT NULL,
+    author_member_id    short_id NOT NULL,
+    parent_entity_id    short_id,
     client_key          text,
     created_at          timestamptz DEFAULT now() NOT NULL,
     archived_at         timestamptz,
@@ -519,104 +515,112 @@ CREATE TABLE app.entities (
     CONSTRAINT entities_comment_parent_check CHECK (
         (kind = 'comment' AND parent_entity_id IS NOT NULL) OR kind <> 'comment'
     ),
-    CONSTRAINT entities_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
-    CONSTRAINT entities_author_fkey FOREIGN KEY (author_member_id) REFERENCES app.members(id),
-    CONSTRAINT entities_parent_fkey FOREIGN KEY (parent_entity_id) REFERENCES app.entities(id)
+    CONSTRAINT entities_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT entities_author_fkey FOREIGN KEY (author_member_id) REFERENCES members(id),
+    CONSTRAINT entities_parent_fkey FOREIGN KEY (parent_entity_id) REFERENCES entities(id)
 );
 
 CREATE UNIQUE INDEX entities_idempotent_idx
-    ON app.entities (author_member_id, client_key) WHERE client_key IS NOT NULL;
-CREATE INDEX entities_club_kind_idx ON app.entities (club_id, kind, created_at DESC);
-CREATE INDEX entities_author_idx ON app.entities (author_member_id, created_at DESC);
-CREATE INDEX entities_parent_idx ON app.entities (parent_entity_id);
-CREATE INDEX entities_live_idx ON app.entities (club_id, kind) WHERE archived_at IS NULL AND deleted_at IS NULL;
+    ON entities (author_member_id, client_key) WHERE client_key IS NOT NULL;
+CREATE INDEX entities_club_kind_idx ON entities (club_id, kind, created_at DESC);
+CREATE INDEX entities_author_idx ON entities (author_member_id, created_at DESC);
+CREATE INDEX entities_parent_idx ON entities (parent_entity_id);
+CREATE INDEX entities_live_idx ON entities (club_id, kind) WHERE archived_at IS NULL AND deleted_at IS NULL;
 
 -- ── Entity versions ────────────────────────────────────────
 
-CREATE TABLE app.entity_versions (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    entity_id               app.short_id NOT NULL,
+CREATE TABLE entity_versions (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    entity_id               short_id NOT NULL,
     version_no              integer NOT NULL,
-    state                   app.entity_state DEFAULT 'published' NOT NULL,
+    state                   entity_state DEFAULT 'published' NOT NULL,
     title                   text,
     summary                 text,
     body                    text,
+    effective_at            timestamptz DEFAULT now() NOT NULL,
+    expires_at              timestamptz,
+    content                 jsonb DEFAULT '{}' NOT NULL,
+    reason                  text,
+    supersedes_version_id   short_id,
+    created_at              timestamptz DEFAULT now() NOT NULL,
+    created_by_member_id    short_id,
+
+    CONSTRAINT entity_versions_pkey PRIMARY KEY (id),
+    CONSTRAINT entity_versions_entity_version_unique UNIQUE (entity_id, version_no),
+    CONSTRAINT entity_versions_version_no_check CHECK (version_no > 0),
+    CONSTRAINT entity_versions_expiry_check CHECK (expires_at IS NULL OR expires_at >= effective_at),
+    CONSTRAINT entity_versions_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id),
+    CONSTRAINT entity_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES entity_versions(id),
+    CONSTRAINT entity_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
+);
+
+CREATE INDEX entity_versions_entity_version_idx ON entity_versions (entity_id, version_no DESC);
+CREATE INDEX entity_versions_effective_idx ON entity_versions (effective_at DESC);
+CREATE INDEX entity_versions_expires_idx ON entity_versions (expires_at);
+
+-- ── Event version details (extension table for event-specific fields) ──
+
+CREATE TABLE event_version_details (
+    entity_version_id       short_id NOT NULL,
     location                text,
-    work_mode               app.work_mode DEFAULT 'unspecified' NOT NULL,
-    compensation            app.compensation_kind DEFAULT 'unspecified' NOT NULL,
     starts_at               timestamptz,
     ends_at                 timestamptz,
     timezone                text,
     recurrence_rule         text,
     capacity                integer,
-    effective_at            timestamptz DEFAULT now() NOT NULL,
-    expires_at              timestamptz,
-    content                 jsonb DEFAULT '{}' NOT NULL,
-    reason                  text,
-    supersedes_version_id   app.short_id,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    app.short_id,
 
-    CONSTRAINT entity_versions_pkey PRIMARY KEY (id),
-    CONSTRAINT entity_versions_entity_version_unique UNIQUE (entity_id, version_no),
-    CONSTRAINT entity_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT entity_versions_capacity_check CHECK (capacity IS NULL OR capacity > 0),
-    CONSTRAINT entity_versions_dates_check CHECK (ends_at IS NULL OR starts_at IS NULL OR ends_at >= starts_at),
-    CONSTRAINT entity_versions_expiry_check CHECK (expires_at IS NULL OR expires_at >= effective_at),
-    CONSTRAINT entity_versions_entity_fkey FOREIGN KEY (entity_id) REFERENCES app.entities(id),
-    CONSTRAINT entity_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES app.entity_versions(id),
-    CONSTRAINT entity_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT event_version_details_pkey PRIMARY KEY (entity_version_id),
+    CONSTRAINT event_version_details_capacity_check CHECK (capacity IS NULL OR capacity > 0),
+    CONSTRAINT event_version_details_dates_check CHECK (ends_at IS NULL OR starts_at IS NULL OR ends_at >= starts_at),
+    CONSTRAINT event_version_details_version_fkey FOREIGN KEY (entity_version_id) REFERENCES entity_versions(id)
 );
 
-CREATE INDEX entity_versions_entity_version_idx ON app.entity_versions (entity_id, version_no DESC);
-CREATE INDEX entity_versions_effective_idx ON app.entity_versions (effective_at DESC);
-CREATE INDEX entity_versions_starts_idx ON app.entity_versions (starts_at);
-CREATE INDEX entity_versions_expires_idx ON app.entity_versions (expires_at);
+CREATE INDEX event_version_details_starts_idx ON event_version_details (starts_at);
 
 -- ── Event RSVPs ──────────────────────────────────────────────────
 
-CREATE TABLE app.event_rsvps (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    event_entity_id         app.short_id NOT NULL,
-    membership_id           app.short_id NOT NULL,
-    response                app.rsvp_state NOT NULL,
+CREATE TABLE event_rsvps (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    event_entity_id         short_id NOT NULL,
+    membership_id           short_id NOT NULL,
+    response                rsvp_state NOT NULL,
     note                    text,
     client_key              text,
     version_no              integer DEFAULT 1 NOT NULL,
-    supersedes_rsvp_id      app.short_id,
+    supersedes_rsvp_id      short_id,
     created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    app.short_id,
+    created_by_member_id    short_id,
 
     CONSTRAINT event_rsvps_pkey PRIMARY KEY (id),
     CONSTRAINT event_rsvps_event_membership_version_unique UNIQUE (event_entity_id, membership_id, version_no),
-    CONSTRAINT event_rsvps_event_fkey FOREIGN KEY (event_entity_id) REFERENCES app.entities(id),
-    CONSTRAINT event_rsvps_membership_fkey FOREIGN KEY (membership_id) REFERENCES app.club_memberships(id),
-    CONSTRAINT event_rsvps_supersedes_fkey FOREIGN KEY (supersedes_rsvp_id) REFERENCES app.event_rsvps(id),
-    CONSTRAINT event_rsvps_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT event_rsvps_event_fkey FOREIGN KEY (event_entity_id) REFERENCES entities(id),
+    CONSTRAINT event_rsvps_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id),
+    CONSTRAINT event_rsvps_supersedes_fkey FOREIGN KEY (supersedes_rsvp_id) REFERENCES event_rsvps(id),
+    CONSTRAINT event_rsvps_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
 CREATE UNIQUE INDEX event_rsvps_idempotent_idx
-    ON app.event_rsvps (created_by_member_id, client_key) WHERE client_key IS NOT NULL;
-CREATE INDEX event_rsvps_event_idx ON app.event_rsvps (event_entity_id, response);
-CREATE INDEX event_rsvps_event_membership_version_idx ON app.event_rsvps (event_entity_id, membership_id, version_no DESC, created_at DESC);
-CREATE INDEX event_rsvps_membership_idx ON app.event_rsvps (membership_id, created_at DESC);
+    ON event_rsvps (created_by_member_id, client_key) WHERE client_key IS NOT NULL;
+CREATE INDEX event_rsvps_event_idx ON event_rsvps (event_entity_id, response);
+CREATE INDEX event_rsvps_event_membership_version_idx ON event_rsvps (event_entity_id, membership_id, version_no DESC, created_at DESC);
+CREATE INDEX event_rsvps_membership_idx ON event_rsvps (membership_id, created_at DESC);
 
 -- ── Club edges (vouches, etc.) ──────────────────────────────────
 
-CREATE TABLE app.club_edges (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id                 app.short_id,
-    kind                    app.edge_kind NOT NULL,
-    from_member_id          app.short_id,
-    from_entity_id          app.short_id,
-    from_entity_version_id  app.short_id,
-    to_member_id            app.short_id,
-    to_entity_id            app.short_id,
-    to_entity_version_id    app.short_id,
+CREATE TABLE club_edges (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    club_id                 short_id,
+    kind                    edge_kind NOT NULL,
+    from_member_id          short_id,
+    from_entity_id          short_id,
+    from_entity_version_id  short_id,
+    to_member_id            short_id,
+    to_entity_id            short_id,
+    to_entity_version_id    short_id,
     reason                  text,
     metadata                jsonb DEFAULT '{}' NOT NULL,
     client_key              text,
-    created_by_member_id    app.short_id,
+    created_by_member_id    short_id,
     created_at              timestamptz DEFAULT now() NOT NULL,
     archived_at             timestamptz,
 
@@ -637,37 +641,37 @@ CREATE TABLE app.club_edges (
     CONSTRAINT club_edges_no_self_vouch CHECK (
         kind <> 'vouched_for' OR from_member_id <> to_member_id
     ),
-    CONSTRAINT club_edges_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
-    CONSTRAINT club_edges_from_member_fkey FOREIGN KEY (from_member_id) REFERENCES app.members(id),
-    CONSTRAINT club_edges_from_entity_fkey FOREIGN KEY (from_entity_id) REFERENCES app.entities(id),
-    CONSTRAINT club_edges_from_entity_version_fkey FOREIGN KEY (from_entity_version_id) REFERENCES app.entity_versions(id),
-    CONSTRAINT club_edges_to_member_fkey FOREIGN KEY (to_member_id) REFERENCES app.members(id),
-    CONSTRAINT club_edges_to_entity_fkey FOREIGN KEY (to_entity_id) REFERENCES app.entities(id),
-    CONSTRAINT club_edges_to_entity_version_fkey FOREIGN KEY (to_entity_version_id) REFERENCES app.entity_versions(id),
-    CONSTRAINT club_edges_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT club_edges_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT club_edges_from_member_fkey FOREIGN KEY (from_member_id) REFERENCES members(id),
+    CONSTRAINT club_edges_from_entity_fkey FOREIGN KEY (from_entity_id) REFERENCES entities(id),
+    CONSTRAINT club_edges_from_entity_version_fkey FOREIGN KEY (from_entity_version_id) REFERENCES entity_versions(id),
+    CONSTRAINT club_edges_to_member_fkey FOREIGN KEY (to_member_id) REFERENCES members(id),
+    CONSTRAINT club_edges_to_entity_fkey FOREIGN KEY (to_entity_id) REFERENCES entities(id),
+    CONSTRAINT club_edges_to_entity_version_fkey FOREIGN KEY (to_entity_version_id) REFERENCES entity_versions(id),
+    CONSTRAINT club_edges_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
 CREATE UNIQUE INDEX club_edges_idempotent_idx
-    ON app.club_edges (created_by_member_id, client_key) WHERE client_key IS NOT NULL;
+    ON club_edges (created_by_member_id, client_key) WHERE client_key IS NOT NULL;
 CREATE UNIQUE INDEX club_edges_unique_active_vouch
-    ON app.club_edges (club_id, from_member_id, to_member_id)
+    ON club_edges (club_id, from_member_id, to_member_id)
     WHERE kind = 'vouched_for' AND archived_at IS NULL;
-CREATE INDEX club_edges_club_kind_idx ON app.club_edges (club_id, kind, created_at DESC);
-CREATE INDEX club_edges_from_member_idx ON app.club_edges (from_member_id, kind, created_at DESC);
-CREATE INDEX club_edges_to_entity_idx ON app.club_edges (to_entity_id, kind, created_at DESC);
-CREATE INDEX club_edges_to_member_idx ON app.club_edges (to_member_id, kind, created_at DESC);
+CREATE INDEX club_edges_club_kind_idx ON club_edges (club_id, kind, created_at DESC);
+CREATE INDEX club_edges_from_member_idx ON club_edges (from_member_id, kind, created_at DESC);
+CREATE INDEX club_edges_to_entity_idx ON club_edges (to_entity_id, kind, created_at DESC);
+CREATE INDEX club_edges_to_member_idx ON club_edges (to_member_id, kind, created_at DESC);
 
 
 -- ============================================================
 -- Tables: Admissions
 -- ============================================================
 
-CREATE TABLE app.admissions (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id             app.short_id NOT NULL,
-    applicant_member_id app.short_id,
-    sponsor_member_id   app.short_id,
-    membership_id       app.short_id,
+CREATE TABLE admissions (
+    id                  short_id DEFAULT new_id() NOT NULL,
+    club_id             short_id NOT NULL,
+    applicant_member_id short_id,
+    sponsor_member_id   short_id,
+    membership_id       short_id,
     origin              text NOT NULL,
     metadata            jsonb DEFAULT '{}' NOT NULL,
     created_at          timestamptz DEFAULT now() NOT NULL,
@@ -687,20 +691,20 @@ CREATE TABLE app.admissions (
             AND length(btrim(applicant_email)) > 0
             AND length(btrim(applicant_name)) > 0)
     ),
-    CONSTRAINT admissions_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
-    CONSTRAINT admissions_applicant_fkey FOREIGN KEY (applicant_member_id) REFERENCES app.members(id),
-    CONSTRAINT admissions_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES app.members(id),
-    CONSTRAINT admissions_membership_fkey FOREIGN KEY (membership_id) REFERENCES app.club_memberships(id)
+    CONSTRAINT admissions_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT admissions_applicant_fkey FOREIGN KEY (applicant_member_id) REFERENCES members(id),
+    CONSTRAINT admissions_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES members(id),
+    CONSTRAINT admissions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id)
 );
 
-CREATE INDEX admissions_club_created_idx ON app.admissions (club_id, created_at DESC);
+CREATE INDEX admissions_club_created_idx ON admissions (club_id, created_at DESC);
 
 -- ── Admission versions ─────────────────────────────────────
 
-CREATE TABLE app.admission_versions (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    admission_id            app.short_id NOT NULL,
-    status                  app.application_status NOT NULL,
+CREATE TABLE admission_versions (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    admission_id            short_id NOT NULL,
+    status                  application_status NOT NULL,
     notes                   text,
     intake_kind             text DEFAULT 'other' NOT NULL,
     intake_price_amount     numeric(12,2),
@@ -709,9 +713,9 @@ CREATE TABLE app.admission_versions (
     intake_booked_at        timestamptz,
     intake_completed_at     timestamptz,
     version_no              integer NOT NULL,
-    supersedes_version_id   app.short_id,
+    supersedes_version_id   short_id,
     created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    app.short_id,
+    created_by_member_id    short_id,
 
     CONSTRAINT admission_versions_pkey PRIMARY KEY (id),
     CONSTRAINT admission_versions_admission_version_unique UNIQUE (admission_id, version_no),
@@ -728,21 +732,21 @@ CREATE TABLE app.admission_versions (
     CONSTRAINT admission_versions_intake_dates_check CHECK (
         intake_completed_at IS NULL OR intake_booked_at IS NULL OR intake_completed_at >= intake_booked_at
     ),
-    CONSTRAINT admission_versions_admission_fkey FOREIGN KEY (admission_id) REFERENCES app.admissions(id),
-    CONSTRAINT admission_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES app.admission_versions(id),
-    CONSTRAINT admission_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT admission_versions_admission_fkey FOREIGN KEY (admission_id) REFERENCES admissions(id),
+    CONSTRAINT admission_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES admission_versions(id),
+    CONSTRAINT admission_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
 CREATE INDEX admission_versions_admission_version_idx
-    ON app.admission_versions (admission_id, version_no DESC, created_at DESC);
+    ON admission_versions (admission_id, version_no DESC, created_at DESC);
 
 -- ── Admission challenges ───────────────────────────────────
 
-CREATE TABLE app.admission_challenges (
-    id              app.short_id DEFAULT app.new_id() NOT NULL,
+CREATE TABLE admission_challenges (
+    id              short_id DEFAULT new_id() NOT NULL,
     difficulty      integer NOT NULL,
-    club_id         app.short_id,
-    member_id       app.short_id,              -- bound to authenticated member for cross-apply challenges (NULL for cold)
+    club_id         short_id,
+    member_id       short_id,              -- bound to authenticated member for cross-apply challenges (NULL for cold)
     policy_snapshot text,
     club_name       text,
     club_summary    text,
@@ -753,47 +757,47 @@ CREATE TABLE app.admission_challenges (
     CONSTRAINT admission_challenges_pkey PRIMARY KEY (id),
     CONSTRAINT admission_challenges_difficulty_check CHECK (difficulty > 0),
     CONSTRAINT admission_challenges_expiry_check CHECK (expires_at > created_at),
-    CONSTRAINT admission_challenges_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
-    CONSTRAINT admission_challenges_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id)
+    CONSTRAINT admission_challenges_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT admission_challenges_member_fkey FOREIGN KEY (member_id) REFERENCES members(id)
 );
 
-CREATE INDEX admission_challenges_expires_idx ON app.admission_challenges (expires_at);
+CREATE INDEX admission_challenges_expires_idx ON admission_challenges (expires_at);
 
 -- ── Admission attempts ─────────────────────────────────────
 
-CREATE TABLE app.admission_attempts (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
-    challenge_id        app.short_id NOT NULL,
-    club_id             app.short_id NOT NULL,
+CREATE TABLE admission_attempts (
+    id                  short_id DEFAULT new_id() NOT NULL,
+    challenge_id        short_id NOT NULL,
+    club_id             short_id NOT NULL,
     attempt_no          integer NOT NULL,
     applicant_name      text NOT NULL,
     applicant_email     text NOT NULL,
     payload             jsonb NOT NULL DEFAULT '{}',
-    gate_status         app.quality_gate_status NOT NULL,
+    gate_status         quality_gate_status NOT NULL,
     gate_feedback       text,
     policy_snapshot     text NOT NULL,
     created_at          timestamptz DEFAULT now() NOT NULL,
 
     CONSTRAINT admission_attempts_pkey PRIMARY KEY (id),
     CONSTRAINT admission_attempts_attempt_no_check CHECK (attempt_no BETWEEN 1 AND 5),
-    CONSTRAINT admission_attempts_challenge_fkey FOREIGN KEY (challenge_id) REFERENCES app.admission_challenges(id) ON DELETE CASCADE,
-    CONSTRAINT admission_attempts_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id)
+    CONSTRAINT admission_attempts_challenge_fkey FOREIGN KEY (challenge_id) REFERENCES admission_challenges(id) ON DELETE CASCADE,
+    CONSTRAINT admission_attempts_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id)
 );
 
-CREATE INDEX admission_attempts_challenge_idx ON app.admission_attempts (challenge_id, attempt_no);
+CREATE INDEX admission_attempts_challenge_idx ON admission_attempts (challenge_id, attempt_no);
 
 
 -- ============================================================
 -- Tables: Messaging
 -- ============================================================
 
-CREATE TABLE app.dm_threads (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    kind                    app.thread_kind NOT NULL,
-    created_by_member_id    app.short_id,
-    subject_entity_id       app.short_id,
-    member_a_id             app.short_id,
-    member_b_id             app.short_id,
+CREATE TABLE dm_threads (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    kind                    thread_kind NOT NULL,
+    created_by_member_id    short_id,
+    subject_entity_id       short_id,
+    member_a_id             short_id,
+    member_b_id             short_id,
     metadata                jsonb DEFAULT '{}' NOT NULL,
     created_at              timestamptz DEFAULT now() NOT NULL,
     archived_at             timestamptz,
@@ -806,45 +810,45 @@ CREATE TABLE app.dm_threads (
             AND member_a_id < member_b_id
         )
     ),
-    CONSTRAINT dm_threads_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id),
-    CONSTRAINT dm_threads_subject_entity_fkey FOREIGN KEY (subject_entity_id) REFERENCES app.entities(id),
-    CONSTRAINT dm_threads_member_a_fkey FOREIGN KEY (member_a_id) REFERENCES app.members(id),
-    CONSTRAINT dm_threads_member_b_fkey FOREIGN KEY (member_b_id) REFERENCES app.members(id)
+    CONSTRAINT dm_threads_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id),
+    CONSTRAINT dm_threads_subject_entity_fkey FOREIGN KEY (subject_entity_id) REFERENCES entities(id),
+    CONSTRAINT dm_threads_member_a_fkey FOREIGN KEY (member_a_id) REFERENCES members(id),
+    CONSTRAINT dm_threads_member_b_fkey FOREIGN KEY (member_b_id) REFERENCES members(id)
 );
 
 CREATE UNIQUE INDEX dm_threads_direct_pair_unique_idx
-    ON app.dm_threads (kind, member_a_id, member_b_id)
+    ON dm_threads (kind, member_a_id, member_b_id)
     WHERE kind = 'direct' AND archived_at IS NULL;
-CREATE INDEX dm_threads_created_by_idx ON app.dm_threads (created_by_member_id, created_at DESC);
+CREATE INDEX dm_threads_created_by_idx ON dm_threads (created_by_member_id, created_at DESC);
 
 -- ── DM thread participants ────────────────────────────────────
 
-CREATE TABLE app.dm_thread_participants (
-    id              app.short_id DEFAULT app.new_id() NOT NULL,
-    thread_id       app.short_id NOT NULL,
-    member_id       app.short_id NOT NULL,
+CREATE TABLE dm_thread_participants (
+    id              short_id DEFAULT new_id() NOT NULL,
+    thread_id       short_id NOT NULL,
+    member_id       short_id NOT NULL,
     role            text NOT NULL DEFAULT 'participant',
     joined_at       timestamptz DEFAULT now() NOT NULL,
     left_at         timestamptz,
 
     CONSTRAINT dm_thread_participants_pkey PRIMARY KEY (id),
     CONSTRAINT dm_thread_participants_unique UNIQUE (thread_id, member_id),
-    CONSTRAINT dm_thread_participants_thread_fkey FOREIGN KEY (thread_id) REFERENCES app.dm_threads(id),
-    CONSTRAINT dm_thread_participants_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id)
+    CONSTRAINT dm_thread_participants_thread_fkey FOREIGN KEY (thread_id) REFERENCES dm_threads(id),
+    CONSTRAINT dm_thread_participants_member_fkey FOREIGN KEY (member_id) REFERENCES members(id)
 );
 
-CREATE INDEX dm_thread_participants_member_idx ON app.dm_thread_participants (member_id, thread_id);
+CREATE INDEX dm_thread_participants_member_idx ON dm_thread_participants (member_id, thread_id);
 
 -- ── DM messages ───────────────────────────────────────────────
 
-CREATE TABLE app.dm_messages (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    thread_id               app.short_id NOT NULL,
-    sender_member_id        app.short_id,
-    role                    app.message_role NOT NULL,
+CREATE TABLE dm_messages (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    thread_id               short_id NOT NULL,
+    sender_member_id        short_id,
+    role                    message_role NOT NULL,
     message_text            text,
     payload                 jsonb DEFAULT '{}' NOT NULL,
-    in_reply_to_message_id  app.short_id,
+    in_reply_to_message_id  short_id,
     client_key              text,
     created_at              timestamptz DEFAULT now() NOT NULL,
 
@@ -852,50 +856,50 @@ CREATE TABLE app.dm_messages (
     CONSTRAINT dm_messages_content_check CHECK (
         message_text IS NOT NULL OR payload <> '{}'
     ),
-    CONSTRAINT dm_messages_thread_fkey FOREIGN KEY (thread_id) REFERENCES app.dm_threads(id),
-    CONSTRAINT dm_messages_sender_fkey FOREIGN KEY (sender_member_id) REFERENCES app.members(id),
-    CONSTRAINT dm_messages_reply_fkey FOREIGN KEY (in_reply_to_message_id) REFERENCES app.dm_messages(id)
+    CONSTRAINT dm_messages_thread_fkey FOREIGN KEY (thread_id) REFERENCES dm_threads(id),
+    CONSTRAINT dm_messages_sender_fkey FOREIGN KEY (sender_member_id) REFERENCES members(id),
+    CONSTRAINT dm_messages_reply_fkey FOREIGN KEY (in_reply_to_message_id) REFERENCES dm_messages(id)
 );
 
 CREATE UNIQUE INDEX dm_messages_idempotent_idx
-    ON app.dm_messages (sender_member_id, client_key) WHERE client_key IS NOT NULL;
-CREATE INDEX dm_messages_thread_created_desc_idx ON app.dm_messages (thread_id, created_at DESC, id DESC);
-CREATE INDEX dm_messages_thread_created_asc_idx ON app.dm_messages (thread_id, created_at);
-CREATE INDEX dm_messages_sender_idx ON app.dm_messages (sender_member_id, created_at DESC);
+    ON dm_messages (sender_member_id, client_key) WHERE client_key IS NOT NULL;
+CREATE INDEX dm_messages_thread_created_desc_idx ON dm_messages (thread_id, created_at DESC, id DESC);
+CREATE INDEX dm_messages_thread_created_asc_idx ON dm_messages (thread_id, created_at);
+CREATE INDEX dm_messages_sender_idx ON dm_messages (sender_member_id, created_at DESC);
 
 -- ── DM inbox entries ──────────────────────────────────────────
 
-CREATE TABLE app.dm_inbox_entries (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    recipient_member_id     app.short_id NOT NULL,
-    thread_id               app.short_id NOT NULL,
-    message_id              app.short_id NOT NULL,
+CREATE TABLE dm_inbox_entries (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    recipient_member_id     short_id NOT NULL,
+    thread_id               short_id NOT NULL,
+    message_id              short_id NOT NULL,
     acknowledged            boolean NOT NULL DEFAULT false,
     created_at              timestamptz DEFAULT now() NOT NULL,
 
     CONSTRAINT dm_inbox_entries_pkey PRIMARY KEY (id),
     CONSTRAINT dm_inbox_entries_recipient_message_unique UNIQUE (recipient_member_id, message_id),
-    CONSTRAINT dm_inbox_entries_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES app.members(id),
-    CONSTRAINT dm_inbox_entries_thread_fkey FOREIGN KEY (thread_id) REFERENCES app.dm_threads(id),
-    CONSTRAINT dm_inbox_entries_message_fkey FOREIGN KEY (message_id) REFERENCES app.dm_messages(id)
+    CONSTRAINT dm_inbox_entries_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES members(id),
+    CONSTRAINT dm_inbox_entries_thread_fkey FOREIGN KEY (thread_id) REFERENCES dm_threads(id),
+    CONSTRAINT dm_inbox_entries_message_fkey FOREIGN KEY (message_id) REFERENCES dm_messages(id)
 );
 
 CREATE INDEX dm_inbox_entries_unread_idx
-    ON app.dm_inbox_entries (recipient_member_id) WHERE acknowledged = false;
+    ON dm_inbox_entries (recipient_member_id) WHERE acknowledged = false;
 CREATE INDEX dm_inbox_entries_recipient_created_idx
-    ON app.dm_inbox_entries (recipient_member_id, created_at DESC);
+    ON dm_inbox_entries (recipient_member_id, created_at DESC);
 
 -- ── DM message removals ───────────────────────────────────────
 
-CREATE TABLE app.dm_message_removals (
-    message_id              app.short_id NOT NULL,
-    removed_by_member_id    app.short_id NOT NULL,
+CREATE TABLE dm_message_removals (
+    message_id              short_id NOT NULL,
+    removed_by_member_id    short_id NOT NULL,
     reason                  text,
     removed_at              timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT dm_message_removals_pkey PRIMARY KEY (message_id),
-    CONSTRAINT dm_message_removals_message_fkey FOREIGN KEY (message_id) REFERENCES app.dm_messages(id),
-    CONSTRAINT dm_message_removals_removed_by_fkey FOREIGN KEY (removed_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT dm_message_removals_message_fkey FOREIGN KEY (message_id) REFERENCES dm_messages(id),
+    CONSTRAINT dm_message_removals_removed_by_fkey FOREIGN KEY (removed_by_member_id) REFERENCES members(id)
 );
 
 
@@ -903,52 +907,52 @@ CREATE TABLE app.dm_message_removals (
 -- Tables: Activity & Signals
 -- ============================================================
 
-CREATE TABLE app.club_activity (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id                 app.short_id NOT NULL,
+CREATE TABLE club_activity (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    club_id                 short_id NOT NULL,
     seq                     bigint GENERATED ALWAYS AS IDENTITY,
     topic                   text NOT NULL,
-    audience                app.club_activity_audience NOT NULL DEFAULT 'members',
+    audience                club_activity_audience NOT NULL DEFAULT 'members',
     payload                 jsonb NOT NULL DEFAULT '{}',
-    entity_id               app.short_id,
-    entity_version_id       app.short_id,
-    created_by_member_id    app.short_id,
+    entity_id               short_id,
+    entity_version_id       short_id,
+    created_by_member_id    short_id,
     created_at              timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT club_activity_pkey PRIMARY KEY (id),
     CONSTRAINT club_activity_seq_unique UNIQUE (seq),
     CONSTRAINT club_activity_topic_check CHECK (length(btrim(topic)) > 0),
-    CONSTRAINT club_activity_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
-    CONSTRAINT club_activity_entity_fkey FOREIGN KEY (entity_id) REFERENCES app.entities(id),
-    CONSTRAINT club_activity_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES app.members(id)
+    CONSTRAINT club_activity_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT club_activity_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id),
+    CONSTRAINT club_activity_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
-CREATE INDEX club_activity_club_seq_idx ON app.club_activity (club_id, seq);
+CREATE INDEX club_activity_club_seq_idx ON club_activity (club_id, seq);
 
 -- ── Club activity cursors ───────────────────────────────────────
 
-CREATE TABLE app.club_activity_cursors (
-    member_id       app.short_id NOT NULL,
-    club_id         app.short_id NOT NULL,
+CREATE TABLE club_activity_cursors (
+    member_id       short_id NOT NULL,
+    club_id         short_id NOT NULL,
     last_seq        bigint NOT NULL DEFAULT 0,
     updated_at      timestamptz NOT NULL DEFAULT now(),
 
     CONSTRAINT club_activity_cursors_pkey PRIMARY KEY (member_id, club_id),
-    CONSTRAINT club_activity_cursors_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id),
-    CONSTRAINT club_activity_cursors_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id)
+    CONSTRAINT club_activity_cursors_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT club_activity_cursors_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id)
 );
 
 -- ── Signal deliveries ────────────────────────────────────────────────
 
-CREATE TABLE app.signal_deliveries (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id                 app.short_id NOT NULL,
-    recipient_member_id     app.short_id NOT NULL,
+CREATE TABLE signal_deliveries (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    club_id                 short_id NOT NULL,
+    recipient_member_id     short_id NOT NULL,
     seq                     bigint GENERATED ALWAYS AS IDENTITY,
     topic                   text NOT NULL,
     payload                 jsonb NOT NULL DEFAULT '{}',
-    entity_id               app.short_id,
-    match_id                app.short_id,
+    entity_id               short_id,
+    match_id                short_id,
     acknowledged_state      text,
     acknowledged_at         timestamptz,
     suppression_reason      text,
@@ -964,24 +968,24 @@ CREATE TABLE app.signal_deliveries (
         (acknowledged_state = 'suppressed' AND suppression_reason IS NOT NULL)
         OR (acknowledged_state IS DISTINCT FROM 'suppressed')
     ),
-    CONSTRAINT signal_deliveries_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
-    CONSTRAINT signal_deliveries_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES app.members(id),
-    CONSTRAINT signal_deliveries_entity_fkey FOREIGN KEY (entity_id) REFERENCES app.entities(id)
+    CONSTRAINT signal_deliveries_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT signal_deliveries_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES members(id),
+    CONSTRAINT signal_deliveries_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id)
 );
 
 CREATE INDEX signal_deliveries_recipient_poll_idx
-    ON app.signal_deliveries (recipient_member_id, club_id, seq) WHERE acknowledged_state IS NULL;
+    ON signal_deliveries (recipient_member_id, club_id, seq) WHERE acknowledged_state IS NULL;
 CREATE UNIQUE INDEX signal_deliveries_match_unique_idx
-    ON app.signal_deliveries (match_id) WHERE match_id IS NOT NULL;
+    ON signal_deliveries (match_id) WHERE match_id IS NOT NULL;
 
 
 -- ============================================================
 -- Tables: Quotas & Quality
 -- ============================================================
 
-CREATE TABLE app.club_quota_policies (
-    id              app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id         app.short_id NOT NULL,
+CREATE TABLE club_quota_policies (
+    id              short_id DEFAULT new_id() NOT NULL,
+    club_id         short_id NOT NULL,
     action_name     text NOT NULL,
     max_per_day     integer NOT NULL,
     created_at      timestamptz DEFAULT now() NOT NULL,
@@ -993,18 +997,18 @@ CREATE TABLE app.club_quota_policies (
         action_name IN ('content.create', 'events.create')
     ),
     CONSTRAINT club_quota_policies_max_check CHECK (max_per_day > 0),
-    CONSTRAINT club_quota_policies_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id)
+    CONSTRAINT club_quota_policies_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id)
 );
 
-CREATE TABLE app.ai_llm_usage_log (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    member_id               app.short_id,
-    requested_club_id       app.short_id,
+CREATE TABLE ai_llm_usage_log (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    member_id               short_id,
+    requested_club_id       short_id,
     action_name             text NOT NULL,
     gate_name               text NOT NULL DEFAULT 'quality_gate',
     provider                text NOT NULL,
     model                   text NOT NULL,
-    gate_status             app.quality_gate_status NOT NULL,
+    gate_status             quality_gate_status NOT NULL,
     skip_reason             text,
     prompt_tokens           integer,
     completion_tokens       integer,
@@ -1016,22 +1020,22 @@ CREATE TABLE app.ai_llm_usage_log (
         (gate_status = 'skipped' AND skip_reason IS NOT NULL)
         OR (gate_status <> 'skipped' AND skip_reason IS NULL)
     ),
-    CONSTRAINT ai_llm_usage_log_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id),
-    CONSTRAINT ai_llm_usage_log_club_fkey FOREIGN KEY (requested_club_id) REFERENCES app.clubs(id)
+    CONSTRAINT ai_llm_usage_log_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT ai_llm_usage_log_club_fkey FOREIGN KEY (requested_club_id) REFERENCES clubs(id)
 );
 
-CREATE INDEX ai_llm_usage_log_club_created_idx ON app.ai_llm_usage_log (requested_club_id, created_at DESC);
-CREATE INDEX ai_llm_usage_log_member_created_idx ON app.ai_llm_usage_log (member_id, created_at DESC);
+CREATE INDEX ai_llm_usage_log_club_created_idx ON ai_llm_usage_log (requested_club_id, created_at DESC);
+CREATE INDEX ai_llm_usage_log_member_created_idx ON ai_llm_usage_log (member_id, created_at DESC);
 
 
 -- ============================================================
 -- Tables: Embeddings
 -- ============================================================
 
-CREATE TABLE app.member_profile_embeddings (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
-    member_id           app.short_id NOT NULL,
-    profile_version_id  app.short_id NOT NULL,
+CREATE TABLE member_profile_embeddings (
+    id                  short_id DEFAULT new_id() NOT NULL,
+    member_id           short_id NOT NULL,
+    profile_version_id  short_id NOT NULL,
     model               text NOT NULL,
     dimensions          integer NOT NULL,
     source_version      text NOT NULL,
@@ -1046,17 +1050,17 @@ CREATE TABLE app.member_profile_embeddings (
     CONSTRAINT member_profile_embeddings_pkey PRIMARY KEY (id),
     CONSTRAINT member_profile_embeddings_unique UNIQUE (member_id, model, dimensions, source_version, chunk_index),
     CONSTRAINT member_profile_embeddings_dimensions_check CHECK (dimensions > 0),
-    CONSTRAINT member_profile_embeddings_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id),
-    CONSTRAINT member_profile_embeddings_version_fkey FOREIGN KEY (profile_version_id) REFERENCES app.member_profile_versions(id) ON DELETE CASCADE
+    CONSTRAINT member_profile_embeddings_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT member_profile_embeddings_version_fkey FOREIGN KEY (profile_version_id) REFERENCES member_profile_versions(id) ON DELETE CASCADE
 );
 
-CREATE INDEX member_profile_embeddings_member_idx ON app.member_profile_embeddings (member_id);
-CREATE INDEX member_profile_embeddings_version_idx ON app.member_profile_embeddings (profile_version_id);
+CREATE INDEX member_profile_embeddings_member_idx ON member_profile_embeddings (member_id);
+CREATE INDEX member_profile_embeddings_version_idx ON member_profile_embeddings (profile_version_id);
 
-CREATE TABLE app.entity_embeddings (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
-    entity_id           app.short_id NOT NULL,
-    entity_version_id   app.short_id NOT NULL,
+CREATE TABLE entity_embeddings (
+    id                  short_id DEFAULT new_id() NOT NULL,
+    entity_id           short_id NOT NULL,
+    entity_version_id   short_id NOT NULL,
     model               text NOT NULL,
     dimensions          integer NOT NULL,
     source_version      text NOT NULL,
@@ -1071,19 +1075,19 @@ CREATE TABLE app.entity_embeddings (
     CONSTRAINT entity_embeddings_pkey PRIMARY KEY (id),
     CONSTRAINT entity_embeddings_unique UNIQUE (entity_id, model, dimensions, source_version, chunk_index),
     CONSTRAINT entity_embeddings_dimensions_check CHECK (dimensions > 0),
-    CONSTRAINT entity_embeddings_entity_fkey FOREIGN KEY (entity_id) REFERENCES app.entities(id),
-    CONSTRAINT entity_embeddings_version_fkey FOREIGN KEY (entity_version_id) REFERENCES app.entity_versions(id) ON DELETE CASCADE
+    CONSTRAINT entity_embeddings_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id),
+    CONSTRAINT entity_embeddings_version_fkey FOREIGN KEY (entity_version_id) REFERENCES entity_versions(id) ON DELETE CASCADE
 );
 
-CREATE INDEX entity_embeddings_entity_idx ON app.entity_embeddings (entity_id);
-CREATE INDEX entity_embeddings_version_idx ON app.entity_embeddings (entity_version_id);
+CREATE INDEX entity_embeddings_entity_idx ON entity_embeddings (entity_id);
+CREATE INDEX entity_embeddings_version_idx ON entity_embeddings (entity_version_id);
 
 -- Unified embedding jobs queue (profiles + entities)
 
-CREATE TABLE app.ai_embedding_jobs (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
+CREATE TABLE ai_embedding_jobs (
+    id                  short_id DEFAULT new_id() NOT NULL,
     subject_kind        text NOT NULL,
-    subject_version_id  app.short_id NOT NULL,
+    subject_version_id  short_id NOT NULL,
     model               text NOT NULL,
     dimensions          integer NOT NULL,
     source_version      text NOT NULL,
@@ -1100,23 +1104,23 @@ CREATE TABLE app.ai_embedding_jobs (
 );
 
 CREATE INDEX ai_embedding_jobs_claimable_idx
-    ON app.ai_embedding_jobs (next_attempt_at ASC) WHERE attempt_count < 5;
+    ON ai_embedding_jobs (next_attempt_at ASC) WHERE attempt_count < 5;
 
 
 -- ============================================================
 -- Tables: Background Work
 -- ============================================================
 
-CREATE TABLE app.signal_background_matches (
-    id                      app.short_id DEFAULT app.new_id() NOT NULL,
-    club_id                 app.short_id NOT NULL,
+CREATE TABLE signal_background_matches (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    club_id                 short_id NOT NULL,
     match_kind              text NOT NULL,
     source_id               text NOT NULL,
-    target_member_id        app.short_id NOT NULL,
+    target_member_id        short_id NOT NULL,
     score                   double precision NOT NULL,
     state                   text NOT NULL DEFAULT 'pending',
     payload                 jsonb NOT NULL DEFAULT '{}',
-    signal_id               app.short_id,
+    signal_id               short_id,
     created_at              timestamptz NOT NULL DEFAULT now(),
     delivered_at            timestamptz,
     expires_at              timestamptz,
@@ -1124,39 +1128,39 @@ CREATE TABLE app.signal_background_matches (
     CONSTRAINT signal_background_matches_pkey PRIMARY KEY (id),
     CONSTRAINT signal_background_matches_state_check CHECK (state IN ('pending', 'delivered', 'expired')),
     CONSTRAINT signal_background_matches_unique UNIQUE (match_kind, source_id, target_member_id),
-    CONSTRAINT signal_background_matches_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id),
-    CONSTRAINT signal_background_matches_target_fkey FOREIGN KEY (target_member_id) REFERENCES app.members(id),
-    CONSTRAINT signal_background_matches_signal_fkey FOREIGN KEY (signal_id) REFERENCES app.signal_deliveries(id)
+    CONSTRAINT signal_background_matches_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT signal_background_matches_target_fkey FOREIGN KEY (target_member_id) REFERENCES members(id),
+    CONSTRAINT signal_background_matches_signal_fkey FOREIGN KEY (signal_id) REFERENCES signal_deliveries(id)
 );
 
 CREATE INDEX signal_background_matches_pending_idx
-    ON app.signal_background_matches (state, created_at) WHERE state = 'pending';
+    ON signal_background_matches (state, created_at) WHERE state = 'pending';
 CREATE INDEX signal_background_matches_expires_idx
-    ON app.signal_background_matches (expires_at) WHERE expires_at IS NOT NULL AND state = 'pending';
+    ON signal_background_matches (expires_at) WHERE expires_at IS NOT NULL AND state = 'pending';
 CREATE INDEX signal_background_matches_delivery_idx
-    ON app.signal_background_matches (target_member_id, delivered_at) WHERE state = 'delivered';
+    ON signal_background_matches (target_member_id, delivered_at) WHERE state = 'delivered';
 CREATE INDEX signal_background_matches_kind_delivery_idx
-    ON app.signal_background_matches (target_member_id, match_kind, delivered_at) WHERE state = 'delivered';
+    ON signal_background_matches (target_member_id, match_kind, delivered_at) WHERE state = 'delivered';
 
-CREATE TABLE app.signal_recompute_queue (
-    id                  app.short_id DEFAULT app.new_id() NOT NULL,
+CREATE TABLE signal_recompute_queue (
+    id                  short_id DEFAULT new_id() NOT NULL,
     queue_name          text NOT NULL,
-    member_id           app.short_id NOT NULL,
-    club_id             app.short_id NOT NULL,
+    member_id           short_id NOT NULL,
+    club_id             short_id NOT NULL,
     recompute_after     timestamptz NOT NULL DEFAULT now(),
     created_at          timestamptz NOT NULL DEFAULT now(),
     claimed_at          timestamptz,
 
     CONSTRAINT signal_recompute_queue_pkey PRIMARY KEY (id),
     CONSTRAINT signal_recompute_queue_pending_unique UNIQUE (queue_name, member_id, club_id),
-    CONSTRAINT signal_recompute_queue_member_fkey FOREIGN KEY (member_id) REFERENCES app.members(id),
-    CONSTRAINT signal_recompute_queue_club_fkey FOREIGN KEY (club_id) REFERENCES app.clubs(id)
+    CONSTRAINT signal_recompute_queue_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT signal_recompute_queue_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id)
 );
 
 CREATE INDEX signal_recompute_queue_claimable_idx
-    ON app.signal_recompute_queue (queue_name, recompute_after) WHERE claimed_at IS NULL;
+    ON signal_recompute_queue (queue_name, recompute_after) WHERE claimed_at IS NULL;
 
-CREATE TABLE app.worker_state (
+CREATE TABLE worker_state (
     worker_id       text NOT NULL,
     state_key       text NOT NULL,
     state_value     text NOT NULL,
@@ -1175,7 +1179,7 @@ CREATE TABLE app.worker_state (
 --   { recipientMemberId } → wake waiters for that member
 --   { clubId, recipientMemberId } → wake both
 
-CREATE FUNCTION app.notify_club_activity() RETURNS trigger
+CREATE FUNCTION notify_club_activity() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -1185,10 +1189,10 @@ END;
 $$;
 
 CREATE TRIGGER club_activity_notify
-    AFTER INSERT ON app.club_activity
-    FOR EACH ROW EXECUTE FUNCTION app.notify_club_activity();
+    AFTER INSERT ON club_activity
+    FOR EACH ROW EXECUTE FUNCTION notify_club_activity();
 
-CREATE FUNCTION app.notify_signal_delivery() RETURNS trigger
+CREATE FUNCTION notify_signal_delivery() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -1201,10 +1205,10 @@ END;
 $$;
 
 CREATE TRIGGER signal_deliveries_notify
-    AFTER INSERT ON app.signal_deliveries
-    FOR EACH ROW EXECUTE FUNCTION app.notify_signal_delivery();
+    AFTER INSERT ON signal_deliveries
+    FOR EACH ROW EXECUTE FUNCTION notify_signal_delivery();
 
-CREATE FUNCTION app.notify_dm_inbox() RETURNS trigger
+CREATE FUNCTION notify_dm_inbox() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
@@ -1214,8 +1218,8 @@ END;
 $$;
 
 CREATE TRIGGER dm_inbox_entries_notify
-    AFTER INSERT ON app.dm_inbox_entries
-    FOR EACH ROW EXECUTE FUNCTION app.notify_dm_inbox();
+    AFTER INSERT ON dm_inbox_entries
+    FOR EACH ROW EXECUTE FUNCTION notify_dm_inbox();
 
 
 -- ============================================================
@@ -1224,29 +1228,29 @@ CREATE TRIGGER dm_inbox_entries_notify
 
 -- ── Profiles ───────────────────────────────────────────────
 
-CREATE VIEW app.current_member_profiles AS
+CREATE VIEW current_member_profiles AS
     SELECT DISTINCT ON (member_id) *
-    FROM app.member_profile_versions
+    FROM member_profile_versions
     ORDER BY member_id, version_no DESC, created_at DESC;
 
 -- ── Member global roles ───────────────────────────────────────────
 
-CREATE VIEW app.current_member_global_role_versions AS
+CREATE VIEW current_member_global_role_versions AS
     SELECT DISTINCT ON (member_id, role) *
-    FROM app.member_global_role_versions
+    FROM member_global_role_versions
     ORDER BY member_id, role, version_no DESC, created_at DESC;
 
-CREATE VIEW app.current_member_global_roles AS
-    SELECT * FROM app.current_member_global_role_versions WHERE status = 'active';
+CREATE VIEW current_member_global_roles AS
+    SELECT * FROM current_member_global_role_versions WHERE status = 'active';
 
 -- ── Club memberships ────────────────────────────────────────────
 
-CREATE VIEW app.current_club_membership_states AS
+CREATE VIEW current_club_membership_states AS
     SELECT DISTINCT ON (membership_id) *
-    FROM app.club_membership_state_versions
+    FROM club_membership_state_versions
     ORDER BY membership_id, version_no DESC, created_at DESC;
 
-CREATE VIEW app.current_club_memberships AS
+CREATE VIEW current_club_memberships AS
     SELECT
         m.id,
         m.club_id,
@@ -1269,16 +1273,16 @@ CREATE VIEW app.current_club_memberships AS
         cms.version_no      AS state_version_no,
         cms.created_at      AS state_created_at,
         cms.created_by_member_id AS state_created_by_member_id
-    FROM app.club_memberships m
-    LEFT JOIN app.current_club_membership_states cms ON cms.membership_id = m.id;
+    FROM club_memberships m
+    LEFT JOIN current_club_membership_states cms ON cms.membership_id = m.id;
 
-CREATE VIEW app.active_club_memberships AS
-    SELECT * FROM app.current_club_memberships
+CREATE VIEW active_club_memberships AS
+    SELECT * FROM current_club_memberships
     WHERE status = 'active' AND left_at IS NULL;
 
-CREATE VIEW app.accessible_club_memberships AS
+CREATE VIEW accessible_club_memberships AS
     SELECT cm.*
-    FROM app.current_club_memberships cm
+    FROM current_club_memberships cm
     WHERE cm.left_at IS NULL
       AND (
           -- Club admins always have access
@@ -1289,7 +1293,7 @@ CREATE VIEW app.accessible_club_memberships AS
           OR (
               cm.status IN ('active', 'cancelled')
               AND EXISTS (
-                  SELECT 1 FROM app.club_subscriptions s
+                  SELECT 1 FROM club_subscriptions s
                   WHERE s.membership_id = cm.id
                     AND s.status IN ('trialing', 'active', 'past_due')
                     AND coalesce(s.ended_at, 'infinity'::timestamptz) > now()
@@ -1305,19 +1309,19 @@ CREATE VIEW app.accessible_club_memberships AS
 
 -- ── Clubs ──────────────────────────────────────────────────
 
-CREATE VIEW app.current_club_versions AS
+CREATE VIEW current_club_versions AS
     SELECT DISTINCT ON (club_id) *
-    FROM app.club_versions
+    FROM club_versions
     ORDER BY club_id, version_no DESC, created_at DESC;
 
 -- ── Admissions ─────────────────────────────────────────────
 
-CREATE VIEW app.current_admission_versions AS
+CREATE VIEW current_admission_versions AS
     SELECT DISTINCT ON (admission_id) *
-    FROM app.admission_versions
+    FROM admission_versions
     ORDER BY admission_id, version_no DESC, created_at DESC;
 
-CREATE VIEW app.current_admissions AS
+CREATE VIEW current_admissions AS
     SELECT
         a.id,
         a.club_id,
@@ -1343,25 +1347,25 @@ CREATE VIEW app.current_admissions AS
         cav.supersedes_version_id,
         cav.created_at      AS version_created_at,
         cav.created_by_member_id AS version_created_by_member_id
-    FROM app.admissions a
-    JOIN app.current_admission_versions cav ON cav.admission_id = a.id;
+    FROM admissions a
+    JOIN current_admission_versions cav ON cav.admission_id = a.id;
 
 -- ── Entities ───────────────────────────────────────────────
 
-CREATE VIEW app.current_entity_versions AS
+CREATE VIEW current_entity_versions AS
     SELECT DISTINCT ON (entity_id) *
-    FROM app.entity_versions
+    FROM entity_versions
     ORDER BY entity_id, version_no DESC, created_at DESC;
 
-CREATE VIEW app.published_entity_versions AS
-    SELECT * FROM app.current_entity_versions WHERE state = 'published';
+CREATE VIEW published_entity_versions AS
+    SELECT * FROM current_entity_versions WHERE state = 'published';
 
-CREATE VIEW app.current_event_rsvps AS
+CREATE VIEW current_event_rsvps AS
     SELECT DISTINCT ON (event_entity_id, membership_id) *
-    FROM app.event_rsvps
+    FROM event_rsvps
     ORDER BY event_entity_id, membership_id, version_no DESC, created_at DESC;
 
-CREATE VIEW app.live_entities AS
+CREATE VIEW live_entities AS
     SELECT
         e.id                AS entity_id,
         e.club_id,
@@ -1375,24 +1379,31 @@ CREATE VIEW app.live_entities AS
         pev.title,
         pev.summary,
         pev.body,
-        pev.location,
-        pev.work_mode,
-        pev.compensation,
-        pev.starts_at,
-        pev.ends_at,
-        pev.timezone,
-        pev.recurrence_rule,
-        pev.capacity,
         pev.effective_at,
         pev.expires_at,
         pev.content,
         pev.created_at      AS version_created_at,
         pev.created_by_member_id
-    FROM app.entities e
-    JOIN app.published_entity_versions pev ON pev.entity_id = e.id
+    FROM entities e
+    JOIN published_entity_versions pev ON pev.entity_id = e.id
     WHERE e.archived_at IS NULL
       AND e.deleted_at IS NULL
       AND (pev.expires_at IS NULL OR pev.expires_at > now());
+
+-- ── Event-focused views ────────────────────────────────────────
+
+CREATE VIEW current_event_versions AS
+    SELECT cev.*, evd.location, evd.starts_at, evd.ends_at,
+           evd.timezone, evd.recurrence_rule, evd.capacity
+    FROM current_entity_versions cev
+    JOIN event_version_details evd ON evd.entity_version_id = cev.id;
+
+CREATE VIEW live_events AS
+    SELECT le.*, evd.location, evd.starts_at, evd.ends_at,
+           evd.timezone, evd.recurrence_rule, evd.capacity
+    FROM live_entities le
+    JOIN event_version_details evd ON evd.entity_version_id = le.entity_version_id
+    WHERE le.kind = 'event';
 
 
 -- ============================================================
@@ -1415,11 +1426,11 @@ INSERT INTO public.schema_migrations (filename) VALUES ('0001_init.sql');
 -- Utility functions
 -- ============================================================
 
-CREATE FUNCTION app.resolve_active_member_id_by_handle(target_handle text) RETURNS app.short_id
+CREATE FUNCTION resolve_active_member_id_by_handle(target_handle text) RETURNS short_id
     LANGUAGE sql STABLE
 AS $$
     SELECT m.id
-    FROM app.members m
+    FROM members m
     WHERE m.handle = target_handle
       AND m.state = 'active'
     LIMIT 1;

@@ -71,7 +71,7 @@ function readSmokeHandle(): string {
 
 async function resolveMemberId(pool: Pool, handle: string): Promise<string> {
   const result = await pool.query<{ id: string | null }>(
-    `select app.resolve_active_member_id_by_handle($1) as id`,
+    `select resolve_active_member_id_by_handle($1) as id`,
     [handle],
   );
 
@@ -88,7 +88,7 @@ async function mintBearerToken(pool: Pool, memberId: string, label: string): Pro
 
   await pool.query(
     `
-      insert into app.member_bearer_tokens (id, member_id, label, token_hash, metadata)
+      insert into member_bearer_tokens (id, member_id, label, token_hash, metadata)
       values ($1, $2, $3, $4, '{}'::jsonb)
     `,
     [token.tokenId, memberId, label, token.tokenHash],
@@ -103,7 +103,7 @@ async function mintBearerToken(pool: Pool, memberId: string, label: string): Pro
 async function revokeBearerToken(pool: Pool, tokenId: string): Promise<void> {
   await pool.query(
     `
-      update app.member_bearer_tokens
+      update member_bearer_tokens
       set revoked_at = coalesce(revoked_at, now())
       where id = $1
     `,

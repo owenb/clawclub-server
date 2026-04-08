@@ -39,12 +39,12 @@ async function seedCrossApplyAdmission(
   const rows = await h.sql<{ admission_id: string }>(
     `
       with ins as (
-        insert into app.admissions (club_id, origin, applicant_member_id, applicant_email, applicant_name, admission_details)
+        insert into admissions (club_id, origin, applicant_member_id, applicant_email, applicant_name, admission_details)
         values ($1, 'self_applied', $2, $3, $4, '{"socials":"@cross","application":"I want to join"}'::jsonb)
         returning id as admission_id
       ),
       ver as (
-        insert into app.admission_versions (admission_id, status, notes, version_no, created_by_member_id)
+        insert into admission_versions (admission_id, status, notes, version_no, created_by_member_id)
         select admission_id, 'submitted', 'Cross-applied by existing network member', 1, $2
         from ins
       )
@@ -60,7 +60,7 @@ async function seedCrossApplyAdmission(
 /** Add an email to a member's private_contacts (harness seedMember doesn't do this). */
 async function seedEmail(memberId: string, email: string): Promise<void> {
   await h.sql(
-    `insert into app.member_private_contacts (member_id, email) values ($1, $2) on conflict (member_id) do update set email = $2`,
+    `insert into member_private_contacts (member_id, email) values ($1, $2) on conflict (member_id) do update set email = $2`,
     [memberId, email],
   );
 }
@@ -68,11 +68,11 @@ async function seedEmail(memberId: string, email: string): Promise<void> {
 /** Set admission_policy on a club by inserting a new club_version (trigger syncs to clubs). */
 async function setAdmissionPolicy(clubId: string, policy: string): Promise<void> {
   await h.sql(
-    `insert into app.club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
+    `insert into club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
      select c.id, c.owner_member_id, c.name, c.summary, $2,
-            coalesce((select max(version_no) from app.club_versions where club_id = $1), 0) + 1,
+            coalesce((select max(version_no) from club_versions where club_id = $1), 0) + 1,
             c.owner_member_id
-     from app.clubs c where c.id = $1`,
+     from clubs c where c.id = $1`,
     [clubId, policy],
   );
 }
@@ -309,11 +309,11 @@ describe('cross-apply journey 2: guards and validation', () => {
 
     // Revoke their membership (simulate admin action)
     await h.sql(
-      `insert into app.club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+      `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        select m.id, 'revoked', 'test revocation',
-              (select coalesce(max(version_no), 0) + 1 from app.club_membership_state_versions where membership_id = m.id),
+              (select coalesce(max(version_no), 0) + 1 from club_membership_state_versions where membership_id = m.id),
               $2
-       from app.club_memberships m where m.club_id = $1 and m.member_id = $3`,
+       from club_memberships m where m.club_id = $1 and m.member_id = $3`,
       [ownerA.club.id, ownerA.id, member.id],
     );
 
@@ -342,12 +342,12 @@ describe('cross-apply journey 3: shows in unified admin list', () => {
     // Seed a cold outsider admission
     const coldId = (await h.sql<{ admission_id: string }>(
       `with ins as (
-         insert into app.admissions (club_id, origin, applicant_email, applicant_name, admission_details)
+         insert into admissions (club_id, origin, applicant_email, applicant_name, admission_details)
          values ($1, 'self_applied', 'cold@example.com', 'Cold Outsider', '{"socials":"@cold"}'::jsonb)
          returning id as admission_id
        ),
        ver as (
-         insert into app.admission_versions (admission_id, status, notes, version_no)
+         insert into admission_versions (admission_id, status, notes, version_no)
          select admission_id, 'submitted', 'Cold apply', 1 from ins
        )
        select admission_id from ins`,

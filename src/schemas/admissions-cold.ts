@@ -1,5 +1,5 @@
 /**
- * Action contracts: admissions.challenge, admissions.apply
+ * Action contracts: admissions.public.requestChallenge, admissions.public.submitApplication
  *
  * These are the unauthenticated (auth: 'none') cold-admissions actions.
  * They use handleCold instead of handle.
@@ -16,7 +16,7 @@ import {
 import { admissionChallengeResult, admissionApplyResult } from './responses.ts';
 import { registerActions, type ActionDefinition, type ColdHandlerContext, type ActionResult } from './registry.ts';
 
-// ── admissions.challenge ────────────────────────────────
+// ── admissions.public.requestChallenge ────────────────────────────────
 
 type ChallengeInput = {
   clubSlug: string;
@@ -51,7 +51,7 @@ const admissionsChallenge: ActionDefinition = {
   },
 };
 
-// ── admissions.apply ────────────────────────────────────
+// ── admissions.public.submitApplication ────────────────────────────────
 
 type ApplyInput = {
   challengeId: string;
@@ -71,7 +71,7 @@ const admissionsApply: ActionDefinition = {
 
   wire: {
     input: z.object({
-      challengeId: wireBoundedString.describe('Challenge ID from admissions.challenge'),
+      challengeId: wireBoundedString.describe('Challenge ID from admissions.public.requestChallenge'),
       nonce: wireBoundedString.describe('Nonce that solves the PoW'),
       name: wireFullName,
       email: wireEmail,

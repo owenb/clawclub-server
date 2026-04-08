@@ -51,7 +51,7 @@ Approved action namespaces (canonical list in `src/schemas/*.ts`, exposed via `G
 ## Database architecture
 
 - lean heavily on Postgres
-- single unified database with all tables in the `app` schema
+- single unified database with all tables in the default `public` schema
 - canonical schema lives in `db/init.sql`
 - no RLS — authorization enforced at the application layer
 - proper foreign keys between all tables (no soft text references)
@@ -100,7 +100,7 @@ Examples:
 
 - identity is global; membership is club-local
 - sponsor is the accountable inviter
-- vouching is peer-to-peer endorsement between existing members in the same club, created via `vouches.create` and stored as `vouched_for` edges in `app.club_edges`
+- vouching is peer-to-peer endorsement between existing members in the same club, created via `vouches.create` and stored as `vouched_for` edges in `club_edges`
 - one active vouch per (actor, target) pair per club, enforced by partial unique index
 - self-vouching prevented by DB CHECK constraint
 - vouches surface in `vouches.list` (any member) and `memberships.review` (owners)
@@ -239,13 +239,13 @@ See `docs/member-signals-plan.md` for the full design rationale and implementati
 - if the LLM returns anything other than PASS or ILLEGAL, the action fails with 422 `gate_rejected`
 - the gate is a legality boundary, not a quality suggestion — content that was not explicitly cleared is not published
 - clearly illegal content (`ILLEGAL:` responses) returns 422 `illegal_content`
-- gate results (including failures) are logged to `app.ai_llm_usage_log` for operational visibility
+- gate results (including failures) are logged to `ai_llm_usage_log` for operational visibility
 
 ## Write quotas
 
 - `content.create` and `events.create` are subject to per-club daily quotas
 - quotas are kind-specific: entity quotas count only `post`/`opportunity`/`service`/`ask`; event quotas count only `event`
-- per-club overrides are stored in `app.club_quota_policies`
+- per-club overrides are stored in `club_quota_policies`
 - when no policy row exists, no quota is enforced
 - quota status is exposed via the `quotas.getUsage` action
 - exceeding a quota returns 429 `quota_exceeded`
@@ -270,7 +270,7 @@ See `docs/member-signals-plan.md` for the full design rationale and implementati
 Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts` for the full internal list):
 - bearer-token auth with optional expiry
 - shared actor context with application-layer authorization
-- single unified Postgres database with all tables in `app` schema (`db/init.sql`)
+- single unified Postgres database with canonical schema in `db/init.sql`
 - domain modules (identity, messaging, clubs) sharing one connection pool
 - `session.getContext`
 - `superadmin.clubs.list/create/archive/assignOwner/update`

@@ -81,13 +81,13 @@ async function assertProvisionedRoleWorks({
     await client.query('begin');
 
     const ownerId = (await client.query<{ id: string }>(
-      `insert into app.members (public_name, handle) values ($1, $2) returning id`,
+      `insert into members (public_name, handle) values ($1, $2) returning id`,
       [`Provision Owner ${suffix}`, `provision-owner-${suffix}`],
     )).rows[0]!.id;
 
     await client.query(
       `
-        insert into app.member_global_role_versions (member_id, role, status, version_no, created_by_member_id)
+        insert into member_global_role_versions (member_id, role, status, version_no, created_by_member_id)
         values ($1, 'superadmin', 'active', 1, $1)
       `,
       [ownerId],
@@ -99,13 +99,13 @@ async function assertProvisionedRoleWorks({
     );
 
     const clubId = (await client.query<{ id: string }>(
-      `insert into app.clubs (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
+      `insert into clubs (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
       [`provision-club-${suffix}`, `Provision Club ${suffix}`, ownerId, 'Provision script test'],
     )).rows[0]!.id;
 
     const membershipId = (await client.query<{ id: string }>(
       `
-        insert into app.club_memberships (club_id, member_id, role)
+        insert into club_memberships (club_id, member_id, role)
         values ($1, $2, 'clubadmin')
         returning id
       `,
@@ -114,7 +114,7 @@ async function assertProvisionedRoleWorks({
 
     await client.query(
       `
-        insert into app.club_membership_state_versions (
+        insert into club_membership_state_versions (
           membership_id,
           status,
           version_no,
@@ -132,20 +132,20 @@ async function assertProvisionedRoleWorks({
     );
 
     const visibleSelf = await client.query<{ id: string }>(
-      `select id from app.members where id = $1`,
+      `select id from members where id = $1`,
       [ownerId],
     );
     assert.deepEqual(visibleSelf.rows.map((row) => row.id), [ownerId]);
 
     const resolvedByHandle = await client.query<{ id: string | null }>(
-      `select app.resolve_active_member_id_by_handle($1) as id`,
+      `select resolve_active_member_id_by_handle($1) as id`,
       [`provision-owner-${suffix}`],
     );
     assert.equal(resolvedByHandle.rows[0]?.id, ownerId);
 
     const tokenInsert = await client.query<{ member_id: string }>(
       `
-        insert into app.member_bearer_tokens (member_id, label, token_hash, metadata)
+        insert into member_bearer_tokens (member_id, label, token_hash, metadata)
         values ($1, 'provision-test', $2, '{}'::jsonb)
         returning member_id
       `,

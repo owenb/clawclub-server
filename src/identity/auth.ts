@@ -70,7 +70,7 @@ export async function readActor(pool: Pool, memberId: string): Promise<ActorCont
         m.id as member_id,
         m.handle,
         m.public_name,
-        coalesce(gr.global_roles, array[]::app.global_role[]) as global_roles,
+        coalesce(gr.global_roles, array[]::global_role[]) as global_roles,
         anm.id as membership_id,
         anm.club_id,
         n.slug,
@@ -81,15 +81,15 @@ export async function readActor(pool: Pool, memberId: string): Promise<ActorCont
         anm.status,
         anm.sponsor_member_id,
         anm.joined_at::text as joined_at
-      from app.members m
+      from members m
       left join lateral (
         select array_agg(cmgr.role order by cmgr.role) as global_roles
-        from app.current_member_global_roles cmgr
+        from current_member_global_roles cmgr
         where cmgr.member_id = m.id
       ) gr on true
-      left join app.accessible_club_memberships anm
+      left join accessible_club_memberships anm
         on anm.member_id = m.id
-      left join app.clubs n
+      left join clubs n
         on n.id = anm.club_id
        and n.archived_at is null
       where m.id = $1
@@ -109,7 +109,7 @@ export async function authenticateBearerToken(pool: Pool, bearerToken: string): 
   // Inline the old security definer function: validate token + update last_used_at
   const tokenResult = await pool.query<{ member_id: string }>(
     `
-      update app.member_bearer_tokens
+      update member_bearer_tokens
       set last_used_at = now()
       where id = $1
         and token_hash = $2

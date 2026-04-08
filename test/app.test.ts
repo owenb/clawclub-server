@@ -612,7 +612,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
   };
 }
 
-test('session.describe returns the canonical actor session envelope once', async () => {
+test('session.getContext returns the canonical actor session envelope once', async () => {
   const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
@@ -887,7 +887,7 @@ test('memberships.transition appends a new membership state version inside owner
   assert.equal(result.data.membership.state.status, 'active');
 });
 
-// Auth rejection for clubadmin.memberships.transition (regular member cannot call) is tested
+// Auth rejection for clubadmin.memberships.setStatus (regular member cannot call) is tested
 // in integration tests with a real DB and bearer token flow.
 
 test('admissions.list stays inside owner scope and can filter interview workflow statuses', async () => {
@@ -976,7 +976,7 @@ test('admissions.transition can append accepted interview state and activate the
   assert.equal(result.data.admission.membershipId, 'membership-10');
 });
 
-test('admissions.challenge creates a cold application challenge bound to a club', async () => {
+test('admissions.public.requestChallenge creates a cold application challenge bound to a club', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken() {
@@ -1008,7 +1008,7 @@ test('admissions.challenge creates a cold application challenge bound to a club'
   assert.equal('actor' in result, false);
 });
 
-test('admissions.apply submits a cold application with all required fields', async () => {
+test('admissions.public.submitApplication submits a cold application with all required fields', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -1049,7 +1049,7 @@ test('admissions.apply submits a cold application with all required fields', asy
   assert.equal('actor' in result, false);
 });
 
-test('members.fullTextSearch narrows scope when a permitted club is requested', async () => {
+test('members.searchByFullText narrows scope when a permitted club is requested', async () => {
   let capturedClubIds: string[] = [];
 
   const repository: Repository = {
@@ -1432,7 +1432,7 @@ test('profile.update normalizes nullable strings and handle changes', async () =
   assert.equal(result.data.handle, 'member-one-updated');
 });
 
-test('entities.create uses one shared flow for post/ask/service/opportunity kinds', async () => {
+test('content.create uses one shared flow for post/ask/service/opportunity kinds', async () => {
   let capturedInput: CreateEntityInput | null = null;
 
   const repository: Repository = {
@@ -1551,7 +1551,7 @@ test('entities.create uses one shared flow for post/ask/service/opportunity kind
   assert.equal(result.data.entity.kind, 'service');
 });
 
-test('entities.update appends a new version on the shared entity surface', async () => {
+test('content.update appends a new version on the shared entity surface', async () => {
   let capturedInput: UpdateEntityInput | null = null;
 
   const repository: Repository = {
@@ -1638,7 +1638,7 @@ test('entities.update appends a new version on the shared entity surface', async
   assert.equal(result.data.entity.version.versionNo, 2);
 });
 
-test('entities.remove appends a removed version on the shared entity surface', async () => {
+test('content.remove appends a removed version on the shared entity surface', async () => {
   let capturedInput: { actorMemberId: string; accessibleClubIds: string[]; entityId: string; reason?: string | null } | null = null;
 
   const repository: Repository = {
@@ -1721,7 +1721,7 @@ test('entities.remove appends a removed version on the shared entity surface', a
   assert.equal(result.data.entity.version.state, 'removed');
 });
 
-test('entities.update rejects empty patches', async () => {
+test('content.update rejects empty patches', async () => {
   const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
 
   await assert.rejects(
@@ -1742,7 +1742,7 @@ test('entities.update rejects empty patches', async () => {
   );
 });
 
-test('entities.update rejects non-author updates', async () => {
+test('content.update rejects non-author updates', async () => {
   const repository: Repository = {
     async authenticateBearerToken() {
       return makeAuthResult();
@@ -2107,7 +2107,7 @@ test('events.rsvp uses the actor membership in the event club', async () => {
   assert.equal(result.data.event.rsvps.viewerResponse, 'yes');
 });
 
-test('entities.list can span accessible clubs and filter by kinds with optional query', async () => {
+test('content.list can span accessible clubs and filter by kinds with optional query', async () => {
   let capturedInput: ListEntitiesInput | null = null;
 
   const repository: Repository = {
@@ -2202,7 +2202,7 @@ test('superadmin.clubs.create rejects non-superadmins', async () => {
   );
 });
 
-test('members.fullTextSearch rejects a club outside the actor scope', async () => {
+test('members.searchByFullText rejects a club outside the actor scope', async () => {
   const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
 
   await assert.rejects(
@@ -2710,7 +2710,7 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
   assert.equal(result.data.results[0]?.unread.unreadUpdateCount, 3);
 });
 
-test('messages.read scopes thread access server-side and returns DM entries', async () => {
+test('messages.getThread scopes thread access server-side and returns DM entries', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -2838,7 +2838,7 @@ test('messages.read scopes thread access server-side and returns DM entries', as
   assert.equal(result.data.messages[1]?.updateReceipts[0]?.recipientMemberId, 'member-2');
 });
 
-test('tokens.list returns the actor token inventory', async () => {
+test('accessTokens.list returns the actor token inventory', async () => {
   const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
@@ -2850,7 +2850,7 @@ test('tokens.list returns the actor token inventory', async () => {
   assert.equal(result.data.tokens[0]?.tokenId, 'token-1');
 });
 
-test('tokens.create mints a new bearer token for the actor member', async () => {
+test('accessTokens.create mints a new bearer token for the actor member', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -2949,7 +2949,7 @@ test('tokens.create mints a new bearer token for the actor member', async () => 
   assert.equal(result.data.bearerToken, 'cc_live_3456789abcde_3456789abcdefghjkmnpqrst');
 });
 
-test('tokens.revoke only revokes actor-owned tokens', async () => {
+test('accessTokens.revoke only revokes actor-owned tokens', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -3145,7 +3145,7 @@ test('updates.acknowledge returns 404 when an update is outside actor scope', as
   );
 });
 
-test('messages.read returns 404 when the thread is outside actor scope', async () => {
+test('messages.getThread returns 404 when the thread is outside actor scope', async () => {
   const repository: Repository = {
     async authenticateBearerToken() {
       return makeAuthResult();
@@ -3229,7 +3229,7 @@ test('messages.read returns 404 when the thread is outside actor scope', async (
   );
 });
 
-test('session.describe rejects unknown bearer tokens', async () => {
+test('session.getContext rejects unknown bearer tokens', async () => {
   const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
 
   await assert.rejects(

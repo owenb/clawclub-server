@@ -21,7 +21,7 @@ async function postAction(port: number, token: string, action: string, input: Re
   return { response, body };
 }
 
-test('superadmin.overview returns platform stats for superadmin', async () => {
+test('superadmin.platform.getOverview returns platform stats for superadmin', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -227,7 +227,7 @@ test('admin.clubs.stats returns club statistics', async () => {
   }
 });
 
-test('superadmin.diagnostics.health returns system diagnostics', async () => {
+test('superadmin.diagnostics.getHealth returns system diagnostics', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -297,7 +297,7 @@ test('superadmin.members.list returns 400 for invalid cursor', async () => {
   }
 });
 
-test('admin.tokens.revoke revokes a token for any member', async () => {
+test('admin.accessTokens.revoke revokes a token for any member', async () => {
   let capturedInput: { memberId: string; tokenId: string } | null = null;
   const repository: Repository = {
     ...makeRepository(),
@@ -704,9 +704,9 @@ test('admin.messages.threads returns thread list', async () => {
   }
 });
 
-// ── admin.messages.read ───────���───────────────────────────
+// ── admin.messages.getThread ───────���───────────────────────────
 
-test('admin.messages.read returns thread with messages', async () => {
+test('admin.messages.getThread returns thread with messages', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -758,7 +758,7 @@ test('admin.messages.read returns thread with messages', async () => {
   }
 });
 
-test('admin.messages.read returns 404 for non-existent thread', async () => {
+test('admin.messages.getThread returns 404 for non-existent thread', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
@@ -787,12 +787,12 @@ test('admin.messages.read returns 404 for non-existent thread', async () => {
   }
 });
 
-// Superadmin removal actions deleted — superadmins use clubadmin.entities.remove,
+// Superadmin removal actions deleted — superadmins use clubadmin.content.remove,
 // clubadmin.events.remove, clubadmin.messages.remove instead.
 
-// ── admin.tokens.list ────────────────────��────────────────
+// ── admin.accessTokens.list ────────────────────��────────────────
 
-test('admin.tokens.list returns tokens for a member', async () => {
+test('admin.accessTokens.list returns tokens for a member', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {

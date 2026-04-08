@@ -6,7 +6,7 @@ set -euo pipefail
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
 
-insert into app.members (public_name, handle)
+insert into members (public_name, handle)
 values
   ('Pressure Owner', 'pressure-owner'),
   ('Pressure Sponsor', 'pressure-sponsor'),
@@ -14,23 +14,23 @@ values
   ('Pressure Lapsed', 'pressure-lapsed')
 returning id, handle;
 
-select id from app.members where handle = 'pressure-owner' \gset
+select id from members where handle = 'pressure-owner' \gset
 \set owner_id :id
-select id from app.members where handle = 'pressure-sponsor' \gset
+select id from members where handle = 'pressure-sponsor' \gset
 \set sponsor_id :id
-select id from app.members where handle = 'pressure-member' \gset
+select id from members where handle = 'pressure-member' \gset
 \set member_id :id
-select id from app.members where handle = 'pressure-lapsed' \gset
+select id from members where handle = 'pressure-lapsed' \gset
 \set lapsed_id :id
 
-insert into app.clubs (slug, name, owner_member_id, summary)
+insert into clubs (slug, name, owner_member_id, summary)
 values ('pressure-club', 'Pressure Club', :'owner_id', 'Schema pressure test')
 returning id as club_id \gset
 
-insert into app.club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
+insert into club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
 values (:'club_id', :'owner_id', 'Pressure Club', 'Schema pressure test', null, 1, :'owner_id');
 
-insert into app.club_memberships (club_id, member_id, role, sponsor_member_id, accepted_covenant_at)
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, accepted_covenant_at)
 values
   (:'club_id', :'owner_id', 'clubadmin', null, now()),
   (:'club_id', :'sponsor_id', 'member', :'owner_id', now()),
@@ -38,51 +38,55 @@ values
   (:'club_id', :'lapsed_id', 'member', :'owner_id', now())
 returning id, member_id;
 
-select id from app.club_memberships where club_id = :'club_id' and member_id = :'member_id' \gset
+select id from club_memberships where club_id = :'club_id' and member_id = :'member_id' \gset
 \set member_membership_id :id
-select id from app.club_memberships where club_id = :'club_id' and member_id = :'lapsed_id' \gset
+select id from club_memberships where club_id = :'club_id' and member_id = :'lapsed_id' \gset
 \set lapsed_membership_id :id
 
-insert into app.club_membership_state_versions (membership_id, status, version_no, created_by_member_id)
+insert into club_membership_state_versions (membership_id, status, version_no, created_by_member_id)
 select id, 'active', 1, member_id
-from app.club_memberships
+from club_memberships
 where club_id = :'club_id';
 
-insert into app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+insert into club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
 values
   (:'member_membership_id', :'sponsor_id', 'active', 0, now() + interval '14 days'),
   (:'lapsed_membership_id', :'owner_id', 'active', 0, now() - interval '1 day');
 
-insert into app.entities (club_id, kind, author_member_id)
+insert into entities (club_id, kind, author_member_id)
 values (:'club_id', 'event', :'member_id')
 returning id as event_entity_id \gset
 
-insert into app.entity_versions (entity_id, version_no, title, starts_at, ends_at, timezone, created_by_member_id)
-values (:'event_entity_id', 1, 'Pressure Dinner', now() + interval '2 days', now() + interval '2 days 2 hours', 'UTC', :'member_id');
+insert into entity_versions (entity_id, version_no, title, created_by_member_id)
+values (:'event_entity_id', 1, 'Pressure Dinner', :'member_id')
+returning id as event_version_id \gset
 
-insert into app.event_rsvps (event_entity_id, membership_id, version_no, response, note, created_by_member_id)
+insert into event_version_details (entity_version_id, starts_at, ends_at, timezone)
+values (:'event_version_id', now() + interval '2 days', now() + interval '2 days 2 hours', 'UTC');
+
+insert into event_rsvps (event_entity_id, membership_id, version_no, response, note, created_by_member_id)
 values (:'event_entity_id', :'member_membership_id', 1, 'maybe', 'Need to confirm', :'member_id')
 returning id as rsvp_v1_id \gset
 
-insert into app.event_rsvps (event_entity_id, membership_id, version_no, response, note, supersedes_rsvp_id, created_by_member_id)
+insert into event_rsvps (event_entity_id, membership_id, version_no, response, note, supersedes_rsvp_id, created_by_member_id)
 values (:'event_entity_id', :'member_membership_id', 2, 'yes', 'Confirmed', :'rsvp_v1_id', :'member_id');
 
 create or replace function pg_temp.assert_club_hardening(
-  p_club_id app.short_id,
-  p_event_entity_id app.short_id,
-  p_membership_id app.short_id,
-  p_owner_id app.short_id
+  p_club_id short_id,
+  p_event_entity_id short_id,
+  p_membership_id short_id,
+  p_owner_id short_id
 )
 returns void
 language plpgsql
 as $$
 declare
   accessible_count integer;
-  latest_rsvp app.rsvp_state;
+  latest_rsvp rsvp_state;
 begin
   select count(*)
   into accessible_count
-  from app.accessible_club_memberships
+  from accessible_club_memberships
   where club_id = p_club_id;
 
   if accessible_count <> 2 then
@@ -91,7 +95,7 @@ begin
 
   select response
   into latest_rsvp
-  from app.current_event_rsvps
+  from current_event_rsvps
   where event_entity_id = p_event_entity_id
     and membership_id = p_membership_id;
 
@@ -100,7 +104,7 @@ begin
   end if;
 
   begin
-    update app.club_memberships
+    update club_memberships
     set sponsor_member_id = p_owner_id
     where id = p_membership_id;
 
@@ -117,8 +121,8 @@ $$;
 select pg_temp.assert_club_hardening(:'club_id', :'event_entity_id', :'member_membership_id', :'owner_id');
 
 select
-  (select count(*) from app.accessible_club_memberships where club_id = :'club_id') as accessible_memberships,
-  (select response from app.current_event_rsvps where event_entity_id = :'event_entity_id' and membership_id = :'member_membership_id') as latest_rsvp;
+  (select count(*) from accessible_club_memberships where club_id = :'club_id') as accessible_memberships,
+  (select response from current_event_rsvps where event_entity_id = :'event_entity_id' and membership_id = :'member_membership_id') as latest_rsvp;
 
 rollback;
 SQL

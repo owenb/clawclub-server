@@ -39,7 +39,7 @@ const messagesSend: ActionDefinition = {
     input: z.object({
       recipientMemberId: wireRequiredString.describe('Recipient member ID'),
       messageText: wireMessageText.describe('Message text'),
-      clientKey: wireOptionalString.describe('Idempotency key — duplicate sends with the same key return the original message'),
+      clientKey: wireOptionalString.describe('Idempotency key — same key with same payload returns the original message; same key with different payload returns 409 client_key_conflict'),
     }),
     output: z.object({ message: directMessageSummary }),
   },

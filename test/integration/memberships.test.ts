@@ -259,7 +259,7 @@ describe('is_comped grants access without subscription', () => {
 
     // Verify no subscription row exists (comp is via flag, not subscription)
     const subs = await h.sql<{ count: string }>(
-      `SELECT count(*)::text as count FROM app.club_subscriptions WHERE membership_id = $1`,
+      `SELECT count(*)::text as count FROM club_subscriptions WHERE membership_id = $1`,
       [member.membership.id],
     );
     assert.equal(subs[0]!.count, '0', 'comped member should have no subscription rows');
@@ -302,15 +302,15 @@ describe('trialing subscription grants access', () => {
       initialStatus: 'active',
     });
     const msRows = await h.sql<{ id: string }>(
-      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM club_memberships WHERE club_id = $1 AND member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;
 
     // Remove the auto-comp and add a trialing subscription instead
-    await h.sql(`UPDATE app.club_memberships SET is_comped = false WHERE id = $1`, [msId]);
+    await h.sql(`UPDATE club_memberships SET is_comped = false WHERE id = $1`, [msId]);
     await h.sql(
-      `INSERT INTO app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+      `INSERT INTO club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
        VALUES ($1, $2, 'trialing', 29, now() + interval '30 days')`,
       [msId, member.id],
     );
@@ -335,15 +335,15 @@ describe('ended_at revokes access even if current_period_end is future', () => {
       initialStatus: 'active',
     });
     const msRows = await h.sql<{ id: string }>(
-      `SELECT id FROM app.club_memberships WHERE club_id = $1 AND member_id = $2`,
+      `SELECT id FROM club_memberships WHERE club_id = $1 AND member_id = $2`,
       [owner.club.id, member.id],
     );
     const msId = msRows[0]!.id;
 
     // Remove auto-comp, add a subscription that ended early but has future period_end
-    await h.sql(`UPDATE app.club_memberships SET is_comped = false WHERE id = $1`, [msId]);
+    await h.sql(`UPDATE club_memberships SET is_comped = false WHERE id = $1`, [msId]);
     await h.sql(
-      `INSERT INTO app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end, ended_at)
+      `INSERT INTO club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end, ended_at)
        VALUES ($1, $2, 'active', 29, now() + interval '60 days', now() - interval '1 hour')`,
       [msId, member.id],
     );
@@ -372,7 +372,7 @@ describe('reactivating member with past_due subscription does not auto-comp', ()
 
     // Manually add a past_due subscription (simulating Stripe sync)
     await h.sql(
-      `INSERT INTO app.club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+      `INSERT INTO club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
        VALUES ($1, $2, 'past_due', 29, now() + interval '30 days')`,
       [msId, member.id],
     );
@@ -386,7 +386,7 @@ describe('reactivating member with past_due subscription does not auto-comp', ()
 
     // Member should NOT be comped — they have a live (past_due) subscription
     const compRows = await h.sql<{ is_comped: boolean }>(
-      `SELECT is_comped FROM app.club_memberships WHERE id = $1`,
+      `SELECT is_comped FROM club_memberships WHERE id = $1`,
       [msId],
     );
     assert.equal(compRows[0]!.is_comped, false, 'member with past_due subscription should not be auto-comped');

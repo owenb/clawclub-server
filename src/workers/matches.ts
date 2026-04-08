@@ -34,7 +34,7 @@ export type PendingMatch = {
  */
 export async function createMatch(pool: Pool, input: MatchInput): Promise<string | null> {
   const result = await pool.query<{ id: string }>(
-    `insert into app.signal_background_matches
+    `insert into signal_background_matches
        (club_id, match_kind, source_id, target_member_id, score, payload, expires_at)
      values ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz)
      on conflict (match_kind, source_id, target_member_id) do nothing
@@ -62,7 +62,7 @@ export async function claimPendingMatches(pool: Pool, limit: number): Promise<Pe
     target_member_id: string; score: number; payload: Record<string, unknown>;
   }>(
     `select id, club_id, match_kind, source_id, target_member_id, score, payload
-     from app.signal_background_matches
+     from signal_background_matches
      where state = 'pending'
        and (expires_at is null or expires_at > now())
      order by score asc, created_at asc
@@ -87,7 +87,7 @@ export async function claimPendingMatches(pool: Pool, limit: number): Promise<Pe
  */
 export async function markDelivered(pool: Pool, matchId: string, signalId: string): Promise<void> {
   await pool.query(
-    `update app.signal_background_matches
+    `update signal_background_matches
      set state = 'delivered', delivered_at = now(), signal_id = $2
      where id = $1 and state = 'pending'`,
     [matchId, signalId],
@@ -99,7 +99,7 @@ export async function markDelivered(pool: Pool, matchId: string, signalId: strin
  */
 export async function markExpired(pool: Pool, matchId: string): Promise<void> {
   await pool.query(
-    `update app.signal_background_matches
+    `update signal_background_matches
      set state = 'expired'
      where id = $1 and state = 'pending'`,
     [matchId],
@@ -112,7 +112,7 @@ export async function markExpired(pool: Pool, matchId: string): Promise<void> {
  */
 export async function expireStaleMatches(pool: Pool): Promise<number> {
   const result = await pool.query(
-    `update app.signal_background_matches
+    `update signal_background_matches
      set state = 'expired'
      where state = 'pending' and expires_at is not null and expires_at <= now()`,
   );
@@ -136,7 +136,7 @@ export async function countRecentDeliveries(
 
   if (matchKind) {
     const result = await pool.query<{ count: string }>(
-      `select count(*)::text as count from app.signal_background_matches
+      `select count(*)::text as count from signal_background_matches
        where target_member_id = $1 and match_kind = $2
          and state = 'delivered' and delivered_at > $3`,
       [targetMemberId, matchKind, since],
@@ -145,7 +145,7 @@ export async function countRecentDeliveries(
   }
 
   const result = await pool.query<{ count: string }>(
-    `select count(*)::text as count from app.signal_background_matches
+    `select count(*)::text as count from signal_background_matches
      where target_member_id = $1
        and state = 'delivered' and delivered_at > $2`,
     [targetMemberId, since],
@@ -165,7 +165,7 @@ export async function matchExists(
 ): Promise<boolean> {
   const result = await pool.query<{ exists: boolean }>(
     `select exists(
-       select 1 from app.signal_background_matches
+       select 1 from signal_background_matches
        where match_kind = $1 and source_id = $2 and target_member_id = $3
      ) as exists`,
     [matchKind, sourceId, targetMemberId],

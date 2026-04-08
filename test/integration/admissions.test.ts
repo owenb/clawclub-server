@@ -38,12 +38,12 @@ async function seedOutsiderAdmission(
   const rows = await h.sqlClubs<{ admission_id: string }>(
     `
       with ins as (
-        insert into app.admissions (club_id, origin, applicant_email, applicant_name, admission_details)
+        insert into admissions (club_id, origin, applicant_email, applicant_name, admission_details)
         values ($1, 'self_applied', $2, $3, '{"socials":"@outsider","reason":"I love this club"}'::jsonb)
         returning id as admission_id
       ),
       ver as (
-        insert into app.admission_versions (admission_id, status, notes, version_no, created_by_member_id)
+        insert into admission_versions (admission_id, status, notes, version_no, created_by_member_id)
         select admission_id, 'submitted', 'Seeded outsider admission', 1, null
         from ins
       )
@@ -69,12 +69,12 @@ async function seedSponsoredAdmission(
   const rows = await h.sqlClubs<{ admission_id: string }>(
     `
       with ins as (
-        insert into app.admissions (club_id, sponsor_member_id, origin, applicant_email, applicant_name, admission_details)
+        insert into admissions (club_id, sponsor_member_id, origin, applicant_email, applicant_name, admission_details)
         values ($1, $2, 'member_sponsored', $3, $4, $5::jsonb)
         returning id as admission_id
       ),
       ver as (
-        insert into app.admission_versions (admission_id, status, notes, version_no, created_by_member_id)
+        insert into admission_versions (admission_id, status, notes, version_no, created_by_member_id)
         select admission_id, 'submitted', 'Sponsored admission created by member', 1, $2
         from ins
       )
@@ -358,7 +358,7 @@ describe('journey 5: challenge cleanup with recorded attempts', () => {
 
     // Seed a challenge directly via SQL (bypasses PoW solving)
     const challengeRows = await h.sql<{ id: string }>(
-      `insert into app.admission_challenges
+      `insert into admission_challenges
          (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
        values (1, $1, 'Tell us who you are.', 'FK Cleanup Club', 'Test', 'Owner', now() + interval '10 minutes')
        returning id`,
@@ -368,7 +368,7 @@ describe('journey 5: challenge cleanup with recorded attempts', () => {
 
     // Insert an attempt row (simulates a first attempt that got needs_revision)
     await h.sql(
-      `insert into app.admission_attempts
+      `insert into admission_attempts
          (challenge_id, club_id, attempt_no, applicant_name, applicant_email,
           payload, gate_status, gate_feedback, policy_snapshot)
        values ($1, $2, 1, 'Test Applicant', 'test@example.com',
@@ -381,23 +381,23 @@ describe('journey 5: challenge cleanup with recorded attempts', () => {
     // acceptance, expiration, or attempt exhaustion. Before the fix,
     // this would fail with a FK violation (23503).
     await h.sql(
-      `delete from app.admission_attempts where challenge_id = $1`,
+      `delete from admission_attempts where challenge_id = $1`,
       [challengeId],
     );
     await h.sql(
-      `delete from app.admission_challenges where id = $1`,
+      `delete from admission_challenges where id = $1`,
       [challengeId],
     );
 
     // Verify both are gone
     const remaining = await h.sql<{ count: string }>(
-      `select count(*)::text as count from app.admission_challenges where id = $1`,
+      `select count(*)::text as count from admission_challenges where id = $1`,
       [challengeId],
     );
     assert.equal(remaining[0]!.count, '0', 'Challenge should be deleted');
 
     const remainingAttempts = await h.sql<{ count: string }>(
-      `select count(*)::text as count from app.admission_attempts where challenge_id = $1`,
+      `select count(*)::text as count from admission_attempts where challenge_id = $1`,
       [challengeId],
     );
     assert.equal(remainingAttempts[0]!.count, '0', 'Attempts should be deleted');
@@ -407,7 +407,7 @@ describe('journey 5: challenge cleanup with recorded attempts', () => {
     const owner = await h.seedOwner('cascade-club', 'Cascade Club');
 
     const challengeRows = await h.sql<{ id: string }>(
-      `insert into app.admission_challenges
+      `insert into admission_challenges
          (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
        values (1, $1, 'Policy', 'Cascade Club', 'Test', 'Owner', now() + interval '10 minutes')
        returning id`,
@@ -418,7 +418,7 @@ describe('journey 5: challenge cleanup with recorded attempts', () => {
     // Insert two attempt rows
     for (let i = 1; i <= 2; i++) {
       await h.sql(
-        `insert into app.admission_attempts
+        `insert into admission_attempts
            (challenge_id, club_id, attempt_no, applicant_name, applicant_email,
             payload, gate_status, gate_feedback, policy_snapshot)
          values ($1, $2, $3, 'Applicant', 'app@example.com',
@@ -430,12 +430,12 @@ describe('journey 5: challenge cleanup with recorded attempts', () => {
 
     // Delete challenge directly — CASCADE should clean up attempts
     await h.sql(
-      `delete from app.admission_challenges where id = $1`,
+      `delete from admission_challenges where id = $1`,
       [challengeId],
     );
 
     const remainingAttempts = await h.sql<{ count: string }>(
-      `select count(*)::text as count from app.admission_attempts where challenge_id = $1`,
+      `select count(*)::text as count from admission_attempts where challenge_id = $1`,
       [challengeId],
     );
     assert.equal(remainingAttempts[0]!.count, '0', 'CASCADE should delete attempt rows');

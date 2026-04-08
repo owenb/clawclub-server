@@ -119,25 +119,25 @@ test('makeRepository includes new search methods', async () => {
 
 // ── Action registration ────────────────────────────────
 
-test('members.fullTextSearch action is registered', async () => {
+test('members.searchByFullText action is registered', async () => {
   await import('../src/dispatch.ts');
   const { getAction } = await import('../src/schemas/registry.ts');
   const action = getAction('members.searchByFullText');
-  assert.ok(action, 'members.fullTextSearch should be registered');
+  assert.ok(action, 'members.searchByFullText should be registered');
   assert.equal(action?.auth, 'member');
   assert.equal(action?.safety, 'read_only');
 });
 
-test('members.findViaEmbedding action is registered', async () => {
+test('members.searchBySemanticSimilarity action is registered', async () => {
   const { getAction } = await import('../src/schemas/registry.ts');
   const action = getAction('members.searchBySemanticSimilarity');
-  assert.ok(action, 'members.findViaEmbedding should be registered');
+  assert.ok(action, 'members.searchBySemanticSimilarity should be registered');
 });
 
-test('entities.findViaEmbedding action is registered', async () => {
+test('content.searchBySemanticSimilarity action is registered', async () => {
   const { getAction } = await import('../src/schemas/registry.ts');
   const action = getAction('content.searchBySemanticSimilarity');
-  assert.ok(action, 'entities.findViaEmbedding should be registered');
+  assert.ok(action, 'content.searchBySemanticSimilarity should be registered');
 });
 
 test('old members.search action is no longer registered', async () => {
