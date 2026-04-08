@@ -54,7 +54,7 @@ const eventsCreate: ActionDefinition = {
       capacity: wireOptionalPositiveInt.describe('Max attendees'),
       expiresAt: wireOptionalString.describe('ISO 8601 expiration'),
       content: wireOptionalRecord.describe('Structured metadata'),
-      clientKey: wireOptionalString.describe('Idempotency key — same key with same payload returns the original event; same key with different payload returns 409 client_key_conflict'),
+      clientKey: wireOptionalString.describe('Idempotency key (scoped per member globally, not per club). Same key + same payload = original event returned. Same key + different club = 409 client_key_conflict.'),
     }),
     output: z.object({ event: eventSummary }),
   },

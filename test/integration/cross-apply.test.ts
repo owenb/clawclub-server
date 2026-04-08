@@ -259,8 +259,7 @@ describe('cross-apply journey 2: guards and validation', () => {
     const err = await h.apiErr(null, 'admissions.crossClub.requestChallenge', {
       clubSlug: 'unauth-cross-club',
     });
-    // auth:member actions return 400 invalid_input when no token is provided
-    assert.equal(err.status, 400);
+    assert.equal(err.status, 401);
   });
 
   it('cold path rejects member-bound (cross) challenges', async () => {

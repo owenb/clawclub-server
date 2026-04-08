@@ -1494,9 +1494,9 @@ describe('platform authorization', () => {
     }
   });
 
-  it('unauthenticated requests are rejected', async () => {
+  it('unauthenticated requests are rejected with 401', async () => {
     const { status } = await h.api(null, 'superadmin.clubs.list', {});
-    assert.ok(status === 400 || status === 401, `expected 400 or 401 but got ${status}`);
+    assert.equal(status, 401);
   });
 
   it('invalid bearer token returns 401', async () => {

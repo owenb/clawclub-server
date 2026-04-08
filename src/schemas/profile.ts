@@ -41,6 +41,7 @@ const profileGet: ActionDefinition = {
     const profile = await ctx.repository.getMemberProfile({
       actorMemberId: ctx.actor.member.id,
       targetMemberId,
+      actorClubIds: ctx.actor.memberships.map(m => m.clubId),
     });
 
     if (!profile) {

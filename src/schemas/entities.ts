@@ -45,7 +45,7 @@ const entitiesCreate: ActionDefinition = {
       body: wireOptionalString.describe('Body text'),
       expiresAt: wireOptionalString.describe('ISO 8601 expiration timestamp'),
       content: wireOptionalRecord.describe('Structured metadata'),
-      clientKey: wireOptionalString.describe('Idempotency key — same key with same payload returns the original entity; same key with different payload returns 409 client_key_conflict'),
+      clientKey: wireOptionalString.describe('Idempotency key (scoped per member globally, not per club). Same key + same payload = original entity returned. Same key + different club or kind = 409 client_key_conflict.'),
     }),
     output: z.object({ entity: entitySummary }),
   },

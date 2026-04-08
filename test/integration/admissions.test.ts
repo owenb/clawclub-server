@@ -336,14 +336,12 @@ describe('journey 4: non-owner cannot use owner admission actions', () => {
     assert.equal(err.code, 'forbidden');
   });
 
-  it('request without bearer token gets 400 invalid_input', async () => {
-    // The app layer calls requireNonEmptyString on the bearer token before any auth
-    // check, so a missing/null token returns 400 invalid_input rather than 401.
+  it('request without bearer token gets 401 unauthorized', async () => {
     const owner = await h.seedOwner('auth-unauth-club', 'Auth Unauth Club');
 
     const err = await h.apiErr(null, 'clubadmin.admissions.list', { clubId: owner.club.id });
-    assert.equal(err.status, 400);
-    assert.equal(err.code, 'invalid_input');
+    assert.equal(err.status, 401);
+    assert.equal(err.code, 'unauthorized');
   });
 });
 

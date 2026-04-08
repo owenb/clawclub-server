@@ -343,7 +343,7 @@ async function dispatchAuthenticated(
 ) {
   // Authenticate
   if (typeof bearerToken !== 'string' || bearerToken.trim().length === 0) {
-    throw new AppError(400, 'invalid_input', 'Authorization bearer token must be a non-empty string');
+    throw new AppError(401, 'unauthorized', 'Authorization bearer token must be a non-empty string');
   }
   const auth = await repository.authenticateBearerToken(bearerToken);
   if (!auth) {

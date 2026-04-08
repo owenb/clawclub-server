@@ -3438,7 +3438,7 @@
             "type": "string"
           },
           "clientKey": {
-            "description": "Idempotency key — same key with same payload returns the original entity; same key with different payload returns 409 client_key_conflict",
+            "description": "Idempotency key (scoped per member globally, not per club). Same key + same payload = original entity returned. Same key + different club or kind = 409 client_key_conflict.",
             "maxLength": 250000,
             "nullable": true,
             "type": "string"
@@ -4461,7 +4461,7 @@
             "type": "integer"
           },
           "clientKey": {
-            "description": "Idempotency key — same key with same payload returns the original event; same key with different payload returns 409 client_key_conflict",
+            "description": "Idempotency key (scoped per member globally, not per club). Same key + same payload = original event returned. Same key + different club = 409 client_key_conflict.",
             "maxLength": 250000,
             "nullable": true,
             "type": "string"
@@ -10402,6 +10402,6 @@
       }
     }
   },
-  "version": "0.2.4",
-  "schemaHash": "5c617af4bc0b0ea3"
+  "version": "0.2.5",
+  "schemaHash": "23963fdf006affd4"
 }

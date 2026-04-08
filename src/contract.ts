@@ -832,7 +832,7 @@ export type Repository = {
     limit: number;
     cursor?: { joinedAt: string; memberId: string } | null;
   }): Promise<Paginated<ClubMemberSummary>>;
-  getMemberProfile(input: { actorMemberId: string; targetMemberId: string }): Promise<MemberProfile | null>;
+  getMemberProfile(input: { actorMemberId: string; targetMemberId: string; actorClubIds: string[] }): Promise<MemberProfile | null>;
   updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;

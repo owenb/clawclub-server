@@ -115,6 +115,7 @@ The schema is the only reliable source for field names and types. This list high
 - All `clubadmin.*` actions require an explicit `clubId` — no scope inference
 - `superadmin` is platform-operator access. A superadmin can call `clubadmin.*` and `clubowner.*` actions without being a member of that club.
 - DMs are **not** club-scoped. Shared clubs only matter when starting a thread. Once a thread exists, it remains replyable even if shared clubs later drop to zero.
+- `clientKey` is scoped **per member globally**, not per club. The same key reused by the same actor in a different club will return `409 client_key_conflict`. An exact replay (same key, same payload) returns the original entity without creating a duplicate. Use unique keys per logical creation intent.
 
 ### Resolving club IDs
 

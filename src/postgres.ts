@@ -288,13 +288,8 @@ export function createRepository(pool: Pool): Repository {
     },
 
     // ── Profiles ───────────────────────────────────────────
-    getMemberProfile: ({ actorMemberId, targetMemberId }) => {
-      // Need actor's accessible club IDs for shared club calculation
-      return identity.readActor(actorMemberId).then((actor) => {
-        if (!actor) return null;
-        const clubIds = actor.memberships.map((m) => m.clubId);
-        return identity.getMemberProfile({ actorMemberId, targetMemberId, actorClubIds: clubIds });
-      });
+    getMemberProfile: ({ actorMemberId, targetMemberId, actorClubIds }) => {
+      return identity.getMemberProfile({ actorMemberId, targetMemberId, actorClubIds });
     },
     updateOwnProfile: (input) => identity.updateOwnProfile(input),
 
