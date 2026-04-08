@@ -360,6 +360,14 @@ async function dispatchAuthenticated(
   // Parse
   const parsedInput = parseActionInput(def, payload);
 
+  // Pre-gate club access check: reject unauthorized requests before running the LLM gate
+  if (def.qualityGate) {
+    const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
+    if (requestedClubId && !auth.requestScope.activeClubIds.includes(requestedClubId)) {
+      throw new AppError(403, 'forbidden', 'Requested club is outside your access scope');
+    }
+  }
+
   // Legality gate (runs on parsed/normalized input, after auth, before execution)
   let notices: ResponseNotice[] = [];
   if (def.qualityGate) {

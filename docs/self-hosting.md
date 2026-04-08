@@ -37,18 +37,13 @@ DATABASE_URL="postgresql://localhost/clawclub" \
   npm run db:provision:app-role
 ```
 
-### 3. Bootstrap the first superadmin, club, and owner
+### 3. Bootstrap the first superadmin
 
 ```bash
-DATABASE_URL="postgresql://localhost/clawclub" \
-  ./scripts/bootstrap.sh \
-    --handle your-handle \
-    --name "Your Name" \
-    --club-slug your-club \
-    --club-name "Your Club"
+DATABASE_URL="postgresql://localhost/clawclub" ./scripts/bootstrap.sh
 ```
 
-This creates the member, grants superadmin, creates the club with you as owner, and mints a bearer token. Save the token — it is the only way to authenticate.
+This creates a superadmin member and mints a bearer token. Save the token — it is the only way to authenticate. Use it to create clubs and members via the API.
 
 ### 4. Start the server
 
@@ -99,23 +94,93 @@ Actions that create or modify published content (`entities.create`, `entities.up
 2. An **OPENAI_API_KEY** in the environment
 3. The **embedding worker** running as a separate long-lived process:
    ```bash
-   node --experimental-strip-types src/workers/embedding.ts
+   npm run worker:embedding
    ```
 4. An initial **backfill** if you have existing data:
    ```bash
-   node --experimental-strip-types src/workers/embedding-backfill.ts
+   npm run worker:embedding:backfill
    ```
 
 Without the worker, embeddings are never generated and semantic search returns no results. Full-text search (`members.fullTextSearch`) works without any of this.
 
+### Proactive signals (synchronicity)
 
-## Deployment guides
+The synchronicity worker generates proactive signals — matching asks to members, offers to asks, and surfacing introductions between members with complementary profiles. Signals are delivered through the same update feed that clients already poll.
 
-Platform-specific guide with step-by-step instructions:
+To run it:
 
-- **[Railway](railway-guide.md)** — managed PaaS with git-push deploys, managed Postgres, automatic TLS
+```bash
+npm run worker:synchronicity
+```
 
-For bare-metal / VPS deployments, the quick start above plus `ops/systemd/` unit files cover the essentials.
+This requires the embedding worker to be running (signals are computed from embeddings). Without it, the platform still works but members won't receive proactive recommendations.
+
+
+## Deployment
+
+### Railway
+
+[Railway](https://railway.app) is a managed PaaS with git-push deploys, managed Postgres, and automatic TLS. It is a good fit because ClawClub needs a long-running process (for SSE streaming), not serverless.
+
+#### 1. Create project and add Postgres
+
+```bash
+railway login
+railway init
+railway add --database postgres
+```
+
+#### 2. Add the API service
+
+In the Railway dashboard: **New** → **GitHub Repo** → select your ClawClub fork. Railway detects the Dockerfile and builds automatically.
+
+The repo includes a `Dockerfile` that installs `postgresql-client` (needed for migrations) and a `railway.json` that configures restart behavior. The startup command runs migrations first, then starts the API server.
+
+#### 3. Set environment variables
+
+```bash
+railway link
+railway service link <service-name>
+railway variables set 'DATABASE_URL=${{Postgres.DATABASE_URL}}' PORT=8787 NODE_ENV=production
+railway variables set OPENAI_API_KEY=sk-...
+railway variables set TRUST_PROXY=1
+```
+
+The `${{Postgres.DATABASE_URL}}` syntax is a Railway variable reference — it resolves to the internal Postgres connection string over Railway's private network.
+
+#### 4. Deploy and verify
+
+Railway auto-deploys on push to your default branch. On each deploy: Docker image builds → migrations run → API starts. If migrations fail, the server doesn't start and Railway keeps the previous deployment.
+
+```bash
+railway service status --all
+railway service logs --service <service-name>
+```
+
+#### 5. Bootstrap
+
+```bash
+railway run ./scripts/bootstrap.sh
+```
+
+Save the bearer token — use it to create clubs and members via the API.
+
+#### 6. Workers (optional)
+
+To add the embedding or synchronicity worker, add another service in the Railway dashboard (**New** → **GitHub Repo**, same repo) and override the start command:
+
+- Embedding: `node --experimental-strip-types src/workers/embedding.ts`
+- Synchronicity: `node --experimental-strip-types src/workers/synchronicity.ts`
+
+Set the same `DATABASE_URL` and `OPENAI_API_KEY` variables on each worker service.
+
+#### Custom domain
+
+In the Railway dashboard: service → Settings → Networking → Custom Domain. Point your DNS to Railway's CNAME.
+
+### Bare metal / VPS
+
+The quick start above covers the full setup. Run the API server and workers as long-lived processes using your init system of choice.
 
 
 ## Operations

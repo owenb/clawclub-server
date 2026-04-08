@@ -67,14 +67,14 @@ echo "Adding membership to $club_slug ($club_id)..."
 membership_response=$(curl -s -f -X POST "$api_base_url/api" \
   -H "Authorization: Bearer $CLAWCLUB_OWNER_TOKEN" \
   -H 'Content-Type: application/json' \
-  -d "$(printf '{"action":"memberships.create","input":{"clubId":"%s","memberId":"%s","sponsorMemberId":"%s","role":"member","initialStatus":"active","reason":"Added via add-member script"}}' \
+  -d "$(printf '{"action":"clubadmin.memberships.create","input":{"clubId":"%s","memberId":"%s","sponsorMemberId":"%s","initialStatus":"active","reason":"Added via add-member script"}}' \
     "$club_id" "$member_id" "$owner_member_id")")
 
 echo "Membership response:"
 echo "$membership_response" | node -e "process.stdin.setEncoding('utf8');let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.stringify(JSON.parse(d),null,2)))" 2>/dev/null || echo "$membership_response"
 
 membership_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v club_id="$club_id" -v member_id="$member_id" \
-  -c "select id from app.club_memberships where club_id = :'club_id' and member_id = :'member_id'")"
+  -c "select id from app.memberships where club_id = :'club_id' and member_id = :'member_id'")"
 if [[ -z "$membership_id" ]]; then
   echo "Failed to resolve membership id — membership may not have been created" >&2
   exit 1

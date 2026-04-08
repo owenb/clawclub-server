@@ -6,7 +6,7 @@
 
 import type { Pool } from 'pg';
 import { AppError } from '../contract.ts';
-import { withTransaction } from '../db.ts';
+import { recordMutationConfirmation, withTransaction } from '../db.ts';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -129,6 +129,17 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
               throw new AppError(409, 'client_key_conflict',
                 'This clientKey was already used for a different conversation. Use a unique key per message.');
             }
+            await recordMutationConfirmation(client, {
+              actionName: 'messages.send',
+              confirmationKind: 'idempotent_retry',
+              actorMemberId: senderMemberId,
+              subjectId: orig.id,
+              metadata: {
+                clientKey,
+                recipientMemberId,
+                threadId: orig.thread_id,
+              },
+            });
             return {
               threadId: orig.thread_id,
               messageId: orig.id,
@@ -464,6 +475,12 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         [messageId],
       );
       if (existing.rows[0]) {
+        await recordMutationConfirmation(pool, {
+          actionName: 'messages.remove',
+          confirmationKind: 'already_removed',
+          actorMemberId: removedByMemberId,
+          subjectId: messageId,
+        });
         return {
           messageId: existing.rows[0].message_id,
           removedByMemberId: existing.rows[0].removed_by_member_id,

@@ -7,7 +7,7 @@
 import type { Pool } from 'pg';
 import { AppError, type CreateEventInput, type EventSummary, type EventRsvpState, type ListEventsInput } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
-import { withTransaction, type DbClient } from '../db.ts';
+import { recordMutationConfirmation, withTransaction, type DbClient } from '../db.ts';
 import { appendClubActivity } from './entities.ts';
 
 type EventRow = {
@@ -154,13 +154,29 @@ export async function createEvent(pool: Pool, input: CreateEventInput): Promise<
   return withTransaction(pool, async (client) => {
     // Idempotency: if clientKey provided, return existing event
     if (input.clientKey) {
-      const existing = await client.query<{ id: string }>(
-        `select id from app.entities where author_member_id = $1 and client_key = $2`,
+      const existing = await client.query<{ id: string; club_id: string }>(
+        `select id, club_id from app.entities where author_member_id = $1 and client_key = $2`,
         [input.authorMemberId, input.clientKey],
       );
       if (existing.rows[0]) {
+        if (existing.rows[0].club_id !== input.clubId) {
+          throw new AppError(409, 'client_key_conflict',
+            'This clientKey was already used for a different event. Use a unique key per event.');
+        }
         const summary = await readEventSummary(client, existing.rows[0].id, []);
-        if (summary) return summary;
+        if (summary) {
+          await recordMutationConfirmation(client, {
+            actionName: 'events.create',
+            confirmationKind: 'idempotent_retry',
+            actorMemberId: input.authorMemberId,
+            subjectId: summary.entityId,
+            metadata: {
+              clientKey: input.clientKey,
+              clubId: input.clubId,
+            },
+          });
+          return summary;
+        }
       }
     }
 
@@ -335,6 +351,12 @@ export async function removeEvent(pool: Pool, input: {
       [input.entityId, input.clubIds],
     );
     if (alreadyRemoved.rows[0]) {
+      await recordMutationConfirmation(client, {
+        actionName: 'events.remove',
+        confirmationKind: 'already_removed',
+        actorMemberId: input.actorMemberId,
+        subjectId: input.entityId,
+      });
       return readEventSummary(client, input.entityId, []);
     }
 

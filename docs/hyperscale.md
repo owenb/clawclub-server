@@ -21,7 +21,7 @@ This document presents two target architectures — **Cloudflare-first** and **s
 
 ## Why consider either architecture
 
-The current system has known single-node ceilings documented in `docs/scaling-todo.md`:
+The current system has known single-node ceilings:
 
 - **In-memory rate limiting** (`src/server.ts`) — does not survive restarts, does not work across instances
 - **In-memory SSE stream tracking** (`activeStreams` map in `src/server.ts`) — per-process only
@@ -52,7 +52,7 @@ Key facts:
 
 What changes in the codebase:
 - `src/server.ts` — replace HTTP server with Workers `fetch()` handler
-- `src/rate-limit.ts` — in-memory buckets become either Workers Rate Limiting or a Postgres-backed approach (see `docs/scaling-todo.md` item 7)
+- `src/rate-limit.ts` — in-memory buckets become either Workers Rate Limiting or a Postgres-backed approach
 - `src/member-updates-notifier.ts` — removed entirely (replaced by Durable Objects)
 
 ### Connection pooling: Hyperdrive
@@ -243,7 +243,7 @@ The migration is incremental. Each step is independently deployable and reversib
 
 This is prerequisite work that improves the current Railway deployment and unblocks either target architecture.
 
-1. **Postgres-backed rate limiting** — replace in-memory buckets. Design already exists in `docs/scaling-todo.md` item 7.
+1. **Postgres-backed rate limiting** — replace in-memory buckets.
 2. **Remove SSE stream accounting dependency on in-memory state** — either move to Postgres-backed stream leases or accept that SSE will be replaced in Phase 2.
 3. **Audit `set_config` usage** — needed for Lambda/RDS Proxy (AWS path) and clean for Workers too.
 

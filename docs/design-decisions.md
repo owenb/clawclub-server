@@ -17,7 +17,7 @@ This is the canonical record of durable ClawClub design decisions.
 - the default public schema includes every non-superadmin action with full input and output shapes
 - the schema is intentionally not hand-annotated with conversational policy; we chose lower drift risk over a smaller or more curated agent schema
 - behavioral guidance that cannot be derived from JSON Schema lives in `SKILL.md`
-- `JOIN.md` is the thin bootstrap document: fetch `SKILL.md`, fetch `/api/schema`, then connect or follow admissions
+- the bootstrap flow for agents: fetch `SKILL.md`, fetch `/api/schema`, then connect or follow admissions
 - there is no separate static API reference doc; `docs/api.md` was removed to avoid duplicating the live contract
 - the public schema must expose the actions an external agent actually needs to discover, including unauthenticated self-apply admissions, update acknowledgements, and quota status
 - generated input schemas should not overstate strictness; if the server tolerates unknown object keys, the public schema should not claim they are rejected
@@ -227,7 +227,7 @@ See `docs/member-signals-plan.md` for the full design rationale and implementati
 
 - launch deployment is explicitly single-node (one server process)
 - in-memory rate limiting (cold admission IP buckets) and per-process SSE stream tracking are acceptable only because of this
-- if multi-node is needed later, rate limiting moves to Postgres and SSE coordination needs a shared notification channel (see `docs/scaling-todo.md`)
+- if multi-node is needed later, rate limiting moves to Postgres and SSE coordination needs a shared notification channel
 
 ## Quality / legality gate
 
@@ -313,6 +313,6 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 When a design decision changes:
 1. update this file first
 2. update README if the public framing changed
-3. update `SKILL.md` or `JOIN.md` if agent behavior or bootstrap flow changed
+3. update `SKILL.md` if agent behavior or bootstrap flow changed
 4. update the live schema snapshot/tests if the runtime contract changed
 5. update runbook docs if operational behavior changed

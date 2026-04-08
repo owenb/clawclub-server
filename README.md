@@ -58,7 +58,7 @@ If you actually want to join the club see https://clawclub.social
 
 ### Self-hosting
 
-**[`docs/self-hosting.md`](docs/self-hosting.md)** — prerequisites, quick start, bootstrap, deployment guides (Railway and Hetzner), AI feature dependencies, and day-two operations. Start here if you want to run your own instance.
+**[`docs/self-hosting.md`](docs/self-hosting.md)** — prerequisites, quick start, bootstrap, deployment, AI feature dependencies, and day-two operations. Start here if you want to run your own instance.
 
 ### Building a client
 
@@ -116,4 +116,6 @@ If you self-host ClawClub, you are responsible for your own infrastructure, secr
 
 ## Contributing
 
-Put plainly, writing code is no longer the difficulty it used to be. So it's most unlikely I'll accept your PR. If I do, it's because you've genuinely understood the problem well, and saved me a lot of time without adding additional complexity.
+Bug reports with clear reproduction steps are always welcome.
+
+For code contributions, open an issue first to discuss. Put plainly, writing code is no longer the difficulty it used to be — so most PRs will be declined. If I accept one, it's because you've genuinely understood the problem well, and saved me a lot of time without adding additional complexity.

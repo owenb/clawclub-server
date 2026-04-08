@@ -109,11 +109,30 @@ describe('superadmin.billing.activateMembership creates access', () => {
     assert.equal(subs.length, 1);
     assert.equal(subs[0]!.status, 'active');
 
-    // Idempotent: calling again is a no-op
+    const before = await h.sql<{ count: string }>(
+      `select count(*)::text as count
+       from app.mutation_confirmations
+       where action_name = 'superadmin.billing.activateMembership'
+         and confirmation_kind = 'already_applied'
+         and subject_id = $1`,
+      [msId],
+    );
+
+    // Idempotent: calling again confirms the existing write and records a durable confirmation
     await h.apiOk(admin.token, 'superadmin.billing.activateMembership', {
       membershipId: msId,
       paidThrough: futureDate,
     });
+
+    const after = await h.sql<{ count: string }>(
+      `select count(*)::text as count
+       from app.mutation_confirmations
+       where action_name = 'superadmin.billing.activateMembership'
+         and confirmation_kind = 'already_applied'
+         and subject_id = $1`,
+      [msId],
+    );
+    assert.equal(Number(after[0]!.count), Number(before[0]!.count) + 1);
   });
 });
 
@@ -216,6 +235,14 @@ describe('superadmin.billing.setClubPrice is idempotent', () => {
       `SELECT count(*)::text as count FROM app.club_versions WHERE club_id = $1`,
       [owner.club.id],
     );
+    const confirmationsBefore = await h.sql<{ count: string }>(
+      `select count(*)::text as count
+       from app.mutation_confirmations
+       where action_name = 'superadmin.billing.setClubPrice'
+         and confirmation_kind = 'already_applied'
+         and subject_id = $1`,
+      [owner.club.id],
+    );
 
     // Set same price again
     await h.apiOk(admin.token, 'superadmin.billing.setClubPrice', {
@@ -230,6 +257,16 @@ describe('superadmin.billing.setClubPrice is idempotent', () => {
       [owner.club.id],
     );
     assert.equal(v1[0]!.count, v2[0]!.count, 'idempotent setClubPrice should not create extra version');
+
+    const confirmationsAfter = await h.sql<{ count: string }>(
+      `select count(*)::text as count
+       from app.mutation_confirmations
+       where action_name = 'superadmin.billing.setClubPrice'
+         and confirmation_kind = 'already_applied'
+         and subject_id = $1`,
+      [owner.club.id],
+    );
+    assert.equal(Number(confirmationsAfter[0]!.count), Number(confirmationsBefore[0]!.count) + 1);
 
     // Verify price is set
     const club = await h.sql<{ membership_price_amount: string }>(

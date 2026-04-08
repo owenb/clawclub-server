@@ -82,7 +82,7 @@ describe('entities.remove', () => {
     assert.equal((e.version as Record<string, unknown>).state, 'removed');
   });
 
-  it('non-author cannot remove — 403', async () => {
+  it('non-author cannot remove — 404 (existence-hiding)', async () => {
     const owner = await h.seedOwner('entity-remove-forbidden', 'Entity Remove Forbidden Club');
     const author = await h.seedClubMember(owner.club.id, 'Author Forbid', 'author-forbid-remove', { sponsorId: owner.id });
     const bystander = await h.seedClubMember(owner.club.id, 'Bystander', 'bystander-remove', { sponsorId: owner.id });
@@ -98,7 +98,7 @@ describe('entities.remove', () => {
     );
 
     const err = await h.apiErr(bystander.token, 'entities.remove', { entityId: ent!.id });
-    assert.equal(err.status, 403);
+    assert.equal(err.status, 404);
   });
 
   it('double remove is idempotent', async () => {

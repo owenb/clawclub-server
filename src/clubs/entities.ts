@@ -6,7 +6,7 @@ import type { Pool } from 'pg';
 import type { CreateEntityInput, EntitySummary, ListEntitiesInput, UpdateEntityInput } from '../contract.ts';
 import { AppError } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
-import { withTransaction, type DbClient } from '../db.ts';
+import { recordMutationConfirmation, withTransaction, type DbClient } from '../db.ts';
 
 type EntityRow = {
   entity_id: string;
@@ -88,13 +88,29 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
     // Idempotent if clientKey provided — return existing entity on duplicate
     let entityId: string;
     if (input.clientKey) {
-      const existing = await client.query<{ id: string }>(
-        `select id from app.entities where author_member_id = $1 and client_key = $2`,
+      const existing = await client.query<{ id: string; club_id: string; kind: string }>(
+        `select id, club_id, kind from app.entities where author_member_id = $1 and client_key = $2`,
         [input.authorMemberId, input.clientKey],
       );
       if (existing.rows[0]) {
+        if (existing.rows[0].club_id !== input.clubId || existing.rows[0].kind !== input.kind) {
+          throw new AppError(409, 'client_key_conflict',
+            'This clientKey was already used for a different entity. Use a unique key per entity.');
+        }
         const summary = await readEntitySummary(client, existing.rows[0].id);
-        if (summary) return summary;
+        if (summary) {
+          await recordMutationConfirmation(client, {
+            actionName: 'entities.create',
+            confirmationKind: 'idempotent_retry',
+            actorMemberId: input.authorMemberId,
+            subjectId: summary.entityId,
+            metadata: {
+              clientKey: input.clientKey,
+              clubId: input.clubId,
+            },
+          });
+          return summary;
+        }
       }
     }
     const entityResult = await client.query<{ id: string; created_at: string }>(
@@ -201,6 +217,16 @@ export async function removeEntity(pool: Pool, input: {
       [input.entityId, input.clubIds],
     );
     if (alreadyRemoved.rows[0]) {
+      // Auth check even on already-removed entities (existence-hiding)
+      if (!input.skipAuthCheck && alreadyRemoved.rows[0].author_member_id !== input.actorMemberId) {
+        return null;
+      }
+      await recordMutationConfirmation(client, {
+        actionName: input.kindFilter === 'event' ? 'events.remove' : 'entities.remove',
+        confirmationKind: 'already_removed',
+        actorMemberId: input.actorMemberId,
+        subjectId: input.entityId,
+      });
       return mapEntityRow(alreadyRemoved.rows[0]);
     }
 
@@ -223,7 +249,7 @@ export async function removeEntity(pool: Pool, input: {
     if (!current) return null;
 
     if (!input.skipAuthCheck && current.author_member_id !== input.actorMemberId) {
-      throw new AppError(403, 'forbidden', 'Only the author can remove this entity');
+      return null; // existence-hiding: matches entities.update behavior
     }
 
     const removeVersion = await client.query<{ id: string }>(

@@ -410,6 +410,48 @@ describe('messages', () => {
     assert.equal(receipts[0].clubId, null, 'DM ack receipt clubId should be null, not empty string');
   });
 
+  it('duplicate clientKey sends persist a confirmation row', async () => {
+    const owner = await h.seedOwner('msg-client-key', 'MsgClientKey');
+    const alice = await h.seedClubMember(owner.club.id, 'Alice ClientKey', 'alice-client-key', { sponsorId: owner.id });
+    const clientKey = 'retry-key-1';
+
+    const first = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Retry me',
+      clientKey,
+    });
+    const firstMessage = (first.data as Record<string, unknown>).message as Record<string, unknown>;
+
+    const before = await h.sqlMessaging<{ count: string }>(
+      `select count(*)::text as count
+       from app.mutation_confirmations
+       where action_name = 'messages.send'
+         and confirmation_kind = 'idempotent_retry'
+         and subject_id = $1`,
+      [firstMessage.messageId],
+    );
+
+    const second = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Retry me',
+      clientKey,
+    });
+    const secondMessage = (second.data as Record<string, unknown>).message as Record<string, unknown>;
+
+    assert.equal(secondMessage.messageId, firstMessage.messageId);
+    assert.equal(secondMessage.threadId, firstMessage.threadId);
+
+    const after = await h.sqlMessaging<{ count: string }>(
+      `select count(*)::text as count
+       from app.mutation_confirmations
+       where action_name = 'messages.send'
+         and confirmation_kind = 'idempotent_retry'
+         and subject_id = $1`,
+      [firstMessage.messageId],
+    );
+    assert.equal(Number(after[0]!.count), Number(before[0]!.count) + 1);
+  });
+
   it('oversized messageText returns 400', async () => {
     const owner = await h.seedOwner('msg-long', 'MsgLong');
     const alice = await h.seedClubMember(owner.club.id, 'Alice Long', 'alice-long', { sponsorId: owner.id });

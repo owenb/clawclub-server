@@ -123,6 +123,54 @@ describe('member signals', () => {
     assert.equal(dbRows[0].suppression_reason, 'not relevant');
   });
 
+  it('activity acknowledgements persist a confirmation row', async () => {
+    const owen = await h.seedOwner('sigactivityclub', 'SignalActivityClub');
+
+    const cursor = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 })).nextAfter;
+    assert.ok(cursor, 'expected a cursor from initial poll');
+
+    const activityRows = await h.sqlClubs<{ seq: string }>(
+      `insert into app.activity (club_id, topic, payload, created_by_member_id)
+       values ($1, 'entity.version.published', '{}'::jsonb, $2)
+       returning seq::text as seq`,
+      [owen.club.id, owen.id],
+    );
+    const activityUpdateId = `activity:${activityRows[0]!.seq}`;
+
+    const poll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: cursor, limit: 50 }));
+    const activity = poll.items.find((item) => item.updateId === activityUpdateId);
+    assert.ok(activity, 'expected the activity update to be visible');
+
+    const before = await h.sqlClubs<{ count: string }>(
+      `select count(*)::text as count
+       from app.mutation_confirmations
+       where action_name = 'updates.acknowledge'
+         and confirmation_kind = 'activity_receipt'
+         and subject_id = $1`,
+      [activityUpdateId],
+    );
+
+    const ack = await h.apiOk(owen.token, 'updates.acknowledge', {
+      updateIds: [activityUpdateId],
+      state: 'processed',
+    });
+    const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
+    assert.equal(receipts.length, 1);
+    assert.equal(receipts[0].updateId, activityUpdateId);
+    assert.equal(receipts[0].clubId, owen.club.id);
+    assert.notEqual(receipts[0].receiptId, activityUpdateId, 'activity receipt should come from the durable confirmation row');
+
+    const after = await h.sqlClubs<{ count: string }>(
+      `select count(*)::text as count
+       from app.mutation_confirmations
+       where action_name = 'updates.acknowledge'
+         and confirmation_kind = 'activity_receipt'
+         and subject_id = $1`,
+      [activityUpdateId],
+    );
+    assert.equal(Number(after[0]!.count), Number(before[0]!.count) + 1);
+  });
+
   it('signal cursor tracks independently from activity cursor', async () => {
     const owen = await h.seedOwner('sigcurclub', 'SignalCurClub');
 

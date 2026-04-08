@@ -15,7 +15,7 @@ import {
   type ClubMemberSummary,
   type TransitionMembershipInput,
 } from '../contract.ts';
-import { withTransaction, type DbClient } from '../db.ts';
+import { recordMutationConfirmation, withTransaction, type DbClient } from '../db.ts';
 
 type MembershipAdminRow = {
   membership_id: string;
@@ -346,6 +346,17 @@ export async function promoteMemberToAdmin(pool: Pool, input: {
     if (!membership) return null;
     if (membership.role !== 'clubadmin') {
       await client.query(`update app.memberships set role = 'clubadmin' where id = $1`, [membership.id]);
+    } else {
+      await recordMutationConfirmation(client, {
+        actionName: 'clubowner.members.promoteToAdmin',
+        confirmationKind: 'already_applied',
+        actorMemberId: input.actorMemberId,
+        subjectId: membership.id,
+        metadata: {
+          clubId: input.clubId,
+          memberId: input.memberId,
+        },
+      });
     }
     return readMembershipSummary(client, membership.id);
   });
@@ -376,6 +387,17 @@ export async function demoteMemberFromAdmin(pool: Pool, input: {
         `update app.memberships set role = 'member', sponsor_member_id = coalesce(sponsor_member_id, $2) where id = $1`,
         [membership.id, ownerId],
       );
+    } else {
+      await recordMutationConfirmation(client, {
+        actionName: 'clubowner.members.demoteFromAdmin',
+        confirmationKind: 'already_applied',
+        actorMemberId: input.actorMemberId,
+        subjectId: membership.id,
+        metadata: {
+          clubId: input.clubId,
+          memberId: input.memberId,
+        },
+      });
     }
     return readMembershipSummary(client, membership.id);
   });

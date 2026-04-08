@@ -498,6 +498,29 @@ CREATE INDEX subscriptions_payer_status_idx ON app.subscriptions (payer_member_i
 CREATE UNIQUE INDEX subscriptions_one_live_per_membership
     ON app.subscriptions (membership_id) WHERE status IN ('active', 'trialing', 'past_due');
 
+-- ── Mutation confirmations ────────────────────────────────
+
+CREATE TABLE app.mutation_confirmations (
+    id                  app.short_id DEFAULT app.new_id() NOT NULL,
+    action_name         text NOT NULL,
+    confirmation_kind   text NOT NULL,
+    actor_member_id     app.short_id,
+    subject_id          text,
+    metadata            jsonb DEFAULT '{}' NOT NULL,
+    created_at          timestamptz DEFAULT now() NOT NULL,
+
+    CONSTRAINT mutation_confirmations_pkey PRIMARY KEY (id),
+    CONSTRAINT mutation_confirmations_action_name_check CHECK (length(btrim(action_name)) > 0),
+    CONSTRAINT mutation_confirmations_kind_check CHECK (length(btrim(confirmation_kind)) > 0),
+    CONSTRAINT mutation_confirmations_actor_fkey FOREIGN KEY (actor_member_id) REFERENCES app.members(id)
+);
+
+CREATE INDEX mutation_confirmations_action_created_idx
+    ON app.mutation_confirmations (action_name, created_at DESC);
+CREATE INDEX mutation_confirmations_subject_created_idx
+    ON app.mutation_confirmations (subject_id, created_at DESC)
+    WHERE subject_id IS NOT NULL;
+
 
 -- ============================================================
 -- Tables: Content

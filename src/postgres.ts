@@ -8,7 +8,7 @@
 
 import type { Pool } from 'pg';
 import { AppError, type Repository, type EntitySummary, type MembershipVouchSummary, type AdmissionStatus, type PendingUpdate } from './contract.ts';
-import { withTransaction } from './db.ts';
+import { recordMutationConfirmation, withTransaction } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
 import { createClubsRepository, type ClubsRepository } from './clubs/index.ts';
@@ -1053,63 +1053,166 @@ export function createRepository(pool: Pool): Repository {
     },
 
     async acknowledgeUpdates(input) {
-      // ── Inbox acknowledgements ──
-      const inboxIds = input.updateIds
-        .filter((id) => id.startsWith('inbox:'))
-        .map((id) => id.replace('inbox:', ''));
+      return withTransaction(pool, async (client) => {
+        const nowIso = new Date().toISOString();
 
-      const updatedInboxIds = new Set<string>();
-      if (inboxIds.length > 0) {
-        const result = await pool.query<{ id: string }>(
-          `update app.inbox_entries
-           set acknowledged = true
-           where id = any($1::text[]) and recipient_member_id = $2 and acknowledged = false
-           returning id`,
-          [inboxIds, input.actorMemberId],
-        );
-        for (const row of result.rows) updatedInboxIds.add(row.id);
-      }
+        const inboxIds = input.updateIds
+          .filter((id) => id.startsWith('inbox:'))
+          .map((id) => id.replace('inbox:', ''));
 
-      // ── Signal acknowledgements (durable state) ──
-      const signalIds = input.updateIds
-        .filter((id) => id.startsWith('signal:'))
-        .map((id) => id.replace('signal:', ''));
+        const inboxReceipts = new Map<string, {
+          receiptId: string;
+          updateId: string;
+          recipientMemberId: string;
+          clubId: string | null;
+          state: typeof input.state;
+          suppressionReason: string | null;
+          versionNo: number;
+          supersedesReceiptId: null;
+          createdAt: string;
+          createdByMemberId: string | null;
+        }>();
 
-      const updatedSignalIds = new Set<string>();
-      if (signalIds.length > 0) {
-        const result = await pool.query<{ id: string }>(
-          `update app.signals
-           set acknowledged_state = $3,
-               acknowledged_at = now(),
-               suppression_reason = $4
-           where id = any($1::text[])
-             and recipient_member_id = $2
-             and acknowledged_state is null
-           returning id`,
-          [signalIds, input.actorMemberId, input.state, input.suppressionReason ?? null],
-        );
-        for (const row of result.rows) updatedSignalIds.add(row.id);
-      }
+        if (inboxIds.length > 0) {
+          const result = await client.query<{ id: string }>(
+            `update app.inbox_entries
+             set acknowledged = true
+             where id = any($1::text[]) and recipient_member_id = $2
+             returning id`,
+            [inboxIds, input.actorMemberId],
+          );
 
-      // Return receipts for activity (always), inbox (if updated), and signal (if updated) IDs
-      return input.updateIds
-        .filter((id) => {
-          if (id.startsWith('inbox:')) return updatedInboxIds.has(id.replace('inbox:', ''));
-          if (id.startsWith('signal:')) return updatedSignalIds.has(id.replace('signal:', ''));
-          return true; // activity IDs always get receipts
-        })
-        .map((updateId) => ({
-          receiptId: updateId,
-          updateId,
-          recipientMemberId: input.actorMemberId,
-          clubId: updateId.startsWith('inbox:') ? null : '',
-          state: input.state,
-          suppressionReason: input.suppressionReason ?? null,
-          versionNo: 1,
-          supersedesReceiptId: null,
-          createdAt: new Date().toISOString(),
-          createdByMemberId: input.actorMemberId,
-        }));
+          for (const row of result.rows) {
+            const updateId = `inbox:${row.id}`;
+            inboxReceipts.set(updateId, {
+              receiptId: updateId,
+              updateId,
+              recipientMemberId: input.actorMemberId,
+              clubId: null,
+              state: input.state,
+              suppressionReason: input.suppressionReason ?? null,
+              versionNo: 1,
+              supersedesReceiptId: null,
+              createdAt: nowIso,
+              createdByMemberId: input.actorMemberId,
+            });
+          }
+        }
+
+        const signalIds = input.updateIds
+          .filter((id) => id.startsWith('signal:'))
+          .map((id) => id.replace('signal:', ''));
+
+        const signalReceipts = new Map<string, {
+          receiptId: string;
+          updateId: string;
+          recipientMemberId: string;
+          clubId: string | null;
+          state: typeof input.state;
+          suppressionReason: string | null;
+          versionNo: number;
+          supersedesReceiptId: null;
+          createdAt: string;
+          createdByMemberId: string | null;
+        }>();
+
+        if (signalIds.length > 0) {
+          const result = await client.query<{ id: string; club_id: string; acknowledged_at: string }>(
+            `update app.signals
+             set acknowledged_state = coalesce(acknowledged_state, $3),
+                 acknowledged_at = coalesce(acknowledged_at, now()),
+                 suppression_reason = case when acknowledged_state is null then $4 else suppression_reason end
+             where id = any($1::text[])
+               and recipient_member_id = $2
+             returning id, club_id, acknowledged_at::text as acknowledged_at`,
+            [signalIds, input.actorMemberId, input.state, input.suppressionReason ?? null],
+          );
+
+          for (const row of result.rows) {
+            const updateId = `signal:${row.id}`;
+            signalReceipts.set(updateId, {
+              receiptId: updateId,
+              updateId,
+              recipientMemberId: input.actorMemberId,
+              clubId: row.club_id,
+              state: input.state,
+              suppressionReason: input.suppressionReason ?? null,
+              versionNo: 1,
+              supersedesReceiptId: null,
+              createdAt: row.acknowledged_at,
+              createdByMemberId: input.actorMemberId,
+            });
+          }
+        }
+
+        const activitySeqs = input.updateIds
+          .filter((id) => id.startsWith('activity:'))
+          .map((id) => Number.parseInt(id.replace('activity:', ''), 10))
+          .filter((seq) => Number.isInteger(seq) && seq > 0);
+
+        const activityReceipts = new Map<string, {
+          receiptId: string;
+          updateId: string;
+          recipientMemberId: string;
+          clubId: string | null;
+          state: typeof input.state;
+          suppressionReason: string | null;
+          versionNo: number;
+          supersedesReceiptId: null;
+          createdAt: string;
+          createdByMemberId: string | null;
+        }>();
+
+        if (activitySeqs.length > 0) {
+          const visibleActivity = await client.query<{ seq: string; club_id: string }>(
+            `select a.seq::text as seq, a.club_id
+             from app.activity a
+             where a.seq = any($1::bigint[])
+               and exists (
+                 select 1
+                 from app.accessible_memberships am
+                 where am.member_id = $2
+                   and am.club_id = a.club_id
+               )`,
+            [activitySeqs, input.actorMemberId],
+          );
+
+          for (const row of visibleActivity.rows) {
+            const updateId = `activity:${row.seq}`;
+            const confirmation = await recordMutationConfirmation(client, {
+              actionName: 'updates.acknowledge',
+              confirmationKind: 'activity_receipt',
+              actorMemberId: input.actorMemberId,
+              subjectId: updateId,
+              metadata: {
+                clubId: row.club_id,
+                state: input.state,
+                suppressionReason: input.suppressionReason ?? null,
+              },
+            });
+            activityReceipts.set(updateId, {
+              receiptId: confirmation.confirmationId,
+              updateId,
+              recipientMemberId: input.actorMemberId,
+              clubId: row.club_id,
+              state: input.state,
+              suppressionReason: input.suppressionReason ?? null,
+              versionNo: 1,
+              supersedesReceiptId: null,
+              createdAt: confirmation.createdAt,
+              createdByMemberId: input.actorMemberId,
+            });
+          }
+        }
+
+        return input.updateIds
+          .map((updateId) => (
+            inboxReceipts.get(updateId)
+            ?? signalReceipts.get(updateId)
+            ?? activityReceipts.get(updateId)
+          ))
+          .filter((receipt): receipt is NonNullable<typeof receipt> => receipt !== undefined);
+      });
     },
 
     // ── Quotas ─────────────────────────────────────────────
@@ -1253,7 +1356,18 @@ export function createRepository(pool: Pool): Repository {
       if (!club) return null;
 
       const messageCount = await pool.query<{ count: string }>(
-        `select count(*)::text as count from app.messages`,
+        `select count(*)::text as count
+         from app.messages m
+         join app.threads t on t.id = m.thread_id
+         where exists (
+           select 1 from app.accessible_memberships am
+           where am.member_id = t.member_a_id and am.club_id = $1
+         )
+         and exists (
+           select 1 from app.accessible_memberships am
+           where am.member_id = t.member_b_id and am.club_id = $1
+         )`,
+        [clubId],
       );
 
       return {
@@ -1489,25 +1603,47 @@ export function createRepository(pool: Pool): Repository {
         const m = row.rows[0];
         if (!m) throw new AppError(404, 'not_found', 'Membership not found');
 
-        // Idempotent: no-op if already active
         if (m.status === 'active') {
-          // Check subscription — if current_period_end >= paidThrough, true no-op
-          const subRow = await client.query<{ current_period_end: string | null }>(
-            `select current_period_end::text as current_period_end from app.subscriptions
+          const subRow = await client.query<{ id: string; current_period_end: string | null }>(
+            `select id, current_period_end::text as current_period_end from app.subscriptions
              where membership_id = $1 and status in ('active', 'trialing')
              order by started_at desc limit 1`,
             [membershipId],
           );
-          if (subRow.rows[0]?.current_period_end &&
-              new Date(subRow.rows[0].current_period_end) >= new Date(paidThrough)) {
-            return; // already active with same or later period end
+          const liveSubscription = subRow.rows[0];
+          if (liveSubscription?.current_period_end &&
+              new Date(liveSubscription.current_period_end) >= new Date(paidThrough)) {
+            await recordMutationConfirmation(client, {
+              actionName: 'superadmin.billing.activateMembership',
+              confirmationKind: 'already_applied',
+              subjectId: membershipId,
+            });
+            return;
           }
-          // Active but subscription needs updating — update current_period_end
-          await client.query(
-            `update app.subscriptions set current_period_end = $2
-             where membership_id = $1 and status in ('active', 'trialing')`,
-            [membershipId, paidThrough],
+
+          const priceRow = await client.query<{ approved_price_amount: string | null }>(
+            `select approved_price_amount::text from app.memberships where id = $1`,
+            [membershipId],
           );
+          const amount = priceRow.rows[0]?.approved_price_amount != null
+            ? Number(priceRow.rows[0].approved_price_amount) : 0;
+
+          if (liveSubscription) {
+            await client.query(
+              `update app.subscriptions
+               set current_period_end = $2,
+                   status = 'active',
+                   ended_at = null
+               where id = $1`,
+              [liveSubscription.id, paidThrough],
+            );
+          } else {
+            await client.query(
+              `insert into app.subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+               values ($1::app.short_id, $2::app.short_id, 'active', $3, $4)`,
+              [membershipId, m.member_id, amount, paidThrough],
+            );
+          }
           return;
         }
 
@@ -1606,27 +1742,37 @@ export function createRepository(pool: Pool): Repository {
         const m = row.rows[0];
         if (!m) throw new AppError(404, 'not_found', 'Membership not found');
 
-        // Idempotent: no-op if already renewal_pending
-        if (m.status === 'renewal_pending') return;
-
-        if (m.status !== 'active') {
+        if (m.status !== 'active' && m.status !== 'renewal_pending') {
           throw new AppError(409, 'invalid_state', `Cannot mark renewal pending for membership in state '${m.status}'; expected 'active'`);
         }
 
-        // Transition membership state: active → renewal_pending
-        await client.query(
-          `insert into app.membership_state_versions
-           (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
-           values ($1, 'renewal_pending', 'Payment past due', $2, $3, null)`,
-          [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
-        );
+        let wrote = false;
 
-        // Update subscription status to past_due
-        await client.query(
+        if (m.status === 'active') {
+          await client.query(
+            `insert into app.membership_state_versions
+             (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
+             values ($1, 'renewal_pending', 'Payment past due', $2, $3, null)`,
+            [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
+          );
+          wrote = true;
+        }
+
+        const updatedSubscriptions = await client.query<{ id: string }>(
           `update app.subscriptions set status = 'past_due'
-           where membership_id = $1 and status in ('active', 'trialing')`,
+           where membership_id = $1 and status in ('active', 'trialing')
+           returning id`,
           [membershipId],
         );
+        wrote = wrote || updatedSubscriptions.rows.length > 0;
+
+        if (!wrote) {
+          await recordMutationConfirmation(client, {
+            actionName: 'superadmin.billing.markRenewalPending',
+            confirmationKind: 'already_applied',
+            subjectId: membershipId,
+          });
+        }
       });
     },
 
@@ -1644,28 +1790,38 @@ export function createRepository(pool: Pool): Repository {
         const m = row.rows[0];
         if (!m) throw new AppError(404, 'not_found', 'Membership not found');
 
-        // Idempotent: no-op if already expired
-        if (m.status === 'expired') return;
-
         const allowedStates = ['active', 'renewal_pending', 'cancelled', 'payment_pending'];
-        if (!allowedStates.includes(m.status)) {
+        if (m.status !== 'expired' && !allowedStates.includes(m.status)) {
           throw new AppError(409, 'invalid_state', `Cannot expire membership in state '${m.status}'`);
         }
 
-        // Transition membership state → expired
-        await client.query(
-          `insert into app.membership_state_versions
-           (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
-           values ($1, 'expired', 'Billing expiration', $2, $3, null)`,
-          [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
-        );
+        let wrote = false;
 
-        // End any live subscriptions
-        await client.query(
+        if (m.status !== 'expired') {
+          await client.query(
+            `insert into app.membership_state_versions
+             (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
+             values ($1, 'expired', 'Billing expiration', $2, $3, null)`,
+            [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
+          );
+          wrote = true;
+        }
+
+        const endedSubscriptions = await client.query<{ id: string }>(
           `update app.subscriptions set status = 'ended', ended_at = now()
-           where membership_id = $1 and status in ('active', 'trialing', 'past_due')`,
+           where membership_id = $1 and status in ('active', 'trialing', 'past_due')
+           returning id`,
           [membershipId],
         );
+        wrote = wrote || endedSubscriptions.rows.length > 0;
+
+        if (!wrote) {
+          await recordMutationConfirmation(client, {
+            actionName: 'superadmin.billing.expireMembership',
+            confirmationKind: 'already_applied',
+            subjectId: membershipId,
+          });
+        }
       });
     },
 
@@ -1683,21 +1839,25 @@ export function createRepository(pool: Pool): Repository {
         const m = row.rows[0];
         if (!m) throw new AppError(404, 'not_found', 'Membership not found');
 
-        // Idempotent: no-op if already cancelled
-        if (m.status === 'cancelled') return;
-
-        if (m.status !== 'active') {
+        if (m.status !== 'active' && m.status !== 'cancelled') {
           throw new AppError(409, 'invalid_state', `Cannot cancel membership in state '${m.status}'; expected 'active'`);
         }
 
-        // Transition membership state: active → cancelled
-        // Subscription status is NOT changed — Stripe keeps it active until period end
-        await client.query(
-          `insert into app.membership_state_versions
-           (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
-           values ($1, 'cancelled', 'Cancelled at period end', $2, $3, null)`,
-          [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
-        );
+        if (m.status === 'active') {
+          await client.query(
+            `insert into app.membership_state_versions
+             (membership_id, status, reason, version_no, supersedes_state_version_id, created_by_member_id)
+             values ($1, 'cancelled', 'Cancelled at period end', $2, $3, null)`,
+            [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
+          );
+          return;
+        }
+
+        await recordMutationConfirmation(client, {
+          actionName: 'superadmin.billing.cancelAtPeriodEnd',
+          confirmationKind: 'already_applied',
+          subjectId: membershipId,
+        });
       });
     },
 
@@ -1711,14 +1871,15 @@ export function createRepository(pool: Pool): Repository {
         const member = memberRow.rows[0];
         if (!member) throw new AppError(404, 'not_found', 'Member not found');
 
-        // Idempotent: no-op if already banned
-        if (member.state === 'banned') return;
+        let wrote = false;
 
-        // Set member state to banned
-        await client.query(
-          `update app.members set state = 'banned' where id = $1`,
-          [memberId],
-        );
+        if (member.state !== 'banned') {
+          await client.query(
+            `update app.members set state = 'banned' where id = $1`,
+            [memberId],
+          );
+          wrote = true;
+        }
 
         // Find all non-terminal memberships
         const terminalStates = ['banned', 'expired', 'revoked', 'rejected', 'left', 'removed'];
@@ -1732,6 +1893,7 @@ export function createRepository(pool: Pool): Repository {
              and cnm.status::text <> all($2::text[])`,
           [memberId, terminalStates],
         );
+        wrote = wrote || membershipsResult.rows.length > 0;
 
         // Transition each non-terminal membership to banned
         for (const ms of membershipsResult.rows) {
@@ -1744,11 +1906,22 @@ export function createRepository(pool: Pool): Repository {
         }
 
         // End all live subscriptions for this member
-        await client.query(
+        const endedSubscriptions = await client.query<{ id: string }>(
           `update app.subscriptions set status = 'ended', ended_at = now()
-           where payer_member_id = $1 and status in ('active', 'trialing', 'past_due')`,
+           where payer_member_id = $1 and status in ('active', 'trialing', 'past_due')
+           returning id`,
           [memberId],
         );
+        wrote = wrote || endedSubscriptions.rows.length > 0;
+
+        if (!wrote) {
+          await recordMutationConfirmation(client, {
+            actionName: 'superadmin.billing.banMember',
+            confirmationKind: 'already_applied',
+            subjectId: memberId,
+            metadata: { reason },
+          });
+        }
       });
     },
 
@@ -1773,9 +1946,14 @@ export function createRepository(pool: Pool): Repository {
         const current = currentResult.rows[0];
         if (!current) throw new AppError(404, 'not_found', 'Club not found');
 
-        // Idempotent: no-op if price already matches
         const currentAmount = current.membership_price_amount != null ? Number(current.membership_price_amount) : null;
         if (currentAmount === amount && (amount === null || current.membership_price_currency === currency)) {
+          await recordMutationConfirmation(client, {
+            actionName: 'superadmin.billing.setClubPrice',
+            confirmationKind: 'already_applied',
+            subjectId: clubId,
+            metadata: { amount, currency },
+          });
           return;
         }
 
