@@ -527,7 +527,7 @@ export function createServer(options: {
       return;
     }
 
-    if (request.method === 'GET' && url.pathname === '/skill') {
+    if (request.method === 'GET' && (url.pathname === '/skill' || url.pathname === '/skill.md')) {
       writeCompressed(request, response, 200, 'text/markdown; charset=utf-8', SKILL_MD);
       return;
     }
@@ -552,7 +552,7 @@ export function createServer(options: {
         ok: false,
         error: {
           code: 'not_found',
-          message: 'Only GET /, GET /skill, GET /updates/stream, GET /api/schema, and POST /api are supported',
+          message: 'Only GET /, GET /skill (or /skill.md), GET /updates/stream, GET /api/schema, and POST /api are supported',
         },
       });
       return;
