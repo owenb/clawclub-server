@@ -359,13 +359,14 @@ on conflict do nothing;
 -- Quota policies
 -- ============================================================
 
-insert into club_quota_policies (club_id, action_name, max_per_day) values
-  (:'dogclub_id', 'content.create', 20),
-  (:'dogclub_id', 'events.create',   5),
-  (:'catclub_id', 'content.create', 15),
-  (:'catclub_id', 'events.create',   5),
-  (:'foxclub_id', 'content.create', 10),
-  (:'foxclub_id', 'events.create',   3)
+-- Club-specific quota overrides (global defaults are in init.sql)
+insert into quota_policies (scope, club_id, action_name, max_per_day) values
+  ('club', :'dogclub_id', 'content.create', 20),
+  ('club', :'dogclub_id', 'events.create',   5),
+  ('club', :'catclub_id', 'content.create', 15),
+  ('club', :'catclub_id', 'events.create',   5),
+  ('club', :'foxclub_id', 'content.create', 10),
+  ('club', :'foxclub_id', 'events.create',   3)
 on conflict do nothing;
 
 -- ============================================================

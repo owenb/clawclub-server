@@ -3111,6 +3111,9 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "changed": {
+            "type": "boolean"
+          },
           "membership": {
             "additionalProperties": false,
             "properties": {
@@ -3244,7 +3247,8 @@
           }
         },
         "required": [
-          "membership"
+          "membership",
+          "changed"
         ],
         "type": "object"
       },
@@ -3276,6 +3280,9 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "changed": {
+            "type": "boolean"
+          },
           "membership": {
             "additionalProperties": false,
             "properties": {
@@ -3409,7 +3416,8 @@
           }
         },
         "required": [
-          "membership"
+          "membership",
+          "changed"
         ],
         "type": "object"
       },
@@ -10395,5 +10403,5 @@
     }
   },
   "version": "0.2.3",
-  "schemaHash": "55da80f5389b890e"
+  "schemaHash": "672ca7f85ed1c35b"
 }

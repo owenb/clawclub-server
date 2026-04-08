@@ -13,6 +13,7 @@ Deferred non-urgent work. Updated 2026-04-08.
 
 - **Admissions solver dedup.** `sponsorCandidate` and `selfApply` in `src/clubs/admissions.ts` share a near-identical challenge/solve pipeline. Extract shared challenge flow.
 - **Schema registration side effects.** Action schemas register themselves via `registerActions()` called at module import time. Move to explicit registration so the action registry is not assembled via import side effects.
+- **`session.getContext` contract awkwardness.** The useful session payload currently lives in the authenticated response envelope (`actor`) while the action's `data` is empty. `SKILL.md` now explains this, so do not change it yet, but revisit whether `session.getContext.data` should become the canonical self-describing session payload.
 - **`Repository` interface decomposition.** `src/contract.ts` defines a single `Repository` with 40+ methods. Break into domain-scoped interfaces (`IdentityRepository`, `MessagingRepository`, `ClubsRepository`, etc.) and compose at the edge.
 - **`src/postgres.ts` breakup.** The composition layer is 1200+ lines. Split into per-domain files that each wire a domain repository to the pool.
 - **`src/clubs/index.ts` breakup.** Vouches, quotas, LLM logging, activity, and embedding search are all in one file. Split by concern.

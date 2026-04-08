@@ -761,6 +761,7 @@ describe('clubowner.members.promoteToAdmin', () => {
     const data = result.data as Record<string, unknown>;
     const membership = data.membership as Record<string, unknown>;
     assert.equal(membership.role, 'clubadmin');
+    assert.equal(data.changed, true);
     const memberRef = membership.member as Record<string, unknown>;
     assert.equal(memberRef.memberId, member.id);
   });
@@ -785,21 +786,24 @@ describe('clubowner.members.promoteToAdmin', () => {
     assert.ok(data.stats);
   });
 
-  it('promoting already-admin member is idempotent', async () => {
+  it('promoting already-admin member is idempotent with changed: false', async () => {
     const owner = await h.seedOwner('promote-idem', 'Promote Idempotent Club');
     const member = await h.seedClubMember(owner.club.id, 'Already Admin', 'already-admin', { sponsorId: owner.id });
 
     // Promote twice
-    await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
+    const first = await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
       clubId: owner.club.id,
       memberId: member.id,
     });
+    assert.equal((first.data as Record<string, unknown>).changed, true);
     const result = await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
       clubId: owner.club.id,
       memberId: member.id,
     });
-    const membership = (result.data as Record<string, unknown>).membership as Record<string, unknown>;
+    const data = result.data as Record<string, unknown>;
+    const membership = data.membership as Record<string, unknown>;
     assert.equal(membership.role, 'clubadmin');
+    assert.equal(data.changed, false);
   });
 
   it('non-owner admin cannot promote members', async () => {
@@ -882,8 +886,10 @@ describe('clubowner.members.demoteFromAdmin', () => {
       clubId: owner.club.id,
       memberId: member.id,
     });
-    const membership = (result.data as Record<string, unknown>).membership as Record<string, unknown>;
+    const data = result.data as Record<string, unknown>;
+    const membership = data.membership as Record<string, unknown>;
     assert.equal(membership.role, 'member');
+    assert.equal(data.changed, true);
     const memberRef = membership.member as Record<string, unknown>;
     assert.equal(memberRef.memberId, member.id);
   });
@@ -919,7 +925,7 @@ describe('clubowner.members.demoteFromAdmin', () => {
     assert.equal(err.code, 'forbidden');
   });
 
-  it('demoting a regular member is idempotent', async () => {
+  it('demoting a regular member is idempotent with changed: false', async () => {
     const owner = await h.seedOwner('demote-idem', 'Demote Idempotent Club');
     const member = await h.seedClubMember(owner.club.id, 'Not Admin', 'demote-idem-member', { sponsorId: owner.id });
 
@@ -927,8 +933,10 @@ describe('clubowner.members.demoteFromAdmin', () => {
       clubId: owner.club.id,
       memberId: member.id,
     });
-    const membership = (result.data as Record<string, unknown>).membership as Record<string, unknown>;
+    const data = result.data as Record<string, unknown>;
+    const membership = data.membership as Record<string, unknown>;
     assert.equal(membership.role, 'member');
+    assert.equal(data.changed, false);
   });
 
   it('non-owner admin cannot demote', async () => {

@@ -219,15 +219,59 @@ function getQuotaKindFilter(action: string): string[] | null {
   return QUOTA_ENTITY_KINDS[action] ?? null;
 }
 
-export async function enforceQuota(client: DbClient, memberId: string, clubId: string, action: string): Promise<void> {
+/**
+ * Role multiplier for quota enforcement.
+ * - normal member: 1x
+ * - clubadmin: 3x
+ * - club owner: 3x
+ */
+const ROLE_MULTIPLIER_ADMIN = 3;
+
+export type QuotaActorInfo = {
+  role: 'member' | 'clubadmin';
+  isOwner: boolean;
+};
+
+function effectiveMultiplier(actor: QuotaActorInfo): number {
+  if (actor.isOwner || actor.role === 'clubadmin') return ROLE_MULTIPLIER_ADMIN;
+  return 1;
+}
+
+/**
+ * Resolve the base quota for a given club+action.
+ * Checks for a club-specific override first, then falls back to the global default.
+ * Returns null only if no policy exists at all (schema/bootstrap bug).
+ */
+async function resolveBaseQuota(client: DbClient, clubId: string, action: string): Promise<number | null> {
+  // Try club-specific override first
+  const clubResult = await client.query<{ max_per_day: number }>(
+    `select max_per_day from quota_policies where scope = 'club' and club_id = $1 and action_name = $2`,
+    [clubId, action],
+  );
+  if (clubResult.rows[0]) return clubResult.rows[0].max_per_day;
+
+  // Fall back to global default
+  const globalResult = await client.query<{ max_per_day: number }>(
+    `select max_per_day from quota_policies where scope = 'global' and action_name = $1`,
+    [action],
+  );
+  if (globalResult.rows[0]) return globalResult.rows[0].max_per_day;
+
+  return null; // No policy at all — bootstrap bug
+}
+
+export async function enforceQuota(client: DbClient, memberId: string, clubId: string, action: string, actorInfo: QuotaActorInfo): Promise<void> {
   const kinds = getQuotaKindFilter(action);
   if (!kinds) return; // unsupported action for quota counting
 
-  const result = await client.query<{ max_per_day: number }>(
-    `select max_per_day from club_quota_policies where club_id = $1 and action_name = $2`,
-    [clubId, action],
-  );
-  if (!result.rows[0]) return; // no policy = unlimited
+  const base = await resolveBaseQuota(client, clubId, action);
+  if (base === null) {
+    // No policy at all — should not happen with proper bootstrap.
+    // Fail closed: treat as exhausted.
+    throw new AppError(429, 'quota_exceeded', `No quota policy found for ${action} — contact support`);
+  }
+
+  const effectiveMax = base * effectiveMultiplier(actorInfo);
 
   const countResult = await client.query<{ count: string }>(
     `select count(*)::text as count from entities
@@ -237,8 +281,8 @@ export async function enforceQuota(client: DbClient, memberId: string, clubId: s
     [memberId, clubId, kinds],
   );
   const used = Number(countResult.rows[0]?.count ?? 0);
-  if (used >= result.rows[0].max_per_day) {
-    throw new AppError(429, 'quota_exceeded', `Daily quota of ${result.rows[0].max_per_day} ${action} actions reached`);
+  if (used >= effectiveMax) {
+    throw new AppError(429, 'quota_exceeded', `Daily quota of ${effectiveMax} ${action} actions reached`);
   }
 }
 

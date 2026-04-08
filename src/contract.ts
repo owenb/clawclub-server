@@ -870,8 +870,8 @@ export type Repository = {
 
   createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
   listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<Paginated<MembershipVouchSummary>>;
-  promoteMemberToAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
-  demoteMemberFromAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
+  promoteMemberToAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
+  demoteMemberFromAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
   createAdmissionSponsorship(input: CreateAdmissionSponsorInput): Promise<AdmissionSummary>;
   issueAdmissionAccess?(input: IssueAdmissionAccessInput): Promise<IssueAdmissionAccessResult | null>;
   getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;

@@ -50,8 +50,8 @@ export type IdentityRepository = {
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: { actorMemberId: string; clubIds: string[]; limit: number; statuses: MembershipState[]; cursor?: { stateCreatedAt: string; id: string } | null }): Promise<{ results: MembershipReviewSummary[]; hasMore: boolean; nextCursor: string | null }>;
   listMembers(input: { actorMemberId: string; clubIds: string[]; limit: number; cursor?: { joinedAt: string; memberId: string } | null }): Promise<{ results: ClubMemberSummary[]; hasMore: boolean; nextCursor: string | null }>;
-  promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
-  demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
+  promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
+  demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
 
   // Superadmin member/membership creation
   createMemberDirect(input: { actorMemberId: string; publicName: string; handle?: string | null; email?: string | null }): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }>;

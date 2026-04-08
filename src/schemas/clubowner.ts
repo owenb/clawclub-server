@@ -29,7 +29,7 @@ const clubownerMembersPromote: ActionDefinition = {
       clubId: wireRequiredString.describe('Club to promote in'),
       memberId: wireRequiredString.describe('Member to promote'),
     }),
-    output: z.object({ membership: membershipAdminSummary }),
+    output: z.object({ membership: membershipAdminSummary, changed: z.boolean() }),
   },
 
   parse: {
@@ -45,18 +45,18 @@ const clubownerMembersPromote: ActionDefinition = {
     ctx.requireClubOwner(clubId);
     ctx.requireCapability('promoteMemberToAdmin');
 
-    const membership = await ctx.repository.promoteMemberToAdmin!({
+    const result = await ctx.repository.promoteMemberToAdmin!({
       actorMemberId: ctx.actor.member.id,
       clubId,
       memberId,
     });
 
-    if (!membership) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Member not found or not eligible for promotion in this club');
     }
 
     return {
-      data: { membership },
+      data: { membership: result.membership, changed: result.changed },
       requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
     };
   },
@@ -79,7 +79,7 @@ const clubownerMembersDemote: ActionDefinition = {
       clubId: wireRequiredString.describe('Club to demote in'),
       memberId: wireRequiredString.describe('Admin to demote'),
     }),
-    output: z.object({ membership: membershipAdminSummary }),
+    output: z.object({ membership: membershipAdminSummary, changed: z.boolean() }),
   },
 
   parse: {
@@ -95,18 +95,18 @@ const clubownerMembersDemote: ActionDefinition = {
     ctx.requireClubOwner(clubId);
     ctx.requireCapability('demoteMemberFromAdmin');
 
-    const membership = await ctx.repository.demoteMemberFromAdmin!({
+    const result = await ctx.repository.demoteMemberFromAdmin!({
       actorMemberId: ctx.actor.member.id,
       clubId,
       memberId,
     });
 
-    if (!membership) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Admin not found or not eligible for demotion in this club');
     }
 
     return {
-      data: { membership },
+      data: { membership: result.membership, changed: result.changed },
       requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
     };
   },

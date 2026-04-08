@@ -378,7 +378,7 @@ export async function transitionMembershipState(pool: Pool, input: TransitionMem
 
 export async function promoteMemberToAdmin(pool: Pool, input: {
   actorMemberId: string; clubId: string; memberId: string;
-}): Promise<MembershipAdminSummary | null> {
+}): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null> {
   return withTransaction(pool, async (client) => {
     const result = await client.query<{ id: string; role: string }>(
       `select cnm.id, cnm.role from current_club_memberships cnm
@@ -387,16 +387,19 @@ export async function promoteMemberToAdmin(pool: Pool, input: {
     );
     const membership = result.rows[0];
     if (!membership) return null;
-    if (membership.role !== 'clubadmin') {
+    const changed = membership.role !== 'clubadmin';
+    if (changed) {
       await client.query(`update club_memberships set role = 'clubadmin' where id = $1`, [membership.id]);
     }
-    return readMembershipSummary(client, membership.id);
+    const summary = await readMembershipSummary(client, membership.id);
+    if (!summary) return null;
+    return { membership: summary, changed };
   });
 }
 
 export async function demoteMemberFromAdmin(pool: Pool, input: {
   actorMemberId: string; clubId: string; memberId: string;
-}): Promise<MembershipAdminSummary | null> {
+}): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null> {
   return withTransaction(pool, async (client) => {
     const ownerCheck = await client.query<{ owner_member_id: string }>(
       `select owner_member_id from clubs where id = $1 limit 1`,
@@ -413,14 +416,17 @@ export async function demoteMemberFromAdmin(pool: Pool, input: {
     );
     const membership = result.rows[0];
     if (!membership) return null;
-    if (membership.role === 'clubadmin') {
+    const changed = membership.role === 'clubadmin';
+    if (changed) {
       const ownerId = ownerCheck.rows[0]?.owner_member_id ?? null;
       await client.query(
         `update club_memberships set role = 'member', sponsor_member_id = coalesce(sponsor_member_id, $2) where id = $1`,
         [membership.id, ownerId],
       );
     }
-    return readMembershipSummary(client, membership.id);
+    const summary = await readMembershipSummary(client, membership.id);
+    if (!summary) return null;
+    return { membership: summary, changed };
   });
 }
 

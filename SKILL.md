@@ -32,7 +32,7 @@ If you already have a bearer token, start with `session.getContext` to resolve t
 Action families and individual actions:
 
 **Session**
-- `session.getContext` — resolve the current member, club memberships, and request scope
+- `session.getContext` — resolve the current member, memberships, request scope, and pending update context
 
 **Members**
 - `members.list` — list members across accessible clubs
@@ -105,12 +105,16 @@ Action families and individual actions:
 
 The schema is the only reliable source for field names and types. This list highlights non-obvious behaviors:
 
+- `session.getContext` returns `data: {}`. The useful result — who you are, what clubs you belong to, what's pending — is in the response envelope's `actor` object, not in `data`. Read `actor.member`, `actor.activeMemberships`, `actor.requestScope`, and `actor.sharedContext`. Every authenticated response includes this same `actor` envelope, but `session.getContext` is the action where it is the whole point.
 - `socials` is a **string** (not an object) in both `admissions.public.submitApplication` and `admissions.sponsorCandidate`
 - `admissions.public.submitApplication` uses `application` (not `reason`) for the free-text field
 - `admissions.public.submitApplication` does not take `clubSlug` — the club is bound to the challenge
 - `clubadmin.memberships.create` creates the membership in `invited` status, not `active` — a club admin must transition it to `active` separately
+- `clubadmin.memberships.create` and `clubadmin.memberships.setStatus` do **not** manage admin roles. Only `clubowner.members.promoteToAdmin` and `clubowner.members.demoteFromAdmin` change who is a club admin.
 - `content.remove` and `events.remove` are **author-only** — club admins use `clubadmin.content.remove` / `clubadmin.events.remove` (requires a reason)
 - All `clubadmin.*` actions require an explicit `clubId` — no scope inference
+- `superadmin` is platform-operator access. A superadmin can call `clubadmin.*` and `clubowner.*` actions without being a member of that club.
+- DMs are **not** club-scoped. Shared clubs only matter when starting a thread. Once a thread exists, it remains replyable even if shared clubs later drop to zero.
 
 ### Resolving club IDs
 
@@ -118,7 +122,7 @@ There is no slug-to-ID lookup action. Club IDs are returned by `session.getConte
 
 ### `clubId` behavior
 
-When omitted on read actions, the server searches all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). Write actions (`content.create`, `events.create`) always require `clubId`. `messages.send` accepts optional `clubId` — if sender and recipient share exactly one club, the server infers it; if they share multiple clubs, `clubId` is required (400 error otherwise).
+When omitted on read actions, the server searches all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). Write actions (`content.create`, `events.create`) always require `clubId`. `messages.send` does **not** take `clubId` — DMs are not club-scoped.
 
 ### `body` vs `content`
 
@@ -232,7 +236,7 @@ Entity kinds: `post`, `opportunity`, `service`, `ask`
 
 Event RSVP states: `yes`, `maybe`, `no`, `waitlist`
 
-Membership roles: `clubadmin`, `member`. The club owner's role is always `clubadmin`. Multiple members can be `clubadmin`. `session.getContext` returns `isOwner: true` on the ownership membership.
+Membership roles: `clubadmin`, `member`. The club owner's role is always `clubadmin`. Multiple members can be `clubadmin`. `session.getContext` returns `isOwner: true` on the ownership membership. Only the owner can promote or demote other club admins. Superadmins can perform those owner-only actions as platform operators.
 
 Membership states: `invited`, `pending_review`, `active`, `paused`, `revoked`, `rejected`
 
