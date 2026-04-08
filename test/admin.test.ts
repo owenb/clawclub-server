@@ -100,7 +100,7 @@ test('superadmin.members.list returns paginated member list', async () => {
     },
     async adminListMembers({ limit }) {
       assert.equal(limit, 5);
-      return [{
+      return { results: [{
         memberId: 'member-1',
         publicName: 'Alice',
         handle: 'alice',
@@ -108,7 +108,7 @@ test('superadmin.members.list returns paginated member list', async () => {
         createdAt: '2026-03-14T10:00:00Z',
         membershipCount: 2,
         tokenCount: 1,
-      }];
+      }], hasMore: false, nextCursor: null };
     },
   };
 
@@ -128,7 +128,8 @@ test('superadmin.members.list returns paginated member list', async () => {
     assert.equal(body.data.members.length, 1);
     assert.equal(body.data.members[0].publicName, 'Alice');
     assert.equal(body.data.members[0].membershipCount, 2);
-    assert.equal(typeof body.data.nextCursor, 'string');
+    assert.equal(body.data.hasMore, false);
+    assert.equal(body.data.nextCursor, null);
   } finally {
     await shutdown();
   }
@@ -274,7 +275,7 @@ test('superadmin.members.list returns 400 for invalid cursor', async () => {
       return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
     },
     async adminListMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
   };
 
@@ -624,7 +625,7 @@ test('admin.content.list returns paginated content', async () => {
     },
     async adminListContent({ limit }) {
       assert.equal(limit, 10);
-      return [{
+      return { results: [{
         entityId: 'entity-1',
         clubId: 'club-1',
         clubSlug: 'alpha',
@@ -636,7 +637,7 @@ test('admin.content.list returns paginated content', async () => {
         state: 'published',
         createdAt: '2026-03-14T10:00:00Z',
         archivedAt: null,
-      }];
+      }], hasMore: false, nextCursor: null };
     },
   };
 
@@ -670,7 +671,7 @@ test('admin.messages.threads returns thread list', async () => {
     },
     async adminListThreads({ limit }) {
       assert.equal(limit, 10);
-      return [{
+      return { results: [{
         threadId: 'thread-1',
         clubId: 'club-1',
         clubSlug: 'alpha',
@@ -680,7 +681,7 @@ test('admin.messages.threads returns thread list', async () => {
           { memberId: 'member-1', publicName: 'Alice', handle: 'alice' },
           { memberId: 'member-2', publicName: 'Bob', handle: 'bob' },
         ],
-      }];
+      }], hasMore: false, nextCursor: null };
     },
   };
 

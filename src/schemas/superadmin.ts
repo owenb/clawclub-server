@@ -95,7 +95,7 @@ const superadminMembersList: ActionDefinition = {
       limit: wireLimit,
       cursor: wireCursor,
     }),
-    output: z.object({ members: z.array(adminMemberSummary), nextCursor: z.string().nullable() }),
+    output: z.object({ members: z.array(adminMemberSummary), hasMore: z.boolean(), nextCursor: z.string().nullable() }),
   },
 
   parse: {
@@ -111,16 +111,13 @@ const superadminMembersList: ActionDefinition = {
     const { limit, cursor: rawCursor } = input as SuperadminMembersListInput;
     const cursor = rawCursor ? decodeSuperadminCursor(rawCursor) : null;
 
-    const members = await ctx.repository.adminListMembers!({
+    const result = await ctx.repository.adminListMembers!({
       actorMemberId: ctx.actor.member.id,
       limit,
       cursor,
     });
 
-    const last = members[members.length - 1];
-    const nextCursor = last ? encodeSuperadminCursor(last.createdAt, last.memberId) : null;
-
-    return { data: { members, nextCursor } };
+    return { data: { members: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor } };
   },
 };
 
@@ -505,7 +502,7 @@ const superadminContentList: ActionDefinition = {
       limit: wireLimit,
       cursor: wireCursor,
     }),
-    output: z.object({ content: z.array(adminContentSummary), nextCursor: z.string().nullable() }),
+    output: z.object({ content: z.array(adminContentSummary), hasMore: z.boolean(), nextCursor: z.string().nullable() }),
   },
 
   parse: {
@@ -523,7 +520,7 @@ const superadminContentList: ActionDefinition = {
     const { clubId, kind, limit, cursor: rawCursor } = input as SuperadminContentListInput;
     const cursor = rawCursor ? decodeSuperadminCursor(rawCursor) : null;
 
-    const content = await ctx.repository.adminListContent!({
+    const result = await ctx.repository.adminListContent!({
       actorMemberId: ctx.actor.member.id,
       clubId,
       kind,
@@ -531,10 +528,7 @@ const superadminContentList: ActionDefinition = {
       cursor,
     });
 
-    const last = content[content.length - 1];
-    const nextCursor = last ? encodeSuperadminCursor(last.createdAt, last.entityId) : null;
-
-    return { data: { content, nextCursor } };
+    return { data: { content: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor } };
   },
 };
 
@@ -559,7 +553,7 @@ const superadminMessagesThreads: ActionDefinition = {
       limit: wireLimit,
       cursor: wireCursor,
     }),
-    output: z.object({ threads: z.array(adminThreadSummary), nextCursor: z.string().nullable() }),
+    output: z.object({ threads: z.array(adminThreadSummary), hasMore: z.boolean(), nextCursor: z.string().nullable() }),
   },
 
   parse: {
@@ -575,16 +569,13 @@ const superadminMessagesThreads: ActionDefinition = {
     const { limit, cursor: rawCursor } = input as SuperadminMessagesThreadsInput;
     const cursor = rawCursor ? decodeSuperadminCursor(rawCursor) : null;
 
-    const threads = await ctx.repository.adminListThreads!({
+    const result = await ctx.repository.adminListThreads!({
       actorMemberId: ctx.actor.member.id,
       limit,
       cursor,
     });
 
-    const last = threads[threads.length - 1];
-    const nextCursor = last ? encodeSuperadminCursor(last.latestMessageAt, last.threadId) : null;
-
-    return { data: { threads, nextCursor } };
+    return { data: { threads: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor } };
   },
 };
 

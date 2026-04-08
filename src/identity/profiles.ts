@@ -6,6 +6,7 @@ import type { Pool } from 'pg';
 import { AppError, type ActorContext, type MemberProfile, type MemberSearchResult, type UpdateOwnProfileInput } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
+import { encodeCursor } from '../schemas/fields.ts';
 
 type ProfileRow = {
   member_id: string;
@@ -197,10 +198,15 @@ function mapSearchRow(row: MemberSearchRow): MemberSearchResult {
 
 export async function fullTextSearchMembers(pool: Pool, input: {
   actorMemberId: string; clubIds: string[]; query: string; limit: number;
-}): Promise<MemberSearchResult[]> {
-  if (input.clubIds.length === 0) return [];
+  cursor?: { rank: string; memberId: string } | null;
+}): Promise<{ results: MemberSearchResult[]; hasMore: boolean; nextCursor: string | null }> {
+  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
 
-  const result = await pool.query<MemberSearchRow>(
+  const fetchLimit = input.limit + 1;
+  const cursorRank = input.cursor ? parseFloat(input.cursor.rank) : null;
+  const cursorMemberId = input.cursor?.memberId ?? null;
+
+  const result = await pool.query<MemberSearchRow & { _rank: number }>(
     `with scope as (
        select distinct anm.member_id
        from accessible_club_memberships anm
@@ -212,6 +218,7 @@ export async function fullTextSearchMembers(pool: Pool, input: {
        coalesce(cmp.display_name, m.public_name) as display_name,
        m.handle, cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
        cmp.services_summary, cmp.website_url,
+       ts_rank(mpv.search_vector, plainto_tsquery('english', $3)) as _rank,
        jsonb_agg(distinct jsonb_build_object('clubId', n.id, 'slug', n.slug, 'name', n.name))
          filter (where n.id is not null) as shared_clubs
      from scope s
@@ -223,23 +230,39 @@ export async function fullTextSearchMembers(pool: Pool, input: {
        and anm2.club_id = any($1::text[])
      left join clubs n on n.id = anm2.club_id and n.archived_at is null
      where mpv.search_vector @@ plainto_tsquery('english', $3)
+       and ($5::float8 is null
+         or ts_rank(mpv.search_vector, plainto_tsquery('english', $3)) < $5
+         or (ts_rank(mpv.search_vector, plainto_tsquery('english', $3)) = $5 and m.id < $6))
      group by m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline,
               cmp.summary, cmp.what_i_do, cmp.known_for, cmp.services_summary,
               cmp.website_url, mpv.search_vector
-     order by ts_rank(mpv.search_vector, plainto_tsquery('english', $3)) desc
+     order by _rank desc, m.id desc
      limit $4`,
-    [input.clubIds, input.actorMemberId, input.query, input.limit],
+    [input.clubIds, input.actorMemberId, input.query, fetchLimit, cursorRank, cursorMemberId],
   );
 
-  return result.rows.map(mapSearchRow);
+  const rows = result.rows.map(mapSearchRow);
+  const hasMore = rows.length > input.limit;
+  if (hasMore) rows.pop();
+  const lastRow = hasMore || rows.length === input.limit ? result.rows[rows.length - 1] : null;
+  const nextCursor = lastRow && rows.length > 0
+    ? encodeCursor([String(lastRow._rank), lastRow.member_id])
+    : null;
+
+  return { results: rows, hasMore, nextCursor };
 }
 
 export async function findMembersViaEmbedding(pool: Pool, input: {
   actorMemberId: string; clubIds: string[]; queryEmbedding: string; limit: number;
-}): Promise<MemberSearchResult[]> {
-  if (input.clubIds.length === 0) return [];
+  cursor?: { distance: string; memberId: string } | null;
+}): Promise<{ results: MemberSearchResult[]; hasMore: boolean; nextCursor: string | null }> {
+  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
 
-  const result = await pool.query<MemberSearchRow>(
+  const fetchLimit = input.limit + 1;
+  const cursorDist = input.cursor ? parseFloat(input.cursor.distance) : null;
+  const cursorMemberId = input.cursor?.memberId ?? null;
+
+  const result = await pool.query<MemberSearchRow & { _distance: number }>(
     `with scope as (
        select distinct anm.member_id
        from accessible_club_memberships anm
@@ -251,6 +274,10 @@ export async function findMembersViaEmbedding(pool: Pool, input: {
        coalesce(cmp.display_name, m.public_name) as display_name,
        m.handle, cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
        cmp.services_summary, cmp.website_url,
+       (select min(empa.embedding <=> $3::vector)
+        from member_profile_embeddings empa
+        where empa.member_id = m.id
+       ) as _distance,
        jsonb_agg(distinct jsonb_build_object('clubId', n.id, 'slug', n.slug, 'name', n.name))
          filter (where n.id is not null) as shared_clubs
      from scope s
@@ -263,17 +290,24 @@ export async function findMembersViaEmbedding(pool: Pool, input: {
        select 1 from member_profile_embeddings empa
        where empa.member_id = m.id
      )
+       and ($5::float8 is null
+         or (select min(empa.embedding <=> $3::vector) from member_profile_embeddings empa where empa.member_id = m.id) > $5
+         or ((select min(empa.embedding <=> $3::vector) from member_profile_embeddings empa where empa.member_id = m.id) = $5 and m.id > $6))
      group by m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline,
               cmp.summary, cmp.what_i_do, cmp.known_for, cmp.services_summary,
               cmp.website_url
-     order by (
-       select min(empa.embedding <=> $3::vector)
-       from member_profile_embeddings empa
-       where empa.member_id = m.id
-     ) asc
+     order by _distance asc, m.id asc
      limit $4`,
-    [input.clubIds, input.actorMemberId, input.queryEmbedding, input.limit],
+    [input.clubIds, input.actorMemberId, input.queryEmbedding, fetchLimit, cursorDist, cursorMemberId],
   );
 
-  return result.rows.map(mapSearchRow);
+  const rows = result.rows.map(mapSearchRow);
+  const hasMore = rows.length > input.limit;
+  if (hasMore) rows.pop();
+  const lastRow = hasMore || rows.length === input.limit ? result.rows[rows.length - 1] : null;
+  const nextCursor = lastRow && rows.length > 0
+    ? encodeCursor([String(lastRow._distance), lastRow.member_id])
+    : null;
+
+  return { results: rows, hasMore, nextCursor };
 }

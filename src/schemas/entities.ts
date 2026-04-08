@@ -7,10 +7,11 @@ import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   wirePatchString, parsePatchString,
-  wireLimit, parseLimit,
   wireOptionalRecord, parseOptionalRecord,
   wireEntityKinds, parseEntityKinds,
   entityKind,
+  wireCursor, parseCursor, decodeCursor,
+  wireLimitOf, parseLimitOf,
 } from './fields.ts';
 import { entitySummary, membershipSummary } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
@@ -66,6 +67,16 @@ const entitiesCreate: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { clubId, kind, title, summary, body, expiresAt, content, clientKey } = input as CreateInput & { clientKey?: string | null };
+
+    // Require at least one meaningful user-facing field
+    const hasTitle = typeof title === 'string' && title.trim().length > 0;
+    const hasSummary = typeof summary === 'string' && summary.trim().length > 0;
+    const hasBody = typeof body === 'string' && body.trim().length > 0;
+    const hasContent = content && Object.keys(content).length > 0;
+    if (!hasTitle && !hasSummary && !hasBody && !hasContent) {
+      throw new AppError(400, 'invalid_input', 'At least one of title, summary, body, or content must be provided');
+    }
+
     const club = ctx.requireAccessibleClub(clubId);
 
     const entity = await ctx.repository.createEntity({
@@ -217,6 +228,7 @@ type ListInput = {
   kinds: ('post' | 'opportunity' | 'service' | 'ask')[];
   query?: string | null;
   limit: number;
+  cursor: string | null;
 };
 
 const entitiesList: ActionDefinition = {
@@ -231,7 +243,8 @@ const entitiesList: ActionDefinition = {
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
       kinds: wireEntityKinds,
       query: wireOptionalString.describe('Search text'),
-      limit: wireLimit,
+      limit: wireLimitOf(20),
+      cursor: wireCursor,
     }),
     output: z.object({
       query: z.string().nullable(),
@@ -239,6 +252,8 @@ const entitiesList: ActionDefinition = {
       limit: z.number(),
       clubScope: z.array(membershipSummary),
       results: z.array(entitySummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
@@ -247,21 +262,23 @@ const entitiesList: ActionDefinition = {
       clubId: parseRequiredString.optional(),
       kinds: parseEntityKinds,
       query: parseTrimmedNullableString,
-      limit: parseLimit,
+      limit: parseLimitOf(20, 20),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, kinds, query, limit } = input as ListInput;
+    const { clubId, kinds, query, limit, cursor: rawCursor } = input as ListInput;
     const clubScope = ctx.resolveScopedClubs(clubId);
     const clubIds = clubScope.map(c => c.clubId);
 
-    const results = await ctx.repository.listEntities({
+    const result = await ctx.repository.listEntities({
       actorMemberId: ctx.actor.member.id,
       clubIds,
       kinds,
       limit,
       query: query ?? undefined,
+      rawCursor,
     });
 
     return {
@@ -270,7 +287,9 @@ const entitiesList: ActionDefinition = {
         kinds,
         limit,
         clubScope,
-        results,
+        results: result.results,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
       },
       requestScope: {
         requestedClubId: clubId ?? null,
@@ -287,6 +306,7 @@ type EntitiesFindViaEmbeddingInput = {
   clubId?: string;
   kinds?: string[];
   limit: number;
+  cursor: string | null;
 };
 
 const entitiesFindViaEmbedding: ActionDefinition = {
@@ -301,13 +321,16 @@ const entitiesFindViaEmbedding: ActionDefinition = {
       query: z.string().max(1000).describe('Natural-language search query (max 1000 chars)'),
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
       kinds: z.array(entityKind).optional().describe('Filter by entity kinds'),
-      limit: wireLimit,
+      limit: wireLimitOf(20),
+      cursor: wireCursor,
     }),
     output: z.object({
       query: z.string(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
       results: z.array(entitySummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
@@ -316,12 +339,13 @@ const entitiesFindViaEmbedding: ActionDefinition = {
       query: z.string().trim().min(1).max(1000),
       clubId: parseRequiredString.optional(),
       kinds: z.array(entityKind).optional(),
-      limit: parseLimit,
+      limit: parseLimitOf(20, 20),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { query, clubId, kinds, limit } = input as EntitiesFindViaEmbeddingInput;
+    const { query, clubId, kinds, limit, cursor: rawCursor } = input as EntitiesFindViaEmbeddingInput;
     const { embed } = await import('ai');
     const { createOpenAI } = await import('@ai-sdk/openai');
     const { EMBEDDING_PROFILES } = await import('../ai.ts');
@@ -404,18 +428,24 @@ const entitiesFindViaEmbedding: ActionDefinition = {
 
     const queryVector = `[${embedding.join(',')}]`;
 
-    const results = await ctx.repository.findEntitiesViaEmbedding({
+    const cursor = rawCursor ? (() => {
+      const [distance, entityId] = decodeCursor(rawCursor, 2);
+      return { distance, entityId };
+    })() : null;
+
+    const result = await ctx.repository.findEntitiesViaEmbedding({
       actorMemberId: ctx.actor.member.id,
       clubIds,
       queryEmbedding: queryVector,
       kinds,
       limit,
+      cursor,
     });
 
     const clubScope = ctx.actor.memberships.filter(m => clubIds.includes(m.clubId));
 
     return {
-      data: { query, limit, clubScope, results },
+      data: { query, limit, clubScope, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: clubId ?? null, activeClubIds: clubIds },
     };
   },

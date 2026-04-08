@@ -7,6 +7,7 @@
 import type { Pool } from 'pg';
 import { AppError } from '../contract.ts';
 import { withTransaction } from '../db.ts';
+import { encodeCursor } from '../schemas/fields.ts';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -77,13 +78,15 @@ export type MessagingRepository = {
     memberId: string;
     limit: number;
     unreadOnly: boolean;
-  }): Promise<InboxEntry[]>;
+    cursor?: { latestActivityAt: string; threadId: string } | null;
+  }): Promise<{ results: InboxEntry[]; hasMore: boolean; nextCursor: string | null }>;
 
   readThread(input: {
     memberId: string;
     threadId: string;
     limit: number;
-  }): Promise<{ thread: ThreadSummary; messages: MessageEntry[] } | null>;
+    cursor?: { createdAt: string; messageId: string } | null;
+  }): Promise<{ thread: ThreadSummary; messages: MessageEntry[]; hasMore: boolean; nextCursor: string | null } | null>;
 
   removeMessage(input: {
     messageId: string;
@@ -266,7 +269,11 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       }));
     },
 
-    async listInbox({ memberId, limit, unreadOnly }) {
+    async listInbox({ memberId, limit, unreadOnly, cursor }) {
+      const fetchLimit = limit + 1;
+      const cursorActivityAt = cursor?.latestActivityAt ?? null;
+      const cursorThreadId = cursor?.threadId ?? null;
+
       const result = await pool.query<{
         thread_id: string; counterpart_member_id: string;
         counterpart_public_name: string; counterpart_handle: string | null;
@@ -274,6 +281,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         latest_role: string; latest_message_text: string | null;
         latest_created_at: string; message_count: number;
         unread_count: number; has_unread: boolean; latest_unread_at: string | null;
+        _latest_activity_ts: string;
       }>(
         `with my_threads as (
            select tp.thread_id
@@ -294,7 +302,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                   bool_or(not ie.acknowledged) as has_unread,
                   max(ie.created_at) filter (where not ie.acknowledged)::text as latest_unread_at
            from dm_inbox_entries ie
-           where ie.recipient_member_id = $1
+           where ie.recipient_member_id = $1 and ie.acknowledged = false
            group by ie.thread_id
          ),
          latest_msg as (
@@ -319,19 +327,22 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                 lm.message_count,
                 coalesce(ist.unread_count, 0) as unread_count,
                 coalesce(ist.has_unread, false) as has_unread,
-                ist.latest_unread_at
+                ist.latest_unread_at,
+                lm.latest_created_at as _latest_activity_ts
          from latest_msg lm
          join members mbr on mbr.id = lm.counterpart_member_id
          left join inbox_stats ist on ist.thread_id = lm.thread_id
          where ($3::boolean = false or coalesce(ist.has_unread, false))
-         order by coalesce(ist.has_unread, false) desc,
-                  coalesce(ist.latest_unread_at, lm.latest_created_at) desc,
+           and ($4::timestamptz is null
+             or lm.latest_created_at::timestamptz < $4
+             or (lm.latest_created_at::timestamptz = $4 and lm.thread_id < $5))
+         order by lm.latest_created_at::timestamptz desc,
                   lm.thread_id desc
          limit $2`,
-        [memberId, limit, unreadOnly],
+        [memberId, fetchLimit, unreadOnly, cursorActivityAt, cursorThreadId],
       );
 
-      return result.rows.map((row) => ({
+      const rows: InboxEntry[] = result.rows.map((row) => ({
         threadId: row.thread_id,
         counterpartMemberId: row.counterpart_member_id,
         counterpartPublicName: row.counterpart_public_name,
@@ -348,9 +359,18 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         hasUnread: row.has_unread,
         latestUnreadAt: row.latest_unread_at,
       }));
+
+      const hasMore = rows.length > limit;
+      if (hasMore) rows.pop();
+      const lastRow = hasMore || rows.length === limit ? result.rows[rows.length - 1] : null;
+      const nextCursor = lastRow && rows.length > 0
+        ? encodeCursor([lastRow._latest_activity_ts, lastRow.thread_id])
+        : null;
+
+      return { results: rows, hasMore, nextCursor };
     },
 
-    async readThread({ memberId, threadId, limit }) {
+    async readThread({ memberId, threadId, limit, cursor }) {
       // Verify participation and get counterpart info
       const participantCheck = await pool.query<{
         counterpart_member_id: string;
@@ -412,6 +432,10 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       };
 
       // Messages
+      const fetchLimit = limit + 1;
+      const cursorCreatedAt = cursor?.createdAt ?? null;
+      const cursorMessageId = cursor?.messageId ?? null;
+
       const messagesResult = await pool.query<{
         message_id: string; thread_id: string; sender_member_id: string | null;
         role: string; message_text: string | null; payload: Record<string, unknown> | null;
@@ -426,12 +450,24 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
          from dm_messages m
          left join dm_message_removals rmv on rmv.message_id = m.id
          where m.thread_id = $1
+           and ($3::timestamptz is null
+             or m.created_at < $3
+             or (m.created_at = $3 and m.id < $4))
          order by m.created_at desc, m.id desc
          limit $2`,
-        [threadId, limit],
+        [threadId, fetchLimit, cursorCreatedAt, cursorMessageId],
       );
 
-      const messages: MessageEntry[] = messagesResult.rows.map((row) => ({
+      const allRows = messagesResult.rows;
+      const hasMore = allRows.length > limit;
+      if (hasMore) allRows.pop();
+
+      const lastRow = allRows[allRows.length - 1];
+      const nextCursor = lastRow && allRows.length > 0
+        ? encodeCursor([lastRow.created_at, lastRow.message_id])
+        : null;
+
+      const messages: MessageEntry[] = allRows.map((row) => ({
         messageId: row.message_id,
         threadId: row.thread_id,
         senderMemberId: row.sender_member_id,
@@ -442,7 +478,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         inReplyToMessageId: row.in_reply_to_message_id,
       })).reverse();
 
-      return { thread, messages };
+      return { thread, messages, hasMore, nextCursor };
     },
 
     async removeMessage({ messageId, removedByMemberId, reason, skipAuthCheck }) {

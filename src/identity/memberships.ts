@@ -16,6 +16,7 @@ import {
   type TransitionMembershipInput,
 } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
+import { encodeCursor } from '../schemas/fields.ts';
 
 type MembershipAdminRow = {
   membership_id: string;
@@ -131,17 +132,30 @@ async function setComped(client: DbClient, membershipId: string, compedByMemberI
 
 export async function listMemberships(pool: Pool, input: {
   clubIds: string[]; limit: number; status?: MembershipState;
-}): Promise<MembershipAdminSummary[]> {
-  if (input.clubIds.length === 0) return [];
+  cursor?: { stateCreatedAt: string; id: string } | null;
+}): Promise<{ results: MembershipAdminSummary[]; hasMore: boolean; nextCursor: string | null }> {
+  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
+  const fetchLimit = input.limit + 1;
+  const cursorStateCreatedAt = input.cursor?.stateCreatedAt ?? null;
+  const cursorId = input.cursor?.id ?? null;
+
   const result = await pool.query<MembershipAdminRow>(
     `select ${MEMBERSHIP_SELECT} ${MEMBERSHIP_FROM}
      where cnm.club_id = any($1::short_id[])
        and ($2::membership_state is null or cnm.status = $2)
-     order by cnm.club_id asc, cnm.state_created_at desc, cnm.id asc
+       and ($4::timestamptz is null
+         or cnm.state_created_at < $4
+         or (cnm.state_created_at = $4 and cnm.id < $5))
+     order by cnm.state_created_at desc, cnm.id desc
      limit $3`,
-    [input.clubIds, input.status ?? null, input.limit],
+    [input.clubIds, input.status ?? null, fetchLimit, cursorStateCreatedAt, cursorId],
   );
-  return result.rows.map(mapMembershipRow);
+  const rows = result.rows.map(mapMembershipRow);
+  const hasMore = rows.length > input.limit;
+  if (hasMore) rows.pop();
+  const last = rows[rows.length - 1];
+  const nextCursor = last ? encodeCursor([last.state.createdAt, last.membershipId]) : null;
+  return { results: rows, hasMore, nextCursor };
 }
 
 /**
@@ -150,8 +164,13 @@ export async function listMemberships(pool: Pool, input: {
  */
 export async function listMembershipReviews(pool: Pool, input: {
   clubIds: string[]; limit: number; statuses: MembershipState[];
-}): Promise<MembershipReviewSummary[]> {
-  if (input.clubIds.length === 0 || input.statuses.length === 0) return [];
+  cursor?: { stateCreatedAt: string; id: string } | null;
+}): Promise<{ results: MembershipReviewSummary[]; hasMore: boolean; nextCursor: string | null }> {
+  if (input.clubIds.length === 0 || input.statuses.length === 0) return { results: [], hasMore: false, nextCursor: null };
+
+  const fetchLimit = input.limit + 1;
+  const cursorStateCreatedAt = input.cursor?.stateCreatedAt ?? null;
+  const cursorId = input.cursor?.id ?? null;
 
   const result = await pool.query<MembershipAdminRow & {
     sponsor_active_sponsored_count: number;
@@ -174,12 +193,15 @@ export async function listMembershipReviews(pool: Pool, input: {
      left join sponsor_stats ss on ss.sponsor_member_id = cnm.sponsor_member_id and ss.club_id = cnm.club_id
      where cnm.club_id = any($1::short_id[])
        and cnm.status = any($2::membership_state[])
-     order by cnm.club_id asc, cnm.state_created_at desc, cnm.id asc
+       and ($4::timestamptz is null
+         or cnm.state_created_at < $4
+         or (cnm.state_created_at = $4 and cnm.id < $5))
+     order by cnm.state_created_at desc, cnm.id desc
      limit $3`,
-    [input.clubIds, input.statuses, input.limit],
+    [input.clubIds, input.statuses, fetchLimit, cursorStateCreatedAt, cursorId],
   );
 
-  return result.rows.map((row) => ({
+  const rows = result.rows.map((row) => ({
     ...mapMembershipRow(row),
     sponsorStats: {
       activeSponsoredCount: Number(row.sponsor_active_sponsored_count ?? 0),
@@ -187,12 +209,22 @@ export async function listMembershipReviews(pool: Pool, input: {
     },
     vouches: [], // filled by composition layer
   }));
+  const hasMore = rows.length > input.limit;
+  if (hasMore) rows.pop();
+  const last = rows[rows.length - 1];
+  const nextCursor = last ? encodeCursor([last.state.createdAt, last.membershipId]) : null;
+  return { results: rows, hasMore, nextCursor };
 }
 
 export async function listMembers(pool: Pool, input: {
   clubIds: string[]; limit: number;
-}): Promise<ClubMemberSummary[]> {
-  if (input.clubIds.length === 0) return [];
+  cursor?: { joinedAt: string; memberId: string } | null;
+}): Promise<{ results: ClubMemberSummary[]; hasMore: boolean; nextCursor: string | null }> {
+  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
+
+  const fetchLimit = input.limit + 1;
+  const cursorJoinedAt = input.cursor?.joinedAt ?? null;
+  const cursorMemberId = input.cursor?.memberId ?? null;
 
   const result = await pool.query<{
     member_id: string; public_name: string; display_name: string;
@@ -200,6 +232,7 @@ export async function listMembers(pool: Pool, input: {
     what_i_do: string | null; known_for: string | null;
     services_summary: string | null; website_url: string | null;
     memberships: MembershipSummary[] | null;
+    _latest_joined_at: string;
   }>(
     `with scope as (select unnest($1::text[])::short_id as club_id)
      select
@@ -212,7 +245,8 @@ export async function listMembers(pool: Pool, input: {
          'name', n.name, 'summary', n.summary, 'role', anm.role,
          'isOwner', (n.owner_member_id = anm.member_id), 'status', anm.status,
          'sponsorMemberId', anm.sponsor_member_id, 'joinedAt', anm.joined_at::text
-       )) filter (where anm.id is not null) as memberships
+       )) filter (where anm.id is not null) as memberships,
+       max(anm.joined_at)::text as _latest_joined_at
      from scope s
      join accessible_club_memberships anm on anm.club_id = s.club_id
      join members m on m.id = anm.member_id and m.state = 'active'
@@ -220,12 +254,15 @@ export async function listMembers(pool: Pool, input: {
      left join current_member_profiles cmp on cmp.member_id = m.id
      group by m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline,
               cmp.summary, cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
-     order by min(n.name) asc, display_name asc, m.id asc
+     having ($3::timestamptz is null
+       or max(anm.joined_at) < $3
+       or (max(anm.joined_at) = $3 and m.id < $4))
+     order by max(anm.joined_at) desc, m.id desc
      limit $2`,
-    [input.clubIds, input.limit],
+    [input.clubIds, fetchLimit, cursorJoinedAt, cursorMemberId],
   );
 
-  return result.rows.map((row) => ({
+  const rows: ClubMemberSummary[] = result.rows.map((row) => ({
     memberId: row.member_id,
     publicName: row.public_name,
     displayName: row.display_name,
@@ -238,6 +275,12 @@ export async function listMembers(pool: Pool, input: {
     websiteUrl: row.website_url,
     memberships: row.memberships ?? [],
   }));
+
+  const hasMore = rows.length > input.limit;
+  if (hasMore) rows.pop();
+  const lastRow = rows.length > 0 ? result.rows[rows.length - 1] : null;
+  const nextCursor = lastRow ? encodeCursor([lastRow._latest_joined_at, lastRow.member_id]) : null;
+  return { results: rows, hasMore, nextCursor };
 }
 
 export async function createMembership(pool: Pool, input: CreateMembershipInput): Promise<MembershipAdminSummary | null> {

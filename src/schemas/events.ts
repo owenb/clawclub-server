@@ -6,10 +6,11 @@ import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
-  wireLimit, parseLimit,
   wireOptionalRecord, parseOptionalRecord,
   wireOptionalPositiveInt, parseOptionalPositiveInt,
   eventRsvpState,
+  wireCursor, parseCursor, decodeCursor,
+  wireLimitOf, parseLimitOf,
 } from './fields.ts';
 import { eventSummary, membershipSummary } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
@@ -115,6 +116,7 @@ type EventListInput = {
   clubId?: string;
   query?: string | null;
   limit: number;
+  cursor: string | null;
 };
 
 const eventsList: ActionDefinition = {
@@ -128,13 +130,16 @@ const eventsList: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
       query: wireOptionalString.describe('Search text'),
-      limit: wireLimit,
+      limit: wireLimitOf(20),
+      cursor: wireCursor,
     }),
     output: z.object({
       query: z.string().nullable(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
       results: z.array(eventSummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
@@ -142,24 +147,31 @@ const eventsList: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString.optional(),
       query: parseTrimmedNullableString,
-      limit: parseLimit,
+      limit: parseLimitOf(20, 20),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, query, limit } = input as EventListInput;
+    const { clubId, query, limit, cursor: rawCursor } = input as EventListInput;
     const clubScope = ctx.resolveScopedClubs(clubId);
     const clubIds = clubScope.map(c => c.clubId);
 
-    const results = await ctx.repository.listEvents({
+    const cursor = rawCursor ? (() => {
+      const [effectiveAt, entityId] = decodeCursor(rawCursor, 2);
+      return { effectiveAt, entityId };
+    })() : null;
+
+    const result = await ctx.repository.listEvents({
       actorMemberId: ctx.actor.member.id,
       clubIds,
       limit,
       query: query ?? undefined,
+      cursor,
     });
 
     return {
-      data: { query: query ?? null, limit, clubScope, results },
+      data: { query: query ?? null, limit, clubScope, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: clubId ?? null, activeClubIds: clubIds },
     };
   },

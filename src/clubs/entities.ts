@@ -7,6 +7,7 @@ import type { CreateEntityInput, EntitySummary, ListEntitiesInput, UpdateEntityI
 import { AppError } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
+import { encodeCursor, decodeCursor } from '../schemas/fields.ts';
 
 // ── clientKey comparison helpers ──────────────────────────
 
@@ -301,27 +302,41 @@ export async function removeEntity(pool: Pool, input: {
   });
 }
 
-export async function listEntities(pool: Pool, input: ListEntitiesInput): Promise<EntitySummary[]> {
-  if (input.clubIds.length === 0) return [];
+export type PaginatedEntities = { results: EntitySummary[]; hasMore: boolean; nextCursor: string | null };
+
+export async function listEntities(pool: Pool, input: ListEntitiesInput & {
+  rawCursor?: string | null;
+}): Promise<PaginatedEntities> {
+  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
 
   const trimmedQuery = input.query?.trim().slice(0, 120) || null;
   const likePattern = trimmedQuery ? `%${trimmedQuery.replace(/[%_\\]/g, '\\$&')}%` : null;
   const prefixPattern = trimmedQuery ? `${trimmedQuery.replace(/[%_\\]/g, '\\$&')}%` : null;
+  const fetchLimit = input.limit + 1;
+  const isQueryMode = !!trimmedQuery;
 
-  const result = await pool.query<EntityRow>(
+  // Decode cursor: query mode uses 3-part (score, effective_at, entity_id),
+  // chronological mode uses 2-part (effective_at, entity_id).
+  let cursorScore: number | null = null;
+  let cursorEffectiveAt: string | null = null;
+  let cursorEntityId: string | null = null;
+
+  if (input.rawCursor) {
+    if (isQueryMode) {
+      const [score, effectiveAt, entityId] = decodeCursor(input.rawCursor, 3);
+      cursorScore = Number(score);
+      cursorEffectiveAt = effectiveAt;
+      cursorEntityId = entityId;
+    } else {
+      const [effectiveAt, entityId] = decodeCursor(input.rawCursor, 2);
+      cursorEffectiveAt = effectiveAt;
+      cursorEntityId = entityId;
+    }
+  }
+
+  const result = await pool.query<EntityRow & { _relevance_score: number }>(
     `with scope as (select unnest($1::text[]) as club_id)
-     select ${ENTITY_SELECT}
-     from scope s
-     join live_entities le on le.club_id = s.club_id::short_id
-     join entities e on e.id = le.entity_id
-     join current_entity_versions cev on cev.id = le.entity_version_id
-     join members m on m.id = e.author_member_id
-     where le.kind = any($2::entity_kind[])
-       and ($4::text is null
-         or coalesce(le.title, '') ilike $4 escape '\\'
-         or coalesce(le.summary, '') ilike $4 escape '\\'
-         or coalesce(le.body, '') ilike $4 escape '\\')
-     order by
+     select ${ENTITY_SELECT},
        case
          when $3::text is null then 0
          when lower(coalesce(le.title, '')) = lower($3::text) then 400
@@ -332,13 +347,69 @@ export async function listEntities(pool: Pool, input: ListEntitiesInput): Promis
          when coalesce(le.summary, '') ilike $4 escape '\\' then 60
          when coalesce(le.body, '') ilike $4 escape '\\' then 30
          else 0
-       end desc,
+       end as _relevance_score
+     from scope s
+     join live_entities le on le.club_id = s.club_id::short_id
+     join entities e on e.id = le.entity_id
+     join current_entity_versions cev on cev.id = le.entity_version_id
+     join members m on m.id = e.author_member_id
+     where le.kind = any($2::entity_kind[])
+       and ($4::text is null
+         or coalesce(le.title, '') ilike $4 escape '\\'
+         or coalesce(le.summary, '') ilike $4 escape '\\'
+         or coalesce(le.body, '') ilike $4 escape '\\')
+       -- Chronological cursor: only applied when NOT in query-mode cursor ($9 is null)
+       and ($9::int is not null or $7::timestamptz is null
+         or le.effective_at < $7
+         or (le.effective_at = $7 and le.entity_id < $8))
+       -- Query-mode cursor: 3-part (score, effective_at, entity_id) DESC
+       and ($9::int is null
+         or (case
+               when $3::text is null then 0
+               when lower(coalesce(le.title, '')) = lower($3::text) then 400
+               when lower(coalesce(le.title, '')) like lower($5::text) escape '\\' then 250
+               when lower(coalesce(le.summary, '')) like lower($5::text) escape '\\' then 175
+               when lower(coalesce(le.body, '')) like lower($5::text) escape '\\' then 120
+               when coalesce(le.title, '') ilike $4 escape '\\' then 90
+               when coalesce(le.summary, '') ilike $4 escape '\\' then 60
+               when coalesce(le.body, '') ilike $4 escape '\\' then 30
+               else 0
+             end) < $9
+         or ((case
+               when $3::text is null then 0
+               when lower(coalesce(le.title, '')) = lower($3::text) then 400
+               when lower(coalesce(le.title, '')) like lower($5::text) escape '\\' then 250
+               when lower(coalesce(le.summary, '')) like lower($5::text) escape '\\' then 175
+               when lower(coalesce(le.body, '')) like lower($5::text) escape '\\' then 120
+               when coalesce(le.title, '') ilike $4 escape '\\' then 90
+               when coalesce(le.summary, '') ilike $4 escape '\\' then 60
+               when coalesce(le.body, '') ilike $4 escape '\\' then 30
+               else 0
+             end) = $9
+             and (le.effective_at < $7 or (le.effective_at = $7 and le.entity_id < $8))))
+     order by _relevance_score desc,
        le.effective_at desc, le.entity_id desc
      limit $6`,
-    [input.clubIds, input.kinds, trimmedQuery, likePattern, prefixPattern, input.limit],
+    [input.clubIds, input.kinds, trimmedQuery, likePattern, prefixPattern, fetchLimit, cursorEffectiveAt, cursorEntityId, cursorScore],
   );
 
-  return result.rows.map(mapEntityRow);
+  const rows = result.rows.map(mapEntityRow);
+  const hasMore = rows.length > input.limit;
+  if (hasMore) rows.pop();
+
+  // Build cursor from the last returned row
+  const lastIdx = rows.length - 1;
+  const lastRow = lastIdx >= 0 ? result.rows[lastIdx] : null;
+  let nextCursor: string | null = null;
+  if (lastRow && rows.length > 0) {
+    if (isQueryMode) {
+      nextCursor = encodeCursor([String(lastRow._relevance_score), rows[lastIdx].version.effectiveAt, rows[lastIdx].entityId]);
+    } else {
+      nextCursor = encodeCursor([rows[lastIdx].version.effectiveAt, rows[lastIdx].entityId]);
+    }
+  }
+
+  return { results: rows, hasMore, nextCursor };
 }
 
 // ── Club activity helper ────────────────────────────────────

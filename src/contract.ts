@@ -1,3 +1,5 @@
+export type Paginated<T> = { results: T[]; hasMore: boolean; nextCursor: string | null };
+
 export class AppError extends Error {
   statusCode: number;
   code: string;
@@ -801,13 +803,15 @@ export type Repository = {
     clubIds: string[];
     limit: number;
     status?: MembershipState;
-  }): Promise<MembershipAdminSummary[]>;
+    cursor?: { stateCreatedAt: string; id: string } | null;
+  }): Promise<Paginated<MembershipAdminSummary>>;
   listAdmissions?(input: {
     actorMemberId: string;
     clubIds: string[];
     limit: number;
     statuses?: AdmissionStatus[];
-  }): Promise<AdmissionSummary[]>;
+    cursor?: { versionCreatedAt: string; id: string } | null;
+  }): Promise<Paginated<AdmissionSummary>>;
   transitionAdmission?(input: TransitionAdmissionInput): Promise<AdmissionSummary | null>;
   createAdmissionChallenge?(input: CreateAdmissionChallengeInput): Promise<AdmissionChallengeResult>;
   solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<AdmissionApplyResult>;
@@ -820,20 +824,22 @@ export type Repository = {
     clubIds: string[];
     limit: number;
     statuses: MembershipState[];
-  }): Promise<MembershipReviewSummary[]>;
+    cursor?: { stateCreatedAt: string; id: string } | null;
+  }): Promise<Paginated<MembershipReviewSummary>>;
   listMembers(input: {
     actorMemberId: string;
     clubIds: string[];
     limit: number;
-  }): Promise<ClubMemberSummary[]>;
+    cursor?: { joinedAt: string; memberId: string } | null;
+  }): Promise<Paginated<ClubMemberSummary>>;
   getMemberProfile(input: { actorMemberId: string; targetMemberId: string }): Promise<MemberProfile | null>;
   updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
   removeEntity?(input: RemoveEntityInput): Promise<EntitySummary | null>;
-  listEntities(input: ListEntitiesInput): Promise<EntitySummary[]>;
+  listEntities(input: ListEntitiesInput & { rawCursor?: string | null }): Promise<Paginated<EntitySummary>>;
   createEvent(input: CreateEventInput): Promise<EventSummary>;
-  listEvents(input: ListEventsInput): Promise<EventSummary[]>;
+  listEvents(input: ListEventsInput & { cursor?: { effectiveAt: string; entityId: string } | null }): Promise<Paginated<EventSummary>>;
   rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null>;
   removeEvent?(input: RemoveEntityInput): Promise<EventSummary | null>;
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
@@ -853,15 +859,17 @@ export type Repository = {
     actorMemberId: string;
     limit: number;
     unreadOnly: boolean;
-  }): Promise<DirectMessageInboxSummary[]>;
+    cursor?: { latestActivityAt: string; threadId: string } | null;
+  }): Promise<Paginated<DirectMessageInboxSummary>>;
   readDirectMessageThread(input: {
     actorMemberId: string;
     threadId: string;
     limit: number;
-  }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageEntry[] } | null>;
+    cursor?: { createdAt: string; messageId: string } | null;
+  }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageEntry[]; hasMore: boolean; nextCursor: string | null } | null>;
 
   createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
-  listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number }): Promise<MembershipVouchSummary[]>;
+  listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<Paginated<MembershipVouchSummary>>;
   promoteMemberToAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
   demoteMemberFromAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
   createAdmissionSponsorship(input: CreateAdmissionSponsorInput): Promise<AdmissionSummary>;
@@ -873,11 +881,11 @@ export type Repository = {
   adminCreateMember?(input: { actorMemberId: string; publicName: string; handle?: string | null; email?: string | null }): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }>;
   adminCreateMembership?(input: { actorMemberId: string; clubId: string; memberId: string; role: 'member' | 'clubadmin'; sponsorMemberId?: string | null; initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>; reason?: string | null }): Promise<MembershipAdminSummary | null>;
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
-  adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminMemberSummary[]>;
+  adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminMemberSummary>>;
   adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;
   adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
-  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminContentSummary[]>;
-  adminListThreads?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<AdminThreadSummary[]>;
+  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminContentSummary>>;
+  adminListThreads?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminThreadSummary>>;
   adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] } | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
   adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
@@ -910,14 +918,16 @@ export type Repository = {
     clubIds: string[];
     query: string;
     limit: number;
-  }): Promise<MemberSearchResult[]>;
+    cursor?: { rank: string; memberId: string } | null;
+  }): Promise<Paginated<MemberSearchResult>>;
 
   findMembersViaEmbedding(input: {
     actorMemberId: string;
     clubIds: string[];
     queryEmbedding: string;
     limit: number;
-  }): Promise<MemberSearchResult[]>;
+    cursor?: { distance: string; memberId: string } | null;
+  }): Promise<Paginated<MemberSearchResult>>;
 
   findEntitiesViaEmbedding(input: {
     actorMemberId: string;
@@ -925,7 +935,8 @@ export type Repository = {
     queryEmbedding: string;
     kinds?: string[];
     limit: number;
-  }): Promise<EntitySummary[]>;
+    cursor?: { distance: string; entityId: string } | null;
+  }): Promise<Paginated<EntitySummary>>;
 };
 
 export type LogLlmUsageInput = {

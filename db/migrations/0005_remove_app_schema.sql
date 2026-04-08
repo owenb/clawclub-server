@@ -418,7 +418,25 @@ BEGIN
       WHERE le.kind = 'event';
 
   -- ================================================================
-  -- 9. Drop the app schema
+  -- 9. Performance indexes
+  -- ================================================================
+
+  -- DM inbox: update-polling (recipient + unread + created_at cursor)
+  CREATE INDEX IF NOT EXISTS dm_inbox_entries_unread_poll_idx
+      ON dm_inbox_entries (recipient_member_id, created_at ASC)
+      WHERE acknowledged = false;
+
+  -- DM inbox: inbox-stats CTE (recipient + thread grouping for unread aggregation)
+  CREATE INDEX IF NOT EXISTS dm_inbox_entries_unread_thread_idx
+      ON dm_inbox_entries (recipient_member_id, thread_id)
+      WHERE acknowledged = false;
+
+  -- Admissions: cross-apply eligibility checks by applicant
+  CREATE INDEX IF NOT EXISTS admissions_applicant_idx
+      ON admissions (applicant_member_id, club_id);
+
+  -- ================================================================
+  -- 10. Drop the app schema
   -- ================================================================
 
   DROP SCHEMA app;

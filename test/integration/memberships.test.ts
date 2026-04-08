@@ -167,6 +167,64 @@ describe('memberships.list and memberships.review work for owners', () => {
   });
 });
 
+// ── Batched vouch loading for reviews ────────────────────────────────────────
+
+describe('listForReview batches vouch loading across multiple reviews', () => {
+  it('each review gets only its own vouches, newest-first, capped at 50', async () => {
+    const owner = await h.seedOwner('vouch-batch-club', 'Vouch Batch Club');
+    const memberA = await h.seedMember('Alice Vouch', 'alice-vouch');
+    const memberB = await h.seedMember('Bob Vouch', 'bob-vouch');
+    const voucher1 = await h.seedClubMember(owner.club.id, 'Voucher One', 'voucher-one', { sponsorId: owner.id });
+    const voucher2 = await h.seedClubMember(owner.club.id, 'Voucher Two', 'voucher-two', { sponsorId: owner.id });
+
+    // Create invited memberships for A and B
+    await h.apiOk(owner.token, 'clubadmin.memberships.create', {
+      clubId: owner.club.id, memberId: memberA.id, sponsorMemberId: owner.id, initialStatus: 'invited',
+    });
+    await h.apiOk(owner.token, 'clubadmin.memberships.create', {
+      clubId: owner.club.id, memberId: memberB.id, sponsorMemberId: owner.id, initialStatus: 'invited',
+    });
+
+    // Seed vouches via SQL: 2 vouches for A (by voucher1 then voucher2), 1 for B (by voucher1)
+    await h.sql(
+      `insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, created_at)
+       values ($1, 'vouched_for', $2, $3, 'A vouch 1', $2, '2026-04-01T10:00:00Z'),
+              ($1, 'vouched_for', $4, $3, 'A vouch 2', $4, '2026-04-01T11:00:00Z'),
+              ($1, 'vouched_for', $2, $5, 'B vouch 1', $2, '2026-04-01T09:00:00Z')`,
+      [owner.club.id, voucher1.id, memberA.id, voucher2.id, memberB.id],
+    );
+
+    const reviewBody = await h.apiOk(owner.token, 'clubadmin.memberships.listForReview', {
+      clubId: owner.club.id, statuses: ['invited'],
+    });
+    const results = (reviewBody.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+
+    const reviewA = results.find((r) => (r.member as Record<string, unknown>).memberId === memberA.id)!;
+    const reviewB = results.find((r) => (r.member as Record<string, unknown>).memberId === memberB.id)!;
+    assert.ok(reviewA, 'Alice should appear in review results');
+    assert.ok(reviewB, 'Bob should appear in review results');
+
+    const vouchesA = reviewA.vouches as Array<Record<string, unknown>>;
+    const vouchesB = reviewB.vouches as Array<Record<string, unknown>>;
+
+    // A has 2 vouches, B has 1
+    assert.equal(vouchesA.length, 2, 'Alice should have 2 vouches');
+    assert.equal(vouchesB.length, 1, 'Bob should have 1 vouch');
+
+    // A's vouches are newest-first: vouch 2 (11:00) before vouch 1 (10:00)
+    const aReasons = vouchesA.map((v) => v.reason);
+    assert.equal(aReasons[0], 'A vouch 2');
+    assert.equal(aReasons[1], 'A vouch 1');
+
+    // B's vouch has correct reason
+    assert.equal((vouchesB[0] as Record<string, unknown>).reason, 'B vouch 1');
+
+    // No cross-member leakage
+    const aFromIds = vouchesA.map((v) => (v.fromMember as Record<string, unknown>).memberId);
+    assert.ok(!aFromIds.includes(memberB.id), 'A vouches should not contain B-targeted vouches');
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Billing state tests ─────────────────────────────────────────────────────

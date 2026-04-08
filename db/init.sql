@@ -698,6 +698,8 @@ CREATE TABLE admissions (
 );
 
 CREATE INDEX admissions_club_created_idx ON admissions (club_id, created_at DESC);
+-- Supports cross-apply eligibility checks: pending admissions by applicant
+CREATE INDEX admissions_applicant_idx ON admissions (applicant_member_id, club_id);
 
 -- ── Admission versions ─────────────────────────────────────
 
@@ -888,6 +890,14 @@ CREATE INDEX dm_inbox_entries_unread_idx
     ON dm_inbox_entries (recipient_member_id) WHERE acknowledged = false;
 CREATE INDEX dm_inbox_entries_recipient_created_idx
     ON dm_inbox_entries (recipient_member_id, created_at DESC);
+-- Supports update-polling query: recipient + unread + created_at cursor (ASC order)
+CREATE INDEX dm_inbox_entries_unread_poll_idx
+    ON dm_inbox_entries (recipient_member_id, created_at ASC)
+    WHERE acknowledged = false;
+-- Supports inbox-stats CTE: recipient + thread grouping for unread aggregation
+CREATE INDEX dm_inbox_entries_unread_thread_idx
+    ON dm_inbox_entries (recipient_member_id, thread_id)
+    WHERE acknowledged = false;
 
 -- ── DM message removals ───────────────────────────────────────
 

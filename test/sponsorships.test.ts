@@ -153,7 +153,7 @@ test('admissions.list returns admissions for accessible clubs', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
-    async listAdmissions() { return [sampleAdmission]; },
+    async listAdmissions() { return { results: [sampleAdmission], hasMore: false, nextCursor: null }; },
   });
 
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });

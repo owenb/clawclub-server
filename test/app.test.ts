@@ -538,10 +538,10 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       });
     },
     async listMemberships() {
-      return [makeMembershipAdmin()];
+      return { results: [makeMembershipAdmin()], hasMore: false, nextCursor: null };
     },
     async listAdmissions() {
-      return [makeApplication()];
+      return { results: [makeApplication()], hasMore: false, nextCursor: null };
     },
     async transitionAdmission() {
       return makeApplication({ state: { ...makeApplication().state, status: 'interview_scheduled', versionNo: 2 } });
@@ -553,13 +553,13 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return makeMembershipAdmin({ state: { ...makeMembershipAdmin().state, status: 'active', versionNo: 2 } });
     },
     async listMembershipReviews() {
-      return [makeMembershipReview()];
+      return { results: [makeMembershipReview()], hasMore: false, nextCursor: null };
     },
     async fullTextSearchMembers() {
-      return results;
+      return { results, hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile({ targetMemberId }) {
       return makeProfile(targetMemberId);
@@ -577,7 +577,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -598,16 +598,18 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 }
@@ -737,7 +739,7 @@ test('memberships.list stays inside owner club scope and can filter by status', 
     ...makeRepository(),
     async listMemberships(input) {
       capturedInput = input as Record<string, unknown>;
-      return [makeMembershipAdmin({ clubId: 'club-2', state: { ...makeMembershipAdmin().state, status: 'pending_review' } })];
+      return { results: [makeMembershipAdmin({ clubId: 'club-2', state: { ...makeMembershipAdmin().state, status: 'pending_review' } })], hasMore: false, nextCursor: null };
     },
   };
 
@@ -753,6 +755,7 @@ test('memberships.list stays inside owner club scope and can filter by status', 
     clubIds: ['club-2'],
     limit: 4,
     status: 'pending_review',
+    cursor: null,
   });
   assert.equal(result.action, 'clubadmin.memberships.list');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
@@ -769,7 +772,7 @@ test('memberships.review defaults to admissions-focused statuses and returns spo
     ...makeRepository(),
     async listMembershipReviews(input) {
       capturedInput = input as unknown as Record<string, unknown>;
-      return [makeMembershipReview()];
+      return { results: [makeMembershipReview()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -788,6 +791,7 @@ test('memberships.review defaults to admissions-focused statuses and returns spo
     clubIds: ['club-2'],
     limit: 3,
     statuses: ['invited', 'pending_review'],
+    cursor: null,
   });
   assert.equal(result.action, 'clubadmin.memberships.listForReview');
   assert.equal(result.data.results[0]?.sponsorStats.sponsoredThisMonthCount, 2);
@@ -897,7 +901,7 @@ test('admissions.list stays inside owner scope and can filter interview workflow
     ...makeRepository(),
     async listAdmissions(input) {
       capturedInput = input as Record<string, unknown>;
-      return [makeApplication({ state: { ...makeApplication().state, status: 'interview_scheduled', versionNo: 2 } })];
+      return { results: [makeApplication({ state: { ...makeApplication().state, status: 'interview_scheduled', versionNo: 2 } })], hasMore: false, nextCursor: null };
     },
   };
 
@@ -913,6 +917,7 @@ test('admissions.list stays inside owner scope and can filter interview workflow
     clubIds: ['club-2'],
     limit: 4,
     statuses: ['submitted', 'interview_scheduled'],
+    cursor: null,
   });
   assert.equal(result.action, 'clubadmin.admissions.list');
   assert.equal(result.data.results[0]?.state.status, 'interview_scheduled');
@@ -1058,10 +1063,10 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
     },
     async fullTextSearchMembers({ clubIds }) {
       capturedClubIds = clubIds;
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1079,7 +1084,7 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -1109,16 +1114,18 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -1148,11 +1155,11 @@ test('members.list returns active members with scoped membership context', async
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers(input) {
       capturedInput = input;
-      return [
+      return { results: [
         makeClubMember({
           memberId: 'member-2',
           publicName: 'Member Two',
@@ -1160,7 +1167,7 @@ test('members.list returns active members with scoped membership context', async
           handle: 'member-two',
           memberships: [makeActor().memberships[1]!],
         }),
-      ];
+      ], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1178,7 +1185,7 @@ test('members.list returns active members with scoped membership context', async
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -1208,16 +1215,18 @@ test('members.list returns active members with scoped membership context', async
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -1235,6 +1244,7 @@ test('members.list returns active members with scoped membership context', async
     actorMemberId: 'member-1',
     clubIds: ['club-2'],
     limit: 4,
+    cursor: null,
   });
   assert.equal(result.action, 'members.list');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
@@ -1251,10 +1261,10 @@ test('profile.get defaults to the actor member id', async () => {
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile({ targetMemberId }) {
       capturedTargetMemberId = targetMemberId;
@@ -1273,7 +1283,7 @@ test('profile.get defaults to the actor member id', async () => {
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -1303,16 +1313,18 @@ test('profile.get defaults to the actor member id', async () => {
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -1335,10 +1347,10 @@ test('profile.update normalizes nullable strings and handle changes', async () =
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1364,7 +1376,7 @@ test('profile.update normalizes nullable strings and handle changes', async () =
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -1394,16 +1406,18 @@ test('profile.update normalizes nullable strings and handle changes', async () =
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -1440,10 +1454,10 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1474,7 +1488,7 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -1504,16 +1518,18 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
 
@@ -1559,10 +1575,10 @@ test('content.update appends a new version on the shared entity surface', async 
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1596,16 +1612,18 @@ test('content.update appends a new version on the shared entity surface', async 
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -1646,10 +1664,10 @@ test('content.remove appends a removed version on the shared entity surface', as
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1685,16 +1703,18 @@ test('content.remove appends a removed version on the shared entity surface', as
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -1748,10 +1768,10 @@ test('content.update rejects non-author updates', async () => {
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1778,16 +1798,18 @@ test('content.update rejects non-author updates', async () => {
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -1820,10 +1842,10 @@ test('events.create writes the smallest sane event payload', async () => {
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1842,7 +1864,7 @@ test('events.create writes the smallest sane event payload', async () => {
       return makeEvent({ clubId: input.clubId, version: { ...makeEvent().version, title: input.title, capacity: input.capacity } });
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -1872,16 +1894,18 @@ test('events.create writes the smallest sane event payload', async () => {
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
 
@@ -1932,10 +1956,10 @@ test('events.list stays inside accessible scope and forwards optional query', as
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -1954,7 +1978,7 @@ test('events.list stays inside accessible scope and forwards optional query', as
     },
     async listEvents(input) {
       capturedInput = input;
-      return [makeEvent({ clubId: 'club-2' })];
+      return { results: [makeEvent({ clubId: 'club-2' })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -1984,16 +2008,18 @@ test('events.list stays inside accessible scope and forwards optional query', as
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2009,6 +2035,7 @@ test('events.list stays inside accessible scope and forwards optional query', as
     clubIds: ['club-2'],
     limit: 4,
     query: 'hetzner',
+    cursor: null,
   });
   assert.equal(result.data.query, 'hetzner');
   assert.equal(result.data.results[0]?.clubId, 'club-2');
@@ -2022,10 +2049,10 @@ test('events.rsvp uses the actor membership in the event club', async () => {
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2043,7 +2070,7 @@ test('events.rsvp uses the actor membership in the event club', async () => {
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent(input) {
       capturedInput = input;
@@ -2073,16 +2100,18 @@ test('events.rsvp uses the actor membership in the event club', async () => {
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2115,10 +2144,10 @@ test('content.list can span accessible clubs and filter by kinds with optional q
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2136,14 +2165,14 @@ test('content.list can span accessible clubs and filter by kinds with optional q
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
     },
     async listEntities(input) {
       capturedInput = input;
-      return [{ ...makeEntity(), kind: 'ask' }];
+      return { results: [{ ...makeEntity(), kind: 'ask' }], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2164,6 +2193,7 @@ test('content.list can span accessible clubs and filter by kinds with optional q
     kinds: ['ask', 'service'],
     limit: 5,
     query: 'backend',
+    rawCursor: null,
   });
   assert.equal(result.action, 'content.list');
   assert.equal(result.data.query, 'backend');
@@ -2230,10 +2260,10 @@ test('profile.get returns 404 when the target member is outside shared scope', a
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return null;
@@ -2251,7 +2281,7 @@ test('profile.get returns 404 when the target member is outside shared scope', a
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2281,16 +2311,18 @@ test('profile.get returns 404 when the target member is outside shared scope', a
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2343,10 +2375,10 @@ test('messages.send picks a shared club, appends the request scope, and returns 
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2364,7 +2396,7 @@ test('messages.send picks a shared club, appends the request scope, and returns 
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2393,16 +2425,18 @@ test('messages.send picks a shared club, appends the request scope, and returns 
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
 
@@ -2436,10 +2470,10 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2457,7 +2491,7 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2487,16 +2521,18 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
 
@@ -2531,10 +2567,10 @@ test('messages.getInbox stays inside accessible scope and returns inbox summarie
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2552,7 +2588,7 @@ test('messages.getInbox stays inside accessible scope and returns inbox summarie
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2580,16 +2616,18 @@ test('messages.getInbox stays inside accessible scope and returns inbox summarie
     },
     async listDirectMessageInbox(input) {
       capturedInput = input as Record<string, unknown>;
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2604,6 +2642,7 @@ test('messages.getInbox stays inside accessible scope and returns inbox summarie
     actorMemberId: 'member-1',
     limit: 4,
     unreadOnly: false,
+    cursor: null,
   });
   assert.equal(result.action, 'messages.getInbox');
   assert.equal(result.data.unreadOnly, false);
@@ -2620,10 +2659,10 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2641,7 +2680,7 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2669,7 +2708,7 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
     },
     async listDirectMessageInbox(input) {
       capturedInput = input as Record<string, unknown>;
-      return [
+      return { results: [
         makeDirectMessageInbox({
           unread: {
             hasUnread: true,
@@ -2678,16 +2717,18 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
             latestUnreadMessageCreatedAt: '2026-03-12T00:04:00Z',
           },
         }),
-      ];
+      ], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2702,6 +2743,7 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
     actorMemberId: 'member-1',
     limit: 4,
     unreadOnly: true,
+    cursor: null,
   });
   assert.equal(result.action, 'messages.getInbox');
   assert.equal(result.data.unreadOnly, true);
@@ -2718,10 +2760,10 @@ test('messages.getThread scopes thread access server-side and returns DM entries
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2739,7 +2781,7 @@ test('messages.getThread scopes thread access server-side and returns DM entries
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2811,10 +2853,12 @@ test('messages.getThread scopes thread access server-side and returns DM entries
             ],
           }),
         ],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2829,6 +2873,7 @@ test('messages.getThread scopes thread access server-side and returns DM entries
     actorMemberId: 'member-1',
     threadId: 'thread-1',
     limit: 2,
+    cursor: null,
   });
   assert.equal(result.action, 'messages.getThread');
   assert.equal(result.data.thread.threadId, 'thread-1');
@@ -2858,10 +2903,10 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2879,7 +2924,7 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2913,16 +2958,18 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
 
@@ -2957,10 +3004,10 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -2978,7 +3025,7 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -3009,16 +3056,18 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return [makeDirectMessageInbox()];
+      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
     },
     async readDirectMessageThread() {
       return {
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
+        hasMore: false,
+        nextCursor: null,
       };
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 
@@ -3151,10 +3200,10 @@ test('messages.getThread returns 404 when the thread is outside actor scope', as
       return makeAuthResult();
     },
     async fullTextSearchMembers() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
-      return [makeClubMember()];
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile() {
       return makeProfile();
@@ -3172,7 +3221,7 @@ test('messages.getThread returns 404 when the thread is outside actor scope', as
       return makeEvent();
     },
     async listEvents() {
-      return [makeEvent()];
+      return { results: [makeEvent()], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -3205,7 +3254,7 @@ test('messages.getThread returns 404 when the thread is outside actor scope', as
       return null;
     },
     async listEntities() {
-      return [makeEntity()];
+      return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
 

@@ -11,8 +11,9 @@ import {
   wireRequiredString, parseRequiredString,
   wireMessageText, parseMessageText,
   wireOptionalString, parseTrimmedNullableString,
-  wireLimit, parseLimit,
   wireOptionalBoolean,
+  wireCursor, parseCursor, decodeCursor,
+  wireLimitOf, parseLimitOf,
 } from './fields.ts';
 import {
   directMessageSummary, directMessageThreadSummary,
@@ -80,6 +81,7 @@ const messagesSend: ActionDefinition = {
 type GetInboxInput = {
   limit: number;
   unreadOnly: boolean;
+  cursor: string | null;
 };
 
 const messagesGetInbox: ActionDefinition = {
@@ -91,33 +93,43 @@ const messagesGetInbox: ActionDefinition = {
 
   wire: {
     input: z.object({
-      limit: wireLimit,
+      limit: wireLimitOf(20),
       unreadOnly: wireOptionalBoolean.describe('Only show threads with unread messages'),
+      cursor: wireCursor,
     }),
     output: z.object({
       limit: z.number(),
       unreadOnly: z.boolean(),
       results: z.array(directMessageInboxSummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
   parse: {
     input: z.object({
-      limit: parseLimit,
+      limit: parseLimitOf(20, 20),
       unreadOnly: z.boolean().optional().default(false),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { limit, unreadOnly } = input as GetInboxInput;
+    const { limit, unreadOnly, cursor: rawCursor } = input as GetInboxInput;
 
-    const results = await ctx.repository.listDirectMessageInbox({
+    const cursor = rawCursor ? (() => {
+      const [latestActivityAt, threadId] = decodeCursor(rawCursor, 2);
+      return { latestActivityAt, threadId };
+    })() : null;
+
+    const result = await ctx.repository.listDirectMessageInbox({
       actorMemberId: ctx.actor.member.id,
       limit,
       unreadOnly,
+      cursor,
     });
 
-    return { data: { limit, unreadOnly, results } };
+    return { data: { limit, unreadOnly, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor } };
   },
 };
 
@@ -126,6 +138,7 @@ const messagesGetInbox: ActionDefinition = {
 type GetThreadInput = {
   threadId: string;
   limit: number;
+  cursor: string | null;
 };
 
 const messagesGetThread: ActionDefinition = {
@@ -138,35 +151,45 @@ const messagesGetThread: ActionDefinition = {
   wire: {
     input: z.object({
       threadId: wireRequiredString.describe('Thread ID to read'),
-      limit: wireLimit,
+      limit: wireLimitOf(50),
+      cursor: wireCursor,
     }),
     output: z.object({
       thread: directMessageThreadSummary,
       messages: z.array(directMessageEntry),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
   parse: {
     input: z.object({
       threadId: parseRequiredString,
-      limit: parseLimit,
+      limit: parseLimitOf(50, 50),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { threadId, limit } = input as GetThreadInput;
+    const { threadId, limit, cursor: rawCursor } = input as GetThreadInput;
+
+    const cursor = rawCursor ? (() => {
+      const [createdAt, messageId] = decodeCursor(rawCursor, 2);
+      return { createdAt, messageId };
+    })() : null;
 
     const result = await ctx.repository.readDirectMessageThread({
       actorMemberId: ctx.actor.member.id,
       threadId,
       limit,
+      cursor,
     });
 
     if (!result) {
       throw new AppError(404, 'not_found', 'Thread not found or not a participant');
     }
 
-    return { data: result };
+    return { data: { thread: result.thread, messages: result.messages, hasMore: result.hasMore, nextCursor: result.nextCursor } };
   },
 };
 

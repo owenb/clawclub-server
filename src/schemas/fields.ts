@@ -92,6 +92,52 @@ export const wireCursor = z.string().nullable().optional()
 /** Parse: trims, nullable, defaults to null */
 export const parseCursor = z.string().trim().min(1).nullable().optional().default(null);
 
+// ── Shared cursor encode/decode ─────────────────────────────
+
+import { AppError } from '../contract.ts';
+
+/**
+ * Encode a keyset cursor from an arbitrary tuple of values.
+ * All values must be strings (callers convert numbers/dates to string before encoding).
+ */
+export function encodeCursor(parts: string[]): string {
+  return Buffer.from(JSON.stringify(parts)).toString('base64url');
+}
+
+/**
+ * Decode a keyset cursor into an array of string parts.
+ * Validates that the cursor is a valid JSON array of strings.
+ */
+export function decodeCursor(cursor: string, expectedParts: number): string[] {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+    if (!Array.isArray(parsed) || parsed.length !== expectedParts) throw new Error();
+    for (const p of parsed) {
+      if (typeof p !== 'string') throw new Error();
+    }
+    return parsed as string[];
+  } catch {
+    throw new AppError(400, 'invalid_input', 'Invalid pagination cursor');
+  }
+}
+
+/**
+ * Build a wire limit schema with a custom max.
+ */
+export function wireLimitOf(max: number) {
+  return z.number().int().optional()
+    .describe(`Max results. Clamped to 1–${max} by the server.`);
+}
+
+/**
+ * Build a parse limit schema with custom default and max.
+ */
+export function parseLimitOf(defaultVal: number, max: number) {
+  return z.number().int().optional()
+    .default(defaultVal)
+    .transform((n: number) => Math.min(Math.max(n, 1), max));
+}
+
 /**
  * Wire: optional string that may be null.
  * Empty strings are treated as null by the server.

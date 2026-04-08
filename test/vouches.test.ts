@@ -155,7 +155,7 @@ test('vouches.list returns vouches for a member', async () => {
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
-    async listVouches() { return [sampleVouch]; },
+    async listVouches() { return { results: [sampleVouch], hasMore: false, nextCursor: null }; },
   });
 
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });

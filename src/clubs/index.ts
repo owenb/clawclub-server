@@ -22,6 +22,7 @@ import type {
 } from '../contract.ts';
 import { AppError } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
+import { encodeCursor } from '../schemas/fields.ts';
 import * as entities from './entities.ts';
 import * as events from './events.ts';
 
@@ -34,36 +35,88 @@ export async function createVouch(pool: Pool, input: {
 }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null> {
   // Membership verification happens in the composition layer (postgres.ts).
   // The DB has a CHECK constraint preventing self-vouches.
-  const result = await pool.query<{
-    id: string; from_member_id: string; from_public_name: string; from_handle: string | null;
-    reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
-  }>(
-    `insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, client_key)
-     values ($1::text, 'vouched_for', $2::text, $3::text, $4, $2::text, $5)
-     returning id, from_member_id,
-       (select public_name from members where id = from_member_id) as from_public_name,
-       (select handle from members where id = from_member_id) as from_handle,
-       reason, metadata, created_at::text as created_at, created_by_member_id`,
-    [input.clubId, input.actorMemberId, input.targetMemberId, input.reason, input.clientKey ?? null],
-  );
 
-  const row = result.rows[0];
-  if (!row) return null;
-  return {
-    edgeId: row.id,
-    fromMemberId: row.from_member_id,
-    fromPublicName: row.from_public_name ?? 'Unknown',
-    fromHandle: row.from_handle,
-    reason: row.reason,
-    metadata: row.metadata,
-    createdAt: row.created_at,
-    createdByMemberId: row.created_by_member_id,
-  };
+  // If clientKey provided, check for replay/conflict first
+  if (input.clientKey) {
+    const existing = await pool.query<{
+      id: string; from_member_id: string; to_member_id: string; club_id: string;
+      reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
+      from_public_name: string | null; from_handle: string | null;
+    }>(
+      `select e.id, e.from_member_id, e.to_member_id, e.club_id, e.reason, e.metadata,
+              e.created_at::text as created_at, e.created_by_member_id,
+              m.public_name as from_public_name, m.handle as from_handle
+       from club_edges e
+       join members m on m.id = e.from_member_id
+       where e.created_by_member_id = $1 and e.client_key = $2`,
+      [input.actorMemberId, input.clientKey],
+    );
+    if (existing.rows[0]) {
+      const orig = existing.rows[0];
+      if (orig.club_id !== input.clubId || orig.to_member_id !== input.targetMemberId || orig.reason !== input.reason) {
+        throw new AppError(409, 'client_key_conflict',
+          'This clientKey was already used with a different payload. Use a unique key per vouch.');
+      }
+      return {
+        edgeId: orig.id,
+        fromMemberId: orig.from_member_id,
+        fromPublicName: orig.from_public_name ?? 'Unknown',
+        fromHandle: orig.from_handle,
+        reason: orig.reason,
+        metadata: orig.metadata,
+        createdAt: orig.created_at,
+        createdByMemberId: orig.created_by_member_id,
+      };
+    }
+  }
+
+  try {
+    const result = await pool.query<{
+      id: string; from_member_id: string; from_public_name: string; from_handle: string | null;
+      reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
+    }>(
+      `insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, client_key)
+       values ($1::text, 'vouched_for', $2::text, $3::text, $4, $2::text, $5)
+       returning id, from_member_id,
+         (select public_name from members where id = from_member_id) as from_public_name,
+         (select handle from members where id = from_member_id) as from_handle,
+         reason, metadata, created_at::text as created_at, created_by_member_id`,
+      [input.clubId, input.actorMemberId, input.targetMemberId, input.reason, input.clientKey ?? null],
+    );
+
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      edgeId: row.id,
+      fromMemberId: row.from_member_id,
+      fromPublicName: row.from_public_name ?? 'Unknown',
+      fromHandle: row.from_handle,
+      reason: row.reason,
+      metadata: row.metadata,
+      createdAt: row.created_at,
+      createdByMemberId: row.created_by_member_id,
+    };
+  } catch (err: unknown) {
+    // Distinguish duplicate active vouch from other constraint violations
+    const pgErr = err as { code?: string; constraint?: string };
+    if (pgErr.code === '23505' && pgErr.constraint === 'club_edges_unique_active_vouch') {
+      throw new AppError(409, 'duplicate_vouch', 'You have already vouched for this member in this club');
+    }
+    throw err;
+  }
 }
+
+type VouchEntry = { edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null };
+export type PaginatedVouches = { results: VouchEntry[]; hasMore: boolean; nextCursor: string | null };
 
 export async function listVouches(pool: Pool, input: {
   clubIds: string[]; targetMemberId: string; limit: number;
-}): Promise<Array<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null }>> {
+  cursor?: { createdAt: string; edgeId: string } | null;
+}): Promise<PaginatedVouches> {
+  const fetchLimit = input.limit + 1;
+  const cursorCreatedAt = input.cursor?.createdAt ?? null;
+  const cursorEdgeId = input.cursor?.edgeId ?? null;
+
   const result = await pool.query<{
     id: string; from_member_id: string; from_public_name: string; from_handle: string | null;
     reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
@@ -75,11 +128,14 @@ export async function listVouches(pool: Pool, input: {
      join members m on m.id = e.from_member_id
      where e.club_id = any($1::text[]) and e.kind = 'vouched_for'
        and e.to_member_id = $2 and e.archived_at is null
-     order by e.created_at desc limit $3`,
-    [input.clubIds, input.targetMemberId, input.limit],
+       and ($4::timestamptz is null
+         or e.created_at < $4
+         or (e.created_at = $4 and e.id < $5))
+     order by e.created_at desc, e.id desc limit $3`,
+    [input.clubIds, input.targetMemberId, fetchLimit, cursorCreatedAt, cursorEdgeId],
   );
 
-  return result.rows.map((row) => ({
+  const rows: VouchEntry[] = result.rows.map((row) => ({
     edgeId: row.id,
     fromMemberId: row.from_member_id,
     fromPublicName: row.from_public_name,
@@ -89,6 +145,62 @@ export async function listVouches(pool: Pool, input: {
     createdAt: row.created_at,
     createdByMemberId: row.created_by_member_id,
   }));
+
+  const hasMore = rows.length > input.limit;
+  if (hasMore) rows.pop();
+  const last = rows[rows.length - 1];
+  const nextCursor = last ? encodeCursor([last.createdAt, last.edgeId]) : null;
+
+  return { results: rows, hasMore, nextCursor };
+}
+
+/**
+ * Batch-load vouches for multiple target members in a single query.
+ * Returns a Map keyed by target member ID → vouch array (newest-first, capped at perTargetLimit).
+ */
+export async function batchListVouches(pool: Pool, input: {
+  clubId: string; targetMemberIds: string[]; perTargetLimit: number;
+}): Promise<Map<string, VouchEntry[]>> {
+  if (input.targetMemberIds.length === 0) return new Map();
+
+  const result = await pool.query<{
+    id: string; to_member_id: string; from_member_id: string;
+    from_public_name: string; from_handle: string | null;
+    reason: string; metadata: Record<string, unknown>;
+    created_at: string; created_by_member_id: string | null;
+    _rn: number;
+  }>(
+    `select e.id, e.to_member_id, e.from_member_id,
+            m.public_name as from_public_name, m.handle as from_handle,
+            e.reason, e.metadata,
+            e.created_at::text as created_at, e.created_by_member_id,
+            row_number() over (partition by e.to_member_id order by e.created_at desc, e.id desc)::int as _rn
+     from club_edges e
+     join members m on m.id = e.from_member_id
+     where e.club_id = $1 and e.kind = 'vouched_for'
+       and e.to_member_id = any($2::text[]) and e.archived_at is null
+     order by e.to_member_id, e.created_at desc, e.id desc`,
+    [input.clubId, input.targetMemberIds],
+  );
+
+  const grouped = new Map<string, VouchEntry[]>();
+  for (const row of result.rows) {
+    if (row._rn > input.perTargetLimit) continue;
+    let list = grouped.get(row.to_member_id);
+    if (!list) { list = []; grouped.set(row.to_member_id, list); }
+    list.push({
+      edgeId: row.id,
+      fromMemberId: row.from_member_id,
+      fromPublicName: row.from_public_name,
+      fromHandle: row.from_handle,
+      reason: row.reason,
+      metadata: row.metadata,
+      createdAt: row.created_at,
+      createdByMemberId: row.created_by_member_id,
+    });
+  }
+
+  return grouped;
 }
 
 // ── Quotas ──────────────────────────────────────────────────
@@ -257,10 +369,17 @@ export async function listClubActivity(pool: Pool, input: {
 
 // ── Entity embedding search ─────────────────────────────────
 
+export type PaginatedEntitySearch = { results: EntitySummary[]; hasMore: boolean; nextCursor: string | null };
+
 export async function findEntitiesViaEmbedding(pool: Pool, input: {
   clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number;
-}): Promise<EntitySummary[]> {
-  if (input.clubIds.length === 0) return [];
+  cursor?: { distance: string; entityId: string } | null;
+}): Promise<PaginatedEntitySearch> {
+  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
+
+  const fetchLimit = input.limit + 1;
+  const cursorDist = input.cursor ? parseFloat(input.cursor.distance) : null;
+  const cursorId = input.cursor?.entityId ?? null;
 
   const result = await pool.query<{
     entity_id: string; entity_version_id: string; club_id: string; kind: string;
@@ -270,6 +389,7 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
     effective_at: string; expires_at: string | null;
     version_created_at: string; content: Record<string, unknown> | null;
     entity_created_at: string;
+    _distance: number;
   }>(
     `select e.id as entity_id, cev.id as entity_version_id, e.club_id, e.kind,
             e.author_member_id, m.public_name as author_public_name, m.handle as author_handle,
@@ -277,7 +397,11 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
             cev.title, cev.summary, cev.body,
             cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
             cev.created_at::text as version_created_at, cev.content,
-            e.created_at::text as entity_created_at
+            e.created_at::text as entity_created_at,
+            (select min(eea.embedding <=> $2::vector)
+             from entity_embeddings eea
+             where eea.entity_id = e.id and eea.entity_version_id = cev.id
+            ) as _distance
      from entities e
      join current_entity_versions cev on cev.entity_id = e.id
      join members m on m.id = e.author_member_id
@@ -288,16 +412,15 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
          select 1 from entity_embeddings eea
          where eea.entity_id = e.id and eea.entity_version_id = cev.id
        )
-     order by (
-       select min(eea.embedding <=> $2::vector)
-       from entity_embeddings eea
-       where eea.entity_id = e.id and eea.entity_version_id = cev.id
-     ) asc
+       and ($5::float8 is null
+         or (select min(eea.embedding <=> $2::vector) from entity_embeddings eea where eea.entity_id = e.id and eea.entity_version_id = cev.id) > $5
+         or ((select min(eea.embedding <=> $2::vector) from entity_embeddings eea where eea.entity_id = e.id and eea.entity_version_id = cev.id) = $5 and e.id > $6))
+     order by _distance asc, e.id asc
      limit $4`,
-    [input.clubIds, input.queryEmbedding, input.kinds ?? null, input.limit],
+    [input.clubIds, input.queryEmbedding, input.kinds ?? null, fetchLimit, cursorDist, cursorId],
   );
 
-  return result.rows.map((row) => ({
+  const rows: EntitySummary[] = result.rows.map((row) => ({
     entityId: row.entity_id,
     entityVersionId: row.entity_version_id,
     clubId: row.club_id,
@@ -312,6 +435,15 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
     },
     createdAt: row.entity_created_at,
   }));
+
+  const hasMore = rows.length > input.limit;
+  if (hasMore) rows.pop();
+  const lastRow = hasMore || rows.length === input.limit ? result.rows[rows.length - 1] : null;
+  const nextCursor = lastRow && rows.length > 0
+    ? encodeCursor([String(lastRow._distance), lastRow.entity_id])
+    : null;
+
+  return { results: rows, hasMore, nextCursor };
 }
 
 // ── Clubs Repository type ───────────────────────────────────
@@ -320,10 +452,10 @@ export type ClubsRepository = {
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
   removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean; kindFilter?: string }): Promise<EntitySummary | null>;
-  listEntities(input: ListEntitiesInput): Promise<EntitySummary[]>;
+  listEntities(input: ListEntitiesInput & { rawCursor?: string | null }): Promise<import('./entities.ts').PaginatedEntities>;
 
   createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
-  listVouches(input: { clubIds: string[]; targetMemberId: string; limit: number }): Promise<Array<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null }>>;
+  listVouches(input: { clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<PaginatedVouches>;
 
   enforceQuota(memberId: string, clubId: string, action: string): Promise<void>;
   getQuotaStatus(input: { actorMemberId: string; clubIds: string[] }): Promise<QuotaAllowance[]>;
@@ -332,11 +464,11 @@ export type ClubsRepository = {
 
   listClubActivity(input: { memberId: string; clubIds: string[]; limit: number; afterSeq?: number | null; adminClubIds?: string[]; ownerClubIds?: string[] }): Promise<{ items: Array<Record<string, unknown>>; nextAfterSeq: number | null }>;
 
-  findEntitiesViaEmbedding(input: { clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number }): Promise<EntitySummary[]>;
+  findEntitiesViaEmbedding(input: { clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; entityId: string } | null }): Promise<PaginatedEntitySearch>;
 
   // Events
   createEvent(input: import('../contract.ts').CreateEventInput): Promise<import('../contract.ts').EventSummary>;
-  listEvents(input: { clubIds: string[]; limit: number; query?: string; viewerMembershipIds: string[] }): Promise<import('../contract.ts').EventSummary[]>;
+  listEvents(input: { clubIds: string[]; limit: number; query?: string; viewerMembershipIds: string[]; cursor?: { effectiveAt: string; entityId: string } | null }): Promise<{ results: import('../contract.ts').EventSummary[]; hasMore: boolean; nextCursor: string | null }>;
   rsvpEvent(input: { eventEntityId: string; membershipId: string; memberId: string; response: import('../contract.ts').EventRsvpState; note?: string | null; clubIds: string[] }): Promise<import('../contract.ts').EventSummary | null>;
   removeEvent(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean }): Promise<import('../contract.ts').EventSummary | null>;
 };

@@ -45,11 +45,11 @@ export type IdentityRepository = {
   issueTokenForMember(memberId: string, label: string, metadata: Record<string, unknown>): Promise<{ bearerToken: string }>;
 
   // Memberships
-  listMemberships(input: { actorMemberId: string; clubIds: string[]; limit: number; status?: MembershipState }): Promise<MembershipAdminSummary[]>;
+  listMemberships(input: { actorMemberId: string; clubIds: string[]; limit: number; status?: MembershipState; cursor?: { stateCreatedAt: string; id: string } | null }): Promise<{ results: MembershipAdminSummary[]; hasMore: boolean; nextCursor: string | null }>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
-  listMembershipReviews(input: { actorMemberId: string; clubIds: string[]; limit: number; statuses: MembershipState[] }): Promise<MembershipReviewSummary[]>;
-  listMembers(input: { actorMemberId: string; clubIds: string[]; limit: number }): Promise<ClubMemberSummary[]>;
+  listMembershipReviews(input: { actorMemberId: string; clubIds: string[]; limit: number; statuses: MembershipState[]; cursor?: { stateCreatedAt: string; id: string } | null }): Promise<{ results: MembershipReviewSummary[]; hasMore: boolean; nextCursor: string | null }>;
+  listMembers(input: { actorMemberId: string; clubIds: string[]; limit: number; cursor?: { joinedAt: string; memberId: string } | null }): Promise<{ results: ClubMemberSummary[]; hasMore: boolean; nextCursor: string | null }>;
   promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
   demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<MembershipAdminSummary | null>;
 
@@ -76,8 +76,8 @@ export type IdentityRepository = {
   updateClub(input: UpdateClubInput): Promise<ClubSummary | null>;
 
   // Search
-  fullTextSearchMembers(input: { actorMemberId: string; clubIds: string[]; query: string; limit: number }): Promise<MemberSearchResult[]>;
-  findMembersViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; limit: number }): Promise<MemberSearchResult[]>;
+  fullTextSearchMembers(input: { actorMemberId: string; clubIds: string[]; query: string; limit: number; cursor?: { rank: string; memberId: string } | null }): Promise<{ results: MemberSearchResult[]; hasMore: boolean; nextCursor: string | null }>;
+  findMembersViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; limit: number; cursor?: { distance: string; memberId: string } | null }): Promise<{ results: MemberSearchResult[]; hasMore: boolean; nextCursor: string | null }>;
 };
 
 export function createIdentityRepository(pool: Pool): IdentityRepository {
@@ -92,11 +92,11 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     issueTokenForMember: (memberId, label, metadata) => tokens.issueTokenForMember(pool, memberId, label, metadata),
 
     // Memberships
-    listMemberships: ({ clubIds, limit, status }) => memberships.listMemberships(pool, { clubIds, limit, status }),
+    listMemberships: ({ clubIds, limit, status, cursor }) => memberships.listMemberships(pool, { clubIds, limit, status, cursor }),
     createMembership: (input) => memberships.createMembership(pool, input),
     transitionMembershipState: (input) => memberships.transitionMembershipState(pool, input),
-    listMembershipReviews: ({ clubIds, limit, statuses }) => memberships.listMembershipReviews(pool, { clubIds, limit, statuses }),
-    listMembers: ({ clubIds, limit }) => memberships.listMembers(pool, { clubIds, limit }),
+    listMembershipReviews: ({ clubIds, limit, statuses, cursor }) => memberships.listMembershipReviews(pool, { clubIds, limit, statuses, cursor }),
+    listMembers: ({ clubIds, limit, cursor }) => memberships.listMembers(pool, { clubIds, limit, cursor }),
     promoteMemberToAdmin: (input) => memberships.promoteMemberToAdmin(pool, input),
     demoteMemberFromAdmin: (input) => memberships.demoteMemberFromAdmin(pool, input),
 

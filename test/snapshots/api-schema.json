@@ -1144,8 +1144,13 @@
             "description": "Club to list admissions for",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -1176,8 +1181,15 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "results": {
             "items": {
@@ -1389,7 +1401,9 @@
         "required": [
           "limit",
           "statuses",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -2371,8 +2385,13 @@
             "description": "Club to list memberships for",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–50 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -2403,8 +2422,15 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "results": {
             "items": {
@@ -2561,7 +2587,9 @@
         "required": [
           "limit",
           "status",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -2579,8 +2607,13 @@
             "description": "Club to review memberships for",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -2615,8 +2648,15 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "results": {
             "items": {
@@ -2848,7 +2888,9 @@
         "required": [
           "limit",
           "statuses",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -3570,6 +3612,11 @@
             "description": "Restrict to one club",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "kinds": {
             "description": "Filter by entity kind. Defaults to all kinds.",
             "items": {
@@ -3585,7 +3632,7 @@
             "type": "array"
           },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -3664,6 +3711,9 @@
             },
             "type": "array"
           },
+          "hasMore": {
+            "type": "boolean"
+          },
           "kinds": {
             "items": {
               "enum": [
@@ -3678,6 +3728,10 @@
           },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "query": {
             "nullable": true,
@@ -3803,7 +3857,9 @@
           "kinds",
           "limit",
           "clubScope",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -3966,6 +4022,11 @@
             "description": "Restrict to one club",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "kinds": {
             "description": "Filter by entity kinds",
             "items": {
@@ -3980,7 +4041,7 @@
             "type": "array"
           },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -4061,8 +4122,15 @@
             },
             "type": "array"
           },
+          "hasMore": {
+            "type": "boolean"
+          },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "query": {
             "type": "string"
@@ -4186,7 +4254,9 @@
           "query",
           "limit",
           "clubScope",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -4681,8 +4751,13 @@
             "description": "Restrict to one club",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -4761,8 +4836,15 @@
             },
             "type": "array"
           },
+          "hasMore": {
+            "type": "boolean"
+          },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "query": {
             "nullable": true,
@@ -4988,7 +5070,9 @@
           "query",
           "limit",
           "clubScope",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -5509,8 +5593,13 @@
             "description": "Restrict to one club",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–50 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -5583,8 +5672,15 @@
             },
             "type": "array"
           },
+          "hasMore": {
+            "type": "boolean"
+          },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "results": {
             "items": {
@@ -5711,7 +5807,9 @@
         "required": [
           "limit",
           "clubScope",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -5728,8 +5826,13 @@
             "description": "Restrict to one club",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -5809,8 +5912,15 @@
             },
             "type": "array"
           },
+          "hasMore": {
+            "type": "boolean"
+          },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "query": {
             "type": "string"
@@ -5902,7 +6012,9 @@
           "query",
           "limit",
           "clubScope",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -5919,8 +6031,13 @@
             "description": "Restrict to one club",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -6001,8 +6118,15 @@
             },
             "type": "array"
           },
+          "hasMore": {
+            "type": "boolean"
+          },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "query": {
             "type": "string"
@@ -6094,7 +6218,9 @@
           "query",
           "limit",
           "clubScope",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -6107,8 +6233,13 @@
       "domain": "messages",
       "input": {
         "properties": {
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -6123,8 +6254,15 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
           "limit": {
             "type": "number"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
           },
           "results": {
             "items": {
@@ -6251,7 +6389,9 @@
         "required": [
           "limit",
           "unreadOnly",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -6264,8 +6404,13 @@
       "domain": "messages",
       "input": {
         "properties": {
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–50 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -6283,6 +6428,9 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
           "messages": {
             "items": {
               "additionalProperties": false,
@@ -6403,6 +6551,10 @@
             },
             "type": "array"
           },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
+          },
           "thread": {
             "additionalProperties": false,
             "properties": {
@@ -6495,7 +6647,9 @@
         },
         "required": [
           "thread",
-          "messages"
+          "messages",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -8189,6 +8343,9 @@
             },
             "type": "array"
           },
+          "hasMore": {
+            "type": "boolean"
+          },
           "nextCursor": {
             "nullable": true,
             "type": "string"
@@ -8196,6 +8353,7 @@
         },
         "required": [
           "content",
+          "hasMore",
           "nextCursor"
         ],
         "type": "object"
@@ -8569,6 +8727,9 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
           "members": {
             "items": {
               "additionalProperties": false,
@@ -8616,6 +8777,7 @@
         },
         "required": [
           "members",
+          "hasMore",
           "nextCursor"
         ],
         "type": "object"
@@ -9068,6 +9230,9 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
           "nextCursor": {
             "nullable": true,
             "type": "string"
@@ -9147,6 +9312,7 @@
         },
         "required": [
           "threads",
+          "hasMore",
           "nextCursor"
         ],
         "type": "object"
@@ -9569,8 +9735,13 @@
             "description": "Restrict to one club",
             "type": "string"
           },
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
+            "description": "Max results. Clamped to 1–20 by the server.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -9588,7 +9759,14 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "hasMore": {
+            "type": "boolean"
+          },
           "memberId": {
+            "type": "string"
+          },
+          "nextCursor": {
+            "nullable": true,
             "type": "string"
           },
           "results": {
@@ -9649,7 +9827,9 @@
         },
         "required": [
           "memberId",
-          "results"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -10214,6 +10394,6 @@
       }
     }
   },
-  "version": "0.2.1",
-  "schemaHash": "94d3325ed69279cd"
+  "version": "0.2.2",
+  "schemaHash": "9d8bc29842a193da"
 }

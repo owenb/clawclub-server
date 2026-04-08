@@ -10,10 +10,11 @@ import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
-  wireLimit, parseLimit,
   wireBoundedString, parseBoundedString,
   wireFullName, parseFullName,
   wireEmail, parseEmail,
+  wireCursor, parseCursor, decodeCursor,
+  wireLimitOf, parseLimitOf,
 } from './fields.ts';
 import {
   membershipSummary, admissionSummary,
@@ -88,6 +89,7 @@ type MembersFullTextSearchInput = {
   query: string;
   clubId?: string;
   limit: number;
+  cursor: string | null;
 };
 
 const membersFullTextSearch: ActionDefinition = {
@@ -101,13 +103,16 @@ const membersFullTextSearch: ActionDefinition = {
     input: z.object({
       query: wireRequiredString.describe('Search text'),
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
-      limit: wireLimit,
+      limit: wireLimitOf(20),
+      cursor: wireCursor,
     }),
     output: z.object({
       query: z.string(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
       results: z.array(memberSearchResult),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
@@ -115,12 +120,13 @@ const membersFullTextSearch: ActionDefinition = {
     input: z.object({
       query: parseRequiredString,
       clubId: parseRequiredString.optional(),
-      limit: parseLimit,
+      limit: parseLimitOf(20, 20),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { query, clubId, limit } = input as MembersFullTextSearchInput;
+    const { query, clubId, limit, cursor: rawCursor } = input as MembersFullTextSearchInput;
 
     let clubIds: string[];
     if (clubId) {
@@ -133,17 +139,23 @@ const membersFullTextSearch: ActionDefinition = {
       throw new AppError(403, 'forbidden', 'This member does not currently have access to any clubs');
     }
 
-    const results = await ctx.repository.fullTextSearchMembers({
+    const cursor = rawCursor ? (() => {
+      const [rank, memberId] = decodeCursor(rawCursor, 2);
+      return { rank, memberId };
+    })() : null;
+
+    const result = await ctx.repository.fullTextSearchMembers({
       actorMemberId: ctx.actor.member.id,
       clubIds,
       query,
       limit,
+      cursor,
     });
 
     const clubScope = ctx.actor.memberships.filter(m => clubIds.includes(m.clubId));
 
     return {
-      data: { query, limit, clubScope, results },
+      data: { query, limit, clubScope, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: clubId ?? null, activeClubIds: clubIds },
     };
   },
@@ -154,6 +166,7 @@ const membersFullTextSearch: ActionDefinition = {
 type MembersListInput = {
   clubId?: string;
   limit: number;
+  cursor: string | null;
 };
 
 const membersList: ActionDefinition = {
@@ -166,24 +179,28 @@ const membersList: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
-      limit: wireLimit,
+      limit: wireLimitOf(50),
+      cursor: wireCursor,
     }),
     output: z.object({
       limit: z.number(),
       clubScope: z.array(membershipSummary),
       results: z.array(clubMemberSummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
   parse: {
     input: z.object({
       clubId: parseRequiredString.optional(),
-      limit: parseLimit,
+      limit: parseLimitOf(50, 50),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, limit } = input as MembersListInput;
+    const { clubId, limit, cursor: rawCursor } = input as MembersListInput;
 
     let clubScope = ctx.actor.memberships;
     if (clubId) {
@@ -195,14 +212,21 @@ const membersList: ActionDefinition = {
     }
 
     const clubIds = clubScope.map(c => c.clubId);
-    const results = await ctx.repository.listMembers({
+
+    const cursor = rawCursor ? (() => {
+      const [joinedAt, memberId] = decodeCursor(rawCursor, 2);
+      return { joinedAt, memberId };
+    })() : null;
+
+    const result = await ctx.repository.listMembers({
       actorMemberId: ctx.actor.member.id,
       clubIds,
       limit,
+      cursor,
     });
 
     return {
-      data: { limit, clubScope, results },
+      data: { limit, clubScope, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: clubId ?? null, activeClubIds: clubIds },
     };
   },
@@ -289,6 +313,7 @@ type VouchesListInput = {
   memberId: string;
   clubId?: string;
   limit: number;
+  cursor: string | null;
 };
 
 const vouchesList: ActionDefinition = {
@@ -302,11 +327,14 @@ const vouchesList: ActionDefinition = {
     input: z.object({
       memberId: wireRequiredString.describe('Member to list vouches for'),
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
-      limit: wireLimit,
+      limit: wireLimitOf(20),
+      cursor: wireCursor,
     }),
     output: z.object({
       memberId: z.string(),
       results: z.array(vouchSummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
@@ -314,12 +342,13 @@ const vouchesList: ActionDefinition = {
     input: z.object({
       memberId: parseRequiredString,
       clubId: parseRequiredString.optional(),
-      limit: parseLimit,
+      limit: parseLimitOf(20, 20),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { memberId: targetMemberId, clubId, limit } = input as VouchesListInput;
+    const { memberId: targetMemberId, clubId, limit, cursor: rawCursor } = input as VouchesListInput;
 
     if (clubId) {
       ctx.requireAccessibleClub(clubId);
@@ -329,15 +358,21 @@ const vouchesList: ActionDefinition = {
       ? [clubId]
       : ctx.actor.memberships.map(m => m.clubId);
 
-    const results = await ctx.repository.listVouches({
+    const cursor = rawCursor ? (() => {
+      const [createdAt, edgeId] = decodeCursor(rawCursor, 2);
+      return { createdAt, edgeId };
+    })() : null;
+
+    const result = await ctx.repository.listVouches({
       actorMemberId: ctx.actor.member.id,
       clubIds,
       targetMemberId,
       limit,
+      cursor,
     });
 
     return {
-      data: { memberId: targetMemberId, results },
+      data: { memberId: targetMemberId, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: clubId ?? null, activeClubIds: clubIds },
     };
   },
@@ -349,6 +384,7 @@ type MembersFindViaEmbeddingInput = {
   query: string;
   clubId?: string;
   limit: number;
+  cursor: string | null;
 };
 
 const membersFindViaEmbedding: ActionDefinition = {
@@ -362,13 +398,16 @@ const membersFindViaEmbedding: ActionDefinition = {
     input: z.object({
       query: z.string().max(1000).describe('Natural-language search query (max 1000 chars)'),
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
-      limit: wireLimit,
+      limit: wireLimitOf(20),
+      cursor: wireCursor,
     }),
     output: z.object({
       query: z.string(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
       results: z.array(memberSearchResult),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
@@ -376,12 +415,13 @@ const membersFindViaEmbedding: ActionDefinition = {
     input: z.object({
       query: z.string().trim().min(1).max(1000),
       clubId: parseRequiredString.optional(),
-      limit: parseLimit,
+      limit: parseLimitOf(20, 20),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { query, clubId, limit } = input as MembersFindViaEmbeddingInput;
+    const { query, clubId, limit, cursor: rawCursor } = input as MembersFindViaEmbeddingInput;
     const { embed } = await import('ai');
     const { createOpenAI } = await import('@ai-sdk/openai');
     const { EMBEDDING_PROFILES } = await import('../ai.ts');
@@ -463,17 +503,23 @@ const membersFindViaEmbedding: ActionDefinition = {
 
     const queryVector = `[${embedding.join(',')}]`;
 
-    const results = await ctx.repository.findMembersViaEmbedding({
+    const cursor = rawCursor ? (() => {
+      const [distance, memberId] = decodeCursor(rawCursor, 2);
+      return { distance, memberId };
+    })() : null;
+
+    const result = await ctx.repository.findMembersViaEmbedding({
       actorMemberId: ctx.actor.member.id,
       clubIds,
       queryEmbedding: queryVector,
       limit,
+      cursor,
     });
 
     const clubScope = ctx.actor.memberships.filter(m => clubIds.includes(m.clubId));
 
     return {
-      data: { query, limit, clubScope, results },
+      data: { query, limit, clubScope, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: clubId ?? null, activeClubIds: clubIds },
     };
   },

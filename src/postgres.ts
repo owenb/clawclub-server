@@ -11,8 +11,9 @@ import { AppError, type Repository, type EntitySummary, type MembershipVouchSumm
 import { withTransaction } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
-import { createClubsRepository, type ClubsRepository } from './clubs/index.ts';
+import { createClubsRepository, batchListVouches, type ClubsRepository } from './clubs/index.ts';
 import * as admissionsModule from './clubs/admissions.ts';
+import { encodeCursor as paginationEncodeCursor } from './schemas/fields.ts';
 
 // ── Cursor helpers ──────────────────────────────────────────
 
@@ -265,19 +266,25 @@ export function createRepository(pool: Pool): Repository {
     demoteMemberFromAdmin: (input) => identity.demoteMemberFromAdmin!(input),
 
     async listMembershipReviews(input) {
-      const reviews = await identity.listMembershipReviews(input);
+      const paginated = await identity.listMembershipReviews(input);
+      if (paginated.results.length === 0) return paginated;
 
-      // Fetch vouches for each member in the reviews
-      for (const review of reviews) {
-        const vouches = await clubs.listVouches({
-          clubIds: [review.clubId],
-          targetMemberId: review.member.memberId,
-          limit: 50,
-        });
-        review.vouches = vouches.map(mapVouchToSummary);
+      // Batch-load vouches for all target members on the page in one query.
+      // Reviews are always scoped to a single club (clubIds comes from the action's clubId).
+      const clubId = paginated.results[0].clubId;
+      const targetMemberIds = [...new Set(paginated.results.map(r => r.member.memberId))];
+      const vouchMap = await batchListVouches(pool, {
+        clubId,
+        targetMemberIds,
+        perTargetLimit: 50,
+      });
+
+      for (const review of paginated.results) {
+        const rawVouches = vouchMap.get(review.member.memberId) ?? [];
+        review.vouches = rawVouches.map(mapVouchToSummary);
       }
 
-      return reviews;
+      return paginated;
     },
 
     // ── Profiles ───────────────────────────────────────────
@@ -393,8 +400,13 @@ export function createRepository(pool: Pool): Repository {
         clubIds: input.clubIds,
         targetMemberId: input.targetMemberId,
         limit: input.limit,
+        cursor: input.cursor,
       });
-      return raw.map(mapVouchToSummary);
+      return {
+        results: raw.results.map(mapVouchToSummary),
+        hasMore: raw.hasMore,
+        nextCursor: raw.nextCursor,
+      };
     },
 
     // ── Admissions ─────────────────────────────────────────
@@ -447,7 +459,11 @@ export function createRepository(pool: Pool): Repository {
     },
 
     async listAdmissions(input) {
-      if (!input.clubIds || input.clubIds.length === 0) return [];
+      if (!input.clubIds || input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
+      const fetchLimit = input.limit + 1;
+      const cursorVersionCreatedAt = input.cursor?.versionCreatedAt ?? null;
+      const cursorId = input.cursor?.id ?? null;
+
       const result = await pool.query<Record<string, unknown>>(
         `select ca.id as admission_id, ca.club_id, ca.applicant_member_id, ca.applicant_email,
                 ca.applicant_name, ca.sponsor_member_id, ca.membership_id, ca.origin,
@@ -464,12 +480,15 @@ export function createRepository(pool: Pool): Repository {
          left join members sm on sm.id = ca.sponsor_member_id
          where ca.club_id = any($1::text[])
            and ($2::text[] is null or ca.status::text = any($2::text[]))
-         order by ca.version_created_at desc, ca.id asc
+           and ($4::timestamptz is null
+             or ca.version_created_at < $4
+             or (ca.version_created_at = $4 and ca.id < $5))
+         order by ca.version_created_at desc, ca.id desc
          limit $3`,
-        [input.clubIds, input.statuses ?? null, input.limit],
+        [input.clubIds, input.statuses ?? null, fetchLimit, cursorVersionCreatedAt, cursorId],
       );
 
-      return result.rows.map((r) => ({
+      const rows = result.rows.map((r) => ({
         admissionId: r.admission_id as string,
         clubId: r.club_id as string,
         applicant: {
@@ -503,6 +522,15 @@ export function createRepository(pool: Pool): Repository {
         metadata: (r.metadata as Record<string, unknown>) ?? {},
         createdAt: r.created_at as string,
       }));
+
+      const hasMore = rows.length > input.limit;
+      if (hasMore) rows.pop();
+      const last = rows[rows.length - 1];
+      const nextCursor = last
+        ? paginationEncodeCursor([last.state.createdAt, last.admissionId])
+        : null;
+
+      return { results: rows, hasMore, nextCursor };
     },
 
     async transitionAdmission(input) {
@@ -780,33 +808,48 @@ export function createRepository(pool: Pool): Repository {
       }));
     },
 
-    async listDirectMessageInbox({ actorMemberId, limit, unreadOnly }) {
-      const entries = await messaging.listInbox({ memberId: actorMemberId, limit, unreadOnly });
+    async listDirectMessageInbox(input) {
+      const paginated = await messaging.listInbox({
+        memberId: input.actorMemberId,
+        limit: input.limit,
+        unreadOnly: input.unreadOnly,
+        cursor: input.cursor,
+      });
+      const entries = paginated.results;
       const counterpartIds = entries.map((e) => e.counterpartMemberId);
-      const sharedClubsMap = await batchResolveSharedClubs(pool, actorMemberId, counterpartIds);
+      const sharedClubsMap = await batchResolveSharedClubs(pool, input.actorMemberId, counterpartIds);
 
-      return entries.map((e) => ({
-        threadId: e.threadId,
-        sharedClubs: sharedClubsMap.get(e.counterpartMemberId) ?? [],
-        counterpartMemberId: e.counterpartMemberId,
-        counterpartPublicName: e.counterpartPublicName,
-        counterpartHandle: e.counterpartHandle,
-        latestMessage: e.latestMessage,
-        messageCount: e.messageCount,
-        unread: {
-          hasUnread: e.hasUnread,
-          unreadMessageCount: e.unreadCount,
-          unreadUpdateCount: e.unreadCount,
-          latestUnreadMessageCreatedAt: e.latestUnreadAt,
-        },
-      }));
+      return {
+        results: entries.map((e) => ({
+          threadId: e.threadId,
+          sharedClubs: sharedClubsMap.get(e.counterpartMemberId) ?? [],
+          counterpartMemberId: e.counterpartMemberId,
+          counterpartPublicName: e.counterpartPublicName,
+          counterpartHandle: e.counterpartHandle,
+          latestMessage: e.latestMessage,
+          messageCount: e.messageCount,
+          unread: {
+            hasUnread: e.hasUnread,
+            unreadMessageCount: e.unreadCount,
+            unreadUpdateCount: e.unreadCount,
+            latestUnreadMessageCreatedAt: e.latestUnreadAt,
+          },
+        })),
+        hasMore: paginated.hasMore,
+        nextCursor: paginated.nextCursor,
+      };
     },
 
-    async readDirectMessageThread({ actorMemberId, threadId, limit }) {
-      const result = await messaging.readThread({ memberId: actorMemberId, threadId, limit });
+    async readDirectMessageThread(input) {
+      const result = await messaging.readThread({
+        memberId: input.actorMemberId,
+        threadId: input.threadId,
+        limit: input.limit,
+        cursor: input.cursor,
+      });
       if (!result) return null;
 
-      const sharedClubs = await resolveSharedClubsUnscoped(pool, actorMemberId, result.thread.counterpartMemberId);
+      const sharedClubs = await resolveSharedClubsUnscoped(pool, input.actorMemberId, result.thread.counterpartMemberId);
 
       return {
         thread: {
@@ -822,6 +865,8 @@ export function createRepository(pool: Pool): Repository {
           ...msg,
           updateReceipts: [],
         })),
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
       };
     },
 
@@ -1143,14 +1188,18 @@ export function createRepository(pool: Pool): Repository {
         }>();
 
         if (signalIds.length > 0) {
-          const result = await client.query<{ id: string; club_id: string; acknowledged_at: string }>(
+          const result = await client.query<{
+            id: string; club_id: string; acknowledged_at: string;
+            acknowledged_state: string; suppression_reason: string | null;
+          }>(
             `update signal_deliveries
              set acknowledged_state = coalesce(acknowledged_state, $3),
                  acknowledged_at = coalesce(acknowledged_at, now()),
                  suppression_reason = case when acknowledged_state is null then $4 else suppression_reason end
              where id = any($1::text[])
                and recipient_member_id = $2
-             returning id, club_id, acknowledged_at::text as acknowledged_at`,
+             returning id, club_id, acknowledged_at::text as acknowledged_at,
+                      acknowledged_state, suppression_reason`,
             [signalIds, input.actorMemberId, input.state, input.suppressionReason ?? null],
           );
 
@@ -1161,8 +1210,8 @@ export function createRepository(pool: Pool): Repository {
               updateId,
               recipientMemberId: input.actorMemberId,
               clubId: row.club_id,
-              state: input.state,
-              suppressionReason: input.suppressionReason ?? null,
+              state: row.acknowledged_state as typeof input.state,
+              suppressionReason: row.suppression_reason,
               versionNo: 1,
               supersedesReceiptId: null,
               createdAt: row.acknowledged_at,
@@ -1229,6 +1278,7 @@ export function createRepository(pool: Pool): Repository {
     },
 
     async adminListMembers({ limit, cursor }) {
+      const fetchLimit = limit + 1;
       const result = await pool.query<{
         member_id: string; public_name: string; handle: string | null;
         state: string; created_at: string; membership_count: number; token_count: number;
@@ -1241,14 +1291,19 @@ export function createRepository(pool: Pool): Repository {
          where ($1::timestamptz is null or m.created_at < $1 or (m.created_at = $1 and m.id < $2))
          order by m.created_at desc, m.id desc
          limit $3`,
-        [cursor?.createdAt ?? null, cursor?.id ?? null, limit],
+        [cursor?.createdAt ?? null, cursor?.id ?? null, fetchLimit],
       );
 
-      return result.rows.map((r) => ({
+      const rows = result.rows.map((r) => ({
         memberId: r.member_id, publicName: r.public_name, handle: r.handle,
         state: r.state, createdAt: r.created_at,
         membershipCount: r.membership_count, tokenCount: r.token_count,
       }));
+      const hasMore = rows.length > limit;
+      if (hasMore) rows.pop();
+      const last = rows[rows.length - 1];
+      const nextCursor = last ? paginationEncodeCursor([last.createdAt, last.memberId]) : null;
+      return { results: rows, hasMore, nextCursor };
     },
 
     async adminGetMember({ memberId }) {
@@ -1345,6 +1400,7 @@ export function createRepository(pool: Pool): Repository {
     },
 
     async adminListContent({ clubId, kind, limit, cursor }) {
+      const fetchLimit = limit + 1;
       const result = await pool.query<{
         entity_id: string; club_id: string; club_name: string; kind: string;
         author_member_id: string; author_public_name: string; author_handle: string | null;
@@ -1363,26 +1419,34 @@ export function createRepository(pool: Pool): Repository {
            and ($2::text is null or e.kind::text = $2)
            and ($3::timestamptz is null or e.created_at < $3 or (e.created_at = $3 and e.id < $4))
          order by e.created_at desc, e.id desc limit $5`,
-        [clubId ?? null, kind ?? null, cursor?.createdAt ?? null, cursor?.id ?? null, limit],
+        [clubId ?? null, kind ?? null, cursor?.createdAt ?? null, cursor?.id ?? null, fetchLimit],
       );
 
-      return result.rows.map((r) => {
+      const rows = result.rows.map((r) => {
         return {
           entityId: r.entity_id, clubId: r.club_id, clubName: r.club_name,
           kind: r.kind as any, author: { memberId: r.author_member_id, publicName: r.author_public_name, handle: r.author_handle },
           title: r.title, state: r.state as any, createdAt: r.created_at,
         };
       });
+      const hasMore = rows.length > limit;
+      if (hasMore) rows.pop();
+      const last = rows[rows.length - 1];
+      const nextCursor = last ? paginationEncodeCursor([last.createdAt, last.entityId]) : null;
+      return { results: rows, hasMore, nextCursor };
     },
 
     async adminListThreads({ limit, cursor }) {
+      const fetchLimit = limit + 1;
       const result = await pool.query<{
         thread_id: string; message_count: number; latest_message_at: string;
         participants: Array<{ memberId: string; publicName: string; handle: string | null }>;
+        created_at: string;
       }>(
         `select t.id as thread_id,
                 (select count(*)::int from dm_messages m where m.thread_id = t.id) as message_count,
                 (select max(m.created_at)::text from dm_messages m where m.thread_id = t.id) as latest_message_at,
+                t.created_at::text as created_at,
                 (select coalesce(json_agg(json_build_object(
                   'memberId', mbr.id, 'publicName', mbr.public_name, 'handle', mbr.handle
                 )), '[]'::json)
@@ -1392,7 +1456,7 @@ export function createRepository(pool: Pool): Repository {
          from dm_threads t
          where ($1::timestamptz is null or t.created_at < $1 or (t.created_at = $1 and t.id < $2))
          order by t.created_at desc, t.id desc limit $3`,
-        [cursor?.createdAt ?? null, cursor?.id ?? null, limit],
+        [cursor?.createdAt ?? null, cursor?.id ?? null, fetchLimit],
       );
 
       // Batch-resolve shared clubs for all thread participant pairs
@@ -1403,13 +1467,20 @@ export function createRepository(pool: Pool): Repository {
       }
       const sharedClubsByThread = await batchResolveSharedClubsPairs(pool, pairMap);
 
-      return result.rows.map((r) => ({
+      const rows = result.rows.map((r) => ({
         threadId: r.thread_id,
         sharedClubs: sharedClubsByThread.get(r.thread_id) ?? [],
         participants: r.participants,
         messageCount: r.message_count,
         latestMessageAt: r.latest_message_at ?? '',
       }));
+      const hasMore = rows.length > limit;
+      if (hasMore) rows.pop();
+      const lastRow = hasMore || rows.length === limit ? result.rows[rows.length - 1] : null;
+      const nextCursor = lastRow && rows.length > 0
+        ? paginationEncodeCursor([lastRow.created_at, lastRow.thread_id])
+        : null;
+      return { results: rows, hasMore, nextCursor };
     },
 
     async adminReadThread({ threadId, limit }) {

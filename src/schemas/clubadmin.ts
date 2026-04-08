@@ -12,7 +12,6 @@ import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
-  wireLimit, parseLimit,
   wireOptionalRecord, parseOptionalRecord,
   membershipState, admissionStatus,
   membershipCreateInitialStatus,
@@ -20,6 +19,8 @@ import {
   wireAdmissionStatuses, parseAdmissionStatuses,
   wireIntake, parseIntake,
   type MembershipState, type AdmissionStatus,
+  wireCursor, parseCursor, decodeCursor,
+  wireLimitOf, parseLimitOf,
 } from './fields.ts';
 import {
   membershipAdminSummary, membershipReviewSummary,
@@ -34,6 +35,7 @@ type MembershipsListInput = {
   clubId: string;
   status?: MembershipState;
   limit: number;
+  cursor: string | null;
 };
 
 const clubadminMembershipsList: ActionDefinition = {
@@ -48,12 +50,15 @@ const clubadminMembershipsList: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.describe('Club to list memberships for'),
       status: membershipState.optional().describe('Filter by membership status'),
-      limit: wireLimit,
+      limit: wireLimitOf(50),
+      cursor: wireCursor,
     }),
     output: z.object({
       limit: z.number(),
       status: membershipState.nullable(),
       results: z.array(membershipAdminSummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
@@ -61,23 +66,30 @@ const clubadminMembershipsList: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString,
       status: membershipState.optional(),
-      limit: parseLimit,
+      limit: parseLimitOf(50, 50),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, status, limit } = input as MembershipsListInput;
+    const { clubId, status, limit, cursor: rawCursor } = input as MembershipsListInput;
     ctx.requireClubAdmin(clubId);
 
-    const results = await ctx.repository.listMemberships({
+    const cursor = rawCursor ? (() => {
+      const [stateCreatedAt, id] = decodeCursor(rawCursor, 2);
+      return { stateCreatedAt, id };
+    })() : null;
+
+    const result = await ctx.repository.listMemberships({
       actorMemberId: ctx.actor.member.id,
       clubIds: [clubId],
       limit,
       status,
+      cursor,
     });
 
     return {
-      data: { limit, status: status ?? null, results },
+      data: { limit, status: status ?? null, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
     };
   },
@@ -89,6 +101,7 @@ type MembershipsReviewInput = {
   clubId: string;
   statuses: MembershipState[];
   limit: number;
+  cursor: string | null;
 };
 
 const clubadminMembershipsReview: ActionDefinition = {
@@ -103,12 +116,15 @@ const clubadminMembershipsReview: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.describe('Club to review memberships for'),
       statuses: wireMembershipStates.describe('Filter by statuses (default: invited, pending_review)'),
-      limit: wireLimit,
+      limit: wireLimitOf(20),
+      cursor: wireCursor,
     }),
     output: z.object({
       limit: z.number(),
       statuses: z.array(membershipState),
       results: z.array(membershipReviewSummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
@@ -116,23 +132,30 @@ const clubadminMembershipsReview: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString,
       statuses: parseMembershipStates(['invited', 'pending_review']),
-      limit: parseLimit,
+      limit: parseLimitOf(20, 20),
+      cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, statuses, limit } = input as MembershipsReviewInput;
+    const { clubId, statuses, limit, cursor: rawCursor } = input as MembershipsReviewInput;
     ctx.requireClubAdmin(clubId);
 
-    const results = await ctx.repository.listMembershipReviews({
+    const cursor = rawCursor ? (() => {
+      const [stateCreatedAt, id] = decodeCursor(rawCursor, 2);
+      return { stateCreatedAt, id };
+    })() : null;
+
+    const result = await ctx.repository.listMembershipReviews({
       actorMemberId: ctx.actor.member.id,
       clubIds: [clubId],
       limit,
       statuses,
+      cursor,
     });
 
     return {
-      data: { limit, statuses, results },
+      data: { limit, statuses, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
     };
   },
@@ -275,6 +298,7 @@ type AdmissionsListInput = {
   clubId: string;
   statuses?: AdmissionStatus[];
   limit: number;
+  cursor: string | null;
 };
 
 const clubadminAdmissionsList: ActionDefinition = {
@@ -289,12 +313,15 @@ const clubadminAdmissionsList: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.describe('Club to list admissions for'),
       statuses: wireAdmissionStatuses.describe('Filter by admission statuses'),
-      limit: wireLimit,
+      limit: wireLimitOf(20),
+      cursor: wireCursor,
     }),
     output: z.object({
       limit: z.number(),
       statuses: z.array(admissionStatus).nullable(),
       results: z.array(admissionSummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
     }),
   },
 
@@ -302,26 +329,33 @@ const clubadminAdmissionsList: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString,
       statuses: parseAdmissionStatuses,
-      limit: parseLimit,
+      limit: parseLimitOf(20, 20),
+      cursor: parseCursor,
     }),
   },
 
   requiredCapability: 'listAdmissions',
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, statuses, limit } = input as AdmissionsListInput;
+    const { clubId, statuses, limit, cursor: rawCursor } = input as AdmissionsListInput;
     ctx.requireClubAdmin(clubId);
     ctx.requireCapability('listAdmissions');
 
-    const results = await ctx.repository.listAdmissions!({
+    const cursor = rawCursor ? (() => {
+      const [versionCreatedAt, id] = decodeCursor(rawCursor, 2);
+      return { versionCreatedAt, id };
+    })() : null;
+
+    const result = await ctx.repository.listAdmissions!({
       actorMemberId: ctx.actor.member.id,
       clubIds: [clubId],
       limit,
       statuses,
+      cursor,
     });
 
     return {
-      data: { limit, statuses: statuses ?? null, results },
+      data: { limit, statuses: statuses ?? null, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
     };
   },

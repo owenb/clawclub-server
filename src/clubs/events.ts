@@ -9,6 +9,7 @@ import { AppError, type CreateEventInput, type EventSummary, type EventRsvpState
 import { EMBEDDING_PROFILES } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { appendClubActivity, timestampsEqual, jsonEqual } from './entities.ts';
+import { encodeCursor } from '../schemas/fields.ts';
 
 type EventRow = {
   entity_id: string;
@@ -242,11 +243,15 @@ export async function createEvent(pool: Pool, input: CreateEventInput): Promise<
 
 export async function listEvents(pool: Pool, input: {
   clubIds: string[]; limit: number; query?: string; viewerMembershipIds: string[];
-}): Promise<EventSummary[]> {
-  if (input.clubIds.length === 0) return [];
+  cursor?: { effectiveAt: string; entityId: string } | null;
+}): Promise<{ results: EventSummary[]; hasMore: boolean; nextCursor: string | null }> {
+  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
 
   const trimmedQuery = input.query?.trim().slice(0, 120) || null;
   const likePattern = trimmedQuery ? `%${trimmedQuery.replace(/[%_\\]/g, '\\$&')}%` : null;
+  const fetchLimit = input.limit + 1;
+  const cursorEffectiveAt = input.cursor?.effectiveAt ?? null;
+  const cursorEntityId = input.cursor?.entityId ?? null;
 
   const entityResult = await pool.query<{ entity_id: string }>(
     `select le.entity_id
@@ -255,13 +260,18 @@ export async function listEvents(pool: Pool, input: {
        and ($3::text is null
          or coalesce(le.title, '') ilike $3 escape '\\'
          or coalesce(le.summary, '') ilike $3 escape '\\')
+       and ($4::timestamptz is null
+         or le.effective_at < $4
+         or (le.effective_at = $4 and le.entity_id < $5))
      order by le.effective_at desc, le.entity_id desc
      limit $2`,
-    [input.clubIds, input.limit, likePattern],
+    [input.clubIds, fetchLimit, likePattern, cursorEffectiveAt, cursorEntityId],
   );
 
-  if (entityResult.rows.length === 0) return [];
+  if (entityResult.rows.length === 0) return { results: [], hasMore: false, nextCursor: null };
 
+  const hasMore = entityResult.rows.length > input.limit;
+  if (hasMore) entityResult.rows.pop();
   const entityIds = entityResult.rows.map((r) => r.entity_id);
 
   // Read full event summaries with RSVPs
@@ -323,7 +333,11 @@ export async function listEvents(pool: Pool, input: {
     [entityIds, input.viewerMembershipIds],
   );
 
-  return result.rows.map(mapEventRow);
+  const rows = result.rows.map(mapEventRow);
+  const last = rows[rows.length - 1];
+  const nextCursor = last ? encodeCursor([last.version.effectiveAt, last.entityId]) : null;
+
+  return { results: rows, hasMore, nextCursor };
 }
 
 export async function rsvpEvent(pool: Pool, input: {
