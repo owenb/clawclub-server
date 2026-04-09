@@ -527,7 +527,9 @@ export function createServer(options: {
       return;
     }
 
-    if (request.method === 'GET' && (url.pathname === '/skill' || url.pathname === '/skill.md')) {
+    const normalizedPath = url.pathname.toLowerCase();
+
+    if (request.method === 'GET' && (normalizedPath === '/skill' || normalizedPath === '/skill.md')) {
       writeCompressed(request, response, 200, 'text/markdown; charset=utf-8', SKILL_MD);
       return;
     }

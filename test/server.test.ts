@@ -23,6 +23,30 @@ test('createServer applies hardened HTTP server limits', async () => {
   }
 });
 
+test('createServer serves SKILL.md from uppercase path variants', async () => {
+  const requestFetch = globalThis.fetch;
+
+  const { server, shutdown } = createServer({
+    repository: makeRepository(),
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const response = await requestFetch(`http://127.0.0.1:${port}/SKILL.md`);
+    const body = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /^text\/markdown\b/i);
+    assert.match(body, /^# /m);
+  } finally {
+    await shutdown();
+  }
+});
+
 test('createServer accepts unauthenticated cold application actions over POST /api', async () => {
   const requestFetch = globalThis.fetch;
 
