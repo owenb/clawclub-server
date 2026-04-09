@@ -189,8 +189,8 @@ function buildSchema(): unknown {
     actions,
   });
 
-  // Hash the full payload (transport + actions) so agents detect any contract change.
-  const schemaHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 16);
+  const hashInput = sortKeysDeep({ transport, actions });
+  const schemaHash = createHash('sha256').update(JSON.stringify(hashInput)).digest('hex').slice(0, 16);
 
   return { ...(payload as Record<string, unknown>), schemaHash };
 }

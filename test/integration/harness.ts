@@ -13,6 +13,7 @@
 
 import { Pool } from 'pg';
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { createServer } from '../../src/server.ts';
 import { createRepository } from '../../src/postgres.ts';
@@ -60,9 +61,16 @@ function strictify(schema: z.ZodType): z.ZodType {
 }
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
-const DB_NAME = 'clawclub_test';
+const DB_NAME_PREFIX = 'clawclub_test';
 const APP_ROLE = 'clawclub_app';
 const APP_PASSWORD = 'integration_test';
+let dbCounter = 0;
+
+function createDbName(): string {
+  dbCounter += 1;
+  const suffix = `${process.pid}_${dbCounter}_${randomUUID().replace(/-/g, '').slice(0, 8)}`;
+  return `${DB_NAME_PREFIX}_${suffix}`;
+}
 
 export type SeededMember = {
   id: string;
@@ -108,15 +116,17 @@ export class TestHarness {
   }
 
   static async start(options: { qualityGate?: QualityGateFn } = {}): Promise<TestHarness> {
+    const dbName = createDbName();
+
     // 1. Create database (terminate stale connections first)
     const bootstrapPool = new Pool({ connectionString: 'postgresql://localhost/postgres' });
     try {
       await bootstrapPool.query(
         `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
-        [DB_NAME],
+        [dbName],
       );
-      await bootstrapPool.query(`DROP DATABASE IF EXISTS ${DB_NAME}`);
-      await bootstrapPool.query(`CREATE DATABASE ${DB_NAME}`);
+      await bootstrapPool.query(`DROP DATABASE IF EXISTS ${dbName}`);
+      await bootstrapPool.query(`CREATE DATABASE ${dbName}`);
     } finally {
       await bootstrapPool.end();
     }
@@ -124,14 +134,14 @@ export class TestHarness {
     // 2. Provision app role (must exist before init.sql so the schema
     //    can be created under clawclub_app's ownership).
     execSync(
-      `CLAWCLUB_DB_APP_PASSWORD="${APP_PASSWORD}" DATABASE_URL="postgresql://localhost/${DB_NAME}" ${ROOT}/scripts/provision-app-role.sh`,
+      `CLAWCLUB_DB_APP_PASSWORD="${APP_PASSWORD}" DATABASE_URL="postgresql://localhost/${dbName}" ${ROOT}/scripts/provision-app-role.sh`,
       { stdio: 'pipe' },
     );
 
     // 3. Apply unified schema (uses SET SESSION AUTHORIZATION clawclub_app
     //    so all objects are owned by the app role).
     execSync(
-      `psql "postgresql://localhost/${DB_NAME}" -v ON_ERROR_STOP=1 --single-transaction -f "${ROOT}/db/init.sql"`,
+      `psql "postgresql://localhost/${dbName}" -v ON_ERROR_STOP=1 --single-transaction -f "${ROOT}/db/init.sql"`,
       { stdio: 'pipe' },
     );
 
@@ -139,21 +149,21 @@ export class TestHarness {
     //    Railway uses on every deploy. If a migration would fail in
     //    production it must fail here too.
     execSync(
-      `DATABASE_URL="postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${DB_NAME}" ${ROOT}/scripts/migrate.sh`,
+      `DATABASE_URL="postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbName}" ${ROOT}/scripts/migrate.sh`,
       { stdio: 'pipe' },
     );
 
     // 5. Open pools
     const pools = {
-      super: new Pool({ connectionString: `postgresql://localhost/${DB_NAME}` }),
-      app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${DB_NAME}` }),
+      super: new Pool({ connectionString: `postgresql://localhost/${dbName}` }),
+      app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${dbName}` }),
     };
 
     // 6. Create repository, notifier, and start server
     const repository = createRepository(pools.app);
 
     const updatesNotifier = createPostgresMemberUpdateNotifier(
-      `postgresql://localhost/${DB_NAME}`,
+      `postgresql://localhost/${dbName}`,
     );
 
     const serverInstance = createServer({ repository, updatesNotifier, qualityGate: options.qualityGate });
@@ -166,7 +176,7 @@ export class TestHarness {
 
     return new TestHarness(
       pools,
-      DB_NAME,
+      dbName,
       serverInstance.server,
       serverInstance.shutdown,
       port,
@@ -180,6 +190,10 @@ export class TestHarness {
 
     const bootstrapPool = new Pool({ connectionString: 'postgresql://localhost/postgres' });
     try {
+      await bootstrapPool.query(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
+        [this.dbName],
+      );
       await bootstrapPool.query(`DROP DATABASE IF EXISTS ${this.dbName}`);
     } finally {
       await bootstrapPool.end();
