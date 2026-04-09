@@ -67,8 +67,16 @@ async function seedEntityWithEmbedding(
   vector: string,
 ): Promise<string> {
   const entityRows = await h.sqlClubs<{ id: string }>(
-    `insert into entities (club_id, kind, author_member_id)
-     values ($1, $2::entity_kind, $3) returning id`,
+    `insert into entities (club_id, kind, author_member_id, open_loop)
+     values (
+       $1,
+       $2::entity_kind,
+       $3,
+       case
+         when $2::entity_kind in ('ask', 'gift', 'service', 'opportunity') then true
+         else null
+       end
+     ) returning id`,
     [clubId, kind, authorMemberId],
   );
   const entityId = entityRows[0].id;
@@ -243,6 +251,33 @@ describe('embedding similarity', () => {
       // The post should not appear — only asks
       assert.equal(results.length, 0, 'should not return non-ask entities');
     });
+
+    it('excludes asks whose expires_at has already passed', async () => {
+      const owner = await h.seedOwner('simclub7-expired', 'SimClub7 Expired');
+
+      const askId = await seedEntityWithEmbedding(
+        owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]),
+      );
+      await h.sql(
+        `update entity_versions
+         set effective_at = now() - interval '2 hours',
+             expires_at = now() - interval '1 hour'
+         where entity_id = $1 and version_no = 1`,
+        [askId],
+      );
+
+      const serviceId = await seedEntityWithEmbedding(
+        owner.club.id, owner.id, 'service', makeVector([0.95, 0.05, 0]),
+      );
+
+      const results = await findAskMatchingOffer(
+        h.pools.super,
+        serviceId, owner.club.id, 10,
+      );
+
+      assert.equal(results.some(r => r.entityId === askId), false,
+        'expired asks must not be match candidates');
+    });
   });
 
   describe('findExistingThreadPairs', () => {
@@ -292,7 +327,7 @@ describe('embedding similarity', () => {
 
       // Create ask entity v1 with embedding
       const entityRows = await h.sql<{ id: string }>(
-        `insert into entities (club_id, kind, author_member_id) values ($1, 'ask', $2) returning id`,
+        `insert into entities (club_id, kind, author_member_id, open_loop) values ($1, 'ask', $2, true) returning id`,
         [owner.club.id, owner.id],
       );
       const entityId = entityRows[0].id;
@@ -327,7 +362,7 @@ describe('embedding similarity', () => {
 
       // Create ask entity v1 with embedding
       const askRows = await h.sql<{ id: string }>(
-        `insert into entities (club_id, kind, author_member_id) values ($1, 'ask', $2) returning id`,
+        `insert into entities (club_id, kind, author_member_id, open_loop) values ($1, 'ask', $2, true) returning id`,
         [owner.club.id, owner.id],
       );
       const askId = askRows[0].id;

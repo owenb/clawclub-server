@@ -1,9 +1,9 @@
 /**
- * Clubs domain — entity CRUD (posts, opportunities, services, asks).
+ * Clubs domain — entity CRUD (posts, asks, gifts, opportunities, services).
  */
 
 import type { Pool } from 'pg';
-import type { CreateEntityInput, EntitySummary, ListEntitiesInput, UpdateEntityInput } from '../contract.ts';
+import type { CreateEntityInput, EntitySummary, ListEntitiesInput, SetEntityLoopInput, UpdateEntityInput } from '../contract.ts';
 import { AppError } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
@@ -42,6 +42,7 @@ type EntityRow = {
   entity_version_id: string;
   club_id: string;
   kind: EntitySummary['kind'];
+  open_loop: boolean | null;
   author_member_id: string;
   author_public_name: string;
   author_handle: string | null;
@@ -63,6 +64,7 @@ function mapEntityRow(row: EntityRow): EntitySummary {
     entityVersionId: row.entity_version_id,
     clubId: row.club_id,
     kind: row.kind,
+    openLoop: row.open_loop,
     author: { memberId: row.author_member_id, publicName: row.author_public_name, handle: row.author_handle },
     version: {
       versionNo: row.version_no,
@@ -80,7 +82,7 @@ function mapEntityRow(row: EntityRow): EntitySummary {
 }
 
 const ENTITY_SELECT = `
-  e.id as entity_id, cev.id as entity_version_id, e.club_id, e.kind,
+  e.id as entity_id, cev.id as entity_version_id, e.club_id, e.kind, e.open_loop,
   e.author_member_id, m.public_name as author_public_name, m.handle as author_handle,
   cev.version_no, cev.state,
   cev.title, cev.summary, cev.body,
@@ -88,6 +90,12 @@ const ENTITY_SELECT = `
   cev.created_at::text as version_created_at, cev.content,
   e.created_at::text as entity_created_at
 `;
+
+function initialOpenLoopForKind(kind: CreateEntityInput['kind']): boolean | null {
+  return kind === 'ask' || kind === 'gift' || kind === 'service' || kind === 'opportunity'
+    ? true
+    : null;
+}
 
 async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): Promise<void> {
   const profile = EMBEDDING_PROFILES['entity'];
@@ -149,9 +157,9 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
       }
     }
     const entityResult = await client.query<{ id: string; created_at: string }>(
-      `insert into entities (club_id, kind, author_member_id, client_key) values ($1, $2, $3, $4)
+      `insert into entities (club_id, kind, author_member_id, open_loop, client_key) values ($1, $2, $3, $4, $5)
        returning id, created_at::text as created_at`,
-      [input.clubId, input.kind, input.authorMemberId, input.clientKey ?? null],
+      [input.clubId, input.kind, input.authorMemberId, initialOpenLoopForKind(input.kind), input.clientKey ?? null],
     );
     const entity = entityResult.rows[0];
     if (!entity) throw new AppError(500, 'missing_row', 'Created entity row was not returned');
@@ -302,6 +310,59 @@ export async function removeEntity(pool: Pool, input: {
   });
 }
 
+async function setEntityLoopState(
+  pool: Pool,
+  input: SetEntityLoopInput,
+  nextOpenLoop: boolean,
+): Promise<EntitySummary | null> {
+  return withTransaction(pool, async (client) => {
+    const updateResult = await client.query<{ entity_id: string }>(
+      `update entities e
+       set open_loop = $4
+       from current_entity_versions cev
+       where e.id = $1
+         and e.club_id = any($2::text[])
+         and e.author_member_id = $3
+         and e.deleted_at is null
+         and e.open_loop is not null
+         and cev.entity_id = e.id
+         and cev.state = 'published'
+       returning e.id as entity_id`,
+      [input.entityId, input.accessibleClubIds, input.actorMemberId, nextOpenLoop],
+    );
+
+    const entityId = updateResult.rows[0]?.entity_id;
+    if (!entityId) return null;
+
+    if (nextOpenLoop) {
+      await client.query(
+        `delete from signal_background_matches
+         where source_id = $1
+           and match_kind in ('ask_to_member', 'offer_to_ask')`,
+        [entityId],
+      );
+    } else {
+      await client.query(
+        `update signal_background_matches
+         set state = 'expired'
+         where source_id = $1 and state = 'pending'
+           and match_kind in ('ask_to_member', 'offer_to_ask')`,
+        [entityId],
+      );
+    }
+
+    return readEntitySummary(client, entityId);
+  });
+}
+
+export async function closeEntityLoop(pool: Pool, input: SetEntityLoopInput): Promise<EntitySummary | null> {
+  return setEntityLoopState(pool, input, false);
+}
+
+export async function reopenEntityLoop(pool: Pool, input: SetEntityLoopInput): Promise<EntitySummary | null> {
+  return setEntityLoopState(pool, input, true);
+}
+
 export type PaginatedEntities = { results: EntitySummary[]; hasMore: boolean; nextCursor: string | null };
 
 export async function listEntities(pool: Pool, input: ListEntitiesInput & {
@@ -354,6 +415,11 @@ export async function listEntities(pool: Pool, input: ListEntitiesInput & {
      join current_entity_versions cev on cev.id = le.entity_version_id
      join members m on m.id = e.author_member_id
      where le.kind = any($2::entity_kind[])
+       and (
+         le.open_loop is null
+         or le.open_loop = true
+         or ($10::text is not null and e.author_member_id = $10 and $11::boolean)
+       )
        and ($4::text is null
          or coalesce(le.title, '') ilike $4 escape '\\'
          or coalesce(le.summary, '') ilike $4 escape '\\'
@@ -390,7 +456,19 @@ export async function listEntities(pool: Pool, input: ListEntitiesInput & {
      order by _relevance_score desc,
        le.effective_at desc, le.entity_id desc
      limit $6`,
-    [input.clubIds, input.kinds, trimmedQuery, likePattern, prefixPattern, fetchLimit, cursorEffectiveAt, cursorEntityId, cursorScore],
+    [
+      input.clubIds,
+      input.kinds,
+      trimmedQuery,
+      likePattern,
+      prefixPattern,
+      fetchLimit,
+      cursorEffectiveAt,
+      cursorEntityId,
+      cursorScore,
+      input.actorMemberId,
+      input.includeClosed,
+    ],
   );
 
   const rows = result.rows.map(mapEntityRow);

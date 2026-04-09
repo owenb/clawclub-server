@@ -48,6 +48,7 @@ import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
 import './schemas/session.ts';
 import './schemas/admissions-cold.ts';
 import './schemas/admissions-cross.ts';
+import './schemas/admissions-self.ts';
 import './schemas/entities.ts';
 import './schemas/events.ts';
 import './schemas/profile.ts';

@@ -398,8 +398,8 @@ values (:'dog_post2', 1, 'published',
   now() - interval '7 days', now() - interval '7 days', :'charlie_id');
 
 -- dog_opp1: "Dog Walking Business Partnership" by Owen
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'dogclub_id', 'opportunity', :'owen_id', now() - interval '10 days')
+insert into entities (club_id, kind, author_member_id, open_loop, created_at)
+values (:'dogclub_id', 'opportunity', :'owen_id', true, now() - interval '10 days')
 returning id as dog_opp1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
@@ -411,8 +411,8 @@ values (:'dog_opp1', 1, 'published',
   now() - interval '10 days', :'owen_id');
 
 -- dog_svc1: "Professional Obedience Training" by Alice
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'dogclub_id', 'service', :'alice_id', now() - interval '21 days')
+insert into entities (club_id, kind, author_member_id, open_loop, created_at)
+values (:'dogclub_id', 'service', :'alice_id', true, now() - interval '21 days')
 returning id as dog_svc1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -423,8 +423,8 @@ values (:'dog_svc1', 1, 'published',
   now() - interval '21 days', now() - interval '21 days', :'alice_id');
 
 -- dog_ask1: "Vet Recommendations Near Downtown?" by Charlie
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'dogclub_id', 'ask', :'charlie_id', now() - interval '3 days')
+insert into entities (club_id, kind, author_member_id, open_loop, created_at)
+values (:'dogclub_id', 'ask', :'charlie_id', true, now() - interval '3 days')
 returning id as dog_ask1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
@@ -533,8 +533,8 @@ values (:'cat_post2', 1, 'published',
   now() - interval '12 days', now() - interval '12 days', :'bob_id');
 
 -- cat_opp1: "Cat Cafe Opening" by Diana
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'catclub_id', 'opportunity', :'diana_id', now() - interval '8 days')
+insert into entities (club_id, kind, author_member_id, open_loop, created_at)
+values (:'catclub_id', 'opportunity', :'diana_id', true, now() - interval '8 days')
 returning id as cat_opp1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
@@ -546,8 +546,8 @@ values (:'cat_opp1', 1, 'published',
   now() - interval '8 days', :'diana_id');
 
 -- cat_svc1: "Cat Sitting & Pet Care" by Bob
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'catclub_id', 'service', :'bob_id', now() - interval '15 days')
+insert into entities (club_id, kind, author_member_id, open_loop, created_at)
+values (:'catclub_id', 'service', :'bob_id', true, now() - interval '15 days')
 returning id as cat_svc1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -558,8 +558,8 @@ values (:'cat_svc1', 1, 'published',
   now() - interval '15 days', now() - interval '15 days', :'bob_id');
 
 -- cat_ask1: "Help with a Shy Rescue Cat" by Julia
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'catclub_id', 'ask', :'julia_id', now() - interval '4 days')
+insert into entities (club_id, kind, author_member_id, open_loop, created_at)
+values (:'catclub_id', 'ask', :'julia_id', true, now() - interval '4 days')
 returning id as cat_ask1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -645,8 +645,8 @@ values (:'fox_post2', 1, 'published',
   now() - interval '9 days', now() - interval '9 days', :'charlie_id');
 
 -- fox_opp1: "Fox Sanctuary Volunteer Positions" by Owen
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'foxclub_id', 'opportunity', :'owen_id', now() - interval '6 days')
+insert into entities (club_id, kind, author_member_id, open_loop, created_at)
+values (:'foxclub_id', 'opportunity', :'owen_id', true, now() - interval '6 days')
 returning id as fox_opp1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
@@ -658,8 +658,8 @@ values (:'fox_opp1', 1, 'published',
   now() - interval '6 days', :'owen_id');
 
 -- fox_svc1: "Wildlife Photography Workshops" by Charlie
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'foxclub_id', 'service', :'charlie_id', now() - interval '14 days')
+insert into entities (club_id, kind, author_member_id, open_loop, created_at)
+values (:'foxclub_id', 'service', :'charlie_id', true, now() - interval '14 days')
 returning id as fox_svc1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -670,8 +670,8 @@ values (:'fox_svc1', 1, 'published',
   now() - interval '14 days', now() - interval '14 days', :'charlie_id');
 
 -- fox_ask1: "Fox Sighting Tracking Apps?" by Ivan
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'foxclub_id', 'ask', :'ivan_id', now() - interval '5 days')
+insert into entities (club_id, kind, author_member_id, open_loop, created_at)
+values (:'foxclub_id', 'ask', :'ivan_id', true, now() - interval '5 days')
 returning id as fox_ask1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)

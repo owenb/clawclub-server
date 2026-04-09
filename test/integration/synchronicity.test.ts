@@ -66,8 +66,16 @@ async function seedEntityWithEmbedding(
   clubId: string, authorMemberId: string, kind: string, vector: string,
 ): Promise<string> {
   const entityRows = await h.sqlClubs<{ id: string }>(
-    `insert into entities (club_id, kind, author_member_id)
-     values ($1, $2::entity_kind, $3) returning id`,
+    `insert into entities (club_id, kind, author_member_id, open_loop)
+     values (
+       $1,
+       $2::entity_kind,
+       $3,
+       case
+         when $2::entity_kind in ('ask', 'gift', 'service', 'opportunity') then true
+         else null
+       end
+     ) returning id`,
     [clubId, kind, authorMemberId],
   );
   const entityId = entityRows[0].id;
@@ -192,6 +200,106 @@ describe('synchronicity worker', () => {
       const signals = await getSignals(owner.id);
       const offerSignals = signals.filter(s => s.topic === 'signal.offer_match');
       assert.ok(offerSignals.length >= 1, 'owner should receive an offer_match signal');
+    });
+
+    it('gift publication creates offer_to_ask matches', async () => {
+      const owner = await h.seedOwner('sw-gift1', 'SW Gift1');
+      const giver = await h.seedClubMember(owner.club.id, 'Gift Giver', 'gift-giver-sw1', { sponsorId: owner.id });
+
+      await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools);
+
+      const giftId = await seedEntityWithEmbedding(owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
+      await publishActivity(owner.club.id, giftId, giver.id);
+
+      const matchCount = await processEntityTriggers(pools);
+      assert.ok(matchCount >= 1, 'gift should create offer_to_ask matches');
+
+      await deliverMatches(pools);
+      const signals = await getSignals(owner.id);
+      const offerSignals = signals.filter(s => s.topic === 'signal.offer_match');
+      assert.ok(offerSignals.length >= 1, 'gift should deliver an offer_match signal');
+    });
+
+    it('closed gifts do not create matches at trigger time', async () => {
+      const owner = await h.seedOwner('sw-gift-closed', 'SW Gift Closed');
+      const giver = await h.seedClubMember(owner.club.id, 'Closed Gift Giver', 'closed-gift-giver', { sponsorId: owner.id });
+
+      await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const giftId = await seedEntityWithEmbedding(owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools);
+
+      await h.apiOk(giver.token, 'content.closeLoop', { entityId: giftId });
+      await publishActivity(owner.club.id, giftId, giver.id);
+      await processEntityTriggers(pools);
+
+      const matches = await getMatches(owner.id);
+      const giftMatches = matches.filter(m => m.match_kind === 'offer_to_ask' && m.source_id === giftId);
+      assert.equal(giftMatches.length, 0, 'closed gift must not trigger offer matching');
+    });
+
+    it('pending gift matches expire instead of delivering after the gift is closed', async () => {
+      const owner = await h.seedOwner('sw-gift-delivery-close', 'SW Gift Delivery Close');
+      const giver = await h.seedClubMember(owner.club.id, 'Delivery Giver', 'delivery-giver', { sponsorId: owner.id });
+
+      await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const giftId = await seedEntityWithEmbedding(owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools);
+      await publishActivity(owner.club.id, giftId, giver.id);
+      await processEntityTriggers(pools);
+
+      const pendingBeforeClose = (await getMatches(owner.id)).find(
+        m => m.match_kind === 'offer_to_ask' && m.source_id === giftId,
+      );
+      assert.equal(pendingBeforeClose?.state, 'pending');
+
+      await h.apiOk(giver.token, 'content.closeLoop', { entityId: giftId });
+      await deliverMatches(pools);
+
+      const matchAfterDelivery = (await getMatches(owner.id)).find(
+        m => m.match_kind === 'offer_to_ask' && m.source_id === giftId,
+      );
+      assert.equal(matchAfterDelivery?.state, 'expired',
+        'closing the source gift must expire the pending match before delivery');
+
+      const signals = await getSignals(owner.id);
+      assert.equal(signals.filter(s => s.topic === 'signal.offer_match').length, 0,
+        'no offer_match signal should be delivered for a closed gift');
+    });
+
+    it('reopening a gift clears historical matches so the same recipient can be matched again', async () => {
+      const owner = await h.seedOwner('sw-gift-reopen', 'SW Gift Reopen');
+      const giver = await h.seedClubMember(owner.club.id, 'Reopen Giver', 'reopen-giver', { sponsorId: owner.id });
+
+      await seedEntityWithEmbedding(owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const giftId = await seedEntityWithEmbedding(owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
+
+      const pools = workerPools();
+      await processEntityTriggers(pools);
+      await publishActivity(owner.club.id, giftId, giver.id);
+      await processEntityTriggers(pools);
+      await deliverMatches(pools);
+
+      const firstSignals = await getSignals(owner.id);
+      assert.equal(firstSignals.filter(s => s.topic === 'signal.offer_match').length, 1);
+
+      await h.apiOk(giver.token, 'content.closeLoop', { entityId: giftId });
+      await h.apiOk(giver.token, 'content.reopenLoop', { entityId: giftId });
+
+      await publishActivity(owner.club.id, giftId, giver.id);
+      const rematchCount = await processEntityTriggers(pools);
+      assert.ok(rematchCount >= 1, 'reopened gift should be able to create a fresh match');
+
+      await deliverMatches(pools);
+      const secondSignals = await getSignals(owner.id);
+      assert.equal(secondSignals.filter(s => s.topic === 'signal.offer_match').length, 2,
+        'the same recipient should be matchable again after reopen');
     });
 
     it('post publication does not create matches', async () => {

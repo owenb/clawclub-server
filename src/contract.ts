@@ -401,7 +401,7 @@ export type UpdateOwnProfileInput = {
   profile?: unknown;
 };
 
-export type EntityKind = 'post' | 'opportunity' | 'service' | 'ask';
+export type EntityKind = 'post' | 'opportunity' | 'service' | 'ask' | 'gift';
 export type EntityState = 'draft' | 'published' | 'removed';
 
 export type EntitySummary = {
@@ -409,6 +409,7 @@ export type EntitySummary = {
   entityVersionId: string;
   clubId: string;
   kind: EntityKind;
+  openLoop: boolean | null;
   author: {
     memberId: string;
     publicName: string;
@@ -557,6 +558,7 @@ export type ListEntitiesInput = {
   kinds: EntityKind[];
   limit: number;
   query?: string;
+  includeClosed: boolean;
 };
 
 export type BearerTokenSummary = {
@@ -669,6 +671,23 @@ export type UpdateEntityInput = {
     expiresAt?: string | null;
     content?: Record<string, unknown>;
   };
+};
+
+export type SetEntityLoopInput = {
+  actorMemberId: string;
+  accessibleClubIds: string[];
+  entityId: string;
+};
+
+export type MemberAdmissionRecord = {
+  admissionId: string;
+  clubId: string;
+  clubSlug: string;
+  clubName: string;
+  status: AdmissionStatus;
+  applicationText: string | null;
+  submittedAt: string | null;
+  acceptedAt: string | null;
 };
 
 export type CreateVouchInput = {
@@ -812,6 +831,10 @@ export type Repository = {
     statuses?: AdmissionStatus[];
     cursor?: { versionCreatedAt: string; id: string } | null;
   }): Promise<Paginated<AdmissionSummary>>;
+  getAdmissionsForMember(input: {
+    memberId: string;
+    clubId?: string;
+  }): Promise<MemberAdmissionRecord[]>;
   transitionAdmission?(input: TransitionAdmissionInput): Promise<AdmissionSummary | null>;
   createAdmissionChallenge?(input: CreateAdmissionChallengeInput): Promise<AdmissionChallengeResult>;
   solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<AdmissionApplyResult>;
@@ -836,6 +859,8 @@ export type Repository = {
   updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
+  closeEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
+  reopenEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
   removeEntity?(input: RemoveEntityInput): Promise<EntitySummary | null>;
   listEntities(input: ListEntitiesInput & { rawCursor?: string | null }): Promise<Paginated<EntitySummary>>;
   createEvent(input: CreateEventInput): Promise<EventSummary>;

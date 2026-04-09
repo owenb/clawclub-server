@@ -143,7 +143,7 @@ export async function findSimilarMembers(
 }
 
 /**
- * Find existing ask entities that a new offer (service/opportunity) could fulfil.
+ * Find existing ask entities that a new offer (gift/service/opportunity) could fulfil.
  *
  * Use case: "does this new service match any existing asks?"
  * Returns the ask's author_member_id so the caller knows who to signal.
@@ -175,6 +175,8 @@ export async function findAskMatchingOffer(
        and e.kind = 'ask'
        and e.id <> $3
        and e.deleted_at is null
+       and e.open_loop = true
+       and (cev.expires_at is null or cev.expires_at > now())
        and ($5::text is null or e.author_member_id <> $5)
      group by eea.entity_id, cev.id, e.author_member_id
      order by distance asc

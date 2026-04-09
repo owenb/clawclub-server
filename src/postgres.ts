@@ -315,6 +315,10 @@ export function createRepository(pool: Pool): Repository {
       return clubs.updateEntity(input);
     },
 
+    closeEntityLoop: (input) => clubs.closeEntityLoop(input),
+
+    reopenEntityLoop: (input) => clubs.reopenEntityLoop(input),
+
     removeEntity: (input) => clubs.removeEntity({
       entityId: input.entityId,
       clubIds: input.accessibleClubIds,
@@ -533,6 +537,8 @@ export function createRepository(pool: Pool): Repository {
 
       return { results: rows, hasMore, nextCursor };
     },
+
+    getAdmissionsForMember: (input) => admissionsModule.getAdmissionsForMember(pool, input),
 
     async transitionAdmission(input) {
       const result = await admissionsModule.transitionAdmission(pool, {

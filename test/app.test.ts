@@ -450,6 +450,7 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
     entityVersionId: 'entity-version-1',
     clubId: 'club-1',
     kind: 'post',
+    openLoop: null,
     author: {
       memberId: 'member-1',
       publicName: 'Member One',
@@ -1783,13 +1784,7 @@ test('content.update rejects non-author updates', async () => {
       return makeEntity();
     },
     async updateEntity() {
-      return makeEntity({
-        author: {
-          memberId: 'member-2',
-          publicName: 'Member Two',
-          handle: 'member-two',
-        },
-      });
+      return null;
     },
     async sendDirectMessage() {
       return makeDirectMessage();
@@ -1827,8 +1822,8 @@ test('content.update rejects non-author updates', async () => {
       }),
     (error: unknown) => {
       assert.ok(error instanceof AppError);
-      assert.equal(error.statusCode, 403);
-      assert.equal(error.code, 'forbidden');
+      assert.equal(error.statusCode, 404);
+      assert.equal(error.code, 'not_found');
       return true;
     },
   );
@@ -2193,6 +2188,7 @@ test('content.list can span accessible clubs and filter by kinds with optional q
     kinds: ['ask', 'service'],
     limit: 5,
     query: 'backend',
+    includeClosed: false,
     rawCursor: null,
   });
   assert.equal(result.action, 'content.list');

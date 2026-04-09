@@ -57,7 +57,7 @@ CREATE TYPE subscription_status AS ENUM ('trialing', 'active', 'past_due', 'paus
 CREATE TYPE billing_interval AS ENUM ('month', 'year', 'manual');
 
 -- Content
-CREATE TYPE entity_kind AS ENUM ('post', 'opportunity', 'service', 'ask', 'event', 'comment', 'complaint');
+CREATE TYPE entity_kind AS ENUM ('post', 'opportunity', 'service', 'ask', 'gift', 'event', 'comment', 'complaint');
 CREATE TYPE entity_state AS ENUM ('draft', 'published', 'removed');
 CREATE TYPE edge_kind AS ENUM ('vouched_for', 'about', 'related_to', 'mentions');
 CREATE TYPE rsvp_state AS ENUM ('yes', 'maybe', 'no', 'waitlist');
@@ -504,6 +504,7 @@ CREATE TABLE entities (
     club_id             short_id NOT NULL,
     kind                entity_kind NOT NULL,
     author_member_id    short_id NOT NULL,
+    open_loop           boolean,
     parent_entity_id    short_id,
     client_key          text,
     created_at          timestamptz DEFAULT now() NOT NULL,
@@ -514,6 +515,16 @@ CREATE TABLE entities (
     CONSTRAINT entities_pkey PRIMARY KEY (id),
     CONSTRAINT entities_comment_parent_check CHECK (
         (kind = 'comment' AND parent_entity_id IS NOT NULL) OR kind <> 'comment'
+    ),
+    CONSTRAINT entities_open_loop_kind_check CHECK (
+        (
+            kind IN ('ask', 'gift', 'service', 'opportunity')
+            AND open_loop IS NOT NULL
+        )
+        OR (
+            kind NOT IN ('ask', 'gift', 'service', 'opportunity')
+            AND open_loop IS NULL
+        )
     ),
     CONSTRAINT entities_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
     CONSTRAINT entities_author_fkey FOREIGN KEY (author_member_id) REFERENCES members(id),
@@ -1400,6 +1411,7 @@ CREATE VIEW live_entities AS
         e.id                AS entity_id,
         e.club_id,
         e.kind,
+        e.open_loop,
         e.author_member_id,
         e.parent_entity_id,
         e.created_at        AS entity_created_at,

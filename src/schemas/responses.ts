@@ -118,6 +118,17 @@ export const admissionSummary = z.object({
   createdAt: z.string(),
 });
 
+export const memberAdmissionRecord = z.object({
+  admissionId: z.string(),
+  clubId: z.string(),
+  clubSlug: z.string(),
+  clubName: z.string(),
+  status: admissionStatus,
+  applicationText: z.string().nullable(),
+  submittedAt: z.string().nullable(),
+  acceptedAt: z.string().nullable(),
+});
+
 const admissionClubSummary = z.object({
   slug: z.string(),
   name: z.string(),
@@ -211,6 +222,7 @@ export const entitySummary = z.object({
   entityVersionId: z.string(),
   clubId: z.string(),
   kind: entityKind,
+  openLoop: z.boolean().nullable(),
   author: memberRef,
   version: z.object({
     versionNo: z.number(),

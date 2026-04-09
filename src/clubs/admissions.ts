@@ -7,7 +7,7 @@
 
 import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
-import { AppError, type AdmissionStatus, type AdmissionSummary, type AdmissionApplyResult } from '../contract.ts';
+import { AppError, type AdmissionStatus, type AdmissionSummary, type AdmissionApplyResult, type MemberAdmissionRecord } from '../contract.ts';
 import { runAdmissionGate, QUALITY_GATE_PROVIDER, type QualityGateResult } from '../quality-gate.ts';
 import { CLAWCLUB_OPENAI_MODEL } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
@@ -97,6 +97,65 @@ export async function readAdmission(client: DbClient, admissionId: string): Prom
     [admissionId],
   );
   return result.rows[0] ?? null;
+}
+
+export async function getAdmissionsForMember(pool: Pool, input: {
+  memberId: string;
+  clubId?: string;
+}): Promise<MemberAdmissionRecord[]> {
+  const result = await pool.query<{
+    admission_id: string;
+    club_id: string;
+    club_slug: string;
+    club_name: string;
+    status: AdmissionStatus;
+    application_text: string | null;
+    submitted_at: string | null;
+    accepted_at: string | null;
+  }>(
+    `select
+        ca.id as admission_id,
+        ca.club_id,
+        c.slug as club_slug,
+        c.name as club_name,
+        ca.status,
+        ca.admission_details->>'application' as application_text,
+        (
+          select min(av.created_at)::text
+          from admission_versions av
+          where av.admission_id = ca.id and av.status = 'submitted'
+        ) as submitted_at,
+        (
+          select min(av.created_at)::text
+          from admission_versions av
+          where av.admission_id = ca.id and av.status = 'accepted'
+        ) as accepted_at
+     from current_admissions ca
+     join clubs c on c.id = ca.club_id
+     where ca.applicant_member_id = $1
+       and ($2::text is null or ca.club_id = $2)
+     order by coalesce(
+       (
+         select min(av.created_at)
+         from admission_versions av
+         where av.admission_id = ca.id and av.status = 'submitted'
+       ),
+       ca.created_at
+     ) desc,
+     ca.id desc`,
+    [input.memberId, input.clubId ?? null],
+  );
+
+  return result.rows.map((row) => ({
+    admissionId: row.admission_id,
+    clubId: row.club_id,
+    clubSlug: row.club_slug,
+    clubName: row.club_name,
+    status: row.status,
+    applicationText: row.application_text,
+    submittedAt: row.submitted_at,
+    acceptedAt: row.accepted_at,
+  }));
 }
 
 /**

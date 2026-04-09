@@ -406,6 +406,86 @@
       "safety": "mutating"
     },
     {
+      "action": "admissions.getMine",
+      "auth": "member",
+      "description": "Read your own admission records, including your application text, status, club, and timestamps.",
+      "domain": "admissions",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Optional club filter",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "admissions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "acceptedAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "admissionId": {
+                  "type": "string"
+                },
+                "applicationText": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "clubId": {
+                  "type": "string"
+                },
+                "clubName": {
+                  "type": "string"
+                },
+                "clubSlug": {
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "draft",
+                    "submitted",
+                    "interview_scheduled",
+                    "interview_completed",
+                    "accepted",
+                    "declined",
+                    "withdrawn"
+                  ],
+                  "type": "string"
+                },
+                "submittedAt": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "admissionId",
+                "clubId",
+                "clubSlug",
+                "clubName",
+                "status",
+                "applicationText",
+                "submittedAt",
+                "acceptedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "admissions"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
       "action": "admissions.public.requestChallenge",
       "auth": "none",
       "description": "Request a proof-of-work challenge bound to a specific club.",
@@ -1851,9 +1931,14 @@
                   "post",
                   "opportunity",
                   "service",
-                  "ask"
+                  "ask",
+                  "gift"
                 ],
                 "type": "string"
+              },
+              "openLoop": {
+                "nullable": true,
+                "type": "boolean"
               },
               "version": {
                 "additionalProperties": false,
@@ -1915,6 +2000,7 @@
               "entityVersionId",
               "clubId",
               "kind",
+              "openLoop",
               "author",
               "version",
               "createdAt"
@@ -3424,10 +3510,156 @@
       "safety": "mutating"
     },
     {
+      "action": "content.closeLoop",
+      "auth": "member",
+      "authorizationNote": "Only the original author may close their own published loopable content.",
+      "description": "Close an open ask, gift, service, or opportunity (author only).",
+      "domain": "content",
+      "input": {
+        "properties": {
+          "entityId": {
+            "description": "Entity to close",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "entity": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "entityId": {
+                "type": "string"
+              },
+              "entityVersionId": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "post",
+                  "opportunity",
+                  "service",
+                  "ask",
+                  "gift"
+                ],
+                "type": "string"
+              },
+              "openLoop": {
+                "nullable": true,
+                "type": "boolean"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "content": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "draft",
+                      "published",
+                      "removed"
+                    ],
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "title": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "versionNo",
+                  "state",
+                  "title",
+                  "summary",
+                  "body",
+                  "effectiveAt",
+                  "expiresAt",
+                  "createdAt",
+                  "content"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "entityId",
+              "entityVersionId",
+              "clubId",
+              "kind",
+              "openLoop",
+              "author",
+              "version",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "entity"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "content.create",
       "auth": "member",
       "authorizationNote": "Requires club membership. Subject to daily quota.",
-      "description": "Create a new post, ask, opportunity, or service.",
+      "description": "Create a new post, ask, gift, opportunity, or service.",
       "domain": "content",
       "input": {
         "properties": {
@@ -3464,7 +3696,8 @@
               "post",
               "opportunity",
               "service",
-              "ask"
+              "ask",
+              "gift"
             ],
             "type": "string"
           },
@@ -3531,9 +3764,14 @@
                   "post",
                   "opportunity",
                   "service",
-                  "ask"
+                  "ask",
+                  "gift"
                 ],
                 "type": "string"
+              },
+              "openLoop": {
+                "nullable": true,
+                "type": "boolean"
               },
               "version": {
                 "additionalProperties": false,
@@ -3595,6 +3833,7 @@
               "entityVersionId",
               "clubId",
               "kind",
+              "openLoop",
               "author",
               "version",
               "createdAt"
@@ -3612,7 +3851,7 @@
     {
       "action": "content.list",
       "auth": "member",
-      "description": "List posts, asks, opportunities, or services.",
+      "description": "List posts, asks, gifts, opportunities, or services.",
       "domain": "content",
       "input": {
         "properties": {
@@ -3625,6 +3864,10 @@
             "nullable": true,
             "type": "string"
           },
+          "includeClosed": {
+            "description": "Include your own closed asks, gifts, services, and opportunities",
+            "type": "boolean"
+          },
           "kinds": {
             "description": "Filter by entity kind. Defaults to all kinds.",
             "items": {
@@ -3632,7 +3875,8 @@
                 "post",
                 "opportunity",
                 "service",
-                "ask"
+                "ask",
+                "gift"
               ],
               "type": "string"
             },
@@ -3722,13 +3966,17 @@
           "hasMore": {
             "type": "boolean"
           },
+          "includeClosed": {
+            "type": "boolean"
+          },
           "kinds": {
             "items": {
               "enum": [
                 "post",
                 "opportunity",
                 "service",
-                "ask"
+                "ask",
+                "gift"
               ],
               "type": "string"
             },
@@ -3787,9 +4035,14 @@
                     "post",
                     "opportunity",
                     "service",
-                    "ask"
+                    "ask",
+                    "gift"
                   ],
                   "type": "string"
+                },
+                "openLoop": {
+                  "nullable": true,
+                  "type": "boolean"
                 },
                 "version": {
                   "additionalProperties": false,
@@ -3851,6 +4104,7 @@
                 "entityVersionId",
                 "clubId",
                 "kind",
+                "openLoop",
                 "author",
                 "version",
                 "createdAt"
@@ -3863,6 +4117,7 @@
         "required": [
           "query",
           "kinds",
+          "includeClosed",
           "limit",
           "clubScope",
           "results",
@@ -3941,9 +4196,14 @@
                   "post",
                   "opportunity",
                   "service",
-                  "ask"
+                  "ask",
+                  "gift"
                 ],
                 "type": "string"
+              },
+              "openLoop": {
+                "nullable": true,
+                "type": "boolean"
               },
               "version": {
                 "additionalProperties": false,
@@ -4005,6 +4265,153 @@
               "entityVersionId",
               "clubId",
               "kind",
+              "openLoop",
+              "author",
+              "version",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "entity"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "content.reopenLoop",
+      "auth": "member",
+      "authorizationNote": "Only the original author may reopen their own published loopable content.",
+      "description": "Reopen a previously closed ask, gift, service, or opportunity (author only).",
+      "domain": "content",
+      "input": {
+        "properties": {
+          "entityId": {
+            "description": "Entity to reopen",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entityId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "entity": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "entityId": {
+                "type": "string"
+              },
+              "entityVersionId": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "post",
+                  "opportunity",
+                  "service",
+                  "ask",
+                  "gift"
+                ],
+                "type": "string"
+              },
+              "openLoop": {
+                "nullable": true,
+                "type": "boolean"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "body": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "content": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "draft",
+                      "published",
+                      "removed"
+                    ],
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "title": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "versionNo",
+                  "state",
+                  "title",
+                  "summary",
+                  "body",
+                  "effectiveAt",
+                  "expiresAt",
+                  "createdAt",
+                  "content"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "entityId",
+              "entityVersionId",
+              "clubId",
+              "kind",
+              "openLoop",
               "author",
               "version",
               "createdAt"
@@ -4022,7 +4429,7 @@
     {
       "action": "content.searchBySemanticSimilarity",
       "auth": "member",
-      "description": "Find entities by natural-language query using embedding similarity.",
+      "description": "Find posts, asks, gifts, opportunities, or services by natural-language query using embedding similarity.",
       "domain": "content",
       "input": {
         "properties": {
@@ -4042,7 +4449,8 @@
                 "post",
                 "opportunity",
                 "service",
-                "ask"
+                "ask",
+                "gift"
               ],
               "type": "string"
             },
@@ -4185,9 +4593,14 @@
                     "post",
                     "opportunity",
                     "service",
-                    "ask"
+                    "ask",
+                    "gift"
                   ],
                   "type": "string"
+                },
+                "openLoop": {
+                  "nullable": true,
+                  "type": "boolean"
                 },
                 "version": {
                   "additionalProperties": false,
@@ -4249,6 +4662,7 @@
                 "entityVersionId",
                 "clubId",
                 "kind",
+                "openLoop",
                 "author",
                 "version",
                 "createdAt"
@@ -4361,9 +4775,14 @@
                   "post",
                   "opportunity",
                   "service",
-                  "ask"
+                  "ask",
+                  "gift"
                 ],
                 "type": "string"
+              },
+              "openLoop": {
+                "nullable": true,
+                "type": "boolean"
               },
               "version": {
                 "additionalProperties": false,
@@ -4425,6 +4844,7 @@
               "entityVersionId",
               "clubId",
               "kind",
+              "openLoop",
               "author",
               "version",
               "createdAt"
@@ -8262,7 +8682,8 @@
               "post",
               "opportunity",
               "service",
-              "ask"
+              "ask",
+              "gift"
             ],
             "type": "string"
           },
@@ -8320,7 +8741,8 @@
                     "post",
                     "opportunity",
                     "service",
-                    "ask"
+                    "ask",
+                    "gift"
                   ],
                   "type": "string"
                 },
@@ -10402,6 +10824,6 @@
       }
     }
   },
-  "version": "0.2.5",
-  "schemaHash": "23963fdf006affd4"
+  "version": "0.2.6",
+  "schemaHash": "5770b71c799af314"
 }

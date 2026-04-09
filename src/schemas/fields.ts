@@ -11,7 +11,7 @@ import { z } from 'zod';
 
 // ── Enums ────────────────────────────────────────────────
 
-export const entityKind = z.enum(['post', 'opportunity', 'service', 'ask']);
+export const entityKind = z.enum(['post', 'opportunity', 'service', 'ask', 'gift']);
 export type EntityKind = z.infer<typeof entityKind>;
 
 export const entityState = z.enum(['draft', 'published', 'removed']);
@@ -281,7 +281,7 @@ export const wireEntityKinds = z.array(entityKind).min(1).optional()
  */
 export const parseEntityKinds = z.array(entityKind).min(1)
   .optional()
-  .default(['post', 'opportunity', 'service', 'ask'])
+  .default(['post', 'opportunity', 'service', 'ask', 'gift'])
   .transform(kinds => [...new Set(kinds)]);
 
 /**

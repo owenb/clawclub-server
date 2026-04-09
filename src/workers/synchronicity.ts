@@ -198,7 +198,7 @@ async function expirePendingMatchesForProfileChange(pool: Pool, memberId: string
 /**
  * Process new entity publications from club_activity.
  * - ask -> find members who can help (ask_to_member)
- * - service/opportunity -> find asks it fulfils (offer_to_ask)
+ * - gift/service/opportunity -> find asks it fulfils (offer_to_ask)
  */
 async function processEntityTriggers(pools: WorkerPools): Promise<number> {
   const lastSeq = await getState(pools.db, 'activity_seq');
@@ -233,16 +233,17 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
 
     // Look up entity kind and current version
     const entityResult = await pools.db.query<{
-      kind: string; author_member_id: string; current_version_id: string;
+      kind: string; author_member_id: string; current_version_id: string; open_loop: boolean | null;
     }>(
-      `select e.kind::text as kind, e.author_member_id, cev.id as current_version_id
+      `select e.kind::text as kind, e.author_member_id, cev.id as current_version_id, e.open_loop
        from entities e
        join current_entity_versions cev on cev.entity_id = e.id
-       where e.id = $1 and cev.state = 'published'`,
+       where e.id = $1 and e.deleted_at is null and cev.state = 'published'`,
       [row.entity_id],
     );
     const entity = entityResult.rows[0];
     if (!entity) continue;
+    if (entity.open_loop === false) continue;
     const kind = entity.kind;
 
     const authorId = row.created_by_member_id;
@@ -271,7 +272,7 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
         });
         if (id) matchCount++;
       }
-    } else if (kind === 'service' || kind === 'opportunity') {
+    } else if (kind === 'service' || kind === 'opportunity' || kind === 'gift') {
       // Expire any pending matches from a previous version of this offer
       await expirePendingMatchesForSource(pools.db, row.entity_id);
 
@@ -680,7 +681,8 @@ async function deliverOneMatch(
 
     if (match.match_kind === 'ask_to_member') {
       const valid = await isEntityPublished(client, match.source_id);
-      if (!valid) { await expireAndCommit(client, match.id); return 'expired'; }
+      const stillOpen = await isEntityLoopOpen(client, match.source_id);
+      if (!valid || !stillOpen) { await expireAndCommit(client, match.id); return 'expired'; }
 
       const drifted = await hasEntityVersionDrifted(client, match.source_id, match.payload as Record<string, unknown>);
       if (drifted) { await expireAndCommit(client, match.id); return 'expired'; }
@@ -691,7 +693,9 @@ async function deliverOneMatch(
       const matchedAskId = payload.matchedAskEntityId as string | undefined;
       const offerValid = await isEntityPublished(client, match.source_id);
       const askValid = matchedAskId ? await isEntityPublished(client, matchedAskId) : false;
-      if (!offerValid || !askValid) { await expireAndCommit(client, match.id); return 'expired'; }
+      const offerOpen = await isEntityLoopOpen(client, match.source_id);
+      const askOpen = matchedAskId ? await isEntityLoopOpen(client, matchedAskId) : false;
+      if (!offerValid || !askValid || !offerOpen || !askOpen) { await expireAndCommit(client, match.id); return 'expired'; }
 
       // Version drift: check both the offer and the matched ask
       const offerDrifted = await hasEntityVersionDrifted(client, match.source_id, payload);
@@ -870,10 +874,18 @@ async function isEntityPublished(queryable: Pool | PoolClient, entityId: string)
   const result = await queryable.query<{ state: string }>(
     `select cev.state from current_entity_versions cev
      join entities e on e.id = cev.entity_id
-     where e.id = $1`,
+     where e.id = $1 and e.deleted_at is null`,
     [entityId],
   );
   return result.rows[0]?.state === 'published';
+}
+
+async function isEntityLoopOpen(queryable: Pool | PoolClient, entityId: string): Promise<boolean> {
+  const result = await queryable.query<{ open_loop: boolean | null }>(
+    `select open_loop from entities where id = $1 and deleted_at is null`,
+    [entityId],
+  );
+  return result.rows[0]?.open_loop === true;
 }
 
 async function loadEntityInfo(pool: Pool, entityId: string): Promise<{

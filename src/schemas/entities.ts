@@ -1,5 +1,6 @@
 /**
- * Action contracts: content.create, content.update, content.remove, content.list
+ * Action contracts: content.create, content.update, content.remove, content.list,
+ * content.searchBySemanticSimilarity, content.closeLoop, content.reopenLoop
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -20,7 +21,7 @@ import { registerActions, type ActionDefinition, type HandlerContext, type Actio
 
 type CreateInput = {
   clubId: string;
-  kind: 'post' | 'opportunity' | 'service' | 'ask';
+  kind: 'post' | 'opportunity' | 'service' | 'ask' | 'gift';
   title: string | null;
   summary: string | null;
   body: string | null;
@@ -31,7 +32,7 @@ type CreateInput = {
 const entitiesCreate: ActionDefinition = {
   action: 'content.create',
   domain: 'content',
-  description: 'Create a new post, ask, opportunity, or service.',
+  description: 'Create a new post, ask, gift, opportunity, or service.',
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Requires club membership. Subject to daily quota.',
@@ -161,10 +162,6 @@ const entitiesUpdate: ActionDefinition = {
       throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
     }
 
-    if (entity.author.memberId !== ctx.actor.member.id) {
-      throw new AppError(403, 'forbidden', 'Only the author may update this entity');
-    }
-
     return {
       data: { entity },
       requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
@@ -225,8 +222,9 @@ const entitiesRemove: ActionDefinition = {
 
 type ListInput = {
   clubId?: string;
-  kinds: ('post' | 'opportunity' | 'service' | 'ask')[];
+  kinds: ('post' | 'opportunity' | 'service' | 'ask' | 'gift')[];
   query?: string | null;
+  includeClosed: boolean;
   limit: number;
   cursor: string | null;
 };
@@ -234,7 +232,7 @@ type ListInput = {
 const entitiesList: ActionDefinition = {
   action: 'content.list',
   domain: 'content',
-  description: 'List posts, asks, opportunities, or services.',
+  description: 'List posts, asks, gifts, opportunities, or services.',
   auth: 'member',
   safety: 'read_only',
 
@@ -243,12 +241,14 @@ const entitiesList: ActionDefinition = {
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
       kinds: wireEntityKinds,
       query: wireOptionalString.describe('Search text'),
+      includeClosed: z.boolean().optional().describe('Include your own closed asks, gifts, services, and opportunities'),
       limit: wireLimitOf(20),
       cursor: wireCursor,
     }),
     output: z.object({
       query: z.string().nullable(),
       kinds: z.array(entityKind),
+      includeClosed: z.boolean(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
       results: z.array(entitySummary),
@@ -262,13 +262,14 @@ const entitiesList: ActionDefinition = {
       clubId: parseRequiredString.optional(),
       kinds: parseEntityKinds,
       query: parseTrimmedNullableString,
+      includeClosed: z.boolean().optional().default(false),
       limit: parseLimitOf(20, 20),
       cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, kinds, query, limit, cursor: rawCursor } = input as ListInput;
+    const { clubId, kinds, query, includeClosed, limit, cursor: rawCursor } = input as ListInput;
     const clubScope = ctx.resolveScopedClubs(clubId);
     const clubIds = clubScope.map(c => c.clubId);
 
@@ -278,6 +279,7 @@ const entitiesList: ActionDefinition = {
       kinds,
       limit,
       query: query ?? undefined,
+      includeClosed,
       rawCursor,
     });
 
@@ -285,6 +287,7 @@ const entitiesList: ActionDefinition = {
       data: {
         query: query ?? null,
         kinds,
+        includeClosed,
         limit,
         clubScope,
         results: result.results,
@@ -312,7 +315,7 @@ type EntitiesFindViaEmbeddingInput = {
 const entitiesFindViaEmbedding: ActionDefinition = {
   action: 'content.searchBySemanticSimilarity',
   domain: 'content',
-  description: 'Find entities by natural-language query using embedding similarity.',
+  description: 'Find posts, asks, gifts, opportunities, or services by natural-language query using embedding similarity.',
   auth: 'member',
   safety: 'read_only',
 
@@ -451,4 +454,96 @@ const entitiesFindViaEmbedding: ActionDefinition = {
   },
 };
 
-registerActions([entitiesCreate, entitiesUpdate, entitiesRemove, entitiesList, entitiesFindViaEmbedding]);
+// ── content.closeLoop ────────────────────────────────────
+
+const entitiesCloseLoop: ActionDefinition = {
+  action: 'content.closeLoop',
+  domain: 'content',
+  description: 'Close an open ask, gift, service, or opportunity (author only).',
+  auth: 'member',
+  safety: 'mutating',
+  authorizationNote: 'Only the original author may close their own published loopable content.',
+
+  wire: {
+    input: z.object({
+      entityId: wireRequiredString.describe('Entity to close'),
+    }),
+    output: z.object({ entity: entitySummary }),
+  },
+
+  parse: {
+    input: z.object({
+      entityId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { entityId } = input as { entityId: string };
+    const entity = await ctx.repository.closeEntityLoop({
+      actorMemberId: ctx.actor.member.id,
+      accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
+      entityId,
+    });
+
+    if (!entity) {
+      throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+    }
+
+    return {
+      data: { entity },
+      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+    };
+  },
+};
+
+// ── content.reopenLoop ──────────────────────────────────
+
+const entitiesReopenLoop: ActionDefinition = {
+  action: 'content.reopenLoop',
+  domain: 'content',
+  description: 'Reopen a previously closed ask, gift, service, or opportunity (author only).',
+  auth: 'member',
+  safety: 'mutating',
+  authorizationNote: 'Only the original author may reopen their own published loopable content.',
+
+  wire: {
+    input: z.object({
+      entityId: wireRequiredString.describe('Entity to reopen'),
+    }),
+    output: z.object({ entity: entitySummary }),
+  },
+
+  parse: {
+    input: z.object({
+      entityId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { entityId } = input as { entityId: string };
+    const entity = await ctx.repository.reopenEntityLoop({
+      actorMemberId: ctx.actor.member.id,
+      accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
+      entityId,
+    });
+
+    if (!entity) {
+      throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+    }
+
+    return {
+      data: { entity },
+      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+    };
+  },
+};
+
+registerActions([
+  entitiesCreate,
+  entitiesUpdate,
+  entitiesRemove,
+  entitiesList,
+  entitiesFindViaEmbedding,
+  entitiesCloseLoop,
+  entitiesReopenLoop,
+]);

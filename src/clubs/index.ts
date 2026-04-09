@@ -7,6 +7,8 @@ import type {
   CreateEntityInput,
   EntitySummary,
   ListEntitiesInput,
+  MemberAdmissionRecord,
+  SetEntityLoopInput,
   UpdateEntityInput,
   MembershipVouchSummary,
   QuotaAllowance,
@@ -23,6 +25,7 @@ import type {
 import { AppError } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { encodeCursor } from '../schemas/fields.ts';
+import * as admissionsModule from './admissions.ts';
 import * as entities from './entities.ts';
 import * as events from './events.ts';
 
@@ -211,7 +214,7 @@ export async function batchListVouches(pool: Pool, input: {
  * Actions not in this map are not supported for quota counting.
  */
 const QUOTA_ENTITY_KINDS: Record<string, string[]> = {
-  'content.create': ['post', 'opportunity', 'service', 'ask'],
+  'content.create': ['post', 'opportunity', 'service', 'ask', 'gift'],
   'events.create': ['event'],
 };
 
@@ -457,7 +460,7 @@ export async function listClubActivity(pool: Pool, input: {
 export type PaginatedEntitySearch = { results: EntitySummary[]; hasMore: boolean; nextCursor: string | null };
 
 export async function findEntitiesViaEmbedding(pool: Pool, input: {
-  clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number;
+  actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number;
   cursor?: { distance: string; entityId: string } | null;
 }): Promise<PaginatedEntitySearch> {
   if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
@@ -467,7 +470,7 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
   const cursorId = input.cursor?.entityId ?? null;
 
   const result = await pool.query<{
-    entity_id: string; entity_version_id: string; club_id: string; kind: string;
+    entity_id: string; entity_version_id: string; club_id: string; kind: string; open_loop: boolean | null;
     author_member_id: string; author_public_name: string; author_handle: string | null;
     version_no: number; state: string;
     title: string | null; summary: string | null; body: string | null;
@@ -476,7 +479,7 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
     entity_created_at: string;
     _distance: number;
   }>(
-    `select e.id as entity_id, cev.id as entity_version_id, e.club_id, e.kind,
+    `select e.id as entity_id, cev.id as entity_version_id, e.club_id, e.kind, e.open_loop,
             e.author_member_id, m.public_name as author_public_name, m.handle as author_handle,
             cev.version_no, cev.state,
             cev.title, cev.summary, cev.body,
@@ -492,6 +495,8 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
      join members m on m.id = e.author_member_id
      where e.club_id = any($1::text[]) and e.deleted_at is null
        and cev.state = 'published'
+       and (e.open_loop is null or e.open_loop = true)
+       and (cev.expires_at is null or cev.expires_at > now())
        and ($3::text[] is null or e.kind::text = any($3))
        and exists (
          select 1 from entity_embeddings eea
@@ -510,6 +515,7 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
     entityVersionId: row.entity_version_id,
     clubId: row.club_id,
     kind: row.kind as EntitySummary['kind'],
+    openLoop: row.open_loop,
     author: { memberId: row.author_member_id, publicName: row.author_public_name, handle: row.author_handle },
     version: {
       versionNo: row.version_no,
@@ -536,8 +542,11 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
 export type ClubsRepository = {
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
+  closeEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
+  reopenEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
   removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean; kindFilter?: string }): Promise<EntitySummary | null>;
   listEntities(input: ListEntitiesInput & { rawCursor?: string | null }): Promise<import('./entities.ts').PaginatedEntities>;
+  getAdmissionsForMember(input: { memberId: string; clubId?: string }): Promise<MemberAdmissionRecord[]>;
 
   createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
   listVouches(input: { clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<PaginatedVouches>;
@@ -549,7 +558,7 @@ export type ClubsRepository = {
 
   listClubActivity(input: { memberId: string; clubIds: string[]; limit: number; afterSeq?: number | null; adminClubIds?: string[]; ownerClubIds?: string[] }): Promise<{ items: Array<Record<string, unknown>>; nextAfterSeq: number | null }>;
 
-  findEntitiesViaEmbedding(input: { clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; entityId: string } | null }): Promise<PaginatedEntitySearch>;
+  findEntitiesViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; entityId: string } | null }): Promise<PaginatedEntitySearch>;
 
   // Events
   createEvent(input: import('../contract.ts').CreateEventInput): Promise<import('../contract.ts').EventSummary>;
@@ -562,8 +571,11 @@ export function createClubsRepository(pool: Pool): ClubsRepository {
   return {
     createEntity: (input) => entities.createEntity(pool, input),
     updateEntity: (input) => entities.updateEntity(pool, input),
+    closeEntityLoop: (input) => entities.closeEntityLoop(pool, input),
+    reopenEntityLoop: (input) => entities.reopenEntityLoop(pool, input),
     removeEntity: (input) => entities.removeEntity(pool, input),
     listEntities: (input) => entities.listEntities(pool, input),
+    getAdmissionsForMember: (input) => admissionsModule.getAdmissionsForMember(pool, input),
 
     createVouch: (input) => createVouch(pool, input),
     listVouches: (input) => listVouches(pool, input),
