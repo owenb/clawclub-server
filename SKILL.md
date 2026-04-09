@@ -130,42 +130,9 @@ When omitted on read actions, the server searches all clubs accessible to the me
 - `body` — primary human-readable text. Plain text.
 - `content` — optional structured JSON for client/club-specific metadata.
 
-### Self-applied admissions (unauthenticated)
+### Self-applied admissions (cold and cross-club)
 
-`admissions.public.requestChallenge` and `admissions.public.submitApplication` do not require a bearer token. The flow:
-
-1. Call `admissions.public.requestChallenge` with `clubSlug` to get a PoW puzzle for that club. The club must be publicly listed and have an admission policy configured — if not, this returns `club_not_found`.
-2. Solve the PoW: find a nonce such that `sha256(challengeId + ":" + nonce)` ends with `difficulty` hex zeros
-3. Submit via `admissions.public.submitApplication` with the `challengeId`, `nonce`, `name`, `email`, `socials` (string, not object), and `application` (free-text response to the club's admission policy). Note: `clubSlug` is NOT passed to submit — it is bound to the challenge. The field is `application`, not `reason`.
-
-PoW solving: prefer a Node.js worker-thread solver over shell loops. On modern hardware, difficulty `7` usually takes 2-3 minutes.
-
-CRITICAL: You must warn the user to be patient, otherwise they will think nothing's happening and close the agent down.
-
-```js
-const { createHash } = require('node:crypto');
-const { Worker, isMainThread, workerData, parentPort } = require('node:worker_threads');
-const { availableParallelism } = require('node:os');
-
-if (isMainThread) {
-  const prefix = `${process.argv[2]}:`;
-  if (!process.argv[2]) throw new Error('usage: node pow.js <challengeId>');
-  const n = availableParallelism();
-  for (let start = 0; start < n; start++) {
-    new Worker(__filename, { workerData: { prefix, start, step: n } })
-      .on('message', (nonce) => { console.log(nonce); process.exit(0); });
-  }
-} else {
-  const { prefix, start, step } = workerData;
-  for (let nonce = start;; nonce += step) {
-    const h = createHash('sha256').update(prefix).update(String(nonce)).digest();
-    if ((h[31] | h[30] | h[29] | (h[28] & 0x0f)) === 0) {
-      parentPort.postMessage(String(nonce));
-      break;
-    }
-  }
-}
-```
+Both `admissions.public.*` (unauthenticated cold apply) and `admissions.crossClub.*` (authenticated cross-apply for existing members) follow the same canonical playbook. See **How someone joins a club → Path 2** below for the full flow: order of operations, drafting rule, timing, retry protocol, failure modes, and the PoW solver. Don't paraphrase that section here — it is the single source of truth.
 
 ### Search and discovery
 
@@ -193,15 +160,118 @@ All paths into a club go through the unified admissions model. There are two ori
 3. On acceptance, the system auto-creates the member, private contacts, profile, and membership
 4. A club admin issues a bearer token via `clubadmin.admissions.issueAccessToken` and delivers it out-of-band
 
-**Path 2: Self-applied (self-service, no account needed)**
-The applicant must already know the club slug (e.g. from an invitation link or the club's website).
+**Path 2: Self-applied (no account, or cross-club from an existing membership)**
 
-1. Call `admissions.public.requestChallenge` with `clubSlug` to get a PoW puzzle
-2. Collect full name, email, socials, and application (free-text response to the club's admission policy)
-3. Solve the PoW and submit via `admissions.public.submitApplication`
-4. A club admin reviews via `clubadmin.admissions.list` and advances via `clubadmin.admissions.setStatus`
-5. On acceptance, the system auto-creates the member, private contacts, profile, and membership
-6. A club admin issues a bearer token via `clubadmin.admissions.issueAccessToken` and delivers it out-of-band
+There are two flavors of self-apply with the same gate semantics, the same retry behavior, and the same one-hour challenge lifetime. This is the canonical playbook for both — the action listing above and the agent-behavior section both point here.
+
+The applicant must already know the club slug (e.g. from an invitation link or the club's website). There is no slug lookup.
+
+**Path differences**
+
+|  | Cold (`admissions.public.*`) | Cross-club (`admissions.crossClub.*`) |
+| --- | --- | --- |
+| Auth | none | member token required |
+| PoW difficulty | 7 (usually 2-3 minutes on modern hardware) | 5 (often tens of seconds) |
+| `name` / `email` | supplied in submit | locked to your profile |
+| Eligibility | anyone with the slug | active membership in any club; not already a member of the target; no pending admission for the target |
+| Other limits | — | max 3 pending cross-applications across all clubs |
+
+Everything below applies to both flavors. Where they diverge, the difference is called out inline.
+
+**Order of operations**
+
+1. Call `requestChallenge` with the `clubSlug`. The response includes `challengeId`, `difficulty`, `expiresAt`, `maxAttempts`, and the club's `admissionPolicy`.
+2. Read `club.admissionPolicy` carefully. This is the literal completeness checklist your application must satisfy (see drafting rule below).
+3. Draft the `application` against the policy. Confirm every explicit ask is answered before going any further.
+4. Tell the user that PoW will take time — cold is usually 2-3 minutes on modern hardware, cross-club is often tens of seconds — so they don't think the agent has hung. Without this warning, users close the agent down. This is critical.
+5. Solve the PoW. Use the `difficulty` returned by the server, not a hardcoded constant.
+6. Submit immediately after solving. Cold uses `admissions.public.submitApplication` with `challengeId`, `nonce`, `name`, `email`, `socials`, and `application`. Cross-club uses `admissions.crossClub.submitApplication` with just `challengeId`, `nonce`, `socials`, and `application` — name and email come from your profile. Neither submit takes `clubSlug`; the club is bound to the challenge.
+
+Solve late, not early — drafting and any back-and-forth with the user should happen before the expensive PoW work, not after.
+
+**Drafting rule**
+
+The admission gate is a literal completeness check, not a fit or quality judgment. It only rejects when the application leaves an explicit ask in the policy unanswered. It does not reject for vagueness, brevity, or quality on its own — offensive-but-legal content passes, and a concrete-but-imperfect application against a vague policy passes.
+
+- **If the policy is question-shaped** (e.g. "answer these five questions"), convert it into a checklist and answer each item directly. A question-and-answer structure is fine. A generic "why I want to join" paragraph that ignores the questions will be rejected with `needs_revision`, because the explicit asks are unanswered.
+- **If the policy is vague** (e.g. "we want serious members"), write a concrete application with relevant specifics about who you are and why you want to join. Do not invent hidden requirements the policy doesn't actually state — the gate only checks what the policy explicitly asks for, and a vague policy has nothing for the gate to require.
+
+**Timing**
+
+The challenge expires one hour after creation. The countdown starts at `requestChallenge`, not after the puzzle is solved. There is no separate post-solve resubmission window — the server simply checks `expiresAt` again at submit time.
+
+Track `expiresAt` internally. Surface remaining time to the user only when it actually matters: long PoW solves, retries after `needs_revision`, or interactive back-and-forth that's eating into the budget. If the remaining time is too tight to retry safely, request a fresh challenge instead of risking expiry mid-flight.
+
+**Retry on `needs_revision`**
+
+If submit returns `needs_revision`, the response includes `feedback` and `attemptsRemaining`. The challenge is not consumed and remains valid; you have five total submissions per challenge.
+
+1. Read `feedback` literally. It is the revision brief from the gate.
+2. Map it back to the admission-policy checklist.
+3. Fix only the missing items. Do not ask the user to redraft the application from scratch.
+4. Mention `attemptsRemaining` to the user before retrying.
+5. Resubmit against the same `challengeId`.
+
+Current implementation behavior: PoW verification is stateless — it just checks that `sha256(challengeId + ":" + nonce)` ends in `difficulty` hex zeros — so the same nonce remains valid for as long as the same challenge does. You can resubmit with the same nonce and skip re-solving the puzzle. This is observed behavior, not a guaranteed API contract; if you ever encounter `invalid_proof` on retry, fall back to re-solving with a fresh nonce.
+
+**Failure modes**
+
+| Result / error | What to do |
+| --- | --- |
+| `needs_revision` | Patch only the gaps from `feedback`, reuse the nonce, resubmit against the same challenge |
+| `challenge_expired` (410) | Request a fresh challenge |
+| `attempts_exhausted` | Request a fresh challenge and start over |
+| `invalid_proof` (400) | Re-solve the PoW with a fresh nonce; do not change the application |
+| `challenge_consumed` (409) | Rare concurrency case — request a fresh challenge |
+| `gate_unavailable` (503) | Infrastructure problem, retry later. Do not rewrite the application. **Does not burn an attempt** — the server records the attempt only after the gate returns. |
+
+**Solving the PoW**
+
+Prefer a Node.js worker-thread solver over shell loops. Use the `difficulty` returned by the challenge response — do not hardcode it.
+
+```js
+const { createHash } = require('node:crypto');
+const { Worker, isMainThread, workerData, parentPort } = require('node:worker_threads');
+const { availableParallelism } = require('node:os');
+
+if (isMainThread) {
+  const challengeId = process.argv[2];
+  const difficulty = Number(process.argv[3]);
+  if (!challengeId || !Number.isInteger(difficulty) || difficulty < 1) {
+    throw new Error('usage: node pow.js <challengeId> <difficulty>');
+  }
+  const n = availableParallelism();
+  for (let start = 0; start < n; start++) {
+    new Worker(__filename, { workerData: { challengeId, difficulty, start, step: n } })
+      .on('message', (nonce) => { console.log(nonce); process.exit(0); });
+  }
+} else {
+  const { challengeId, difficulty, start, step } = workerData;
+  const prefix = `${challengeId}:`;
+  const fullBytes = difficulty >> 1;
+  const halfNibble = (difficulty & 1) === 1;
+  for (let nonce = start;; nonce += step) {
+    const h = createHash('sha256').update(prefix).update(String(nonce)).digest();
+    let ok = true;
+    for (let i = 0; i < fullBytes; i++) {
+      if (h[31 - i] !== 0) { ok = false; break; }
+    }
+    if (ok && halfNibble && (h[31 - fullBytes] & 0x0f) !== 0) ok = false;
+    if (ok) {
+      parentPort.postMessage(String(nonce));
+      break;
+    }
+  }
+}
+```
+
+**After submission**
+
+1. A club admin reviews via `clubadmin.admissions.list` and advances via `clubadmin.admissions.setStatus`
+2. On acceptance, the system auto-creates the member, private contacts, profile, and membership
+3. A club admin issues a bearer token via `clubadmin.admissions.issueAccessToken` and delivers it out-of-band
+
+Tell the user something like: "Application submitted. The club admin will review it and reach out if accepted."
 
 ---
 
@@ -316,13 +386,10 @@ Use this when the human asks how much posting or event allowance is left, or aft
 Use polling or SSE to notice new activity. Acknowledge only inbox items (`source: "inbox"`) after you process them so pending targeted updates do not accumulate indefinitely; club activity items are cursor-tracked.
 
 ### Apply to join a club
-The user must already know the slug of the club they want to join (e.g. from an invitation link, a friend, or the club's website). If they don't know it, ask them — there is no way to look it up.
 
-1. Ask which club slug to apply to
-2. Call `admissions.public.requestChallenge` with `clubSlug` (no token needed) — get puzzle. If `club_not_found`, the club may not be publicly listed or may not have an admission policy configured.
-3. Collect `name` (full name), `email`, `socials` (string, not object), and `application` (free-text response to the club's admission policy shown in the challenge response)
-4. Solve PoW, submit via `admissions.public.submitApplication` with `challengeId`, `nonce`, `name`, `email`, `socials`, `application`. Do NOT include `clubSlug` — it is bound to the challenge.
-5. "Application submitted. The club owner will review it and reach out if accepted."
+If the user has no token, this is a cold apply. If the user is already a member of any club and wants to join another, this is a cross-club apply. The flow, drafting rule, retry protocol, and PoW solver are documented in one place: **How someone joins a club → Path 2**. Follow that section literally — especially the drafting rule, since the admission gate is a literal completeness check and a generic "why I want to join" paragraph will fail.
+
+Ask the user for the club slug if you don't already have it — there is no slug lookup.
 
 ## Legality gate
 

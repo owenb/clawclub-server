@@ -231,8 +231,8 @@
     {
       "action": "admissions.crossClub.requestChallenge",
       "auth": "member",
-      "authorizationNote": "Requires at least one active membership in any club. Must not already be a member of the target club.",
-      "description": "Request a reduced-difficulty PoW challenge for an existing network member applying to a new club.",
+      "authorizationNote": "Requires at least one active membership in any club. Must not already be a member of the target club. Capped at 3 pending cross-applications across all clubs.",
+      "description": "Request a reduced-difficulty PoW challenge for an existing network member applying to a new club. The response carries the club's admission policy and an expiresAt timestamp; the challenge is valid for one hour from creation. Read the policy before drafting — the admission gate is a literal completeness check, the same one cold applicants face.",
       "domain": "admissions",
       "input": {
         "properties": {
@@ -257,6 +257,7 @@
             "additionalProperties": false,
             "properties": {
               "admissionPolicy": {
+                "description": "The club's admission policy. Treat this as the literal completeness checklist your application must satisfy: the gate only verifies that every explicit ask is answered, not fit or quality.",
                 "type": "string"
               },
               "name": {
@@ -283,12 +284,15 @@
             "type": "object"
           },
           "difficulty": {
+            "description": "Number of trailing hex zeros required on sha256(challengeId + \":\" + nonce). Use this value when solving — do not assume a constant.",
             "type": "number"
           },
           "expiresAt": {
+            "description": "ISO timestamp when this challenge expires. The countdown starts at challenge creation, not after the puzzle is solved; there is no separate post-solve resubmission window.",
             "type": "string"
           },
           "maxAttempts": {
+            "description": "Total submissions allowed against this challenge before it is consumed.",
             "type": "number"
           }
         },
@@ -306,12 +310,12 @@
     {
       "action": "admissions.crossClub.submitApplication",
       "auth": "member",
-      "description": "Submit a solved cross-apply PoW challenge with an application. Name and email are locked to your profile.",
+      "description": "Submit a solved cross-apply PoW challenge with an application. Name and email are locked to your profile. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.",
       "domain": "admissions",
       "input": {
         "properties": {
           "application": {
-            "description": "Your application — include all information requested by the club's admission policy",
+            "description": "Your application. The admission gate is a literal completeness check: it rejects when an explicit ask in the policy is left unanswered, but does not reject for vagueness, brevity, or quality on its own. If the policy is question-shaped, answer every question directly.",
             "maxLength": 4000,
             "type": "string"
           },
@@ -320,7 +324,7 @@
             "type": "string"
           },
           "nonce": {
-            "description": "Nonce that solves the PoW",
+            "description": "A nonce such that sha256(challengeId + \":\" + nonce) ends in `difficulty` hex zeros.",
             "maxLength": 500,
             "type": "string"
           },
@@ -363,9 +367,11 @@
             "additionalProperties": false,
             "properties": {
               "attemptsRemaining": {
+                "description": "Remaining submissions against the same challenge. The challenge is not consumed by needs_revision and remains valid until expiry or attempt exhaustion.",
                 "type": "number"
               },
               "feedback": {
+                "description": "Revision brief from the admission gate. Treat as a literal list of gaps to fix — patch only the items it identifies, do not redraft the application from scratch.",
                 "type": "string"
               },
               "status": {
@@ -488,7 +494,7 @@
     {
       "action": "admissions.public.requestChallenge",
       "auth": "none",
-      "description": "Request a proof-of-work challenge bound to a specific club.",
+      "description": "Request a proof-of-work challenge bound to a specific club. The response carries the club's admission policy and an expiresAt timestamp; the challenge is valid for one hour from creation. Read the policy before drafting — the admission gate is a literal completeness check.",
       "domain": "admissions",
       "input": {
         "properties": {
@@ -513,6 +519,7 @@
             "additionalProperties": false,
             "properties": {
               "admissionPolicy": {
+                "description": "The club's admission policy. Treat this as the literal completeness checklist your application must satisfy: the gate only verifies that every explicit ask is answered, not fit or quality.",
                 "type": "string"
               },
               "name": {
@@ -539,12 +546,15 @@
             "type": "object"
           },
           "difficulty": {
+            "description": "Number of trailing hex zeros required on sha256(challengeId + \":\" + nonce). Use this value when solving — do not assume a constant.",
             "type": "number"
           },
           "expiresAt": {
+            "description": "ISO timestamp when this challenge expires. The countdown starts at challenge creation, not after the puzzle is solved; there is no separate post-solve resubmission window.",
             "type": "string"
           },
           "maxAttempts": {
+            "description": "Total submissions allowed against this challenge before it is consumed.",
             "type": "number"
           }
         },
@@ -562,12 +572,12 @@
     {
       "action": "admissions.public.submitApplication",
       "auth": "none",
-      "description": "Submit a solved proof-of-work challenge with an application.",
+      "description": "Submit a solved proof-of-work challenge with an application. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.",
       "domain": "admissions",
       "input": {
         "properties": {
           "application": {
-            "description": "Your application — include all information requested by the club's admission policy",
+            "description": "Your application. The admission gate is a literal completeness check: it rejects when an explicit ask in the policy is left unanswered, but does not reject for vagueness, brevity, or quality on its own. If the policy is question-shaped, answer every question directly.",
             "maxLength": 4000,
             "type": "string"
           },
@@ -587,7 +597,7 @@
             "type": "string"
           },
           "nonce": {
-            "description": "Nonce that solves the PoW",
+            "description": "A nonce such that sha256(challengeId + \":\" + nonce) ends in `difficulty` hex zeros.",
             "maxLength": 500,
             "type": "string"
           },
@@ -632,9 +642,11 @@
             "additionalProperties": false,
             "properties": {
               "attemptsRemaining": {
+                "description": "Remaining submissions against the same challenge. The challenge is not consumed by needs_revision and remains valid until expiry or attempt exhaustion.",
                 "type": "number"
               },
               "feedback": {
+                "description": "Revision brief from the admission gate. Treat as a literal list of gaps to fix — patch only the items it identifies, do not redraft the application from scratch.",
                 "type": "string"
               },
               "status": {
@@ -10824,6 +10836,6 @@
       }
     }
   },
-  "version": "0.2.6",
-  "schemaHash": "5770b71c799af314"
+  "version": "0.2.7",
+  "schemaHash": "261f6fcb74900340"
 }

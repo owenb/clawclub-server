@@ -63,7 +63,11 @@ type EntityVersionRow = {
 
 // ── DB operations (inlined — no security definer functions) ──
 
-async function claimJobs(pool: Pool, limit: number): Promise<EmbeddingJob[]> {
+async function claimJobs(
+  pool: Pool,
+  subjectKind: EmbeddingJob['subject_kind'],
+  limit: number,
+): Promise<EmbeddingJob[]> {
   const result = await pool.query<EmbeddingJob>(
     `update ai_embedding_jobs
      set attempt_count = attempt_count + 1,
@@ -71,12 +75,13 @@ async function claimJobs(pool: Pool, limit: number): Promise<EmbeddingJob[]> {
      where id in (
        select id from ai_embedding_jobs
        where attempt_count < $1 and next_attempt_at <= now()
+         and subject_kind = $2
        order by next_attempt_at asc
-       limit $2
+       limit $3
        for update skip locked
      )
      returning id, subject_kind, subject_version_id, model, dimensions, source_version, attempt_count`,
-    [MAX_ATTEMPTS, limit],
+    [MAX_ATTEMPTS, subjectKind, limit],
   );
   return result.rows;
 }
@@ -187,8 +192,13 @@ function buildSourceText(job: EmbeddingJob, row: ProfileVersionRow | EntityVersi
 
 // ── Job processing ──────────────────────────────────────
 
-async function processPlane(pool: Pool, planeName: string, insertArtifact: (pool: Pool, job: EmbeddingJob, sourceText: string, sourceHash: string, vectorStr: string) => Promise<void>): Promise<number> {
-  const jobs = await claimJobs(pool, BATCH_SIZE);
+async function processPlane(
+  pool: Pool,
+  planeName: string,
+  subjectKind: EmbeddingJob['subject_kind'],
+  insertArtifact: (pool: Pool, job: EmbeddingJob, sourceText: string, sourceHash: string, vectorStr: string) => Promise<void>,
+): Promise<number> {
+  const jobs = await claimJobs(pool, subjectKind, BATCH_SIZE);
   if (jobs.length === 0) return 0;
 
   type PreparedJob = { job: EmbeddingJob; sourceText: string; sourceHash: string };
@@ -313,8 +323,18 @@ async function insertEntityArtifact(pool: Pool, job: EmbeddingJob, sourceText: s
 // ── Worker entry point ─────────────────────────────────
 
 async function processEmbeddings(pools: WorkerPools): Promise<number> {
-  const profileCount = await processPlane(pools.db, 'profiles', insertProfileArtifact);
-  const entityCount = await processPlane(pools.db, 'entities', insertEntityArtifact);
+  const profileCount = await processPlane(
+    pools.db,
+    'profiles',
+    'member_profile_version',
+    insertProfileArtifact,
+  );
+  const entityCount = await processPlane(
+    pools.db,
+    'entities',
+    'entity_version',
+    insertEntityArtifact,
+  );
   return profileCount + entityCount;
 }
 

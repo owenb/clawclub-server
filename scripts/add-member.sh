@@ -23,7 +23,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
 source "$repo_dir/scripts/lib/database-urls.sh"
 
-database_url="$(require_migrator_database_url)"
+database_url="$(require_database_url)"
 api_base_url="${CLAWCLUB_API_URL:-http://127.0.0.1:8787}"
 
 echo "Checking API reachability at $api_base_url..."

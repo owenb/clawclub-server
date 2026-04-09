@@ -7,10 +7,26 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 -- ============================================================
--- Extensions
+-- Extensions (require superuser)
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ============================================================
+-- Schema ownership
+-- ============================================================
+--
+-- From this point on, every object is created as clawclub_app so that
+-- the same role that runs the app can also run migrations against its
+-- own objects (ALTER TYPE, ALTER TABLE, DROP VIEW, etc. all require
+-- ownership). The clawclub_app role must already exist — run
+-- scripts/provision-app-role.sh before db/init.sql.
+--
+-- SET SESSION AUTHORIZATION requires the connecting role to be a
+-- superuser. That is fine: db/init.sql is a one-time bootstrap step
+-- that already needs admin credentials for CREATE EXTENSION above.
+
+SET SESSION AUTHORIZATION clawclub_app;
 
 -- ============================================================
 -- Schema

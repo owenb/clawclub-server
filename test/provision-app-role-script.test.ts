@@ -20,23 +20,19 @@ function quoteIdentifier(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-function isRetriableProvisionError(error: unknown): boolean {
-  return typeof error === 'object'
-    && error !== null
-    && 'code' in error
-    && 'message' in error
-    && typeof error.message === 'string'
-    && (
-      (error.code === '42501' && error.message.includes('permission denied for table members'))
-      || (error.code === 'XX000' && error.message.includes('tuple concurrently updated'))
-    );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function assertProvisionedRoleWorks({
+/**
+ * Verifies the provision script produces a role that can do exactly what
+ * the single-role schema model requires:
+ *   - log in,
+ *   - not be a superuser,
+ *   - hold CONNECT + USAGE + CREATE on schema public so init.sql and
+ *     migrations can create / alter / drop objects under its ownership.
+ *
+ * The integration harness exercises the full bootstrap chain
+ * (provision → init.sql → migrations) end-to-end. This test is the
+ * narrower unit check on the provisioning step itself.
+ */
+async function assertProvisionedRoleHasExpectedShape({
   suffix,
   roleName,
   password,
@@ -45,30 +41,31 @@ async function assertProvisionedRoleWorks({
   roleName: string;
   password: string;
 }) {
-  const pool = new Pool({ connectionString: requireDatabaseUrl() });
-  const client = await pool.connect();
+  const adminUrl = requireDatabaseUrl();
+  const adminPool = new Pool({ connectionString: adminUrl });
+  const adminClient = await adminPool.connect();
 
   await execFileAsync('./scripts/provision-app-role.sh', {
     cwd: repoRoot,
     env: {
       ...process.env,
-      DATABASE_MIGRATOR_URL: requireDatabaseUrl(),
+      DATABASE_URL: adminUrl,
       CLAWCLUB_DB_APP_ROLE: roleName,
       CLAWCLUB_DB_APP_PASSWORD: password,
     },
   });
 
   try {
-    const roleResult = await client.query<{
+    const roleResult = await adminClient.query<{
       rolcanlogin: boolean;
       rolsuper: boolean;
       rolbypassrls: boolean;
+      rolcreatedb: boolean;
+      rolcreaterole: boolean;
+      rolreplication: boolean;
     }>(
-      `
-        select rolcanlogin, rolsuper, rolbypassrls
-        from pg_roles
-        where rolname = $1
-      `,
+      `select rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication
+         from pg_roles where rolname = $1`,
       [roleName],
     );
 
@@ -76,107 +73,81 @@ async function assertProvisionedRoleWorks({
       rolcanlogin: true,
       rolsuper: false,
       rolbypassrls: false,
+      rolcreatedb: false,
+      rolcreaterole: false,
+      rolreplication: false,
     });
 
-    await client.query('begin');
+    const databaseName = (await adminClient.query<{ db: string }>(
+      `select current_database() as db`,
+    )).rows[0]!.db;
 
-    const ownerId = (await client.query<{ id: string }>(
-      `insert into members (public_name, handle) values ($1, $2) returning id`,
-      [`Provision Owner ${suffix}`, `provision-owner-${suffix}`],
-    )).rows[0]!.id;
+    const connectGranted = (await adminClient.query<{ has: boolean }>(
+      `select has_database_privilege($1, $2, 'CONNECT') as has`,
+      [roleName, databaseName],
+    )).rows[0]!.has;
+    assert.equal(connectGranted, true, 'role should have CONNECT on the database');
 
-    await client.query(
-      `
-        insert into member_global_role_versions (member_id, role, status, version_no, created_by_member_id)
-        values ($1, 'superadmin', 'active', 1, $1)
-      `,
-      [ownerId],
-    );
-
-    await client.query(
-      `select set_config('app.actor_member_id', $1, true)`,
-      [ownerId],
-    );
-
-    const clubId = (await client.query<{ id: string }>(
-      `insert into clubs (slug, name, owner_member_id, summary) values ($1, $2, $3, $4) returning id`,
-      [`provision-club-${suffix}`, `Provision Club ${suffix}`, ownerId, 'Provision script test'],
-    )).rows[0]!.id;
-
-    const membershipId = (await client.query<{ id: string }>(
-      `
-        insert into club_memberships (club_id, member_id, role)
-        values ($1, $2, 'clubadmin')
-        returning id
-      `,
-      [clubId, ownerId],
-    )).rows[0]!.id;
-
-    await client.query(
-      `
-        insert into club_membership_state_versions (
-          membership_id,
-          status,
-          version_no,
-          created_by_member_id
-        )
-        values ($1, 'active', 1, $2)
-      `,
-      [membershipId, ownerId],
-    );
-
-    await client.query(`set session authorization ${quoteIdentifier(roleName)}`);
-    await client.query(
-      `select set_config('app.actor_member_id', $1, true)`,
-      [ownerId],
-    );
-
-    const visibleSelf = await client.query<{ id: string }>(
-      `select id from members where id = $1`,
-      [ownerId],
-    );
-    assert.deepEqual(visibleSelf.rows.map((row) => row.id), [ownerId]);
-
-    const resolvedByHandle = await client.query<{ id: string | null }>(
-      `select resolve_active_member_id_by_handle($1) as id`,
-      [`provision-owner-${suffix}`],
-    );
-    assert.equal(resolvedByHandle.rows[0]?.id, ownerId);
-
-    const tokenInsert = await client.query<{ member_id: string }>(
-      `
-        insert into member_bearer_tokens (member_id, label, token_hash, metadata)
-        values ($1, 'provision-test', $2, '{}'::jsonb)
-        returning member_id
-      `,
-      [ownerId, `hash-${suffix}`],
-    );
-    assert.equal(tokenInsert.rows[0]?.member_id, ownerId);
-
-    await client.query('reset session authorization');
-    await client.query('rollback');
+    const schemaUsage = (await adminClient.query<{ has: boolean }>(
+      `select has_schema_privilege($1, 'public', 'USAGE') as has`,
+      [roleName],
+    )).rows[0]!.has;
+    const schemaCreate = (await adminClient.query<{ has: boolean }>(
+      `select has_schema_privilege($1, 'public', 'CREATE') as has`,
+      [roleName],
+    )).rows[0]!.has;
+    assert.equal(schemaUsage, true, 'role should have USAGE on schema public');
+    assert.equal(schemaCreate, true, 'role should have CREATE on schema public');
   } finally {
-    await client.query(`drop role if exists ${quoteIdentifier(roleName)}`).catch(() => {});
-    client.release();
-    await pool.end();
+    adminClient.release();
+    await adminPool.end();
+  }
+
+  // Now connect as the freshly-provisioned role and verify it can actually
+  // create + alter + drop a table on its own — this is the contract the
+  // schema-management flow depends on.
+  const adminUrlObj = new URL(adminUrl);
+  const roleUrl = new URL(adminUrl);
+  roleUrl.username = roleName;
+  roleUrl.password = password;
+  const rolePool = new Pool({ connectionString: roleUrl.toString() });
+  const roleClient = await rolePool.connect();
+  const probeTable = `provision_probe_${suffix}`;
+  try {
+    await roleClient.query(
+      `create table ${quoteIdentifier(probeTable)} (id int primary key, label text)`,
+    );
+    await roleClient.query(
+      `insert into ${quoteIdentifier(probeTable)} (id, label) values (1, 'ok')`,
+    );
+    const rows = await roleClient.query<{ label: string }>(
+      `select label from ${quoteIdentifier(probeTable)} where id = 1`,
+    );
+    assert.equal(rows.rows[0]?.label, 'ok');
+    await roleClient.query(
+      `alter table ${quoteIdentifier(probeTable)} add column extra text`,
+    );
+    await roleClient.query(`drop table ${quoteIdentifier(probeTable)}`);
+  } finally {
+    roleClient.release();
+    await rolePool.end();
+
+    const cleanupPool = new Pool({ connectionString: adminUrl });
+    try {
+      await cleanupPool.query(`drop table if exists ${quoteIdentifier(probeTable)}`);
+      await cleanupPool.query(`drop role if exists ${quoteIdentifier(roleName)}`);
+    } catch {
+      // best effort
+    } finally {
+      await cleanupPool.end();
+    }
+    void adminUrlObj;
   }
 }
 
-test('provision-app-role script creates a safe runtime role with app grants', { concurrency: false }, async () => {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-    const roleName = `clawclub_app_${suffix}`;
-    const password = `pw_${suffix}`;
-
-    try {
-      await assertProvisionedRoleWorks({ suffix, roleName, password });
-      return;
-    } catch (error) {
-      if (!isRetriableProvisionError(error) || attempt === 2) {
-        throw error;
-      }
-
-      await sleep(50 * (attempt + 1));
-    }
-  }
+test('provision-app-role script creates a self-sufficient app role', { concurrency: false }, async () => {
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const roleName = `clawclub_app_${suffix}`;
+  const password = `pw_${suffix}`;
+  await assertProvisionedRoleHasExpectedShape({ suffix, roleName, password });
 });

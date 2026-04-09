@@ -7,8 +7,9 @@ set -euo pipefail
 # This script is intended for first-instance bootstrap only. It will abort
 # if the database already contains members.
 #
-# Requires a privileged database connection:
-#   DATABASE_URL or DATABASE_MIGRATOR_URL
+# Requires DATABASE_URL — clawclub_app is sufficient since it owns the
+# members and member_global_role_versions tables under the single-role
+# schema model.
 #
 # Usage:
 #   DATABASE_URL="postgresql://..." ./scripts/bootstrap.sh
@@ -16,7 +17,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/lib/database-urls.sh"
 
-DATABASE_URL="$(require_migrator_database_url)"
+DATABASE_URL="$(require_database_url)"
 
 # Guard: abort if the database already has members.
 existing="$(psql "$DATABASE_URL" -X -A -t -q -v ON_ERROR_STOP=1 \

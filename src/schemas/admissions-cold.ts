@@ -25,7 +25,7 @@ type ChallengeInput = {
 const admissionsChallenge: ActionDefinition = {
   action: 'admissions.public.requestChallenge',
   domain: 'admissions',
-  description: 'Request a proof-of-work challenge bound to a specific club.',
+  description: 'Request a proof-of-work challenge bound to a specific club. The response carries the club\'s admission policy and an expiresAt timestamp; the challenge is valid for one hour from creation. Read the policy before drafting — the admission gate is a literal completeness check.',
   auth: 'none',
   safety: 'mutating',
 
@@ -65,18 +65,18 @@ type ApplyInput = {
 const admissionsApply: ActionDefinition = {
   action: 'admissions.public.submitApplication',
   domain: 'admissions',
-  description: 'Submit a solved proof-of-work challenge with an application.',
+  description: 'Submit a solved proof-of-work challenge with an application. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.',
   auth: 'none',
   safety: 'mutating',
 
   wire: {
     input: z.object({
       challengeId: wireBoundedString.describe('Challenge ID from admissions.public.requestChallenge'),
-      nonce: wireBoundedString.describe('Nonce that solves the PoW'),
+      nonce: wireBoundedString.describe('A nonce such that sha256(challengeId + ":" + nonce) ends in `difficulty` hex zeros.'),
       name: wireFullName,
       email: wireEmail,
       socials: wireBoundedString.describe('Social media handles or URLs'),
-      application: wireApplicationText.describe('Your application — include all information requested by the club\'s admission policy'),
+      application: wireApplicationText.describe('Your application. The admission gate is a literal completeness check: it rejects when an explicit ask in the policy is left unanswered, but does not reject for vagueness, brevity, or quality on its own. If the policy is question-shaped, answer every question directly.'),
     }),
     output: admissionApplyResult,
   },

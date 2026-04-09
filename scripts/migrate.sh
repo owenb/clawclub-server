@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/lib/database-urls.sh"
 
-DATABASE_URL="$(require_migrator_database_url)"
+DATABASE_URL="$(require_database_url)"
 MIGRATIONS_DIR="$ROOT_DIR/db/migrations"
 
 shopt -s nullglob

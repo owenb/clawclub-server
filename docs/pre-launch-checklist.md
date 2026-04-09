@@ -192,7 +192,7 @@ Run this only after the sections above are in acceptable shape.
 
 ### Secret and environment checks
 
-- [ ] Confirm `DATABASE_URL` and `DATABASE_MIGRATOR_URL` are both correct and intentionally separated.
+- [ ] Confirm `DATABASE_URL` is correct (single role for both runtime and migrations under the single-role schema model).
 - [ ] Confirm `OPENAI_API_KEY` is present where needed.
 - [ ] Confirm `TRUST_PROXY` is set correctly for the deployment topology.
 - [ ] Confirm pool size and timeout env vars are sane for the host.

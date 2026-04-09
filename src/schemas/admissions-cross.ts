@@ -22,10 +22,10 @@ type CrossChallengeInput = {
 const admissionsCrossChallenge: ActionDefinition = {
   action: 'admissions.crossClub.requestChallenge',
   domain: 'admissions',
-  description: 'Request a reduced-difficulty PoW challenge for an existing network member applying to a new club.',
+  description: 'Request a reduced-difficulty PoW challenge for an existing network member applying to a new club. The response carries the club\'s admission policy and an expiresAt timestamp; the challenge is valid for one hour from creation. Read the policy before drafting — the admission gate is a literal completeness check, the same one cold applicants face.',
   auth: 'member',
   safety: 'mutating',
-  authorizationNote: 'Requires at least one active membership in any club. Must not already be a member of the target club.',
+  authorizationNote: 'Requires at least one active membership in any club. Must not already be a member of the target club. Capped at 3 pending cross-applications across all clubs.',
 
   wire: {
     input: z.object({
@@ -64,16 +64,16 @@ type CrossApplyInput = {
 const admissionsCrossApply: ActionDefinition = {
   action: 'admissions.crossClub.submitApplication',
   domain: 'admissions',
-  description: 'Submit a solved cross-apply PoW challenge with an application. Name and email are locked to your profile.',
+  description: 'Submit a solved cross-apply PoW challenge with an application. Name and email are locked to your profile. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.',
   auth: 'member',
   safety: 'mutating',
 
   wire: {
     input: z.object({
       challengeId: wireRequiredString.describe('Challenge ID from admissions.crossClub.requestChallenge'),
-      nonce: wireBoundedString.describe('Nonce that solves the PoW'),
+      nonce: wireBoundedString.describe('A nonce such that sha256(challengeId + ":" + nonce) ends in `difficulty` hex zeros.'),
       socials: wireBoundedString.describe('Social media handles or URLs'),
-      application: wireApplicationText.describe('Your application — include all information requested by the club\'s admission policy'),
+      application: wireApplicationText.describe('Your application. The admission gate is a literal completeness check: it rejects when an explicit ask in the policy is left unanswered, but does not reject for vagueness, brevity, or quality on its own. If the policy is question-shaped, answer every question directly.'),
     }),
     output: admissionApplyResult,
   },

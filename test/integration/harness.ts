@@ -121,25 +121,35 @@ export class TestHarness {
       await bootstrapPool.end();
     }
 
-    // 2. Apply unified schema
-    execSync(
-      `psql "postgresql://localhost/${DB_NAME}" -v ON_ERROR_STOP=1 --single-transaction -f "${ROOT}/db/init.sql"`,
-      { stdio: 'pipe' },
-    );
-
-    // 3. Provision app role
+    // 2. Provision app role (must exist before init.sql so the schema
+    //    can be created under clawclub_app's ownership).
     execSync(
       `CLAWCLUB_DB_APP_PASSWORD="${APP_PASSWORD}" DATABASE_URL="postgresql://localhost/${DB_NAME}" ${ROOT}/scripts/provision-app-role.sh`,
       { stdio: 'pipe' },
     );
 
-    // 4. Open pools
+    // 3. Apply unified schema (uses SET SESSION AUTHORIZATION clawclub_app
+    //    so all objects are owned by the app role).
+    execSync(
+      `psql "postgresql://localhost/${DB_NAME}" -v ON_ERROR_STOP=1 --single-transaction -f "${ROOT}/db/init.sql"`,
+      { stdio: 'pipe' },
+    );
+
+    // 4. Run migrations as clawclub_app — this is the same code path
+    //    Railway uses on every deploy. If a migration would fail in
+    //    production it must fail here too.
+    execSync(
+      `DATABASE_URL="postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${DB_NAME}" ${ROOT}/scripts/migrate.sh`,
+      { stdio: 'pipe' },
+    );
+
+    // 5. Open pools
     const pools = {
       super: new Pool({ connectionString: `postgresql://localhost/${DB_NAME}` }),
       app: new Pool({ connectionString: `postgresql://${APP_ROLE}:${APP_PASSWORD}@localhost/${DB_NAME}` }),
     };
 
-    // 5. Create repository, notifier, and start server
+    // 6. Create repository, notifier, and start server
     const repository = createRepository(pools.app);
 
     const updatesNotifier = createPostgresMemberUpdateNotifier(

@@ -1,10 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Bootstrap step (one-time per database).
+#
+# Creates the clawclub_app role and grants it the privileges it needs to
+# both run the app AND manage the schema (CREATE on schema public, plus
+# CONNECT on the database). After this script runs, db/init.sql will
+# create all schema objects under clawclub_app's ownership via SET
+# SESSION AUTHORIZATION, so clawclub_app can ALTER/DROP them in
+# subsequent migrations.
+#
+# Requires DATABASE_URL to point at an admin/superuser connection — only
+# a superuser can CREATE ROLE. After bootstrap, day-to-day deploys use
+# DATABASE_URL pointing at clawclub_app itself.
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT_DIR/scripts/lib/database-urls.sh"
 
-DATABASE_MIGRATOR_URL="$(require_migrator_database_url)"
+DATABASE_URL="$(require_database_url)"
 APP_ROLE="${CLAWCLUB_DB_APP_ROLE:-clawclub_app}"
 APP_PASSWORD="${CLAWCLUB_DB_APP_PASSWORD:-}"
 DATABASE_NAME="${CLAWCLUB_DB_NAME:-}"
@@ -16,13 +29,13 @@ fi
 
 if [[ -z "$DATABASE_NAME" ]]; then
   DATABASE_NAME="$(
-    psql "$DATABASE_MIGRATOR_URL" -X -A -t -q -v ON_ERROR_STOP=1 -c 'select current_database()' \
+    psql "$DATABASE_URL" -X -A -t -q -v ON_ERROR_STOP=1 -c 'select current_database()' \
       | tr -d '[:space:]'
   )"
 fi
 
 run_provision_sql() {
-  psql "$DATABASE_MIGRATOR_URL" \
+  psql "$DATABASE_URL" \
     -v ON_ERROR_STOP=1 \
     --set app_role="$APP_ROLE" \
     --set app_password="$APP_PASSWORD" \
@@ -41,16 +54,7 @@ select format(
 ) \gexec
 
 select format('grant connect on database %I to %I', :'database_name', :'app_role') \gexec
-select format('grant usage on schema public to %I', :'app_role') \gexec
-select format('grant select, insert, update, delete on all tables in schema public to %I', :'app_role') \gexec
-select format('grant usage, select on all sequences in schema public to %I', :'app_role') \gexec
-select format('grant execute on all functions in schema public to %I', :'app_role') \gexec
-select format('alter default privileges in schema public grant select, insert, update, delete on tables to %I', :'app_role') \gexec
-select format('alter default privileges in schema public grant usage, select on sequences to %I', :'app_role') \gexec
-select format('alter default privileges in schema public grant execute on functions to %I', :'app_role') \gexec
-
--- schema_migrations is in public but the app role should only SELECT it
-select format('revoke insert, update, delete on table public.schema_migrations from %I', :'app_role') \gexec
+select format('grant usage, create on schema public to %I', :'app_role') \gexec
 SQL
 }
 
@@ -83,5 +87,5 @@ while true; do
   exit "$status"
 done
 
-printf 'Provisioned runtime Postgres role %s on database %s.\n' "$APP_ROLE" "$DATABASE_NAME"
-printf 'Use DATABASE_URL for this runtime role and reserve DATABASE_MIGRATOR_URL for migrations, seeds, and bootstrap work.\n'
+printf 'Provisioned %s on database %s.\n' "$APP_ROLE" "$DATABASE_NAME"
+printf 'Now run db/init.sql with the same admin DATABASE_URL — it will create the schema under %s ownership.\n' "$APP_ROLE"
