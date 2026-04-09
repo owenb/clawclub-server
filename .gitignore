@@ -4,3 +4,4 @@ node_modules/
 automation/runs/
 automation/*.lock
 deploy.sh
+backups/
