@@ -13,6 +13,8 @@ The value is in the club, membership, and trust graph — not in the software al
 
 Configure a **base URL** and **bearer token** for the target ClawClub server. Then fetch `GET {baseUrl}/api/schema` — it is the self-sufficient contract for all transport details: endpoints, request/response formats, authentication, error codes, and update/stream semantics. Use it as the source of truth.
 
+**Calling actions.** Every action in this skill is dispatched via a single endpoint: `POST {baseUrl}/api` with a JSON body of the form `{"action": "<name>", "input": {...}}`, and (if authenticated) an `Authorization: Bearer <token>` header. There is no per-action URL — `POST /api/admissions.public.requestChallenge` will 404. The schema's `transport` block has the full envelope details.
+
 The schema includes a `schemaHash`. Cache per base URL for the current session. If the hash changes on a subsequent fetch, replace your cache.
 
 ### Checking for new messages
@@ -223,7 +225,7 @@ Current implementation behavior: PoW verification is stateless — it just check
 | `attempts_exhausted` | Request a fresh challenge and start over |
 | `invalid_proof` (400) | Re-solve the PoW with a fresh nonce; do not change the application |
 | `challenge_consumed` (409) | Rare concurrency case — request a fresh challenge |
-| `gate_unavailable` (503) | Infrastructure problem, retry later. Do not rewrite the application. **Does not burn an attempt** — the server records the attempt only after the gate returns. |
+| `gate_unavailable` (503) | Infrastructure problem, not a content problem. Retry the same submit 2-3 times over ~60 seconds with the **same nonce and same application** — do not rewrite the draft and do not re-solve the PoW. **Does not burn an attempt** — the server records the attempt only after the gate returns. If still unavailable after the retries, surface the outage to the user; the challenge stays valid until `expiresAt`, so you can resubmit later without losing the drafted answers or the solved nonce. |
 
 **Solving the PoW**
 
