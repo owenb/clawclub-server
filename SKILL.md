@@ -273,7 +273,7 @@ if (isMainThread) {
 2. On acceptance, the system auto-creates the member, private contacts, profile, and membership
 3. A club admin issues a bearer token via `clubadmin.admissions.issueAccessToken` and delivers it out-of-band
 
-Tell the user something like: "Application submitted. The club admin will review it and reach out if accepted."
+Relay what the server actually said. The `accepted` response includes a `message` field — surface it to the user verbatim. Do not fabricate, paraphrase, or imply a status, interview, or next step the server didn't return; the server's `message` is authoritative.
 
 ---
 
@@ -357,7 +357,7 @@ If the user is vague, ask one or two focused questions before posting.
 Treat `events.create` as publish-ready, not a draft save. Ask for: what it is called, when it starts, enough description for someone to decide whether to attend, and timezone if the time could be ambiguous.
 
 ### DM a member
-Use club context. Keep messages clear and human. Do not reveal private memberships. Never send a message to the user themselves. If the sender and recipient share multiple clubs, ask which club context to use before sending — the server requires an explicit `clubId` when multiple clubs are shared.
+Keep messages clear and human. Do not reveal which clubs the recipient belongs to. Never send a message to the user themselves. **DMs are not club-scoped — `messages.send` does not take a `clubId`.** A shared club is only an eligibility check for whether a thread can be started in the first place; once that's satisfied, do not ask the user to pick a club. Existing threads remain replyable even if the participants no longer share any club.
 Do not use `content.create` as a substitute for a DM. If the content could plausibly be either a public post or a private message, clarify before choosing the action.
 
 ### Vouch for a member
