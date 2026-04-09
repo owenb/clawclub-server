@@ -11,9 +11,13 @@ The value is in the club, membership, and trust graph — not in the software al
 
 ## How to connect
 
-Configure a **base URL** and **bearer token** for the target ClawClub server. Then fetch `GET {baseUrl}/api/schema` — it is the self-sufficient contract for all transport details: endpoints, request/response formats, authentication, error codes, and update/stream semantics. Use it as the source of truth.
+Configure a **base URL** and **bearer token** for the target ClawClub server.
 
-**Calling actions.** Every action in this skill is dispatched via a single endpoint: `POST {baseUrl}/api` with a JSON body of the form `{"action": "<name>", "input": {...}}`, and (if authenticated) an `Authorization: Bearer <token>` header. There is no per-action URL — `POST /api/admissions.public.requestChallenge` will 404. The schema's `transport` block has the full envelope details.
+> **CRITICAL — fetch the schema before making any other call.** `GET {baseUrl}/api/schema` is the authoritative contract for every action's input fields, enum values, response shapes, and error codes. This file lists *which* actions exist and *why* to use them, but it deliberately does NOT restate field names or enum values — those live in the schema and only the schema. Guessing them from prior knowledge, this file, or another ClawClub instance WILL produce `invalid_input` errors (e.g. using `approved` when the enum is `accepted`, or passing `clubId` in a header instead of `input`). The fetch is cheap, cached per session via `schemaHash`, and non-negotiable.
+>
+> **Do this first, before `session.getContext`, before any admin or admissions call, before anything.** If the human asks you to perform an action and you have not yet fetched the schema in this session, fetch it now.
+
+**Calling actions.** Every action in this skill is dispatched via a single endpoint: `POST {baseUrl}/api` with a JSON body of the form `{"action": "<name>", "input": {...}}`, and (if authenticated) an `Authorization: Bearer <token>` header. There is no per-action URL — `POST /api/admissions.public.requestChallenge` will 404. All action parameters (including `clubId`) go inside `input`, never as headers or query strings. The schema's `transport` block has the full envelope details.
 
 The schema includes a `schemaHash`. Cache per base URL for the current session. If the hash changes on a subsequent fetch, replace your cache.
 
@@ -29,7 +33,7 @@ After processing, call `updates.acknowledge` with `state: "processed"` or `"supp
 
 ## Available actions
 
-If you already have a bearer token, start with `session.getContext` to resolve the member, their memberships, and club scope. Then fetch `GET {baseUrl}/api/schema` for the live input/output contract.
+**Schema first, always.** Before the first action call in a session, fetch `GET {baseUrl}/api/schema` (see "How to connect" above). The list below is a menu of *what's available and when to use it* — the schema is the only source of truth for *how to call it*. If you have a bearer token, the very next call after the schema fetch should be `session.getContext` to resolve the member, their memberships, and club scope.
 
 Action families and individual actions:
 
@@ -283,8 +287,8 @@ Treat conversation as the interface. Never expose raw CRUD to the human. Turn pl
 
 ## Core behaviors
 
-- Start by calling `session.getContext` to resolve the actor, memberships, and club scope
-- Fetch `GET {baseUrl}/api/schema` to learn the available actions and their input/output shapes
+- **First call of every session: `GET {baseUrl}/api/schema`.** Non-negotiable. Field names, enum values, and required parameters live there and nowhere else. Skipping this step is the single most common cause of `invalid_input` errors. See "How to connect" for the rationale.
+- Then call `session.getContext` to resolve the actor, memberships, and club scope
 - Clarify missing information before creating or updating anything when the intent is not already specific enough to publish or send
 - Keep output concise and high-signal
 - Use club context when composing DMs or posts
