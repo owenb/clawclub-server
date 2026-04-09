@@ -1,277 +1,303 @@
-# Locations as Synchronicity Enrichment — Implementation Plan
+# Locations as Synchronicity Substrate — Implementation Plan v3
 
-This plan adds **member locations** (homes and travel plans) to ClawClub. It is the result of a long design conversation that went through several wrong turns before arriving at the right framing. Read the **Why this exists** and **Must-hold invariants** sections first — they explain the central design call that shapes everything else.
+This is v3 of the location feature plan. v2 had five real defects that a code review surfaced; v3 fixes all of them. Read **What changed from v2**, **Why this exists**, and **Must-hold invariants** before anything else.
 
-This is a v1 implementation plan ready for handoff. It mirrors the format of `docs/gifts_and_open_loops_implementation_plan.md` and incorporates every cross-cutting lesson from that feature's review (must-hold invariants, blast radius, build order discipline, append-only versioning).
+## What changed from v2
+
+Five fixes, all tightenings rather than architectural changes:
+
+1. **Peer-readable archived history is closed.** `includeArchived` and `includePast` now only work on self-reads. When listing another member's locations, both flags are forced to `false` at the repo layer regardless of what the agent passes. Other members see only currently-live, currently-relevant data. This is a new invariant (#19).
+
+2. **`clientKey` provides full retry safety, not just create-time idempotency.** A new chain-scoped unique index `(location_id, client_key) WHERE client_key IS NOT NULL` covers update and remove versions too. Same key + same chain + same intent returns the existing version. Same key + different intent returns 409. Invariant 17 is updated to reflect actual coverage.
+
+3. **Boost computation always runs when there are pending matches.** v2's "skip when global pool ≤ batch size" optimization was wrong because throttling is per-recipient, not global — multiple matches targeting the same member compete for that member's daily/weekly cap even when the global pool is small. Invariant 4 is rewritten: the boost query is unconditionally run on every cycle, but it's a single bounded batched query so the cost is negligible.
+
+4. **The boost SQL is fixed.** v2's sketch derived "imminent" from the source row's date range, which meant any ongoing home would always satisfy "imminent" even when the actual overlap with the other member's travel was 80 days out. v3 computes the *overlap window* correctly via `GREATEST(s.starts_on, t.starts_on, CURRENT_DATE)` and checks imminence against that clamped value.
+
+5. **`same_home` overlaps don't get the synchronicity boost.** Two members who both live in the same city are experiencing permanent geography, not magical timing. Boosting them would recreate the "Tokyo flood" problem in ranking form. v3 excludes home × home overlaps from the boost computation entirely (boost = 1.0 always for same_home). The agent-facing read helper still returns same_home overlaps so the agent can mention them as context — they're just not used to reorder delivery. This is a new invariant (#20).
+
+The architecture from v2 is unchanged. v3 fixes correctness and tightens privacy.
 
 ## Why this exists
 
-ClawClub members live in multiple places, travel constantly, relocate, and have complex relationships with geography. Today the platform has no concept of where members are or where they're going. We want to fix that, but **not** by building a "match people because they're in the same city" feature.
+ClawClub members live in multiple places, travel constantly, relocate, and have complex relationships with geography. The platform needs to understand where members are, where they're going, and where they've been. But "understand" cuts two ways and we need to be careful about which way.
 
-The central design call, made during the design conversation:
+The wrong shape: a "match people because they're in the same city" feature. In a 50-member club it's mildly interesting; in a 10,000-member club it's useless flood. Members don't want introductions to the hundreds of other people in Tokyo. They want to know *why* they should meet someone, with location as one of several details that shape *which* introductions happen *when*.
 
-> **Location is not a matching primitive. It is enrichment data.**
-
-The synchronicity engine does **not** generate "co-location" matches. Members are matched on substance — what they offer, what they need, what they're working on, what they have in common. Location is then attached to those matches as additional context that makes the introduction more actionable. *"Maria looks like a strong biotech connection — and you'll both be in Tokyo April 14–18"* is a much better signal than either *"you're both in Tokyo"* (which means nothing in a 50-member club and is noise in a 10,000-member club) or *"Maria looks like a strong biotech connection"* alone.
-
-The 10,000-member-club thought experiment is what made this clear. In a small club, "who lives in Tokyo" is mildly interesting. In a big club, hundreds of members live in Tokyo and surfacing them all is useless flood. What members want is *why* they should meet someone, with location as one of several enriching details, not as the reason itself.
+The right shape: **location is a probability multiplier on substantive matches, not a match trigger.** The synchronicity worker still produces matches the same way it does today — based on substance (asks, gifts, profile similarity, shared interests). But when *synchronistic* location overlap exists between a matched pair (a trip about to happen, a host visit, calendar timing), the worker treats that pair as significantly more likely to be worth delivering. Two members with mediocre substantive similarity who happen to be in Tokyo at the same time can outrank two members with high substantive similarity who never overlap geographically. The match wouldn't have happened without the substance, but timing decides which substantive matches actually get surfaced.
 
 This feature gives us:
 - A versioned, append-only data layer for member locations (homes and travel plans)
 - API actions for members to declare and read location data
-- Synchronicity worker integration that attaches location overlap to existing match payloads as enrichment
+- A new lightweight action for live location-overlap lookup (`member.locationContext.get`)
+- Synchronicity worker integration that uses *synchronistic* location overlap as a delivery prioritization factor (not permanent geographical overlap, not match triggering)
 - Substrate for the future Club Mind reasoning layer to read as part of per-club context
 
-It does **not** add a new match kind, a new worker trigger, or any "find people in the same city" surface area.
+It does **not**:
+- Add a new match kind
+- Add a new candidate-generation trigger
+- Denormalize any location data into signal payloads (which would go stale)
+- Boost permanent home × home overlaps (they're geography, not synchronicity)
+- Expose another member's archived or historical location data via the API
+
+## The two architectural calls (carried over from v2)
+
+These two decisions were made on the back of the v1 review and remain unchanged.
+
+### Call 1: Location enrichment is read-side, not payload-denormalized
+
+The synchronicity worker does **not** write location data into signal payloads. v1 had `buildSignalPayload` stuffing `locationContext` into the payload at delivery time, which created a staleness problem (cancelled trips persisted in unread signals). v2 and v3 fix this by leaving `buildSignalPayload` untouched and providing a new action — `member.locationContext.get({ otherMemberId, clubId? })` — that the agent calls on demand to fetch live overlap data. Every read goes to live data; staleness is impossible.
+
+### Call 2: Location is a delivery prioritization factor
+
+Owen's words: *"if two people are in the same city, then their probability that we should send a message goes up exponentially. I don't think we can avoid building this properly."* So location influences the worker's behavior, but only at the prioritization phase, not at candidate generation. The combination of Calls 1 and 2 gives us: location data influences the worker's behavior (Call 2) without ever being denormalized into signal payloads (Call 1). Two reads, two purposes, no shared state, no staleness possible.
 
 ## Must-hold invariants
 
-These are the cross-cutting truths every change has to respect. They're written here so the implementer can satisfy them by design, not discover them by failing tests.
+These are the cross-cutting truths every change has to respect. Several invariants changed from v2 — the changes are flagged inline.
 
-1. **Location is enrichment, not a match trigger.** The synchronicity worker NEVER writes a row to `signal_background_matches` with `match_kind = 'co_location'` (or any equivalent location-only match kind). That match kind does not exist in this design. Locations are read by the worker only during signal payload assembly, and only attached as additional context to matches that already exist for substantive reasons.
+1. **Location is not a match trigger.** The worker NEVER writes a row to `signal_background_matches` with `match_kind = 'co_location'`. That match kind does not exist. Locations play no role in candidate generation — `processEntityTriggers`, `processProfileTriggers`, `processIntroRecompute`, `processBackstopSweep`, and `processMemberAccessibilityTriggers` never read `member_location_versions`.
 
-2. **Append-only versioning.** No row in `member_location_versions` is ever updated. Every change — creating a location, editing a location, removing a location — is a new row in the table. The current state of any logical location is computed by selecting the highest `version_no` for that `location_id`. The codebase pattern to mirror is `member_global_role_versions` (single table, snapshot per version), not `entities` + `entity_versions` (two tables).
+2. **Location IS a delivery prioritization factor for synchronistic overlaps.** When `deliverMatches` runs, it computes a location boost factor for each candidate pending match and re-sorts candidates by adjusted score. Pairs with imminent or near-term *synchronistic* overlap can outrank pairs with better raw substantive scores. Permanent home × home overlap does NOT contribute (see invariant 20).
 
-3. **`location_id` is the stable identifier; `id` is the version's primary key.** All API responses surface `locationId` as the stable identifier members use across versions. The version row's own `id` is internal, used only by `supersedes_location_version_id` to chain history.
+3. **Boost computation is fresh, never stored.** No `location_boost` column on `signal_background_matches`. The boost is recomputed every delivery cycle from `live_member_locations`, against `CURRENT_DATE`. Locations change; cached boosts go stale.
 
-4. **Version chain integrity.** All versions in a chain (sharing the same `location_id`) MUST have the same `member_id` and the same `type`. A member can never give a location to another member, and a home can never become a travel plan or vice versa. Enforced at the repository layer (read the latest version, compare to the new version's input) — the schema doesn't enforce it because there's no entity row to constrain against.
+4. **(REVISED in v3.)** **Boost computation runs unconditionally on every delivery cycle when there are any pending matches.** v2 had a "skip when global pool ≤ batch size" optimization that was wrong because per-recipient throttling can make ordering matter even within a small pool. The boost query is a single batched lookup bounded to the candidate pool size (≈60 rows worst case), against indexed tables. The cost is negligible, so it always runs. Owen's "do the work only if it needs to" is satisfied because the work is bounded to the candidate pool, not to total location data — pairs with no locations or no overlap return 1.0 cheaply.
 
-5. **City normalization is consistent across writes and reads.** All inserts compute `city_normalized` using a single normalization function in the application layer. All matching queries use `city_normalized`, not `city`. The display form `city` is preserved for showing back to members ("São Paulo" stays "São Paulo" in the UI; "sao paulo" is what we match on).
+5. **Signal payloads NEVER contain denormalized location data.** Not city, not dates, not overlap kind, not `locationContext`. Payloads remain ID-first.
 
-6. **Country is required and ISO 3166-1 alpha-2.** The application layer normalizes whatever the agent passes (`"GB"`, `"gb"`, `"United Kingdom"`) to the canonical two-letter uppercase code, or rejects it with a clear error. The schema enforces format via a CHECK constraint. This is the disambiguator that distinguishes London, GB from London, CA.
+6. **`buildSignalPayload` is untouched by this feature.** It does not import any location helpers. It does not call any location queries. It does not add any new fields to the payload object.
 
-7. **Region is optional but uses ISO 3166-2 codes when provided.** Free text fallback is allowed but discouraged. The application layer uppercases. Matching is tolerant: if either side has a null region, regions are not compared.
+7. **Append-only versioning.** No row in `member_location_versions` is ever updated. Every change is a new row.
 
-8. **Dates only, no times, no timezones.** The `starts_on` and `ends_on` columns are Postgres `date`, not `timestamptz`. They are interpreted in the city's local timezone, but we don't store the timezone because we don't need it. *"Owen is in Tokyo April 14–18"* means those four calendar days in Tokyo's sense, full stop. Overlap is calendar-day inclusive on both ends.
+8. **`location_id` is the stable identifier; `id` is the version's primary key.** All API responses surface `locationId` as the stable identifier members use across versions.
 
-9. **Travel requires `ends_on`. Home doesn't.** Enforced by CHECK constraint. A travel plan with no end date is conceptually a home, and members should declare it as such. A home can have a null `ends_on` (still living there) and a null `starts_on` (don't remember when I moved in).
+9. **Version chain integrity.** All versions in a chain (sharing the same `location_id`) MUST have the same `member_id` and the same `type`. Enforced at the repository layer.
 
-10. **Reads from another member's locations require a shared club.** Same pattern as `profile.get` for another member: the actor must share at least one club with the target member where both have active membership. Enforced by SQL filter at the repository layer, not handler-side. There is no public location lookup.
+10. **City normalization is consistent across writes and reads.** All inserts compute `city_normalized` using a single normalization function. All matching queries use `city_normalized`, not `city`. The display form `city` is preserved for showing back to members.
 
-11. **The synchronicity worker reads `live_member_locations`, not the raw versions table.** The view encodes "latest version per chain, status = active". All worker queries go through the view. Direct queries against `member_location_versions` are limited to the repository layer (writing versions, building chains).
+11. **Country is required and ISO 3166-1 alpha-2.** The application layer normalizes; the schema enforces format via a CHECK constraint.
 
-12. **Location context in match payloads is bounded.** Maximum 5 location overlap entries per match payload. Maximum 90-day forward window from `current_date`. Past locations don't appear in payloads (they're useful for the Club Mind reasoning layer but not for active match enrichment).
+12. **Region is optional but uses ISO 3166-2 codes when provided.** Matching is tolerant: if either side has a null region, regions are not compared.
 
-13. **`buildSignalPayload` is the only place that reads locations for enrichment.** Not the candidate-generation path (`processEntityTriggers`, `processIntroRecompute`). Not the throttling path. Not the freshness check. Locations don't influence which matches get produced or delivered — only what data is attached to matches that are being delivered for other reasons.
+13. **Dates only, no times, no timezones.** The `starts_on` and `ends_on` columns are Postgres `date`. They are calendar dates without timezone information.
+
+14. **Travel requires `ends_on`. Home doesn't.** Enforced by CHECK constraint.
+
+15. **Reads from another member's locations require a shared club.** Same pattern as `profile.get` for another member. Enforced by SQL filter at the repository layer. Returns an empty array (not 403, not 404) when no shared club exists.
+
+16. **Author auth is enforced via SQL filter, not handler check.** Same lesson as gifts/loops invariant 4. SQL author-filter for `update`/`remove`. Returns null at the repo level, 404 at the handler. No dead 403 branches.
+
+17. **(REVISED in v3.)** **All location mutations support `clientKey` for idempotent retries via a chain-scoped unique index.** The schema has TWO unique indexes on `client_key`:
+    - `(member_id, client_key) WHERE client_key IS NOT NULL AND version_no = 1` — enforces one chain per (member, key) for create.
+    - `(location_id, client_key) WHERE client_key IS NOT NULL` — enforces one version per (chain, key) for update and remove.
+    
+    The repo logic on `update` and `remove`: if `clientKey` is provided, check for an existing version with `(location_id, client_key)` before inserting. If found and the payload matches, return it. If found and the payload differs, return 409. If not found, insert the new version.
+
+18. **Location notes go through the legality gate.** The `note` field is free text visible to other members in shared clubs, with the same exposure profile as a post body.
+
+19. **(NEW in v3.)** **Other-member location reads return only currently-live, currently-relevant data.** When `member.travel.list` or `member.home.list` is called with `memberId` set to another member, the `includeArchived` and `includePast` flags are forced to `false` at the repository layer regardless of what the caller passes. Historical and archived data is visible only to the location's owner. The synchronicity engine and the future Club Mind reasoning layer can read historical data via direct database queries (they don't go through these member-facing actions), but no member-facing API surface ever exposes another member's cancelled trips, ended homes, or archived versions.
+
+20. **(NEW in v3.)** **`same_home` overlaps don't contribute to the boost factor.** Permanent home × home geography is not synchronicity. The boost SQL excludes pairs where both rows have `type = 'home'`. The agent-facing read helper (`loadLocationOverlap`, used by `member.locationContext.get`) STILL returns `same_home` overlaps so the agent can describe them in introductions ("you both live in Tokyo") — they're appropriate context. They're just not used by the worker to reorder delivery. The boost only fires on:
+    - `crossing` (travel × travel) — both members visiting the same place at overlapping times
+    - `visiting_their_home` (travel × home) — one visiting where the other lives
+    - `they_visit_your_home` (home × travel) — inverse of the above
+    
+    Plus, of course, the time-based imminent / near tiers within those kinds.
 
 ## Decisions and reasoning
 
-These are the choices the design conversation arrived at and why. The implementer should not second-guess them without checking with the design owner.
+These are the choices the design conversation arrived at and why. The implementer should not second-guess them without checking.
 
-- **Single-table versioned design (Pattern B), not two-table entity-plus-versions (Pattern A).** The codebase has both patterns. Owen explicitly chose the simpler one even though it duplicates `member_id` and `type` across every version row. Locations don't change often, so the duplication cost is negligible, and we save a join on every read. Mirror `member_global_role_versions`, not `entities`/`entity_versions`.
+- **Location is enrichment of existing matches, not its own match kind (Owen's central design call).** A 10,000-member club where "who's in Tokyo" is surfaced to everyone is useless flood.
 
-- **Eight API actions, not unified.** Two parallel action groups (`member.travel.*` and `member.home.*`), each with `add` / `update` / `remove` / `list`. Eight one-line actions. Could be collapsed into a unified `member.locations.*` set with a `type` parameter, but separate actions are clearer for the agent and for SKILL.md guidance. Members think about "my home" and "my trips" as different concepts; the API mirrors that.
+- **Location influences delivery ordering for synchronistic overlaps only (Owen's Call 2 + v3 same_home exclusion).** *"If two people are in the same city, then their probability that we should send a message goes up exponentially."* But "in the same city" here means *crossing in synchronistic timing*, not "both happen to live there." Two locals don't experience synchronicity from sharing a city — they experience it from a visit, a trip, a host opportunity. v3 makes this explicit by excluding same_home from the boost.
 
-- **Update creates a new version, even for trivial changes.** Owen confirmed: "we have an append-only model in our database." Fixing a typo in the city name creates a new version row. No special "trivial change" path. The slight storage cost is worth the audit/reasoning value — the Club Mind will eventually find historical patterns useful (*"Owen has been refining where he says he lives over the past six months — something might be shifting"*).
+- **Boost is computed fresh, never stored.** Locations change; cached boosts go stale.
 
-- **Remove creates an archive marker version, doesn't delete.** Same reasoning. The history of "I used to plan to go to Tokyo April 14-18 but I cancelled" is preserved as a chain ending in an archived version. Hard delete is reserved for the future `member.delete` flow, which removes everything for a departing member.
+- **Signal payloads stay ID-first (Owen's Call 1).** Read-side fetch via `member.locationContext.get` dissolves the staleness problem.
 
-- **Travel and home use different "remove" semantics.** Travel removal creates a single archive marker version. Home removal sets `ends_on = current_date` AND archives — preserving the historical "I moved out on this date" record while marking the chain inactive. A future `home.update` to set just `ends_on` (without archiving) is the way to mark "moved" without archiving the history.
+- **Single-table versioned design (Pattern B), not two-table.** Owen's call. Mirrors `member_global_role_versions`.
 
-- **No quotas in v1.** Locations aren't entities and don't go through `QUOTA_ENTITY_KINDS`. We don't expect spam. If abuse appears in production, add a generous daily cap (20–30 location adds per day per member) at that point.
+- **Eight + one API actions, not unified.** Two parallel groups (`member.travel.*` and `member.home.*`) plus the read-side `member.locationContext.get`.
 
-- **No legality gate on location adds.** The optional `note` field is free text, but it's much more constrained than entity bodies and the use case is benign ("happy to meet for coffee"). If we observe abuse via the note field, add gating later. Not blocking v1.
+- **Update creates a new version, even for trivial changes.** Owen's call: append-only model.
 
-- **City normalization is application-layer, not database-layer.** Postgres `unaccent` extension would let us do this with a generated column, but it's a deployment surface area we'd rather avoid. A small TypeScript helper does the work at insert time and stores both `city` (display) and `city_normalized` (matching). Identical normalization at query time. The function is the source of truth and any change to it requires a backfill.
+- **Remove creates an archive marker version, doesn't delete.** Hard delete is reserved for `member.delete`.
 
-- **No geocoding in v1, but design for it later.** No external API integration with Google Places, OSM Nominatim, or anything else. The agent normalizes via SKILL.md guidance: title case, ISO country code, ISO region code when known. v2 can add a geocoding layer that produces canonical place IDs without changing the schema substantively (add a nullable `place_id` column, populate it lazily).
+- **Travel and home use different "remove" semantics.** Home removal sets `ends_on` to preserve the historical move-out date.
 
-- **Region is the disambiguator for ambiguous cities.** "London, GB" vs "London, CA" is solved by `country`. "London, GB" (the city) vs "London, ON" (Canadian city in Ontario)... wait, both are GB and CA respectively. But "Springfield" exists in 20+ US states. For those, we need `region` (ISO 3166-2 code like `US-IL` for Illinois). The agent passes region when ambiguity matters; matching is tolerant when one side omits it (better to match than to miss).
+- **`home.update` accepts `endsOn`** (so members can record "I moved out on date X" without archiving).
 
-- **Location context payload uses overlap kinds derived from types.** Four kinds: `crossing` (both travel), `visiting_their_home` (source travel, target home), `they_visit_your_home` (source home, target travel), `same_home` (both home). The agent reads the kind and constructs natural language. The worker computes the kind from the types — no string passed by callers.
+- **`home.list` supports `includePast`** so ended homes are observable to the owner. (Other members never see them — see invariant 19.)
 
-- **The same overlap can appear in multiple match payloads simultaneously.** If Owen and Maria are both in Tokyo April 14–18, AND they're matched for a biotech ask AND for an introduction AND for a service offer, the same Tokyo overlap appears in all three signal payloads. That's fine and intentional — each signal is independent and the agent might describe the overlap differently in each context.
+- **(NEW in v3.)** **Other-member reads silently restrict `includeArchived` and `includePast`.** v3 addresses a privacy hole in v2 where peers could pull each other's full historical movement data. The API doesn't reject the flags when used on other-member reads — it silently forces them to `false`. This is more permissive than rejection (the agent doesn't have to know which mode it's in) and matches the pattern of "other members see only currently-relevant data" without surfacing the privacy boundary as an error.
+
+- **No quotas in v1.** Locations aren't entities. Add a separate quota mechanism in v2 if abuse appears.
+
+- **Location notes go through the legality gate** for consistency with other free-text fields visible to other members.
+
+- **City normalization is application-layer.** No Postgres `unaccent` extension dependency.
+
+- **No geocoding in v1, but design for it later.** Schema is structured to add a nullable `place_id` column later without breakage.
+
+- **`parseIsoDate` validates strictly via round-trip** to reject impossible dates like "2026-02-30" that `Date.parse` would silently normalize.
+
+- **`clientKey` covers all mutations via two unique indexes.** v2 only protected creates. v3 adds a chain-scoped index that protects updates and removes. Required for retry safety because append-only mutations would otherwise create duplicate version rows under network race.
+
+- **(NEW in v3.)** **Boost computation always runs.** v2's "skip when no global contention" optimization was wrong because per-recipient throttling can make ordering matter even when the global pool is small. v3 always computes; the cost is bounded and small.
+
+- **(NEW in v3.)** **`same_home` excluded from boost.** Permanent geography isn't synchronicity. Owen's "exponentially" framing was about magical timing, not about two members happening to share a permanent address.
 
 ## Build order
 
-The order matters because some changes depend on invariants set by earlier ones. Don't split Phase 1 across commits — the schema and the types must agree, and a half-done state breaks the build.
+Don't split Phase 1.
 
 ### Phase 1: Schema, enums, and types (atomic)
 
-1. New enums: `member_location_type` (`'home' | 'travel'`) and `member_location_status` (`'active' | 'archived'`).
-2. New table: `member_location_versions` with all columns, constraints, and indexes (see schema below).
-3. New views: `current_member_locations` (latest version per chain) and `live_member_locations` (latest version per chain, status = active).
-4. New TypeScript types in `src/contract.ts`: `MemberLocationType`, `MemberLocationStatus`, `MemberLocation`, `CreateLocationInput`, `UpdateLocationInput`, etc.
-5. New zod response shape in `src/schemas/responses.ts`: `memberLocation`.
-6. New wire/parse helpers in `src/schemas/fields.ts`: `wireIsoDate`, `parseIsoDate`, `wireCountryCode`, `parseCountryCode`, `wireCityName`, `parseCityName`, `wireRegionCode`, `parseRegionCode`.
-7. Repository capability declarations in `src/contract.ts`: `createMemberLocation`, `updateMemberLocation`, `archiveMemberLocation`, `listMemberLocations`, `loadLocationOverlapForMatch`.
-8. **Type-check passes.** `npx tsc --noEmit` should be clean before moving on.
+1. Two new enums: `member_location_type` and `member_location_status`.
+2. New table `member_location_versions` with all columns, constraints, and **both clientKey indexes** (the chain-scoped one is new in v3).
+3. New views: `current_member_locations` and `live_member_locations`.
+4. New TypeScript types in `src/contract.ts`.
+5. New zod response shapes in `src/schemas/responses.ts`.
+6. New wire/parse helpers in `src/schemas/fields.ts` (including the round-trip-validated `parseIsoDate`).
+7. Repository capability declarations in `src/contract.ts`.
+8. **Type-check passes.**
 
 ### Phase 2: Repository implementation
 
-1. **City normalization helper** in a new file `src/clubs/locations.ts` (or wherever fits the codebase pattern). Single source of truth function `normalizeCity(city: string): string` and `normalizeCountry(country: string): string`.
-2. **`createMemberLocation`**: generates a new `location_id` (short_id), inserts version 1 with `version_no = 1`, `supersedes_location_version_id = null`, normalized city/country, computed status. Returns the new version mapped to the API shape.
-3. **`updateMemberLocation`**: takes `locationId` + actor + patch fields. Reads the current live version of the chain (via `live_member_locations`), verifies actor ownership (`member_id = $actor`) — return null if not found or not owned. Computes the new version: same `location_id`, `member_id`, `type` (these can never change); patched fields applied to the rest; `version_no = current.version_no + 1`; `supersedes_location_version_id = current.id`. Inserts the new version row. Returns mapped version.
-4. **`archiveMemberLocation`**: same pattern as update, but the new version always sets `status = 'archived'`. For homes, also sets `ends_on = COALESCE(provided_endedOn, CURRENT_DATE)` if `ends_on` is currently null.
-5. **`listMemberLocations`**: reads from `live_member_locations` filtered by `member_id`, optionally by `type`. Optional `includePast` flag controls whether locations with `ends_on < current_date` are included (default false). Optional `includeArchived` flag controls whether to read from `current_member_locations` instead of `live_member_locations` (default false). When reading another member's locations, an additional filter joins through `accessible_club_memberships` to verify a shared club.
-6. **`loadLocationOverlapForMatch`**: the read-side enrichment helper. Takes `(sourceMemberId, targetMemberId)`. Runs the overlap query (see below). Returns up to 5 overlaps. Used only by `buildSignalPayload`. Detail SQL:
+1. **Normalization helpers** in `src/clubs/locations.ts`.
+2. **`createMemberLocation`**: generates a new `location_id`, inserts version 1. `clientKey` idempotency uses the version-1 unique index — same key + same payload returns existing chain; same key + different payload returns 409.
+3. **`updateMemberLocation`**: SQL filter by member ownership, computes new version, inserts. **`clientKey` idempotency uses the chain-scoped unique index** — if a version with `(location_id, client_key)` already exists and the payload matches, return it; if it exists and the payload differs, throw 409. Returns null on not-found-or-not-owned.
+4. **`archiveMemberLocation`**: same pattern with chain-scoped clientKey support. Sets `status = 'archived'`. For homes, sets `ends_on = COALESCE(provided_endedOn, CURRENT_DATE)` if currently null.
+5. **`listMemberLocations`**: reads from `live_member_locations` (or `current_member_locations` if `includeArchived`). **(REVISED in v3.)** When `actorMemberId !== targetMemberId`, force `includeArchived = false` and `includePast = false` regardless of caller input. For other-member reads, joins through `accessible_club_memberships` to verify shared club. Returns empty array if no shared club.
+6. **`loadLocationOverlap(memberAId, memberBId)`**: the read-side helper used by `member.locationContext.get`. Returns up to 5 overlap entries sorted by upcoming start date. **Includes same_home overlaps.** Each entry has the derived `overlapKind` field.
+7. **`loadLocationBoostBatch(input)`**: the worker prioritization helper. **Excludes same_home overlaps** from the computation. Takes a list of `(matchId, sourceMemberId, targetMemberId)` tuples. Returns a `Map<matchId, number>` where each entry is the boost factor for that match. The boost SQL is in the file-by-file section below — **read it carefully**, the v2 SQL was wrong.
 
-```sql
-SELECT
-  s.location_id   AS source_location_id,
-  s.type          AS source_type,
-  s.starts_on     AS source_starts_on,
-  s.ends_on       AS source_ends_on,
-  t.location_id   AS target_location_id,
-  t.type          AS target_type,
-  t.starts_on     AS target_starts_on,
-  t.ends_on       AS target_ends_on,
-  s.city          AS city,
-  s.country       AS country,
-  s.region        AS region
-FROM live_member_locations s
-JOIN live_member_locations t
-  ON s.city_normalized = t.city_normalized
- AND s.country = t.country
- AND (s.region IS NULL OR t.region IS NULL OR s.region = t.region)
-WHERE s.member_id = $1
-  AND t.member_id = $2
-  AND COALESCE(s.starts_on, '-infinity'::date) <= COALESCE(t.ends_on, 'infinity'::date)
-  AND COALESCE(s.ends_on,   'infinity'::date)  >= COALESCE(t.starts_on, '-infinity'::date)
-  AND COALESCE(s.ends_on,   'infinity'::date)  >= CURRENT_DATE
-  AND COALESCE(t.ends_on,   'infinity'::date)  >= CURRENT_DATE
-  AND COALESCE(s.starts_on, '-infinity'::date) <= (CURRENT_DATE + interval '90 days')::date
-ORDER BY
-  GREATEST(COALESCE(s.starts_on, '-infinity'::date), COALESCE(t.starts_on, '-infinity'::date)) ASC
-LIMIT 5
-```
+Boost factor logic:
+- If any synchronistic (non-same-home) overlap window starts within `SYNCHRONICITY_LOCATION_IMMINENT_DAYS` of today (default 14): boost = `SYNCHRONICITY_LOCATION_IMMINENT_BOOST` (default 0.3)
+- Else if any synchronistic overlap starts within `SYNCHRONICITY_LOCATION_NEAR_DAYS` (default 90): boost = `SYNCHRONICITY_LOCATION_NEAR_BOOST` (default 0.6)
+- Else: 1.0
 
-Note the asymmetry: the source/target naming corresponds to the match, not to the locations. Both directions of overlap need to be computed when called, but for one specific recipient — so the query is parameterized once per match.
+Lower is better in this codebase (cosine distance), so 0.3 multiplier is the strong "exponential" boost Owen wanted.
 
 ### Phase 3: API actions
 
-Six action files, all in a new module `src/schemas/locations.ts`. The module follows the existing pattern (one file per action group, register at the bottom). Each action is small.
+Nine actions in a new module `src/schemas/locations.ts`.
 
-1. `member.travel.add` — auth: member; safety: mutating; no quality gate; takes `{ city, country, region?, startsOn, endsOn, note? }`; returns `{ location: memberLocation }`.
-2. `member.travel.update` — auth: member; safety: mutating; takes `{ locationId, city?, country?, region?, startsOn?, endsOn?, note? }`; returns `{ location: memberLocation }`.
-3. `member.travel.remove` — auth: member; safety: mutating; takes `{ locationId }`; returns `{ location: memberLocation }`.
-4. `member.travel.list` — auth: member; safety: read_only; takes `{ memberId?, includePast?, includeArchived? }`; returns `{ locations: memberLocation[] }`.
-5. `member.home.add` — auth: member; safety: mutating; takes `{ city, country, region?, startsOn?, note? }`; returns `{ location: memberLocation }`.
-6. `member.home.update` — auth: member; safety: mutating; takes `{ locationId, city?, country?, region?, startsOn?, note? }`; returns `{ location: memberLocation }`.
-7. `member.home.remove` — auth: member; safety: mutating; takes `{ locationId, endedOn? }`; returns `{ location: memberLocation }`.
-8. `member.home.list` — auth: member; safety: read_only; takes `{ memberId?, includeArchived? }`; returns `{ locations: memberLocation[] }`.
+1. `member.travel.add` — auth: member; safety: mutating; quality gate: location-note; takes `{ city, country, region?, startsOn, endsOn, note?, clientKey? }`; returns `{ location: memberLocation }`.
+2. `member.travel.update` — auth: member; safety: mutating; gate: location-note; takes `{ locationId, city?, country?, region?, startsOn?, endsOn?, note?, clientKey? }`; returns `{ location: memberLocation }`.
+3. `member.travel.remove` — auth: member; safety: mutating; takes `{ locationId, clientKey? }`; returns `{ location: memberLocation }`.
+4. `member.travel.list` — auth: member; safety: read_only; takes `{ memberId?, includePast?, includeArchived? }`; returns `{ locations: memberLocation[] }`. **`includePast` and `includeArchived` are silently restricted to self-reads in the repo.**
+5. `member.home.add` — auth: member; safety: mutating; gate: location-note; takes `{ city, country, region?, startsOn?, note?, clientKey? }`; returns `{ location: memberLocation }`.
+6. `member.home.update` — auth: member; safety: mutating; gate: location-note; takes `{ locationId, city?, country?, region?, startsOn?, endsOn?, note?, clientKey? }`; returns `{ location: memberLocation }`.
+7. `member.home.remove` — auth: member; safety: mutating; takes `{ locationId, endedOn?, clientKey? }`; returns `{ location: memberLocation }`.
+8. `member.home.list` — auth: member; safety: read_only; takes `{ memberId?, includePast?, includeArchived? }`; returns `{ locations: memberLocation[] }`. **Same self-read restriction.**
+9. **`member.locationContext.get`** — auth: member; safety: read_only; takes `{ otherMemberId, clubId? }`; returns `{ overlaps: locationOverlap[] }`. Calls `loadLocationOverlap`. Returns at most 5 overlaps sorted by upcoming start date. **Includes same_home overlaps** (the agent uses them as context). Empty array if no shared club or no overlap.
 
-Validation rules at the parse layer:
+Validation rules at the parse layer (unchanged from v2):
+- `startsOn` and `endsOn` round-trip via `parseIsoDate`
+- `country` normalized to uppercase, validated against `^[A-Z]{2}$`
+- `city` trimmed, length-bounded (max 200 chars), non-empty after trim
+- `region` optional, trimmed, uppercased, length-bounded (max 10 chars)
+- `note` optional, trimmed, length-bounded (max 1000 chars)
+- `member.travel.add` requires both `startsOn` and `endsOn`
 
-- `startsOn` and `endsOn` must match `^\d{4}-\d{2}-\d{2}$` (the new `parseIsoDate` helper).
-- `country` is normalized to uppercase and validated against `^[A-Z]{2}$` (the new `parseCountryCode`).
-- `city` is trimmed, length-bounded (max 200 chars), non-empty after trim.
-- `region` is optional, trimmed, uppercased, length-bounded (max 10 chars), no format check (allow ISO 3166-2 codes and free text).
-- `note` is optional, trimmed, length-bounded (max 1000 chars).
-- For `travel.add` and `travel.update` (when `endsOn` is being set or already set on the chain), the parser allows it; the repository enforces "travel must have ends_on" via the CHECK constraint plus a runtime check before insert.
+Auth pattern: SQL filters return null when not owned; handlers return 404. No 403 branches.
 
-Auth:
-- All `member.*.list` with no `memberId` returns the actor's own.
-- All `member.*.list` with `memberId` requires shared club membership (handled in repo).
-- All mutating actions on a `locationId` require ownership (handled by SQL filter in repo, return null → 404 in handler).
+### Phase 4: Worker prioritization integration
 
-**No 403 branches in handlers.** Same lesson as gifts/loops invariant 4 from `docs/gifts_and_open_loops_implementation_plan.md`. The SQL filters return null when the actor doesn't own the location; the handler returns 404 `not_found`. Never write a handler-side `if (location.member_id !== ctx.actor.member.id) throw 403` — it's unreachable code.
+This is the entire worker change.
 
-**No 8 separate action variables in 8 separate `ActionDefinition` declarations is too verbose.** Define them inline if it's cleaner. Mirror the style of `src/schemas/entities.ts`.
+1. **No changes to candidate generation paths.** `processEntityTriggers`, `processProfileTriggers`, `processIntroRecompute`, `processBackstopSweep`, `processMemberAccessibilityTriggers` — none touch locations.
 
-### Phase 4: Worker integration (the only synchronicity change)
+2. **No changes to `buildSignalPayload`.** Payloads remain ID-first. No `locationContext` field. The function does not import any location helpers.
 
-This is the smallest change of any phase, and it's the entire payoff for the synchronicity engine.
+3. **Modify `deliverMatches`** (currently around line 540 of `src/workers/synchronicity.ts`):
+   - Read a candidate pool 3x larger than `DELIVERY_BATCH_SIZE` (still bounded for sanity).
+   - **(REVISED in v3.)** Always compute boosts when there are any candidates. No skip-when-no-contention check — the cost is small and per-recipient throttling makes the ordering meaningful even when global contention is absent.
+   - Resolve source members for entity-source match kinds via a single batch entity lookup (`source_id` is already a member ID for `member_to_member`; for `ask_to_member` / `offer_to_ask` / `event_to_member` it's an entity ID and the source member is the entity author).
+   - Call `loadLocationBoostBatch` once with the resolved candidate list to get a boost factor map.
+   - Compute adjusted score = `raw_score * boost_factor` for each candidate.
+   - Re-sort by adjusted score (ascending — lower is better in this codebase).
+   - Take the top `DELIVERY_BATCH_SIZE` after re-sort.
+   - Pass each to `deliverOneMatch` exactly as today.
 
-1. **One new helper** in `src/workers/synchronicity.ts` (or `similarity.ts` — wherever `loadEntityInfo` and `loadMemberInfo` already live):
+4. The `deliverOneMatch` function itself is unchanged. Throttling, freshness, validity, and payload assembly all work as today. Only the *order* of pickup changed when there's anything to prioritize.
 
-```typescript
-async function loadLocationOverlap(
-  pool: Pool,
-  sourceMemberId: string,
-  targetMemberId: string,
-): Promise<LocationOverlap[]>
-```
+5. **No changes to `signal_background_matches` schema.** No `location_boost` column. Boosts are not persisted.
 
-The implementation runs the SQL in Phase 2 step 6. Returns at most 5 entries.
-
-2. **Modify `buildSignalPayload`** at `src/workers/synchronicity.ts` (around line 823 based on prior reading). For each match kind branch (`ask_to_member`, `offer_to_ask`, `member_to_member`, `event_to_member`), determine the source and target members for that kind, call `loadLocationOverlap(pool, source, target)`, and attach the result as `locationContext` in the payload object.
-
-Source/target mapping per match kind:
-- `ask_to_member`: source = `entity.authorMemberId` (the ask author), target = `match.targetMemberId` (the matched member). The matched member is the one looking at the signal; the ask author is the one they're being shown.
-- `offer_to_ask`: source = `entity.authorMemberId` of the offer (the gift/service/opportunity author), target = `match.targetMemberId` (the ask author who will receive this signal). The offer author is the one being introduced.
-- `member_to_member`: source = `match.sourceId` (the other member), target = `match.targetMemberId` (the recipient).
-- `event_to_member`: source = the event's author, target = `match.targetMemberId`.
-
-The payload addition:
-
-```typescript
-return {
-  kind: 'ask_match',
-  askEntityId: match.sourceId,
-  askAuthor: ...,
-  matchScore: match.score,
-  locationContext: overlaps.map(o => ({
-    city: o.city,
-    country: o.country,
-    region: o.region,
-    overlapStartsOn: maxDate(o.sourceStartsOn, o.targetStartsOn),
-    overlapEndsOn: minDate(o.sourceEndsOn, o.targetEndsOn),
-    sourceType: o.sourceType,
-    targetType: o.targetType,
-    overlapKind: deriveOverlapKind(o.sourceType, o.targetType),
-  })),
-};
-```
-
-Where `overlapKind` is one of `'crossing'`, `'visiting_their_home'`, `'they_visit_your_home'`, `'same_home'`, computed from the source/target type pair.
-
-If `overlaps.length === 0`, omit `locationContext` from the payload entirely (don't include an empty array — keeps payloads small for the common case where there's no overlap).
-
-3. **No new triggers, no new match kinds, no new throttling.** That's the entire worker change.
+6. New env vars (with defaults):
+   - `SYNCHRONICITY_LOCATION_IMMINENT_DAYS` = 14
+   - `SYNCHRONICITY_LOCATION_NEAR_DAYS` = 90
+   - `SYNCHRONICITY_LOCATION_IMMINENT_BOOST` = 0.3
+   - `SYNCHRONICITY_LOCATION_NEAR_BOOST` = 0.6
 
 ### Phase 5: Quota, dispatch, snapshot, schemas
 
-1. **Dispatch import.** Add `import './schemas/locations.ts';` to `src/dispatch.ts` (around line 48 in the import block) so the new actions get registered when the module loads.
-2. **Quota.** No change to `QUOTA_ENTITY_KINDS`. Locations are not entities and don't fall under content quotas. (If we want quotas later, that's a separate mechanism.)
-3. **Schema snapshot.** If the project has a checked-in API schema artifact (look for `schema.json` or similar; check `test/integration/smoke.test.ts` for assertions), regenerate it after the new actions are registered.
-4. **Superadmin schema.** Check `src/schemas/superadmin.ts` for any hardcoded entity-kind unions or action lists that might need updating. Locations don't add a new entity kind, so this should be a no-op, but verify.
-5. **Contract `Repository` capability list.** Add the five new capability methods to whatever capability enum exists in `src/contract.ts` so the dispatch layer knows they're available.
+1. **Dispatch import.** Add `import './schemas/locations.ts';` to `src/dispatch.ts` (around line 48).
+2. **Quota.** No change to `QUOTA_ENTITY_KINDS`. Locations are not entities.
+3. **Schema snapshot.** Regenerate if the project has a checked-in API schema artifact.
+4. **Superadmin schema.** Verify no changes needed.
+5. **Contract `Repository` capability list.** Add the six new capability methods.
+6. **Quality gate registration.** Add a new gate name `location-note` (or reuse an existing one) for the location actions that include free-text notes.
 
 ### Phase 6: Tests
 
-Tests are written **to the must-hold invariants**, not just to the API surface. Each invariant gets at least one regression test that would fail if the invariant were broken.
+Tests are written **to the must-hold invariants**.
 
-**New file: `test/integration/locations.test.ts`.**
+**`test/integration/locations.test.ts` (new file)** — covers data layer, CRUD, and the privacy boundary:
 
-Coverage:
+- Travel add round-trip; field validation; empty city / invalid country / missing endsOn rejected.
+- Home add with no startsOn; ongoing home (ends_on null) listed back correctly.
+- Update creates a new version; raw `member_location_versions` table has 2 rows; `version_no` is 2; `supersedes_location_version_id` correct.
+- Update preserves `locationId`.
+- Update cannot change `member_id` or `type` (repo rejects).
+- Trivial update (note text change) still creates a new version row (invariant 7 / append-only).
+- `home.update` accepts `endsOn` and creates a new version reflecting the change.
+- Remove creates archive marker; chain has one more version; latest version has `status = 'archived'`; `live_member_locations` no longer returns the chain.
+- Home remove sets `ends_on` to provided date or `CURRENT_DATE`; historical chain preserved.
+- `home.list` for self with `includePast: true` returns ended homes.
+- List defaults exclude past travel; `includePast: true` includes them — for self-reads only.
+- **(NEW in v3.)** Privacy regression: list of another member's locations with `includeArchived: true` returns ONLY currently-active rows. Archived rows do not appear regardless of the flag.
+- **(NEW in v3.)** Privacy regression: list of another member's locations with `includePast: true` does NOT return ended homes or past trips. Past data does not appear regardless of the flag.
+- **(NEW in v3.)** Privacy regression: setup creates a member with two cancelled trips and an ended home; another member in the same club queries with maximum permissive flags; verify the response contains zero historical entries.
+- List of another member's locations requires shared club; returns empty array if no shared club (not 403, not 404).
+- City normalization: "Tokyo" / "tokyo" / "TOKYO" produce different displays but same `city_normalized`.
+- Diacritic normalization: "São Paulo" and "Sao Paulo" produce same `city_normalized`.
+- Country normalization: "gb" → "GB" accepted; "United Kingdom" rejected with clear error.
+- Region disambiguation: two Springfields in different US states are distinct in matching.
+- Region tolerance: a location with `region` set and one without DO match each other.
+- **(NEW in v3.)** `clientKey` chain-scoped idempotency: retrying `member.travel.update` with the same `clientKey` and same payload returns the existing version, no duplicate row created. Verify by counting rows in `member_location_versions` for that chain before and after the retry.
+- **(NEW in v3.)** `clientKey` chain-scoped 409: retrying `member.travel.update` with the same `clientKey` and a *different* payload returns 409 client_key_conflict.
+- **(NEW in v3.)** `clientKey` retry safety on `remove`: same key + same intent returns existing archive version, no duplicate.
+- `clientKey` create idempotency: same key + same payload at create time returns existing chain.
+- `parseIsoDate` rejects "2026-02-30" (the impossible-date round-trip test).
+- Location note goes through legality gate; rejected for illegal content.
 
-- **Travel add round-trip.** Create a travel plan; list returns it; the response shape contains all expected fields.
-- **Travel add validation.** `endsOn` < `startsOn` is rejected. Invalid country code is rejected. Empty city is rejected. Travel without `endsOn` is rejected.
-- **Home add with no startsOn.** Should succeed. `endsOn` is null. Listed back as ongoing.
-- **Update creates a new version.** After update, `live_member_locations` shows the new state. The raw `member_location_versions` table has two rows for the chain. `version_no` is 2. `supersedes_location_version_id` points to version 1's id.
-- **Update preserves location_id.** The `locationId` returned after update is the same as before.
-- **Update cannot change member_id or type.** Repository should reject (or simply not allow these fields in the update input).
-- **Update creates a version even for trivial changes** (invariant 2 / append-only). Edit just the note text; verify a new version row exists.
-- **Remove creates an archive marker version, doesn't delete.** After remove, the chain has one more version; the latest version has `status = 'archived'`; `live_member_locations` no longer returns the chain; `current_member_locations` does (with status = archived).
-- **Home remove sets `ends_on`.** When a home is removed without an explicit `endedOn`, the new version has `ends_on = current_date`. With explicit `endedOn`, it uses that date. Either way, the historical chain is preserved.
-- **List defaults exclude past travel.** A travel plan whose `ends_on` is in the past is not returned by `member.travel.list` unless `includePast: true`.
-- **List defaults exclude archived.** Archived chains don't appear unless `includeArchived: true`.
-- **List of another member's locations requires shared club.** A member who shares no clubs with the target gets 403 (or empty result, depending on existing patterns).
-- **List of another member's locations works in shared club.** Returns their non-archived current locations.
-- **City normalization works.** Inserting "Tokyo", "tokyo", and "TOKYO" produces three different display values but the same `city_normalized`. A query against the normalized column finds all three.
-- **Diacritic normalization.** "São Paulo" and "Sao Paulo" produce the same `city_normalized`. The display form is preserved as input.
-- **Country normalization.** "gb", "GB", and "United Kingdom" — the first two normalize to "GB"; the last is rejected with a clear error message saying to pass the ISO code.
-- **Region disambiguates.** Two travel plans both with city = "Springfield", country = "US" — one with region = "US-IL", one with region = "US-MA". They are distinct records and don't match each other in the overlap query.
-- **Region tolerance.** A location with region = "US-IL" and another with region = null (also Springfield, US) DO match in the overlap query (better to match than to miss when ambiguity isn't fully specified).
+**`test/integration/synchronicity-locations.test.ts` (new file)** — covers worker prioritization, the new action, and the boost SQL:
 
-**Synchronicity worker tests** in a new section of `test/integration/llm-gated.test.ts` or a new `test/integration/synchronicity-locations.test.ts`:
-
-- **Match payload includes `locationContext` when there's an overlap.** Set up two members with overlapping Tokyo presences; create an ask_to_member match between them; verify the delivered signal payload contains `locationContext` with the right city, dates, and overlapKind.
-- **Match payload excludes `locationContext` when there's no overlap.** Same setup but with non-overlapping locations; verify the payload has no `locationContext` field (or an empty array, depending on what the implementer chooses — the SKILL.md should match).
-- **Location context respects 90-day forward window.** A travel plan starting 100 days from now is not in the payload.
-- **Location context excludes past locations.** A travel plan whose `ends_on` is yesterday is not in the payload.
-- **Location context max 5 entries.** Set up six overlapping locations (somehow — maybe several travel plans by the same member to the same city) and verify the payload contains exactly 5.
-- **Same-home overlap appears as `same_home` overlapKind.** Both members have a home in Lisbon → payload contains a `locationContext` entry with `overlapKind: 'same_home'`.
-- **Travel + home overlap.** Member A has a Tokyo trip; member B has a Tokyo home. The match payload from A's perspective shows `overlapKind: 'visiting_their_home'`. From B's perspective: `overlapKind: 'they_visit_your_home'`.
-- **Locations don't generate new matches.** Add a travel plan; verify no new rows appear in `signal_background_matches` as a direct consequence (no `co_location` match kind, no rows where the source is a location).
-- **`buildSignalPayload` doesn't fail when one member has no locations.** Common case — most members won't have any.
+- `member.locationContext.get` returns overlap data when two members have overlapping locations in shared club.
+- `member.locationContext.get` returns empty array when no overlap exists.
+- `member.locationContext.get` requires shared club; returns empty array otherwise.
+- `member.locationContext.get` derives correct `overlapKind` for all four cases (`crossing`, `visiting_their_home`, `they_visit_your_home`, `same_home`).
+- `member.locationContext.get` is bounded to 5 overlaps.
+- **(NEW in v3.)** `member.locationContext.get` returns same_home overlaps (verifies the agent-facing helper does NOT exclude them).
+- Worker prioritization: with two pending matches of similar substantive score, the one with imminent location overlap is delivered first.
+- Worker prioritization: a pair with mediocre score and imminent overlap can outrank a pair with better score and no overlap (the "exponential boost" test).
+- **(NEW in v3.)** **same_home boost regression**: two members both have permanent home in Lisbon (same_home overlap). They have a pending substantive match. A second pending match between two other members has slightly better substantive score and no location overlap. Verify the second match is delivered first, NOT the same_home pair. This proves same_home doesn't fire the boost.
+- **(NEW in v3.)** **Boost SQL window correctness**: member A has an ongoing home in Tokyo. Member B has a travel plan to Tokyo 80 days in the future. Verify the boost is the "near" tier (0.6), not the "imminent" tier (0.3). v2's SQL would have wrongly applied the imminent boost because it derived imminence from member A's home start (in the past) rather than the actual overlap window (80 days out).
+- **(NEW in v3.)** **Boost computation always runs**: configure a small candidate pool that's well below `DELIVERY_BATCH_SIZE`. Verify the boost batch helper is still called (via spy/log). The "skip when no contention" optimization that was in v2 is gone.
+- **(NEW in v3.)** **Per-recipient contention**: 3 candidate matches, all targeting the same member, well below batch size. Verify boost ordering still affects which one delivers first under per-recipient throttling.
+- Locations don't generate new matches: adding a travel plan does not produce any new rows in `signal_background_matches` (invariant 1).
+- Boost computation handles members with no locations: returns 1.0 cheaply.
+- Signal payloads do not contain `locationContext` (invariant 5/6 — payload-level regression test).
 
 ## File-by-file changes
 
 ### `db/init.sql`
 
-Add the enums in the type definitions section (alongside `entity_kind`, `member_state`, etc., around line 50-70):
+Add the enums in the type definitions section (around line 50-70):
 
 ```sql
 -- Locations
@@ -279,7 +305,7 @@ CREATE TYPE member_location_type   AS ENUM ('home', 'travel');
 CREATE TYPE member_location_status AS ENUM ('active', 'archived');
 ```
 
-Add the table in the appropriate section. Since locations belong to members, place it near the members section, after `member_global_role_versions` (around line 130-180):
+Add the table near `member_global_role_versions` (around line 130-180):
 
 ```sql
 CREATE TABLE member_location_versions (
@@ -294,12 +320,15 @@ CREATE TABLE member_location_versions (
     country                         text NOT NULL,
     region                          text,
 
-    -- Time (dates only, interpreted in city local timezone)
+    -- Time (calendar dates, no timezone, no time component)
     starts_on                       date,
     ends_on                         date,
 
     -- Optional content
     note                            text,
+
+    -- Idempotency for retries
+    client_key                      text,
 
     -- Version chain
     version_no                      integer NOT NULL,
@@ -331,6 +360,16 @@ CREATE TABLE member_location_versions (
     )
 );
 
+-- Idempotency: create-time uniqueness on (member_id, client_key) for version 1
+CREATE UNIQUE INDEX member_location_versions_create_idempotent_idx
+    ON member_location_versions (member_id, client_key)
+    WHERE client_key IS NOT NULL AND version_no = 1;
+
+-- v3: Idempotency for update/remove via chain-scoped uniqueness on (location_id, client_key)
+CREATE UNIQUE INDEX member_location_versions_chain_idempotent_idx
+    ON member_location_versions (location_id, client_key)
+    WHERE client_key IS NOT NULL;
+
 CREATE INDEX member_location_versions_member_idx
     ON member_location_versions (member_id, location_id);
 CREATE INDEX member_location_versions_chain_version_idx
@@ -341,7 +380,7 @@ CREATE INDEX member_location_versions_dates_idx
     ON member_location_versions (starts_on, ends_on);
 ```
 
-Add the views in the views section (alongside `current_entity_versions`, `live_entities`, etc., around line 1380-1421):
+Add the views in the views section (alongside `live_entities`):
 
 ```sql
 -- ── Member locations ──────────────────────────────────────
@@ -357,293 +396,325 @@ CREATE VIEW live_member_locations AS
 
 ### `src/contract.ts`
 
-Add type definitions near the existing entity definitions:
-
-```typescript
-export type MemberLocationType = 'home' | 'travel';
-export type MemberLocationStatus = 'active' | 'archived';
-
-export type MemberLocation = {
-  locationId: string;
-  memberId: string;
-  type: MemberLocationType;
-  city: string;
-  country: string;
-  region: string | null;
-  startsOn: string | null;  // ISO date
-  endsOn: string | null;    // ISO date
-  note: string | null;
-  status: MemberLocationStatus;
-  versionNo: number;
-  createdAt: string;
-};
-
-export type CreateMemberLocationInput = {
-  authorMemberId: string;
-  type: MemberLocationType;
-  city: string;
-  country: string;
-  region: string | null;
-  startsOn: string | null;
-  endsOn: string | null;
-  note: string | null;
-};
-
-export type UpdateMemberLocationInput = {
-  actorMemberId: string;
-  locationId: string;
-  patch: {
-    city?: string;
-    country?: string;
-    region?: string | null;
-    startsOn?: string | null;
-    endsOn?: string | null;
-    note?: string | null;
-  };
-};
-
-export type ArchiveMemberLocationInput = {
-  actorMemberId: string;
-  locationId: string;
-  endedOn?: string | null;  // for home archive only
-};
-
-export type ListMemberLocationsInput = {
-  actorMemberId: string;
-  targetMemberId: string;
-  type?: MemberLocationType;
-  includePast?: boolean;
-  includeArchived?: boolean;
-};
-
-export type LocationOverlapKind =
-  | 'crossing'
-  | 'visiting_their_home'
-  | 'they_visit_your_home'
-  | 'same_home';
-
-export type LocationOverlap = {
-  city: string;
-  country: string;
-  region: string | null;
-  overlapStartsOn: string;
-  overlapEndsOn: string;
-  sourceType: MemberLocationType;
-  targetType: MemberLocationType;
-  overlapKind: LocationOverlapKind;
-};
-```
-
-Add the repository capability methods to whatever interface declares them:
-
-```typescript
-createMemberLocation(input: CreateMemberLocationInput): Promise<MemberLocation>;
-updateMemberLocation(input: UpdateMemberLocationInput): Promise<MemberLocation | null>;
-archiveMemberLocation(input: ArchiveMemberLocationInput): Promise<MemberLocation | null>;
-listMemberLocations(input: ListMemberLocationsInput): Promise<MemberLocation[]>;
-loadLocationOverlapForMatch(
-  sourceMemberId: string,
-  targetMemberId: string,
-): Promise<LocationOverlap[]>;
-```
+Same type definitions as v2. The `clientKey` field on `UpdateMemberLocationInput` and `ArchiveMemberLocationInput` is unchanged in shape — what changes is how the repo enforces it.
 
 ### `src/schemas/responses.ts`
 
-Add a new zod schema:
-
-```typescript
-export const memberLocationType = z.enum(['home', 'travel']);
-export const memberLocationStatus = z.enum(['active', 'archived']);
-
-export const memberLocation = z.object({
-  locationId: z.string(),
-  memberId: z.string(),
-  type: memberLocationType,
-  city: z.string(),
-  country: z.string(),
-  region: z.string().nullable(),
-  startsOn: z.string().nullable(),
-  endsOn: z.string().nullable(),
-  note: z.string().nullable(),
-  status: memberLocationStatus,
-  versionNo: z.number(),
-  createdAt: z.string(),
-});
-```
+Same as v2.
 
 ### `src/schemas/fields.ts`
 
-Add the new wire/parse helpers near the existing date helpers:
-
-```typescript
-/** Wire: ISO 8601 date (YYYY-MM-DD), no time component */
-export const wireIsoDate = z.string()
-  .describe('ISO 8601 date (YYYY-MM-DD). No time component.');
-
-/** Parse: validates strict YYYY-MM-DD format */
-export const parseIsoDate = safeString.pipe(z.string().trim())
-  .refine(s => /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Date.parse(s + 'T00:00:00Z')),
-    'Must be ISO 8601 date YYYY-MM-DD');
-
-/** Wire: country (ISO 3166-1 alpha-2). Server uppercases. */
-export const wireCountryCode = z.string()
-  .describe('ISO 3166-1 alpha-2 country code, e.g. "GB", "US", "JP". Server uppercases.');
-
-/** Parse: uppercases and validates two-letter format */
-export const parseCountryCode = safeString.pipe(z.string().trim())
-  .transform(s => s.toUpperCase())
-  .refine(s => /^[A-Z]{2}$/.test(s),
-    'Must be ISO 3166-1 alpha-2 country code (e.g. "GB", "US", "JP")');
-
-/** Wire: city name. Server normalizes. */
-export const wireCityName = z.string().max(200)
-  .describe('City name. Server normalizes for matching but preserves display form.');
-
-/** Parse: trims, length-bounds, rejects empty */
-export const parseCityName = safeString.pipe(z.string().trim().min(1).max(200));
-
-/** Wire: region (optional, ISO 3166-2 preferred but free text allowed). */
-export const wireRegionCode = z.string().max(10).nullable().optional()
-  .describe('Optional ISO 3166-2 region code (e.g. "GB-LND", "US-IL") for disambiguating ambiguous cities. Server uppercases.');
-
-/** Parse: trims, uppercases, length-bounds */
-export const parseRegionCode = safeString.pipe(z.string().trim().max(10))
-  .transform(s => s === '' ? null : s.toUpperCase())
-  .nullable()
-  .optional();
-```
+Same as v2 (including the round-trip-validated `parseIsoDate`).
 
 ### `src/clubs/locations.ts` (new file)
 
-The repository implementation for member locations. Mirrors the structure of `src/clubs/entities.ts`. Includes:
+The repository implementation. Changes from v2:
 
-- Normalization helpers (`normalizeCity`, `normalizeCountry`, `normalizeRegion`).
-- `mapLocationRow(row)` for converting DB rows to API shapes.
-- `LOCATION_SELECT` constant for the standard column list.
-- `createMemberLocation` — generates new `location_id` and `id`, inserts version 1.
-- `updateMemberLocation` — reads current live version via `live_member_locations`, verifies ownership, computes new version, inserts. Returns null on not-found-or-not-owned.
-- `archiveMemberLocation` — same as update but new version always sets `status = 'archived'`. For homes, also sets `ends_on` if currently null.
-- `listMemberLocations` — reads from `live_member_locations` (or `current_member_locations` if `includeArchived`), filtered by member + type. For other-member reads, joins through `accessible_club_memberships` to verify shared club access (return empty array, not 403, when no shared club exists — same pattern as `getMemberProfile`).
-- `loadLocationOverlapForMatch` — runs the overlap query (Phase 2 step 6 SQL), returns up to 5 overlaps with derived `overlapKind`.
+**`updateMemberLocation` and `archiveMemberLocation` get chain-scoped clientKey idempotency:**
 
 ```typescript
-function deriveOverlapKind(sourceType: MemberLocationType, targetType: MemberLocationType): LocationOverlapKind {
-  if (sourceType === 'travel' && targetType === 'travel') return 'crossing';
-  if (sourceType === 'travel' && targetType === 'home') return 'visiting_their_home';
-  if (sourceType === 'home' && targetType === 'travel') return 'they_visit_your_home';
+async function updateMemberLocation(
+  pool: Pool,
+  input: UpdateMemberLocationInput,
+): Promise<MemberLocation | null> {
+  return withTransaction(pool, async (client) => {
+    // 1. Read current live version of the chain, verify ownership
+    const current = await client.query<...>(
+      `SELECT id, version_no, member_id, type, city, country, region, starts_on, ends_on, note
+       FROM live_member_locations
+       WHERE location_id = $1 AND member_id = $2`,
+      [input.locationId, input.actorMemberId],
+    );
+    if (!current.rows[0]) return null;
+    const currentRow = current.rows[0];
+
+    // 2. (NEW in v3) clientKey chain-scoped idempotency
+    if (input.clientKey) {
+      const existing = await client.query<...>(
+        `SELECT * FROM member_location_versions
+         WHERE location_id = $1 AND client_key = $2`,
+        [input.locationId, input.clientKey],
+      );
+      if (existing.rows[0]) {
+        const existingRow = existing.rows[0];
+        // Verify payload matches
+        if (payloadsMatch(currentRow, input.patch, existingRow)) {
+          return mapLocationRow(existingRow);
+        }
+        throw new AppError(409, 'client_key_conflict',
+          'clientKey was already used on this location with a different payload');
+      }
+    }
+
+    // 3. Compute and insert the new version (existing logic)
+    // ...
+  });
+}
+```
+
+The `archiveMemberLocation` follows the same pattern.
+
+**`listMemberLocations` enforces the v3 privacy invariant:**
+
+```typescript
+async function listMemberLocations(
+  pool: Pool,
+  input: ListMemberLocationsInput,
+): Promise<MemberLocation[]> {
+  // (NEW in v3) Force archived/past flags off for other-member reads
+  const isSelfRead = input.actorMemberId === input.targetMemberId;
+  const includeArchived = isSelfRead && (input.includeArchived ?? false);
+  const includePast = isSelfRead && (input.includePast ?? false);
+
+  // Choose view based on includeArchived
+  const view = includeArchived ? 'current_member_locations' : 'live_member_locations';
+
+  // Build the query with member access filter and includePast filter
+  const result = await pool.query<...>(
+    `SELECT * FROM ${view}
+     WHERE member_id = $1
+       AND ($2::text IS NULL OR type = $2::member_location_type)
+       AND (
+         $1 = $3                                              -- self-read: any member_id allowed
+         OR EXISTS (                                          -- other-member: shared club
+           SELECT 1 FROM club_memberships cm1
+           JOIN club_memberships cm2 ON cm1.club_id = cm2.club_id
+           WHERE cm1.member_id = $1
+             AND cm2.member_id = $3
+             AND cm1.status = 'active'
+             AND cm2.status = 'active'
+         )
+       )
+       AND ($4::boolean OR ends_on IS NULL OR ends_on >= CURRENT_DATE)
+     ORDER BY type, starts_on DESC NULLS LAST`,
+    [input.targetMemberId, input.type ?? null, input.actorMemberId, includePast],
+  );
+
+  return result.rows.map(mapLocationRow);
+}
+```
+
+Note that `includeArchived` and `includePast` were forced to false BEFORE the SQL ran, so the SQL faithfully applies the active/current filters when called for another member, regardless of what the caller passed.
+
+**`loadLocationOverlap` (single-pair, agent-facing) — includes same_home:**
+
+```sql
+SELECT
+  s.city, s.country, s.region,
+  s.type AS source_type,
+  t.type AS target_type,
+  GREATEST(
+    COALESCE(s.starts_on, '-infinity'::date),
+    COALESCE(t.starts_on, '-infinity'::date),
+    CURRENT_DATE
+  ) AS overlap_starts_on,
+  LEAST(
+    COALESCE(s.ends_on, 'infinity'::date),
+    COALESCE(t.ends_on, 'infinity'::date)
+  ) AS overlap_ends_on
+FROM live_member_locations s
+JOIN live_member_locations t
+  ON s.city_normalized = t.city_normalized
+ AND s.country = t.country
+ AND (s.region IS NULL OR t.region IS NULL OR s.region = t.region)
+WHERE s.member_id = $1
+  AND t.member_id = $2
+  -- date overlap exists
+  AND COALESCE(s.starts_on, '-infinity'::date) <= COALESCE(t.ends_on, 'infinity'::date)
+  AND COALESCE(s.ends_on, 'infinity'::date) >= COALESCE(t.starts_on, '-infinity'::date)
+  -- overlap extends into the future or is currently active
+  AND COALESCE(s.ends_on, 'infinity'::date) >= CURRENT_DATE
+  AND COALESCE(t.ends_on, 'infinity'::date) >= CURRENT_DATE
+  -- (NOTE: no exclusion of same_home here — agent uses same_home as context)
+ORDER BY overlap_starts_on ASC
+LIMIT 5
+```
+
+Then derive `overlapKind` in TypeScript:
+
+```typescript
+function deriveOverlapKind(source: MemberLocationType, target: MemberLocationType): LocationOverlapKind {
+  if (source === 'travel' && target === 'travel') return 'crossing';
+  if (source === 'travel' && target === 'home') return 'visiting_their_home';
+  if (source === 'home' && target === 'travel') return 'they_visit_your_home';
   return 'same_home';
 }
 ```
 
-### `src/schemas/locations.ts` (new file)
+**`loadLocationBoostBatch` (worker-facing) — corrected SQL with same_home exclusion:**
 
-The action definitions. Eight actions, each small. Mirror the structure of `src/schemas/entities.ts`. Register at the bottom:
-
-```typescript
-registerActions([
-  travelAdd, travelUpdate, travelRemove, travelList,
-  homeAdd, homeUpdate, homeRemove, homeList,
-]);
+```sql
+WITH match_pairs AS (
+  SELECT * FROM unnest(
+    $1::text[],  -- match_ids
+    $2::text[],  -- source_member_ids
+    $3::text[]   -- target_member_ids
+  ) AS t(match_id, source_id, target_id)
+),
+pair_overlaps AS (
+  -- Compute the actual overlap window for each match pair, clamped to today
+  SELECT
+    mp.match_id,
+    GREATEST(
+      COALESCE(s.starts_on, '-infinity'::date),
+      COALESCE(t.starts_on, '-infinity'::date),
+      CURRENT_DATE
+    ) AS overlap_starts,
+    LEAST(
+      COALESCE(s.ends_on, 'infinity'::date),
+      COALESCE(t.ends_on, 'infinity'::date)
+    ) AS overlap_ends
+  FROM match_pairs mp
+  JOIN live_member_locations s ON s.member_id = mp.source_id
+  JOIN live_member_locations t ON t.member_id = mp.target_id
+   AND t.city_normalized = s.city_normalized
+   AND t.country = s.country
+   AND (t.region IS NULL OR s.region IS NULL OR t.region = s.region)
+  WHERE
+    -- date overlap exists
+    COALESCE(s.starts_on, '-infinity'::date) <= COALESCE(t.ends_on, 'infinity'::date)
+    AND COALESCE(s.ends_on, 'infinity'::date) >= COALESCE(t.starts_on, '-infinity'::date)
+    -- overlap extends into the future or is currently active
+    AND COALESCE(s.ends_on, 'infinity'::date) >= CURRENT_DATE
+    AND COALESCE(t.ends_on, 'infinity'::date) >= CURRENT_DATE
+    -- (v3) exclude same_home overlaps from boost computation
+    AND NOT (s.type = 'home' AND t.type = 'home')
+),
+boost_per_match AS (
+  SELECT
+    match_id,
+    -- Use the SOONEST overlap start to determine tier
+    -- (overlap_starts is already clamped to CURRENT_DATE for currently-active overlaps)
+    CASE
+      WHEN MIN(overlap_starts) <= (CURRENT_DATE + ($4 || ' days')::interval)::date THEN $6::float  -- imminent boost
+      WHEN MIN(overlap_starts) <= (CURRENT_DATE + ($5 || ' days')::interval)::date THEN $7::float  -- near boost
+      ELSE 1.0::float
+    END AS boost
+  FROM pair_overlaps
+  GROUP BY match_id
+)
+SELECT
+  mp.match_id,
+  COALESCE(bpm.boost, 1.0::float) AS boost
+FROM match_pairs mp
+LEFT JOIN boost_per_match bpm ON bpm.match_id = mp.match_id
 ```
 
-For each action: wire schema (input/output), parse schema, handler. The handler calls the corresponding repo method, throws 404 on null, returns the location wrapped in the response envelope.
+**Why this is correct:** The `pair_overlaps` CTE computes the actual overlap window between source and target locations, clamped to `CURRENT_DATE` for already-active overlaps. The `MIN(overlap_starts)` in `boost_per_match` finds the soonest synchronistic overlap window for the pair (across all matching location pairs, since members can have multiple homes/trips). The imminent/near tier check uses that soonest overlap start, not the source row's start date — so an ongoing home overlapping with travel 80 days out correctly produces `overlap_starts = today + 80` and falls into the `near` tier. The `NOT (s.type = 'home' AND t.type = 'home')` filter ensures permanent home × home overlaps don't contribute.
+
+### `src/schemas/locations.ts` (new file)
+
+Same nine actions as v2. Register at the bottom.
 
 ### `src/dispatch.ts`
 
-Add to the import block (around line 47-62):
-
-```typescript
-import './schemas/locations.ts';
-```
-
-That's the only change to dispatch.
+Add `import './schemas/locations.ts';` to the import block.
 
 ### `src/postgres.ts`
 
-The Postgres-backed repository implementation needs to add the five new methods:
-- `createMemberLocation`
-- `updateMemberLocation`
-- `archiveMemberLocation`
-- `listMemberLocations`
-- `loadLocationOverlapForMatch`
-
-Each delegates to functions in `src/clubs/locations.ts` (just like the entity methods delegate to `src/clubs/entities.ts`).
+The Postgres-backed repository implementation needs the six new methods, each delegating to functions in `src/clubs/locations.ts`.
 
 ### `src/workers/synchronicity.ts`
 
-Two changes:
+Three changes in `deliverMatches`:
 
-1. **Import `loadLocationOverlapForMatch`** from `src/clubs/locations.ts`. Or, since the worker uses raw queries elsewhere, write a worker-local helper that runs the same SQL. Either is fine; the helper-in-locations.ts approach is cleaner because it keeps the SQL in one place.
+1. **Read a 3x candidate pool.** Change `LIMIT $1` from `DELIVERY_BATCH_SIZE` to `DELIVERY_BATCH_SIZE * 3`.
 
-2. **Modify `buildSignalPayload`** (around line 823) to call the helper for each match kind and attach `locationContext` to the payload object. See Phase 4 step 2 above for the exact mapping. Roughly:
+2. **(REVISED in v3.) Always compute boosts when there are candidates.** No skip-when-no-contention check. The cost is bounded by the candidate pool size and is small.
+
+3. **Compute boosts and re-sort.** Resolve source members for entity-source kinds via batch entity lookup, call `loadLocationBoostBatch`, multiply each candidate's score by its boost, re-sort, take top `DELIVERY_BATCH_SIZE`, pass each to `deliverOneMatch`.
 
 ```typescript
-async function buildSignalPayload(pools, match) {
-  // ... existing logic to determine source and target ...
+async function deliverMatches(pools: WorkerPools): Promise<number> {
+  await expireStaleMatches(pools.db);
 
-  let locationContext: LocationOverlap[] | undefined;
-  if (sourceMemberId && targetMemberId) {
-    const overlaps = await loadLocationOverlap(pools.db, sourceMemberId, targetMemberId);
-    if (overlaps.length > 0) {
-      locationContext = overlaps;
-    }
-  }
+  const candidateResult = await pools.db.query<{
+    id: string; match_kind: string; source_id: string; target_member_id: string; score: number;
+  }>(
+    `select id, match_kind, source_id, target_member_id, score
+     from signal_background_matches
+     where state = 'pending'
+       and (expires_at is null or expires_at > now())
+     order by score asc, created_at asc
+     limit $1`,
+    [DELIVERY_BATCH_SIZE * 3],
+  );
+  if (candidateResult.rows.length === 0) return 0;
 
-  if (match.matchKind === 'ask_to_member') {
-    return {
-      kind: 'ask_match',
-      askEntityId: ...,
-      askAuthor: ...,
-      matchScore: match.score,
-      ...(locationContext && { locationContext }),
-    };
+  // (REVISED in v3) Always compute boosts. The cost is bounded and per-recipient
+  // throttling makes ordering matter even when global pool is small.
+  const resolved = await resolveSourceMembers(pools.db, candidateResult.rows);
+  const boosts = await loadLocationBoostBatch(pools.db, resolved.map(r => ({
+    matchId: r.id,
+    sourceMemberId: r.sourceMemberId,
+    targetMemberId: r.target_member_id,
+  })));
+
+  const adjusted = candidateResult.rows.map(row => ({
+    ...row,
+    adjustedScore: row.score * (boosts.get(row.id) ?? 1.0),
+  }));
+  adjusted.sort((a, b) => a.adjustedScore - b.adjustedScore);
+  const toDeliver = adjusted.slice(0, DELIVERY_BATCH_SIZE);
+
+  let delivered = 0;
+  for (const candidate of toDeliver) {
+    const result = await deliverOneMatch(pools, candidate.id);
+    if (result === 'delivered') delivered++;
   }
-  // ... etc for other match kinds ...
+  return delivered;
 }
 ```
 
-The conditional spread keeps the payload clean for the common case where there's no overlap.
+`resolveSourceMembers` is a small helper that takes the candidate rows and returns one entry per row with the source member ID resolved (entity author lookup for `ask_to_member` / `offer_to_ask` / `event_to_member`; direct from `source_id` for `member_to_member`).
+
+**`buildSignalPayload` is unchanged.** No location data in the payload.
 
 ### `db/seeds/dev.sql`
 
-Optional but useful: add a few seeded location rows for the test members so that running the dev server immediately demonstrates the feature. For each test member (Owen, Alice, Bob, Charlie), add 1-2 home rows and 1-2 travel rows to varied cities. Pick dates that produce some overlaps for matching demos.
+Optional: add seeded location rows for the test members so the dev server immediately demonstrates the feature. Include at least one same_home pair and one travel-crossing pair so the boost tests have data to work against.
 
 ### `test/integration/locations.test.ts` (new file)
 
-See Phase 6 for the test list. Use `TestHarness` and the existing patterns from `test/integration/profiles.test.ts` or `test/integration/content.test.ts`.
+See Phase 6 for the test list.
+
+### `test/integration/synchronicity-locations.test.ts` (new file)
+
+See Phase 6 for the test list. The new v3 tests are flagged inline.
 
 ### `test/integration/smoke.test.ts`
 
-If this file asserts on the list of registered actions or the schema snapshot, update the assertions to include the new location actions.
+Update assertions if they reference the action list or schema snapshot.
 
 ## SKILL.md updates
 
-These are applied separately by Claude (the conversational agent), not the implementing agent. Drafted here for review alongside the rest of the plan.
+Applied separately by Claude (the conversational agent), not the implementing agent. Drafted here for review.
 
 ### 1. Add to the available actions list
 
-Insert a new action group after the **Profile** group (around line 65-67):
+Insert a new action group after the **Profile** group:
 
 ```
 **Locations**
-- `member.travel.add` — declare an upcoming trip (city, country, dates)
+- `member.travel.add` — declare an upcoming trip (city, country, dates, optional note)
 - `member.travel.update` — update the details of a planned trip
 - `member.travel.remove` — cancel or archive a trip
 - `member.travel.list` — list your own (or another member's) travel plans in shared clubs
 - `member.home.add` — declare a home base (members can have multiple)
-- `member.home.update` — update the details of a home
+- `member.home.update` — update the details of a home (city, dates, etc.)
 - `member.home.remove` — mark a home as ended (for moves), preserving history
 - `member.home.list` — list your own (or another member's) home bases in shared clubs
+- `member.locationContext.get` — fetch live location overlap with another specific member, used to enrich introduction messages
 ```
 
-### 2. Insert a new "Locations" subsection in `## Interaction patterns`
+### 2. Insert "Locations: homes and travel" subsection in `## Interaction patterns`
 
 ```markdown
 ### Locations: homes and travel
 
 ClawClub supports two kinds of location data: **homes** (where members live, possibly multiple) and **travel** (upcoming trips with dates). Both are stored as versioned, append-only history — when a member moves house or updates a trip, the old version is preserved as history rather than deleted.
 
-**Location is enrichment, not a reason to introduce people.** The synchronicity engine never matches people because they live in the same city or are visiting the same place. It matches them on substance — what they offer, what they need, what they're working on. Location is then attached to those matches as additional context that makes the introduction more actionable: *"Maria looks like a strong biotech connection — and you'll both be in Tokyo April 14–18."*
+**Location is enrichment, not a reason to introduce people.** The synchronicity engine never matches people *because* they live in the same city or are visiting the same place. Substantive matching (asks, gifts, profile similarity) is what creates introductions. But synchronistic location overlap — a trip about to happen, a host visit, calendar timing — *does* affect which substantive matches get prioritized for delivery. Two people with mediocre substance and imminent shared travel can outrank two people with better substance and no overlap. Permanent shared geography (both members live in Tokyo) does NOT trigger this boost — that's geography, not synchronicity.
 
 When a member mentions they're traveling somewhere, or they live in a particular city, or they're moving — capture that as a location row. Don't ask members for location data unprompted; collect it when it comes up naturally.
 
@@ -656,29 +727,29 @@ When a member mentions they're traveling somewhere, or they live in a particular
 **Home `startsOn` is optional.** If a member doesn't remember when they moved in, leave it null.
 
 **Removing vs ending homes.** When a member moves house, use `member.home.remove` with `endedOn` set to the move date. This preserves the historical record ("Owen lived in London until April 2024") which is valuable context for the synchronicity engine. Don't try to "delete" the old home — there's no such operation. Removal always preserves history.
+
+**Privacy of historical data.** When you call `member.travel.list` or `member.home.list` for ANOTHER member, you only see their currently-active locations. Their cancelled trips, ended homes, and archived versions are not visible to you regardless of any flags. This is enforced by the server. When you list YOUR OWN locations, `includePast: true` and `includeArchived: true` work as expected — you can see your own full history.
 ```
 
-### 3. Insert a "Location context in signals" subsection in `## Interaction patterns`
+### 3. Insert "Surfacing matches with location context" subsection in `## Interaction patterns`
 
 ```markdown
-### Location context in match signals
+### Surfacing matches with location context
 
-When the synchronicity engine delivers a match (an introduction, an ask match, an offer match), the signal payload may include a `locationContext` array with overlap details between the actor and the matched member. Each overlap entry has:
+When you receive a match signal from `updates.list` (an introduction, an ask match, an offer match) and you're about to surface it to the member, consider whether to enrich it with location context.
 
-- `city`, `country`, `region` — the place
-- `overlapStartsOn`, `overlapEndsOn` — the calendar overlap window
-- `sourceType`, `targetType` — `'home'` or `'travel'` for each side
-- `overlapKind` — one of:
-  - `crossing` (both members will be traveling there)
-  - `visiting_their_home` (the matched member is visiting your home city)
-  - `they_visit_your_home` (you'll be visiting the matched member's home city)
-  - `same_home` (you both live there)
+The signal payload itself does NOT contain location data. To get current location overlap, call `member.locationContext.get({ otherMemberId: <the matched member> })`. This returns up to 5 overlap entries with city, dates, and an `overlapKind`:
 
-Use this context to enrich the way you present the match to the member. For example, an introduction signal with `overlapKind: 'crossing'` and city Tokyo April 14–18 should be framed as *"…and you'll both be in Tokyo April 14–18, in case you want to meet in person."* A `visiting_their_home` overlap should be framed as *"…they live in Lisbon, where you'll be next week — they might be a great host."*
+- `crossing` — both members will be traveling to the same place at overlapping times
+- `visiting_their_home` — the matched member lives in a city you'll be visiting
+- `they_visit_your_home` — the matched member will be visiting your home city
+- `same_home` — you both live in the same place
 
-The location context is supporting information, not the reason for the match. Always lead with the substantive reason (the ask, the gift, the shared interest) and mention location only as additional color.
+Use this context to enrich the introduction message. For `crossing` overlap in Tokyo April 14–18: *"Maria looks like a strong biotech connection — she has experience with X. And you'll both be in Tokyo April 14–18, in case you want to meet in person."* For `same_home` overlap in Lisbon: *"And you both live in Lisbon — you might already cross paths."* The framing should always lead with substance and use location as context.
 
-When `locationContext` is absent or empty, don't mention location in the introduction at all — most matches won't have location overlap.
+**You don't have to call `member.locationContext.get` for every match.** Only call it when you're actually going to surface the match to the member and want to weave location into the message.
+
+**The synchronicity engine already prioritizes synchronistic-overlap matches for delivery.** When a match arrives in your update feed, the engine has already weighted it by location overlap (among other factors) in the delivery decision — *but only for synchronistic overlap kinds (crossing, visiting_their_home, they_visit_your_home), not for permanent same_home overlap*. The fact that you're seeing a match doesn't necessarily mean there's location overlap — look up the context separately if you want to mention it.
 ```
 
 ### 4. Update `## What exists in the system`
@@ -689,37 +760,32 @@ Add to the primitives line (around line 234):
 
 ## Out of scope
 
-These are deliberately not included in v1. Some are future features; some are decisions to keep simple.
-
-- **No `co_location` match kind.** Location is enrichment, not a primary match. This is the central design call (invariant 1) and the implementer should not add a co-location match kind under any circumstances.
-- **No location-based search across the platform.** No `location.search` or `members.findInCity` or equivalent. If a member wants to know who's in Tokyo, they call `member.travel.list` and `member.home.list` for specific other members they're already interested in.
-- **No geocoding.** No external API for canonical place IDs. Agent-side normalization via SKILL.md guidance is sufficient for v1.
-- **No address-level data.** City, country, optional region. No streets, no neighborhoods, no GPS coordinates. Ever in v1.
-- **No real-time location tracking.** Members declare plans; the system doesn't track where they actually are.
-- **No quotas on location actions.** They're not entities; they don't go through `QUOTA_ENTITY_KINDS`. Add a separate quota mechanism in v2 if abuse appears.
-- **No legality gate on location adds.** The optional note field is free text but the use case is benign. Add gating if abuse appears.
-- **No recurring travel.** "I'm in NYC every other week" is a member-managed sequence of discrete trips, not a recurrence rule.
+- **No `co_location` match kind.** Location is enrichment, not a primary match.
+- **No location data in signal payloads.** Read-side fetch via `member.locationContext.get`.
+- **No location-based search across the platform.** No `location.search` or `members.findInCity`.
+- **No geocoding.** Agent-side normalization via SKILL.md guidance.
+- **No address-level data.** City, country, optional region only.
+- **No real-time location tracking.**
+- **No quotas on location actions in v1.**
+- **No recurring travel.** Discrete trips only.
 - **No multi-stop trips as a single object.** A London → Paris → Berlin trip is three location rows.
-- **No automatic timezone awareness.** Dates are local-to-the-city by convention. The application doesn't store or compute timezones.
-- **No backfill of location overlaps for existing matches.** When the feature ships, only matches generated *after* deploy will have `locationContext` in their payloads. Old delivered signals stay as they were.
-- **No `member.location.search` action even for the actor's own data.** If you want filtered results, the future enhancement is `member.travel.list({ city, country, after, before })` — but for v1, list everything and filter client-side. Keep the API minimal.
+- **No automatic timezone awareness.** Dates are calendar dates without timezone.
+- **No backfill of location prioritization for existing pending matches.** Only delivery cycles after deploy use the prioritization.
+- **No peer access to historical location data.** Other members never see archived or past locations regardless of flags.
+- **No same_home boost.** Permanent shared geography doesn't fire the synchronicity boost; it's still surfaced to the agent as context, just not used to reorder delivery.
 
 ## Open questions for the implementer
 
-These are decisions left to the implementer (or noted as design notes). They don't change the must-hold invariants.
+1. **`country` validation: regex vs hardcoded ISO list.** Plan uses CHECK constraint `country ~ '^[A-Z]{2}$'` which accepts any two uppercase letters including invalid ones. Tighter would be a CHECK against the full ISO list. Agent normalization is the practical defense; regex is sanity. **Leave as-is** unless implementer feels strongly.
 
-1. **`country` validation: regex vs hardcoded ISO list.** The plan uses a CHECK constraint `country ~ '^[A-Z]{2}$'` which accepts any two uppercase letters, including "XX" or "ZZ" which aren't real codes. Tighter would be a CHECK constraint listing all valid ISO 3166-1 alpha-2 codes. The agent's normalization is the practical defense; the regex is just a sanity check. **I'd leave the regex as-is for v1** unless the implementer feels strongly. Members or agents passing fake codes get garbage-in/garbage-out behavior, not a security issue.
+2. **Boost factor tuning.** Default values are guesses. Real values come from watching the worker in production with seeded data. The implementer should not block on tuning these; they're env-vars and changeable.
 
-2. **`current_member_locations` view tie-breaker.** The view orders by `version_no DESC`. Adding `created_at DESC` as a secondary sort handles the (impossible-in-practice) case where two versions have the same `version_no`. The plan includes it; minor consistency hardening.
+3. **Resolving entity-source kinds in the boost computation.** The plan says one batch entity lookup before computing boosts. The implementer might prefer to do this resolution inside the boost SQL itself by joining `signal_background_matches` to `entities` with a CASE on `match_kind`. Either approach is fine; pick whichever is cleaner.
 
-3. **Should `member.travel.list` and `member.home.list` be combined into one `member.locations.list({ type? })` action?** The plan keeps them separate for clarity. Eight actions instead of six. Owen's preference. Not a v2 question — design is final.
+4. **Concurrency.** If two delivery workers run concurrently, they might compute boosts on overlapping candidate pools and race on `deliverOneMatch`. This already happens with the current design (the per-recipient advisory lock in `deliverOneMatch` serializes per-member). The boost computation doesn't introduce new race conditions because it's read-only and the actual delivery decision is locked. Confirm during implementation.
 
-4. **Performance of the overlap query.** The query is run once per match delivery, against `live_member_locations` for two specific members. With indexes on `(member_id, location_id)` and `(city_normalized, country)`, this should be cheap (each member has at most a handful of locations). If profiling shows it's slow, the fix is probably `EXPLAIN ANALYZE` and a smarter index.
-
-5. **Test data for the synchronicity worker tests.** The tests need to set up two members with overlapping locations AND a substantive reason to be matched (an ask, a profile similarity). The implementer should leverage `TestHarness` and existing match-test patterns. If the tests are flaky because of worker timing, follow the pattern in the existing synchronicity tests for triggering and waiting.
-
-6. **What does the agent see for an introduction signal with `locationContext` but no other compelling substance?** The current intro path uses profile vector similarity. If two members happen to have low similarity but ARE in the same city, the engine still won't introduce them — locations aren't a match trigger. But if the engine produces a borderline intro for substantive reasons AND there's a location overlap, the location context might be the thing that pushes the agent to actually deliver the introduction message instead of suppressing it as weak. This is SKILL.md framing, not implementation; the SKILL.md update above covers it.
+5. **Test data for the worker prioritization tests.** The "exponential boost" test, the "same_home doesn't boost" test, and the "v2 SQL bug regression" test all need carefully constructed setups. Use `TestHarness` and existing match-test patterns.
 
 ---
 
-Once this lands, the next features in the queue are `member.tell()` (the directional nudge to the synchronicity engine) and the Club Mind reasoning layer v0. Both will benefit from having location data as substrate, and the reasoning layer in particular will read `live_member_locations` directly as part of per-club context. The data model is designed to support that integration without further schema changes.
+The next features in the queue after this lands are `member.tell()` (the directional nudge to the synchronicity engine) and the Club Mind reasoning layer v0. Both will benefit from having location data as substrate, and the reasoning layer in particular will read `live_member_locations` directly as part of per-club context. The data model is designed to support that integration without further schema changes.
