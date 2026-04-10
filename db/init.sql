@@ -98,6 +98,7 @@ CREATE TABLE members (
     id                  short_id DEFAULT new_id() NOT NULL,
     handle              text NOT NULL,
     public_name         text NOT NULL,
+    display_name        text NOT NULL,
     state               member_state DEFAULT 'active' NOT NULL,
     source_admission_id short_id,
     metadata            jsonb DEFAULT '{}' NOT NULL,
@@ -105,7 +106,8 @@ CREATE TABLE members (
 
     CONSTRAINT members_pkey PRIMARY KEY (id),
     CONSTRAINT members_handle_unique UNIQUE (handle),
-    CONSTRAINT members_public_name_check CHECK (length(btrim(public_name)) > 0)
+    CONSTRAINT members_public_name_check CHECK (length(btrim(public_name)) > 0),
+    CONSTRAINT members_display_name_check CHECK (length(btrim(display_name)) > 0)
 );
 
 CREATE INDEX members_state_idx ON members (state);
@@ -169,13 +171,13 @@ CREATE TABLE member_private_contacts (
     CONSTRAINT member_private_contacts_member_fkey FOREIGN KEY (member_id) REFERENCES members(id)
 );
 
--- ── Member profile versions ───────────────────────────────────────
+-- ── Member club profile versions ──────────────────────────────────
 
-CREATE TABLE member_profile_versions (
+CREATE TABLE member_club_profile_versions (
     id                      short_id DEFAULT new_id() NOT NULL,
     member_id               short_id NOT NULL,
+    club_id                 short_id NOT NULL,
     version_no              integer NOT NULL,
-    display_name            text NOT NULL,
     tagline                 text,
     summary                 text,
     what_i_do               text,
@@ -187,25 +189,26 @@ CREATE TABLE member_profile_versions (
     search_vector           tsvector,
     created_at              timestamptz DEFAULT now() NOT NULL,
     created_by_member_id    short_id,
+    generation_source       text DEFAULT 'manual' NOT NULL,
 
-    CONSTRAINT member_profile_versions_pkey PRIMARY KEY (id),
-    CONSTRAINT member_profile_versions_member_version_unique UNIQUE (member_id, version_no),
-    CONSTRAINT member_profile_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT member_profile_versions_display_name_check CHECK (length(btrim(display_name)) > 0),
-    CONSTRAINT member_profile_versions_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT member_profile_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
+    CONSTRAINT member_club_profile_versions_pkey PRIMARY KEY (id),
+    CONSTRAINT member_club_profile_versions_member_club_version_unique UNIQUE (member_id, club_id, version_no),
+    CONSTRAINT member_club_profile_versions_version_no_check CHECK (version_no > 0),
+    CONSTRAINT member_club_profile_versions_generation_source_check
+        CHECK (generation_source IN ('manual', 'migration_backfill', 'admission_generated', 'membership_seed')),
+    CONSTRAINT member_club_profile_versions_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT member_club_profile_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
-CREATE INDEX member_profile_versions_member_version_idx ON member_profile_versions (member_id, version_no DESC);
-CREATE INDEX member_profile_versions_created_idx ON member_profile_versions (created_at DESC);
-CREATE INDEX member_profile_versions_search_idx ON member_profile_versions USING gin (search_vector);
+CREATE INDEX member_club_profile_versions_member_club_idx ON member_club_profile_versions (member_id, club_id, version_no DESC);
+CREATE INDEX member_club_profile_versions_club_member_idx ON member_club_profile_versions (club_id, member_id, version_no DESC);
+CREATE INDEX member_club_profile_versions_search_idx ON member_club_profile_versions USING gin (search_vector);
 
-CREATE FUNCTION member_profile_versions_search_vector_trigger() RETURNS trigger
+CREATE FUNCTION member_club_profile_versions_search_vector_trigger() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
     NEW.search_vector := to_tsvector('english',
-        coalesce(NEW.display_name, '') || ' ' ||
         coalesce(NEW.tagline, '') || ' ' ||
         coalesce(NEW.summary, '') || ' ' ||
         coalesce(NEW.what_i_do, '') || ' ' ||
@@ -216,10 +219,10 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER member_profile_versions_search_vector_update
-    BEFORE INSERT OR UPDATE ON member_profile_versions
+CREATE TRIGGER member_club_profile_versions_search_vector_update
+    BEFORE INSERT OR UPDATE ON member_club_profile_versions
     FOR EACH ROW
-    EXECUTE FUNCTION member_profile_versions_search_vector_trigger();
+    EXECUTE FUNCTION member_club_profile_versions_search_vector_trigger();
 
 
 -- ============================================================
@@ -249,6 +252,9 @@ CREATE TABLE clubs (
     CONSTRAINT clubs_currency_check CHECK (membership_price_currency ~ '^[A-Z]{3}$'),
     CONSTRAINT clubs_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES members(id)
 );
+
+ALTER TABLE member_club_profile_versions
+    ADD CONSTRAINT member_club_profile_versions_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id);
 
 CREATE FUNCTION normalize_admission_policy() RETURNS trigger
     LANGUAGE plpgsql
@@ -1092,6 +1098,7 @@ CREATE INDEX ai_llm_usage_log_member_created_idx ON ai_llm_usage_log (member_id,
 CREATE TABLE member_profile_embeddings (
     id                  short_id DEFAULT new_id() NOT NULL,
     member_id           short_id NOT NULL,
+    club_id             short_id NOT NULL,
     profile_version_id  short_id NOT NULL,
     model               text NOT NULL,
     dimensions          integer NOT NULL,
@@ -1105,14 +1112,16 @@ CREATE TABLE member_profile_embeddings (
     updated_at          timestamptz DEFAULT now() NOT NULL,
 
     CONSTRAINT member_profile_embeddings_pkey PRIMARY KEY (id),
-    CONSTRAINT member_profile_embeddings_unique UNIQUE (member_id, model, dimensions, source_version, chunk_index),
+    CONSTRAINT member_profile_embeddings_unique UNIQUE (member_id, club_id, model, dimensions, source_version, chunk_index),
     CONSTRAINT member_profile_embeddings_dimensions_check CHECK (dimensions > 0),
     CONSTRAINT member_profile_embeddings_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT member_profile_embeddings_version_fkey FOREIGN KEY (profile_version_id) REFERENCES member_profile_versions(id) ON DELETE CASCADE
+    CONSTRAINT member_profile_embeddings_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT member_profile_embeddings_version_fkey FOREIGN KEY (profile_version_id) REFERENCES member_club_profile_versions(id) ON DELETE CASCADE
 );
 
 CREATE INDEX member_profile_embeddings_member_idx ON member_profile_embeddings (member_id);
 CREATE INDEX member_profile_embeddings_version_idx ON member_profile_embeddings (profile_version_id);
+CREATE INDEX member_profile_embeddings_club_member_idx ON member_profile_embeddings (club_id, member_id);
 
 CREATE TABLE entity_embeddings (
     id                  short_id DEFAULT new_id() NOT NULL,
@@ -1156,7 +1165,7 @@ CREATE TABLE ai_embedding_jobs (
 
     CONSTRAINT ai_embedding_jobs_pkey PRIMARY KEY (id),
     CONSTRAINT ai_embedding_jobs_unique UNIQUE (subject_kind, subject_version_id, model, dimensions, source_version),
-    CONSTRAINT ai_embedding_jobs_subject_kind_check CHECK (subject_kind IN ('member_profile_version', 'entity_version')),
+    CONSTRAINT ai_embedding_jobs_subject_kind_check CHECK (subject_kind IN ('member_club_profile_version', 'entity_version')),
     CONSTRAINT ai_embedding_jobs_dimensions_check CHECK (dimensions > 0)
 );
 
@@ -1285,10 +1294,10 @@ CREATE TRIGGER dm_inbox_entries_notify
 
 -- ── Profiles ───────────────────────────────────────────────
 
-CREATE VIEW current_member_profiles AS
-    SELECT DISTINCT ON (member_id) *
-    FROM member_profile_versions
-    ORDER BY member_id, version_no DESC, created_at DESC;
+CREATE VIEW current_member_club_profiles AS
+    SELECT DISTINCT ON (member_id, club_id) *
+    FROM member_club_profile_versions
+    ORDER BY member_id, club_id, version_no DESC, created_at DESC;
 
 -- ── Member global roles ───────────────────────────────────────────
 

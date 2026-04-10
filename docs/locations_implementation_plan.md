@@ -84,7 +84,7 @@ These are the cross-cutting truths every change has to respect. Several invarian
 
 14. **Travel requires `ends_on`. Home doesn't.** Enforced by CHECK constraint.
 
-15. **Reads from another member's locations require a shared club.** Same pattern as `profile.get` for another member. Enforced by SQL filter at the repository layer. Returns an empty array (not 403, not 404) when no shared club exists.
+15. **Reads from another member's locations require a shared club.** Same pattern as `profile.list` for another member. Enforced by SQL filter at the repository layer. Returns an empty array (not 403, not 404) when no shared club exists.
 
 16. **Author auth is enforced via SQL filter, not handler check.** Same lesson as gifts/loops invariant 4. SQL author-filter for `update`/`remove`. Returns null at the repo level, 404 at the handler. No dead 403 branches.
 

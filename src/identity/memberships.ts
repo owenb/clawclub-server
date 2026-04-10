@@ -17,6 +17,7 @@ import {
 } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { encodeCursor } from '../schemas/fields.ts';
+import { ensureClubProfileSeeded } from './profiles.ts';
 
 type MembershipAdminRow = {
   membership_id: string;
@@ -120,6 +121,59 @@ async function hasLiveAccess(client: DbClient, membershipId: string): Promise<bo
   return result.rows[0]?.has_access === true;
 }
 
+async function reuseOrRejectExistingMembership(client: DbClient, input: {
+  clubId: string;
+  memberId: string;
+  sponsorMemberId: string | null;
+  role: 'member' | 'clubadmin';
+  initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
+  reason: string | null;
+  metadata: Record<string, unknown>;
+  actorMemberId: string;
+  sourceAdmissionId?: string | null;
+}): Promise<string | null> {
+  const existing = await client.query<{
+    id: string;
+    left_at: string | null;
+    state_version_no: number;
+  }>(
+    `select id, left_at::text as left_at, state_version_no
+     from current_club_memberships
+     where club_id = $1 and member_id = $2
+     limit 1`,
+    [input.clubId, input.memberId],
+  );
+  const row = existing.rows[0];
+  if (!row) return null;
+  if (row.left_at === null) {
+    throw new AppError(409, 'membership_exists', 'This member already has a membership record in the club');
+  }
+
+  await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
+  try {
+    await client.query(
+      `update club_memberships
+       set sponsor_member_id = $2,
+           role = $3::membership_role,
+           joined_at = now(),
+           metadata = $4::jsonb,
+           source_admission_id = coalesce(source_admission_id, $5)
+       where id = $1`,
+      [row.id, input.sponsorMemberId, input.role, JSON.stringify(input.metadata), input.sourceAdmissionId ?? null],
+    );
+  } finally {
+    await client.query(`select set_config('app.allow_membership_state_sync', '', true)`);
+  }
+
+  await client.query(
+    `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+     values ($1, $2, $3, $4, $5)`,
+    [row.id, input.initialStatus, input.reason, Number(row.state_version_no) + 1, input.actorMemberId],
+  );
+
+  return row.id;
+}
+
 async function setComped(client: DbClient, membershipId: string, compedByMemberId: string): Promise<void> {
   await client.query(
     `update club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
@@ -217,11 +271,9 @@ export async function listMembershipReviews(pool: Pool, input: {
 }
 
 export async function listMembers(pool: Pool, input: {
-  clubIds: string[]; limit: number;
+  clubId: string; limit: number;
   cursor?: { joinedAt: string; memberId: string } | null;
 }): Promise<{ results: ClubMemberSummary[]; hasMore: boolean; nextCursor: string | null }> {
-  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
-
   const fetchLimit = input.limit + 1;
   const cursorJoinedAt = input.cursor?.joinedAt ?? null;
   const cursorMemberId = input.cursor?.memberId ?? null;
@@ -234,10 +286,9 @@ export async function listMembers(pool: Pool, input: {
     memberships: MembershipSummary[] | null;
     _latest_joined_at: string;
   }>(
-    `with scope as (select unnest($1::text[])::short_id as club_id)
-     select
+    `select
        m.id as member_id, m.public_name,
-       coalesce(cmp.display_name, m.public_name) as display_name,
+       m.display_name,
        m.handle, cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
        cmp.services_summary, cmp.website_url,
        jsonb_agg(distinct jsonb_build_object(
@@ -247,19 +298,20 @@ export async function listMembers(pool: Pool, input: {
          'sponsorMemberId', anm.sponsor_member_id, 'joinedAt', anm.joined_at::text
        )) filter (where anm.id is not null) as memberships,
        max(anm.joined_at)::text as _latest_joined_at
-     from scope s
-     join accessible_club_memberships anm on anm.club_id = s.club_id
+     from accessible_club_memberships anm
      join members m on m.id = anm.member_id and m.state = 'active'
      join clubs n on n.id = anm.club_id and n.archived_at is null
-     left join current_member_profiles cmp on cmp.member_id = m.id
-     group by m.id, m.public_name, cmp.display_name, m.handle, cmp.tagline,
+     left join current_member_club_profiles cmp
+       on cmp.member_id = m.id and cmp.club_id = anm.club_id
+     where anm.club_id = $1
+     group by m.id, m.public_name, m.display_name, m.handle, cmp.tagline,
               cmp.summary, cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
      having ($3::timestamptz is null
        or max(anm.joined_at) < $3
        or (max(anm.joined_at) = $3 and m.id < $4))
      order by max(anm.joined_at) desc, m.id desc
      limit $2`,
-    [input.clubIds, fetchLimit, cursorJoinedAt, cursorMemberId],
+    [input.clubId, fetchLimit, cursorJoinedAt, cursorMemberId],
   );
 
   const rows: ClubMemberSummary[] = result.rows.map((row) => ({
@@ -299,35 +351,47 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
       if (!sponsorCheck.rows[0]) return null;
     }
 
-    // Check no existing membership
-    const existing = await client.query<{ id: string }>(
-      `select id from club_memberships where club_id = $1 and member_id = $2 limit 1`,
-      [input.clubId, input.memberId],
-    );
-    if (existing.rows[0]) {
-      throw new AppError(409, 'membership_exists', 'This member already has a membership record in the club');
+    let membershipId = await reuseOrRejectExistingMembership(client, {
+      clubId: input.clubId,
+      memberId: input.memberId,
+      sponsorMemberId: input.sponsorMemberId,
+      role: input.role,
+      initialStatus: input.initialStatus,
+      reason: input.reason ?? null,
+      metadata: input.metadata ?? {},
+      actorMemberId: input.actorMemberId,
+      sourceAdmissionId: input.sourceAdmissionId ?? null,
+    });
+
+    if (!membershipId) {
+      const membershipResult = await client.query<{ id: string }>(
+        `insert into club_memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata, source_admission_id)
+         select $1::short_id, $6::short_id, $2::short_id, $3::membership_role, $4::membership_state, now(), $5::jsonb, $7
+         where exists (select 1 from members where id = $6::short_id and state = 'active')
+         returning id`,
+        [input.clubId, input.sponsorMemberId, input.role, input.initialStatus, JSON.stringify(input.metadata ?? {}), input.memberId, input.sourceAdmissionId ?? null],
+      );
+
+      membershipId = membershipResult.rows[0]?.id ?? null;
+      if (!membershipId) return null;
+
+      await client.query(
+        `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+         values ($1, $2, $3, 1, $4)`,
+        [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
+      );
     }
-
-    // Insert membership (verify target member is active)
-    const membershipResult = await client.query<{ id: string }>(
-      `insert into club_memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata, source_admission_id)
-       select $1::short_id, $6::short_id, $2::short_id, $3::membership_role, $4::membership_state, now(), $5::jsonb, $7
-       where exists (select 1 from members where id = $6::short_id and state = 'active')
-       returning id`,
-      [input.clubId, input.sponsorMemberId, input.role, input.initialStatus, JSON.stringify(input.metadata ?? {}), input.memberId, input.sourceAdmissionId ?? null],
-    );
-
-    const membershipId = membershipResult.rows[0]?.id;
-    if (!membershipId) return null;
-
-    await client.query(
-      `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-       values ($1, $2, $3, 1, $4)`,
-      [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
-    );
 
     if (input.initialStatus === 'active') {
       await setComped(client, membershipId, input.actorMemberId);
+    }
+
+    if (!input.sourceAdmissionId) {
+      await ensureClubProfileSeeded(client, {
+        memberId: input.memberId,
+        clubId: input.clubId,
+        generationSource: 'membership_seed',
+      });
     }
 
     return readMembershipSummary(client, membershipId);
@@ -455,12 +519,12 @@ export async function createMemberFromAdmission(pool: Pool, input: {
     // is a no-op that makes the conflicting row visible to RETURNING in the same
     // statement, which avoids the snapshot-isolation gap of DO NOTHING + fallback SELECT.
     const memberResult = await client.query<{ id: string; already_existed: boolean }>(
-      `insert into members (public_name, handle, state, source_admission_id)
-       values ($1, $2, 'active', $3)
+      `insert into members (public_name, display_name, handle, state, source_admission_id)
+       values ($1, $2, $3, 'active', $4)
        on conflict (source_admission_id) where source_admission_id is not null
        do update set id = members.id
        returning id, (xmax <> 0) as already_existed`,
-      [input.name, handle, input.admissionId],
+      [input.name, input.displayName, handle, input.admissionId],
     );
     const row = memberResult.rows[0];
     if (!row) throw new AppError(500, 'member_creation_failed', 'Failed to create or find member for admission');
@@ -471,13 +535,6 @@ export async function createMemberFromAdmission(pool: Pool, input: {
     }
 
     const memberId = row.id;
-
-    // Create initial profile version
-    await client.query(
-      `insert into member_profile_versions (member_id, version_no, display_name)
-       values ($1, 1, $2)`,
-      [memberId, input.displayName],
-    );
 
     // Store private contact email
     if (input.email) {
@@ -516,10 +573,10 @@ export async function createMemberDirect(pool: Pool, input: {
     let memberResult;
     try {
       memberResult = await client.query<{ id: string; handle: string }>(
-        `insert into members (public_name, handle, state)
-         values ($1, $2, 'active')
+        `insert into members (public_name, display_name, handle, state)
+         values ($1, $2, $3, 'active')
          returning id, handle`,
-        [input.publicName, handle],
+        [input.publicName, input.publicName, handle],
       );
     } catch (error) {
       if (error && typeof error === 'object' && 'code' in error && error.code === '23505' &&
@@ -532,13 +589,6 @@ export async function createMemberDirect(pool: Pool, input: {
     if (!row) throw new AppError(500, 'member_creation_failed', 'Failed to create member');
 
     const memberId = row.id;
-
-    // Create initial profile version
-    await client.query(
-      `insert into member_profile_versions (member_id, version_no, display_name)
-       values ($1, 1, $2)`,
-      [memberId, input.publicName],
-    );
 
     // Store private contact email
     if (input.email) {
@@ -604,39 +654,48 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
       }
     }
 
-    // Check no existing membership
-    const existing = await client.query<{ id: string }>(
-      `select id from club_memberships where club_id = $1 and member_id = $2 limit 1`,
-      [input.clubId, input.memberId],
-    );
-    if (existing.rows[0]) {
-      throw new AppError(409, 'membership_exists', 'This member already has a membership record in the club');
-    }
-
     // For clubadmin role, sponsor_member_id can be null
     const effectiveSponsor = input.role === 'clubadmin' ? null : sponsorMemberId;
 
-    // Insert membership (verify target member is active)
-    const membershipResult = await client.query<{ id: string }>(
-      `insert into club_memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata)
-       select $1::short_id, $2::short_id, $3::short_id, $4::membership_role, $5::membership_state, now(), '{}'::jsonb
-       where exists (select 1 from members where id = $2::short_id and state = 'active')
-       returning id`,
-      [input.clubId, input.memberId, effectiveSponsor, input.role, input.initialStatus],
-    );
+    let membershipId = await reuseOrRejectExistingMembership(client, {
+      clubId: input.clubId,
+      memberId: input.memberId,
+      sponsorMemberId: effectiveSponsor,
+      role: input.role,
+      initialStatus: input.initialStatus,
+      reason: input.reason ?? null,
+      metadata: {},
+      actorMemberId: input.actorMemberId,
+    });
 
-    const membershipId = membershipResult.rows[0]?.id;
-    if (!membershipId) return null;
+    if (!membershipId) {
+      const membershipResult = await client.query<{ id: string }>(
+        `insert into club_memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata)
+         select $1::short_id, $2::short_id, $3::short_id, $4::membership_role, $5::membership_state, now(), '{}'::jsonb
+         where exists (select 1 from members where id = $2::short_id and state = 'active')
+         returning id`,
+        [input.clubId, input.memberId, effectiveSponsor, input.role, input.initialStatus],
+      );
 
-    await client.query(
-      `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-       values ($1, $2, $3, 1, $4)`,
-      [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
-    );
+      membershipId = membershipResult.rows[0]?.id ?? null;
+      if (!membershipId) return null;
+
+      await client.query(
+        `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+         values ($1, $2, $3, 1, $4)`,
+        [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
+      );
+    }
 
     if (input.initialStatus === 'active') {
       await setComped(client, membershipId, input.actorMemberId);
     }
+
+    await ensureClubProfileSeeded(client, {
+      memberId: input.memberId,
+      clubId: input.clubId,
+      generationSource: 'membership_seed',
+    });
 
     return readMembershipSummary(client, membershipId);
   });

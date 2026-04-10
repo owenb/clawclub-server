@@ -193,11 +193,8 @@ export const clubMemberSummary = z.object({
 
 // ── Profile ──────────────────────────────────────────────
 
-export const memberProfile = z.object({
-  memberId: z.string(),
-  publicName: z.string(),
-  handle: z.string().nullable(),
-  displayName: z.string(),
+export const clubProfile = z.object({
+  club: sharedClubRef,
   tagline: z.string().nullable(),
   summary: z.string().nullable(),
   whatIDo: z.string().nullable(),
@@ -207,12 +204,19 @@ export const memberProfile = z.object({
   links: z.array(z.unknown()),
   profile: z.record(z.string(), z.unknown()),
   version: z.object({
-    id: z.string().nullable(),
-    versionNo: z.number().nullable(),
-    createdAt: z.string().nullable(),
+    id: z.string(),
+    versionNo: z.number(),
+    createdAt: z.string(),
     createdByMemberId: z.string().nullable(),
   }),
-  sharedClubs: z.array(sharedClubRef),
+});
+
+export const memberProfileEnvelope = z.object({
+  memberId: z.string(),
+  publicName: z.string(),
+  handle: z.string().nullable(),
+  displayName: z.string(),
+  profiles: z.array(clubProfile),
 });
 
 // ── Entities ─────────────────────────────────────────────
@@ -471,6 +475,7 @@ export const adminMemberDetail = z.object({
   memberId: z.string(),
   publicName: z.string(),
   handle: z.string().nullable(),
+  displayName: z.string(),
   state: z.string(),
   createdAt: z.string(),
   memberships: z.array(z.object({
@@ -483,7 +488,7 @@ export const adminMemberDetail = z.object({
     joinedAt: z.string(),
   })),
   tokenCount: z.number(),
-  profile: memberProfile.nullable(),
+  profiles: z.array(clubProfile),
 });
 
 export const adminClubStats = z.object({

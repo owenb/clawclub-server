@@ -15,7 +15,7 @@ import type {
   CreatedBearerToken,
   ArchiveClubInput,
   AssignClubOwnerInput,
-  MemberProfile,
+  MemberProfileEnvelope,
   MemberSearchResult,
   MembershipAdminSummary,
   MembershipReviewSummary,
@@ -49,7 +49,7 @@ export type IdentityRepository = {
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: { actorMemberId: string; clubIds: string[]; limit: number; statuses: MembershipState[]; cursor?: { stateCreatedAt: string; id: string } | null }): Promise<{ results: MembershipReviewSummary[]; hasMore: boolean; nextCursor: string | null }>;
-  listMembers(input: { actorMemberId: string; clubIds: string[]; limit: number; cursor?: { joinedAt: string; memberId: string } | null }): Promise<{ results: ClubMemberSummary[]; hasMore: boolean; nextCursor: string | null }>;
+  listMembers(input: { actorMemberId: string; clubId: string; limit: number; cursor?: { joinedAt: string; memberId: string } | null }): Promise<{ results: ClubMemberSummary[]; hasMore: boolean; nextCursor: string | null }>;
   promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
   demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
 
@@ -64,9 +64,9 @@ export type IdentityRepository = {
   getMemberPublicContact(memberId: string): Promise<{ memberName: string; email: string | null } | null>;
 
   // Profiles
-  getMemberProfile(input: { actorMemberId: string; targetMemberId: string; actorClubIds: string[] }): Promise<MemberProfile | null>;
+  listMemberProfiles(input: { actorMemberId: string; targetMemberId: string; actorClubIds: string[]; clubId?: string }): Promise<MemberProfileEnvelope | null>;
 
-  updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
+  updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfileEnvelope>;
 
   // Clubs
   listClubs(input: { actorMemberId: string; includeArchived: boolean }): Promise<ClubSummary[]>;
@@ -76,8 +76,8 @@ export type IdentityRepository = {
   updateClub(input: UpdateClubInput): Promise<ClubSummary | null>;
 
   // Search
-  fullTextSearchMembers(input: { actorMemberId: string; clubIds: string[]; query: string; limit: number; cursor?: { rank: string; memberId: string } | null }): Promise<{ results: MemberSearchResult[]; hasMore: boolean; nextCursor: string | null }>;
-  findMembersViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; limit: number; cursor?: { distance: string; memberId: string } | null }): Promise<{ results: MemberSearchResult[]; hasMore: boolean; nextCursor: string | null }>;
+  fullTextSearchMembers(input: { actorMemberId: string; clubId: string; query: string; limit: number; cursor?: { rank: string; memberId: string } | null }): Promise<{ results: MemberSearchResult[]; hasMore: boolean; nextCursor: string | null }>;
+  findMembersViaEmbedding(input: { actorMemberId: string; clubId: string; queryEmbedding: string; limit: number; cursor?: { distance: string; memberId: string } | null }): Promise<{ results: MemberSearchResult[]; hasMore: boolean; nextCursor: string | null }>;
 };
 
 export function createIdentityRepository(pool: Pool): IdentityRepository {
@@ -96,7 +96,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     createMembership: (input) => memberships.createMembership(pool, input),
     transitionMembershipState: (input) => memberships.transitionMembershipState(pool, input),
     listMembershipReviews: ({ clubIds, limit, statuses, cursor }) => memberships.listMembershipReviews(pool, { clubIds, limit, statuses, cursor }),
-    listMembers: ({ clubIds, limit, cursor }) => memberships.listMembers(pool, { clubIds, limit, cursor }),
+    listMembers: ({ clubId, limit, cursor }) => memberships.listMembers(pool, { clubId, limit, cursor }),
     promoteMemberToAdmin: (input) => memberships.promoteMemberToAdmin(pool, input),
     demoteMemberFromAdmin: (input) => memberships.demoteMemberFromAdmin(pool, input),
 
@@ -131,7 +131,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     getMemberPublicContact: (memberId) => memberships.getMemberPublicContact(pool, memberId),
 
     // Profiles
-    getMemberProfile: ({ actorMemberId, targetMemberId, actorClubIds }) => profiles.getMemberProfile(pool, actorMemberId, targetMemberId, actorClubIds),
+    listMemberProfiles: ({ actorMemberId, targetMemberId, actorClubIds, clubId }) => profiles.listMemberProfiles(pool, { actorMemberId, targetMemberId, actorClubIds, clubId }),
     updateOwnProfile: ({ actor, patch }) => profiles.updateOwnProfile(pool, actor, patch),
 
     // Clubs

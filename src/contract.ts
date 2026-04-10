@@ -370,11 +370,8 @@ export type ClubMemberSummary = {
   memberships: MembershipSummary[];
 };
 
-export type MemberProfile = {
-  memberId: string;
-  publicName: string;
-  handle: string | null;
-  displayName: string;
+export type ClubProfile = {
+  club: SharedClubRef;
   tagline: string | null;
   summary: string | null;
   whatIDo: string | null;
@@ -384,15 +381,23 @@ export type MemberProfile = {
   links: unknown[];
   profile: Record<string, unknown>;
   version: {
-    id: string | null;
-    versionNo: number | null;
-    createdAt: string | null;
+    id: string;
+    versionNo: number;
+    createdAt: string;
     createdByMemberId: string | null;
   };
-  sharedClubs: SharedClubRef[];
+};
+
+export type MemberProfileEnvelope = {
+  memberId: string;
+  publicName: string;
+  handle: string | null;
+  displayName: string;
+  profiles: ClubProfile[];
 };
 
 export type UpdateOwnProfileInput = {
+  clubId?: string;
   handle?: string | null;
   displayName?: string;
   tagline?: string | null;
@@ -751,6 +756,7 @@ export type AdminMemberDetail = {
   memberId: string;
   publicName: string;
   handle: string | null;
+  displayName: string;
   state: string;
   createdAt: string;
   memberships: Array<{
@@ -763,7 +769,7 @@ export type AdminMemberDetail = {
     joinedAt: string;
   }>;
   tokenCount: number;
-  profile: MemberProfile | null;
+  profiles: ClubProfile[];
 };
 
 export type AdminClubStats = {
@@ -855,12 +861,17 @@ export type Repository = {
   }): Promise<Paginated<MembershipReviewSummary>>;
   listMembers(input: {
     actorMemberId: string;
-    clubIds: string[];
+    clubId: string;
     limit: number;
     cursor?: { joinedAt: string; memberId: string } | null;
   }): Promise<Paginated<ClubMemberSummary>>;
-  getMemberProfile(input: { actorMemberId: string; targetMemberId: string; actorClubIds: string[] }): Promise<MemberProfile | null>;
-  updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
+  listMemberProfiles(input: {
+    actorMemberId: string;
+    targetMemberId: string;
+    actorClubIds: string[];
+    clubId?: string;
+  }): Promise<MemberProfileEnvelope | null>;
+  updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfileEnvelope>;
   // Internal entity methods back the public `content.*` API. Events use the same
   // underlying entity/version tables but have separate event-specific methods below.
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
@@ -946,7 +957,7 @@ export type Repository = {
 
   fullTextSearchMembers(input: {
     actorMemberId: string;
-    clubIds: string[];
+    clubId: string;
     query: string;
     limit: number;
     cursor?: { rank: string; memberId: string } | null;
@@ -954,7 +965,7 @@ export type Repository = {
 
   findMembersViaEmbedding(input: {
     actorMemberId: string;
-    clubIds: string[];
+    clubId: string;
     queryEmbedding: string;
     limit: number;
     cursor?: { distance: string; memberId: string } | null;

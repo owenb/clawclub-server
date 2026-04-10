@@ -28,30 +28,50 @@ export function getUpdates(result: Record<string, unknown>): {
 }
 
 export async function seedProfileEmbedding(h: TestHarness, memberId: string, vector: string): Promise<void> {
-  const pvRows = await h.sql<{ id: string }>(
-    `select id from current_member_profiles where member_id = $1`,
+  let pvRows = await h.sql<{ id: string; club_id: string }>(
+    `select id, club_id from current_member_club_profiles where member_id = $1`,
     [memberId],
   );
-  let profileVersionId: string;
-  if (pvRows.length > 0) {
-    profileVersionId = pvRows[0].id;
-  } else {
-    const insertRows = await h.sql<{ id: string }>(
-      `insert into member_profile_versions (member_id, version_no, display_name, created_by_member_id)
-       values ($1, 1, 'test', $1) returning id`,
+
+  if (pvRows.length === 0) {
+    const membershipRows = await h.sql<{ club_id: string }>(
+      `select club_id from club_memberships where member_id = $1 and left_at is null order by joined_at asc, club_id asc`,
       [memberId],
     );
-    profileVersionId = insertRows[0].id;
+    for (const row of membershipRows) {
+      await h.sql(
+        `insert into member_club_profile_versions (
+           member_id, club_id, version_no, created_by_member_id, generation_source
+         )
+         values (
+           $1,
+           $2,
+           coalesce((select max(version_no) + 1 from member_club_profile_versions where member_id = $1 and club_id = $2), 1),
+           $1,
+           'membership_seed'
+         )`,
+        [memberId, row.club_id],
+      );
+    }
+    pvRows = await h.sql<{ id: string; club_id: string }>(
+      `select id, club_id from current_member_club_profiles where member_id = $1`,
+      [memberId],
+    );
   }
 
-  await h.sql(
-    `insert into member_profile_embeddings
-       (member_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
-     values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
-     on conflict (member_id, model, dimensions, source_version, chunk_index)
-     do update set embedding = excluded.embedding, updated_at = now()`,
-    [memberId, profileVersionId, vector],
-  );
+  for (const row of pvRows) {
+    await h.sql(
+      `insert into member_profile_embeddings
+         (member_id, club_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
+       values ($1, $2, $3, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $4::vector)
+       on conflict (member_id, club_id, model, dimensions, source_version, chunk_index)
+       do update set
+         profile_version_id = excluded.profile_version_id,
+         embedding = excluded.embedding,
+         updated_at = now()`,
+      [memberId, row.club_id, row.id, vector],
+    );
+  }
 }
 
 export async function seedEntityWithEmbedding(

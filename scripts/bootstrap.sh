@@ -38,18 +38,14 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
 
 -- Create the superadmin member
-insert into members (public_name, handle, state)
-values ('Superadmin', 'superadmin', 'active');
+insert into members (public_name, display_name, handle, state)
+values ('Superadmin', 'Superadmin', 'superadmin', 'active');
 
 select id as member_id from members where handle = 'superadmin' \gset
 
 -- Grant superadmin role
 insert into member_global_role_versions (member_id, role, status, version_no, created_by_member_id)
 values (:'member_id', 'superadmin', 'active', 1, :'member_id');
-
--- Create a profile
-insert into member_profile_versions (member_id, version_no, display_name, created_by_member_id)
-values (:'member_id', 1, 'Superadmin', :'member_id');
 
 commit;
 

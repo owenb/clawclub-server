@@ -93,9 +93,9 @@ test('EMBEDDING_PROFILES has expected structure', () => {
 
 // ── Profile response no longer has embedding ────────────
 
-test('memberProfile response schema does not include embedding', async () => {
-  const { memberProfile } = await import('../../src/schemas/responses.ts');
-  const shape = memberProfile.shape;
+test('clubProfile response schema does not include embedding', async () => {
+  const { clubProfile } = await import('../../src/schemas/responses.ts');
+  const shape = clubProfile.shape;
   const versionShape = shape.version.shape;
   assert.ok(!('embedding' in versionShape), 'version should not have embedding field');
 });

@@ -6,12 +6,12 @@ set -euo pipefail
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
 
-insert into members (public_name, handle)
-values ('Smoke Owner', 'smoke-owner')
+insert into members (public_name, display_name, handle)
+values ('Smoke Owner', 'Smoke Owner', 'smoke-owner')
 returning id as owner_id \gset
 
-insert into members (public_name, handle)
-values ('Smoke Member', 'smoke-member')
+insert into members (public_name, display_name, handle)
+values ('Smoke Member', 'Smoke Member', 'smoke-member')
 returning id as member_id \gset
 
 insert into clubs (slug, name, owner_member_id, summary)
@@ -37,11 +37,11 @@ values
 insert into club_subscriptions (membership_id, payer_member_id, amount)
 values (:'member_membership_id', :'owner_id', 25);
 
-insert into member_profile_versions (member_id, version_no, display_name, what_i_do, known_for)
-values (:'owner_id', 1, 'Smoke Owner', 'Builds the club', 'Stewardship');
+insert into member_club_profile_versions (member_id, club_id, version_no, what_i_do, known_for, created_by_member_id, generation_source)
+values (:'owner_id', :'club_id', 1, 'Builds the club', 'Stewardship', :'owner_id', 'membership_seed');
 
-insert into member_profile_versions (member_id, version_no, display_name, what_i_do, services_summary, website_url)
-values (:'member_id', 1, 'Smoke Member', 'Facilitates circles', 'Mentoring and retreats', 'https://example.test')
+insert into member_club_profile_versions (member_id, club_id, version_no, what_i_do, services_summary, website_url, created_by_member_id, generation_source)
+values (:'member_id', :'club_id', 1, 'Facilitates circles', 'Mentoring and retreats', 'https://example.test', :'member_id', 'membership_seed')
 returning id as profile_version_id \gset
 
 insert into dm_threads (club_id, kind, created_by_member_id)
@@ -114,7 +114,7 @@ values (
 );
 
 select
-  (select count(*) from current_member_profiles) as current_profiles,
+  (select count(*) from current_member_club_profiles) as current_profiles,
   (select count(*) from current_entity_versions) as current_entity_versions,
   (select count(*) from current_published_entity_versions) as current_published_entity_versions,
   (select count(*) from live_entities) as live_entities,

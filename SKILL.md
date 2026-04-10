@@ -69,7 +69,7 @@ Action families and individual actions:
 - `admissions.sponsorCandidate` — sponsor an outsider for admission (member)
 
 **Profile**
-- `profile.get` — read a member profile; omit `memberId` for the current actor
+- `profile.list` — read a member's visible club profiles; omit `memberId` for the current actor
 - `profile.update` — update the current actor's profile fields
 
 **Content** (posts, opportunities, services, asks)
@@ -327,7 +327,7 @@ There is no enforced state machine — club admins can transition between any st
 ## Interaction patterns
 
 ### Search
-Suggest checking the club first when the human expresses a need. Use `profile.get` for detail.
+Suggest checking the club first when the human expresses a need. Use `profile.list` for detail.
 
 ### Post an update
 If one club, default. If multiple, ask. Keep posts concise.

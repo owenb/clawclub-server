@@ -17,7 +17,7 @@ import {
   type ListEventsInput,
   type MembershipAdminSummary,
   type MembershipReviewSummary,
-  type MemberProfile,
+  type MemberProfileEnvelope,
   type ClubMemberSummary,
   type ClubSummary,
   type RsvpEventInput,
@@ -419,12 +419,15 @@ function makeClubMember(overrides: Partial<ClubMemberSummary> = {}): ClubMemberS
   };
 }
 
-function makeProfile(memberId = 'member-1'): MemberProfile {
+function makeClubProfile(clubId = 'club-1') {
+  const club = makeActor().memberships.find((membership) => membership.clubId === clubId)
+    ?? makeActor().memberships[0]!;
   return {
-    memberId,
-    publicName: memberId === 'member-1' ? 'Member One' : 'Member Two',
-    handle: memberId === 'member-1' ? 'member-one' : 'member-two',
-    displayName: memberId === 'member-1' ? 'Member One' : 'Member Two',
+    club: {
+      clubId: club.clubId,
+      slug: club.slug,
+      name: club.name,
+    },
     tagline: 'Building warm things',
     summary: 'Short summary',
     whatIDo: 'Engineering and facilitation',
@@ -434,13 +437,27 @@ function makeProfile(memberId = 'member-1'): MemberProfile {
     links: [{ label: 'Site', url: 'https://example.test' }],
     profile: { homeBase: 'Lisbon' },
     version: {
-      id: 'profile-version-1',
+      id: `profile-version-${clubId}`,
       versionNo: 1,
       createdAt: '2026-03-12T00:00:00Z',
-      createdByMemberId: memberId,
-      embedding: null,
+      createdByMemberId: 'member-1',
     },
-    sharedClubs: [{ clubId: 'club-1', slug: 'alpha', name: 'Alpha' }],
+  };
+}
+
+function makeProfile(memberId = 'member-1', clubIds = ['club-1']): MemberProfileEnvelope {
+  return {
+    memberId,
+    publicName: memberId === 'member-1' ? 'Member One' : 'Member Two',
+    handle: memberId === 'member-1' ? 'member-one' : 'member-two',
+    displayName: memberId === 'member-1' ? 'Member One' : 'Member Two',
+    profiles: clubIds.map((clubId) => ({
+      ...makeClubProfile(clubId),
+      version: {
+        ...makeClubProfile(clubId).version,
+        createdByMemberId: memberId,
+      },
+    })),
   };
 }
 
@@ -1056,14 +1073,14 @@ test('admissions.public.submitApplication submits a cold application with all re
 });
 
 test('members.searchByFullText narrows scope when a permitted club is requested', async () => {
-  let capturedClubIds: string[] = [];
+  let capturedClubId: string | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
       return makeAuthResult();
     },
-    async fullTextSearchMembers({ clubIds }) {
-      capturedClubIds = clubIds;
+    async fullTextSearchMembers({ clubId }) {
+      capturedClubId = clubId;
       return { results: [], hasMore: false, nextCursor: null };
     },
     async listMembers() {
@@ -1142,14 +1159,14 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
   });
 
   assert.equal(result.action, 'members.searchByFullText');
-  assert.deepEqual(capturedClubIds, ['club-2']);
+  assert.equal(capturedClubId, 'club-2');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.equal(result.data.clubScope.length, 1);
   assert.equal(result.data.clubScope[0]?.clubId, 'club-2');
 });
 
 test('members.list returns active members with scoped membership context', async () => {
-  let capturedInput: { actorMemberId: string; clubIds: string[]; limit: number } | null = null;
+  let capturedInput: { actorMemberId: string; clubId: string; limit: number; cursor: { joinedAt: string; memberId: string } | null } | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1243,7 +1260,7 @@ test('members.list returns active members with scoped membership context', async
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    clubIds: ['club-2'],
+    clubId: 'club-2',
     limit: 4,
     cursor: null,
   });
@@ -1254,8 +1271,9 @@ test('members.list returns active members with scoped membership context', async
   assert.equal(result.data.results[0]?.memberships[0]?.clubId, 'club-2');
 });
 
-test('profile.get defaults to the actor member id', async () => {
+test('profile.list defaults to the actor member id', async () => {
   let capturedTargetMemberId: string | null = null;
+  let capturedActorClubIds: string[] | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1267,9 +1285,10 @@ test('profile.get defaults to the actor member id', async () => {
     async listMembers() {
       return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
-    async getMemberProfile({ targetMemberId }) {
+    async listMemberProfiles({ targetMemberId, actorClubIds }) {
       capturedTargetMemberId = targetMemberId;
-      return makeProfile(targetMemberId);
+      capturedActorClubIds = actorClubIds;
+      return makeProfile(targetMemberId, actorClubIds);
     },
     async updateOwnProfile() {
       return makeProfile();
@@ -1332,12 +1351,14 @@ test('profile.get defaults to the actor member id', async () => {
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'profile.get',
+    action: 'profile.list',
   });
 
-  assert.equal(result.action, 'profile.get');
+  assert.equal(result.action, 'profile.list');
   assert.equal(capturedTargetMemberId, 'member-1');
+  assert.deepEqual(capturedActorClubIds, ['club-1', 'club-2']);
   assert.equal(result.data.memberId, 'member-1');
+  assert.equal(result.data.profiles.length, 2);
 });
 
 test('profile.update normalizes nullable strings and handle changes', async () => {
@@ -1359,12 +1380,15 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     async updateOwnProfile({ patch }) {
       capturedPatch = patch;
       return {
-        ...makeProfile(),
+        ...makeProfile('member-1', ['club-2']),
         handle: patch.handle ?? 'member-one',
         displayName: patch.displayName ?? 'Member One',
-        tagline: patch.tagline ?? null,
-        links: patch.links ?? [],
-        profile: (patch.profile as Record<string, unknown> | undefined) ?? {},
+        profiles: [{
+          ...makeClubProfile('club-2'),
+          tagline: patch.tagline !== undefined ? patch.tagline : 'Building warm things',
+          links: patch.links !== undefined ? patch.links as unknown[] : [{ label: 'Site', url: 'https://example.test' }],
+          profile: patch.profile !== undefined ? patch.profile as Record<string, unknown> : { homeBase: 'Lisbon' },
+        }],
       };
     },
     async createEntity() {
@@ -1427,6 +1451,7 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'profile.update',
     payload: {
+      clubId: 'club-2',
       handle: 'member-one-updated',
       displayName: 'Member One Updated',
       tagline: '  ',
@@ -1437,6 +1462,7 @@ test('profile.update normalizes nullable strings and handle changes', async () =
 
   assert.equal(result.action, 'profile.update');
   assert.deepEqual(capturedPatch, {
+    clubId: 'club-2',
     handle: 'member-one-updated',
     displayName: 'Member One Updated',
     tagline: null,
@@ -1445,6 +1471,8 @@ test('profile.update normalizes nullable strings and handle changes', async () =
   });
   assert.equal(result.actor.member.handle, 'member-one-updated');
   assert.equal(result.data.handle, 'member-one-updated');
+  assert.equal(result.data.profiles[0]?.club.clubId, 'club-2');
+  assert.equal(result.data.profiles[0]?.tagline, null);
 });
 
 test('content.create uses one shared flow for post/ask/service/opportunity kinds', async () => {
@@ -2250,7 +2278,7 @@ test('members.searchByFullText rejects a club outside the actor scope', async ()
   );
 });
 
-test('profile.get returns 404 when the target member is outside shared scope', async () => {
+test('profile.list returns 404 when the target member is outside shared scope', async () => {
   const repository: Repository = {
     async authenticateBearerToken() {
       return makeAuthResult();
@@ -2261,7 +2289,7 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     async listMembers() {
       return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
-    async getMemberProfile() {
+    async listMemberProfiles() {
       return null;
     },
     async updateOwnProfile() {
@@ -2328,7 +2356,7 @@ test('profile.get returns 404 when the target member is outside shared scope', a
     () =>
       dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        action: 'profile.get',
+        action: 'profile.list',
         payload: {
           memberId: 'member-999',
         },

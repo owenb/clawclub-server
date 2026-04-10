@@ -20,7 +20,7 @@ const MAX_ATTEMPTS = 5;
 
 type EmbeddingJob = {
   id: string;
-  subject_kind: 'member_profile_version' | 'entity_version';
+  subject_kind: 'member_club_profile_version' | 'entity_version';
   subject_version_id: string;
   model: string;
   dimensions: number;
@@ -31,6 +31,7 @@ type EmbeddingJob = {
 type ProfileVersionRow = {
   id: string;
   member_id: string;
+  club_id: string;
   public_name: string;
   display_name: string;
   handle: string | null;
@@ -88,14 +89,16 @@ async function claimJobs(
 
 async function loadProfileVersion(pool: Pool, versionId: string): Promise<ProfileVersionRow | null> {
   const result = await pool.query<ProfileVersionRow>(
-    `select mpv.id, mpv.member_id, m.public_name,
-            mpv.display_name, m.handle,
-            mpv.tagline, mpv.summary, mpv.what_i_do, mpv.known_for,
-            mpv.services_summary, mpv.website_url, mpv.links,
-            (mpv.version_no = (select max(version_no) from member_profile_versions where member_id = mpv.member_id)) as is_current
-     from member_profile_versions mpv
-     join members m on m.id = mpv.member_id
-     where mpv.id = $1`,
+    `select mcpv.id, mcpv.member_id, mcpv.club_id, m.public_name,
+            m.display_name, m.handle,
+            mcpv.tagline, mcpv.summary, mcpv.what_i_do, mcpv.known_for,
+            mcpv.services_summary, mcpv.website_url, mcpv.links,
+            exists (
+              select 1 from current_member_club_profiles cmcp where cmcp.id = mcpv.id
+            ) as is_current
+     from member_club_profile_versions mcpv
+     join members m on m.id = mcpv.member_id
+     where mcpv.id = $1`,
     [versionId],
   );
   return result.rows[0] ?? null;
@@ -166,7 +169,7 @@ function logEmbeddingSpend(
 // ── Source text building ────────────────────────────────
 
 function buildSourceText(job: EmbeddingJob, row: ProfileVersionRow | EntityVersionRow): string {
-  if (job.subject_kind === 'member_profile_version') {
+  if (job.subject_kind === 'member_club_profile_version') {
     const p = row as ProfileVersionRow;
     return buildProfileSourceText({
       publicName: p.public_name, handle: p.handle, displayName: p.display_name,
@@ -206,11 +209,11 @@ async function processPlane(
   const staleJobIds: string[] = [];
 
   for (const job of jobs) {
-    const row = job.subject_kind === 'member_profile_version'
+    const row = job.subject_kind === 'member_club_profile_version'
       ? await loadProfileVersion(pool, job.subject_version_id)
       : await loadEntityVersion(pool, job.subject_version_id);
 
-    if (!row || (job.subject_kind === 'member_profile_version' && !(row as ProfileVersionRow).is_current)
+    if (!row || (job.subject_kind === 'member_club_profile_version' && !(row as ProfileVersionRow).is_current)
         || (job.subject_kind === 'entity_version' && !(row as EntityVersionRow).is_current_published)) {
       staleJobIds.push(job.id);
       continue;
@@ -279,23 +282,24 @@ async function processPlane(
 }
 
 async function insertProfileArtifact(pool: Pool, job: EmbeddingJob, sourceText: string, sourceHash: string, vectorStr: string): Promise<void> {
-  const memberResult = await pool.query<{ member_id: string }>(
-    `select member_id from member_profile_versions where id = $1`,
+  const memberResult = await pool.query<{ member_id: string; club_id: string }>(
+    `select member_id, club_id from member_club_profile_versions where id = $1`,
     [job.subject_version_id],
   );
   const memberId = memberResult.rows[0]?.member_id;
-  if (!memberId) throw new Error(`No member found for profile version ${job.subject_version_id}`);
+  const clubId = memberResult.rows[0]?.club_id;
+  if (!memberId || !clubId) throw new Error(`No member+club found for profile version ${job.subject_version_id}`);
 
   await pool.query(
-    `insert into member_profile_embeddings (member_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding, metadata)
-     values ($1, $2, $3, $4, $5, 0, $6, $7, $8::vector, '{}'::jsonb)
-     on conflict (member_id, model, dimensions, source_version, chunk_index) do update
+    `insert into member_profile_embeddings (member_id, club_id, profile_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding, metadata)
+     values ($1, $2, $3, $4, $5, $6, 0, $7, $8, $9::vector, '{}'::jsonb)
+     on conflict (member_id, club_id, model, dimensions, source_version, chunk_index) do update
        set profile_version_id = excluded.profile_version_id,
            source_text = excluded.source_text,
            source_hash = excluded.source_hash,
            embedding = excluded.embedding,
            updated_at = now()`,
-    [memberId, job.subject_version_id, job.model, job.dimensions, job.source_version, sourceText, sourceHash, vectorStr],
+    [memberId, clubId, job.subject_version_id, job.model, job.dimensions, job.source_version, sourceText, sourceHash, vectorStr],
   );
 }
 
@@ -326,7 +330,7 @@ async function processEmbeddings(pools: WorkerPools): Promise<number> {
   const profileCount = await processPlane(
     pools.db,
     'profiles',
-    'member_profile_version',
+    'member_club_profile_version',
     insertProfileArtifact,
   );
   const entityCount = await processPlane(

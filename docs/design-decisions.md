@@ -132,7 +132,7 @@ Examples:
   - code-configured embedding profiles in `src/ai.ts` (model, dimensions, source version)
   - worker processes jobs independently; write path succeeds even if embeddings are unavailable
   - query-time embedding calls return clean 503 if OpenAI is unavailable
-- embedding metadata is not exposed in normal API responses (profile.get, content.list)
+- embedding metadata is not exposed in normal API responses (profile.list, content.list)
 
 ## Update transport
 
@@ -293,7 +293,7 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - `content.searchBySemanticSimilarity`
 - `admissions.public.requestChallenge/submitApplication` (self-applied, unauthenticated, PoW-gated)
 - `admissions.sponsorCandidate` (member sponsors outsider)
-- `profile.get/update`
+- `profile.list/update`
 - `content.create/update/remove/list`
 - `events.create/list/rsvp/remove`
 - `messages.send/getInbox/getThread/remove`

@@ -15,24 +15,50 @@ after(async () => {
 // ── Profiles ──────────────────────────────────────────────────────────────────
 
 describe('Profiles', () => {
-  it('profile.get with no memberId returns own profile', async () => {
+  it('profile.list with no memberId returns own profiles', async () => {
     const alice = await h.seedOwner('profiles-own', 'ProfilesOwnClub');
 
-    const result = await h.apiOk(alice.token, 'profile.get', {});
+    const result = await h.apiOk(alice.token, 'profile.list', {});
     const profile = result.data as Record<string, unknown>;
+    const profiles = profile.profiles as Array<Record<string, unknown>>;
 
     assert.equal(profile.memberId, alice.id);
     assert.ok(profile.displayName);
+    assert.equal(profiles.length, 1);
+    assert.equal((profiles[0]?.club as Record<string, unknown>).clubId, alice.club.id);
   });
 
-  it('profile.get with another shared-club member ID returns their profile', async () => {
+  it('profile.list with clubId returns only that club profile', async () => {
+    const owner = await h.seedOwner('profiles-filter-a', 'ProfilesFilterA');
+    const secondClub = await h.seedClub('profiles-filter-b', 'ProfilesFilterB', owner.id);
+
+    const result = await h.apiOk(owner.token, 'profile.list', { clubId: secondClub.id });
+    const profile = result.data as Record<string, unknown>;
+    const profiles = profile.profiles as Array<Record<string, unknown>>;
+
+    assert.equal(profiles.length, 1);
+    assert.equal((profiles[0]?.club as Record<string, unknown>).clubId, secondClub.id);
+  });
+
+  it('profile.list with another shared-club member ID returns their profile', async () => {
     const owner = await h.seedOwner('profiles-shared', 'ProfilesSharedClub');
     const bob = await h.seedClubMember(owner.club.id, 'Bob Shared', 'bob-shared', { sponsorId: owner.id });
 
-    const result = await h.apiOk(bob.token, 'profile.get', { memberId: owner.id });
+    const result = await h.apiOk(bob.token, 'profile.list', { memberId: owner.id });
     const profile = result.data as Record<string, unknown>;
 
     assert.equal(profile.memberId, owner.id);
+    assert.equal((profile.profiles as Array<unknown>).length, 1);
+  });
+
+  it('profile.list for self with no memberships returns profiles: []', async () => {
+    const loner = await h.seedMember('No Clubs Yet', 'no-clubs-yet');
+
+    const result = await h.apiOk(loner.token, 'profile.list', {});
+    const profile = result.data as Record<string, unknown>;
+
+    assert.equal(profile.memberId, loner.id);
+    assert.deepEqual(profile.profiles, []);
   });
 
   it('non-shared-club member cannot see profile', async () => {
@@ -40,7 +66,7 @@ describe('Profiles', () => {
     const clubB = await h.seedOwner('profiles-club-b', 'ProfilesClubB');
 
     // clubB owner has no shared club with clubA owner
-    const err = await h.apiErr(clubB.token, 'profile.get', { memberId: clubA.id });
+    const err = await h.apiErr(clubB.token, 'profile.list', { memberId: clubA.id });
 
     assert.equal(err.status, 404);
     assert.equal(err.code, 'not_found');
@@ -50,17 +76,48 @@ describe('Profiles', () => {
 // ── Members Search & List ─────────────────────────────────────────────────────
 
 describe('Members Search & List', () => {
+  it('members.searchByFullText requires clubId', async () => {
+    const owner = await h.seedOwner('search-required-club', 'SearchRequiredClub');
+
+    const err = await h.apiErr(owner.token, 'members.searchByFullText', { query: 'owner' });
+
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+  });
+
   it('members.searchByFullText finds members by name in shared clubs', async () => {
     const owner = await h.seedOwner('search-club', 'SearchClub');
     await h.seedClubMember(owner.club.id, 'Findable Person', 'findable-person', { sponsorId: owner.id });
 
-    const result = await h.apiOk(owner.token, 'members.searchByFullText', { query: 'Findable' });
+    const result = await h.apiOk(owner.token, 'members.searchByFullText', { query: 'Findable', clubId: owner.club.id });
     const data = result.data as Record<string, unknown>;
     const members = data.results as Array<Record<string, unknown>>;
 
     assert.ok(Array.isArray(members));
     const found = members.find((m) => m.publicName === 'Findable Person');
     assert.ok(found, 'Expected to find member by name');
+  });
+
+  it('members.searchByFullText matches on global name', async () => {
+    const owner = await h.seedOwner('search-global-name', 'SearchGlobalNameClub');
+    await h.seedClubMember(owner.club.id, 'Find By Public Name', 'find-by-public-name', { sponsorId: owner.id });
+
+    const result = await h.apiOk(owner.token, 'members.searchByFullText', {
+      query: 'Find By Public Name',
+      clubId: owner.club.id,
+    });
+    const members = (result.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+
+    assert.ok(members.some((m) => m.publicName === 'Find By Public Name'));
+  });
+
+  it('members.list requires clubId', async () => {
+    const owner = await h.seedOwner('list-required-club', 'ListRequiredClub');
+
+    const err = await h.apiErr(owner.token, 'members.list', {});
+
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
   });
 
   it('members.list returns club members', async () => {

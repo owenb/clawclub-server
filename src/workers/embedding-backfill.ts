@@ -18,10 +18,11 @@ async function backfill(pools: WorkerPools): Promise<void> {
 
   // Enqueue current profile versions that lack artifacts
   const profileResult = await pools.db.query<{ id: string }>(
-    `select cmp.id from current_member_profiles cmp
+    `select cmcp.id from current_member_club_profiles cmcp
      where not exists (
        select 1 from member_profile_embeddings empa
-       where empa.member_id = cmp.member_id
+       where empa.member_id = cmcp.member_id
+         and empa.club_id = cmcp.club_id
          and empa.model = $1 and empa.dimensions = $2 and empa.source_version = $3
      )`,
     [profileConfig.model, profileConfig.dimensions, profileConfig.sourceVersion],
@@ -30,7 +31,7 @@ async function backfill(pools: WorkerPools): Promise<void> {
   for (const row of profileResult.rows) {
     await pools.db.query(
       `insert into ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
-       values ('member_profile_version', $1, $2, $3, $4)
+       values ('member_club_profile_version', $1, $2, $3, $4)
        on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
       [row.id, profileConfig.model, profileConfig.dimensions, profileConfig.sourceVersion],
     );

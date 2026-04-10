@@ -6045,6 +6045,9 @@
             "type": "integer"
           }
         },
+        "required": [
+          "clubId"
+        ],
         "type": "object"
       },
       "output": {
@@ -6283,7 +6286,8 @@
           }
         },
         "required": [
-          "query"
+          "query",
+          "clubId"
         ],
         "type": "object"
       },
@@ -6489,7 +6493,8 @@
           }
         },
         "required": [
-          "query"
+          "query",
+          "clubId"
         ],
         "type": "object"
       },
@@ -7256,12 +7261,16 @@
       "safety": "mutating"
     },
     {
-      "action": "profile.get",
+      "action": "profile.list",
       "auth": "member",
-      "description": "Read a member profile. Omit memberId for the current actor.",
+      "description": "List a member's visible profiles across clubs. Omit memberId for the current actor.",
       "domain": "profile",
       "input": {
         "properties": {
+          "clubId": {
+            "description": "Restrict to one club inside the actor scope.",
+            "type": "string"
+          },
           "memberId": {
             "description": "Target member ID. Omit for own profile.",
             "type": "string"
@@ -7279,93 +7288,108 @@
             "nullable": true,
             "type": "string"
           },
-          "knownFor": {
-            "nullable": true,
-            "type": "string"
-          },
-          "links": {
-            "items": {},
-            "type": "array"
-          },
           "memberId": {
             "type": "string"
           },
-          "profile": {
-            "additionalProperties": {},
-            "type": "object"
-          },
-          "publicName": {
-            "type": "string"
-          },
-          "servicesSummary": {
-            "nullable": true,
-            "type": "string"
-          },
-          "sharedClubs": {
+          "profiles": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "clubId": {
+                "club": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "clubId",
+                    "slug",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "knownFor": {
+                  "nullable": true,
                   "type": "string"
                 },
-                "name": {
+                "links": {
+                  "items": {},
+                  "type": "array"
+                },
+                "profile": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "servicesSummary": {
+                  "nullable": true,
                   "type": "string"
                 },
-                "slug": {
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "tagline": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "version": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "createdByMemberId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "versionNo": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "versionNo",
+                    "createdAt",
+                    "createdByMemberId"
+                  ],
+                  "type": "object"
+                },
+                "websiteUrl": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "whatIDo": {
+                  "nullable": true,
                   "type": "string"
                 }
               },
               "required": [
-                "clubId",
-                "slug",
-                "name"
+                "club",
+                "tagline",
+                "summary",
+                "whatIDo",
+                "knownFor",
+                "servicesSummary",
+                "websiteUrl",
+                "links",
+                "profile",
+                "version"
               ],
               "type": "object"
             },
             "type": "array"
           },
-          "summary": {
-            "nullable": true,
-            "type": "string"
-          },
-          "tagline": {
-            "nullable": true,
-            "type": "string"
-          },
-          "version": {
-            "additionalProperties": false,
-            "properties": {
-              "createdAt": {
-                "nullable": true,
-                "type": "string"
-              },
-              "createdByMemberId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "id": {
-                "nullable": true,
-                "type": "string"
-              },
-              "versionNo": {
-                "nullable": true,
-                "type": "number"
-              }
-            },
-            "required": [
-              "id",
-              "versionNo",
-              "createdAt",
-              "createdByMemberId"
-            ],
-            "type": "object"
-          },
-          "websiteUrl": {
-            "nullable": true,
-            "type": "string"
-          },
-          "whatIDo": {
-            "nullable": true,
+          "publicName": {
             "type": "string"
           }
         },
@@ -7374,16 +7398,7 @@
           "publicName",
           "handle",
           "displayName",
-          "tagline",
-          "summary",
-          "whatIDo",
-          "knownFor",
-          "servicesSummary",
-          "websiteUrl",
-          "links",
-          "profile",
-          "version",
-          "sharedClubs"
+          "profiles"
         ],
         "type": "object"
       },
@@ -7397,6 +7412,10 @@
       "domain": "profile",
       "input": {
         "properties": {
+          "clubId": {
+            "description": "Club to update when sending club-scoped profile fields.",
+            "type": "string"
+          },
           "displayName": {
             "description": "Display name (cannot be empty if provided).",
             "type": "string"
@@ -7465,93 +7484,108 @@
             "nullable": true,
             "type": "string"
           },
-          "knownFor": {
-            "nullable": true,
-            "type": "string"
-          },
-          "links": {
-            "items": {},
-            "type": "array"
-          },
           "memberId": {
             "type": "string"
           },
-          "profile": {
-            "additionalProperties": {},
-            "type": "object"
-          },
-          "publicName": {
-            "type": "string"
-          },
-          "servicesSummary": {
-            "nullable": true,
-            "type": "string"
-          },
-          "sharedClubs": {
+          "profiles": {
             "items": {
               "additionalProperties": false,
               "properties": {
-                "clubId": {
+                "club": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "clubId",
+                    "slug",
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "knownFor": {
+                  "nullable": true,
                   "type": "string"
                 },
-                "name": {
+                "links": {
+                  "items": {},
+                  "type": "array"
+                },
+                "profile": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "servicesSummary": {
+                  "nullable": true,
                   "type": "string"
                 },
-                "slug": {
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "tagline": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "version": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "createdByMemberId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "versionNo": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "versionNo",
+                    "createdAt",
+                    "createdByMemberId"
+                  ],
+                  "type": "object"
+                },
+                "websiteUrl": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "whatIDo": {
+                  "nullable": true,
                   "type": "string"
                 }
               },
               "required": [
-                "clubId",
-                "slug",
-                "name"
+                "club",
+                "tagline",
+                "summary",
+                "whatIDo",
+                "knownFor",
+                "servicesSummary",
+                "websiteUrl",
+                "links",
+                "profile",
+                "version"
               ],
               "type": "object"
             },
             "type": "array"
           },
-          "summary": {
-            "nullable": true,
-            "type": "string"
-          },
-          "tagline": {
-            "nullable": true,
-            "type": "string"
-          },
-          "version": {
-            "additionalProperties": false,
-            "properties": {
-              "createdAt": {
-                "nullable": true,
-                "type": "string"
-              },
-              "createdByMemberId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "id": {
-                "nullable": true,
-                "type": "string"
-              },
-              "versionNo": {
-                "nullable": true,
-                "type": "number"
-              }
-            },
-            "required": [
-              "id",
-              "versionNo",
-              "createdAt",
-              "createdByMemberId"
-            ],
-            "type": "object"
-          },
-          "websiteUrl": {
-            "nullable": true,
-            "type": "string"
-          },
-          "whatIDo": {
-            "nullable": true,
+          "publicName": {
             "type": "string"
           }
         },
@@ -7560,16 +7594,7 @@
           "publicName",
           "handle",
           "displayName",
-          "tagline",
-          "summary",
-          "whatIDo",
-          "knownFor",
-          "servicesSummary",
-          "websiteUrl",
-          "links",
-          "profile",
-          "version",
-          "sharedClubs"
+          "profiles"
         ],
         "type": "object"
       },
@@ -8950,6 +8975,9 @@
               "createdAt": {
                 "type": "string"
               },
+              "displayName": {
+                "type": "string"
+              },
               "handle": {
                 "nullable": true,
                 "type": "string"
@@ -8996,41 +9024,11 @@
                 },
                 "type": "array"
               },
-              "profile": {
-                "additionalProperties": false,
-                "nullable": true,
-                "properties": {
-                  "displayName": {
-                    "type": "string"
-                  },
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "knownFor": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "links": {
-                    "items": {},
-                    "type": "array"
-                  },
-                  "memberId": {
-                    "type": "string"
-                  },
-                  "profile": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  },
-                  "servicesSummary": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "sharedClubs": {
-                    "items": {
+              "profiles": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "club": {
                       "additionalProperties": false,
                       "properties": {
                         "clubId": {
@@ -9050,70 +9048,79 @@
                       ],
                       "type": "object"
                     },
-                    "type": "array"
-                  },
-                  "summary": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "tagline": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "version": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "createdAt": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "createdByMemberId": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "id": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "versionNo": {
-                        "nullable": true,
-                        "type": "number"
-                      }
+                    "knownFor": {
+                      "nullable": true,
+                      "type": "string"
                     },
-                    "required": [
-                      "id",
-                      "versionNo",
-                      "createdAt",
-                      "createdByMemberId"
-                    ],
-                    "type": "object"
+                    "links": {
+                      "items": {},
+                      "type": "array"
+                    },
+                    "profile": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "servicesSummary": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "summary": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "tagline": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "version": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "createdAt": {
+                          "type": "string"
+                        },
+                        "createdByMemberId": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "versionNo": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "versionNo",
+                        "createdAt",
+                        "createdByMemberId"
+                      ],
+                      "type": "object"
+                    },
+                    "websiteUrl": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "whatIDo": {
+                      "nullable": true,
+                      "type": "string"
+                    }
                   },
-                  "websiteUrl": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "whatIDo": {
-                    "nullable": true,
-                    "type": "string"
-                  }
+                  "required": [
+                    "club",
+                    "tagline",
+                    "summary",
+                    "whatIDo",
+                    "knownFor",
+                    "servicesSummary",
+                    "websiteUrl",
+                    "links",
+                    "profile",
+                    "version"
+                  ],
+                  "type": "object"
                 },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle",
-                  "displayName",
-                  "tagline",
-                  "summary",
-                  "whatIDo",
-                  "knownFor",
-                  "servicesSummary",
-                  "websiteUrl",
-                  "links",
-                  "profile",
-                  "version",
-                  "sharedClubs"
-                ],
-                "type": "object"
+                "type": "array"
               },
               "publicName": {
                 "type": "string"
@@ -9129,11 +9136,12 @@
               "memberId",
               "publicName",
               "handle",
+              "displayName",
               "state",
               "createdAt",
               "memberships",
               "tokenCount",
-              "profile"
+              "profiles"
             ],
             "type": "object"
           }
@@ -10836,6 +10844,6 @@
       }
     }
   },
-  "version": "0.2.13",
-  "schemaHash": "adb9bbfc04a9a579"
+  "version": "0.2.15",
+  "schemaHash": "23fc9711c1540109"
 }

@@ -104,7 +104,7 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async transitionMembershipState() { return null; },
     async listMembershipReviews() { return { results: [], hasMore: false, nextCursor: null }; },
     async listMembers() { return { results: [], hasMore: false, nextCursor: null }; },
-    async getMemberProfile() { return null; },
+    async listMemberProfiles() { return null; },
     async updateOwnProfile() { throw new Error('not used'); },
     async createEntity() { throw new Error('not used'); },
     async updateEntity() { return null; },

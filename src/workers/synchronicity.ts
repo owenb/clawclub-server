@@ -330,19 +330,30 @@ async function processProfileTriggers(pools: WorkerPools): Promise<number> {
   }
 
   // Compound cursor: (updated_at, member_id) > ($1, $2)
+  // Collapse club-scoped embeddings down to one trigger row per member so a
+  // single profile edit does not create duplicate intro recompute work.
   // Join through profile_version_id to get the underlying profile change timestamp.
   // Skip delayed embedding completions where the profile change is too old —
   // prevents intro catch-up waves after embedding pipeline recovery.
   const result = await pools.db.query<{
     member_id: string; updated_at: string; profile_changed_at: string;
   }>(
-    `select empa.member_id,
-            empa.updated_at::text as updated_at,
-            mpv.created_at::text as profile_changed_at
-     from member_profile_embeddings empa
-     join member_profile_versions mpv on mpv.id = empa.profile_version_id
-     where (empa.updated_at, empa.member_id) > ($1::timestamptz, $2)
-     order by empa.updated_at asc, empa.member_id asc
+    `with member_profile_changes as (
+       select
+         empa.member_id,
+         max(empa.updated_at) as updated_at,
+         max(mcp.created_at) as profile_changed_at
+       from member_profile_embeddings empa
+       join member_club_profile_versions mcp on mcp.id = empa.profile_version_id
+       group by empa.member_id
+     )
+     select
+       member_id,
+       updated_at::text as updated_at,
+       profile_changed_at::text as profile_changed_at
+     from member_profile_changes
+     where (updated_at, member_id) > ($1::timestamptz, $2)
+     order by updated_at asc, member_id asc
      limit 50`,
     [lastAt, lastMemberId || ''],
   );

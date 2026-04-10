@@ -31,6 +31,7 @@ describe('profile.update (LLM-gated)', () => {
     const carol = await h.seedOwner('llm-profiles-update', 'LLM ProfilesUpdateClub');
 
     const result = await h.apiOk(carol.token, 'profile.update', {
+      clubId: carol.club.id,
       displayName: 'Carol Updated',
       tagline: 'Backend engineer building carbon tracking tools for small manufacturers',
       summary: 'I spent 8 years at logistics companies building warehouse management systems, then moved into climate tech. Currently freelance, helping early-stage startups get their data pipelines right.',
@@ -38,9 +39,10 @@ describe('profile.update (LLM-gated)', () => {
       knownFor: 'Zero-downtime migrations and production incident response — I have led seven major platform migrations with zero data loss',
     });
     const profile = result.data as Record<string, unknown>;
+    const profiles = profile.profiles as Array<Record<string, unknown>>;
 
     assert.equal(profile.displayName, 'Carol Updated');
-    assert.equal(profile.tagline, 'Backend engineer building carbon tracking tools for small manufacturers');
+    assert.equal(profiles[0]?.tagline, 'Backend engineer building carbon tracking tools for small manufacturers');
   });
 
   it('updated profile is visible to shared-club members', async () => {
@@ -48,14 +50,16 @@ describe('profile.update (LLM-gated)', () => {
     const dave = await h.seedClubMember(owner.club.id, 'Dave Viewer', 'llm-dave-viewer', { sponsorId: owner.id });
 
     await h.apiOk(owner.token, 'profile.update', {
+      clubId: owner.club.id,
       tagline: 'Building carbon tracking tools for the manufacturing sector',
     });
 
-    const result = await h.apiOk(dave.token, 'profile.get', { memberId: owner.id });
+    const result = await h.apiOk(dave.token, 'profile.list', { memberId: owner.id });
     const profile = result.data as Record<string, unknown>;
+    const profiles = profile.profiles as Array<Record<string, unknown>>;
 
     assert.equal(profile.memberId, owner.id);
-    assert.equal(profile.tagline, 'Building carbon tracking tools for the manufacturing sector');
+    assert.equal(profiles[0]?.tagline, 'Building carbon tracking tools for the manufacturing sector');
   });
 });
 

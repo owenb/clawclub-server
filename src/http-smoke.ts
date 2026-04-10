@@ -157,7 +157,7 @@ export async function runHttpSmoke(): Promise<{
   const identityUrl = requireEnv('DATABASE_URL');
   const setupPool = new Pool({ connectionString: identityUrl });
   const memberHandle = readSmokeHandle();
-  const actions = ['GET /updates/stream', 'session.getContext', 'members.searchByFullText', 'profile.get', 'messages.getInbox', 'content.list', 'events.list'];
+  const actions = ['GET /updates/stream', 'session.getContext', 'members.searchByFullText', 'profile.list', 'messages.getInbox', 'content.list', 'events.list'];
   let tokenId: string | null = null;
   let shutdown: (() => Promise<void>) | null = null;
 
@@ -188,8 +188,9 @@ export async function runHttpSmoke(): Promise<{
     });
     assert.ok(Array.isArray(members.data?.results), 'members.searchByFullText should return a results array');
 
-    const profile = await postAction(baseUrl, token.bearerToken, 'profile.get', {});
+    const profile = await postAction(baseUrl, token.bearerToken, 'profile.list', {});
     assert.equal(profile.data?.memberId, memberId);
+    assert.ok(Array.isArray(profile.data?.profiles), 'profile.list should return a profiles array');
 
     const inbox = await postAction(baseUrl, token.bearerToken, 'messages.getInbox', {
       clubId,

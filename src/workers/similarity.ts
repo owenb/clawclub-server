@@ -57,15 +57,18 @@ async function loadEntityVector(pool: Pool, entityId: string): Promise<string | 
  * new embedding isn't ready yet, returns null — preferring to skip
  * the member over matching on stale semantics.
  */
-async function loadProfileVector(pool: Pool, memberId: string): Promise<string | null> {
+async function loadProfileVector(pool: Pool, memberId: string, clubId: string): Promise<string | null> {
   const result = await pool.query<{ embedding: string }>(
     `select empa.embedding::text as embedding
      from member_profile_embeddings empa
-     join current_member_profiles cmp
-       on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
+     join current_member_club_profiles cmp
+       on cmp.id = empa.profile_version_id
+      and cmp.member_id = empa.member_id
+      and cmp.club_id = empa.club_id
      where empa.member_id = $1
+       and empa.club_id = $2
      limit 1`,
-    [memberId],
+    [memberId, clubId],
   );
   return result.rows[0]?.embedding ?? null;
 }
@@ -93,12 +96,15 @@ export async function findMembersMatchingEntity(
   const result = await pool.query<{ member_id: string; distance: number }>(
     `select empa.member_id, min(empa.embedding <=> $1::vector) as distance
      from member_profile_embeddings empa
-     join current_member_profiles cmp
-       on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
+     join current_member_club_profiles cmp
+       on cmp.id = empa.profile_version_id
+      and cmp.member_id = empa.member_id
+      and cmp.club_id = empa.club_id
      join accessible_club_memberships acm
        on acm.member_id = empa.member_id
        and acm.club_id = $2
-     where empa.member_id <> $3
+     where empa.club_id = $2
+       and empa.member_id <> $3
      group by empa.member_id
      order by distance asc
      limit $4`,
@@ -120,19 +126,22 @@ export async function findSimilarMembers(
   clubId: string,
   limit: number,
 ): Promise<SimilarityResult[]> {
-  const vector = await loadProfileVector(pool, memberId);
+  const vector = await loadProfileVector(pool, memberId, clubId);
   if (!vector) return [];
 
   // Only match against current-version embeddings for target members too.
   const result = await pool.query<{ member_id: string; distance: number }>(
     `select empa.member_id, min(empa.embedding <=> $1::vector) as distance
      from member_profile_embeddings empa
-     join current_member_profiles cmp
-       on cmp.id = empa.profile_version_id and cmp.member_id = empa.member_id
+     join current_member_club_profiles cmp
+       on cmp.id = empa.profile_version_id
+      and cmp.member_id = empa.member_id
+      and cmp.club_id = empa.club_id
      join accessible_club_memberships acm
        on acm.member_id = empa.member_id
        and acm.club_id = $2
-     where empa.member_id <> $3
+     where empa.club_id = $2
+       and empa.member_id <> $3
      group by empa.member_id
      order by distance asc
      limit $4`,

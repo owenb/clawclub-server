@@ -105,6 +105,7 @@ describe('legality gate: passes legal content regardless of quality', () => {
   it('passes a generic filler tagline in profile (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-profile-1', 'QG Profile Club 1');
     const result = await h.apiOk(owner.token, 'profile.update', {
+      clubId: owner.club.id,
       tagline: 'Experienced professional passionate about excellence',
     });
     const profile = result.data as Record<string, unknown>;

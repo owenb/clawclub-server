@@ -8,20 +8,20 @@ begin;
 -- Members (12 active + 1 suspended)
 -- ============================================================
 
-insert into members (public_name, handle, state, created_at) values
-  ('Owen Barnes',     'owen-barnes',     'active',    now() - interval '60 days'),
-  ('Alice Hound',     'alice-hound',     'active',    now() - interval '50 days'),
-  ('Bob Whiskers',    'bob-whiskers',    'active',    now() - interval '50 days'),
-  ('Charlie Paws',    'charlie-paws',    'active',    now() - interval '50 days'),
-  ('Diana Feathers',  'diana-feathers',  'active',    now() - interval '40 days'),
-  ('Eddie Scales',    'eddie-scales',    'active',    now() - interval '40 days'),
-  ('Fiona Hooves',    'fiona-hooves',    'active',    now() - interval '30 days'),
-  ('George Wings',    'george-wings',    'active',    now() - interval '30 days'),
-  ('Hannah Fins',     'hannah-fins',     'active',    now() - interval '20 days'),
-  ('Ivan Tusks',      'ivan-tusks',      'active',    now() - interval '20 days'),
-  ('Julia Stripes',   'julia-stripes',   'active',    now() - interval '20 days'),
-  ('Kevin Spots',     'kevin-spots',     'active',    now() - interval '5 days'),
-  ('Sam Shadow',      'sam-shadow',      'suspended', now() - interval '45 days')
+insert into members (public_name, display_name, handle, state, created_at) values
+  ('Owen Barnes',     'Owen Barnes',     'owen-barnes',     'active',    now() - interval '60 days'),
+  ('Alice Hound',     'Alice Hound',     'alice-hound',     'active',    now() - interval '50 days'),
+  ('Bob Whiskers',    'Bob Whiskers',    'bob-whiskers',    'active',    now() - interval '50 days'),
+  ('Charlie Paws',    'Charlie Paws',    'charlie-paws',    'active',    now() - interval '50 days'),
+  ('Diana Feathers',  'Diana Feathers',  'diana-feathers',  'active',    now() - interval '40 days'),
+  ('Eddie Scales',    'Eddie Scales',    'eddie-scales',    'active',    now() - interval '40 days'),
+  ('Fiona Hooves',    'Fiona Hooves',    'fiona-hooves',    'active',    now() - interval '30 days'),
+  ('George Wings',    'George Wings',    'george-wings',    'active',    now() - interval '30 days'),
+  ('Hannah Fins',     'Hannah Fins',     'hannah-fins',     'active',    now() - interval '20 days'),
+  ('Ivan Tusks',      'Ivan Tusks',      'ivan-tusks',      'active',    now() - interval '20 days'),
+  ('Julia Stripes',   'Julia Stripes',   'julia-stripes',   'active',    now() - interval '20 days'),
+  ('Kevin Spots',     'Kevin Spots',     'kevin-spots',     'active',    now() - interval '5 days'),
+  ('Sam Shadow',      'Sam Shadow',      'sam-shadow',      'suspended', now() - interval '45 days')
 on conflict (handle) do nothing;
 
 select id as owen_id    from members where handle = 'owen-barnes' \gset
@@ -39,10 +39,26 @@ select id as kevin_id   from members where handle = 'kevin-spots' \gset
 select id as sam_id     from members where handle = 'sam-shadow' \gset
 
 -- ============================================================
--- Member profiles (rich data for all members)
+-- Seed profile source rows (replicated into each active membership below)
 -- ============================================================
 
-insert into member_profile_versions
+create temp table seed_member_profiles (
+  member_id short_id not null,
+  version_no integer not null,
+  display_name text not null,
+  tagline text,
+  summary text,
+  what_i_do text,
+  known_for text,
+  services_summary text,
+  website_url text,
+  links jsonb not null default '[]'::jsonb,
+  profile jsonb not null default '{}'::jsonb,
+  created_by_member_id short_id not null,
+  created_at timestamptz not null
+) on commit drop;
+
+insert into seed_member_profiles
   (member_id, version_no, display_name, tagline, summary, what_i_do, known_for, services_summary, website_url, links, created_by_member_id, created_at)
 values
   -- Owen v1 (initial)
@@ -88,6 +104,15 @@ values
   -- Sam (suspended — minimal profile)
   (:'sam_id', 1, 'Sam Shadow', 'Former member', null, null, null, null, null, '[]'::jsonb, :'sam_id', now() - interval '45 days')
 on conflict do nothing;
+
+update members m
+set display_name = latest.display_name
+from (
+  select distinct on (member_id) member_id, display_name
+  from seed_member_profiles
+  order by member_id, version_no desc, created_at desc
+) latest
+where latest.member_id = m.id;
 
 -- ============================================================
 -- Private contacts (emails for some members)
@@ -309,6 +334,46 @@ values
   -- Sam revoked from both clubs (suspended from platform)
   (:'sam_dog_mid', 'revoked', 'Account suspended — platform policy violation', 2, :'owen_id', now() - interval '30 days'),
   (:'sam_cat_mid', 'revoked', 'Account suspended — platform policy violation', 2, :'owen_id', now() - interval '30 days')
+on conflict do nothing;
+
+-- ============================================================
+-- Club-scoped profile history (copy source rows into each active membership)
+-- ============================================================
+
+insert into member_club_profile_versions (
+  member_id,
+  club_id,
+  version_no,
+  tagline,
+  summary,
+  what_i_do,
+  known_for,
+  services_summary,
+  website_url,
+  links,
+  profile,
+  created_by_member_id,
+  generation_source,
+  created_at
+)
+select
+  cm.member_id,
+  cm.club_id,
+  smp.version_no,
+  smp.tagline,
+  smp.summary,
+  smp.what_i_do,
+  smp.known_for,
+  smp.services_summary,
+  smp.website_url,
+  smp.links,
+  smp.profile,
+  smp.created_by_member_id,
+  'migration_backfill',
+  smp.created_at
+from club_memberships cm
+join seed_member_profiles smp on smp.member_id = cm.member_id
+where cm.left_at is null
 on conflict do nothing;
 
 -- ============================================================

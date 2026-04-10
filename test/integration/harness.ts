@@ -216,21 +216,37 @@ export class TestHarness {
 
   // ── Seeding helpers ──
 
+  private async ensureClubProfile(memberId: string, clubId: string): Promise<void> {
+    await this.sql(
+      `insert into member_club_profile_versions (
+         member_id, club_id, version_no, created_by_member_id, generation_source
+       )
+       select
+         $1::short_id,
+         $2::short_id,
+         coalesce((
+           select max(version_no) + 1 from member_club_profile_versions where member_id = $1::short_id and club_id = $2::short_id
+         ), 1),
+         $1::short_id,
+         'membership_seed'
+       where not exists (
+         select 1 from current_member_club_profiles where member_id = $1::short_id and club_id = $2::short_id
+       )`,
+      [memberId, clubId],
+    );
+  }
+
   async seedMember(publicName: string, handle: string): Promise<SeededMember> {
     const rows = await this.sql<{ id: string }>(
-      `INSERT INTO members (public_name, handle, state)
-       VALUES ($1, $2, 'active')
-       ON CONFLICT (handle) DO UPDATE SET public_name = excluded.public_name
+      `INSERT INTO members (public_name, display_name, handle, state)
+       VALUES ($1, $1, $2, 'active')
+       ON CONFLICT (handle) DO UPDATE
+         SET public_name = excluded.public_name,
+             display_name = excluded.display_name
        RETURNING id`,
       [publicName, handle],
     );
     const id = rows[0]!.id;
-
-    await this.sql(
-      `INSERT INTO member_profile_versions (member_id, version_no, display_name, created_by_member_id)
-       VALUES ($1, 1, $2, $1) ON CONFLICT DO NOTHING`,
-      [id, publicName.split(' ')[0]],
-    );
 
     const token = await this.createToken(id);
     return { id, handle, publicName, token };
@@ -273,6 +289,7 @@ export class TestHarness {
        FROM club_membership_state_versions WHERE membership_id = $1::short_id`,
       [membershipId, ownerMemberId],
     );
+    await this.ensureClubProfile(ownerMemberId, clubId);
 
     // Club version (needed by current_club_versions view)
     await this.sql(
@@ -318,6 +335,8 @@ export class TestHarness {
         [membershipId],
       );
     }
+
+    await this.ensureClubProfile(memberId, clubId);
 
     return { id: membershipId, clubId, memberId, role, status };
   }

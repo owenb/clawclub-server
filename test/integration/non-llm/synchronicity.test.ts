@@ -840,22 +840,22 @@ describe('synchronicity worker', () => {
       // Simulate a delayed embedding: the profile was changed 5 days ago
       // but the embedding was just completed now (e.g., OpenAI outage recovery)
       const pvRows = await h.sql<{ id: string }>(
-        `select id from current_member_profiles where member_id = $1`,
-        [alice.id],
+        `select id from current_member_club_profiles where member_id = $1 and club_id = $2`,
+        [alice.id, owner.club.id],
       );
       let pvId = pvRows[0]?.id;
       if (!pvId) {
         const r = await h.sql<{ id: string }>(
-          `insert into member_profile_versions
-             (member_id, version_no, display_name, created_by_member_id, created_at)
-           values ($1, 1, 'test', $1, now() - interval '5 days') returning id`,
-          [alice.id],
+          `insert into member_club_profile_versions
+             (member_id, club_id, version_no, created_by_member_id, generation_source, created_at)
+           values ($1, $2, 1, $1, 'membership_seed', now() - interval '5 days') returning id`,
+          [alice.id, owner.club.id],
         );
         pvId = r[0].id;
       } else {
         // Backdate the profile version
         await h.sql(
-          `update member_profile_versions set created_at = now() - interval '5 days' where id = $1`,
+          `update member_club_profile_versions set created_at = now() - interval '5 days' where id = $1`,
           [pvId],
         );
       }
@@ -863,16 +863,16 @@ describe('synchronicity worker', () => {
       // Insert the embedding artifact as if it just completed now
       await h.sql(
         `insert into member_profile_embeddings
-           (member_id, profile_version_id, model, dimensions, source_version,
+           (member_id, club_id, profile_version_id, model, dimensions, source_version,
             chunk_index, source_text, source_hash, embedding, updated_at)
-         values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'delayed',
-                 $3::vector, now())
-         on conflict (member_id, model, dimensions, source_version, chunk_index)
+         values ($1, $2, $3, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'delayed',
+                 $4::vector, now())
+         on conflict (member_id, club_id, model, dimensions, source_version, chunk_index)
          do update set embedding = excluded.embedding,
                        profile_version_id = excluded.profile_version_id,
                        source_hash = excluded.source_hash,
                        updated_at = now()`,
-        [alice.id, pvId, makeVector([0.9, 0.1, 0])],
+        [alice.id, owner.club.id, pvId, makeVector([0.9, 0.1, 0])],
       );
 
       // Process profile triggers — should skip this delayed embedding
@@ -1101,9 +1101,9 @@ describe('synchronicity worker', () => {
 
       // Alice updates her profile to v2 (no new embedding yet — simulates pending embedding job)
       await h.sql(
-        `insert into member_profile_versions (member_id, version_no, display_name, created_by_member_id)
-         values ($1, 2, 'updated profile', $1)`,
-        [alice.id],
+        `insert into member_club_profile_versions (member_id, club_id, version_no, created_by_member_id, generation_source)
+         values ($1, $2, 2, $1, 'manual')`,
+        [alice.id, owner.club.id],
       );
 
       // Now her current_profiles.id is v2, but her embedding is for v1
@@ -1133,9 +1133,9 @@ describe('synchronicity worker', () => {
 
       // Alice updates her profile to v2 (embedding still for v1)
       await h.sql(
-        `insert into member_profile_versions (member_id, version_no, display_name, created_by_member_id)
-         values ($1, 2, 'updated profile', $1)`,
-        [alice.id],
+        `insert into member_club_profile_versions (member_id, club_id, version_no, created_by_member_id, generation_source)
+         values ($1, $2, 2, $1, 'manual')`,
+        [alice.id, owner.club.id],
       );
 
       const pools = workerPools();

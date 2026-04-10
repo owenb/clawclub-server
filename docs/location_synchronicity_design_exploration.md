@@ -92,7 +92,7 @@ A nomad has no `home` rows and a series of `travel` rows. A multi-base member ha
 
 ### Alternative I considered and rejected: structured data on the member profile
 
-Putting locations as a structured field on `member_profile_versions` would tightly couple location lifecycle to profile versioning, which is wrong. Locations change much more often than profiles and are operational data, not self-description. Keeping them in their own table is cleaner.
+Putting locations as a structured field on member profiles would tightly couple location lifecycle to profile versioning, which is wrong. Locations change much more often than profiles and are operational data, not self-description. Keeping them in their own table is cleaner.
 
 ### City normalization (real and annoying)
 

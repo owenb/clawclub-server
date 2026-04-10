@@ -5,6 +5,7 @@
 import type { Pool } from 'pg';
 import type { ArchiveClubInput, AssignClubOwnerInput, ClubSummary, CreateClubInput, UpdateClubInput } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
+import { ensureClubProfileSeeded } from './profiles.ts';
 
 type ClubRow = {
   club_id: string;
@@ -114,6 +115,12 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
     );
     await client.query(`select set_config('app.allow_membership_state_sync', '', true)`);
 
+    await ensureClubProfileSeeded(client, {
+      memberId: input.ownerMemberId,
+      clubId,
+      generationSource: 'membership_seed',
+    });
+
     return readClub(client, clubId);
   });
 }
@@ -177,6 +184,11 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
        from club_membership_state_versions where membership_id = $1::short_id`,
       [newMsRows.rows[0]!.id, input.actorMemberId],
     );
+    await ensureClubProfileSeeded(client, {
+      memberId: input.ownerMemberId,
+      clubId: input.clubId,
+      generationSource: 'membership_seed',
+    });
 
     // 4. Demote old owner to 'member' role
     if (current.current_owner_member_id !== input.ownerMemberId) {
