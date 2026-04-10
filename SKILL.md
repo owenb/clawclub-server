@@ -182,16 +182,24 @@ The applicant must already know the club slug (e.g. from an invitation link or t
 | Eligibility | anyone with the slug | active membership in any club; not already a member of the target; no pending admission for the target |
 | Other limits | — | max 3 pending cross-applications across all clubs |
 
+**Cold-only identity and consent rule**
+
+For `admissions.public.*`, the applicant is the human, never the agent. The agent is only helping the human prepare and submit the form. Do not write or speak as if the agent itself wants to join the club, and do not answer questions about background, interests, motives, plans, or availability from the agent's own voice or by inference.
+
+Before submitting a cold application, ask the human what to put in every submitted field: `name`, `email`, `socials`, and `application`. Do not autofill, infer, or reuse values from prior context unless the human explicitly confirms that exact value for this application. If you draft wording for `application`, present it as a draft and wait for explicit approval before submitting.
+
+This rule is specific to cold apply. In cross-club apply, `name` and `email` are locked to the member profile by the API.
+
 Everything below applies to both flavors. Where they diverge, the difference is called out inline.
 
 **Order of operations**
 
 1. Call `requestChallenge` with the `clubSlug`. The response includes `challengeId`, `difficulty`, `expiresAt`, `maxAttempts`, and the club's `admissionPolicy`.
 2. Read `club.admissionPolicy` carefully. This is the literal completeness checklist your application must satisfy (see drafting rule below).
-3. Draft the `application` against the policy. Confirm every explicit ask is answered before going any further.
+3. For cold apply, collect the human's exact values for `name`, `email`, `socials`, and `application`. Ask about each field explicitly. Do not assume or infer any field. For `application`, either use the human's own wording or present a draft for explicit approval. For cross-club, collect `socials` and `application`; `name` and `email` come from the profile. Confirm every explicit ask in the policy is answered before going any further.
 4. Tell the user that PoW will take time — cold is usually 2-3 minutes on modern hardware, cross-club is often tens of seconds — so they don't think the agent has hung. Without this warning, users close the agent down. This is critical.
 5. Solve the PoW. Use the `difficulty` returned by the server, not a hardcoded constant. The canonical rule is: `sha256(challengeId + ":" + nonce)` must end in `difficulty` hex zeros. The server may tolerate a leading-zero compatibility fallback for buggy clients, but agents must still target trailing zeros.
-6. Submit immediately after solving. Cold uses `admissions.public.submitApplication` with `challengeId`, `nonce`, `name`, `email`, `socials`, and `application`. Cross-club uses `admissions.crossClub.submitApplication` with just `challengeId`, `nonce`, `socials`, and `application` — name and email come from your profile. Neither submit takes `clubSlug`; the club is bound to the challenge.
+6. Submit immediately after solving. Cold uses `admissions.public.submitApplication` with `challengeId`, `nonce`, `name`, `email`, `socials`, and `application`, using only the human-confirmed values. Cross-club uses `admissions.crossClub.submitApplication` with just `challengeId`, `nonce`, `socials`, and `application` — name and email come from your profile. Neither submit takes `clubSlug`; the club is bound to the challenge.
 
 Solve late, not early — drafting and any back-and-forth with the user should happen before the expensive PoW work, not after.
 
@@ -199,6 +207,7 @@ Solve late, not early — drafting and any back-and-forth with the user should h
 
 The admission gate is a literal completeness check, not a fit or quality judgment. It only rejects when the application leaves an explicit ask in the policy unanswered. It does not reject for vagueness, brevity, or quality on its own — offensive-but-legal content passes, and a concrete-but-imperfect application against a vague policy passes.
 
+- **For cold apply, do not fill gaps yourself.** If the policy asks about the applicant's background, motivations, interests, plans, or availability, ask the human for those answers. The agent may help structure or edit the wording, but must not invent the substance and must get explicit approval before submit.
 - **If the policy is question-shaped** (e.g. "answer these five questions"), convert it into a checklist and answer each item directly. A question-and-answer structure is fine. A generic "why I want to join" paragraph that ignores the questions will be rejected with `needs_revision`, because the explicit asks are unanswered.
 - **If the policy is vague** (e.g. "we want serious members"), write a concrete application with relevant specifics about who you are and why you want to join. Do not invent hidden requirements the policy doesn't actually state — the gate only checks what the policy explicitly asks for, and a vague policy has nothing for the gate to require.
 
@@ -216,7 +225,7 @@ Do not tell the user the PoW failed if you received `needs_revision` or `attempt
 
 1. Read `feedback` literally. It is the revision brief from the gate.
 2. Map it back to the admission-policy checklist.
-3. Fix only the missing items. Do not ask the user to redraft the application from scratch.
+3. Fix only the missing items. For cold apply, ask the human for any missing facts or approval for the revised wording. Do not silently patch from inference. Do not ask the user to redraft the application from scratch.
 4. Reuse the same `challengeId` and the same `nonce`. Do not re-solve the PoW unless the server explicitly returns `invalid_proof`.
 5. Mention `attemptsRemaining` to the user before retrying.
 6. Resubmit against the same `challengeId`.
@@ -396,7 +405,9 @@ Use polling or SSE to notice new activity. Acknowledge only inbox items (`source
 
 ### Apply to join a club
 
-If the user has no token, this is a cold apply. If the user is already a member of any club and wants to join another, this is a cross-club apply. The flow, drafting rule, retry protocol, and PoW solver are documented in one place: **How someone joins a club → Path 2**. Follow that section literally — especially the drafting rule, since the admission gate is a literal completeness check and a generic "why I want to join" paragraph will fail.
+If the user has no token, this is a cold apply. In a cold apply, the human is the applicant and the agent is only assisting. Ask the human what to put in each submitted field (`name`, `email`, `socials`, `application`). Do not assume, autofill, or invent any of them. If you draft the `application`, get explicit approval before submission.
+
+If the user is already a member of any club and wants to join another, this is a cross-club apply. The flow, drafting rule, retry protocol, and PoW solver are documented in one place: **How someone joins a club → Path 2**. Follow that section literally — especially the drafting rule, since the admission gate is a literal completeness check and a generic "why I want to join" paragraph will fail.
 
 Ask the user for the club slug if you don't already have it — there is no slug lookup.
 
