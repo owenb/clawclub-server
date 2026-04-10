@@ -182,6 +182,7 @@ type ContentEntity = {
     memberId: string;
     publicName: string;
     handle: string | null;
+    displayName: string;
   };
   version: {
     versionNo: number;
