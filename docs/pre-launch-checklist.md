@@ -59,7 +59,7 @@ This section should be updated continuously from the active bug list.
   - `GET /updates/stream` emits a ready event
   - representative read actions work
 - [ ] Confirm the test database and local dev database stories are clear and separate.
-  `clawclub_test` and `clawclub_dev` should not be easy to confuse in docs or scripts.
+  Scratch test databases use the `clawclub_test_*` prefix; `clawclub_dev` is the long-lived local manual-testing database. These should not be easy to confuse in docs or scripts.
 
 ## 3. Operational safety
 
@@ -236,4 +236,3 @@ Launch only when all of the following are true:
 - [ ] critical test coverage passes
 - [ ] runtime role and authorization posture are verified
 - [ ] the team understands what is still rough and is deliberately accepting that risk
-

@@ -246,7 +246,7 @@ This is the entire worker change.
 
 Tests are written **to the must-hold invariants**.
 
-**`test/integration/locations.test.ts` (new file)** — covers data layer, CRUD, and the privacy boundary:
+**`test/integration/non-llm/locations.test.ts` (new file)** — covers data layer, CRUD, and the privacy boundary:
 
 - Travel add round-trip; field validation; empty city / invalid country / missing endsOn rejected.
 - Home add with no startsOn; ongoing home (ends_on null) listed back correctly.
@@ -273,9 +273,9 @@ Tests are written **to the must-hold invariants**.
 - **(NEW in v3.)** `clientKey` retry safety on `remove`: same key + same intent returns existing archive version, no duplicate.
 - `clientKey` create idempotency: same key + same payload at create time returns existing chain.
 - `parseIsoDate` rejects "2026-02-30" (the impossible-date round-trip test).
-- Location note goes through legality gate; rejected for illegal content.
+- If location notes are gated end-to-end, cover the legality case in the with-LLM suite (for example `test/integration/with-llm/locations.test.ts`) so the non-LLM suite stays runnable without an API key.
 
-**`test/integration/synchronicity-locations.test.ts` (new file)** — covers worker prioritization, the new action, and the boost SQL:
+**`test/integration/non-llm/synchronicity-locations.test.ts` (new file)** — covers worker prioritization, the new action, and the boost SQL:
 
 - `member.locationContext.get` returns overlap data when two members have overlapping locations in shared club.
 - `member.locationContext.get` returns empty array when no overlap exists.
@@ -674,15 +674,15 @@ async function deliverMatches(pools: WorkerPools): Promise<number> {
 
 Optional: add seeded location rows for the test members so the dev server immediately demonstrates the feature. Include at least one same_home pair and one travel-crossing pair so the boost tests have data to work against.
 
-### `test/integration/locations.test.ts` (new file)
+### `test/integration/non-llm/locations.test.ts` (new file)
 
 See Phase 6 for the test list.
 
-### `test/integration/synchronicity-locations.test.ts` (new file)
+### `test/integration/non-llm/synchronicity-locations.test.ts` (new file)
 
 See Phase 6 for the test list. The new v3 tests are flagged inline.
 
-### `test/integration/smoke.test.ts`
+### `test/integration/non-llm/smoke.test.ts`
 
 Update assertions if they reference the action list or schema snapshot.
 

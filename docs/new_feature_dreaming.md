@@ -149,7 +149,7 @@ Designed in detail, then deferred because it's a big feature with real privacy i
 - `src/embedding-source.ts` — `buildEntitySourceText`, around lines 87–97
 - `src/quality-gate.ts` — `content-create` gate prompt
 - `SKILL.md` — agent guidance with the layered judgment rules
-- `test/integration/content.test.ts` — exhaustive privacy tests, especially the redaction at every read path
+- `test/integration/with-llm/content.test.ts` — exhaustive privacy tests, especially the redaction at every read path
 
 ## Ideas considered and dropped
 

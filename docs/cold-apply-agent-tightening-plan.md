@@ -93,7 +93,7 @@ The cold submit result can return:
 References:
 
 - `src/schemas/responses.ts:137-151`
-- `test/cold-applications.test.ts:184-205`
+- `test/unit/cold-applications.test.ts:184-205`
 
 ### The challenge survives `needs_revision`
 

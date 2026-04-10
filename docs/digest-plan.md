@@ -602,7 +602,7 @@ For very high-traffic cross-club digests, rollup summaries could be projected to
 - `digest.read` action — **single-club only**, no cross-club
 - Relevance ranking: **embedding similarity + recency only** (no social graph, no engagement scoring)
 - No rollup compaction (fine-grained rollups accumulate; compaction is Phase 3)
-- Integration tests in `test/integration/digest.test.ts`
+- Integration tests should follow the execution-class split: deterministic coverage in `test/integration/non-llm/digest.test.ts`, with any end-to-end LLM pass-2 coverage in `test/integration/with-llm/digest.test.ts`
 
 Phase 1 is deliberately narrow so that weak results can be attributed clearly: is it the rollup coverage? The ranking weights? The LLM topic extraction? Each variable is isolated.
 

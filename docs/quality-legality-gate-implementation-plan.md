@@ -195,7 +195,7 @@ This function exists because admission applications are a different problem spac
 - The action `description` strings on these gated actions should be tightened to mention the new quality bar. Approximately: *"...subject to the legality + quality gate. The gate rejects illegal content and content that fails the per-action quality bar (see `low_quality_content` error code)."* Don't go overboard; one sentence per action.
 - Field descriptions can stay as-is unless they explicitly contradict the new bar.
 
-### `test/integration/quality-gate.test.ts`
+### `test/integration/with-llm/quality-gate.test.ts`
 
 This is the biggest test surface and the one that will need the most attention. **Currently this file actively asserts that low-quality content passes** (post with no body, vague opportunity, generic filler tagline, vague vouch reason). All of those assertions need to **invert**.
 
@@ -220,7 +220,7 @@ Required changes:
 
 These tests cost real money — they hit the LLM. Be deliberate about test count. Aim for ~12-18 cases total across the file, not 50.
 
-### `test/app.test.ts`
+### `test/unit/app.test.ts`
 
 The unit-test-layer test at `:3318` ("gated actions fail with 422 gate_rejected when the gate returns a non-PASS non-ILLEGAL response") tests the LLM-disobeyed-prompt fallback. That test should **continue to work** — `gate_rejected` is unchanged. But add a parallel unit test for the new `low_quality_content` translation: when the gate returns a `'rejected_quality'` status, the dispatch layer should translate it to `low_quality_content (422)`.
 
@@ -252,16 +252,16 @@ Will need regeneration only if any action `description` strings changed. Run `no
 ### Unit tests
 
 - `parseGateResponse` should be tested with `PASS`, `ILLEGAL: ...`, `LOW_QUALITY: ...`, and various malformed inputs (mixed case, alternative separators, leading/trailing whitespace). Lock in the parser's tolerance.
-- The dispatch translation from `'rejected_quality'` → `low_quality_content (422)` should have a unit test parallel to the existing `gate_rejected` one in `test/app.test.ts`.
+- The dispatch translation from `'rejected_quality'` → `low_quality_content (422)` should have a unit test parallel to the existing `gate_rejected` one in `test/unit/app.test.ts`.
 
 ### Integration tests
 
-`test/integration/quality-gate.test.ts` — see the file-by-file section above. This is the load-bearing test for the new behavior.
+`test/integration/with-llm/quality-gate.test.ts` — see the file-by-file section above. This is the load-bearing test for the new behavior.
 
 ### What to NOT test
 
 - Don't test `messages.send` with malicious payloads to prove gating is off — that just adds noise. One assertion that DMs go through the dispatch unaffected by the gate is enough.
-- Don't test the admission completeness gate from this file — that's `test/integration/admissions-self.test.ts` and `test/integration/cross-apply.test.ts`. They are separate suites and should not be touched by this plan.
+- Don't test the admission completeness gate from this file — that's `test/integration/non-llm/admissions-self.test.ts` and `test/integration/non-llm/cross-apply.test.ts`. They are separate suites and should not be touched by this plan.
 - Don't add tests that assert the *exact wording* of the LLM's `feedback` field. LLM output varies. Assert that a `feedback` field exists and is non-empty for rejection cases.
 
 ## Validation
@@ -290,8 +290,8 @@ Each step should be a clean, reviewable diff. Ship them as one PR with a clear c
 
 1. `src/quality-gate.ts` — add the new prompt structure, `ACTION_QUALITY_BARS` map, and `parseGateResponse` extension. Drop `admissions.sponsorCandidate` from `GATED_ACTIONS`. Type-check.
 2. `src/dispatch.ts` — add the `'rejected_quality'` translation to `low_quality_content`. Type-check.
-3. `test/app.test.ts` — add the parallel unit test for the dispatch translation. Run `npm run test:unit`.
-4. `test/integration/quality-gate.test.ts` — invert the existing low-quality assertions, add new positive cases, add gift cases, add DM bypass case, add sponsor bypass case. Run `npm run test:integration:with-llm` (this costs real money, run it once when you're confident).
+3. `test/unit/app.test.ts` — add the parallel unit test for the dispatch translation. Run `npm run test:unit`.
+4. `test/integration/with-llm/quality-gate.test.ts` — invert the existing low-quality assertions, add new positive cases, add gift cases, add DM bypass case, add sponsor bypass case. Run `npm run test:integration:with-llm` (this costs real money, run it once when you're confident).
 5. `src/schemas/*.ts` — tighten action descriptions for the gated actions. Regenerate snapshot.
 6. `SKILL.md` — replace the "Legality gate" section with the combined "Quality + legality gate" section. Update `When To Clarify First` cross-reference.
 7. `docs/design-decisions.md` — update line ~240.
