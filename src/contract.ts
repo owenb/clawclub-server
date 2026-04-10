@@ -180,6 +180,10 @@ export type AdmissionApplyResult =
   | { status: 'needs_revision'; feedback: string; attemptsRemaining: number }
   | { status: 'attempts_exhausted'; message: string };
 
+export type AdmissionApplyOutcome =
+  | AdmissionApplyResult
+  | { result: AdmissionApplyResult; notices?: ResponseNotice[] };
+
 export type CreateCrossAdmissionChallengeInput = {
   actorMemberId: string;
   clubSlug: string;
@@ -837,9 +841,9 @@ export type Repository = {
   }): Promise<MemberAdmissionRecord[]>;
   transitionAdmission?(input: TransitionAdmissionInput): Promise<AdmissionSummary | null>;
   createAdmissionChallenge?(input: CreateAdmissionChallengeInput): Promise<AdmissionChallengeResult>;
-  solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<AdmissionApplyResult>;
+  solveAdmissionChallenge?(input: SolveAdmissionChallengeInput): Promise<AdmissionApplyOutcome>;
   createCrossAdmissionChallenge?(input: CreateCrossAdmissionChallengeInput): Promise<AdmissionChallengeResult>;
-  solveCrossAdmissionChallenge?(input: SolveCrossAdmissionChallengeInput): Promise<AdmissionApplyResult>;
+  solveCrossAdmissionChallenge?(input: SolveCrossAdmissionChallengeInput): Promise<AdmissionApplyOutcome>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: {

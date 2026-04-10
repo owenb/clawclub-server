@@ -205,6 +205,32 @@ test('admissions.public.submitApplication returns needs_revision from repository
   assert.equal(result.data.attemptsRemaining, 3);
 });
 
+test('admissions.public.submitApplication surfaces repository notices at the top level', async () => {
+  const repository = {
+    ...makeRepository(),
+    async solveAdmissionChallenge() {
+      return {
+        result: { status: 'needs_revision' as const, feedback: 'Missing city.', attemptsRemaining: 3 },
+        notices: [{ code: 'pow_compatibility_fallback', message: 'Use trailing zeros next time.' }],
+      };
+    },
+  };
+
+  const dispatcher = buildDispatcher({ repository });
+  const result: any = await dispatcher.dispatch({
+    bearerToken: null,
+    action: 'admissions.public.submitApplication',
+    payload: {
+      challengeId: 'c1', nonce: '123',
+      name: 'Jane Doe',
+      email: 'j@example.com', socials: '@jane', application: 'test',
+    },
+  });
+
+  assert.equal(result.data.status, 'needs_revision');
+  assert.deepEqual(result.notices, [{ code: 'pow_compatibility_fallback', message: 'Use trailing zeros next time.' }]);
+});
+
 test('admissions.public.submitApplication returns attempts_exhausted from repository', async () => {
   const repository = {
     ...makeRepository(),

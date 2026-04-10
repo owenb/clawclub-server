@@ -204,6 +204,8 @@ function assembleAuthenticatedResponse(
   sharedContext: SharedResponseContext,
   notices: ResponseNotice[],
 ) {
+  const finalNotices = notices.concat(result.notices ?? []);
+
   // Apply nextMember if handler provided it (profile.update)
   const member = result.nextMember ?? actor.member;
 
@@ -228,21 +230,22 @@ function assembleAuthenticatedResponse(
     data: result.data,
   };
 
-  if (notices.length > 0) {
-    envelope.notices = notices;
+  if (finalNotices.length > 0) {
+    envelope.notices = finalNotices;
   }
 
   return envelope;
 }
 
 function assembleUnauthenticatedResponse(action: string, result: ActionResult, notices: ResponseNotice[]) {
+  const finalNotices = notices.concat(result.notices ?? []);
   const envelope: Record<string, unknown> = {
     action,
     data: result.data,
   };
 
-  if (notices.length > 0) {
-    envelope.notices = notices;
+  if (finalNotices.length > 0) {
+    envelope.notices = finalNotices;
   }
 
   return envelope;

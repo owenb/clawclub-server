@@ -10,6 +10,7 @@ import {
   wireApplicationText, parseApplicationText,
   wireRequiredString, parseRequiredString,
 } from './fields.ts';
+import { normalizeAdmissionApplyOutcome } from './admissions-common.ts';
 import { admissionChallengeResult, admissionApplyResult } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -71,7 +72,7 @@ const admissionsCrossApply: ActionDefinition = {
   wire: {
     input: z.object({
       challengeId: wireRequiredString.describe('Challenge ID from admissions.crossClub.requestChallenge'),
-      nonce: wireBoundedString.describe('A nonce such that sha256(challengeId + ":" + nonce) ends in `difficulty` hex zeros.'),
+      nonce: wireBoundedString.describe('Canonical PoW: a nonce such that sha256(challengeId + ":" + nonce) ends in `difficulty` hex zeros. The server currently also accepts a leading-zero compatibility fallback, but clients should solve for trailing zeros.'),
       socials: wireBoundedString.describe('Social media handles or URLs'),
       application: wireApplicationText.describe('Your application. The admission gate is a literal completeness check: it rejects when an explicit ask in the policy is left unanswered, but does not reject for vagueness, brevity, or quality on its own. If the policy is question-shaped, answer every question directly.'),
     }),
@@ -97,7 +98,7 @@ const admissionsCrossApply: ActionDefinition = {
       challengeId, nonce, socials, application,
     });
 
-    return { data: result };
+    return normalizeAdmissionApplyOutcome(result);
   },
 };
 

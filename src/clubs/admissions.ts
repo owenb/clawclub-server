@@ -7,7 +7,15 @@
 
 import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
-import { AppError, type AdmissionStatus, type AdmissionSummary, type AdmissionApplyResult, type MemberAdmissionRecord } from '../contract.ts';
+import {
+  AppError,
+  type AdmissionStatus,
+  type AdmissionSummary,
+  type AdmissionApplyOutcome,
+  type AdmissionApplyResult,
+  type MemberAdmissionRecord,
+  type ResponseNotice,
+} from '../contract.ts';
 import { runAdmissionGate, QUALITY_GATE_PROVIDER, type QualityGateResult } from '../quality-gate.ts';
 import { CLAWCLUB_OPENAI_MODEL } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
@@ -18,6 +26,33 @@ const CROSS_APPLICATION_DIFFICULTY = 5;
 const COLD_APPLICATION_CHALLENGE_TTL_MS = 60 * 60 * 1000;
 const MAX_ADMISSION_ATTEMPTS = 5;
 const MAX_PENDING_CROSS_APPLICATIONS = 3;
+const POW_COMPATIBILITY_NOTICE: ResponseNotice = {
+  code: 'pow_compatibility_fallback',
+  message: 'ClawClub accepted this nonce via a compatibility fallback for leading hex zeros. Clients should solve the canonical trailing-zero rule on sha256(challengeId + ":" + nonce).',
+};
+
+type AdmissionPowVariant = 'canonical_trailing' | 'compat_leading';
+
+export function validateAdmissionPow(challengeId: string, nonce: string, difficulty: number): AdmissionPowVariant | null {
+  const hash = createHash('sha256').update(`${challengeId}:${nonce}`, 'utf8').digest('hex');
+  const zeros = '0'.repeat(difficulty);
+  if (hash.endsWith(zeros)) return 'canonical_trailing';
+  if (hash.startsWith(zeros)) return 'compat_leading';
+  return null;
+}
+
+function withPowCompatibilityOutcome(
+  result: AdmissionApplyResult,
+  powVariant: AdmissionPowVariant,
+  context: { path: 'cold' | 'cross'; challengeId: string; difficulty: number },
+): AdmissionApplyOutcome {
+  if (powVariant === 'canonical_trailing') {
+    return result;
+  }
+
+  console.warn('Accepted admission PoW via leading-zero compatibility fallback', context);
+  return { result, notices: [POW_COMPATIBILITY_NOTICE] };
+}
 
 type AdmissionRow = {
   admission_id: string;
@@ -288,7 +323,7 @@ export async function createAdmissionChallenge(pool: Pool, input: {
 
 export async function solveAdmissionChallenge(pool: Pool, input: {
   challengeId: string; nonce: string; name: string; email: string; socials: string; application: string;
-}): Promise<AdmissionApplyResult> {
+}): Promise<AdmissionApplyOutcome> {
   // Phase 1: Validate challenge
   type ChallengeRow = {
     id: string; difficulty: number; expires_at: string; member_id: string | null;
@@ -298,6 +333,7 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
 
   let challengeData: ChallengeRow;
   let attemptCount: number;
+  let powVariant: AdmissionPowVariant = 'canonical_trailing';
 
   const client1 = await pool.connect();
   try {
@@ -324,11 +360,12 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     }
 
     // Verify proof of work
-    const hash = createHash('sha256').update(`${input.challengeId}:${input.nonce}`, 'utf8').digest('hex');
-    if (!hash.endsWith('0'.repeat(challenge.difficulty))) {
+    const powResult = validateAdmissionPow(input.challengeId, input.nonce, challenge.difficulty);
+    if (!powResult) {
       await client1.query('ROLLBACK');
       throw new AppError(400, 'invalid_proof', 'The submitted proof does not meet the difficulty requirement');
     }
+    powVariant = powResult;
 
     // Count attempts
     const countResult = await client1.query<{ count: string }>(
@@ -340,7 +377,11 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
       await client1.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client1.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
-      return { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' };
+      return withPowCompatibilityOutcome(
+        { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' },
+        powVariant,
+        { path: 'cold', challengeId: input.challengeId, difficulty: challenge.difficulty },
+      );
     }
 
     challengeData = challenge;
@@ -382,7 +423,11 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
     if (attemptNo > MAX_ADMISSION_ATTEMPTS) {
       await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
-      return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
+      return withPowCompatibilityOutcome(
+        { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' },
+        powVariant,
+        { path: 'cold', challengeId: input.challengeId, difficulty: challengeData.difficulty },
+      );
     }
 
     if (gateResult.status === 'failed') {
@@ -442,16 +487,28 @@ export async function solveAdmissionChallenge(pool: Pool, input: {
         [null, challengeData.club_id, 'admissions.public.submitApplication', 'admission_gate', QUALITY_GATE_PROVIDER, CLAWCLUB_OPENAI_MODEL, gateStatus, null, usage?.promptTokens ?? null, usage?.completionTokens ?? null, null],
       ).catch(() => {});
 
-      return {
-        status: 'accepted' as const,
-        message: `Your application has been submitted. ${challengeData.owner_name} will contact you by email to let you know whether an interview has been scheduled. If you don't hear back, know that there are many other clubs you can join.`,
-      };
+      return withPowCompatibilityOutcome(
+        {
+          status: 'accepted' as const,
+          message: `Your application has been submitted. ${challengeData.owner_name} will contact you by email to let you know whether an interview has been scheduled. If you don't hear back, know that there are many other clubs you can join.`,
+        },
+        powVariant,
+        { path: 'cold', challengeId: input.challengeId, difficulty: challengeData.difficulty },
+      );
     } else if (attemptNo >= MAX_ADMISSION_ATTEMPTS) {
       await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
-      return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
+      return withPowCompatibilityOutcome(
+        { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' },
+        powVariant,
+        { path: 'cold', challengeId: input.challengeId, difficulty: challengeData.difficulty },
+      );
     } else {
-      return { status: 'needs_revision' as const, feedback: gateFeedback!, attemptsRemaining: MAX_ADMISSION_ATTEMPTS - attemptNo };
+      return withPowCompatibilityOutcome(
+        { status: 'needs_revision' as const, feedback: gateFeedback!, attemptsRemaining: MAX_ADMISSION_ATTEMPTS - attemptNo },
+        powVariant,
+        { path: 'cold', challengeId: input.challengeId, difficulty: challengeData.difficulty },
+      );
     }
   });
 }
@@ -551,7 +608,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
   nonce: string;
   socials: string;
   application: string;
-}): Promise<AdmissionApplyResult> {
+}): Promise<AdmissionApplyOutcome> {
   // Phase 1: Validate challenge and member binding
   type ChallengeRow = {
     id: string; difficulty: number; expires_at: string; member_id: string | null;
@@ -562,6 +619,7 @@ export async function solveCrossChallenge(pool: Pool, input: {
   let challengeData: ChallengeRow;
   let memberName: string;
   let memberEmail: string;
+  let powVariant: AdmissionPowVariant = 'canonical_trailing';
 
   const client1 = await pool.connect();
   try {
@@ -591,11 +649,12 @@ export async function solveCrossChallenge(pool: Pool, input: {
     }
 
     // Verify proof of work
-    const hash = createHash('sha256').update(`${input.challengeId}:${input.nonce}`, 'utf8').digest('hex');
-    if (!hash.endsWith('0'.repeat(challenge.difficulty))) {
+    const powResult = validateAdmissionPow(input.challengeId, input.nonce, challenge.difficulty);
+    if (!powResult) {
       await client1.query('ROLLBACK');
       throw new AppError(400, 'invalid_proof', 'The submitted proof does not meet the difficulty requirement');
     }
+    powVariant = powResult;
 
     // Count attempts
     const countResult = await client1.query<{ count: string }>(
@@ -607,7 +666,11 @@ export async function solveCrossChallenge(pool: Pool, input: {
       await client1.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client1.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
       await client1.query('COMMIT');
-      return { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' };
+      return withPowCompatibilityOutcome(
+        { status: 'attempts_exhausted', message: 'You have used all attempts. Please request a new challenge to try again.' },
+        powVariant,
+        { path: 'cross', challengeId: input.challengeId, difficulty: challenge.difficulty },
+      );
     }
 
     // Snapshot name and email from profile
@@ -665,7 +728,11 @@ export async function solveCrossChallenge(pool: Pool, input: {
     if (attemptNo > MAX_ADMISSION_ATTEMPTS) {
       await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
-      return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
+      return withPowCompatibilityOutcome(
+        { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' },
+        powVariant,
+        { path: 'cross', challengeId: input.challengeId, difficulty: challengeData.difficulty },
+      );
     }
 
     if (gateResult.status === 'failed') {
@@ -736,16 +803,28 @@ export async function solveCrossChallenge(pool: Pool, input: {
         [input.memberId, challengeData.club_id, 'admissions.crossClub.submitApplication', 'admission_gate', QUALITY_GATE_PROVIDER, CLAWCLUB_OPENAI_MODEL, gateStatus, null, usage?.promptTokens ?? null, usage?.completionTokens ?? null, null],
       ).catch(() => {});
 
-      return {
-        status: 'accepted' as const,
-        message: `Your application has been submitted. ${challengeData.owner_name} will review your application and contact you if an interview is scheduled.`,
-      };
+      return withPowCompatibilityOutcome(
+        {
+          status: 'accepted' as const,
+          message: `Your application has been submitted. ${challengeData.owner_name} will review your application and contact you if an interview is scheduled.`,
+        },
+        powVariant,
+        { path: 'cross', challengeId: input.challengeId, difficulty: challengeData.difficulty },
+      );
     } else if (attemptNo >= MAX_ADMISSION_ATTEMPTS) {
       await client.query(`delete from admission_attempts where challenge_id = $1`, [input.challengeId]);
       await client.query(`delete from admission_challenges where id = $1`, [input.challengeId]);
-      return { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' };
+      return withPowCompatibilityOutcome(
+        { status: 'attempts_exhausted' as const, message: 'You have used all attempts. Please request a new challenge to try again.' },
+        powVariant,
+        { path: 'cross', challengeId: input.challengeId, difficulty: challengeData.difficulty },
+      );
     } else {
-      return { status: 'needs_revision' as const, feedback: gateFeedback!, attemptsRemaining: MAX_ADMISSION_ATTEMPTS - attemptNo };
+      return withPowCompatibilityOutcome(
+        { status: 'needs_revision' as const, feedback: gateFeedback!, attemptsRemaining: MAX_ADMISSION_ATTEMPTS - attemptNo },
+        powVariant,
+        { path: 'cross', challengeId: input.challengeId, difficulty: challengeData.difficulty },
+      );
     }
   });
 }

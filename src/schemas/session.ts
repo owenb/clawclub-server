@@ -1,10 +1,10 @@
 /**
- * Action contract: session.describe
+ * Action contract: session.getContext
  */
 import { z } from 'zod';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
-const sessionDescribe: ActionDefinition = {
+const sessionGetContext: ActionDefinition = {
   action: 'session.getContext',
   domain: 'session',
   description: 'Resolve the current member session, accessible clubs, and any pending update context.',
@@ -25,4 +25,4 @@ const sessionDescribe: ActionDefinition = {
   },
 };
 
-registerActions([sessionDescribe]);
+registerActions([sessionGetContext]);

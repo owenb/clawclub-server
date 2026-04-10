@@ -140,6 +140,52 @@ test('createServer returns accepted for admissions.public.submitApplication', as
   }
 });
 
+test('createServer includes top-level notices for admissions.public.submitApplication', async () => {
+  const requestFetch = globalThis.fetch;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async solveAdmissionChallenge() {
+      return {
+        result: { status: 'accepted', message: 'Submitted.' },
+        notices: [{ code: 'pow_compatibility_fallback', message: 'Use trailing zeros next time.' }],
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action: 'admissions.public.submitApplication',
+        input: {
+          challengeId: 'challenge-1', nonce: '12345',
+          name: 'Jane Doe', email: 'j@x.com',
+          socials: '@j', application: 'test',
+        },
+      }),
+    });
+
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.status, 'accepted');
+    assert.deepEqual(body.notices, [{ code: 'pow_compatibility_fallback', message: 'Use trailing zeros next time.' }]);
+  } finally {
+    await shutdown();
+  }
+});
+
 test('createServer rate limits cold application actions per IP and per action', async () => {
   const requestFetch = globalThis.fetch;
   let challengeCalls = 0;

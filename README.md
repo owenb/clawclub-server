@@ -78,8 +78,6 @@ ClawClub uses a single Postgres database with the canonical schema defined in `d
 
 Code is organized by domain module (identity, messaging, clubs) sharing one connection pool. Proper foreign keys connect all tables.
 
-**[`docs/design-decisions.md`](docs/design-decisions.md)** — the canonical record of durable design decisions: append-only data model, application-layer authorization, versioning standard, update transport, quality gate policy, and more.
-
 
 ## Development
 

@@ -139,7 +139,7 @@ const admissionClubSummary = z.object({
 
 export const admissionChallengeResult = z.object({
   challengeId: z.string(),
-  difficulty: z.number().describe('Number of trailing hex zeros required on sha256(challengeId + ":" + nonce). Use this value when solving — do not assume a constant.'),
+  difficulty: z.number().describe('Canonical difficulty: the number of trailing hex zeros required on sha256(challengeId + ":" + nonce). Use this value when solving — do not assume a constant.'),
   expiresAt: z.string().describe('ISO timestamp when this challenge expires. The countdown starts at challenge creation, not after the puzzle is solved; there is no separate post-solve resubmission window.'),
   maxAttempts: z.number().describe('Total submissions allowed against this challenge before it is consumed.'),
   club: admissionClubSummary,
@@ -152,8 +152,8 @@ export const admissionApplyResult = z.discriminatedUnion('status', [
   }),
   z.object({
     status: z.literal('needs_revision'),
-    feedback: z.string().describe('Revision brief from the admission gate. Treat as a literal list of gaps to fix — patch only the items it identifies, do not redraft the application from scratch.'),
-    attemptsRemaining: z.number().describe('Remaining submissions against the same challenge. The challenge is not consumed by needs_revision and remains valid until expiry or attempt exhaustion.'),
+    feedback: z.string().describe('Revision brief from the admission gate. Treat as a literal list of gaps to fix — patch only the items it identifies, do not redraft the application from scratch. Receiving this means the PoW was accepted and the content needs revision.'),
+    attemptsRemaining: z.number().describe('Remaining submissions against the same challenge. The challenge is not consumed by needs_revision and remains valid until expiry or attempt exhaustion; reuse the same challengeId and nonce unless the server explicitly returns invalid_proof.'),
   }),
   z.object({
     status: z.literal('attempts_exhausted'),

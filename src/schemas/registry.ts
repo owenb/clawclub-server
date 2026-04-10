@@ -16,6 +16,7 @@ import type {
   ActorContext,
   MembershipSummary,
   Repository,
+  ResponseNotice,
   RequestScope,
   SharedResponseContext,
 } from '../contract.ts';
@@ -106,6 +107,9 @@ export type ColdHandlerContext = {
 export type ActionResult = {
   /** Action-specific data (goes in `data` field of response) */
   data: unknown;
+
+  /** Optional top-level response notices to include alongside the action data */
+  notices?: ResponseNotice[];
 
   /** Override the default request scope in the response */
   requestScope?: RequestScope;

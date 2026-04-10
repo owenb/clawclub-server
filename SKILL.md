@@ -190,7 +190,7 @@ Everything below applies to both flavors. Where they diverge, the difference is 
 2. Read `club.admissionPolicy` carefully. This is the literal completeness checklist your application must satisfy (see drafting rule below).
 3. Draft the `application` against the policy. Confirm every explicit ask is answered before going any further.
 4. Tell the user that PoW will take time — cold is usually 2-3 minutes on modern hardware, cross-club is often tens of seconds — so they don't think the agent has hung. Without this warning, users close the agent down. This is critical.
-5. Solve the PoW. Use the `difficulty` returned by the server, not a hardcoded constant.
+5. Solve the PoW. Use the `difficulty` returned by the server, not a hardcoded constant. The canonical rule is: `sha256(challengeId + ":" + nonce)` must end in `difficulty` hex zeros. The server may tolerate a leading-zero compatibility fallback for buggy clients, but agents must still target trailing zeros.
 6. Submit immediately after solving. Cold uses `admissions.public.submitApplication` with `challengeId`, `nonce`, `name`, `email`, `socials`, and `application`. Cross-club uses `admissions.crossClub.submitApplication` with just `challengeId`, `nonce`, `socials`, and `application` — name and email come from your profile. Neither submit takes `clubSlug`; the club is bound to the challenge.
 
 Solve late, not early — drafting and any back-and-forth with the user should happen before the expensive PoW work, not after.
@@ -212,19 +212,22 @@ Track `expiresAt` internally. Surface remaining time to the user only when it ac
 
 If submit returns `needs_revision`, the response includes `feedback` and `attemptsRemaining`. The challenge is not consumed and remains valid; you have five total submissions per challenge.
 
+Do not tell the user the PoW failed if you received `needs_revision` or `attemptsRemaining`. Those fields mean the server accepted the nonce, evaluated the application, and counted the submission. The problem is the application content, not the proof.
+
 1. Read `feedback` literally. It is the revision brief from the gate.
 2. Map it back to the admission-policy checklist.
 3. Fix only the missing items. Do not ask the user to redraft the application from scratch.
-4. Mention `attemptsRemaining` to the user before retrying.
-5. Resubmit against the same `challengeId`.
+4. Reuse the same `challengeId` and the same `nonce`. Do not re-solve the PoW unless the server explicitly returns `invalid_proof`.
+5. Mention `attemptsRemaining` to the user before retrying.
+6. Resubmit against the same `challengeId`.
 
-Current implementation behavior: PoW verification is stateless — it just checks that `sha256(challengeId + ":" + nonce)` ends in `difficulty` hex zeros — so the same nonce remains valid for as long as the same challenge does. You can resubmit with the same nonce and skip re-solving the puzzle. This is observed behavior, not a guaranteed API contract; if you ever encounter `invalid_proof` on retry, fall back to re-solving with a fresh nonce.
+Current implementation behavior: PoW verification is stateless — canonically it checks that `sha256(challengeId + ":" + nonce)` ends in `difficulty` hex zeros — so the same nonce remains valid for as long as the same challenge does. You can resubmit with the same nonce and skip re-solving the puzzle. The server currently also accepts a leading-zero compatibility fallback, but that is defensive tolerance for buggy clients, not the rule agents should implement.
 
 **Failure modes**
 
 | Result / error | What to do |
 | --- | --- |
-| `needs_revision` | Patch only the gaps from `feedback`, reuse the nonce, resubmit against the same challenge |
+| `needs_revision` | The PoW already passed. Patch only the gaps from `feedback`, reuse the same nonce, resubmit against the same challenge |
 | `challenge_expired` (410) | Request a fresh challenge |
 | `attempts_exhausted` | Request a fresh challenge and start over |
 | `invalid_proof` (400) | Re-solve the PoW with a fresh nonce; do not change the application |
@@ -233,7 +236,7 @@ Current implementation behavior: PoW verification is stateless — it just check
 
 **Solving the PoW**
 
-Prefer a Node.js worker-thread solver over shell loops. Use the `difficulty` returned by the challenge response — do not hardcode it.
+Prefer a Node.js worker-thread solver over shell loops. Use the `difficulty` returned by the challenge response — do not hardcode it. The solver below targets the canonical trailing-zero rule.
 
 ```js
 const { createHash } = require('node:crypto');

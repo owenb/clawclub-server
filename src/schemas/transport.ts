@@ -69,7 +69,7 @@ export const errorEnvelope = z.object({
   }),
 });
 
-// ── Polling response (GET /updates) ──────────────────────
+// ── Polling response (`updates.list` via POST /api) ──────
 
 export const pollingResponse = z.object({
   ok: z.literal(true),
