@@ -822,6 +822,7 @@ export type AdminDiagnostics = {
 
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
+  validateBearerTokenPassive?(bearerToken: string): Promise<AuthResult | null>;
   listClubs?(input: { actorMemberId: string; includeArchived: boolean }): Promise<ClubSummary[]>;
   createClub?(input: CreateClubInput): Promise<ClubSummary | null>;
   archiveClub?(input: ArchiveClubInput): Promise<ClubSummary | null>;

@@ -115,7 +115,7 @@ export class TestHarness {
     this.port = port;
   }
 
-  static async start(options: { qualityGate?: QualityGateFn } = {}): Promise<TestHarness> {
+  static async start(options: { qualityGate?: QualityGateFn; streamScopeRefreshMs?: number } = {}): Promise<TestHarness> {
     const dbName = createDbName();
 
     // 1. Create database (terminate stale connections first)
@@ -166,7 +166,7 @@ export class TestHarness {
       `postgresql://localhost/${dbName}`,
     );
 
-    const serverInstance = createServer({ repository, updatesNotifier, qualityGate: options.qualityGate });
+    const serverInstance = createServer({ repository, updatesNotifier, qualityGate: options.qualityGate, streamScopeRefreshMs: options.streamScopeRefreshMs });
     const port = await new Promise<number>((resolve) => {
       serverInstance.server.listen(0, () => {
         const addr = serverInstance.server.address();

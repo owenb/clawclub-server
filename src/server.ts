@@ -324,6 +324,7 @@ export function createServer(options: {
   coldAdmissionRateLimits?: Partial<Record<ColdAdmissionAction, FixedWindowRateLimit>>;
   qualityGate?: QualityGateFn;
   trustProxy?: boolean;
+  streamScopeRefreshMs?: number;
 } = {}) {
   const trustProxy = options.trustProxy ?? (process.env.TRUST_PROXY === '1');
 
@@ -357,11 +358,23 @@ export function createServer(options: {
   };
   const coldAdmissionRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
   const activeStreams = new Map<string, number>();
+  const streamScopeRefreshMs = options.streamScopeRefreshMs ?? 60_000;
   const dispatcher = buildDispatcher({ repository, qualityGate: options.qualityGate });
   const sockets = new Set<net.Socket>();
 
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
+
+    response.setHeader('access-control-allow-origin', '*');
+
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204, {
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
+        'access-control-allow-headers': '*',
+      });
+      response.end();
+      return;
+    }
 
     if (request.method === 'GET' && url.pathname === '/updates/stream') {
       const abortController = new AbortController();
@@ -404,7 +417,7 @@ export function createServer(options: {
         };
         request.on('close', decrementStreams);
 
-        const clubIds = auth.actor.memberships.map(m => m.clubId);
+        let clubIds = auth.actor.memberships.map(m => m.clubId);
         const limit = Math.min(
           normalizeUpdatesLimit(url.searchParams.get('limit')),
           DEFAULT_SERVER_LIMITS.updatesStreamLimit,
@@ -442,8 +455,20 @@ export function createServer(options: {
         });
 
         let cursor: string | null = after ?? null;
+        let lastScopeRefresh = Date.now();
 
         while (!abortController.signal.aborted) {
+          // Periodically re-validate token and refresh club scope
+          if (repository.validateBearerTokenPassive && Date.now() - lastScopeRefresh >= streamScopeRefreshMs) {
+            const refreshed = await repository.validateBearerTokenPassive(bearerToken);
+            lastScopeRefresh = Date.now();
+            if (!refreshed) {
+              // Token revoked or expired — close the stream
+              break;
+            }
+            clubIds = refreshed.actor.memberships.map(m => m.clubId);
+          }
+
           const updates = await repository.listMemberUpdates({
             actorMemberId: auth.actor.member.id,
             clubIds,

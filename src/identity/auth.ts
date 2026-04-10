@@ -102,6 +102,40 @@ export async function readActor(pool: Pool, memberId: string): Promise<ActorCont
   return mapActor(result.rows);
 }
 
+/**
+ * Read-only token validation for long-lived streams.
+ * Same as authenticateBearerToken but does not update last_used_at.
+ */
+export async function validateBearerTokenPassive(pool: Pool, bearerToken: string): Promise<AuthResult | null> {
+  const parsed = parseBearerToken(bearerToken);
+  if (!parsed) return null;
+
+  const tokenResult = await pool.query<{ member_id: string }>(
+    `
+      select member_id from member_bearer_tokens
+      where id = $1
+        and token_hash = $2
+        and revoked_at is null
+        and (expires_at is null or expires_at > now())
+    `,
+    [parsed.tokenId, hashTokenSecret(parsed.secret)],
+  );
+
+  const tokenRow = tokenResult.rows[0];
+  if (!tokenRow) return null;
+
+  const actor = await readActor(pool, tokenRow.member_id);
+  if (!actor) return null;
+
+  const activeClubIds = actor.memberships.map((m) => m.clubId);
+
+  return {
+    actor,
+    requestScope: { requestedClubId: null, activeClubIds },
+    sharedContext: { pendingUpdates: [] },
+  };
+}
+
 export async function authenticateBearerToken(pool: Pool, bearerToken: string): Promise<AuthResult | null> {
   const parsed = parseBearerToken(bearerToken);
   if (!parsed) return null;

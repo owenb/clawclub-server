@@ -27,7 +27,7 @@ import type {
 } from '../contract.ts';
 
 import type { DbClient } from '../db.ts';
-import { authenticateBearerToken, readActor } from './auth.ts';
+import { authenticateBearerToken, validateBearerTokenPassive, readActor } from './auth.ts';
 import * as tokens from './tokens.ts';
 import * as memberships from './memberships.ts';
 import * as profiles from './profiles.ts';
@@ -36,6 +36,7 @@ import * as clubs from './clubs.ts';
 export type IdentityRepository = {
   // Auth
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
+  validateBearerTokenPassive(bearerToken: string): Promise<AuthResult | null>;
   readActor(memberId: string): Promise<ActorContext | null>;
 
   // Tokens
@@ -83,6 +84,7 @@ export type IdentityRepository = {
 export function createIdentityRepository(pool: Pool): IdentityRepository {
   return {
     authenticateBearerToken: (bearerToken) => authenticateBearerToken(pool, bearerToken),
+    validateBearerTokenPassive: (bearerToken) => validateBearerTokenPassive(pool, bearerToken),
     readActor: (memberId) => readActor(pool, memberId),
 
     // Tokens

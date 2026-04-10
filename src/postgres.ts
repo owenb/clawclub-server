@@ -267,6 +267,7 @@ export function createRepository(pool: Pool): Repository {
   return {
     // ── Auth ───────────────────────────────────────────────
     authenticateBearerToken: (bearerToken) => identity.authenticateBearerToken(bearerToken),
+    validateBearerTokenPassive: (bearerToken) => identity.validateBearerTokenPassive(bearerToken),
 
     // ── Clubs ──────────────────────────────────────────────
     listClubs: (input) => identity.listClubs(input),
