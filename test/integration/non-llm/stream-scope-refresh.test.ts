@@ -106,7 +106,7 @@ describe('stream scope refresh', () => {
     }
   });
 
-  it('closes the stream when the token is revoked', async () => {
+  it('server closes the stream when the token is revoked', async () => {
     const owner = await h.seedOwner('scope-revoke', 'Scope Revoke Club');
     const member = await h.seedClubMember(owner.club.id, 'Charlie Revoke', 'charlie-revoke', { sponsorId: owner.id });
 
@@ -121,78 +121,66 @@ describe('stream scope refresh', () => {
         [member.id],
       );
 
-      // Wait for the scope refresh to detect revocation
+      // Wait for the scope refresh cadence to elapse
       await sleep(SCOPE_REFRESH_MS + 200);
 
-      // Insert activity to wake the stream (the notifier needs a trigger)
-      await insertActivity(owner.club.id, owner.id, 'test.after_revocation');
+      // The stream is stuck in waitForUpdate — insert activity to wake it.
+      // Once awake, the loop hits the scope refresh, validates the token,
+      // gets null, and calls response.end().
+      await insertActivity(owner.club.id, owner.id, 'test.wakeup_for_revoke');
 
-      // Give the stream time to close
-      await sleep(500);
-
-      // Try to wait for more events — should not get any new update events
-      const updateEvents = stream.events.filter((e) => e.event === 'update');
-      const postRevokeUpdate = updateEvents.find(
-        (e) => (e.data as Record<string, unknown>).topic === 'test.after_revocation',
-      );
-      assert.equal(postRevokeUpdate, undefined, 'stream should not deliver updates after token revocation');
+      const closedOrTimeout = await Promise.race([
+        stream.closed.then(() => 'closed' as const),
+        sleep(3000).then(() => 'timed_out' as const),
+      ]);
+      assert.equal(closedOrTimeout, 'closed', 'server should close the stream after token revocation');
     } finally {
       stream.close();
     }
   });
 
-  it('stream count decrements when server closes a revoked stream', async () => {
+  it('activeStreams decrements when server closes a revoked stream (same member can reopen)', async () => {
     const owner = await h.seedOwner('scope-count', 'Scope Count Club');
     const member = await h.seedClubMember(owner.club.id, 'Dana Count', 'dana-count', { sponsorId: owner.id });
 
-    // Create a second token for the same member
-    const secondTokenRows = await h.sql<{ bearer_token: string }>(
-      `SELECT bearer_token FROM (
-         SELECT id, member_id FROM member_bearer_tokens WHERE member_id = $1 ORDER BY created_at DESC LIMIT 1
-       ) t, LATERAL (SELECT 'unused') x(bearer_token)`,
-      [member.id],
-    );
-    // Just use the first token for the stream, then verify we can open another after it closes
-    void secondTokenRows;
-
+    // Open a stream for this member
     const stream1 = h.connectStream(member.token, { after: 'latest' });
     try {
       await stream1.waitForEvents(1);
       assert.equal(stream1.events[0]!.event, 'ready');
 
-      // Revoke all tokens for this member
+      // Revoke the token
       await h.sql(
         `UPDATE member_bearer_tokens SET revoked_at = now() WHERE member_id = $1`,
         [member.id],
       );
 
-      // Wait for stream to detect revocation and close
-      await sleep(SCOPE_REFRESH_MS + 500);
+      // Wait for scope refresh cadence, then wake the stream
+      await sleep(SCOPE_REFRESH_MS + 200);
+      await insertActivity(owner.club.id, owner.id, 'test.wakeup_for_count');
+
+      // Wait for server to close the stream
+      const closedOrTimeout = await Promise.race([
+        stream1.closed.then(() => 'closed' as const),
+        sleep(3000).then(() => 'timed_out' as const),
+      ]);
+      assert.equal(closedOrTimeout, 'closed', 'server should close the revoked stream');
     } finally {
       stream1.close();
     }
 
-    // Issue a fresh token and open a new stream — should succeed (not blocked by stale count)
-    const freshTokenRows = await h.sql<{ id: string }>(
-      `INSERT INTO member_bearer_tokens (member_id, token_hash, label)
-       VALUES ($1::short_id, 'test-hash-fresh', 'fresh-token')
-       RETURNING id`,
+    // Un-revoke the token so the same member can reconnect
+    await h.sql(
+      `UPDATE member_bearer_tokens SET revoked_at = null WHERE member_id = $1`,
       [member.id],
     );
-    // Un-revoke so the token actually works
-    await h.sql(
-      `UPDATE member_bearer_tokens SET revoked_at = null WHERE id = $1`,
-      [freshTokenRows[0]!.id],
-    );
 
-    // Re-seed a proper token via the harness
-    const freshMember = await h.seedMember('Dana Fresh', 'dana-fresh');
-    await h.seedMembership(owner.club.id, freshMember.id, { sponsorId: owner.id });
-
-    const stream2 = h.connectStream(freshMember.token, { after: 'latest' });
+    // Open a new stream for the SAME member — this proves activeStreams
+    // was decremented. If it wasn't, this would hit the per-member cap.
+    const stream2 = h.connectStream(member.token, { after: 'latest' });
     try {
       await stream2.waitForEvents(1);
-      assert.equal(stream2.events[0]!.event, 'ready', 'new stream should open successfully after prior stream was server-closed');
+      assert.equal(stream2.events[0]!.event, 'ready', 'same member should open a new stream after server-closed the revoked one');
     } finally {
       stream2.close();
     }

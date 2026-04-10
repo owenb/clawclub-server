@@ -546,6 +546,7 @@ export class TestHarness {
     events: Array<{ event: string; data: Record<string, unknown>; id?: string }>;
     close: () => void;
     waitForEvents: (count: number, timeoutMs?: number) => Promise<void>;
+    closed: Promise<void>;
   } {
     const qs = new URLSearchParams();
     if (params.after !== undefined) qs.set('after', String(params.after));
@@ -555,6 +556,8 @@ export class TestHarness {
     const events: Array<{ event: string; data: Record<string, unknown>; id?: string }> = [];
     const sseValidationErrors: string[] = [];
     const waiters: Array<{ target: number; resolve: () => void }> = [];
+    let resolveClosed: () => void;
+    const closed = new Promise<void>((resolve) => { resolveClosed = resolve; });
 
     const headers: Record<string, string> = { authorization: `Bearer ${token}` };
     if (params.lastEventId) headers['last-event-id'] = params.lastEventId;
@@ -568,6 +571,7 @@ export class TestHarness {
         headers,
       },
       (res) => {
+        res.on('end', () => resolveClosed());
         let buffer = '';
         res.on('data', (chunk: Buffer) => {
           buffer += chunk.toString('utf8');
@@ -615,6 +619,7 @@ export class TestHarness {
 
     return {
       events,
+      closed,
       close: () => req.destroy(),
       waitForEvents(count: number, timeoutMs = 5000): Promise<void> {
         const checkErrors = () => {

@@ -464,7 +464,8 @@ export function createServer(options: {
             lastScopeRefresh = Date.now();
             if (!refreshed) {
               // Token revoked or expired — close the stream
-              break;
+              response.end();
+              return;
             }
             clubIds = refreshed.actor.memberships.map(m => m.clubId);
           }
