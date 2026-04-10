@@ -216,26 +216,6 @@ export class TestHarness {
 
   // ── Seeding helpers ──
 
-  private async ensureClubProfile(memberId: string, clubId: string): Promise<void> {
-    await this.sql(
-      `insert into member_club_profile_versions (
-         member_id, club_id, version_no, created_by_member_id, generation_source
-       )
-       select
-         $1::short_id,
-         $2::short_id,
-         coalesce((
-           select max(version_no) + 1 from member_club_profile_versions where member_id = $1::short_id and club_id = $2::short_id
-         ), 1),
-         $1::short_id,
-         'membership_seed'
-       where not exists (
-         select 1 from current_member_club_profiles where member_id = $1::short_id and club_id = $2::short_id
-       )`,
-      [memberId, clubId],
-    );
-  }
-
   async seedMember(publicName: string, handle: string): Promise<SeededMember> {
     const rows = await this.sql<{ id: string }>(
       `INSERT INTO members (public_name, display_name, handle, state)
@@ -272,24 +252,38 @@ export class TestHarness {
     );
     const clubId = rows[0]!.id;
 
-    // Owner membership + state
-    await this.sql(
-      `INSERT INTO club_memberships (club_id, member_id, role)
-       VALUES ($1::short_id, $2::short_id, 'clubadmin') ON CONFLICT (club_id, member_id) DO NOTHING`,
-      [clubId, ownerMemberId],
-    );
+    // Owner membership + state + version 1
     const membershipRows = await this.sql<{ id: string }>(
-      `SELECT id FROM club_memberships WHERE club_id = $1 AND member_id = $2`,
+      `with inserted_membership as (
+         insert into club_memberships (club_id, member_id, role)
+         values ($1::short_id, $2::short_id, 'clubadmin')
+         on conflict (club_id, member_id) do nothing
+         returning id
+       ), target_membership as (
+         select id from inserted_membership
+         union all
+         select id from club_memberships where club_id = $1 and member_id = $2
+         limit 1
+       ), inserted_profile as (
+         insert into member_club_profile_versions (
+           membership_id, member_id, club_id, version_no, created_by_member_id, generation_source
+         )
+         select tm.id, $2::short_id, $1::short_id, 1, $2::short_id, 'membership_seed'
+         from target_membership tm
+         where not exists (
+           select 1 from current_member_club_profiles where member_id = $2::short_id and club_id = $1::short_id
+         )
+       ), inserted_state as (
+         insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+         select tm.id, 'active', 'seed', coalesce(max(csv.version_no), 0) + 1, $2::short_id
+         from target_membership tm
+         left join club_membership_state_versions csv on csv.membership_id = tm.id
+         group by tm.id
+       )
+       select id from target_membership`,
       [clubId, ownerMemberId],
     );
     const membershipId = membershipRows[0]!.id;
-    await this.sql(
-      `INSERT INTO club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-       SELECT $1::short_id, 'active', 'seed', coalesce(max(version_no), 0) + 1, $2::short_id
-       FROM club_membership_state_versions WHERE membership_id = $1::short_id`,
-      [membershipId, ownerMemberId],
-    );
-    await this.ensureClubProfile(ownerMemberId, clubId);
 
     // Club version (needed by current_club_versions view)
     await this.sql(
@@ -310,23 +304,37 @@ export class TestHarness {
     const status = options.status ?? 'active';
     const sponsorId = options.sponsorId ?? null;
 
-    await this.sql(
-      `INSERT INTO club_memberships (club_id, member_id, role, sponsor_member_id)
-       VALUES ($1::short_id, $2::short_id, $3::membership_role, $4::short_id) ON CONFLICT (club_id, member_id) DO NOTHING`,
-      [clubId, memberId, role, sponsorId],
-    );
     const rows = await this.sql<{ id: string }>(
-      `SELECT id FROM club_memberships WHERE club_id = $1 AND member_id = $2`,
-      [clubId, memberId],
+      `with inserted_membership as (
+         insert into club_memberships (club_id, member_id, role, sponsor_member_id)
+         values ($1::short_id, $2::short_id, $3::membership_role, $4::short_id)
+         on conflict (club_id, member_id) do nothing
+         returning id
+       ), target_membership as (
+         select id from inserted_membership
+         union all
+         select id from club_memberships where club_id = $1 and member_id = $2
+         limit 1
+       ), inserted_profile as (
+         insert into member_club_profile_versions (
+           membership_id, member_id, club_id, version_no, created_by_member_id, generation_source
+         )
+         select tm.id, $2::short_id, $1::short_id, 1, $2::short_id, 'membership_seed'
+         from target_membership tm
+         where not exists (
+           select 1 from current_member_club_profiles where member_id = $2::short_id and club_id = $1::short_id
+         )
+       ), inserted_state as (
+         insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+         select tm.id, $5::membership_state, 'seed', coalesce(max(csv.version_no), 0) + 1, $2::short_id
+         from target_membership tm
+         left join club_membership_state_versions csv on csv.membership_id = tm.id
+         group by tm.id
+       )
+       select id from target_membership`,
+      [clubId, memberId, role, sponsorId, status],
     );
     const membershipId = rows[0]!.id;
-
-    await this.sql(
-      `INSERT INTO club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-       SELECT $1::short_id, $2::membership_state, 'seed', coalesce(max(version_no), 0) + 1, $3::short_id
-       FROM club_membership_state_versions WHERE membership_id = $1::short_id`,
-      [membershipId, status, memberId],
-    );
 
     // Comp non-owners with active status so they get access
     if (role !== 'clubadmin' && status === 'active') {
@@ -335,8 +343,6 @@ export class TestHarness {
         [membershipId],
       );
     }
-
-    await this.ensureClubProfile(memberId, clubId);
 
     return { id: membershipId, clubId, memberId, role, status };
   }

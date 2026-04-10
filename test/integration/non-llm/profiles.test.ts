@@ -51,6 +51,63 @@ describe('Profiles', () => {
     assert.equal((profile.profiles as Array<unknown>).length, 1);
   });
 
+  it('profile.update only changes the targeted club profile', async () => {
+    const owner = await h.seedOwner('profiles-diverge-a', 'ProfilesDivergeA');
+    const secondClub = await h.seedClub('profiles-diverge-b', 'ProfilesDivergeB', owner.id);
+
+    const memberships = await h.sql<{ id: string; club_id: string }>(
+      `select id, club_id
+       from club_memberships
+       where member_id = $1 and club_id = any($2::text[])`,
+      [owner.id, [owner.club.id, secondClub.id]],
+    );
+    const membershipByClubId = new Map(memberships.map((membership) => [membership.club_id, membership.id]));
+
+    await h.sql(
+      `insert into member_club_profile_versions (
+         membership_id, member_id, club_id, version_no, tagline, summary, created_by_member_id, generation_source
+       ) values ($1, $2, $3, 2, $4, $5, $2, 'manual')`,
+      [membershipByClubId.get(owner.club.id), owner.id, owner.club.id, 'Dog-club tagline', 'Working mainly on dog training and rescue support.'],
+    );
+
+    await h.sql(
+      `insert into member_club_profile_versions (
+         membership_id, member_id, club_id, version_no, tagline, summary, created_by_member_id, generation_source
+       ) values ($1, $2, $3, 2, $4, $5, $2, 'manual')`,
+      [membershipByClubId.get(secondClub.id), owner.id, secondClub.id, 'Cat-club tagline', 'Working mainly on cat fostering and adoption logistics.'],
+    );
+
+    const result = await h.apiOk(owner.token, 'profile.list', {});
+    const envelope = result.data as Record<string, unknown>;
+    const profiles = envelope.profiles as Array<Record<string, unknown>>;
+    const byClubId = new Map(
+      profiles.map((profile) => [((profile.club as Record<string, unknown>).clubId as string), profile]),
+    );
+
+    assert.equal(byClubId.size, 2);
+    assert.equal(byClubId.get(owner.club.id)?.tagline, 'Dog-club tagline');
+    assert.equal(byClubId.get(owner.club.id)?.summary, 'Working mainly on dog training and rescue support.');
+    assert.equal(byClubId.get(secondClub.id)?.tagline, 'Cat-club tagline');
+    assert.equal(byClubId.get(secondClub.id)?.summary, 'Working mainly on cat fostering and adoption logistics.');
+  });
+
+  it('members.updateIdentity changes displayName globally across clubs', async () => {
+    const owner = await h.seedOwner('profiles-identity-a', 'ProfilesIdentityA');
+    await h.seedClub('profiles-identity-b', 'ProfilesIdentityB', owner.id);
+
+    const result = await h.apiOk(owner.token, 'members.updateIdentity', {
+      displayName: 'Renamed Owner',
+    });
+    const identity = result.data as Record<string, unknown>;
+    assert.equal(identity.displayName, 'Renamed Owner');
+
+    const listResult = await h.apiOk(owner.token, 'profile.list', {});
+    const envelope = listResult.data as Record<string, unknown>;
+
+    assert.equal(envelope.displayName, 'Renamed Owner');
+    assert.equal((envelope.profiles as Array<unknown>).length, 2);
+  });
+
   it('profile.list for self with no memberships returns profiles: []', async () => {
     const loner = await h.seedMember('No Clubs Yet', 'no-clubs-yet');
 

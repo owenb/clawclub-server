@@ -15,7 +15,9 @@ import type {
   CreatedBearerToken,
   ArchiveClubInput,
   AssignClubOwnerInput,
+  ClubProfileFields,
   MemberProfileEnvelope,
+  MemberIdentity,
   MemberSearchResult,
   MembershipAdminSummary,
   MembershipReviewSummary,
@@ -23,7 +25,8 @@ import type {
   RevokeBearerTokenInput,
   TransitionMembershipInput,
   UpdateClubInput,
-  UpdateOwnProfileInput,
+  UpdateClubProfileInput,
+  UpdateMemberIdentityInput,
 } from '../contract.ts';
 
 import type { DbClient } from '../db.ts';
@@ -51,12 +54,25 @@ export type IdentityRepository = {
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
   listMembershipReviews(input: { actorMemberId: string; clubIds: string[]; limit: number; statuses: MembershipState[]; cursor?: { stateCreatedAt: string; id: string } | null }): Promise<{ results: MembershipReviewSummary[]; hasMore: boolean; nextCursor: string | null }>;
   listMembers(input: { actorMemberId: string; clubId: string; limit: number; cursor?: { joinedAt: string; memberId: string } | null }): Promise<{ results: ClubMemberSummary[]; hasMore: boolean; nextCursor: string | null }>;
+  buildMembershipSeedProfile(input: { memberId: string; clubId: string }): Promise<ClubProfileFields>;
   promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
   demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
 
   // Superadmin member/membership creation
   createMemberDirect(input: { actorMemberId: string; publicName: string; handle?: string | null; email?: string | null }): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }>;
-  createMembershipAsSuperadmin(input: { actorMemberId: string; clubId: string; memberId: string; role: 'member' | 'clubadmin'; sponsorMemberId?: string | null; initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>; reason?: string | null }): Promise<MembershipAdminSummary | null>;
+  createMembershipAsSuperadmin(input: {
+    actorMemberId: string;
+    clubId: string;
+    memberId: string;
+    role: 'member' | 'clubadmin';
+    sponsorMemberId?: string | null;
+    initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
+    reason?: string | null;
+    initialProfile: {
+      fields: ClubProfileFields;
+      generationSource: 'membership_seed' | 'admission_generated';
+    };
+  }): Promise<MembershipAdminSummary | null>;
 
   // Admission acceptance helpers
   createMemberFromAdmission(input: { name: string; email: string; displayName: string; details: Record<string, unknown>; admissionId: string }): Promise<string>;
@@ -66,8 +82,8 @@ export type IdentityRepository = {
 
   // Profiles
   listMemberProfiles(input: { actorMemberId: string; targetMemberId: string; actorClubIds: string[]; clubId?: string }): Promise<MemberProfileEnvelope | null>;
-
-  updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfileEnvelope>;
+  updateMemberIdentity(input: { actor: ActorContext; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
+  updateClubProfile(input: { actor: ActorContext; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
 
   // Clubs
   listClubs(input: { actorMemberId: string; includeArchived: boolean }): Promise<ClubSummary[]>;
@@ -99,6 +115,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     transitionMembershipState: (input) => memberships.transitionMembershipState(pool, input),
     listMembershipReviews: ({ clubIds, limit, statuses, cursor }) => memberships.listMembershipReviews(pool, { clubIds, limit, statuses, cursor }),
     listMembers: ({ clubId, limit, cursor }) => memberships.listMembers(pool, { clubId, limit, cursor }),
+    buildMembershipSeedProfile: ({ memberId, clubId }) => profiles.buildMembershipSeedProfile(pool, { memberId, clubId }),
     promoteMemberToAdmin: (input) => memberships.promoteMemberToAdmin(pool, input),
     demoteMemberFromAdmin: (input) => memberships.demoteMemberFromAdmin(pool, input),
 
@@ -134,7 +151,8 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
 
     // Profiles
     listMemberProfiles: ({ actorMemberId, targetMemberId, actorClubIds, clubId }) => profiles.listMemberProfiles(pool, { actorMemberId, targetMemberId, actorClubIds, clubId }),
-    updateOwnProfile: ({ actor, patch }) => profiles.updateOwnProfile(pool, actor, patch),
+    updateMemberIdentity: ({ actor, patch }) => profiles.updateMemberIdentity(pool, actor, patch),
+    updateClubProfile: ({ actor, patch }) => profiles.updateClubProfile(pool, actor, patch),
 
     // Clubs
     listClubs: ({ includeArchived }) => clubs.listClubs(pool, includeArchived),

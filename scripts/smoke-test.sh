@@ -37,11 +37,11 @@ values
 insert into club_subscriptions (membership_id, payer_member_id, amount)
 values (:'member_membership_id', :'owner_id', 25);
 
-insert into member_club_profile_versions (member_id, club_id, version_no, what_i_do, known_for, created_by_member_id, generation_source)
-values (:'owner_id', :'club_id', 1, 'Builds the club', 'Stewardship', :'owner_id', 'membership_seed');
+insert into member_club_profile_versions (membership_id, member_id, club_id, version_no, what_i_do, known_for, created_by_member_id, generation_source)
+values (:'owner_membership_id', :'owner_id', :'club_id', 1, 'Builds the club', 'Stewardship', :'owner_id', 'membership_seed');
 
-insert into member_club_profile_versions (member_id, club_id, version_no, what_i_do, services_summary, website_url, created_by_member_id, generation_source)
-values (:'member_id', :'club_id', 1, 'Facilitates circles', 'Mentoring and retreats', 'https://example.test', :'member_id', 'membership_seed')
+insert into member_club_profile_versions (membership_id, member_id, club_id, version_no, what_i_do, services_summary, website_url, created_by_member_id, generation_source)
+values (:'member_membership_id', :'member_id', :'club_id', 1, 'Facilitates circles', 'Mentoring and retreats', 'https://example.test', :'member_id', 'membership_seed')
 returning id as profile_version_id \gset
 
 insert into dm_threads (club_id, kind, created_by_member_id)

@@ -1,6 +1,6 @@
 /**
  * Action contracts: admissions.sponsorCandidate, members.searchByFullText, members.list,
- * members.searchBySemanticSimilarity, vouches.create, vouches.list
+ * members.searchBySemanticSimilarity, members.updateIdentity, vouches.create, vouches.list
  *
  * Member-auth actions for discovery, sponsorship, and vouching.
  * Club admin actions (memberships, admissions management) are in clubadmin.ts.
@@ -18,7 +18,7 @@ import {
 } from './fields.ts';
 import {
   membershipSummary, admissionSummary,
-  memberSearchResult, clubMemberSummary, vouchSummary,
+  memberSearchResult, clubMemberSummary, memberIdentity, vouchSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -208,6 +208,58 @@ const membersList: ActionDefinition = {
     return {
       data: { limit, clubScope: [club], results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
       requestScope: { requestedClubId: club.clubId, activeClubIds: [club.clubId] },
+    };
+  },
+};
+
+// ── members.updateIdentity ──────────────────────────────
+
+type MembersUpdateIdentityInput = {
+  handle?: string | null;
+  displayName?: string;
+};
+
+const membersUpdateIdentity: ActionDefinition = {
+  action: 'members.updateIdentity',
+  domain: 'members',
+  description: 'Update the current actor\'s global identity fields.',
+  auth: 'member',
+  safety: 'mutating',
+  authorizationNote: 'Updates own global identity only.',
+
+  wire: {
+    input: z.object({
+      handle: wireOptionalString.describe('Global handle'),
+      displayName: wireOptionalString.describe('Global display name'),
+    }),
+    output: memberIdentity,
+  },
+
+  parse: {
+    input: z.object({
+      handle: parseTrimmedNullableString.optional(),
+      displayName: z.string().trim().min(1).optional(),
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const patch = input as MembersUpdateIdentityInput;
+    if (patch.handle === undefined && patch.displayName === undefined) {
+      throw new AppError(400, 'invalid_input', 'At least one identity field must be provided');
+    }
+
+    const identity = await ctx.repository.updateMemberIdentity!({
+      actor: ctx.actor,
+      patch,
+    });
+
+    return {
+      data: identity,
+      nextMember: {
+        id: identity.memberId,
+        handle: identity.handle,
+        publicName: identity.publicName,
+      },
     };
   },
 };
@@ -498,6 +550,7 @@ registerActions([
   admissionsSponsor,
   membersFullTextSearch,
   membersList,
+  membersUpdateIdentity,
   membersFindViaEmbedding,
   vouchesCreate,
   vouchesList,

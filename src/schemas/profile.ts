@@ -6,7 +6,6 @@ import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wirePatchString, parsePatchString,
-  wireHandle, parseHandle,
   wireLinks, wireProfileObject,
 } from './fields.ts';
 import { memberProfileEnvelope } from './responses.ts';
@@ -42,9 +41,7 @@ const profileList: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { memberId, clubId } = input as ProfileListInput;
     const targetMemberId = memberId ?? ctx.actor.member.id;
-    const actorClubIds = clubId
-      ? [ctx.requireAccessibleClub(clubId).clubId]
-      : ctx.actor.memberships.map(m => m.clubId);
+    const actorClubIds = ctx.actor.memberships.map(m => m.clubId);
 
     const profile = await ctx.repository.listMemberProfiles({
       actorMemberId: ctx.actor.member.id,
@@ -65,9 +62,7 @@ const profileList: ActionDefinition = {
 };
 
 type ProfileUpdateInput = {
-  clubId?: string;
-  handle?: string | null;
-  displayName?: string;
+  clubId: string;
   tagline?: string | null;
   summary?: string | null;
   whatIDo?: string | null;
@@ -78,24 +73,12 @@ type ProfileUpdateInput = {
   profile?: Record<string, unknown>;
 };
 
-const CLUB_SCOPED_KEYS = new Set<keyof ProfileUpdateInput>([
-  'tagline', 'summary', 'whatIDo', 'knownFor', 'servicesSummary', 'websiteUrl', 'links', 'profile',
-]);
-
-const IDENTITY_KEYS = new Set<keyof ProfileUpdateInput>(['handle', 'displayName']);
-
 function validateProfileUpdateInput(patch: ProfileUpdateInput): void {
   const keys = Object.keys(patch) as Array<keyof ProfileUpdateInput>;
   const changedKeys = keys.filter((key) => key !== 'clubId');
-  const hasClubScopedKeys = changedKeys.some((key) => CLUB_SCOPED_KEYS.has(key));
-  const hasIdentityKeys = changedKeys.some((key) => IDENTITY_KEYS.has(key));
 
-  if (!hasClubScopedKeys && !hasIdentityKeys) {
+  if (changedKeys.length === 0) {
     throw new AppError(400, 'invalid_input', 'At least one profile field must be provided');
-  }
-
-  if (hasClubScopedKeys && !patch.clubId) {
-    throw new AppError(400, 'invalid_input', 'clubId is required when updating club-scoped profile fields');
   }
 }
 
@@ -109,9 +92,7 @@ const profileUpdate: ActionDefinition = {
 
   wire: {
     input: z.object({
-      clubId: wireRequiredString.optional().describe('Club to update when sending club-scoped profile fields.'),
-      handle: wireHandle,
-      displayName: wireRequiredString.optional().describe('Display name (cannot be empty if provided).'),
+      clubId: wireRequiredString.describe('Club whose profile should be updated.'),
       tagline: wirePatchString.describe('Short tagline'),
       summary: wirePatchString.describe('Profile summary'),
       whatIDo: wirePatchString.describe('What I do'),
@@ -126,9 +107,7 @@ const profileUpdate: ActionDefinition = {
 
   parse: {
     input: z.object({
-      clubId: parseRequiredString.optional(),
-      handle: parseHandle,
-      displayName: z.string().trim().min(1).optional(),
+      clubId: parseRequiredString,
       tagline: parsePatchString,
       summary: parsePatchString,
       whatIDo: parsePatchString,
@@ -146,11 +125,11 @@ const profileUpdate: ActionDefinition = {
     const patch = input as ProfileUpdateInput;
     validateProfileUpdateInput(patch);
 
-    if (patch.clubId) {
-      ctx.requireAccessibleClub(patch.clubId);
+    if (!ctx.repository.updateClubProfile) {
+      throw new AppError(500, 'invalid_data', 'Profile update handler is not configured');
     }
 
-    const updatedProfile = await ctx.repository.updateOwnProfile({
+    const updatedProfile = await ctx.repository.updateClubProfile({
       actor: ctx.actor,
       patch,
     });

@@ -35,6 +35,7 @@ $$;
 
 CREATE TABLE IF NOT EXISTS member_club_profile_versions (
     id                      short_id DEFAULT new_id() NOT NULL,
+    membership_id           short_id NOT NULL,
     member_id               short_id NOT NULL,
     club_id                 short_id NOT NULL,
     version_no              integer NOT NULL,
@@ -56,17 +57,143 @@ CREATE TABLE IF NOT EXISTS member_club_profile_versions (
     CONSTRAINT member_club_profile_versions_version_no_check CHECK (version_no > 0),
     CONSTRAINT member_club_profile_versions_generation_source_check
         CHECK (generation_source IN ('manual', 'migration_backfill', 'admission_generated', 'membership_seed')),
+    CONSTRAINT member_club_profile_versions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id),
     CONSTRAINT member_club_profile_versions_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
     CONSTRAINT member_club_profile_versions_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
     CONSTRAINT member_club_profile_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS membership_id short_id;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS member_id short_id;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS club_id short_id;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS version_no integer;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS tagline text;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS summary text;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS what_i_do text;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS known_for text;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS services_summary text;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS website_url text;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS links jsonb;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS profile jsonb;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS search_vector tsvector;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS created_at timestamptz;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS created_by_member_id short_id;
+ALTER TABLE member_club_profile_versions ADD COLUMN IF NOT EXISTS generation_source text;
+
+ALTER TABLE member_club_profile_versions
+  ALTER COLUMN created_at SET DEFAULT now(),
+  ALTER COLUMN links SET DEFAULT '[]',
+  ALTER COLUMN profile SET DEFAULT '{}',
+  ALTER COLUMN generation_source SET DEFAULT 'manual';
+
+UPDATE member_club_profile_versions
+   SET links = '[]'::jsonb
+ WHERE links IS NULL;
+
+UPDATE member_club_profile_versions
+   SET profile = '{}'::jsonb
+ WHERE profile IS NULL;
+
+UPDATE member_club_profile_versions mcpv
+   SET membership_id = cm.id
+  FROM club_memberships cm
+ WHERE mcpv.membership_id IS NULL
+   AND cm.member_id = mcpv.member_id
+   AND cm.club_id = mcpv.club_id;
+
+ALTER TABLE member_club_profile_versions ALTER COLUMN membership_id SET NOT NULL;
+ALTER TABLE member_club_profile_versions ALTER COLUMN member_id SET NOT NULL;
+ALTER TABLE member_club_profile_versions ALTER COLUMN club_id SET NOT NULL;
+ALTER TABLE member_club_profile_versions ALTER COLUMN version_no SET NOT NULL;
+ALTER TABLE member_club_profile_versions ALTER COLUMN links SET NOT NULL;
+ALTER TABLE member_club_profile_versions ALTER COLUMN profile SET NOT NULL;
+ALTER TABLE member_club_profile_versions ALTER COLUMN created_at SET NOT NULL;
+ALTER TABLE member_club_profile_versions ALTER COLUMN generation_source SET NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'member_club_profile_versions_member_club_version_unique'
+  ) THEN
+    ALTER TABLE member_club_profile_versions
+      ADD CONSTRAINT member_club_profile_versions_member_club_version_unique UNIQUE (member_id, club_id, version_no);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'member_club_profile_versions_version_no_check'
+  ) THEN
+    ALTER TABLE member_club_profile_versions
+      ADD CONSTRAINT member_club_profile_versions_version_no_check CHECK (version_no > 0);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'member_club_profile_versions_generation_source_check'
+  ) THEN
+    ALTER TABLE member_club_profile_versions
+      ADD CONSTRAINT member_club_profile_versions_generation_source_check
+        CHECK (generation_source IN ('manual', 'migration_backfill', 'admission_generated', 'membership_seed'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'member_club_profile_versions_membership_fkey'
+  ) THEN
+    ALTER TABLE member_club_profile_versions
+      ADD CONSTRAINT member_club_profile_versions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'member_club_profile_versions_member_fkey'
+  ) THEN
+    ALTER TABLE member_club_profile_versions
+      ADD CONSTRAINT member_club_profile_versions_member_fkey FOREIGN KEY (member_id) REFERENCES members(id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'member_club_profile_versions_club_fkey'
+  ) THEN
+    ALTER TABLE member_club_profile_versions
+      ADD CONSTRAINT member_club_profile_versions_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'member_club_profile_versions_created_by_fkey'
+  ) THEN
+    ALTER TABLE member_club_profile_versions
+      ADD CONSTRAINT member_club_profile_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id);
+  END IF;
+END
+$$;
+
+CREATE INDEX IF NOT EXISTS member_club_profile_versions_membership_idx
+    ON member_club_profile_versions (membership_id, version_no DESC);
 CREATE INDEX IF NOT EXISTS member_club_profile_versions_member_club_idx
     ON member_club_profile_versions (member_id, club_id, version_no DESC);
 CREATE INDEX IF NOT EXISTS member_club_profile_versions_club_member_idx
     ON member_club_profile_versions (club_id, member_id, version_no DESC);
 CREATE INDEX IF NOT EXISTS member_club_profile_versions_search_idx
     ON member_club_profile_versions USING gin (search_vector);
+
+CREATE OR REPLACE FUNCTION reject_row_mutation() RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION '% not allowed on %', TG_OP, TG_TABLE_NAME;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION member_club_profile_versions_search_vector_trigger() RETURNS trigger
     LANGUAGE plpgsql
@@ -83,42 +210,134 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION member_club_profile_versions_check_membership() RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    m_member_id short_id;
+    m_club_id short_id;
+BEGIN
+    SELECT member_id, club_id
+      INTO m_member_id, m_club_id
+      FROM club_memberships
+     WHERE id = NEW.membership_id;
+
+    IF m_member_id IS NULL THEN
+        RAISE EXCEPTION 'membership_id % not found', NEW.membership_id;
+    END IF;
+
+    IF NEW.member_id <> m_member_id OR NEW.club_id <> m_club_id THEN
+        RAISE EXCEPTION 'member_id/club_id mismatch: version has (%, %) but membership has (%, %)',
+            NEW.member_id, NEW.club_id, m_member_id, m_club_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS member_club_profile_versions_immutable ON member_club_profile_versions;
+CREATE TRIGGER member_club_profile_versions_immutable
+    BEFORE UPDATE OR DELETE ON member_club_profile_versions
+    FOR EACH ROW
+    EXECUTE FUNCTION reject_row_mutation();
+
 DROP TRIGGER IF EXISTS member_club_profile_versions_search_vector_update ON member_club_profile_versions;
-CREATE TRIGGER member_club_profile_versions_search_vector_update
-    BEFORE INSERT OR UPDATE ON member_club_profile_versions
+DROP TRIGGER IF EXISTS member_club_profile_versions_search_vector_insert ON member_club_profile_versions;
+CREATE TRIGGER member_club_profile_versions_search_vector_insert
+    BEFORE INSERT ON member_club_profile_versions
     FOR EACH ROW
     EXECUTE FUNCTION member_club_profile_versions_search_vector_trigger();
 
-CREATE OR REPLACE VIEW current_member_club_profiles AS
-    SELECT DISTINCT ON (member_id, club_id) *
-    FROM member_club_profile_versions
-    ORDER BY member_id, club_id, version_no DESC, created_at DESC;
+DROP TRIGGER IF EXISTS member_club_profile_versions_check_membership_trigger ON member_club_profile_versions;
+CREATE TRIGGER member_club_profile_versions_check_membership_trigger
+    BEFORE INSERT ON member_club_profile_versions
+    FOR EACH ROW
+    EXECUTE FUNCTION member_club_profile_versions_check_membership();
+
+ALTER TABLE admissions ADD COLUMN IF NOT EXISTS generated_profile_draft jsonb;
 
 DO $$
 BEGIN
   IF to_regclass('public.current_member_profiles') IS NOT NULL THEN
     EXECUTE $sql$
       INSERT INTO member_club_profile_versions (
-        member_id, club_id, version_no,
+        membership_id, member_id, club_id, version_no,
         tagline, summary, what_i_do, known_for, services_summary,
         website_url, links, profile,
         created_by_member_id, generation_source
       )
       SELECT
-        cm.member_id, cm.club_id, 1,
+        cm.id, cm.member_id, cm.club_id, 1,
         cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for, cmp.services_summary,
         cmp.website_url, cmp.links, cmp.profile,
         cm.member_id, 'migration_backfill'
       FROM club_memberships cm
       LEFT JOIN current_member_profiles cmp ON cmp.member_id = cm.member_id
       WHERE cm.left_at IS NULL
-      ON CONFLICT (member_id, club_id, version_no) DO NOTHING
+        AND NOT EXISTS (
+          SELECT 1
+            FROM member_club_profile_versions existing
+           WHERE existing.membership_id = cm.id
+        )
     $sql$;
+  ELSE
+    INSERT INTO member_club_profile_versions (
+      membership_id, member_id, club_id, version_no,
+      links, profile, created_by_member_id, generation_source
+    )
+    SELECT
+      cm.id, cm.member_id, cm.club_id, 1,
+      '[]'::jsonb, '{}'::jsonb, cm.member_id, 'migration_backfill'
+    FROM club_memberships cm
+    WHERE cm.left_at IS NULL
+      AND NOT EXISTS (
+        SELECT 1
+          FROM member_club_profile_versions existing
+         WHERE existing.membership_id = cm.id
+      );
   END IF;
 END
 $$;
 
+CREATE OR REPLACE VIEW current_member_club_profiles AS
+    SELECT DISTINCT ON (member_id, club_id) *
+    FROM member_club_profile_versions
+    ORDER BY member_id, club_id, version_no DESC, created_at DESC;
+
+DROP VIEW IF EXISTS current_admissions;
+CREATE VIEW current_admissions AS
+    SELECT
+        a.id,
+        a.club_id,
+        a.applicant_member_id,
+        a.sponsor_member_id,
+        a.membership_id,
+        a.origin,
+        a.admission_details,
+        a.metadata,
+        a.created_at,
+        a.applicant_email,
+        a.applicant_name,
+        a.generated_profile_draft,
+        cav.id              AS version_id,
+        cav.status,
+        cav.notes,
+        cav.intake_kind,
+        cav.intake_price_amount,
+        cav.intake_price_currency,
+        cav.intake_booking_url,
+        cav.intake_booked_at,
+        cav.intake_completed_at,
+        cav.version_no,
+        cav.supersedes_version_id,
+        cav.created_at      AS version_created_at,
+        cav.created_by_member_id AS version_created_by_member_id
+    FROM admissions a
+    JOIN current_admission_versions cav ON cav.admission_id = a.id;
+
 DROP TABLE IF EXISTS member_profile_embeddings;
+DROP VIEW IF EXISTS current_member_profiles;
+DROP TABLE IF EXISTS member_profile_versions;
 
 CREATE TABLE member_profile_embeddings (
     id                  short_id DEFAULT new_id() NOT NULL,
@@ -158,3 +377,30 @@ INSERT INTO ai_embedding_jobs (subject_kind, subject_version_id, model, dimensio
 SELECT 'member_club_profile_version', mcpv.id, 'text-embedding-3-small', 1536, 'v1'
 FROM current_member_club_profiles mcpv
 ON CONFLICT DO NOTHING;
+
+CREATE OR REPLACE FUNCTION club_memberships_require_profile_version() RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+          FROM member_club_profile_versions
+         WHERE membership_id = NEW.id
+    ) THEN
+        RAISE EXCEPTION 'club_memberships row % has no profile version — version 1 must be inserted in the same transaction', NEW.id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS club_memberships_require_profile_version_trigger ON club_memberships;
+CREATE CONSTRAINT TRIGGER club_memberships_require_profile_version_trigger
+    AFTER INSERT ON club_memberships
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW
+    EXECUTE FUNCTION club_memberships_require_profile_version();
+
+-- Deploy-order note:
+-- The embedding worker must understand subject_kind = 'member_club_profile_version'
+-- in the same deploy as this migration. Old workers will not claim the new jobs.

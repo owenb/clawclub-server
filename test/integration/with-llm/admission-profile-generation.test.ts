@@ -92,12 +92,34 @@ async function getCurrentClubProfile(memberId: string, clubId: string): Promise<
   return rows[0]!;
 }
 
+async function getMembershipId(memberId: string, clubId: string): Promise<string> {
+  const rows = await h.sql<{ id: string }>(
+    `select id
+     from club_memberships
+     where member_id = $1 and club_id = $2
+     limit 1`,
+    [memberId, clubId],
+  );
+  assert.equal(rows.length, 1, 'expected one membership');
+  return rows[0]!.id;
+}
+
 async function countAcceptedVersions(admissionId: string): Promise<number> {
   const rows = await h.sql<{ count: string }>(
     `select count(*)::text as count
      from admission_versions
      where admission_id = $1 and status = 'accepted'`,
     [admissionId],
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function countProfileVersions(memberId: string, clubId: string): Promise<number> {
+  const rows = await h.sql<{ count: string }>(
+    `select count(*)::text as count
+     from member_club_profile_versions
+     where member_id = $1 and club_id = $2`,
+    [memberId, clubId],
   );
   return Number(rows[0]?.count ?? 0);
 }
@@ -182,12 +204,13 @@ describe('admission profile generation (LLM)', () => {
 
     const member = await h.seedClubMember(ownerA.club.id, 'Ada MultiClub', 'ada-multiclub', { sponsorId: ownerA.id });
     await seedEmail(member.id, 'ada.multiclub@example.com');
+    const ownerAMembershipId = await getMembershipId(member.id, ownerA.club.id);
 
     await h.sql(
       `insert into member_club_profile_versions (
-         member_id, club_id, version_no, tagline, summary, created_by_member_id, generation_source
-       ) values ($1, $2, 2, 'Dog trainer', 'Dog-club profile about rescue dogs and canine behaviour.', $1, 'manual')`,
-      [member.id, ownerA.club.id],
+         membership_id, member_id, club_id, version_no, tagline, summary, created_by_member_id, generation_source
+       ) values ($1, $2, $3, 2, 'Dog trainer', 'Dog-club profile about rescue dogs and canine behaviour.', $2, 'manual')`,
+      [ownerAMembershipId, member.id, ownerA.club.id],
     );
 
     const admissionId = await seedCrossApplyAdmission(ownerB.club.id, member.id, {
@@ -210,14 +233,25 @@ describe('admission profile generation (LLM)', () => {
       `select display_name, handle from members where id = $1`,
       [member.id],
     );
+    const generatedSignals = [
+      newClubProfile.tagline,
+      newClubProfile.summary,
+      newClubProfile.what_i_do,
+      newClubProfile.known_for,
+      newClubProfile.services_summary,
+      newClubProfile.website_url,
+      ...(Array.isArray(newClubProfile.links) ? newClubProfile.links : []),
+    ].filter((value): value is string => typeof value === 'string' && value.length > 0);
 
     assert.equal(oldClubProfile.summary, 'Dog-club profile about rescue dogs and canine behaviour.');
-    assert.ok((newClubProfile.summary as string | null) && newClubProfile.summary !== oldClubProfile.summary);
+    assert.equal(newClubProfile.generation_source, 'admission_generated');
+    assert.notEqual(newClubProfile.summary, oldClubProfile.summary);
+    assert.ok(generatedSignals.length > 0, 'expected generated club profile content');
     assert.equal(memberRow[0]?.display_name, 'Ada MultiClub');
     assert.equal(memberRow[0]?.handle, 'ada-multiclub');
   });
 
-  it('retrying an already-accepted admission regenerates the missing club profile without duplicating acceptance', async () => {
+  it('retrying an already-accepted admission is a no-op and does not duplicate acceptance or profile versions', async () => {
     const owner = await h.seedOwner('llm-profile-gen-retry', 'LLM Profile Gen Retry');
 
     const admissionId = await seedOutsiderAdmission(owner.club.id, {
@@ -235,11 +269,8 @@ describe('admission profile generation (LLM)', () => {
     });
     const accepted = admission(acceptedBody);
     const memberId = (accepted.applicant as Record<string, unknown>).memberId as string;
-
-    await h.sql(
-      `delete from member_club_profile_versions where member_id = $1 and club_id = $2`,
-      [memberId, owner.club.id],
-    );
+    const beforeRetryProfile = await getCurrentClubProfile(memberId, owner.club.id);
+    const beforeRetryVersionCount = await countProfileVersions(memberId, owner.club.id);
 
     const retryBody = await h.apiOk(owner.token, 'clubadmin.admissions.setStatus', {
       clubId: owner.club.id,
@@ -250,9 +281,12 @@ describe('admission profile generation (LLM)', () => {
     const retried = admission(retryBody);
     const retriedMemberId = (retried.applicant as Record<string, unknown>).memberId as string;
     const currentProfile = await getCurrentClubProfile(memberId, owner.club.id);
+    const afterRetryVersionCount = await countProfileVersions(memberId, owner.club.id);
 
     assert.equal(retriedMemberId, memberId);
     assert.equal(await countAcceptedVersions(admissionId), 1);
     assert.equal(currentProfile.generation_source, 'admission_generated');
+    assert.equal(currentProfile.id, beforeRetryProfile.id);
+    assert.equal(afterRetryVersionCount, beforeRetryVersionCount);
   });
 });

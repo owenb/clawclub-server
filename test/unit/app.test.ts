@@ -26,7 +26,6 @@ import {
   type PendingUpdate,
   type Repository,
   type UpdateReceipt,
-  type UpdateOwnProfileInput,
 } from '../../src/contract.ts';
 import { buildDispatcher } from '../../src/dispatch.ts';
 import { passthroughGate } from './fixtures.ts';
@@ -582,7 +581,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async getMemberProfile({ targetMemberId }) {
       return makeProfile(targetMemberId);
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -857,6 +856,19 @@ test('memberships.create derives scope server-side and preserves sponsor semanti
     reason: 'Trusted intro',
     metadata: { source: 'operator' },
     skipClubAdminCheck: true,
+    initialProfile: {
+      fields: {
+        tagline: null,
+        summary: null,
+        whatIDo: null,
+        knownFor: null,
+        servicesSummary: null,
+        websiteUrl: null,
+        links: [],
+        profile: {},
+      },
+      generationSource: 'membership_seed',
+    },
   });
   assert.equal(result.action, 'clubadmin.memberships.create');
   assert.equal(result.data.membership.sponsor.memberId, 'member-1');
@@ -1089,7 +1101,7 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -1190,7 +1202,7 @@ test('members.list returns active members with scoped membership context', async
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -1290,7 +1302,7 @@ test('profile.list defaults to the actor member id', async () => {
       capturedActorClubIds = actorClubIds;
       return makeProfile(targetMemberId, actorClubIds);
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -1361,8 +1373,8 @@ test('profile.list defaults to the actor member id', async () => {
   assert.equal(result.data.profiles.length, 2);
 });
 
-test('profile.update normalizes nullable strings and handle changes', async () => {
-  let capturedPatch: UpdateOwnProfileInput | null = null;
+test('profile.update normalizes nullable strings for club-scoped fields', async () => {
+  let capturedPatch: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1374,15 +1386,10 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     async listMembers() {
       return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
-    async getMemberProfile() {
-      return makeProfile();
-    },
-    async updateOwnProfile({ patch }) {
+    async updateClubProfile({ patch }) {
       capturedPatch = patch;
       return {
         ...makeProfile('member-1', ['club-2']),
-        handle: patch.handle ?? 'member-one',
-        displayName: patch.displayName ?? 'Member One',
         profiles: [{
           ...makeClubProfile('club-2'),
           tagline: patch.tagline !== undefined ? patch.tagline : 'Building warm things',
@@ -1452,8 +1459,6 @@ test('profile.update normalizes nullable strings and handle changes', async () =
     action: 'profile.update',
     payload: {
       clubId: 'club-2',
-      handle: 'member-one-updated',
-      displayName: 'Member One Updated',
       tagline: '  ',
       links: [{ label: 'GitHub', url: 'https://github.com/example' }],
       profile: { homeBase: 'Berlin' },
@@ -1463,14 +1468,12 @@ test('profile.update normalizes nullable strings and handle changes', async () =
   assert.equal(result.action, 'profile.update');
   assert.deepEqual(capturedPatch, {
     clubId: 'club-2',
-    handle: 'member-one-updated',
-    displayName: 'Member One Updated',
     tagline: null,
     links: [{ label: 'GitHub', url: 'https://github.com/example' }],
     profile: { homeBase: 'Berlin' },
   });
-  assert.equal(result.actor.member.handle, 'member-one-updated');
-  assert.equal(result.data.handle, 'member-one-updated');
+  assert.equal(result.actor.member.handle, 'member-one');
+  assert.equal(result.data.handle, 'member-one');
   assert.equal(result.data.profiles[0]?.club.clubId, 'club-2');
   assert.equal(result.data.profiles[0]?.tagline, null);
 });
@@ -1491,7 +1494,7 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity(input) {
@@ -1612,7 +1615,7 @@ test('content.update appends a new version on the shared entity surface', async 
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -1701,7 +1704,7 @@ test('content.remove appends a removed version on the shared entity surface', as
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -1805,7 +1808,7 @@ test('content.update rejects non-author updates', async () => {
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -1873,7 +1876,7 @@ test('events.create writes the smallest sane event payload', async () => {
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -1987,7 +1990,7 @@ test('events.list stays inside accessible scope and forwards optional query', as
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -2080,7 +2083,7 @@ test('events.rsvp uses the actor membership in the event club', async () => {
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -2175,7 +2178,7 @@ test('content.list can span accessible clubs and filter by kinds with optional q
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -2292,7 +2295,7 @@ test('profile.list returns 404 when the target member is outside shared scope', 
     async listMemberProfiles() {
       return null;
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -2407,7 +2410,7 @@ test('messages.send picks a shared club, appends the request scope, and returns 
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -2502,7 +2505,7 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -2599,7 +2602,7 @@ test('messages.getInbox stays inside accessible scope and returns inbox summarie
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -2691,7 +2694,7 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -2792,7 +2795,7 @@ test('messages.getThread scopes thread access server-side and returns DM entries
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -2935,7 +2938,7 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -3036,7 +3039,7 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {
@@ -3232,7 +3235,7 @@ test('messages.getThread returns 404 when the thread is outside actor scope', as
     async getMemberProfile() {
       return makeProfile();
     },
-    async updateOwnProfile() {
+    async updateClubProfile() {
       return makeProfile();
     },
     async createEntity() {

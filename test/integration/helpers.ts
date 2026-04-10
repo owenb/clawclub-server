@@ -34,23 +34,27 @@ export async function seedProfileEmbedding(h: TestHarness, memberId: string, vec
   );
 
   if (pvRows.length === 0) {
-    const membershipRows = await h.sql<{ club_id: string }>(
-      `select club_id from club_memberships where member_id = $1 and left_at is null order by joined_at asc, club_id asc`,
+    const membershipRows = await h.sql<{ id: string; club_id: string }>(
+      `select id, club_id
+         from club_memberships
+        where member_id = $1 and left_at is null
+        order by joined_at asc, club_id asc`,
       [memberId],
     );
     for (const row of membershipRows) {
       await h.sql(
         `insert into member_club_profile_versions (
-           member_id, club_id, version_no, created_by_member_id, generation_source
+           membership_id, member_id, club_id, version_no, created_by_member_id, generation_source
          )
          values (
+           $3,
            $1,
            $2,
-           coalesce((select max(version_no) + 1 from member_club_profile_versions where member_id = $1 and club_id = $2), 1),
+           1,
            $1,
            'membership_seed'
          )`,
-        [memberId, row.club_id],
+        [memberId, row.club_id, row.id],
       );
     }
     pvRows = await h.sql<{ id: string; club_id: string }>(

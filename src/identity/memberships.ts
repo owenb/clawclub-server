@@ -7,6 +7,7 @@
 import type { Pool } from 'pg';
 import {
   AppError,
+  type ClubProfileFields,
   type CreateMembershipInput,
   type MembershipAdminSummary,
   type MembershipReviewSummary,
@@ -17,7 +18,7 @@ import {
 } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { encodeCursor } from '../schemas/fields.ts';
-import { ensureClubProfileSeeded } from './profiles.ts';
+import { createInitialClubProfileVersion } from './profiles.ts';
 
 type MembershipAdminRow = {
   membership_id: string;
@@ -301,7 +302,7 @@ export async function listMembers(pool: Pool, input: {
      from accessible_club_memberships anm
      join members m on m.id = anm.member_id and m.state = 'active'
      join clubs n on n.id = anm.club_id and n.archived_at is null
-     left join current_member_club_profiles cmp
+     join current_member_club_profiles cmp
        on cmp.member_id = m.id and cmp.club_id = anm.club_id
      where anm.club_id = $1
      group by m.id, m.public_name, m.display_name, m.handle, cmp.tagline,
@@ -380,18 +381,19 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
          values ($1, $2, $3, 1, $4)`,
         [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
       );
+
+      await createInitialClubProfileVersion(client, {
+        membershipId,
+        memberId: input.memberId,
+        clubId: input.clubId,
+        fields: input.initialProfile.fields,
+        createdByMemberId: input.actorMemberId,
+        generationSource: input.initialProfile.generationSource,
+      });
     }
 
     if (input.initialStatus === 'active') {
       await setComped(client, membershipId, input.actorMemberId);
-    }
-
-    if (!input.sourceAdmissionId) {
-      await ensureClubProfileSeeded(client, {
-        memberId: input.memberId,
-        clubId: input.clubId,
-        generationSource: 'membership_seed',
-      });
     }
 
     return readMembershipSummary(client, membershipId);
@@ -627,6 +629,10 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
   sponsorMemberId?: string | null;
   initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
   reason?: string | null;
+  initialProfile: {
+    fields: ClubProfileFields;
+    generationSource: 'membership_seed' | 'admission_generated';
+  };
 }): Promise<MembershipAdminSummary | null> {
   return withTransaction(pool, async (client) => {
     // Resolve sponsor: use provided, fall back to club owner
@@ -685,17 +691,20 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
          values ($1, $2, $3, 1, $4)`,
         [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
       );
+
+      await createInitialClubProfileVersion(client, {
+        membershipId,
+        memberId: input.memberId,
+        clubId: input.clubId,
+        fields: input.initialProfile.fields,
+        createdByMemberId: input.actorMemberId,
+        generationSource: input.initialProfile.generationSource,
+      });
     }
 
     if (input.initialStatus === 'active') {
       await setComped(client, membershipId, input.actorMemberId);
     }
-
-    await ensureClubProfileSeeded(client, {
-      memberId: input.memberId,
-      clubId: input.clubId,
-      generationSource: 'membership_seed',
-    });
 
     return readMembershipSummary(client, membershipId);
   });

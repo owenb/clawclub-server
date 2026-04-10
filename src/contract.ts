@@ -80,6 +80,10 @@ export type CreateMembershipInput = {
   metadata: Record<string, unknown>;
   sourceAdmissionId?: string | null;
   skipClubAdminCheck?: boolean;
+  initialProfile: {
+    fields: ClubProfileFields;
+    generationSource: 'admission_generated' | 'membership_seed';
+  };
 };
 
 export type MembershipReviewSummary = MembershipAdminSummary & {
@@ -388,6 +392,24 @@ export type ClubProfile = {
   };
 };
 
+export type ClubProfileFields = {
+  tagline: string | null;
+  summary: string | null;
+  whatIDo: string | null;
+  knownFor: string | null;
+  servicesSummary: string | null;
+  websiteUrl: string | null;
+  links: unknown[];
+  profile: Record<string, unknown>;
+};
+
+export type MemberIdentity = {
+  memberId: string;
+  publicName: string;
+  handle: string | null;
+  displayName: string;
+};
+
 export type MemberProfileEnvelope = {
   memberId: string;
   publicName: string;
@@ -396,10 +418,13 @@ export type MemberProfileEnvelope = {
   profiles: ClubProfile[];
 };
 
-export type UpdateOwnProfileInput = {
-  clubId?: string;
+export type UpdateMemberIdentityInput = {
   handle?: string | null;
   displayName?: string;
+};
+
+export type UpdateClubProfileInput = {
+  clubId: string;
   tagline?: string | null;
   summary?: string | null;
   whatIDo?: string | null;
@@ -866,13 +891,18 @@ export type Repository = {
     limit: number;
     cursor?: { joinedAt: string; memberId: string } | null;
   }): Promise<Paginated<ClubMemberSummary>>;
+  buildMembershipSeedProfile?(input: {
+    memberId: string;
+    clubId: string;
+  }): Promise<ClubProfileFields>;
   listMemberProfiles(input: {
     actorMemberId: string;
     targetMemberId: string;
     actorClubIds: string[];
     clubId?: string;
   }): Promise<MemberProfileEnvelope | null>;
-  updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfileEnvelope>;
+  updateMemberIdentity?(input: { actor: ActorContext; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
+  updateClubProfile?(input: { actor: ActorContext; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
   // Internal entity methods back the public `content.*` API. Events use the same
   // underlying entity/version tables but have separate event-specific methods below.
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
@@ -922,7 +952,19 @@ export type Repository = {
   removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 
   adminCreateMember?(input: { actorMemberId: string; publicName: string; handle?: string | null; email?: string | null }): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }>;
-  adminCreateMembership?(input: { actorMemberId: string; clubId: string; memberId: string; role: 'member' | 'clubadmin'; sponsorMemberId?: string | null; initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>; reason?: string | null }): Promise<MembershipAdminSummary | null>;
+  adminCreateMembership?(input: {
+    actorMemberId: string;
+    clubId: string;
+    memberId: string;
+    role: 'member' | 'clubadmin';
+    sponsorMemberId?: string | null;
+    initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
+    reason?: string | null;
+    initialProfile: {
+      fields: ClubProfileFields;
+      generationSource: 'membership_seed' | 'admission_generated';
+    };
+  }): Promise<MembershipAdminSummary | null>;
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
   adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminMemberSummary>>;
   adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;

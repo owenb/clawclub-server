@@ -19,7 +19,7 @@ Two things, in order:
 
 ### 1. Unify the content model
 
-Events stop being a parallel API surface and become regular content entities. `events.create`, `events.list`, and `events.remove` are absorbed into `content.create`, `content.list`, and `content.remove`. Only RSVP actions survive as `events.*`.
+Events stop being a parallel API surface and become regular content entities. `events.create` and `events.remove` are absorbed into `content.create` and `content.remove`. `events.list` and `events.rsvp` survive as event-specific read/interaction surfaces. `events.cancelRsvp` is added as a new action.
 
 This makes the entity system genuinely extensible. Future kinds (polls, etc.) add validation rules and extension tables without adding new API namespaces.
 
@@ -88,7 +88,7 @@ These are the decisions this plan makes. The implementer should not re-open them
 1. **`content.create` is the single write path for all public content kinds.** Events, posts, opportunities, services, asks, gifts — all created through one action.
 2. **Kind-specific fields use a namespaced input object.** Event fields live under `event: { ... }` in the `content.create` input. Future kinds follow the same pattern.
 3. **Kind-specific data lives in extension tables.** `event_version_details` is the template. The core entity/version tables are kind-agnostic.
-4. **The `events.*` namespace collapses.** `events.create`, `events.list`, `events.remove` are absorbed. Only `events.rsvp` and `events.cancelRsvp` survive.
+4. **The `events.*` write namespace collapses.** `events.create` and `events.remove` are absorbed into `content.*`. `events.list` survives as an event-specific read surface (flat, ordered by `starts_at`). `events.rsvp` survives. `events.cancelRsvp` is added as a new action.
 5. **The `comment` kind is removed.** Responding to a thread is just `content.create` with a `threadId`.
 6. **A `content_threads` table exists.** It is a thin container, analogous to `dm_threads`.
 7. **Every public content entity lives inside a thread.** There are no threadless entities.
@@ -100,7 +100,7 @@ These are the decisions this plan makes. The implementer should not re-open them
 13. **Every entity gets an embedding.** Search returns matching entities with `contentThreadId`.
 14. **Removing an entity shows `[redacted]` in thread reads.** The thread survives.
 15. **New entity in a thread bumps thread order.** Editing an existing entity does not.
-16. **The first entity is always surfaced in thread summaries.** If removed, it appears as `[redacted]`. If expired, it still appears with metadata. The first entity is structural — it is the thread subject.
+16. **The first entity is always surfaced in thread summaries when visible.** If removed, it appears as `[redacted]`. If expired, it still appears with metadata. But if the first entity is *closed* (a closed ask/gift/service/opportunity), the thread follows existing `includeClosed` semantics: hidden from non-authors when `includeClosed=false`, visible when `includeClosed=true`. Removal is structural (always show the slot); closure is a content-level visibility filter.
 17. **Thread-position-1 entities participate in matching. Subsequent entities do not.** The synchronicity worker only processes the first entity in a thread for match generation.
 
 ## Open problem: thread summary shape in the feed
@@ -122,13 +122,13 @@ The implementation should start with the simplest viable option and evolve based
 | Old action | New home | Notes |
 |---|---|---|
 | `events.create` | `content.create(kind='event')` | Event fields under `event: { ... }` |
-| `events.list` | `content.list(kinds=['event'])` | Same pagination, same semantics |
+| `events.list` | `events.list` | **Survives** — event-specific read surface, flat, ordered by `starts_at` |
 | `events.remove` | `content.remove` | Already worked on entities |
 | `events.rsvp` | `events.rsvp` | **Survives** — RSVP is not content CRUD |
-| `events.cancelRsvp` | `events.cancelRsvp` | **Survives** (if it exists) |
+| `events.cancelRsvp` | `events.cancelRsvp` | **New action** — does not exist today, added in this plan |
 | `content.create` | `content.create` | Gains `kind='event'` support |
 | `content.update` | `content.update` | Gains event field support |
-| `content.list` | `content.list` | Gains event results |
+| `content.list` | `content.list` | Gains event results (thread-based) |
 | `content.remove` | `content.remove` | Already handles all entity kinds |
 
 ### `content.create` input shape
@@ -240,11 +240,19 @@ For removed entities in thread reads: `state` is `'removed'`, text fields become
 
 The `event` object is rejected with `400 invalid_input` if the target entity is not `kind='event'`. Same pattern for future kind-specific update fields.
 
-### `content.list` gains events
+### `content.list` gains events (thread-based)
 
-Events appear in `content.list` alongside all other kinds. The `kinds` filter controls which kinds appear.
+Events appear in `content.list` alongside all other kinds. The `kinds` filter controls which kinds appear. After threading, this is thread-based listing with kind filtering on the first entity.
 
-After threading, this becomes thread-based listing with kind filtering on the first entity. Before threading (during implementation), it can start as flat entity listing that includes events.
+`content.list(kinds=['event'])` returns threads whose first entity is an event. This is **not** a drop-in replacement for `events.list`. An event posted as a response inside a post-thread is invisible to this filter, and thread ordering by `lastActivityAt` can outrank an upcoming event with an old event that has recent replies.
+
+### `events.list` survives as an event-specific read surface
+
+`events.list` is not content CRUD — it is an event-specific read concern. "What events are happening this week?" is a fundamental query that does not map to thread ordering.
+
+`events.list` queries entities with `kind='event'` directly (flat, not thread-grouped), ordered by `starts_at`. It returns `ContentEntity[]` with event fields populated. It ignores threading entirely.
+
+This is the same argument as `events.rsvp`: it survives because it serves a genuinely different product need. The pattern generalizes — future kinds can have their own read surfaces (`polls.results`, etc.) without needing their own write paths.
 
 ### Event-specific read enrichment
 
@@ -252,11 +260,15 @@ When reading entities with `kind='event'`, the response mapper joins `event_vers
 
 This join happens in the read path, not in the list path. `content.list` thread summaries include the first entity with event fields populated. `content.getThread` includes event fields for all event entities in the thread.
 
-### RSVP actions survive
+### Event-specific actions survive
 
-`events.rsvp` stays as-is. It takes an `eventEntityId` and operates on the entity directly. Threading does not change RSVP semantics — you RSVP to a specific event entity, not to a thread.
+`events.list` survives as a read-only action. It queries event entities directly (flat, ordered by `starts_at`), not through threads. This is the "upcoming events" surface that agents need. `content.list(kinds=['event'])` is not a substitute — it filters threads by first-entity kind and orders by thread activity, which is materially different.
 
-The only change: `events.rsvp` should validate that the target entity has `kind='event'` (it implicitly does today via the query).
+`events.rsvp` stays. It takes an `eventEntityId` and operates on the entity directly. Threading does not change RSVP semantics — you RSVP to a specific event entity, not to a thread.
+
+Both actions change their output shape from `{ event: EventSummary }` to `{ entity: ContentEntity }` (for RSVP) and `ContentEntity[]` (for list). The unified `ContentEntity` shape includes `event` and `rsvps` fields when `kind='event'`.
+
+The only validation change: `events.rsvp` should explicitly check `kind='event'` on the target entity (it implicitly does today via the query).
 
 ### Quota collapse
 
@@ -276,7 +288,18 @@ The per-kind rate limits could be:
 
 Option A is simpler and the right starting point. If event spam becomes a problem, add per-kind sub-limits later.
 
-Recommended: `content.create`: 50/day global default. The existing `events.create` quota rows in `quota_policies` are migrated to `content.create` or removed.
+Recommended: `content.create`: 50/day global default.
+
+Quota migration merge rule (must execute in this order):
+
+1. Materialize the old state into a temp table: snapshot all `quota_policies` rows for both `content.create` and `events.create`, including their actual `max_per_day` values. Read the actual global defaults from the snapshot — do not hardcode `30` and `20`. **Assert that both global rows exist** (`scope = 'global'` for `content.create` and `events.create`). If either is missing, abort the migration with a clear error rather than producing a bad merge.
+2. For any club that has per-club overrides for **both** `content.create` and `events.create`: update the `content.create` row to the sum of both values.
+3. For any club that has a per-club override for `events.create` only: insert a `content.create` row at `snapshot_global_content + club_event_override`.
+4. For any club that has a per-club override for `content.create` only: update it to `existing_value + snapshot_global_event`.
+5. Update the global `content.create` row to `snapshot_global_content + snapshot_global_event`.
+6. Delete all `events.create` rows.
+
+Steps 2-5 read from the snapshot, so deletion in step 6 is safe. All arithmetic derives from whatever global rows actually exist, not from assumed bootstrap values.
 
 ### Quality gate collapse
 
@@ -365,7 +388,7 @@ When an entity is removed:
 - thread reads show the entity in position with `state: 'removed'` and redacted fields
 - removed entities still occupy their slot in the thread
 
-The first entity is always surfaced. If removed, it shows as `[redacted]`. The thread summary in the feed always includes the first entity.
+The first entity is always surfaced when the thread is visible. If removed, it shows as `[redacted]`. If the first entity is closed, the thread follows `includeClosed` semantics (hidden from non-authors by default).
 
 ### Drop old parent constraints
 
@@ -486,7 +509,9 @@ Rules:
 - accept either an entity ID or a thread ID
 - entity pagination: newest page first, entities returned in chronological order within the page
 - removed entities appear with `state: 'removed'` and redacted fields
+- expired entities are excluded from the `entities` array
 - event entities include `event` and `rsvps` fields
+- **important**: `thread.firstEntity` may not equal `entities[0]`. The first entity is always present in the summary (even if expired), but expired entities are filtered from the `entities` array. Clients must not assume `thread.firstEntity` is the first element of `entities`.
 
 #### `content.list`
 
@@ -524,7 +549,8 @@ Rules:
 - lexical search applies to the first entity's title/summary/body
 - ordering: `lastActivityAt DESC, threadId DESC`
 - a thread appears if it has at least one visible entity
-- the first entity is always surfaced (redacted if removed, present if expired)
+- the first entity is always surfaced when the thread is visible (redacted if removed, present if expired)
+- threads whose first entity is closed follow `includeClosed` semantics (hidden from non-authors by default)
 
 #### `content.searchBySemanticSimilarity`
 
@@ -611,13 +637,94 @@ No change. Work on any entity with `open_loop` regardless of thread position.
 
 Works on any entity in any thread in the club.
 
+#### `events.list`
+
+**Survives** as an event-specific read surface. This is not `content.list(kinds=['event'])` — it queries event entities directly (flat, not thread-grouped), ordered by `starts_at`.
+
+Input:
+
+```ts
+{
+  clubId?: string;
+  query?: string | null;
+  limit?: number;
+  cursor?: string | null;
+}
+```
+
+Output:
+
+```ts
+{
+  query: string | null;
+  limit: number;
+  clubScope: MembershipSummary[];
+  results: ContentEntity[];
+  hasMore: boolean;
+  nextCursor: string | null;
+}
+```
+
+Rules:
+
+- queries entities with `kind='event'` across the actor's club scope
+- visibility: published, non-removed, non-archived, non-deleted, non-expired only (same lifecycle filters as the current `live_events` view)
+- ordered by `event.startsAt ASC, entityId ASC` (upcoming first)
+- keyset cursor on `(startsAt, entityId)`
+- returns `ContentEntity` (the unified shape), not the old `EventSummary`
+- includes `contentThreadId` on each entity so agents can pull the thread
+- includes `event` and `rsvps` fields
+
 #### `events.rsvp`
 
 **Survives.** Input unchanged. Takes `eventEntityId`, validates `kind='event'`, operates on the entity directly.
 
+Output changes from `{ event: EventSummary }` to `{ entity: ContentEntity }`. The unified `ContentEntity` shape includes `event` and `rsvps` fields when `kind='event'`, so no information is lost.
+
 #### `events.cancelRsvp`
 
-**Survives** if it exists today. Same logic.
+**New action.** Does not exist in the current codebase — this plan adds it.
+
+Input:
+
+```ts
+{
+  eventEntityId: string;
+}
+```
+
+Output:
+
+```ts
+{ entity: ContentEntity }
+```
+
+Semantics:
+
+Cancellation is not a decline. "No" means "I'm not going." Cancellation means "I haven't decided" — the viewer goes back to having no response.
+
+The storage model is a new RSVP version with a `'cancelled'` state. This requires adding `'cancelled'` to the `rsvp_state` enum. The read path treats `'cancelled'` as "no RSVP":
+
+- `viewerResponse` = `null` (not `'cancelled'`)
+- `counts` does not include a `'cancelled'` bucket
+- `attendees` array excludes cancelled RSVPs
+
+This preserves the append-only RSVP versioning model (no row deletion) while giving the API clean "no response" semantics.
+
+Rules:
+
+- validates target entity has `kind='event'`
+- appends a new RSVP version with `response = 'cancelled'`
+- returns the updated event entity with RSVP data reflecting the cancellation
+- idempotent: cancelling when no active RSVP exists (including already-cancelled) is a no-op, returns the event as-is
+
+Database change:
+
+```sql
+ALTER TYPE rsvp_state ADD VALUE 'cancelled';
+```
+
+The `current_event_rsvps` view already returns the latest RSVP version per member per event, so cancellation is automatic: the latest version is `'cancelled'`, which the read path maps to null.
 
 ## Read-path semantics
 
@@ -634,7 +741,9 @@ Individual entity visibility within a thread:
 Thread-level visibility in the feed:
 
 - a thread appears if it has at least one visible entity
-- the first entity is always surfaced regardless of its own visibility state (redacted if removed)
+- the first entity is always surfaced when the thread is visible: redacted if removed, present if expired
+- threads whose first entity is closed follow `includeClosed` semantics: hidden from non-authors when `includeClosed=false` (default), visible when `includeClosed=true`
+- closure is a content-level filter, not a structural concern — a closed first entity means the thread subject is done
 
 ### Thread resolution
 
@@ -784,9 +893,10 @@ This ships as one migration-backed deploy. The migration has two logical phases 
    - alter `entities.kind` to use new enum
    - drop old enum, rename new enum
 
-4. **Migrate quotas:**
-   - update `quota_policies` rows: `events.create` → `content.create` (or merge budgets)
-   - update `quota_policies_action_check` constraint
+4. **Migrate quotas** (see quota merge rule in Part 1):
+   - merge `events.create` budgets into `content.create` rows (sum for per-club overrides)
+   - delete all `events.create` rows
+   - update `quota_policies_action_check` constraint to remove `events.create`
 
 ### Phase 2: Threading
 
@@ -855,16 +965,19 @@ Major changes:
 
 ### `src/schemas/events.ts`
 
-Collapse:
+Collapse write actions:
 
-- remove `events.create`, `events.list`, `events.remove`
-- keep `events.rsvp`, `events.cancelRsvp`
+- remove `events.create`, `events.remove`
+- keep `events.list` (update output to `ContentEntity[]`)
+- keep `events.rsvp` (update output to `{ entity: ContentEntity }`)
+- add `events.cancelRsvp` (new action, output `{ entity: ContentEntity }`)
 
 ### `src/contract.ts`
 
 - unify `EntitySummary` and `EventSummary` into `ContentEntity`
-- remove separate event repo methods (`createEvent`, `listEvents`, `removeEvent`)
-- existing `createEntity`, `listEntities`, `removeEntity` gain event support
+- remove separate event repo methods (`createEvent`, `removeEvent`)
+- existing `createEntity`, `removeEntity` gain event support
+- `listEvents` stays but uses unified `ContentEntity` shape
 - add `readContentThread`, `listContentThreads` repo methods
 - keep `rsvpEvent` repo method
 
@@ -888,10 +1001,10 @@ Collapse:
 Collapse most of this into `src/clubs/entities.ts`:
 
 - `createEvent` → absorbed into `createEntity`
-- `listEvents` → absorbed into `listContentThreads`
 - `removeEvent` → absorbed into `removeEntity`
 - `readEventSummary` → absorbed into `readContentEntity`
-- keep `rsvpEvent` (it stays event-specific)
+- `listEvents` → stays but returns `ContentEntity[]` using the unified read path
+- `rsvpEvent` → stays (event-specific)
 
 ### `src/clubs/index.ts`
 
@@ -904,8 +1017,9 @@ Collapse most of this into `src/clubs/entities.ts`:
 - route `content.create` with event support
 - route `content.getThread`
 - route `content.list` to thread list
-- remove `events.create`, `events.list`, `events.remove` routes
-- keep `events.rsvp` route
+- remove `events.create`, `events.remove` routes
+- keep `events.list` route (update to return `ContentEntity[]`)
+- keep `events.rsvp` route (update to return `{ entity: ContentEntity }`)
 - update response mapping for unified `ContentEntity` shape
 
 ### `src/quality-gate.ts`
@@ -953,12 +1067,15 @@ Thread-specific cases:
 11. entity removal shows `[redacted]` in thread read
 12. entity removal does not kill the thread
 13. first entity always appears in summary even when removed
-14. `content.list` hides threads where all entities are removed/expired
-15. `content.list(kinds=...)` filters by first entity kind
-16. lexical search searches first entity text only
-17. semantic search returns entities with `contentThreadId`
-18. idempotent `clientKey` retry — new thread
-19. idempotent `clientKey` retry — thread response
+14. thread with closed first entity hidden from non-authors when `includeClosed=false`
+15. thread with closed first entity visible when `includeClosed=true`
+16. `content.list` hides threads where all entities are removed/expired
+17. `content.list(kinds=...)` filters by first entity kind
+18. lexical search searches first entity text only
+19. semantic search returns entities with `contentThreadId`
+20. idempotent `clientKey` retry — new thread
+21. idempotent `clientKey` retry — thread response
+22. `content.getThread` summary `firstEntity` present even when first entity is expired, but absent from `entities` array
 
 #### `test/integration/non-llm/unified-content.test.ts` (new)
 
@@ -972,12 +1089,19 @@ Content unification cases:
 6. `content.list(kinds=['event'])` returns events
 7. `content.list(kinds=['post', 'event'])` returns both
 8. `content.remove` on event entity → success
-9. `events.rsvp` still works on event entities
-10. `events.create` → 404 or removed (action no longer exists)
-11. quota enforcement counts all kinds under `content.create`
-12. quality gate applies to event creation via `content.create`
-13. event entity in thread read includes event fields + RSVP data
-14. clubadmin can remove event entities
+9. `events.rsvp` still works, returns `{ entity: ContentEntity }` with event + RSVP fields
+10. `events.cancelRsvp` returns entity with `rsvps.viewerResponse === null` (not `'cancelled'`)
+11. `events.cancelRsvp` result has no `'cancelled'` bucket in `rsvps.counts`
+12. `events.cancelRsvp` result excludes cancelled member from `rsvps.attendees`
+13. `events.cancelRsvp` on entity with no active RSVP is idempotent no-op
+12. `events.list` returns events ordered by `startsAt`, flat (not thread-grouped)
+13. `events.list` returns events regardless of thread position (event response to a post thread is discoverable)
+14. `events.list` excludes removed, expired, and unpublished events
+15. `events.create` → 404 or removed (action no longer exists)
+16. quota enforcement counts all kinds under `content.create`
+17. quality gate applies to event creation via `content.create`
+18. event entity in thread read includes event fields + RSVP data
+19. clubadmin can remove event entities
 
 #### Update existing test files
 
@@ -1000,19 +1124,51 @@ Regenerate `test/snapshots/api-schema.json` in one shot after all changes land.
 
 ## Docs to update
 
-- `README.md`
-- `SKILL.md`
-- `docs/design-decisions.md`
-- `docs/digest-plan.md`
+### `SKILL.md`
 
-Specific changes:
+Full rewrite of the content and events sections. After this change:
 
-- all public content created via `content.create`
-- `events.*` namespace reduced to RSVP-only
-- content is thread-based
-- `content.getThread` exists
-- `comment` kind no longer exists
-- every entity gets an embedding
+- `content.create` is the single write path for all public content kinds (post, opportunity, service, ask, gift, event)
+- `content.create` accepts optional `threadId` to respond to an existing thread
+- `content.create(kind='event')` requires an `event: { ... }` object with event-specific fields
+- `content.update` supports event-specific fields via `event: { ... }`
+- `content.list` returns thread summaries (`ContentThreadSummary[]`), not flat entities
+- `content.list` `kinds` filter applies to the first entity's kind
+- `content.getThread` is the canonical thread read path (accepts entity ID or thread ID)
+- `content.searchBySemanticSimilarity` returns entities with `contentThreadId`
+- `content.remove` removes an entity within a thread; thread survives; removed entities show as `[redacted]`
+- `events.create` and `events.remove` no longer exist
+- `events.list` survives as an event-specific read surface (flat, ordered by `startsAt`)
+- `events.rsvp` survives, returns `{ entity: ContentEntity }`
+- the `comment` kind no longer exists
+- all response shapes use the unified `ContentEntity` type with kind-specific extensions
+
+The SKILL.md agent guidance section must be updated to reflect the thread-based content model. Agents should:
+- use `content.create` for all content, not separate actions per kind
+- pass `threadId` when responding to existing content
+- use `content.getThread` to read full threads
+- use `events.list` for "upcoming events" queries, not `content.list(kinds=['event'])`
+- expect `ContentEntity` shapes with nullable `event` and `rsvps` extensions
+
+### `docs/design-decisions.md`
+
+Add a new section documenting the unified content model and threading decisions:
+
+- **Why one write path**: events are entities; the split was an implementation artifact; one action is simpler for agents and extensible for future kinds
+- **Why a threads table**: entities in a thread are structural peers; any kind can appear at any position; `parent_entity_id` overloading creates a false root/reply hierarchy
+- **Why `events.list` survives**: thread-based listing and event-specific listing serve different product needs; "upcoming events" requires `starts_at` ordering, not thread activity ordering
+- **Why every entity gets an embedding**: entities are full content regardless of thread position; search returns entities with thread context
+- **Why `[redacted]` not deletion**: threads survive entity removal; removed entities show in position to preserve conversational flow; matches the DM pattern
+- **Why closed threads follow `includeClosed`**: closure is a content-level filter, not structural; a closed first entity means the thread subject is done
+- **Extension table pattern**: `event_version_details` is the template; future kinds (polls, etc.) add extension tables without new API namespaces
+
+### `README.md`
+
+Update the API overview to reflect the collapsed action set.
+
+### `docs/digest-plan.md`
+
+Update activity topic references. No thread-specific topics exist — all entities emit `entity.version.published` regardless of thread position.
 
 ## Rollout summary
 
@@ -1039,7 +1195,7 @@ Do **not** also try to:
 
 - add nested replies
 - add a special "reply" entity kind
-- keep events as a separate API namespace
+- keep event write actions as a separate API namespace
 - restrict which kinds can appear where in a thread
 - add per-thread inbox notifications
 

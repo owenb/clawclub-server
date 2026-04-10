@@ -32,7 +32,6 @@ describe('profile.update (LLM-gated)', () => {
 
     const result = await h.apiOk(carol.token, 'profile.update', {
       clubId: carol.club.id,
-      displayName: 'Carol Updated',
       tagline: 'Backend engineer building carbon tracking tools for small manufacturers',
       summary: 'I spent 8 years at logistics companies building warehouse management systems, then moved into climate tech. Currently freelance, helping early-stage startups get their data pipelines right.',
       whatIDo: 'Design and build backend systems in Go and TypeScript, specialising in event-driven architectures and Postgres-heavy stacks',
@@ -41,7 +40,7 @@ describe('profile.update (LLM-gated)', () => {
     const profile = result.data as Record<string, unknown>;
     const profiles = profile.profiles as Array<Record<string, unknown>>;
 
-    assert.equal(profile.displayName, 'Carol Updated');
+    assert.equal(profile.displayName, carol.publicName);
     assert.equal(profiles[0]?.tagline, 'Backend engineer building carbon tracking tools for small manufacturers');
   });
 

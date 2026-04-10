@@ -6672,6 +6672,56 @@
       "safety": "read_only"
     },
     {
+      "action": "members.updateIdentity",
+      "auth": "member",
+      "authorizationNote": "Updates own global identity only.",
+      "description": "Update the current actor's global identity fields.",
+      "domain": "members",
+      "input": {
+        "properties": {
+          "displayName": {
+            "description": "Global display name",
+            "maxLength": 250000,
+            "nullable": true,
+            "type": "string"
+          },
+          "handle": {
+            "description": "Global handle",
+            "maxLength": 250000,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "handle": {
+            "nullable": true,
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "publicName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "memberId",
+          "publicName",
+          "handle",
+          "displayName"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "messages.getInbox",
       "auth": "member",
       "description": "List DM inbox with unread counts. Returns all threads regardless of club context.",
@@ -7413,16 +7463,7 @@
       "input": {
         "properties": {
           "clubId": {
-            "description": "Club to update when sending club-scoped profile fields.",
-            "type": "string"
-          },
-          "displayName": {
-            "description": "Display name (cannot be empty if provided).",
-            "type": "string"
-          },
-          "handle": {
-            "description": "Lowercase alphanumeric with hyphens. Omit to leave unchanged, null or empty to clear. Server trims and validates format.",
-            "nullable": true,
+            "description": "Club whose profile should be updated.",
             "type": "string"
           },
           "knownFor": {
@@ -7472,6 +7513,9 @@
             "type": "string"
           }
         },
+        "required": [
+          "clubId"
+        ],
         "type": "object"
       },
       "output": {
@@ -10844,6 +10888,6 @@
       }
     }
   },
-  "version": "0.2.15",
-  "schemaHash": "23fc9711c1540109"
+  "version": "0.2.17",
+  "schemaHash": "4fdc73cb7ae791bb"
 }

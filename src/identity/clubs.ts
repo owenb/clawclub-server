@@ -5,7 +5,11 @@
 import type { Pool } from 'pg';
 import type { ArchiveClubInput, AssignClubOwnerInput, ClubSummary, CreateClubInput, UpdateClubInput } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
-import { ensureClubProfileSeeded } from './profiles.ts';
+import {
+  buildMembershipSeedProfile,
+  createInitialClubProfileVersion,
+  emptyClubProfileFields,
+} from './profiles.ts';
 
 type ClubRow = {
   club_id: string;
@@ -115,9 +119,12 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
     );
     await client.query(`select set_config('app.allow_membership_state_sync', '', true)`);
 
-    await ensureClubProfileSeeded(client, {
+    await createInitialClubProfileVersion(client, {
+      membershipId: ownerMsId,
       memberId: input.ownerMemberId,
       clubId,
+      fields: emptyClubProfileFields(),
+      createdByMemberId: input.actorMemberId,
       generationSource: 'membership_seed',
     });
 
@@ -164,31 +171,52 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
     );
 
     // 2. Ensure new owner has clubadmin membership
-    await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
-    await client.query(
-      `insert into club_memberships (club_id, member_id, role, sponsor_member_id)
-       values ($1::short_id, $2::short_id, 'clubadmin', null)
-       on conflict (club_id, member_id) do update set role = 'clubadmin', sponsor_member_id = null`,
+    const existingMs = await client.query<{ id: string }>(
+      `select id from club_memberships where club_id = $1 and member_id = $2 limit 1`,
       [input.clubId, input.ownerMemberId],
     );
+    const existingMembershipId = existingMs.rows[0]?.id ?? null;
+
+    await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
+    let newMembershipId = existingMembershipId;
+    if (!newMembershipId) {
+      const insertResult = await client.query<{ id: string }>(
+        `insert into club_memberships (club_id, member_id, role, sponsor_member_id)
+         values ($1::short_id, $2::short_id, 'clubadmin', null)
+         returning id`,
+        [input.clubId, input.ownerMemberId],
+      );
+      newMembershipId = insertResult.rows[0]!.id;
+    } else {
+      await client.query(
+        `update club_memberships set role = 'clubadmin', sponsor_member_id = null
+         where id = $1`,
+        [newMembershipId],
+      );
+    }
 
     // 3. Ensure active membership state for new owner
-    const newMsRows = await client.query<{ id: string }>(
-      `select id from club_memberships where club_id = $1 and member_id = $2`,
-      [input.clubId, input.ownerMemberId],
-    );
     await client.query(
       `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
        select $1::short_id, 'active', 'owner_assignment',
               coalesce(max(version_no), 0) + 1, $2::short_id
        from club_membership_state_versions where membership_id = $1::short_id`,
-      [newMsRows.rows[0]!.id, input.actorMemberId],
+      [newMembershipId, input.actorMemberId],
     );
-    await ensureClubProfileSeeded(client, {
-      memberId: input.ownerMemberId,
-      clubId: input.clubId,
-      generationSource: 'membership_seed',
-    });
+    if (!existingMembershipId) {
+      const seedFields = await buildMembershipSeedProfile(client, {
+        memberId: input.ownerMemberId,
+        clubId: input.clubId,
+      });
+      await createInitialClubProfileVersion(client, {
+        membershipId: newMembershipId,
+        memberId: input.ownerMemberId,
+        clubId: input.clubId,
+        fields: seedFields,
+        createdByMemberId: input.actorMemberId,
+        generationSource: 'membership_seed',
+      });
+    }
 
     // 4. Demote old owner to 'member' role
     if (current.current_owner_member_id !== input.ownerMemberId) {

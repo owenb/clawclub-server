@@ -211,6 +211,13 @@ export const clubProfile = z.object({
   }),
 });
 
+export const memberIdentity = z.object({
+  memberId: z.string(),
+  publicName: z.string(),
+  handle: z.string().nullable(),
+  displayName: z.string(),
+});
+
 export const memberProfileEnvelope = z.object({
   memberId: z.string(),
   publicName: z.string(),

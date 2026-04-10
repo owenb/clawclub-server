@@ -10,9 +10,12 @@ import {
   AppError,
   type ActorContext,
   type ClubProfile,
+  type ClubProfileFields,
+  type MemberIdentity,
   type MemberProfileEnvelope,
   type MemberSearchResult,
-  type UpdateOwnProfileInput,
+  type UpdateClubProfileInput,
+  type UpdateMemberIdentityInput,
 } from '../contract.ts';
 import { CLAWCLUB_OPENAI_MODEL, EMBEDDING_PROFILES } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
@@ -28,8 +31,6 @@ const clubProfileFieldsSchema = z.object({
   links: z.array(z.unknown()),
   profile: z.record(z.string(), z.unknown()),
 });
-
-export type ClubProfileFields = z.infer<typeof clubProfileFieldsSchema>;
 
 type MemberIdentityRow = {
   member_id: string;
@@ -57,7 +58,8 @@ type ClubProfileRow = {
 };
 
 type CurrentClubProfileRow = {
-  version_no: number | null;
+  membership_id: string;
+  version_no: number;
   tagline: string | null;
   summary: string | null;
   what_i_do: string | null;
@@ -93,7 +95,22 @@ type MemberSearchRow = {
   shared_clubs: Array<{ clubId: string; slug: string; name: string }> | null;
 };
 
-function emptyClubProfileFields(): ClubProfileFields {
+type MembershipRow = {
+  membership_id: string;
+  member_id: string;
+  club_id: string;
+};
+
+function mapIdentityRow(row: MemberIdentityRow): MemberIdentity {
+  return {
+    memberId: row.member_id,
+    publicName: row.public_name,
+    handle: row.handle,
+    displayName: row.display_name,
+  };
+}
+
+export function emptyClubProfileFields(): ClubProfileFields {
   return {
     tagline: null,
     summary: null,
@@ -106,7 +123,7 @@ function emptyClubProfileFields(): ClubProfileFields {
   };
 }
 
-function normalizeClubProfileFields(input: Partial<ClubProfileFields> | null | undefined): ClubProfileFields {
+export function normalizeClubProfileFields(input: Partial<ClubProfileFields> | null | undefined): ClubProfileFields {
   const base = emptyClubProfileFields();
   if (!input) return base;
   return clubProfileFieldsSchema.parse({
@@ -147,10 +164,7 @@ function mapClubProfileRow(row: ClubProfileRow): ClubProfile {
 
 function buildEnvelope(identity: MemberIdentityRow, profiles: ClubProfileRow[]): MemberProfileEnvelope {
   return {
-    memberId: identity.member_id,
-    publicName: identity.public_name,
-    handle: identity.handle,
-    displayName: identity.display_name,
+    ...mapIdentityRow(identity),
     profiles: profiles.map(mapClubProfileRow),
   };
 }
@@ -183,21 +197,29 @@ async function listVisibleClubs(
   actorClubIds: string[],
   clubId?: string,
 ): Promise<Array<{ club_id: string; club_slug: string; club_name: string }>> {
-  if (clubId && !actorClubIds.includes(clubId)) return [];
-
-  const scopedClubIds = clubId ? [clubId] : actorClubIds;
-  if (scopedClubIds.length === 0) return [];
-
   if (actorMemberId === targetMemberId) {
+    const params: unknown[] = [targetMemberId];
+    let clubFilterSql = '';
+    if (clubId) {
+      params.push(clubId);
+      clubFilterSql = ` and cm.club_id = $${params.length}`;
+    }
+
     const result = await client.query<{ club_id: string; club_slug: string; club_name: string }>(
       `select c.id as club_id, c.slug as club_slug, c.name as club_name
-       from clubs c
-       where c.id = any($1::text[]) and c.archived_at is null
+       from current_club_memberships cm
+       join clubs c on c.id = cm.club_id and c.archived_at is null
+       where cm.member_id = $1
+         and cm.left_at is null${clubFilterSql}
        order by c.name asc, c.id asc`,
-      [scopedClubIds],
+      params,
     );
     return result.rows;
   }
+
+  if (clubId && !actorClubIds.includes(clubId)) return [];
+  const scopedClubIds = clubId ? [clubId] : actorClubIds;
+  if (scopedClubIds.length === 0) return [];
 
   const result = await client.query<{ club_id: string; club_slug: string; club_name: string }>(
     `select distinct c.id as club_id, c.slug as club_slug, c.name as club_name
@@ -211,11 +233,7 @@ async function listVisibleClubs(
   return result.rows;
 }
 
-async function readClubProfiles(
-  client: DbClient,
-  memberId: string,
-  clubIds: string[],
-): Promise<ClubProfileRow[]> {
+async function readClubProfiles(client: DbClient, memberId: string, clubIds: string[]): Promise<ClubProfileRow[]> {
   if (clubIds.length === 0) return [];
 
   const result = await client.query<ClubProfileRow>(
@@ -270,14 +288,22 @@ export async function listMemberProfiles(pool: Pool, input: {
   return buildEnvelope(identity, profiles);
 }
 
-function hasClubScopedPatch(patch: UpdateOwnProfileInput): boolean {
-  return ['tagline', 'summary', 'whatIDo', 'knownFor', 'servicesSummary', 'websiteUrl', 'links', 'profile']
-    .some((key) => Object.prototype.hasOwnProperty.call(patch, key));
+async function readMembership(client: DbClient, memberId: string, clubId: string): Promise<MembershipRow | null> {
+  const result = await client.query<MembershipRow>(
+    `select id as membership_id, member_id, club_id
+     from current_club_memberships
+     where member_id = $1
+       and club_id = $2
+       and left_at is null
+     limit 1`,
+    [memberId, clubId],
+  );
+  return result.rows[0] ?? null;
 }
 
 async function readCurrentClubProfile(client: DbClient, memberId: string, clubId: string): Promise<CurrentClubProfileRow | null> {
   const result = await client.query<CurrentClubProfileRow>(
-    `select version_no, tagline, summary, what_i_do, known_for,
+    `select membership_id, version_no, tagline, summary, what_i_do, known_for,
             services_summary, website_url, links, profile
      from current_member_club_profiles
      where member_id = $1 and club_id = $2
@@ -288,47 +314,56 @@ async function readCurrentClubProfile(client: DbClient, memberId: string, clubId
 }
 
 function mergeClubProfilePatch(
-  current: CurrentClubProfileRow | null,
-  patch: UpdateOwnProfileInput,
+  current: CurrentClubProfileRow,
+  patch: UpdateClubProfileInput,
 ): ClubProfileFields {
   return normalizeClubProfileFields({
-    tagline: patch.tagline !== undefined ? patch.tagline : current?.tagline,
-    summary: patch.summary !== undefined ? patch.summary : current?.summary,
-    whatIDo: patch.whatIDo !== undefined ? patch.whatIDo : current?.what_i_do,
-    knownFor: patch.knownFor !== undefined ? patch.knownFor : current?.known_for,
-    servicesSummary: patch.servicesSummary !== undefined ? patch.servicesSummary : current?.services_summary,
-    websiteUrl: patch.websiteUrl !== undefined ? patch.websiteUrl : current?.website_url,
-    links: patch.links !== undefined ? patch.links as unknown[] : current?.links ?? [],
-    profile: patch.profile !== undefined ? patch.profile as Record<string, unknown> : current?.profile ?? {},
+    tagline: patch.tagline !== undefined ? patch.tagline : current.tagline,
+    summary: patch.summary !== undefined ? patch.summary : current.summary,
+    whatIDo: patch.whatIDo !== undefined ? patch.whatIDo : current.what_i_do,
+    knownFor: patch.knownFor !== undefined ? patch.knownFor : current.known_for,
+    servicesSummary: patch.servicesSummary !== undefined ? patch.servicesSummary : current.services_summary,
+    websiteUrl: patch.websiteUrl !== undefined ? patch.websiteUrl : current.website_url,
+    links: patch.links !== undefined ? patch.links as unknown[] : current.links ?? [],
+    profile: patch.profile !== undefined ? patch.profile as Record<string, unknown> : current.profile ?? {},
   });
 }
 
 async function insertClubProfileVersion(client: DbClient, input: {
+  membershipId: string;
   memberId: string;
   clubId: string;
   fields: ClubProfileFields;
   createdByMemberId: string | null;
   generationSource: 'manual' | 'migration_backfill' | 'admission_generated' | 'membership_seed';
+  versionNo?: number;
 }): Promise<string> {
   const result = await client.query<{ id: string }>(
     `insert into member_club_profile_versions (
-       member_id, club_id, version_no,
+       membership_id, member_id, club_id, version_no,
        tagline, summary, what_i_do, known_for, services_summary,
        website_url, links, profile, created_by_member_id, generation_source
      )
      values (
-       $1::short_id, $2::short_id,
-       coalesce((
-         select max(version_no) + 1
-         from member_club_profile_versions
-         where member_id = $1::short_id and club_id = $2::short_id
-       ), 1),
-       $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::short_id, $12
+       $1::short_id,
+       $2::short_id,
+       $3::short_id,
+       coalesce(
+         $4::integer,
+         (
+           select coalesce(max(version_no), 0) + 1
+           from member_club_profile_versions
+           where member_id = $2::short_id and club_id = $3::short_id
+         )
+       ),
+       $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::short_id, $14
      )
      returning id`,
     [
+      input.membershipId,
       input.memberId,
       input.clubId,
+      input.versionNo ?? null,
       input.fields.tagline,
       input.fields.summary,
       input.fields.whatIDo,
@@ -344,8 +379,55 @@ async function insertClubProfileVersion(client: DbClient, input: {
   return result.rows[0]!.id;
 }
 
-export async function updateOwnProfile(pool: Pool, actor: ActorContext, patch: UpdateOwnProfileInput): Promise<MemberProfileEnvelope> {
-  await withTransaction(pool, async (client) => {
+export async function createInitialClubProfileVersion(client: DbClient, input: {
+  membershipId: string;
+  memberId: string;
+  clubId: string;
+  fields: ClubProfileFields;
+  createdByMemberId: string | null;
+  generationSource: 'admission_generated' | 'membership_seed' | 'migration_backfill';
+}): Promise<string> {
+  const versionId = await insertClubProfileVersion(client, {
+    ...input,
+    versionNo: 1,
+  });
+  await enqueueEmbeddingJob(client, versionId);
+  return versionId;
+}
+
+export async function buildMembershipSeedProfile(client: DbClient, input: {
+  memberId: string;
+  clubId: string;
+}): Promise<ClubProfileFields> {
+  const result = await client.query<SeedSourceRow>(
+    `select tagline, summary, what_i_do, known_for, services_summary, website_url, links, profile
+     from current_member_club_profiles
+     where member_id = $1
+       and club_id <> $2
+     order by created_at desc, version_no desc
+     limit 1`,
+    [input.memberId, input.clubId],
+  );
+  const row = result.rows[0];
+  if (!row) return emptyClubProfileFields();
+  return normalizeClubProfileFields({
+    tagline: row.tagline,
+    summary: row.summary,
+    whatIDo: row.what_i_do,
+    knownFor: row.known_for,
+    servicesSummary: row.services_summary,
+    websiteUrl: row.website_url,
+    links: row.links ?? [],
+    profile: row.profile ?? {},
+  });
+}
+
+export async function updateMemberIdentity(
+  pool: Pool,
+  actor: ActorContext,
+  patch: UpdateMemberIdentityInput,
+): Promise<MemberIdentity> {
+  return withTransaction(pool, async (client) => {
     if (patch.handle !== undefined) {
       await client.query(`update members set handle = $2 where id = $1`, [actor.member.id, patch.handle]);
     }
@@ -353,22 +435,35 @@ export async function updateOwnProfile(pool: Pool, actor: ActorContext, patch: U
       await client.query(`update members set display_name = $2 where id = $1`, [actor.member.id, patch.displayName]);
     }
 
-    if (hasClubScopedPatch(patch)) {
-      if (!patch.clubId) {
-        throw new AppError(400, 'invalid_input', 'clubId is required when updating club-scoped profile fields');
-      }
-
-      const current = await readCurrentClubProfile(client, actor.member.id, patch.clubId);
-      const fields = mergeClubProfilePatch(current, patch);
-      const versionId = await insertClubProfileVersion(client, {
-        memberId: actor.member.id,
-        clubId: patch.clubId,
-        fields,
-        createdByMemberId: actor.member.id,
-        generationSource: 'manual',
-      });
-      await enqueueEmbeddingJob(client, versionId);
+    const identity = await readMemberIdentity(client, actor.member.id);
+    if (!identity) {
+      throw new AppError(500, 'missing_row', 'Updated identity could not be reloaded');
     }
+    return mapIdentityRow(identity);
+  });
+}
+
+export async function updateClubProfile(
+  pool: Pool,
+  actor: ActorContext,
+  patch: UpdateClubProfileInput,
+): Promise<MemberProfileEnvelope> {
+  await withTransaction(pool, async (client) => {
+    const current = await readCurrentClubProfile(client, actor.member.id, patch.clubId);
+    if (!current) {
+      throw new AppError(404, 'not_found', 'Club profile not found for this membership');
+    }
+
+    const fields = mergeClubProfilePatch(current, patch);
+    const versionId = await insertClubProfileVersion(client, {
+      membershipId: current.membership_id,
+      memberId: actor.member.id,
+      clubId: patch.clubId,
+      fields,
+      createdByMemberId: actor.member.id,
+      generationSource: 'manual',
+    });
+    await enqueueEmbeddingJob(client, versionId);
   });
 
   const updated = await listMemberProfiles(pool, {
@@ -376,55 +471,10 @@ export async function updateOwnProfile(pool: Pool, actor: ActorContext, patch: U
     targetMemberId: actor.member.id,
     actorClubIds: actor.memberships.map((membership) => membership.clubId),
   });
-  if (!updated) throw new AppError(500, 'missing_row', 'Updated profile could not be reloaded');
-  return updated;
-}
-
-export async function ensureClubProfileSeeded(client: DbClient, input: {
-  memberId: string;
-  clubId: string;
-  generationSource: 'admission_generated' | 'membership_seed';
-  preGeneratedFields?: ClubProfileFields | null;
-}): Promise<void> {
-  const existing = await client.query<{ id: string }>(
-    `select id from current_member_club_profiles where member_id = $1 and club_id = $2 limit 1`,
-    [input.memberId, input.clubId],
-  );
-  if (existing.rows[0]) return;
-
-  let fields = input.preGeneratedFields ? normalizeClubProfileFields(input.preGeneratedFields) : null;
-
-  if (!fields) {
-    const source = await client.query<SeedSourceRow>(
-      `select tagline, summary, what_i_do, known_for, services_summary, website_url, links, profile
-       from current_member_club_profiles
-       where member_id = $1
-         and club_id <> $2
-       order by created_at desc, version_no desc
-       limit 1`,
-      [input.memberId, input.clubId],
-    );
-    const row = source.rows[0];
-    fields = normalizeClubProfileFields(row ? {
-      tagline: row.tagline,
-      summary: row.summary,
-      whatIDo: row.what_i_do,
-      knownFor: row.known_for,
-      servicesSummary: row.services_summary,
-      websiteUrl: row.website_url,
-      links: row.links ?? [],
-      profile: row.profile ?? {},
-    } : null);
+  if (!updated) {
+    throw new AppError(500, 'missing_row', 'Updated profile could not be reloaded');
   }
-
-  const versionId = await insertClubProfileVersion(client, {
-    memberId: input.memberId,
-    clubId: input.clubId,
-    fields,
-    createdByMemberId: input.memberId,
-    generationSource: input.generationSource,
-  });
-  await enqueueEmbeddingJob(client, versionId);
+  return updated;
 }
 
 function extractUrls(text: string): string[] {
@@ -549,13 +599,13 @@ export async function fullTextSearchMembers(pool: Pool, input: {
      from accessible_club_memberships acm
      join members m on m.id = acm.member_id and m.state = 'active'
      join clubs c on c.id = acm.club_id and c.archived_at is null
-     left join current_member_club_profiles cmp
+     join current_member_club_profiles cmp
        on cmp.member_id = m.id and cmp.club_id = acm.club_id
      cross join params
      where acm.club_id = $1
        and acm.member_id <> $2
        and (
-         (cmp.search_vector is not null and cmp.search_vector @@ params.query)
+         cmp.search_vector @@ params.query
          or lower(m.public_name) like params.like_query
          or lower(m.display_name) like params.like_query
        )
@@ -627,15 +677,17 @@ export async function findMembersViaEmbedding(pool: Pool, input: {
       and empa.profile_version_id = cmp.id
      where acm.club_id = $1
        and acm.member_id <> $2
-     group by m.id, m.public_name, m.display_name, m.handle, cmp.tagline,
-              cmp.summary, cmp.what_i_do, cmp.known_for, cmp.services_summary,
-              cmp.website_url, c.id, c.slug, c.name
-     having (
-       $5::float8 is null
-       or min(empa.embedding <=> $3::vector) > $5
-       or (min(empa.embedding <=> $3::vector) = $5 and m.id > $6)
-     )
-     order by _distance asc, m.id asc
+       and (
+         $5::float8 is null
+         or (empa.embedding <=> $3::vector) > $5
+         or ((empa.embedding <=> $3::vector) = $5 and m.id < $6)
+       )
+     group by
+       m.id, m.public_name, m.display_name, m.handle,
+       c.id, c.slug, c.name,
+       cmp.tagline, cmp.summary, cmp.what_i_do,
+       cmp.known_for, cmp.services_summary, cmp.website_url
+     order by _distance asc, m.id desc
      limit $4`,
     [input.clubId, input.actorMemberId, input.queryEmbedding, fetchLimit, cursorDist, cursorMemberId],
   );

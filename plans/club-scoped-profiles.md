@@ -2,7 +2,9 @@
 
 ## Context for the implementing agent
 
-This plan has been through multiple rounds of design review and one round of implementation. It supersedes any prior version. Breaking the API is allowed and encouraged. No backward compatibility needed. The only constraint is that the existing database can be migrated.
+This plan has been through multiple rounds of design review and one round of v1 implementation. It supersedes all prior versions and the v1 implementation. The existing v1 migration (`db/migrations/004_club_scoped_profiles.sql`) should be scrapped and replaced with a single new migration that implements this design. Production is at v0.2.15 and the v1 migration has NOT been run against production. There is no deployed state to worry about — start clean.
+
+Breaking the API is allowed and encouraged. No backward compatibility needed.
 
 This is an open-source project that must be correct at scale — hundreds of thousands of members under concurrent load. Every invariant is structural, enforced by foreign keys, unique constraints, triggers, and transaction boundaries.
 
@@ -22,17 +24,20 @@ Members can belong to multiple clubs. Today, every member has one global profile
 
 ## The four correctness invariants
 
-### 1. Membership = profile. No exceptions, no windows.
+### 1. Membership = profile. Enforced by the database.
 
-The membership row IS the profile root. `member_club_profile_versions` has a FK to `club_memberships(id)`. Version 1 is created in the **same transaction** as the membership, as a required parameter of membership creation. There is no state where a membership exists without at least version 1. Every query can INNER JOIN to the versions table. No LEFT JOINs needed. No null-version handling. No "profile exists, no content yet" concept in the API.
+The membership row IS the profile root. `member_club_profile_versions` has a FK to `club_memberships(id)`. Version 1 is created in the **same transaction** as the membership. A **deferred constraint trigger** on `club_memberships` runs at commit time and rejects any transaction that creates a membership without at least one version row. This is not application convention — the DB itself will not allow a membership to exist without a profile. Every query can INNER JOIN to the versions table. No LEFT JOINs. No null handling.
 
-### 2. The versions table is append-only and structurally consistent.
+### 2. The versions table is immutable and structurally consistent.
 
-Two DB triggers enforce this:
+Three DB triggers enforce this:
 - A `BEFORE INSERT` trigger validates that `member_id` and `club_id` match the referenced membership.
-- A `BEFORE UPDATE` trigger rejects all updates. Rows are immutable once inserted. Edits append new versions.
+- A `BEFORE UPDATE OR DELETE` trigger rejects all mutations. Rows are immutable once inserted. Edits append new versions. Rows never leave the table.
+- The search vector trigger populates `search_vector` on INSERT.
 
-No application convention needed. The DB rejects incorrect or mutated rows.
+GDPR erasure deletes the entire member, not individual profile versions. That's a separate feature with its own cascade logic.
+
+No application convention needed. The DB rejects incorrect, mutated, or deleted rows.
 
 ### 3. LLM-generated drafts are persisted once, used on every attempt.
 
@@ -139,25 +144,27 @@ CREATE TRIGGER member_club_profile_versions_check_membership_trigger
     EXECUTE FUNCTION member_club_profile_versions_check_membership();
 ```
 
-### Trigger: append-only enforcement (BEFORE UPDATE)
+### Trigger: immutable rows (BEFORE UPDATE OR DELETE)
 
-Rejects all updates. Rows are immutable once inserted.
+Rejects all updates and deletes. Rows are immutable once inserted. Edits append new versions. Rows never leave the table during normal operation.
 
 ```sql
-CREATE FUNCTION reject_row_update() RETURNS trigger
+CREATE FUNCTION reject_row_mutation() RETURNS trigger
     LANGUAGE plpgsql AS $$
 BEGIN
-    RAISE EXCEPTION 'updates not allowed on %', TG_TABLE_NAME;
+    RAISE EXCEPTION '% not allowed on %', TG_OP, TG_TABLE_NAME;
 END;
 $$;
 
-CREATE TRIGGER member_club_profile_versions_no_update
-    BEFORE UPDATE ON member_club_profile_versions
+CREATE TRIGGER member_club_profile_versions_immutable
+    BEFORE UPDATE OR DELETE ON member_club_profile_versions
     FOR EACH ROW
-    EXECUTE FUNCTION reject_row_update();
+    EXECUTE FUNCTION reject_row_mutation();
 ```
 
-The `reject_row_update` function is generic and reusable for any append-only table.
+The `reject_row_mutation` function is generic and reusable for any immutable table.
+
+**GDPR erasure** deletes the entire member (`members` row), not individual profile versions. That is a separate feature with its own cascade logic and migration — not part of this plan. Until that exists, profile version rows are truly immutable.
 
 ### Trigger: search vector (BEFORE INSERT)
 
@@ -183,6 +190,36 @@ CREATE TRIGGER member_club_profile_versions_search_vector_insert
 ```
 
 Note: `BEFORE INSERT` only — the table is append-only, so `ON UPDATE` is dead code.
+
+### Trigger: membership must have profile (deferred constraint)
+
+Runs at transaction commit time. Rejects any transaction that creates a `club_memberships` row without also inserting at least one `member_club_profile_versions` row for that membership. This is the DB-level enforcement of "membership = profile."
+
+```sql
+CREATE FUNCTION club_memberships_require_profile_version() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM member_club_profile_versions
+        WHERE membership_id = NEW.id
+    ) THEN
+        RAISE EXCEPTION 'club_memberships row % has no profile version — '
+            'version 1 must be inserted in the same transaction', NEW.id;
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER club_memberships_require_profile_version_trigger
+    AFTER INSERT ON club_memberships
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW
+    EXECUTE FUNCTION club_memberships_require_profile_version();
+```
+
+`DEFERRABLE INITIALLY DEFERRED` means the check runs at commit, not at insert time. This allows the membership row and version 1 row to be inserted in either order within the same transaction. If the transaction commits without version 1, the DB rejects it.
+
+**Migration note:** This trigger must be added AFTER the backfill, since the backfill inserts version rows for existing memberships. Existing memberships that predate club-scoped profiles (e.g. memberships where the member has left, `left_at IS NOT NULL`) will not have version rows and will not trigger the constraint because it only fires on INSERT, not on existing rows.
 
 ### Add `generated_profile_draft` to `admissions`
 
@@ -283,11 +320,22 @@ ON CONFLICT DO NOTHING;
 
 ### Migration file
 
-All of the above goes in a single numbered SQL migration under `db/migrations/`.
+**Scrap the existing v1 migration** (`db/migrations/004_club_scoped_profiles.sql`). Replace it with a single new migration that implements this design from scratch. Production is at v0.2.15 and the v1 migration has not been run against production.
+
+The migration order within the file:
+1. Add `display_name` to `members` + backfill.
+2. Create `member_club_profile_versions` table + all constraints and indexes.
+3. Create the three triggers on the versions table (consistency, append-only, search vector).
+4. Add `generated_profile_draft` to `admissions`.
+5. Backfill version rows from old global profiles (for all `club_memberships WHERE left_at IS NULL`).
+6. Create the deferred constraint trigger on `club_memberships` (AFTER the backfill — existing memberships already have version rows).
+7. Drop and recreate `member_profile_embeddings` with `club_id`.
+8. Update `ai_embedding_jobs` constraint.
+9. Enqueue embedding jobs for backfilled profiles.
 
 ### Update `db/init.sql`
 
-Target schema. Remove old `member_profile_versions` table/view/trigger. Add everything above.
+Target schema. Remove old `member_profile_versions` table/view/trigger. Add everything above. `init.sql` represents the final state — fresh installs and test harnesses use it.
 
 ---
 
@@ -536,8 +584,9 @@ The handler knows `nextStatus === 'accepted'`, so it:
 1. Handler sees admission is already `accepted`. Skips the transition.
 2. `generated_profile_draft` is already stored. Uses it.
 3. Finds existing member/membership via three-layer retry check.
-4. Membership exists → version 1 exists (created atomically). If so, no-op.
-5. If membership was created but the transaction that would have written version 1 failed (edge case — the membership INSERT committed but version INSERT didn't in the same tx), retry creates the membership again via the idempotent path, which includes version 1.
+4. Membership exists → version 1 exists (the deferred constraint trigger guarantees this). No-op.
+
+The impossible state "membership exists but version 1 doesn't" cannot occur — the deferred constraint trigger rejects any transaction that creates a membership without version 1. Retries never need to repair missing profiles.
 
 ### Prompt design
 
@@ -584,7 +633,9 @@ Use `CLAWCLUB_OPENAI_MODEL` from [src/ai.ts](/Users/owen/Work/ClawClub/clawclub-
 
 ## Implementation sequence
 
-1. **Database migration** — `members.display_name`, `member_club_profile_versions` with `membership_id` FK and three triggers (consistency, append-only, search vector), `generated_profile_draft` on admissions, embeddings table, backfill, embedding jobs. Update `init.sql`.
+0. **Scrap v1** — Delete `db/migrations/004_club_scoped_profiles.sql`. Revert any v1 application code changes that conflict with this design (the v1 implementation may be partially usable but must be reviewed against this plan). Start from a clean `main` branch at v0.2.15.
+
+1. **Database migration** — New migration file. `members.display_name`, `member_club_profile_versions` with `membership_id` FK, four triggers (consistency, append-only, search vector, deferred membership-must-have-profile), `generated_profile_draft` on admissions, embeddings table, backfill, embedding jobs. Update `init.sql`.
 
 2. **Dev seeds and harness** — `dev.sql`, `bootstrap.sh`, `harness.ts`. Every membership seed includes version 1.
 
@@ -665,7 +716,9 @@ Non-LLM tests in `test/integration/non-llm/`. LLM tests in `test/integration/wit
 #### DB-level enforcement
 
 - **Denormalization trigger rejects mismatched member_id/club_id.** Insert version with wrong member_id for the membership. Assert DB error.
-- **Append-only trigger rejects updates.** Attempt to UPDATE a version row's tagline. Assert DB error.
+- **Immutability trigger rejects updates.** Attempt to UPDATE a version row's tagline. Assert DB error.
+- **Immutability trigger rejects deletes.** Attempt to DELETE a version row. Assert DB error.
+- **Deferred constraint rejects membership without version.** In a transaction, INSERT a `club_memberships` row without inserting any `member_club_profile_versions` row. Commit. Assert DB error (the deferred trigger fires at commit and rejects).
 
 #### Discovery and search
 
@@ -707,9 +760,9 @@ Non-LLM tests in `test/integration/non-llm/`. LLM tests in `test/integration/wit
 #### Draft persistence and retry
 
 - **Draft stored before acceptance.** Assert `generated_profile_draft` populated even if admission not yet transitioned.
-- **Retry uses stored draft.** Accept. Delete version row (simulate partial failure). Retry. Assert same content restored, LLM not called again.
-- **Retry with LLM down.** Store draft on first attempt. Make LLM unavailable. Retry. Assert acceptance succeeds from stored draft.
-- **Concurrent acceptance uses same draft.** (If testable.) Two concurrent accept calls. Assert both produce the same profile content.
+- **Retry of already-accepted admission is a no-op.** Accept admission. Retry the same acceptance action. Assert no duplicate version rows, no duplicate admission versions, profile unchanged.
+- **Retry with LLM down uses stored draft.** Store draft on first attempt (LLM succeeds). Make LLM unavailable. Retry. Assert acceptance succeeds from stored draft without calling LLM.
+- **Concurrent acceptance uses same draft.** (If testable.) Two concurrent accept calls. Assert both produce the same profile content — first writer's draft wins.
 
 ---
 
@@ -717,12 +770,12 @@ Non-LLM tests in `test/integration/non-llm/`. LLM tests in `test/integration/wit
 
 This design has four structural invariants, each enforced at the database level.
 
-**Membership = profile.** Version 1 is created in the same transaction as the membership. The transaction commits both or neither. There is no state where a membership exists without a profile. Every query can INNER JOIN. No LEFT JOINs. No null handling. No "ensure" helpers. No windows.
+**Membership = profile.** Version 1 is created in the same transaction as the membership. A deferred constraint trigger on `club_memberships` runs at commit time and rejects any transaction that creates a membership without a version row. The impossible state "membership exists but profile doesn't" is rejected by the database itself — not by application convention, not by hoping every code path does the right thing. Every query can INNER JOIN. No LEFT JOINs. No null handling. No windows.
 
-**Append-only and consistent.** Two triggers on the versions table: one rejects all UPDATEs (rows are immutable once inserted), one validates that denormalized `member_id`/`club_id` match the referenced membership on INSERT. The DB rejects incorrect or mutated rows regardless of what application code does.
+**Immutable and consistent.** Three triggers on the versions table: one rejects all UPDATEs and DELETEs (rows are truly immutable), one validates denormalized `member_id`/`club_id` against the membership on INSERT, and one populates the search vector on INSERT. GDPR erasure deletes the entire member row, not individual profile versions — that's a separate feature. The DB rejects incorrect, mutated, or deleted rows regardless of what application code does.
 
-**LLM draft persisted once.** A conditional write (`WHERE generated_profile_draft IS NULL`) ensures first-writer-wins on the admission row. Concurrent callers and retries all use the same stored draft. The profile content is deterministic. The LLM is never on the retry path.
+**LLM draft persisted once.** A conditional write (`WHERE generated_profile_draft IS NULL`) ensures first-writer-wins on the admission row. Concurrent callers and retries all use the same stored draft. The profile content is deterministic. The LLM is never on the retry path. The impossible state "membership exists but the LLM needs to re-run" cannot occur because retries find the stored draft.
 
 **Identity and content separated.** Two actions, two concerns, zero overlap. `members.updateIdentity` is global and ungated. `profile.update` is club-scoped and gated. No conditional `clubId` logic. No ambiguity.
 
-The system is correct under concurrent load, correct on retry, and correct at scale. Every invariant is enforced by the database, not by application convention.
+The system is correct under concurrent load, correct on retry, and correct at scale. Every invariant is enforced by the database. The v1 migration is scrapped; a single new migration implements this design from scratch against production at v0.2.15.

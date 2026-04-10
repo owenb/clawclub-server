@@ -839,26 +839,34 @@ describe('synchronicity worker', () => {
 
       // Simulate a delayed embedding: the profile was changed 5 days ago
       // but the embedding was just completed now (e.g., OpenAI outage recovery)
-      const pvRows = await h.sql<{ id: string }>(
-        `select id from current_member_club_profiles where member_id = $1 and club_id = $2`,
+      const membershipRows = await h.sql<{ membership_id: string }>(
+        `select id as membership_id
+           from club_memberships
+          where member_id = $1 and club_id = $2
+          limit 1`,
         [alice.id, owner.club.id],
       );
-      let pvId = pvRows[0]?.id;
-      if (!pvId) {
-        const r = await h.sql<{ id: string }>(
-          `insert into member_club_profile_versions
-             (member_id, club_id, version_no, created_by_member_id, generation_source, created_at)
-           values ($1, $2, 1, $1, 'membership_seed', now() - interval '5 days') returning id`,
-          [alice.id, owner.club.id],
-        );
-        pvId = r[0].id;
-      } else {
-        // Backdate the profile version
-        await h.sql(
-          `update member_club_profile_versions set created_at = now() - interval '5 days' where id = $1`,
-          [pvId],
-        );
-      }
+      const membershipId = membershipRows[0]!.membership_id;
+      const r = await h.sql<{ id: string }>(
+        `insert into member_club_profile_versions
+           (membership_id, member_id, club_id, version_no, created_by_member_id, generation_source, created_at)
+         values (
+           $1::short_id,
+           $2::short_id,
+           $3::short_id,
+           (
+             select coalesce(max(version_no), 0) + 1
+             from member_club_profile_versions
+             where member_id = $2::short_id and club_id = $3::short_id
+           ),
+           $2::short_id,
+           'membership_seed',
+           now() - interval '5 days'
+         )
+         returning id`,
+        [membershipId, alice.id, owner.club.id],
+      );
+      const pvId = r[0]!.id;
 
       // Insert the embedding artifact as if it just completed now
       await h.sql(
@@ -1100,10 +1108,19 @@ describe('synchronicity worker', () => {
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       // Alice updates her profile to v2 (no new embedding yet — simulates pending embedding job)
-      await h.sql(
-        `insert into member_club_profile_versions (member_id, club_id, version_no, created_by_member_id, generation_source)
-         values ($1, $2, 2, $1, 'manual')`,
+      const membershipRows = await h.sql<{ membership_id: string }>(
+        `select id as membership_id
+           from club_memberships
+          where member_id = $1 and club_id = $2
+          limit 1`,
         [alice.id, owner.club.id],
+      );
+      await h.sql(
+        `insert into member_club_profile_versions (
+           membership_id, member_id, club_id, version_no, created_by_member_id, generation_source
+         )
+         values ($1, $2, $3, 2, $2, 'manual')`,
+        [membershipRows[0]!.membership_id, alice.id, owner.club.id],
       );
 
       // Now her current_profiles.id is v2, but her embedding is for v1
@@ -1132,10 +1149,19 @@ describe('synchronicity worker', () => {
       await seedProfileEmbedding(h, alice.id, makeVector([0.95, 0.05, 0]));
 
       // Alice updates her profile to v2 (embedding still for v1)
-      await h.sql(
-        `insert into member_club_profile_versions (member_id, club_id, version_no, created_by_member_id, generation_source)
-         values ($1, $2, 2, $1, 'manual')`,
+      const membershipRows = await h.sql<{ membership_id: string }>(
+        `select id as membership_id
+           from club_memberships
+          where member_id = $1 and club_id = $2
+          limit 1`,
         [alice.id, owner.club.id],
+      );
+      await h.sql(
+        `insert into member_club_profile_versions (
+           membership_id, member_id, club_id, version_no, created_by_member_id, generation_source
+         )
+         values ($1, $2, $3, 2, $2, 'manual')`,
+        [membershipRows[0]!.membership_id, alice.id, owner.club.id],
       );
 
       const pools = workerPools();

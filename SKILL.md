@@ -44,6 +44,7 @@ Action families and individual actions:
 - `members.list` — list members across accessible clubs
 - `members.searchByFullText` — PostgreSQL FTS across member profiles with handle/name prefix boosting
 - `members.searchBySemanticSimilarity` — semantic search via embedding similarity (requires `OPENAI_API_KEY`)
+- `members.updateIdentity` — update the current member's global `handle` and/or `displayName` (no `clubId`, no quality gate)
 
 **Club Admin** (requires `clubadmin` role, club owner, or superadmin — all require explicit `clubId`)
 - `clubadmin.memberships.list` — list memberships in a club, with optional status filter
@@ -70,7 +71,7 @@ Action families and individual actions:
 
 **Profile**
 - `profile.list` — read a member's visible club profiles; omit `memberId` for the current actor
-- `profile.update` — update the current actor's profile fields
+- `profile.update` — update the current actor's club-scoped profile fields (always requires `clubId`)
 
 **Content** (posts, opportunities, services, asks)
 - `content.create` — publish a new entity (subject to legality gate)
@@ -112,6 +113,7 @@ Action families and individual actions:
 The schema is the only reliable source for field names and types. This list highlights non-obvious behaviors:
 
 - `session.getContext` returns `data: {}`. The useful result — who you are, what clubs you belong to, what's pending — is in the response envelope's `actor` object, not in `data`. Read `actor.member`, `actor.activeMemberships`, `actor.requestScope`, and `actor.sharedContext`. Every authenticated response includes this same `actor` envelope, but `session.getContext` is the action where it is the whole point.
+- `members.updateIdentity` is the only action for global identity fields like `handle` and `displayName`. `profile.update` is club-scoped and will reject identity fields.
 - `socials` is a **string** (not an object) in both `admissions.public.submitApplication` and `admissions.sponsorCandidate`
 - `admissions.public.submitApplication` uses `application` (not `reason`) for the free-text field
 - `admissions.public.submitApplication` does not take `clubSlug` — the club is bound to the challenge

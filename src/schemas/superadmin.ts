@@ -827,6 +827,18 @@ const superadminMembershipsCreate: ActionDefinition = {
     ctx.requireSuperadmin();
     ctx.requireCapability('adminCreateMembership');
     const { clubId, memberId, role, sponsorMemberId, initialStatus, reason } = input as SuperadminMembershipsCreateInput;
+    const initialProfile = ctx.repository.buildMembershipSeedProfile
+      ? await ctx.repository.buildMembershipSeedProfile({ memberId, clubId })
+      : {
+          tagline: null,
+          summary: null,
+          whatIDo: null,
+          knownFor: null,
+          servicesSummary: null,
+          websiteUrl: null,
+          links: [],
+          profile: {},
+        };
 
     const membership = await ctx.repository.adminCreateMembership!({
       actorMemberId: ctx.actor.member.id,
@@ -836,6 +848,10 @@ const superadminMembershipsCreate: ActionDefinition = {
       sponsorMemberId,
       initialStatus,
       reason,
+      initialProfile: {
+        fields: initialProfile,
+        generationSource: 'membership_seed',
+      },
     });
 
     if (!membership) {

@@ -175,6 +175,7 @@ CREATE TABLE member_private_contacts (
 
 CREATE TABLE member_club_profile_versions (
     id                      short_id DEFAULT new_id() NOT NULL,
+    membership_id           short_id NOT NULL,
     member_id               short_id NOT NULL,
     club_id                 short_id NOT NULL,
     version_no              integer NOT NULL,
@@ -200,9 +201,18 @@ CREATE TABLE member_club_profile_versions (
     CONSTRAINT member_club_profile_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
 );
 
+CREATE INDEX member_club_profile_versions_membership_idx ON member_club_profile_versions (membership_id, version_no DESC);
 CREATE INDEX member_club_profile_versions_member_club_idx ON member_club_profile_versions (member_id, club_id, version_no DESC);
 CREATE INDEX member_club_profile_versions_club_member_idx ON member_club_profile_versions (club_id, member_id, version_no DESC);
 CREATE INDEX member_club_profile_versions_search_idx ON member_club_profile_versions USING gin (search_vector);
+
+CREATE FUNCTION reject_row_mutation() RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION '% not allowed on %', TG_OP, TG_TABLE_NAME;
+END;
+$$;
 
 CREATE FUNCTION member_club_profile_versions_search_vector_trigger() RETURNS trigger
     LANGUAGE plpgsql
@@ -219,8 +229,13 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER member_club_profile_versions_search_vector_update
-    BEFORE INSERT OR UPDATE ON member_club_profile_versions
+CREATE TRIGGER member_club_profile_versions_immutable
+    BEFORE UPDATE OR DELETE ON member_club_profile_versions
+    FOR EACH ROW
+    EXECUTE FUNCTION reject_row_mutation();
+
+CREATE TRIGGER member_club_profile_versions_search_vector_insert
+    BEFORE INSERT ON member_club_profile_versions
     FOR EACH ROW
     EXECUTE FUNCTION member_club_profile_versions_search_vector_trigger();
 
@@ -491,6 +506,61 @@ CREATE TRIGGER club_membership_state_versions_sync
     AFTER INSERT ON club_membership_state_versions
     FOR EACH ROW EXECUTE FUNCTION sync_club_membership_state();
 
+ALTER TABLE member_club_profile_versions
+    ADD CONSTRAINT member_club_profile_versions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id);
+
+CREATE FUNCTION member_club_profile_versions_check_membership() RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    m_member_id short_id;
+    m_club_id short_id;
+BEGIN
+    SELECT member_id, club_id
+      INTO m_member_id, m_club_id
+      FROM club_memberships
+     WHERE id = NEW.membership_id;
+
+    IF m_member_id IS NULL THEN
+        RAISE EXCEPTION 'membership_id % not found', NEW.membership_id;
+    END IF;
+
+    IF NEW.member_id <> m_member_id OR NEW.club_id <> m_club_id THEN
+        RAISE EXCEPTION 'member_id/club_id mismatch: version has (%, %) but membership has (%, %)',
+            NEW.member_id, NEW.club_id, m_member_id, m_club_id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER member_club_profile_versions_check_membership_trigger
+    BEFORE INSERT ON member_club_profile_versions
+    FOR EACH ROW
+    EXECUTE FUNCTION member_club_profile_versions_check_membership();
+
+CREATE FUNCTION club_memberships_require_profile_version() RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+          FROM member_club_profile_versions
+         WHERE membership_id = NEW.id
+    ) THEN
+        RAISE EXCEPTION 'club_memberships row % has no profile version — version 1 must be inserted in the same transaction', NEW.id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER club_memberships_require_profile_version_trigger
+    AFTER INSERT ON club_memberships
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW
+    EXECUTE FUNCTION club_memberships_require_profile_version();
+
 -- ── Club subscriptions ──────────────────────────────────────────
 
 CREATE TABLE club_subscriptions (
@@ -711,6 +781,7 @@ CREATE TABLE admissions (
     applicant_email     text,
     applicant_name      text,
     admission_details   jsonb DEFAULT '{}' NOT NULL,
+    generated_profile_draft jsonb,
 
     CONSTRAINT admissions_pkey PRIMARY KEY (id),
     CONSTRAINT admissions_origin_check CHECK (
@@ -1400,6 +1471,7 @@ CREATE VIEW current_admissions AS
         a.created_at,
         a.applicant_email,
         a.applicant_name,
+        a.generated_profile_draft,
         cav.id              AS version_id,
         cav.status,
         cav.notes,

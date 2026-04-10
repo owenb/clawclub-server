@@ -337,10 +337,11 @@ values
 on conflict do nothing;
 
 -- ============================================================
--- Club-scoped profile history (copy source rows into each active membership)
+-- Club-scoped profile history (copy source rows into each membership)
 -- ============================================================
 
 insert into member_club_profile_versions (
+  membership_id,
   member_id,
   club_id,
   version_no,
@@ -357,6 +358,7 @@ insert into member_club_profile_versions (
   created_at
 )
 select
+  cm.id,
   cm.member_id,
   cm.club_id,
   smp.version_no,
@@ -373,7 +375,6 @@ select
   smp.created_at
 from club_memberships cm
 join seed_member_profiles smp on smp.member_id = cm.member_id
-where cm.left_at is null
 on conflict do nothing;
 
 -- ============================================================

@@ -10,7 +10,7 @@ import type { Pool } from 'pg';
 import { AppError, type Repository, type EntitySummary, type MembershipVouchSummary, type AdmissionStatus, type PendingUpdate } from './contract.ts';
 import { withTransaction } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
-import { ensureClubProfileSeeded, generateAdmissionClubProfile } from './identity/profiles.ts';
+import { generateAdmissionClubProfile, normalizeClubProfileFields } from './identity/profiles.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
 import { createClubsRepository, batchListVouches, type ClubsRepository } from './clubs/index.ts';
 import * as admissionsModule from './clubs/admissions.ts';
@@ -310,7 +310,9 @@ export function createRepository(pool: Pool): Repository {
     listMemberProfiles: ({ actorMemberId, targetMemberId, actorClubIds, clubId }) => {
       return identity.listMemberProfiles({ actorMemberId, targetMemberId, actorClubIds, clubId });
     },
-    updateOwnProfile: (input) => identity.updateOwnProfile(input),
+    buildMembershipSeedProfile: (input) => identity.buildMembershipSeedProfile(input),
+    updateMemberIdentity: (input) => identity.updateMemberIdentity(input),
+    updateClubProfile: (input) => identity.updateClubProfile(input),
 
     // ── Tokens ─────────────────────────────────────────────
     listBearerTokens: (input) => identity.listBearerTokens(input),
@@ -560,7 +562,7 @@ export function createRepository(pool: Pool): Repository {
     getAdmissionsForMember: (input) => admissionsModule.getAdmissionsForMember(pool, input),
 
     async transitionAdmission(input) {
-      let preGeneratedProfileFields = null;
+      let storedProfileDraft = null;
       let skipTransition = false;
       let currentAdmission: {
         admission_id: string;
@@ -575,6 +577,7 @@ export function createRepository(pool: Pool): Repository {
         club_name: string;
         club_summary: string | null;
         admission_policy: string | null;
+        generated_profile_draft: Record<string, unknown> | null;
       } | null = null;
 
       if (input.nextStatus === 'accepted') {
@@ -591,6 +594,7 @@ export function createRepository(pool: Pool): Repository {
           club_name: string;
           club_summary: string | null;
           admission_policy: string | null;
+          generated_profile_draft: Record<string, unknown> | null;
         }>(
           `select
              ca.id as admission_id,
@@ -604,8 +608,10 @@ export function createRepository(pool: Pool): Repository {
              ca.status,
              c.name as club_name,
              c.summary as club_summary,
-             c.admission_policy
+             c.admission_policy,
+             a.generated_profile_draft
            from current_admissions ca
+           join admissions a on a.id = ca.id
            join clubs c on c.id = ca.club_id
            where ca.id = $1 and ca.club_id = any($2::text[])
            limit 1`,
@@ -615,29 +621,11 @@ export function createRepository(pool: Pool): Repository {
         if (!currentAdmission) return null;
 
         skipTransition = currentAdmission.status === 'accepted';
-        let shouldGenerateProfile = true;
-
-        if (skipTransition) {
-          let existingMemberId = currentAdmission.applicant_member_id;
-          if (!existingMemberId) {
-            const existingMembership = await pool.query<{ member_id: string }>(
-              `select member_id from club_memberships where source_admission_id = $1 limit 1`,
-              [currentAdmission.admission_id],
-            );
-            existingMemberId = existingMembership.rows[0]?.member_id ?? null;
-          }
-          if (existingMemberId) {
-            const existingProfile = await pool.query<{ id: string }>(
-              `select id from current_member_club_profiles where member_id = $1 and club_id = $2 limit 1`,
-              [existingMemberId, currentAdmission.club_id],
-            );
-            shouldGenerateProfile = !existingProfile.rows[0];
-          }
-        }
-
-        if (shouldGenerateProfile) {
+        if (currentAdmission.generated_profile_draft) {
+          storedProfileDraft = normalizeClubProfileFields(currentAdmission.generated_profile_draft);
+        } else {
           const admissionDetails = currentAdmission.admission_details ?? {};
-          preGeneratedProfileFields = await generateAdmissionClubProfile({
+          const generatedDraft = await generateAdmissionClubProfile({
             club: {
               name: currentAdmission.club_name,
               summary: currentAdmission.club_summary,
@@ -647,6 +635,25 @@ export function createRepository(pool: Pool): Repository {
             application: typeof admissionDetails.application === 'string' ? admissionDetails.application : '',
             socials: typeof admissionDetails.socials === 'string' ? admissionDetails.socials : '',
           });
+
+          const persistedDraft = await pool.query<{ generated_profile_draft: Record<string, unknown> }>(
+            `update admissions
+             set generated_profile_draft = $2::jsonb
+             where id = $1
+               and generated_profile_draft is null
+             returning generated_profile_draft`,
+            [currentAdmission.admission_id, JSON.stringify(generatedDraft)],
+          );
+
+          if (persistedDraft.rows[0]?.generated_profile_draft) {
+            storedProfileDraft = normalizeClubProfileFields(persistedDraft.rows[0].generated_profile_draft);
+          } else {
+            const rereadDraft = await pool.query<{ generated_profile_draft: Record<string, unknown> | null }>(
+              `select generated_profile_draft from admissions where id = $1 limit 1`,
+              [currentAdmission.admission_id],
+            );
+            storedProfileDraft = normalizeClubProfileFields(rereadDraft.rows[0]?.generated_profile_draft ?? generatedDraft);
+          }
         }
       }
 
@@ -749,6 +756,10 @@ export function createRepository(pool: Pool): Repository {
               sourceAdmissionId: adm.admission_id,
               reason: isPaidClub ? 'Admitted — awaiting payment' : 'Admitted from accepted admission',
               metadata: {},
+              initialProfile: {
+                fields: storedProfileDraft ?? normalizeClubProfileFields(null),
+                generationSource: 'admission_generated',
+              },
             });
 
             if (membershipResult) {
@@ -765,15 +776,6 @@ export function createRepository(pool: Pool): Repository {
 
               await admissionsModule.linkAdmissionToMember(pool, adm.admission_id, memberId, membershipResult.membershipId);
             }
-          }
-
-          if (membershipId) {
-            await ensureClubProfileSeeded(pool, {
-              memberId,
-              clubId,
-              generationSource: 'admission_generated',
-              preGeneratedFields: preGeneratedProfileFields,
-            });
           }
         }
       }
