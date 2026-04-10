@@ -5,3 +5,4 @@ automation/runs/
 automation/*.lock
 deploy.sh
 backups/
+*.dump
