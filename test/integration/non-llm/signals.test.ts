@@ -140,6 +140,46 @@ describe('member signals', () => {
     assert.equal(ack.code, 'not_found');
   });
 
+  it('activity cursor does not regress after returning activity items', async () => {
+    const owen = await h.seedOwner('sigactivitycursorclub', 'SignalActivityCursorClub');
+
+    const initial = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 }));
+    const seedCursor = initial.nextAfter;
+    assert.ok(seedCursor, 'expected a cursor from initial poll');
+
+    const firstRows = await h.sqlClubs<{ seq: string }>(
+      `insert into club_activity (club_id, topic, payload, created_by_member_id)
+       values ($1, 'entity.version.published', '{}'::jsonb, $2)
+       returning seq::text as seq`,
+      [owen.club.id, owen.id],
+    );
+    const firstUpdateId = `activity:${firstRows[0]!.seq}`;
+
+    const firstPoll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: seedCursor, limit: 50 }));
+    const firstActivities = firstPoll.items.filter((u) => u.source === 'activity');
+    assert.deepEqual(firstActivities.map((u) => u.updateId), [firstUpdateId]);
+
+    const secondRows = await h.sqlClubs<{ seq: string }>(
+      `insert into club_activity (club_id, topic, payload, created_by_member_id)
+       values ($1, 'entity.version.published', '{}'::jsonb, $2)
+       returning seq::text as seq`,
+      [owen.club.id, owen.id],
+    );
+    const secondUpdateId = `activity:${secondRows[0]!.seq}`;
+
+    const secondPoll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: firstPoll.nextAfter, limit: 50 }));
+    const secondActivities = secondPoll.items.filter((u) => u.source === 'activity');
+    assert.deepEqual(
+      secondActivities.map((u) => u.updateId),
+      [secondUpdateId],
+      'older activity items should not replay after the cursor advances',
+    );
+
+    const thirdPoll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: secondPoll.nextAfter, limit: 50 }));
+    const thirdActivities = thirdPoll.items.filter((u) => u.source === 'activity');
+    assert.equal(thirdActivities.length, 0, 'activity cursor should remain advanced after follow-up polls');
+  });
+
   it('signal cursor tracks independently from activity cursor', async () => {
     const owen = await h.seedOwner('sigcurclub', 'SignalCurClub');
 

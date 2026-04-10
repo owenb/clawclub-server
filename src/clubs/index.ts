@@ -392,6 +392,14 @@ export async function logLlmUsage(pool: Pool, input: LogLlmUsageInput): Promise<
 
 // ── Club activity / updates ─────────────────────────────────
 
+function parseActivitySeq(value: string): number {
+  const seq = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(seq) || seq < 0) {
+    throw new Error(`Invalid club activity seq: ${value}`);
+  }
+  return seq;
+}
+
 export async function listClubActivity(pool: Pool, input: {
   memberId: string; clubIds: string[]; limit: number; afterSeq?: number | null;
   /** Club IDs where the actor is a clubadmin or owner. Used for audience filtering. */
@@ -406,20 +414,20 @@ export async function listClubActivity(pool: Pool, input: {
 
   // Seed cursor if needed
   if (input.afterSeq == null) {
-    const seedResult = await pool.query<{ max_seq: number }>(
-      `select coalesce(max(seq), 0)::int as max_seq from club_activity
+    const seedResult = await pool.query<{ max_seq: string }>(
+      `select coalesce(max(seq), 0)::text as max_seq from club_activity
        where club_id = any($1::text[])`,
       [input.clubIds],
     );
-    return { items: [], nextAfterSeq: seedResult.rows[0]?.max_seq ?? 0 };
+    return { items: [], nextAfterSeq: parseActivitySeq(seedResult.rows[0]?.max_seq ?? '0') };
   }
 
   const result = await pool.query<{
-    seq: number; club_id: string; entity_id: string | null; entity_version_id: string | null;
+    seq: string; club_id: string; entity_id: string | null; entity_version_id: string | null;
     topic: string; payload: Record<string, unknown>; created_by_member_id: string | null;
     created_at: string; audience: string;
   }>(
-    `select seq, club_id, entity_id, entity_version_id, topic, payload,
+    `select seq::text as seq, club_id, entity_id, entity_version_id, topic, payload,
             created_by_member_id, created_at::text as created_at, audience
      from club_activity ca
      where ca.club_id = any($1::text[]) and ca.seq > $2
@@ -441,7 +449,7 @@ export async function listClubActivity(pool: Pool, input: {
   );
 
   const items = result.rows.map((row) => ({
-    seq: row.seq,
+    seq: parseActivitySeq(row.seq),
     clubId: row.club_id,
     entityId: row.entity_id,
     entityVersionId: row.entity_version_id,

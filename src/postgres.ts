@@ -24,6 +24,8 @@ import { encodeCursor as paginationEncodeCursor } from './schemas/fields.ts';
  * Backward compatible: old-format cursors { s: N, t: T } are read as
  * { a: N, s: 0, t: T }, defaulting signal position to 0 so the first
  * poll returns all unacknowledged signals.
+ *
+ * Also accepts buggy cursors previously emitted as { a: "123", s: 0, t: T }.
  */
 type UpdateCursor = { a: number; s: number; t: string };
 
@@ -31,22 +33,37 @@ function encodeCursor(cursor: UpdateCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
 
+function parseCursorSeq(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  }
+  if (typeof value === 'string' && /^[0-9]+$/.test(value)) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function decodeCursor(raw: string): UpdateCursor | null {
   try {
     const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString());
     if (typeof parsed === 'object' && parsed !== null) {
+      const hasActivityKey = Object.prototype.hasOwnProperty.call(parsed, 'a');
       // New compound format: { a, s, t }
-      if (typeof parsed.a === 'number') {
+      if (hasActivityKey) {
+        const activitySeq = parseCursorSeq(parsed.a);
+        if (activitySeq === null) return null;
         return {
-          a: parsed.a,
-          s: typeof parsed.s === 'number' ? parsed.s : 0,
+          a: activitySeq,
+          s: parseCursorSeq(parsed.s) ?? 0,
           t: typeof parsed.t === 'string' ? parsed.t : new Date(0).toISOString(),
         };
       }
       // Old format: { s: activitySeq, t: inboxTimestamp }
-      if (typeof parsed.s === 'number') {
+      const activitySeq = parseCursorSeq(parsed.s);
+      if (activitySeq !== null) {
         return {
-          a: parsed.s,
+          a: activitySeq,
           s: 0,
           t: typeof parsed.t === 'string' ? parsed.t : new Date(0).toISOString(),
         };
@@ -56,8 +73,8 @@ function decodeCursor(raw: string): UpdateCursor | null {
     // Fall through
   }
   // Legacy: try parsing as plain number (very old cursor format)
-  const n = Number(raw);
-  if (Number.isFinite(n)) return { a: n, s: 0, t: new Date(0).toISOString() };
+  const n = parseCursorSeq(raw);
+  if (n !== null) return { a: n, s: 0, t: new Date(0).toISOString() };
   return null;
 }
 
