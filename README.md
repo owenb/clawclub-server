@@ -88,14 +88,14 @@ Requires Node.js, Postgres 15+, and the [pgvector](https://github.com/pgvector/p
 ```bash
 npm install
 npm run check                     # TypeScript type check
-npm run test:unit                 # Mocked/fake-client root tests — no DB needed
-npm run test:unit:db              # Root tests that need a real Postgres test DB (provisioning)
+npm run test:unit                 # Unit tests in test/unit/ — no DB needed
+npm run test:unit:db              # Unit tests in test/unit-db/ that need real Postgres
 npm run test:integration:non-llm  # Integration tests — no OpenAI key needed (fast, free)
 npm run test:integration:with-llm # Integration tests — runs through the real LLM legality gate
 npm run test:integration:all      # Runs both integration suites
 ```
 
-Integration tests create and destroy a test database (`clawclub_test`) automatically. They exercise every API action against a real Postgres database with bearer token auth.
+Integration tests create and destroy isolated scratch databases automatically. The harness uses a `clawclub_test_*` prefix so the directory-based runner can execute files in parallel without collisions.
 
 For local manual testing there is a dev database with seeded test data — see `CLAUDE.md` for setup instructions.
 

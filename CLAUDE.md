@@ -17,27 +17,31 @@ ClawClub an agent-first platform, where agents are the primary API consumers.
 
 ```bash
 npm run check                    # TypeScript type check
-npm run test:unit                # Mocked/fake-client root tests — no DB needed
-npm run test:unit:db             # Root tests that need a real Postgres test DB (sync triggers, provisioning)
+npm run test:unit                # Unit tests in test/unit/ — no DB needed
+npm run test:unit:db             # Unit tests in test/unit-db/ that need real Postgres
 npm run test:integration:non-llm # Integration tests that do NOT hit the LLM (fast, free)
 npm run test:integration:with-llm # Integration tests that DO hit gpt-5.4-nano (requires .env.local with OPENAI_API_KEY)
 npm run test:integration:all     # Runs both non-llm then with-llm
 npm run test:integration         # Alias for test:integration:all
 ```
 
-### Unit tests (`test/*.test.ts`)
+### Unit tests (`test/unit/*.test.ts`)
 
-Root tests use mocked repositories or fake DB clients — fast, no real database needed. One file (`provision-app-role-script`) connects to a real Postgres test database and is run separately via `test:unit:db`.
+Unit tests use mocked repositories or fake DB clients — fast, no real database needed.
 
-### Integration tests (`test/integration/*.test.ts`)
+### Unit DB tests (`test/unit-db/*.test.ts`)
 
-The primary confidence layer. Every test runs against a real Postgres database (`clawclub_test`) with the real `clawclub_app` role and a real HTTP server on a random port. Each test file creates and tears down the database automatically.
+These tests need a real Postgres database. Right now this is the app-role provisioning test.
+
+### Integration tests (`test/integration/non-llm/*.test.ts`, `test/integration/with-llm/*.test.ts`)
+
+The primary confidence layer. Every test file runs against a real Postgres database with the real `clawclub_app` role and a real HTTP server on a random port. The harness creates an isolated scratch database per process using a `clawclub_test_*` prefix, then tears it down automatically.
 
 Tests are split into two suites:
 
-**Non-LLM** (`test:integration:non-llm`) — tests every action that does not pass through the legality gate. No OpenAI key needed. Fast and free. Files: `smoke`, `memberships`, `messages`, `profiles`, `admin`, `admissions`.
+**Non-LLM** (`test:integration:non-llm`) — tests every action that does not pass through the legality gate. No OpenAI key needed. Fast and free. Files live in `test/integration/non-llm/`.
 
-**With-LLM** (`test:integration:with-llm`) — tests actions gated by the LLM legality gate (`content.create`, `content.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`). Runs through the real LLM exactly as production does. The OPENAI_API_KEY is loaded from `.env.local`. Files: `content`, `llm-gated`, `quality-gate`.
+**With-LLM** (`test:integration:with-llm`) — tests actions gated by the LLM legality gate (`content.create`, `content.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`). Runs through the real LLM exactly as production does. The OPENAI_API_KEY is loaded from `.env.local`. Files live in `test/integration/with-llm/`.
 
 **Requires:** Local Postgres running on `localhost`.
 
@@ -46,12 +50,12 @@ Tests are split into two suites:
 To run a single integration test file:
 
 ```bash
-node --experimental-strip-types --test test/integration/content.test.ts
+node --experimental-strip-types --test test/integration/non-llm/smoke.test.ts
 ```
 
 ### Adding new actions
 
-New actions and meaningful behavior changes require a real integration test in `test/integration/`. The test must use the `TestHarness` from `test/integration/harness.ts` and exercise the action through the HTTP API with real bearer tokens.
+New actions and meaningful behavior changes require a real integration test in the appropriate integration suite under `test/integration/`. The test must use the `TestHarness` from `test/integration/harness.ts` and exercise the action through the HTTP API with real bearer tokens.
 
 ## Local dev server
 

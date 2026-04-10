@@ -2,10 +2,11 @@
  * Legality gate integration tests.
  *
  * These tests require OPENAI_API_KEY to be set — the LLM evaluates content
- * and decides whether it is legal. Skip this file when running without a key
- * (npm run test:integration skips it by default).
+ * and decides whether it is legal.
  *
- * Run with: OPENAI_API_KEY=sk-... node --experimental-strip-types --test test/integration/quality-gate.test.ts
+ * Run with: npm run test:integration:with-llm
+ * Or run this file directly after exporting OPENAI_API_KEY:
+ * node --experimental-strip-types --test test/integration/with-llm/quality-gate.test.ts
  */
 
 import { describe, it, before, after } from 'node:test';

@@ -1015,7 +1015,7 @@ describe('superadmin.content.list', () => {
 
 // superadmin.content.archive, superadmin.content.redact, superadmin.messages.redact
 // have been removed — superadmins use clubadmin.content.remove, clubadmin.events.remove,
-// clubadmin.messages.remove directly. See test/integration/removal.test.ts for coverage.
+// clubadmin.messages.remove directly. See test/integration/non-llm/removal.test.ts for coverage.
 
 describe('superadmin.messages.listThreads', () => {
   it('lists threads across all clubs', async () => {
