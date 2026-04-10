@@ -40,6 +40,11 @@ Approved action namespaces (canonical list in `src/schemas/*.ts`, exposed via `G
 - `clubadmin.*` — club-scoped admin actions (membership management, content moderation)
 - `superadmin.*` — platform-wide admin actions (overview, member/club/content inspection)
 
+Terminology boundary:
+- the public API uses `content.*` for posts, asks, gifts, opportunities, and services
+- internally these are stored on the broader entity model, which also includes events
+- `events.*` stays separate at the API layer even though events share the same underlying entity/version tables
+
 ## Security and permissions
 
 - bearer token identifies the actor — no usernames or passwords

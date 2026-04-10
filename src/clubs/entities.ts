@@ -1,5 +1,9 @@
 /**
  * Clubs domain — entity CRUD (posts, asks, gifts, opportunities, services).
+ *
+ * This module implements the internal entity model behind the public `content.*`
+ * API. Events share the same entity/version backbone but are handled separately
+ * in `clubs/events.ts` because they carry event-specific fields and RSVP logic.
  */
 
 import type { Pool } from 'pg';

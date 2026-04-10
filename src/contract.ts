@@ -861,6 +861,8 @@ export type Repository = {
   }): Promise<Paginated<ClubMemberSummary>>;
   getMemberProfile(input: { actorMemberId: string; targetMemberId: string; actorClubIds: string[] }): Promise<MemberProfile | null>;
   updateOwnProfile(input: { actor: ActorContext; patch: UpdateOwnProfileInput }): Promise<MemberProfile>;
+  // Internal entity methods back the public `content.*` API. Events use the same
+  // underlying entity/version tables but have separate event-specific methods below.
   createEntity(input: CreateEntityInput): Promise<EntitySummary>;
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
   closeEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;

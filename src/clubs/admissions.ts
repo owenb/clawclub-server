@@ -33,6 +33,23 @@ const POW_COMPATIBILITY_NOTICE: ResponseNotice = {
 
 type AdmissionPowVariant = 'canonical_trailing' | 'compat_leading';
 
+function getPositiveIntegerEnv(name: string): number | null {
+  const raw = process.env[name];
+  if (raw == null || raw.trim().length === 0) return null;
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) return null;
+  return parsed;
+}
+
+function getColdApplicationDifficulty(): number {
+  return getPositiveIntegerEnv('CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY') ?? COLD_APPLICATION_DIFFICULTY;
+}
+
+function getCrossApplicationDifficulty(): number {
+  return getPositiveIntegerEnv('CLAWCLUB_TEST_CROSS_APPLICATION_DIFFICULTY') ?? CROSS_APPLICATION_DIFFICULTY;
+}
+
 export function validateAdmissionPow(challengeId: string, nonce: string, difficulty: number): AdmissionPowVariant | null {
   const hash = createHash('sha256').update(`${challengeId}:${nonce}`, 'utf8').digest('hex');
   const zeros = '0'.repeat(difficulty);
@@ -304,18 +321,19 @@ export async function createAdmissionChallenge(pool: Pool, input: {
   admissionPolicy: string;
   ownerName: string;
 }): Promise<{ challengeId: string; difficulty: number; expiresAt: string; maxAttempts: number }> {
+  const difficulty = getColdApplicationDifficulty();
   const result = await pool.query<{ id: string; expires_at: string }>(
     `insert into admission_challenges (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
      values ($1, $2, $3, $4, $5, $6, now() + ($7 || ' milliseconds')::interval)
      returning id, expires_at::text as expires_at`,
-    [COLD_APPLICATION_DIFFICULTY, input.clubId, input.admissionPolicy, input.clubName, input.clubSummary, input.ownerName, COLD_APPLICATION_CHALLENGE_TTL_MS],
+    [difficulty, input.clubId, input.admissionPolicy, input.clubName, input.clubSummary, input.ownerName, COLD_APPLICATION_CHALLENGE_TTL_MS],
   );
   const row = result.rows[0];
   if (!row) throw new AppError(500, 'invalid_data', 'Admission challenge was not created');
 
   return {
     challengeId: row.id,
-    difficulty: COLD_APPLICATION_DIFFICULTY,
+    difficulty,
     expiresAt: new Date(Date.parse(row.expires_at)).toISOString(),
     maxAttempts: MAX_ADMISSION_ATTEMPTS,
   };
@@ -567,6 +585,7 @@ export async function createCrossChallenge(pool: Pool, input: {
   admissionPolicy: string;
   ownerName: string;
 }): Promise<{ challengeId: string; difficulty: number; expiresAt: string; maxAttempts: number }> {
+  const difficulty = getCrossApplicationDifficulty();
   await assertCrossEligibility(pool, input.memberId, input.clubId);
 
   // Guard: profile must have a usable name and email
@@ -589,14 +608,14 @@ export async function createCrossChallenge(pool: Pool, input: {
     `insert into admission_challenges (difficulty, club_id, member_id, policy_snapshot, club_name, club_summary, owner_name, expires_at)
      values ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' milliseconds')::interval)
      returning id, expires_at::text as expires_at`,
-    [CROSS_APPLICATION_DIFFICULTY, input.clubId, input.memberId, input.admissionPolicy, input.clubName, input.clubSummary, input.ownerName, COLD_APPLICATION_CHALLENGE_TTL_MS],
+    [difficulty, input.clubId, input.memberId, input.admissionPolicy, input.clubName, input.clubSummary, input.ownerName, COLD_APPLICATION_CHALLENGE_TTL_MS],
   );
   const row = result.rows[0];
   if (!row) throw new AppError(500, 'invalid_data', 'Admission challenge was not created');
 
   return {
     challengeId: row.id,
-    difficulty: CROSS_APPLICATION_DIFFICULTY,
+    difficulty,
     expiresAt: new Date(Date.parse(row.expires_at)).toISOString(),
     maxAttempts: MAX_ADMISSION_ATTEMPTS,
   };

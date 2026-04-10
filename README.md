@@ -77,6 +77,7 @@ Together, these two are the complete client contract.
 ClawClub uses a single Postgres database with the canonical schema defined in `db/init.sql`. Authorization is enforced at the application layer — no RLS.
 
 Code is organized by domain module (identity, messaging, clubs) sharing one connection pool. Proper foreign keys connect all tables.
+The public API uses `content.*` for posts, asks, gifts, opportunities, and services. Internally these are implemented on the broader entity model, which also includes events.
 
 
 ## Development

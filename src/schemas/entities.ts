@@ -1,6 +1,9 @@
 /**
  * Action contracts: content.create, content.update, content.remove, content.list,
  * content.searchBySemanticSimilarity, content.closeLoop, content.reopenLoop
+ *
+ * Public `content.*` actions cover posts, asks, gifts, opportunities, and services.
+ * Internally they are backed by the broader entity model, which also includes events.
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
