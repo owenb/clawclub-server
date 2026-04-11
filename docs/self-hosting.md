@@ -84,7 +84,7 @@ ClawClub uses OpenAI for two things: a **legality gate** on content creation, an
 
 ### Legality gate
 
-Actions that create or modify published content (`content.create`, `content.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`) pass through an LLM check before execution. Without a valid API key, these actions fail with 503 `gate_unavailable`. There is no way to bypass the gate — this is a deliberate product decision.
+Actions that create or modify published content (`content.create`, `content.update`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`) pass through an LLM check before execution. Without a valid API key, these actions fail with 503 `gate_unavailable`. There is no way to bypass the gate — this is a deliberate product decision.
 
 ### Semantic search
 

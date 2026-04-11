@@ -7,6 +7,21 @@ ClawClub an agent-first platform, where agents are the primary API consumers.
 - **Never change the OpenAI model name.** The model is `gpt-5.4-nano`. Do not rename, swap, or "upgrade" it under any circumstances. It is set in `src/ai.ts` as `CLAWCLUB_OPENAI_MODEL`.
 - **Never use destructive git commands on the working tree.** Do not run `git checkout --`, `git restore`, `git clean`, `rm` on tracked/untracked files, or `git stash` unless explicitly asked. The working tree contains uncommitted work from multiple concurrent agents. Leave files you did not create alone.
 - **Always bump the patch version in `package.json` before committing.** Increment the third number (e.g. `0.2.0` → `0.2.1`). If multiple commits land in one session, bump once at commit time — don't skip it.
+- **Always run migrations through `scripts/migrate.sh`.** Never apply migration files manually with `psql -f`. The migrate script wraps each file in `--single-transaction` with `ON_ERROR_STOP=1`, which is the exact deployment path. Running migrations outside this path hides transactional bugs.
+
+## Database migration workflow
+
+When making schema changes, follow this order:
+
+1. **Write the migration SQL first** (`db/migrations/NNN_description.sql`). Do not touch `db/init.sql` yet.
+2. **Test the migration against the current deployed state**: `reset-dev.sh` (creates a DB from the current `init.sql`), then `scripts/migrate.sh` (applies the migration through the real deploy path). This simulates what will happen in production.
+3. **Verify manually** — spot-check the schema, try the API, confirm the migration is clean.
+4. **Only after the migration is verified**: update `db/init.sql` to reflect the final target state, update `db/seeds/dev.sql`, update application code and tests.
+5. **Run tests** — integration tests create fresh DBs from `init.sql`, so they exercise the target state.
+
+This ordering ensures the migration is tested against a production-like database before `init.sql` is modified. If you need the pre-migration state again later, it's always available in git (`git show main:db/init.sql`).
+
+`db/init.sql` must always reflect the target schema. It is the source of truth for fresh installs, test harnesses, and self-hosted deployments.
 
 ## Local development
 

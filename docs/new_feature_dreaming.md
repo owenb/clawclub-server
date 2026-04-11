@@ -176,7 +176,7 @@ Designed in detail, then deferred because it's a big feature with real privacy i
 - Embedding model: `text-embedding-3-small` (1536 dims) via `embedMany` from Vercel AI SDK
 - Profile embeddings include `services_summary`, `known_for`, `what_i_do`, `tagline`, `summary`, `links`, plus the extensible `profile` jsonb
 - Entity embeddings include title, summary, body, and the `content` jsonb (and would include WHY if/when we ship it)
-- Quality gate (`src/quality-gate.ts`) runs on `content.create`, `content.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate` — model is `gpt-5.4-nano`
+- Quality gate (`src/quality-gate.ts`) runs on `content.create`, `content.update`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate` — model is `gpt-5.4-nano` (events are now created via `content.create(kind='event')`)
 
 ## Open questions to resolve when we come back
 
