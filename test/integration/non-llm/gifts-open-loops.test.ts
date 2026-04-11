@@ -26,6 +26,11 @@ async function seedEntityEmbedding(entityId: string, entityVersionId: string, ve
   );
 }
 
+function listedFirstEntityIds(result: Record<string, unknown>): string[] {
+  const threads = (result.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+  return threads.map((thread) => ((thread.firstEntity as Record<string, unknown>).entityId as string));
+}
+
 describe('gifts and open loops', () => {
   it('creates gifts with openLoop=true and posts with openLoop=null', async () => {
     const owner = await h.seedOwner('gift-create', 'Gift Create Club');
@@ -57,8 +62,14 @@ describe('gifts and open loops', () => {
 
     await assert.rejects(
       h.sql(
-        `insert into entities (club_id, kind, author_member_id, open_loop)
-         values ($1, 'ask', $2, null)`,
+        `with thread as (
+           insert into content_threads (club_id, created_by_member_id)
+           values ($1, $2)
+           returning id
+         )
+         insert into entities (club_id, kind, author_member_id, open_loop, content_thread_id)
+         select $1, 'ask', $2, null, thread.id
+         from thread`,
         [owner.club.id, owner.id],
       ),
       (err: unknown) => {
@@ -69,8 +80,14 @@ describe('gifts and open loops', () => {
 
     await assert.rejects(
       h.sql(
-        `insert into entities (club_id, kind, author_member_id, open_loop)
-         values ($1, 'post', $2, true)`,
+        `with thread as (
+           insert into content_threads (club_id, created_by_member_id)
+           values ($1, $2)
+           returning id
+         )
+         insert into entities (club_id, kind, author_member_id, open_loop, content_thread_id)
+         select $1, 'post', $2, true, thread.id
+         from thread`,
         [owner.club.id, owner.id],
       ),
       (err: unknown) => {
@@ -113,25 +130,25 @@ describe('gifts and open loops', () => {
     const authorDefaultList = await h.apiOk(author.token, 'content.list', {
       clubId: owner.club.id,
     });
-    const defaultResults = (authorDefaultList.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    assert.equal(defaultResults.some((entity) => entity.entityId === gift.entityId), false);
-    assert.equal(defaultResults.some((entity) => entity.entityId === post.entityId), true);
+    const defaultIds = listedFirstEntityIds(authorDefaultList as Record<string, unknown>);
+    assert.equal(defaultIds.includes(gift.entityId as string), false);
+    assert.equal(defaultIds.includes(post.entityId as string), true);
 
     const authorClosedList = await h.apiOk(author.token, 'content.list', {
       clubId: owner.club.id,
       includeClosed: true,
     });
-    const closedResults = (authorClosedList.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    assert.equal(closedResults.some((entity) => entity.entityId === gift.entityId), true);
-    assert.equal(closedResults.some((entity) => entity.entityId === post.entityId), true);
+    const closedIds = listedFirstEntityIds(authorClosedList as Record<string, unknown>);
+    assert.equal(closedIds.includes(gift.entityId as string), true);
+    assert.equal(closedIds.includes(post.entityId as string), true);
 
     const viewerClosedList = await h.apiOk(viewer.token, 'content.list', {
       clubId: owner.club.id,
       includeClosed: true,
     });
-    const viewerResults = (viewerClosedList.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    assert.equal(viewerResults.some((entity) => entity.entityId === gift.entityId), false);
-    assert.equal(viewerResults.some((entity) => entity.entityId === post.entityId), true);
+    const viewerIds = listedFirstEntityIds(viewerClosedList as Record<string, unknown>);
+    assert.equal(viewerIds.includes(gift.entityId as string), false);
+    assert.equal(viewerIds.includes(post.entityId as string), true);
 
     const reopened = await h.apiOk(author.token, 'content.reopenLoop', {
       entityId: gift.entityId,
@@ -141,8 +158,8 @@ describe('gifts and open loops', () => {
     const reopenedList = await h.apiOk(author.token, 'content.list', {
       clubId: owner.club.id,
     });
-    const reopenedResults = (reopenedList.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    assert.equal(reopenedResults.some((entity) => entity.entityId === gift.entityId), true);
+    const reopenedIds = listedFirstEntityIds(reopenedList as Record<string, unknown>);
+    assert.equal(reopenedIds.includes(gift.entityId as string), true);
   });
 
   it('closeLoop returns 404 for posts, removed gifts, and another member’s gift', async () => {
@@ -203,7 +220,13 @@ describe('gifts and open loops', () => {
       body: 'I will review a backend architecture with you and leave annotated recommendations.',
     });
     const gift = (giftResult.data as Record<string, unknown>).entity as Record<string, unknown>;
-    await seedEntityEmbedding(gift.entityId as string, gift.entityVersionId as string, makeVector([1, 0, 0]));
+    const versionRows = await h.sql<{ id: string }>(
+      `select id
+       from current_entity_versions
+       where entity_id = $1`,
+      [gift.entityId as string],
+    );
+    await seedEntityEmbedding(gift.entityId as string, versionRows[0].id, makeVector([1, 0, 0]));
 
     const openResults = await findEntitiesViaEmbedding(h.pools.super, {
       actorMemberId: viewer.id,

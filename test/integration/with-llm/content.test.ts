@@ -12,6 +12,16 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
+function findListedFirstEntity(
+  listResult: Record<string, unknown>,
+  entityId: string,
+): Record<string, unknown> | undefined {
+  const results = (listResult.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+  return results
+    .map((thread) => thread.firstEntity as Record<string, unknown>)
+    .find((entity) => entity.entityId === entityId);
+}
+
 // ── Entities ──────────────────────────────────────────────────────────────────
 
 describe('entities', () => {
@@ -33,8 +43,7 @@ describe('entities', () => {
     assert.equal(version.state, 'published');
 
     const list = await h.apiOk(author.token, 'content.list', { clubId: owner.club.id });
-    const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const found = results.find((e) => e.entityId === entity.entityId);
+    const found = findListedFirstEntity(list as Record<string, unknown>, entity.entityId as string);
     assert.ok(found, 'created post should appear in content.list');
   });
 
@@ -52,8 +61,7 @@ describe('entities', () => {
     const entity = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
 
     const list = await h.apiOk(viewer.token, 'content.list', { clubId: owner.club.id });
-    const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const found = results.find((e) => e.entityId === entity.entityId);
+    const found = findListedFirstEntity(list as Record<string, unknown>, entity.entityId as string);
     assert.ok(found, 'club member should see post created by another member');
   });
 
@@ -103,8 +111,7 @@ describe('entities', () => {
     assert.equal(updatedVersion.summary, 'Partitioning, vacuuming, and connection pooling deep dive with real numbers');
 
     const list = await h.apiOk(author.token, 'content.list', { clubId: owner.club.id });
-    const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const found = results.find((e) => e.entityId === entityId) as Record<string, unknown> | undefined;
+    const found = findListedFirstEntity(list as Record<string, unknown>, entityId);
     assert.ok(found, 'updated entity should appear in list');
     const foundVersion = found!.version as Record<string, unknown>;
     assert.equal(foundVersion.title, 'Updated: Lessons from scaling Postgres to 500 million rows');
@@ -126,8 +133,7 @@ describe('entities', () => {
     await h.apiOk(author.token, 'content.remove', { entityId });
 
     const list = await h.apiOk(author.token, 'content.list', { clubId: owner.club.id });
-    const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const found = results.find((e) => e.entityId === entityId);
+    const found = findListedFirstEntity(list as Record<string, unknown>, entityId);
     assert.equal(found, undefined, 'removed post should not appear in content.list');
   });
 
@@ -174,7 +180,7 @@ describe('entities', () => {
       limit: 20,
     });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const foundKinds = new Set(results.map((e) => e.kind));
+    const foundKinds = new Set(results.map((thread) => (thread.firstEntity as Record<string, unknown>).kind));
     for (const kind of kinds) {
       assert.ok(foundKinds.has(kind), `list should include kind=${kind}`);
     }
@@ -188,23 +194,26 @@ describe('events', () => {
     const owner = await h.seedOwner('event-club-1', 'EventClub1');
     const member = await h.seedClubMember(owner.club.id, 'Iris Events', 'iris-event-1', { sponsorId: owner.id });
 
-    const created = await h.apiOk(member.token, 'events.create', {
+    const created = await h.apiOk(member.token, 'content.create', {
       clubId: owner.club.id,
+      kind: 'event',
       title: 'Monthly founders breakfast — May edition',
       summary: 'Casual breakfast at The Table in Shoreditch. We will go around the room and each share one thing we are stuck on and one thing working well. Bring your own coffee order, food is covered.',
-      location: 'The Table, 83 Southwark Street, London SE1',
-      startsAt: '2026-05-01T18:00:00Z',
-      endsAt: '2026-05-01T20:00:00Z',
-      timezone: 'Europe/London',
+      event: {
+        location: 'The Table, 83 Southwark Street, London SE1',
+        startsAt: '2026-05-01T18:00:00Z',
+        endsAt: '2026-05-01T20:00:00Z',
+        timezone: 'Europe/London',
+      },
     });
-    const event = (created.data as Record<string, unknown>).event as Record<string, unknown>;
+    const event = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
     assert.ok(event.entityId, 'event should have entityId');
-    assert.ok(event.entityVersionId, 'event should have entityVersionId');
     const version = event.version as Record<string, unknown>;
     assert.equal(version.title, 'Monthly founders breakfast — May edition');
-    assert.ok(version.startsAt, 'startsAt should be present');
-    assert.ok(version.endsAt, 'endsAt should be present');
-    assert.equal(version.timezone, 'Europe/London');
+    const eventFields = event.event as Record<string, unknown>;
+    assert.ok(eventFields.startsAt, 'startsAt should be present');
+    assert.ok(eventFields.endsAt, 'endsAt should be present');
+    assert.equal(eventFields.timezone, 'Europe/London');
 
     const list = await h.apiOk(member.token, 'events.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
@@ -217,23 +226,26 @@ describe('events', () => {
     const organizer = await h.seedClubMember(owner.club.id, 'Jack Organizer', 'jack-event-2', { sponsorId: owner.id });
     const attendee = await h.seedClubMember(owner.club.id, 'Kim Attendee', 'kim-event-2', { sponsorId: owner.id });
 
-    const created = await h.apiOk(organizer.token, 'events.create', {
+    const created = await h.apiOk(organizer.token, 'content.create', {
       clubId: owner.club.id,
+      kind: 'event',
       title: 'RSVP test event: design review and feedback session',
       summary: 'We will review the latest design mockups for the member dashboard, collect feedback, and prioritise the next sprint of UI work. Bring your laptop if you want to follow along in Figma. Link will be shared with confirmed attendees the day before.',
-      location: 'Zoom',
-      startsAt: '2026-06-15T10:00:00Z',
-      endsAt: '2026-06-15T11:30:00Z',
-      timezone: 'Europe/London',
+      event: {
+        location: 'Zoom',
+        startsAt: '2026-06-15T10:00:00Z',
+        endsAt: '2026-06-15T11:30:00Z',
+        timezone: 'Europe/London',
+      },
     });
-    const event = (created.data as Record<string, unknown>).event as Record<string, unknown>;
+    const event = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
     const eventEntityId = event.entityId as string;
 
     const rsvpResult = await h.apiOk(attendee.token, 'events.rsvp', {
       eventEntityId,
       response: 'yes',
     });
-    const rsvpedEvent = (rsvpResult.data as Record<string, unknown>).event as Record<string, unknown>;
+    const rsvpedEvent = (rsvpResult.data as Record<string, unknown>).entity as Record<string, unknown>;
     const rsvps = rsvpedEvent.rsvps as Record<string, unknown>;
     assert.equal(rsvps.viewerResponse, 'yes');
     const counts = rsvps.counts as Record<string, number>;
@@ -245,16 +257,19 @@ describe('events', () => {
     const creator = await h.seedClubMember(owner.club.id, 'Leo Creator', 'leo-event-3', { sponsorId: owner.id });
     const viewer = await h.seedClubMember(owner.club.id, 'Mia Viewer', 'mia-event-3', { sponsorId: owner.id });
 
-    const created = await h.apiOk(creator.token, 'events.create', {
+    const created = await h.apiOk(creator.token, 'content.create', {
       clubId: owner.club.id,
+      kind: 'event',
       title: 'Open office hours: ask me anything about fundraising',
       summary: 'I raised a $2M seed round last year and am happy to share what I learned. Drop in with questions about pitch decks, term sheets, investor outreach, or anything else related to early-stage fundraising. Link will be shared with RSVPs.',
-      location: 'Google Meet',
-      startsAt: '2026-07-01T14:00:00Z',
-      endsAt: '2026-07-01T15:30:00Z',
-      timezone: 'Europe/London',
+      event: {
+        location: 'Google Meet',
+        startsAt: '2026-07-01T14:00:00Z',
+        endsAt: '2026-07-01T15:30:00Z',
+        timezone: 'Europe/London',
+      },
     });
-    const event = (created.data as Record<string, unknown>).event as Record<string, unknown>;
+    const event = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
 
     const list = await h.apiOk(viewer.token, 'events.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
@@ -266,31 +281,34 @@ describe('events', () => {
     const owner = await h.seedOwner('event-club-4', 'EventClub4');
     const member = await h.seedClubMember(owner.club.id, 'Ned Fields', 'ned-event-4', { sponsorId: owner.id });
 
-    const created = await h.apiOk(member.token, 'events.create', {
+    const created = await h.apiOk(member.token, 'content.create', {
       clubId: owner.club.id,
+      kind: 'event',
       title: 'Full-day workshop: building production-ready APIs with TypeScript and Postgres',
       summary: 'Hands-on workshop covering schema design, connection pooling, RLS policies, and deployment. We will build a complete API from scratch by the end of the day.',
       body: 'This is a full-day intensive workshop for backend engineers who want to level up their API skills. We will cover schema design with row-level security, connection pooling with PgBouncer, testing strategies, and zero-downtime deployments. Lunch and snacks provided.',
-      location: 'WeWork, 115 Broadway, New York, NY 10006',
-      startsAt: '2026-07-10T09:00:00Z',
-      endsAt: '2026-07-10T17:00:00Z',
-      timezone: 'America/New_York',
-      capacity: 50,
+      event: {
+        location: 'WeWork, 115 Broadway, New York, NY 10006',
+        startsAt: '2026-07-10T09:00:00Z',
+        endsAt: '2026-07-10T17:00:00Z',
+        timezone: 'America/New_York',
+        capacity: 50,
+      },
     });
-    const event = (created.data as Record<string, unknown>).event as Record<string, unknown>;
+    const event = (created.data as Record<string, unknown>).entity as Record<string, unknown>;
     assert.ok(event.entityId, 'should have entityId');
-    assert.ok(event.entityVersionId, 'should have entityVersionId');
     assert.ok(event.clubId, 'should have clubId');
     assert.ok(event.author, 'should have author');
     assert.ok(event.createdAt, 'should have createdAt');
 
     const version = event.version as Record<string, unknown>;
     assert.equal(version.title, 'Full-day workshop: building production-ready APIs with TypeScript and Postgres');
-    assert.ok(version.startsAt, 'startsAt should be present');
-    assert.ok(version.endsAt, 'endsAt should be present');
-    assert.equal(version.timezone, 'America/New_York');
-    assert.equal(version.capacity, 50);
     assert.equal(version.state, 'published');
+    const eventFields = event.event as Record<string, unknown>;
+    assert.ok(eventFields.startsAt, 'startsAt should be present');
+    assert.ok(eventFields.endsAt, 'endsAt should be present');
+    assert.equal(eventFields.timezone, 'America/New_York');
+    assert.equal(eventFields.capacity, 50);
 
     const rsvps = event.rsvps as Record<string, unknown>;
     assert.ok(rsvps, 'should have rsvps block');

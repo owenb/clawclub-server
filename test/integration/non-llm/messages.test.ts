@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
+import { seedPublishedEntity } from '../helpers.ts';
 function decodeCursor(cursor: string): { s: number; t: string } {
   return JSON.parse(Buffer.from(cursor, 'base64url').toString());
 }
@@ -616,19 +617,17 @@ describe('updates', () => {
 
     // Create activity by seeding entities directly (avoids quality gate)
     for (let i = 0; i < 5; i++) {
-      const [ent] = await h.sql<{ id: string }>(
-        `insert into entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id`,
-        [owner.club.id, alice.id],
-      );
+      const seeded = await seedPublishedEntity(h, {
+        clubId: owner.club.id,
+        authorMemberId: alice.id,
+        kind: 'post',
+        title: `Limit post ${i}`,
+        body: 'Body',
+      });
       await h.sql(
-        `insert into entity_versions (entity_id, version_no, state, title, body, created_by_member_id)
-         values ($1, 1, 'published', $2, 'Body', $3)`,
-        [ent!.id, `Limit post ${i}`, alice.id],
-      );
-      await h.sql(
-        `insert into club_activity (club_id, entity_id, topic, created_by_member_id)
-         values ($1, $2, 'entity.version.published', $3)`,
-        [owner.club.id, ent!.id, alice.id],
+        `insert into club_activity (club_id, entity_id, entity_version_id, topic, created_by_member_id)
+         values ($1, $2, $3, 'entity.version.published', $4)`,
+        [owner.club.id, seeded.entityId, seeded.entityVersionId, alice.id],
       );
     }
 

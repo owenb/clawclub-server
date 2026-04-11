@@ -55,8 +55,7 @@ Action families and individual actions:
 - `clubadmin.admissions.setStatus` — advance an admission through statuses
 - `clubadmin.admissions.issueAccessToken` — issue a bearer token for an accepted admission
 - `clubadmin.clubs.getStatistics` — get statistics for a club
-- `clubadmin.content.remove` — remove any entity in a club (moderation; reason required)
-- `clubadmin.events.remove` — remove any event in a club (moderation; reason required)
+- `clubadmin.content.remove` — remove any public content entity in a club, including events (moderation; reason required)
 
 **Club Owner**
 - `clubowner.members.promoteToAdmin` — promote a club member to admin role (owner only)
@@ -73,18 +72,18 @@ Action families and individual actions:
 - `profile.list` — read a member's visible club profiles; omit `memberId` for the current actor
 - `profile.update` — update the current actor's club-scoped profile fields (always requires `clubId`)
 
-**Content** (posts, opportunities, services, asks)
-- `content.create` — publish a new entity (subject to legality gate)
-- `content.list` — list entities with optional kind/query filters
+**Content** (all public threaded content, including events)
+- `content.create` — publish a new thread subject or reply in an existing thread (subject to legality gate)
+- `content.getThread` — read a public content thread by `threadId` or any `entityId` inside it; supports `includeClosed` for closed-loop thread reads
+- `content.list` — list public content threads with optional kind/query filters
 - `content.update` — update an existing entity (author only, subject to legality gate)
 - `content.remove` — remove an entity (author only; optional reason)
 - `content.searchBySemanticSimilarity` — semantic entity search via embedding similarity (requires `OPENAI_API_KEY`)
 
 **Events**
-- `events.create` — create an event (requires `title`, `summary`, `location`, `startsAt`; subject to legality gate)
 - `events.list` — list upcoming events with optional query/club filter
 - `events.rsvp` — RSVP to an event (`yes`, `maybe`, `no`, `waitlist`)
-- `events.remove` — remove an event (author only; optional reason)
+- `events.cancelRsvp` — cancel the actor's RSVP without removing the event
 
 **Messages**
 - `messages.send` — send a DM to another member
@@ -119,7 +118,7 @@ The schema is the only reliable source for field names and types. This list high
 - `admissions.public.submitApplication` does not take `clubSlug` — the club is bound to the challenge
 - `clubadmin.memberships.create` creates the membership in `invited` status, not `active` — a club admin must transition it to `active` separately
 - `clubadmin.memberships.create` and `clubadmin.memberships.setStatus` do **not** manage admin roles. Only `clubowner.members.promoteToAdmin` and `clubowner.members.demoteFromAdmin` change who is a club admin.
-- `content.remove` and `events.remove` are **author-only** — club admins use `clubadmin.content.remove` / `clubadmin.events.remove` (requires a reason)
+- `content.remove` is **author-only** for all public content kinds, including events — club admins use `clubadmin.content.remove` (requires a reason)
 - All `clubadmin.*` actions require an explicit `clubId` — no scope inference
 - `superadmin` is platform-operator access. A superadmin can call `clubadmin.*` and `clubowner.*` actions without being a member of that club.
 - DMs are **not** club-scoped. Shared clubs only matter when starting a thread. Once a thread exists, it remains replyable even if shared clubs later drop to zero.
@@ -131,7 +130,7 @@ There is no slug-to-ID lookup action. Club IDs are returned by `session.getConte
 
 ### `clubId` behavior
 
-When omitted on read actions, the server searches all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). Write actions (`content.create`, `events.create`) always require `clubId`. `messages.send` does **not** take `clubId` — DMs are not club-scoped.
+When omitted on read actions, the server searches all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). `content.create` requires `clubId` when starting a new thread and uses `threadId` when replying inside an existing thread. `messages.send` does **not** take `clubId` — DMs are not club-scoped.
 
 ### `body` vs `content`
 
@@ -148,13 +147,13 @@ Three actions for finding members and content:
 
 - `members.searchByFullText` — PostgreSQL full-text search across member profiles with handle/name prefix boosting. Input: `query`, optional `clubId`, `limit`. Use for exact name/handle lookups and keyword searches.
 - `members.searchBySemanticSimilarity` — semantic search via embedding similarity (e.g. "someone who knows about sustainable architecture"). Input: `query` (max 1000 chars), optional `clubId`, `limit`. Requires `OPENAI_API_KEY` — returns 503 if unavailable.
-- `content.searchBySemanticSimilarity` — semantic entity search via embedding similarity. Input: `query` (max 1000 chars), optional `clubId`, optional `kinds`, `limit`. Returns `EntitySummary[]`. Requires `OPENAI_API_KEY` — returns 503 if unavailable.
+- `content.searchBySemanticSimilarity` — semantic entity search via embedding similarity. Input: `query` (max 1000 chars), optional `clubId`, optional `kinds`, `limit`. Returns content entities with a numeric `score` field. Requires `OPENAI_API_KEY` — returns 503 if unavailable.
 
 All respect club scope. Lexical and semantic search are separate — no hidden fallback between modes.
 
 ### Default quotas
 
-Daily quotas per member per club: content 30, events 20. Clubs can override these defaults. Admins and owners get 3x the base limit. Exceeding returns 429 `quota_exceeded`. Direct messages are not subject to quotas.
+Daily quotas are unified under `content.create`: 50 public-content creates per member per club by default, across posts, asks, services, opportunities, gifts, events, and replies. Clubs can override this base. Admins and owners get 3x the base limit. Exceeding returns 429 `quota_exceeded`. Direct messages are not subject to quotas.
 
 ---
 
@@ -312,9 +311,9 @@ Discover clubs from `session.getContext`, not from hardcoded values. If the huma
 
 ## What exists in the system
 
-Primitives: member, club (`clubId`), membership, entity (post/opportunity/service/ask), event, admission, message thread, message, update, vouch.
+Primitives: member, club (`clubId`), membership, public content thread, entity, event RSVP, admission, message thread, message, update, vouch.
 
-Entity kinds: `post`, `opportunity`, `service`, `ask`
+Entity kinds: `post`, `opportunity`, `service`, `ask`, `gift`, `event`
 
 Event RSVP states: `yes`, `maybe`, `no`, `waitlist`
 
@@ -354,16 +353,21 @@ Before calling `content.create`, verify that the user intends to address the clu
 
 Treat this as publish-now, not draft-save.
 
+- Every public entity belongs to a thread. Omit `threadId` to start a new thread; pass `threadId` to reply inside an existing thread.
+- There is no separate reply kind. Replies are just additional public entities inside the same thread.
+
 - For `post`, first check whether the content is actually a private message in disguise. Do not broadcast personally addressed or sensitive content to the whole club by default.
 - `post` — do not publish generic filler or a body with no concrete point
 - `opportunity` — ask for what it is, who it is for, how to engage, and compensation/budget or an explicit note that it is negotiable or voluntary
 - `service` — ask what is offered, who it is for, and how to engage
 - `ask` — ask for enough context that someone can tell whether they can help
+- `gift` — ask what is being offered, who it is for, and how someone should take you up on it
+- `event` — ask for the title plus an `event` payload with at least location and start time; include end time, timezone, and capacity when relevant
 
 If the user is vague, ask one or two focused questions before posting.
 
 ### Create an event
-Treat `events.create` as publish-ready, not a draft save. Ask for: what it is called, when it starts, enough description for someone to decide whether to attend, and timezone if the time could be ambiguous.
+Events are created through `content.create` with `kind: "event"`, not through a separate `events.create` action. Treat that call as publish-ready, not draft-save. Ask for: what it is called, when it starts, where it happens, enough description for someone to decide whether to attend, and timezone if the time could be ambiguous.
 
 ### DM a member
 Keep messages clear and human. Do not reveal which clubs the recipient belongs to. Never send a message to the user themselves. **DMs are not club-scoped — `messages.send` does not take a `clubId`.** A shared club is only an eligibility check for whether a thread can be started in the first place; once that's satisfied, do not ask the user to pick a club. Existing threads remain replyable even if the participants no longer share any club.
@@ -390,7 +394,7 @@ Short factual changes are fine. Push back only when the human is asking you to i
 
 ### `quotas.getUsage`
 
-Use this when the human asks how much posting or event allowance is left, or after a 429 `quota_exceeded` response. Returns the effective daily limit after applying role multiplier (admins/owners get 3x), current usage, and remaining allowance for each club. DMs are not included.
+Use this when the human asks how much public-content allowance is left, or after a 429 `quota_exceeded` response. Returns the effective daily limit after applying role multiplier (admins/owners get 3x), current usage, and remaining allowance for each club. DMs are not included.
 
 ### `updates.list` / `updates.acknowledge`
 
@@ -404,7 +408,7 @@ Ask the user for the club slug if you don't already have it — there is no slug
 
 ## Legality gate
 
-Gated actions: `content.create`, `content.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`.
+Gated actions: `content.create`, `content.update`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`.
 
 The gate blocks submissions that solicit or facilitate **clearly illegal activity** — solicitation of violence, CSAM, fraud, forgery, trafficking of controlled substances. It does NOT reject offensive, profane, vulgar, low-quality, or politically extreme content. Offensive-but-legal content will pass.
 
@@ -412,7 +416,7 @@ If the gate is unavailable (provider outage, missing API key), the action fails 
 
 Error codes from the gate:
 - `illegal_content` (422) — the submission solicits or facilitates illegal activity, with an explanation
-- `gate_rejected` (422) — action-specific quality check failed (e.g. events with missing details)
+- `gate_rejected` (422) — action-specific quality check failed after the request passed schema validation
 - `gate_unavailable` (503) — the LLM provider is unreachable or unconfigured
 
 Optimized for relevance, not engagement. Quality over quantity. Clarity over hype. Do not publish vague content when a question would fix it.

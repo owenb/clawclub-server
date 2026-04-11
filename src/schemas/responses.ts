@@ -228,28 +228,12 @@ export const memberProfileEnvelope = z.object({
 
 // ── Entities ─────────────────────────────────────────────
 
-export const entitySummary = z.object({
-  entityId: z.string(),
-  entityVersionId: z.string(),
-  clubId: z.string(),
-  kind: entityKind,
-  openLoop: z.boolean().nullable(),
-  author: memberRef,
-  version: z.object({
-    versionNo: z.number(),
-    state: entityState,
-    title: z.string().nullable(),
-    summary: z.string().nullable(),
-    body: z.string().nullable(),
-    effectiveAt: z.string(),
-    expiresAt: z.string().nullable(),
-    createdAt: z.string(),
-    content: z.record(z.string(), z.unknown()),
-  }),
-  createdAt: z.string(),
+export const contentAuthorRef = z.object({
+  memberId: z.string(),
+  publicName: z.string(),
+  handle: z.string().nullable(),
+  displayName: z.string(),
 });
-
-// ── Events ───────────────────────────────────────────────
 
 export const eventRsvpAttendee = z.object({
   membershipId: z.string(),
@@ -261,35 +245,71 @@ export const eventRsvpAttendee = z.object({
   createdAt: z.string(),
 });
 
-export const eventSummary = z.object({
+export const contentEntity = z.object({
   entityId: z.string(),
-  entityVersionId: z.string(),
+  contentThreadId: z.string(),
   clubId: z.string(),
-  author: memberRef,
+  kind: entityKind,
+  openLoop: z.boolean().nullable(),
+  author: contentAuthorRef,
   version: z.object({
     versionNo: z.number(),
     state: entityState,
     title: z.string().nullable(),
     summary: z.string().nullable(),
     body: z.string().nullable(),
+    effectiveAt: z.string(),
+    expiresAt: z.string().nullable(),
+    createdAt: z.string(),
+    content: z.record(z.string(), z.unknown()),
+  }),
+  event: z.object({
     location: z.string().nullable(),
     startsAt: z.string().nullable(),
     endsAt: z.string().nullable(),
     timezone: z.string().nullable(),
     recurrenceRule: z.string().nullable(),
     capacity: z.number().nullable(),
-    effectiveAt: z.string(),
-    expiresAt: z.string().nullable(),
-    createdAt: z.string(),
-    content: z.record(z.string(), z.unknown()),
-  }),
+  }).nullable(),
   rsvps: z.object({
     viewerResponse: eventRsvpState.nullable(),
-    counts: z.record(eventRsvpState, z.number()),
+    counts: z.object({
+      yes: z.number(),
+      maybe: z.number(),
+      no: z.number(),
+      waitlist: z.number(),
+    }),
     attendees: z.array(eventRsvpAttendee),
-  }),
+  }).nullable(),
   createdAt: z.string(),
 });
+
+export const contentEntitySearchResult = contentEntity.extend({
+  score: z.number(),
+});
+
+export const contentThreadSummary = z.object({
+  threadId: z.string(),
+  clubId: z.string(),
+  firstEntity: contentEntity,
+  thread: z.object({
+    entityCount: z.number(),
+    lastActivityAt: z.string(),
+  }),
+});
+
+export const contentThread = z.object({
+  threadId: z.string(),
+  clubId: z.string(),
+  entities: z.array(contentEntity),
+  entityCount: z.number(),
+  lastActivityAt: z.string(),
+  hasMore: z.boolean(),
+  nextCursor: z.string().nullable(),
+});
+
+export const entitySummary = contentEntity;
+export const eventSummary = contentEntity;
 
 // ── Messages ─────────────────────────────────────────────
 
@@ -511,6 +531,7 @@ export const adminClubStats = z.object({
 
 export const adminContentSummary = z.object({
   entityId: z.string(),
+  contentThreadId: z.string(),
   clubId: z.string(),
   clubName: z.string(),
   kind: entityKind,

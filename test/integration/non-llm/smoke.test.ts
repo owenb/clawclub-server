@@ -61,7 +61,7 @@ describe('smoke', () => {
       }>;
     };
     assert.ok(data.version, 'schema should have a version');
-    assert.equal(data.actions.length, 73, 'schema should have all 73 actions');
+    assert.equal(data.actions.length, 72, 'schema should have all 72 actions');
 
     for (const a of data.actions) {
       assert.ok(a.input, `${a.action} should have input schema`);
@@ -215,8 +215,9 @@ describe('smoke', () => {
     assert.ok(template, 'should include requestTemplate');
     assert.equal(template.action, 'content.create');
     const input = template.input as Record<string, string>;
-    assert.ok(input.clubId, 'template should show clubId');
-    assert.ok(input.clubId.includes('required'), 'clubId should be marked required');
+    assert.ok(input.kind, 'template should show kind');
+    assert.ok(input.kind.includes('one of'), 'kind should be described as the required enum selector');
+    assert.equal(input.clubId, '(string, optional)');
   });
 
   it('error response includes generic requestTemplate when action is missing', async () => {

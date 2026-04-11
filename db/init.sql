@@ -73,10 +73,10 @@ CREATE TYPE subscription_status AS ENUM ('trialing', 'active', 'past_due', 'paus
 CREATE TYPE billing_interval AS ENUM ('month', 'year', 'manual');
 
 -- Content
-CREATE TYPE entity_kind AS ENUM ('post', 'opportunity', 'service', 'ask', 'gift', 'event', 'comment', 'complaint');
+CREATE TYPE entity_kind AS ENUM ('post', 'opportunity', 'service', 'ask', 'gift', 'event', 'complaint');
 CREATE TYPE entity_state AS ENUM ('draft', 'published', 'removed');
 CREATE TYPE edge_kind AS ENUM ('vouched_for', 'about', 'related_to', 'mentions');
-CREATE TYPE rsvp_state AS ENUM ('yes', 'maybe', 'no', 'waitlist');
+CREATE TYPE rsvp_state AS ENUM ('yes', 'maybe', 'no', 'waitlist', 'cancelled');
 
 -- Admissions
 CREATE TYPE application_status AS ENUM ('draft', 'submitted', 'interview_scheduled', 'interview_completed', 'accepted', 'declined', 'withdrawn');
@@ -591,12 +591,31 @@ CREATE UNIQUE INDEX club_subscriptions_one_live_per_membership
 -- Tables: Content
 -- ============================================================
 
+CREATE TABLE content_threads (
+    id                      short_id DEFAULT new_id() NOT NULL,
+    club_id                 short_id NOT NULL,
+    created_by_member_id    short_id NOT NULL,
+    last_activity_at        timestamptz DEFAULT now() NOT NULL,
+    created_at              timestamptz DEFAULT now() NOT NULL,
+    archived_at             timestamptz,
+
+    CONSTRAINT content_threads_pkey PRIMARY KEY (id),
+    CONSTRAINT content_threads_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT content_threads_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
+);
+
+CREATE UNIQUE INDEX content_threads_id_club_idx ON content_threads (id, club_id);
+CREATE INDEX content_threads_club_activity_idx
+    ON content_threads (club_id, last_activity_at DESC, id DESC)
+    WHERE archived_at IS NULL;
+
 CREATE TABLE entities (
     id                  short_id DEFAULT new_id() NOT NULL,
     club_id             short_id NOT NULL,
     kind                entity_kind NOT NULL,
     author_member_id    short_id NOT NULL,
     open_loop           boolean,
+    content_thread_id   short_id NOT NULL,
     parent_entity_id    short_id,
     client_key          text,
     created_at          timestamptz DEFAULT now() NOT NULL,
@@ -605,9 +624,6 @@ CREATE TABLE entities (
     metadata            jsonb DEFAULT '{}' NOT NULL,
 
     CONSTRAINT entities_pkey PRIMARY KEY (id),
-    CONSTRAINT entities_comment_parent_check CHECK (
-        (kind = 'comment' AND parent_entity_id IS NOT NULL) OR kind <> 'comment'
-    ),
     CONSTRAINT entities_open_loop_kind_check CHECK (
         (
             kind IN ('ask', 'gift', 'service', 'opportunity')
@@ -620,6 +636,8 @@ CREATE TABLE entities (
     ),
     CONSTRAINT entities_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
     CONSTRAINT entities_author_fkey FOREIGN KEY (author_member_id) REFERENCES members(id),
+    CONSTRAINT entities_content_thread_same_club_fkey
+        FOREIGN KEY (content_thread_id, club_id) REFERENCES content_threads (id, club_id),
     CONSTRAINT entities_parent_fkey FOREIGN KEY (parent_entity_id) REFERENCES entities(id)
 );
 
@@ -628,6 +646,9 @@ CREATE UNIQUE INDEX entities_idempotent_idx
 CREATE INDEX entities_club_kind_idx ON entities (club_id, kind, created_at DESC);
 CREATE INDEX entities_author_idx ON entities (author_member_id, created_at DESC);
 CREATE INDEX entities_parent_idx ON entities (parent_entity_id);
+CREATE INDEX entities_thread_created_idx
+    ON entities (content_thread_id, created_at ASC, id ASC)
+    WHERE archived_at IS NULL AND deleted_at IS NULL;
 CREATE INDEX entities_live_idx ON entities (club_id, kind) WHERE archived_at IS NULL AND deleted_at IS NULL;
 
 -- ── Entity versions ────────────────────────────────────────
@@ -1110,7 +1131,7 @@ CREATE TABLE quota_policies (
 
     CONSTRAINT quota_policies_pkey PRIMARY KEY (id),
     CONSTRAINT quota_policies_action_check CHECK (
-        action_name IN ('content.create', 'events.create')
+        action_name IN ('content.create')
     ),
     CONSTRAINT quota_policies_max_check CHECK (max_per_day > 0),
     CONSTRAINT quota_policies_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
@@ -1131,8 +1152,7 @@ CREATE UNIQUE INDEX quota_policies_club_action_unique
 
 -- Global default quotas (bootstrap data)
 INSERT INTO quota_policies (scope, club_id, action_name, max_per_day) VALUES
-    ('global', NULL, 'content.create', 30),
-    ('global', NULL, 'events.create',  20);
+    ('global', NULL, 'content.create', 50);
 
 CREATE TABLE ai_llm_usage_log (
     id                      short_id DEFAULT new_id() NOT NULL,
@@ -1510,6 +1530,7 @@ CREATE VIEW live_entities AS
         e.kind,
         e.open_loop,
         e.author_member_id,
+        e.content_thread_id,
         e.parent_entity_id,
         e.created_at        AS entity_created_at,
         pev.id              AS entity_version_id,

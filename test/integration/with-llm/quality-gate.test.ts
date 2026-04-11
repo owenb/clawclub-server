@@ -75,30 +75,36 @@ describe('legality gate: passes legal content regardless of quality', () => {
 
   it('passes a generic filler summary in an event (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-event-2b', 'QG Event Club 2b');
-    const result = await h.apiOk(owner.token, 'events.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
+      kind: 'event',
       title: 'Meetup',
       summary: 'Come hang out.',
-      location: 'Online',
-      startsAt: '2026-05-15T18:00:00Z',
+      event: {
+        location: 'Online',
+        startsAt: '2026-05-15T18:00:00Z',
+      },
     });
-    const event = (result.data as Record<string, unknown>).event as Record<string, unknown>;
+    const event = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
     assert.ok(event.entityId);
   });
 
   it('passes a well-formed event', async () => {
     const owner = await h.seedOwner('qg-event-3', 'QG Event Club 3');
-    const result = await h.apiOk(owner.token, 'events.create', {
+    const result = await h.apiOk(owner.token, 'content.create', {
       clubId: owner.club.id,
+      kind: 'event',
       title: 'Monthly founders breakfast — May edition',
       summary: 'Casual breakfast at The Table in Shoreditch. We will go around the table and each share one thing we are stuck on and one thing that is working. Bring your own coffee order, food is covered.',
-      location: 'The Table, 83 Southwark Street, London SE1',
-      startsAt: '2026-05-15T08:30:00Z',
-      endsAt: '2026-05-15T10:00:00Z',
-      timezone: 'Europe/London',
-      capacity: 12,
+      event: {
+        location: 'The Table, 83 Southwark Street, London SE1',
+        startsAt: '2026-05-15T08:30:00Z',
+        endsAt: '2026-05-15T10:00:00Z',
+        timezone: 'Europe/London',
+        capacity: 12,
+      },
     });
-    const event = (result.data as Record<string, unknown>).event as Record<string, unknown>;
+    const event = (result.data as Record<string, unknown>).entity as Record<string, unknown>;
     assert.ok(event.entityId);
   });
 
@@ -146,22 +152,28 @@ describe('legality gate: passes legal content regardless of quality', () => {
 describe('legality gate: schema validation still applies', () => {
   it('rejects an event missing required fields (no startsAt)', async () => {
     const owner = await h.seedOwner('qg-event-1', 'QG Event Club 1');
-    const err = await h.apiErr(owner.token, 'events.create', {
+    const err = await h.apiErr(owner.token, 'content.create', {
       clubId: owner.club.id,
+      kind: 'event',
       title: 'Meetup',
       summary: 'Come hang out.',
-      location: 'Online',
+      event: {
+        location: 'Online',
+      },
     }, 'invalid_input');
     assert.equal(err.status, 400);
   });
 
-  it('rejects an event missing required fields (no summary)', async () => {
+  it('rejects an event missing required fields (no location)', async () => {
     const owner = await h.seedOwner('qg-event-2', 'QG Event Club 2');
-    const err = await h.apiErr(owner.token, 'events.create', {
+    const err = await h.apiErr(owner.token, 'content.create', {
       clubId: owner.club.id,
+      kind: 'event',
       title: 'Meetup',
-      location: 'Online',
-      startsAt: '2026-05-15T18:00:00Z',
+      summary: 'Come hang out.',
+      event: {
+        startsAt: '2026-05-15T18:00:00Z',
+      },
     }, 'invalid_input');
     assert.equal(err.status, 400);
   });

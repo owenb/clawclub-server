@@ -463,7 +463,7 @@ function makeProfile(memberId = 'member-1', clubIds = ['club-1']): MemberProfile
 function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
   return {
     entityId: 'entity-1',
-    entityVersionId: 'entity-version-1',
+    contentThreadId: 'thread-1',
     clubId: 'club-1',
     kind: 'post',
     openLoop: null,
@@ -471,6 +471,7 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
       memberId: 'member-1',
       publicName: 'Member One',
       handle: 'member-one',
+      displayName: 'Member One',
       ...(overrides.author ?? {}),
     },
     version: {
@@ -483,9 +484,10 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
       expiresAt: null,
       createdAt: '2026-03-12T00:00:00Z',
       content: {},
-      embedding: null,
       ...(overrides.version ?? {}),
     },
+    event: null,
+    rsvps: null,
     createdAt: '2026-03-12T00:00:00Z',
     ...overrides,
   };
@@ -494,12 +496,15 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
 function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
   return {
     entityId: 'event-1',
-    entityVersionId: 'event-version-1',
+    contentThreadId: 'thread-1',
     clubId: 'club-1',
+    kind: 'event',
+    openLoop: null,
     author: {
       memberId: 'member-1',
       publicName: 'Member One',
       handle: 'member-one',
+      displayName: 'Member One',
       ...(overrides.author ?? {}),
     },
     version: {
@@ -508,16 +513,20 @@ function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
       title: 'Dinner',
       summary: 'Shared meal',
       body: 'Let us gather.',
-      startsAt: '2026-03-20T19:00:00Z',
-      endsAt: '2026-03-20T21:00:00Z',
-      timezone: 'UTC',
-      recurrenceRule: null,
-      capacity: 8,
       effectiveAt: '2026-03-12T00:00:00Z',
       expiresAt: null,
       createdAt: '2026-03-12T00:00:00Z',
       content: {},
       ...(overrides.version ?? {}),
+    },
+    event: {
+      location: 'Hackney, London',
+      startsAt: '2026-03-20T19:00:00Z',
+      endsAt: '2026-03-20T21:00:00Z',
+      timezone: 'UTC',
+      recurrenceRule: null,
+      capacity: 8,
+      ...(overrides.event ?? {}),
     },
     rsvps: {
       viewerResponse: null,
@@ -526,6 +535,19 @@ function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
       ...(overrides.rsvps ?? {}),
     },
     createdAt: '2026-03-12T00:00:00Z',
+    ...overrides,
+  };
+}
+
+function makeThreadSummary(overrides: Record<string, unknown> = {}) {
+  return {
+    threadId: 'thread-1',
+    clubId: 'club-1',
+    firstEntity: makeEntity(),
+    thread: {
+      entityCount: 1,
+      lastActivityAt: '2026-03-12T00:00:00Z',
+    },
     ...overrides,
   };
 }
@@ -1860,7 +1882,7 @@ test('content.update rejects non-author updates', async () => {
   );
 });
 
-test('events.create writes the smallest sane event payload', async () => {
+test('content.create(kind=event) writes the smallest sane event payload', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
@@ -1885,9 +1907,13 @@ test('events.create writes the smallest sane event payload', async () => {
     async updateEntity() {
       return makeEntity();
     },
-    async createEvent(input) {
+    async createEntity(input) {
       capturedInput = input as Record<string, unknown>;
-      return makeEvent({ clubId: input.clubId, version: { ...makeEvent().version, title: input.title, capacity: input.capacity } });
+      return makeEvent({
+        clubId: input.clubId ?? 'club-2',
+        version: { ...makeEvent().version, title: input.title },
+        event: { ...makeEvent().event!, capacity: input.event?.capacity ?? null },
+      });
     },
     async listEvents() {
       return { results: [makeEvent()], hasMore: false, nextCursor: null };
@@ -1940,38 +1966,44 @@ test('events.create writes the smallest sane event payload', async () => {
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'events.create',
+    action: 'content.create',
     payload: {
       clubId: 'club-2',
+      kind: 'event',
       title: 'Supper club',
       summary: 'Monthly supper club in Hackney',
-      location: 'Hackney, London',
-      startsAt: '2026-03-20T19:00:00Z',
-      endsAt: '2026-03-20T21:00:00Z',
-      timezone: 'UTC',
-      capacity: 12,
       content: { locationHint: 'Hackney' },
+      event: {
+        location: 'Hackney, London',
+        startsAt: '2026-03-20T19:00:00Z',
+        endsAt: '2026-03-20T21:00:00Z',
+        timezone: 'UTC',
+        capacity: 12,
+      },
     },
   });
 
   assert.deepEqual(capturedInput, {
     authorMemberId: 'member-1',
     clubId: 'club-2',
+    kind: 'event',
     title: 'Supper club',
     summary: 'Monthly supper club in Hackney',
-    location: 'Hackney, London',
     body: null,
-    startsAt: '2026-03-20T19:00:00Z',
-    endsAt: '2026-03-20T21:00:00Z',
-    timezone: 'UTC',
-    recurrenceRule: null,
-    capacity: 12,
     expiresAt: null,
     content: { locationHint: 'Hackney' },
     clientKey: null,
+    event: {
+      location: 'Hackney, London',
+      startsAt: '2026-03-20T19:00:00Z',
+      endsAt: '2026-03-20T21:00:00Z',
+      timezone: 'UTC',
+      recurrenceRule: null,
+      capacity: 12,
+    },
   });
-  assert.equal(result.action, 'events.create');
-  assert.equal(result.data.event.clubId, 'club-2');
+  assert.equal(result.action, 'content.create');
+  assert.equal(result.data.entity.clubId, 'club-2');
 });
 
 test('events.list stays inside accessible scope and forwards optional query', async () => {
@@ -2159,7 +2191,7 @@ test('events.rsvp uses the actor membership in the event club', async () => {
     ],
   });
   assert.equal(result.action, 'events.rsvp');
-  assert.equal(result.data.event.rsvps.viewerResponse, 'yes');
+  assert.equal(result.data.entity.rsvps.viewerResponse, 'yes');
 });
 
 test('content.list can span accessible clubs and filter by kinds with optional query', async () => {
@@ -2198,7 +2230,7 @@ test('content.list can span accessible clubs and filter by kinds with optional q
     },
     async listEntities(input) {
       capturedInput = input;
-      return { results: [{ ...makeEntity(), kind: 'ask' }], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ firstEntity: { ...makeEntity(), kind: 'ask' } })], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2220,11 +2252,11 @@ test('content.list can span accessible clubs and filter by kinds with optional q
     limit: 5,
     query: 'backend',
     includeClosed: false,
-    rawCursor: null,
+    cursor: null,
   });
   assert.equal(result.action, 'content.list');
   assert.equal(result.data.query, 'backend');
-  assert.equal(result.data.results[0]?.kind, 'ask');
+  assert.equal(result.data.results[0]?.firstEntity.kind, 'ask');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-1', 'club-2']);
 });
 

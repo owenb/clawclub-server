@@ -1,6 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
+import { seedPublishedEntity } from '../helpers.ts';
 
 let h: TestHarness;
 
@@ -1259,14 +1260,14 @@ describe('accessTokens.revoke', () => {
 
 describe('quotas.getUsage', () => {
   it('returns quota rows from global defaults with no club overrides', async () => {
-    // Owner gets 3x multiplier on global defaults (content.create=30, events.create=20)
+    // Owner gets 3x multiplier on the unified global default (content.create=50)
     const ownerCtx = await h.seedOwner('quota-club', 'Quota Club');
 
     const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});
     const data = result.data as Record<string, unknown>;
     const quotas = data.quotas as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(quotas));
-    assert.ok(quotas.length >= 2, 'should return at least content.create and events.create from global defaults');
+    assert.equal(quotas.length, 1, 'should return only the unified content.create quota');
     for (const quota of quotas) {
       assert.ok(typeof quota.action === 'string');
       assert.ok(typeof quota.clubId === 'string');
@@ -1277,10 +1278,7 @@ describe('quotas.getUsage', () => {
     // Owner gets 3x the global default
     const contentQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
     assert.ok(contentQuota, 'content.create quota should exist from global defaults');
-    assert.equal(contentQuota!.maxPerDay, 90, 'owner gets 3x the global default of 30');
-    const eventQuota = quotas.find((q) => q.action === 'events.create' && q.clubId === ownerCtx.club.id);
-    assert.ok(eventQuota, 'events.create quota should exist from global defaults');
-    assert.equal(eventQuota!.maxPerDay, 60, 'owner gets 3x the global default of 20');
+    assert.equal(contentQuota!.maxPerDay, 150, 'owner gets 3x the unified global default of 50');
   });
 
   it('normal member gets 1x base quota', async () => {
@@ -1291,7 +1289,7 @@ describe('quotas.getUsage', () => {
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
     const contentQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
     assert.ok(contentQuota, 'content.create quota should exist');
-    assert.equal(contentQuota!.maxPerDay, 30, 'normal member gets 1x the global default of 30');
+    assert.equal(contentQuota!.maxPerDay, 50, 'normal member gets 1x the unified global default of 50');
   });
 
   it('clubadmin gets 3x base quota', async () => {
@@ -1303,7 +1301,7 @@ describe('quotas.getUsage', () => {
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
     const contentQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
     assert.ok(contentQuota, 'content.create quota should exist');
-    assert.equal(contentQuota!.maxPerDay, 90, 'clubadmin gets 3x the global default of 30');
+    assert.equal(contentQuota!.maxPerDay, 150, 'clubadmin gets 3x the unified global default of 50');
   });
 
   it('club override supersedes global default', async () => {
@@ -1335,55 +1333,71 @@ describe('quotas.getUsage', () => {
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
     const actions = quotas.map((q) => q.action);
     assert.ok(actions.includes('content.create'));
-    assert.ok(actions.includes('events.create'));
     assert.ok(!actions.includes('messages.send'), 'messages.send should not be in quota status');
+    assert.equal(actions.length, 1, 'only the unified content.create action should be returned');
   });
 
-  it('posts do NOT consume events.create quota', async () => {
+  it('posts and events both consume the unified content.create quota', async () => {
     const ownerCtx = await h.seedOwner('quota-kind-isolation', 'Quota Kind Club');
 
-    // Create two posts via direct SQL (bypasses LLM gate)
-    for (let i = 0; i < 2; i++) {
-      await h.sqlClubs(
-        `with ent as (insert into entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id)
-         insert into entity_versions (entity_id, version_no, state, title, created_by_member_id)
-         select id, 1, 'published', 'Post ' || $3, $2 from ent`,
-        [ownerCtx.club.id, ownerCtx.id, i],
-      );
-    }
+    await seedPublishedEntity(h, {
+      clubId: ownerCtx.club.id,
+      authorMemberId: ownerCtx.id,
+      kind: 'post',
+      title: 'Post 1',
+    });
+    await seedPublishedEntity(h, {
+      clubId: ownerCtx.club.id,
+      authorMemberId: ownerCtx.id,
+      kind: 'post',
+      title: 'Post 2',
+    });
+    await seedPublishedEntity(h, {
+      clubId: ownerCtx.club.id,
+      authorMemberId: ownerCtx.id,
+      kind: 'event',
+      title: 'Event 1',
+      event: {
+        location: 'London',
+        startsAt: '2026-07-01T18:00:00Z',
+      },
+    });
 
     const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
-    const entityQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
-    const eventQuota = quotas.find((q) => q.action === 'events.create' && q.clubId === ownerCtx.club.id);
-
-    assert.ok(entityQuota, 'content.create quota should exist');
-    assert.equal(entityQuota!.usedToday, 2, 'content.create should count the 2 posts');
-    assert.ok(eventQuota, 'events.create quota should exist');
-    assert.equal(eventQuota!.usedToday, 0, 'events.create should be 0 (no events created)');
+    const contentQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
+    assert.ok(contentQuota, 'content.create quota should exist');
+    assert.equal(contentQuota!.usedToday, 3, 'posts and events should both count toward the unified quota');
   });
 
-  it('events do NOT consume content.create quota', async () => {
+  it('club overrides still apply to all content kinds', async () => {
     const ownerCtx = await h.seedOwner('quota-event-isolation', 'Quota Event Club');
-
-    // Create one event via direct SQL
     await h.sqlClubs(
-      `with ent as (insert into entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id)
-       insert into entity_versions (entity_id, version_no, state, title, summary, created_by_member_id)
-       select id, 1, 'published', 'Event', 'Summary', $2 from ent`,
-      [ownerCtx.club.id, ownerCtx.id],
+      `insert into quota_policies (scope, club_id, action_name, max_per_day)
+       values ('club', $1, 'content.create', 4)`,
+      [ownerCtx.club.id],
     );
+    const member = await h.seedClubMember(ownerCtx.club.id, 'Quota Event Member', 'quota-event-member', { sponsorId: ownerCtx.id });
 
-    const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});
+    await seedPublishedEntity(h, {
+      clubId: ownerCtx.club.id,
+      authorMemberId: member.id,
+      kind: 'event',
+      title: 'Event',
+      event: {
+        location: 'London',
+        startsAt: '2026-07-01T18:00:00Z',
+      },
+    });
+
+    const result = await h.apiOk(member.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
-    const entityQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
-    const eventQuota = quotas.find((q) => q.action === 'events.create' && q.clubId === ownerCtx.club.id);
-
-    assert.equal(entityQuota!.usedToday, 0, 'content.create should be 0 (no posts created)');
-    assert.equal(eventQuota!.usedToday, 1, 'events.create should count the 1 event');
+    const contentQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
+    assert.equal(contentQuota!.maxPerDay, 4);
+    assert.equal(contentQuota!.usedToday, 1, 'events also consume the unified quota');
   });
 
-  it('quota enforcement is kind-specific (posts do not block events)', async () => {
+  it('quota enforcement is kind-agnostic across posts and events', async () => {
     const ownerCtx = await h.seedOwner('quota-enforce-kind', 'Quota Enforce Club');
     // Set content.create club override to 1 (owner gets 3x = 3)
     await h.sqlClubs(
@@ -1391,22 +1405,23 @@ describe('quotas.getUsage', () => {
       [ownerCtx.club.id],
     );
 
-    // Create one event via SQL — should NOT consume the content.create quota
-    await h.sqlClubs(
-      `with ent as (insert into entities (club_id, kind, author_member_id) values ($1, 'event', $2) returning id)
-       insert into entity_versions (entity_id, version_no, state, title, summary, created_by_member_id)
-       select id, 1, 'published', 'An event', 'Summary', $2 from ent`,
-      [ownerCtx.club.id, ownerCtx.id],
-    );
+    await seedPublishedEntity(h, {
+      clubId: ownerCtx.club.id,
+      authorMemberId: ownerCtx.id,
+      kind: 'event',
+      title: 'An event',
+      event: {
+        location: 'London',
+        startsAt: '2026-07-01T18:00:00Z',
+      },
+    });
 
-    // Verify content.create quota is still at 0 used (the event didn't consume it)
     const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
-    const entityQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
-    assert.ok(entityQuota);
-    assert.equal(entityQuota!.usedToday, 0, 'event should not consume content.create quota');
-    // Owner gets 3x the override of 1 = 3
-    assert.equal(entityQuota!.remaining, 3, 'content.create should still have full quota (3 for owner)');
+    const contentQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
+    assert.ok(contentQuota);
+    assert.equal(contentQuota!.usedToday, 1, 'event should consume the same content.create quota as posts');
+    assert.equal(contentQuota!.remaining, 2, 'owner has 3 total and 1 used');
   });
 
   it('quota enforcement rejects over-limit for normal member', async () => {
@@ -1421,12 +1436,12 @@ describe('quotas.getUsage', () => {
 
     // Create 2 posts (the limit for a normal member)
     for (let i = 0; i < 2; i++) {
-      await h.sqlClubs(
-        `with ent as (insert into entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id)
-         insert into entity_versions (entity_id, version_no, state, title, created_by_member_id)
-         select id, 1, 'published', 'Post ' || $3, $2 from ent`,
-        [ownerCtx.club.id, member.id, i],
-      );
+      await seedPublishedEntity(h, {
+        clubId: ownerCtx.club.id,
+        authorMemberId: member.id,
+        kind: 'post',
+        title: `Post ${i}`,
+      });
     }
 
     // Verify usage shows at limit
@@ -1448,12 +1463,12 @@ describe('quotas.getUsage', () => {
 
     // Create 3 posts as owner (within owner's 6 limit, above member's 2 limit)
     for (let i = 0; i < 3; i++) {
-      await h.sqlClubs(
-        `with ent as (insert into entities (club_id, kind, author_member_id) values ($1, 'post', $2) returning id)
-         insert into entity_versions (entity_id, version_no, state, title, created_by_member_id)
-         select id, 1, 'published', 'Owner Post ' || $3, $2 from ent`,
-        [ownerCtx.club.id, ownerCtx.id, i],
-      );
+      await seedPublishedEntity(h, {
+        clubId: ownerCtx.club.id,
+        authorMemberId: ownerCtx.id,
+        kind: 'post',
+        title: `Owner Post ${i}`,
+      });
     }
 
     const result = await h.apiOk(ownerCtx.token, 'quotas.getUsage', {});

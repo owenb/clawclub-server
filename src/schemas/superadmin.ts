@@ -481,7 +481,7 @@ const superadminClubsUpdate: ActionDefinition = {
 
 type SuperadminContentListInput = {
   clubId?: string;
-  kind?: 'post' | 'opportunity' | 'service' | 'ask';
+  kind?: z.infer<typeof entityKind>;
   limit: number;
   cursor: string | null;
 };

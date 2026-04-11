@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
-import { makeVector, seedEntityWithEmbedding, seedProfileEmbedding } from '../helpers.ts';
+import { makeVector, seedEntityWithEmbedding, seedProfileEmbedding, seedPublishedEntity } from '../helpers.ts';
 import {
   findMembersMatchingEntity,
   findSimilarMembers,
@@ -246,17 +246,15 @@ describe('embedding similarity', () => {
       await seedProfileEmbedding(h, alice.id, makeVector([0.9, 0.1, 0]));
 
       // Create ask entity v1 with embedding
-      const entityRows = await h.sql<{ id: string }>(
-        `insert into entities (club_id, kind, author_member_id, open_loop) values ($1, 'ask', $2, true) returning id`,
-        [owner.club.id, owner.id],
-      );
-      const entityId = entityRows[0].id;
-      const v1Rows = await h.sql<{ id: string }>(
-        `insert into entity_versions (entity_id, version_no, state, title, summary)
-         values ($1, 1, 'published', 'v1 ask', 'old content') returning id`,
-        [entityId],
-      );
-      const v1Id = v1Rows[0].id;
+      const seeded = await seedPublishedEntity(h, {
+        clubId: owner.club.id,
+        authorMemberId: owner.id,
+        kind: 'ask',
+        title: 'v1 ask',
+        summary: 'old content',
+      });
+      const entityId = seeded.entityId;
+      const v1Id = seeded.entityVersionId;
       await h.sql(
         `insert into entity_embeddings (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
          values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)`,
@@ -281,27 +279,25 @@ describe('embedding similarity', () => {
       const owner = await h.seedOwner('stale-cand', 'StaleCandClub');
 
       // Create ask entity v1 with embedding
-      const askRows = await h.sql<{ id: string }>(
-        `insert into entities (club_id, kind, author_member_id, open_loop) values ($1, 'ask', $2, true) returning id`,
-        [owner.club.id, owner.id],
-      );
-      const askId = askRows[0].id;
-      const askV1 = await h.sql<{ id: string }>(
-        `insert into entity_versions (entity_id, version_no, state, title, summary)
-         values ($1, 1, 'published', 'original ask', 'help me') returning id`,
-        [askId],
-      );
+      const seededAsk = await seedPublishedEntity(h, {
+        clubId: owner.club.id,
+        authorMemberId: owner.id,
+        kind: 'ask',
+        title: 'original ask',
+        summary: 'help me',
+      });
+      const askId = seededAsk.entityId;
       await h.sql(
         `insert into entity_embeddings (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
          values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)`,
-        [askId, askV1[0].id, makeVector([1, 0, 0])],
+        [askId, seededAsk.entityVersionId, makeVector([1, 0, 0])],
       );
 
       // Edit ask to v2 (stale: no new embedding)
       await h.sql(
         `insert into entity_versions (entity_id, version_no, state, title, summary, supersedes_version_id)
          values ($1, 2, 'published', 'updated ask', 'different topic', $2)`,
-        [askId, askV1[0].id],
+        [askId, seededAsk.entityVersionId],
       );
 
       // Create a fresh offer with a current-version embedding

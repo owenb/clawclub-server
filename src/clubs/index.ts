@@ -4,10 +4,12 @@
 
 import type { Pool } from 'pg';
 import type {
+  ContentEntitySearchResult,
   CreateEntityInput,
   EntitySummary,
   ListEntitiesInput,
   MemberAdmissionRecord,
+  ReadContentThreadInput,
   SetEntityLoopInput,
   UpdateEntityInput,
   MembershipVouchSummary,
@@ -214,8 +216,7 @@ export async function batchListVouches(pool: Pool, input: {
  * Actions not in this map are not supported for quota counting.
  */
 const QUOTA_ENTITY_KINDS: Record<string, string[]> = {
-  'content.create': ['post', 'opportunity', 'service', 'ask', 'gift'],
-  'events.create': ['event'],
+  'content.create': ['post', 'opportunity', 'service', 'ask', 'gift', 'event'],
 };
 
 function getQuotaKindFilter(action: string): string[] | null {
@@ -465,7 +466,7 @@ export async function listClubActivity(pool: Pool, input: {
 
 // ── Entity embedding search ─────────────────────────────────
 
-export type PaginatedEntitySearch = { results: EntitySummary[]; hasMore: boolean; nextCursor: string | null };
+export type PaginatedEntitySearch = { results: ContentEntitySearchResult[]; hasMore: boolean; nextCursor: string | null };
 
 export async function findEntitiesViaEmbedding(pool: Pool, input: {
   actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number;
@@ -477,31 +478,17 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
   const cursorDist = input.cursor ? parseFloat(input.cursor.distance) : null;
   const cursorId = input.cursor?.entityId ?? null;
 
-  const result = await pool.query<{
-    entity_id: string; entity_version_id: string; club_id: string; kind: string; open_loop: boolean | null;
-    author_member_id: string; author_public_name: string; author_handle: string | null;
-    version_no: number; state: string;
-    title: string | null; summary: string | null; body: string | null;
-    effective_at: string; expires_at: string | null;
-    version_created_at: string; content: Record<string, unknown> | null;
-    entity_created_at: string;
-    _distance: number;
-  }>(
-    `select e.id as entity_id, cev.id as entity_version_id, e.club_id, e.kind, e.open_loop,
-            e.author_member_id, m.public_name as author_public_name, m.handle as author_handle,
-            cev.version_no, cev.state,
-            cev.title, cev.summary, cev.body,
-            cev.effective_at::text as effective_at, cev.expires_at::text as expires_at,
-            cev.created_at::text as version_created_at, cev.content,
-            e.created_at::text as entity_created_at,
+  const result = await pool.query<{ entity_id: string; _distance: number }>(
+    `select e.id as entity_id,
             (select min(eea.embedding <=> $2::vector)
              from entity_embeddings eea
              where eea.entity_id = e.id and eea.entity_version_id = cev.id
             ) as _distance
      from entities e
      join current_entity_versions cev on cev.entity_id = e.id
-     join members m on m.id = e.author_member_id
-     where e.club_id = any($1::text[]) and e.deleted_at is null
+     where e.club_id = any($1::text[])
+       and e.archived_at is null
+       and e.deleted_at is null
        and cev.state = 'published'
        and (e.open_loop is null or e.open_loop = true)
        and (cev.expires_at is null or cev.expires_at > now())
@@ -518,27 +505,33 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
     [input.clubIds, input.queryEmbedding, input.kinds ?? null, fetchLimit, cursorDist, cursorId],
   );
 
-  const rows: EntitySummary[] = result.rows.map((row) => ({
-    entityId: row.entity_id,
-    entityVersionId: row.entity_version_id,
-    clubId: row.club_id,
-    kind: row.kind as EntitySummary['kind'],
-    openLoop: row.open_loop,
-    author: { memberId: row.author_member_id, publicName: row.author_public_name, handle: row.author_handle },
-    version: {
-      versionNo: row.version_no,
-      state: row.state as EntitySummary['version']['state'],
-      title: row.title, summary: row.summary, body: row.body,
-      effectiveAt: row.effective_at, expiresAt: row.expires_at,
-      createdAt: row.version_created_at, content: row.content ?? {},
-    },
-    createdAt: row.entity_created_at,
+  const hasMore = result.rows.length > input.limit;
+  const pageRows = hasMore ? result.rows.slice(0, input.limit) : result.rows;
+
+  const contentRows = await withTransaction(pool, async (client) => {
+    const viewerMembershipIds = await client.query<{ membership_id: string }>(
+      `select id as membership_id
+       from accessible_club_memberships
+       where member_id = $1
+         and club_id = any($2::text[])`,
+      [input.actorMemberId, input.clubIds],
+    );
+    return entities.readContentEntitiesByIds(
+      client,
+      pageRows.map(row => row.entity_id),
+      viewerMembershipIds.rows.map(row => row.membership_id),
+      { includeExpired: false },
+    );
+  });
+
+  const scoreByEntityId = new Map(pageRows.map((row) => [row.entity_id, row._distance]));
+  const rows = contentRows.map((entity) => ({
+    ...entity,
+    score: scoreByEntityId.get(entity.entityId) ?? Number.POSITIVE_INFINITY,
   }));
 
-  const hasMore = rows.length > input.limit;
-  if (hasMore) rows.pop();
-  const lastRow = hasMore || rows.length === input.limit ? result.rows[rows.length - 1] : null;
-  const nextCursor = lastRow && rows.length > 0
+  const lastRow = pageRows.length > 0 ? pageRows[pageRows.length - 1] : null;
+  const nextCursor = hasMore && lastRow
     ? encodeCursor([String(lastRow._distance), lastRow.entity_id])
     : null;
 
@@ -552,8 +545,9 @@ export type ClubsRepository = {
   updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
   closeEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
   reopenEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
-  removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean; kindFilter?: string }): Promise<EntitySummary | null>;
-  listEntities(input: ListEntitiesInput & { rawCursor?: string | null }): Promise<import('./entities.ts').PaginatedEntities>;
+  removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean }): Promise<EntitySummary | null>;
+  listEntities(input: ListEntitiesInput): Promise<import('./entities.ts').PaginatedThreads>;
+  readContentThread(input: ReadContentThreadInput): Promise<{ thread: import('../contract.ts').ContentThreadSummary; entities: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null } | null>;
   getAdmissionsForMember(input: { memberId: string; clubId?: string }): Promise<MemberAdmissionRecord[]>;
 
   createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
@@ -568,11 +562,9 @@ export type ClubsRepository = {
 
   findEntitiesViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; entityId: string } | null }): Promise<PaginatedEntitySearch>;
 
-  // Events
-  createEvent(input: import('../contract.ts').CreateEventInput): Promise<import('../contract.ts').EventSummary>;
-  listEvents(input: { clubIds: string[]; limit: number; query?: string; viewerMembershipIds: string[]; cursor?: { effectiveAt: string; entityId: string } | null }): Promise<{ results: import('../contract.ts').EventSummary[]; hasMore: boolean; nextCursor: string | null }>;
-  rsvpEvent(input: { eventEntityId: string; membershipId: string; memberId: string; response: import('../contract.ts').EventRsvpState; note?: string | null; clubIds: string[] }): Promise<import('../contract.ts').EventSummary | null>;
-  removeEvent(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean }): Promise<import('../contract.ts').EventSummary | null>;
+  listEvents(input: { actorMemberId: string; clubIds: string[]; limit: number; query?: string; cursor?: { startsAt: string; entityId: string } | null }): Promise<{ results: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null }>;
+  rsvpEvent(input: { actorMemberId: string; eventEntityId: string; response: import('../contract.ts').EventRsvpState; note?: string | null; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<import('../contract.ts').ContentEntity | null>;
+  cancelEventRsvp(input: { actorMemberId: string; eventEntityId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<import('../contract.ts').ContentEntity | null>;
 };
 
 export function createClubsRepository(pool: Pool): ClubsRepository {
@@ -583,6 +575,7 @@ export function createClubsRepository(pool: Pool): ClubsRepository {
     reopenEntityLoop: (input) => entities.reopenEntityLoop(pool, input),
     removeEntity: (input) => entities.removeEntity(pool, input),
     listEntities: (input) => entities.listEntities(pool, input),
+    readContentThread: (input) => entities.readContentThread(pool, input),
     getAdmissionsForMember: (input) => admissionsModule.getAdmissionsForMember(pool, input),
 
     createVouch: (input) => createVouch(pool, input),
@@ -604,9 +597,8 @@ export function createClubsRepository(pool: Pool): ClubsRepository {
     findEntitiesViaEmbedding: (input) => findEntitiesViaEmbedding(pool, input),
 
     // Events
-    createEvent: (input) => events.createEvent(pool, input),
     listEvents: (input) => events.listEvents(pool, input),
     rsvpEvent: (input) => events.rsvpEvent(pool, input),
-    removeEvent: (input) => events.removeEvent(pool, input),
+    cancelEventRsvp: (input) => events.cancelEventRsvp(pool, input),
   };
 }

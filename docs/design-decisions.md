@@ -41,9 +41,22 @@ Approved action namespaces (canonical list in `src/schemas/*.ts`, exposed via `G
 - `superadmin.*` — platform-wide admin actions (overview, member/club/content inspection)
 
 Terminology boundary:
-- the public API uses `content.*` for posts, asks, gifts, opportunities, and services
-- internally these are stored on the broader entity model, which also includes events
-- `events.*` stays separate at the API layer even though events share the same underlying entity/version tables
+- the public API uses `content.*` for all public content creation, updates, removal, thread reads, and thread feeds
+- events share the same entity/version/thread model as every other public content kind
+- `events.*` survives only for the event-specific read and RSVP surfaces: `events.list`, `events.rsvp`, `events.cancelRsvp`
+
+## Public content model
+
+- every public entity belongs to a `content_threads` row; there are no threadless public entities
+- threads are structural containers, not a separate user-authored object type
+- there is no reply/comment kind; replies are ordinary entities appended to a thread
+- any public kind can appear at any position in a thread, including `event`
+- `content.list` is a thread feed ordered by thread activity, not a flat entity feed
+- the first entity is the thread subject for feed summarization and lexical filtering
+- `content.getThread` is the canonical read path for full public-thread context, with optional `includeClosed` for closed-loop reads
+- removed entities are redacted in thread reads instead of being physically hidden from thread history
+- expired first entities may still appear in thread summaries even when omitted from the paginated entity body
+- event discovery remains separate: `events.list` is a flat upcoming-events surface ordered by event start time, not by thread activity
 
 ## Security and permissions
 
@@ -118,13 +131,13 @@ Examples:
 
 ## Search and discovery
 
-- primary entity kinds are `post`, `ask`, `service`, `opportunity`, and `event`
+- primary public content kinds are `post`, `ask`, `service`, `opportunity`, `gift`, and `event`
 - expired entities auto-hide
 - three search/discovery actions with explicit retrieval modes:
   - `members.searchByFullText`: PostgreSQL full-text search (tsvector/tsquery) with handle/name prefix boosting
   - `members.searchBySemanticSimilarity`: semantic search via OpenAI embedding similarity
-  - `content.searchBySemanticSimilarity`: semantic entity search via OpenAI embedding similarity
-- no full-text search on entities (semantic only)
+  - `content.searchBySemanticSimilarity`: semantic entity search via OpenAI embedding similarity, returning entity rows with numeric similarity scores
+- no full-text search on arbitrary entities beyond the thread-subject feed query; `content.searchBySemanticSimilarity` is the entity-level discovery surface
 - lexical and semantic search are separate actions; no hybrid fallback
 - embedding infrastructure is separate from domain data:
   - artifacts stored in dedicated tables (`member_profile_embeddings`, `entity_embeddings`)
@@ -208,6 +221,7 @@ Match types:
 
 Trigger model:
 - entity-triggered matching is reactive: new entity publications in `club_activity` trigger immediate matching
+- only thread-subject entities (position 1 in a public thread) generate entity-triggered matches
 - introduction matching uses a debounced dirty-set: triggers mark `(member_id, club_id)` for recomputation via `signal_recompute_queue`, never send signals directly
 - introduction triggers: profile embedding completion, member accessibility changes (membership + subscription), periodic backstop sweep
 - new members get a warm-up delay before intro recompute
@@ -237,7 +251,8 @@ See `docs/member-signals-plan.md` for the full design rationale and implementati
 ## Quality / legality gate
 
 - actions that create or modify published content pass through an LLM gate before execution
-- gated actions: `content.create`, `content.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`
+- gated actions: `content.create`, `content.update`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`
+- event creation flows through `content.create` with `kind = 'event'`
 - cold applications (`admissions.public.submitApplication`) pass through a separate admission completeness gate
 - the gate must return an explicit PASS for the action to proceed
 - if the gate cannot run (missing API key, provider outage, provider error), the action fails with 503 `gate_unavailable`
@@ -248,14 +263,14 @@ See `docs/member-signals-plan.md` for the full design rationale and implementati
 
 ## Write quotas
 
-- `content.create` and `events.create` are subject to daily quotas
-- quotas are kind-specific: entity quotas count only `post`/`opportunity`/`service`/`ask`; event quotas count only `event`
+- `content.create` is the only quota-controlled public write action
+- the quota is unified across posts, asks, services, opportunities, gifts, events, and replies
 - quota policies are stored in `quota_policies` with an explicit scope:
-  - `global` — default base quotas (content.create = 30/day, events.create = 20/day); exactly one per action; `club_id` must be NULL
-  - `club` — optional club-specific overrides that replace the global base for that club/action; `club_id` must be set
+  - `global` — default base quota (`content.create = 50/day`); exactly one row; `club_id` must be NULL
+  - `club` — optional club-specific override that replaces the global base for that club; `club_id` must be set
 - global defaults are bootstrap data inserted in `db/init.sql`; if no policy exists at all, quota enforcement fails closed (not unlimited)
 - role-based multiplier: normal members get the base limit (1x); clubadmins and club owners get 3x the resolved base
-- `quotas.getUsage` returns effective per-actor limits (after multiplier) for every accessible club and every supported action, even when only global defaults exist
+- `quotas.getUsage` returns effective per-actor limits (after multiplier) for every accessible club
 - exceeding a quota returns 429 `quota_exceeded`
 - `messages.send` is not subject to club quotas — messaging is not club-scoped and is intentionally excluded from this quota model
 
@@ -288,26 +303,26 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - `clubadmin.admissions.list/setStatus/issueAccessToken`
 - `clubadmin.members.promote/demote`
 - `clubadmin.clubs.getStatistics`
-- `clubadmin.content.remove`, `clubadmin.events.remove`
+- `clubadmin.content.remove`
 - `members.searchByFullText`, `members.searchBySemanticSimilarity`, `members.list`
 - `content.searchBySemanticSimilarity`
 - `admissions.public.requestChallenge/submitApplication` (self-applied, unauthenticated, PoW-gated)
 - `admissions.sponsorCandidate` (member sponsors outsider)
 - `profile.list/update`
-- `content.create/update/remove/list`
-- `events.create/list/rsvp/remove`
+- `content.create/getThread/update/remove/list`
+- `events.list/rsvp/cancelRsvp`
 - `messages.send/getInbox/getThread/remove`
 - `updates.list/acknowledge`
 - `accessTokens.list/create/revoke`
 - `vouches.create/list`: peer endorsement within a shared club
 - `quotas.getUsage`: per-club daily write quota usage and limits
-- idempotency keys (`clientKey`) on content.create, events.create, messages.send, vouches.create
-- per-club daily write quotas on content.create and events.create
+- idempotency keys (`clientKey`) on content.create, messages.send, and vouches.create
+- per-club daily write quotas on content.create
 - append-only membership/admission/entity history
 - SSE and polling over a merged three-source surface (club activity + member signals + messaging inbox)
 - compound update cursor with independent positions for each source (backward-compatible with old two-part cursors)
 - transport validation: top-level keys outside `action`/`input` are rejected
-- one full auto-generated `/api/schema` contract (57 actions)
+- one full auto-generated `/api/schema` contract (72 actions)
 - `SKILL.md` as the hand-authored behavioral layer for agents
 - registry-driven action metadata and validation from `src/schemas/*.ts`
 - member signals: general-purpose targeted notification primitive with durable acknowledgement state

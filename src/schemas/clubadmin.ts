@@ -25,7 +25,7 @@ import {
 import {
   membershipAdminSummary, membershipReviewSummary,
   admissionSummary, adminClubStats,
-  entitySummary, eventSummary, messageRemovalResult,
+  contentEntity, messageRemovalResult,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -574,7 +574,7 @@ const clubadminEntitiesRemove: ActionDefinition = {
       entityId: wireRequiredString.describe('Entity to remove'),
       reason: wireRequiredString.describe('Reason for removal (required for moderation)'),
     }),
-    output: z.object({ entity: entitySummary }),
+    output: z.object({ entity: contentEntity }),
   },
 
   parse: {
@@ -609,59 +609,6 @@ const clubadminEntitiesRemove: ActionDefinition = {
   },
 };
 
-// ── clubadmin.events.remove ──────────────────────────────
-
-const clubadminEventsRemove: ActionDefinition = {
-  action: 'clubadmin.events.remove',
-  domain: 'clubadmin',
-  description: 'Remove any event in the specified club (moderation).',
-  auth: 'clubadmin',
-  safety: 'mutating',
-  authorizationNote: 'Club admin may remove any event in their club. Reason is required.',
-
-  requiredCapability: 'removeEvent',
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club the event belongs to'),
-      entityId: wireRequiredString.describe('Event entity ID to remove'),
-      reason: wireRequiredString.describe('Reason for removal (required for moderation)'),
-    }),
-    output: z.object({ event: eventSummary }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      entityId: parseRequiredString,
-      reason: parseRequiredString,
-    }),
-  },
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, entityId, reason } = input as { clubId: string; entityId: string; reason: string };
-    ctx.requireClubAdmin(clubId);
-    ctx.requireCapability('removeEvent');
-
-    const event = await ctx.repository.removeEvent!({
-      actorMemberId: ctx.actor.member.id,
-      accessibleClubIds: [clubId],
-      entityId,
-      reason,
-      skipAuthCheck: true,
-    });
-
-    if (!event) {
-      throw new AppError(404, 'not_found', 'Event not found in the specified club');
-    }
-
-    return {
-      data: { event },
-      requestScope: { requestedClubId: event.clubId, activeClubIds: [event.clubId] },
-    };
-  },
-};
-
 // clubadmin.messages.remove has been removed.
 // Messages are no longer club-scoped — club admins have no authority over private messages.
 
@@ -670,5 +617,5 @@ registerActions([
   clubadminMembershipsCreate, clubadminMembershipsTransition,
   clubadminAdmissionsList, clubadminAdmissionsTransition, clubadminAdmissionsIssueAccess,
   clubadminClubsStats,
-  clubadminEntitiesRemove, clubadminEventsRemove,
+  clubadminEntitiesRemove,
 ]);

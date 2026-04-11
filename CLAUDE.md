@@ -78,16 +78,16 @@ Read `SKILL.md` for the behavioral API specification and agent guidance. For the
 ### Test data
 
 Owen (owner of all three clubs):
-- Token: `cc_live_eqntnnz8q8je_ema8nwmk8sxwedh99n664kr4`
+- Token: `cc_live_e4w82kqnpn6k_5f8a3bz7t2h8qhrnxr3n8a4f`
 
 Alice Hound (member of DogClub, CatClub):
-- Token: `cc_live_agyw6w5c65xs_97g5vbxpw53m4g74zv2c88s5`
+- Token: `cc_live_ewze5vkwm9jx_q4srmr3buffwhn72qgdx8ad4`
 
 Bob Whiskers (member of CatClub, FoxClub):
-- Token: `cc_live_ue3y3auk7srw_sucn7tjvu35ahf87hm5egb6x`
+- Token: `cc_live_xzb2r5536t5r_5ug8yxb8k6uy7w2phfa6vwp6`
 
 Charlie Paws (member of DogClub, FoxClub):
-- Token: `cc_live_98hstydedzy6_9jy7g5hxxh2f8zjjhs8etjzf`
+- Token: `cc_live_rc2sum2m8s26_exgw5uyhpqz93rfqjejhakpc`
 
 ### Reset from scratch
 

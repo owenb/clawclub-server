@@ -11,7 +11,7 @@ import { z } from 'zod';
 
 // ── Enums ────────────────────────────────────────────────
 
-export const entityKind = z.enum(['post', 'opportunity', 'service', 'ask', 'gift']);
+export const entityKind = z.enum(['post', 'opportunity', 'service', 'ask', 'gift', 'event']);
 export type EntityKind = z.infer<typeof entityKind>;
 
 export const entityState = z.enum(['draft', 'published', 'removed']);
@@ -281,7 +281,7 @@ export const wireEntityKinds = z.array(entityKind).min(1).optional()
  */
 export const parseEntityKinds = z.array(entityKind).min(1)
   .optional()
-  .default(['post', 'opportunity', 'service', 'ask', 'gift'])
+  .default(['post', 'opportunity', 'service', 'ask', 'gift', 'event'])
   .transform(kinds => [...new Set(kinds)]);
 
 /**
@@ -320,6 +320,46 @@ export const wireOptionalPositiveInt = z.number().int().min(1).nullable().option
  * Parse: validates positive integer if present
  */
 export const parseOptionalPositiveInt = z.number().int().min(1).nullable().optional();
+
+/** Wire: event fields for content.create(kind='event') */
+export const wireEventFieldsCreate = z.object({
+  location: wireRequiredString.describe('Event location'),
+  startsAt: wireRequiredString.describe('ISO 8601 event start time'),
+  endsAt: wireOptionalString.describe('ISO 8601 event end time'),
+  timezone: wireOptionalString.describe('IANA timezone (optional)'),
+  recurrenceRule: wireOptionalString.describe('Recurrence rule (optional)'),
+  capacity: wireOptionalPositiveInt.describe('Optional attendee cap'),
+}).optional();
+
+/** Parse: normalized event fields for content.create(kind='event') */
+export const parseEventFieldsCreate = z.object({
+  location: parseRequiredString,
+  startsAt: parseRequiredString,
+  endsAt: parseTrimmedNullableString.default(null),
+  timezone: parseTrimmedNullableString.default(null),
+  recurrenceRule: parseTrimmedNullableString.default(null),
+  capacity: parseOptionalPositiveInt.default(null),
+}).optional();
+
+/** Wire: patch event fields for content.update */
+export const wireEventFieldsPatch = z.object({
+  location: wirePatchString.describe('Omit to leave unchanged, null to clear'),
+  startsAt: wirePatchString.describe('Omit to leave unchanged, null to clear'),
+  endsAt: wirePatchString.describe('Omit to leave unchanged, null to clear'),
+  timezone: wirePatchString.describe('Omit to leave unchanged, null to clear'),
+  recurrenceRule: wirePatchString.describe('Omit to leave unchanged, null to clear'),
+  capacity: wireOptionalPositiveInt.describe('Optional attendee cap. Null to clear.'),
+}).optional();
+
+/** Parse: normalized patch event fields for content.update */
+export const parseEventFieldsPatch = z.object({
+  location: parsePatchString,
+  startsAt: parsePatchString,
+  endsAt: parsePatchString,
+  timezone: parsePatchString,
+  recurrenceRule: parsePatchString,
+  capacity: parseOptionalPositiveInt,
+}).optional();
 
 /**
  * Wire: optional non-negative money amount

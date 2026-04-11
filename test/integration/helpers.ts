@@ -27,6 +27,114 @@ export function getUpdates(result: Record<string, unknown>): {
   return data.updates as { items: Array<Record<string, unknown>>; nextAfter: string | null };
 }
 
+const LOOPABLE_KINDS = new Set(['ask', 'gift', 'service', 'opportunity']);
+
+export async function seedPublishedEntity(
+  h: TestHarness,
+  input: {
+    clubId: string;
+    authorMemberId: string;
+    kind: string;
+    title?: string | null;
+    summary?: string | null;
+    body?: string | null;
+    content?: Record<string, unknown>;
+    openLoop?: boolean | null;
+    event?: {
+      location?: string | null;
+      startsAt?: string | null;
+      endsAt?: string | null;
+      timezone?: string | null;
+      recurrenceRule?: string | null;
+      capacity?: number | null;
+    } | null;
+  },
+): Promise<{ threadId: string; entityId: string; entityVersionId: string }> {
+  const openLoop = input.openLoop
+    ?? (LOOPABLE_KINDS.has(input.kind) ? true : null);
+
+  const [row] = await h.sqlClubs<{
+    thread_id: string;
+    entity_id: string;
+    entity_version_id: string;
+  }>(
+     `with thread as (
+       insert into content_threads (club_id, created_by_member_id)
+       values ($1, $3)
+       returning id
+     ),
+     ent as (
+       insert into entities (club_id, kind, author_member_id, open_loop, content_thread_id)
+       select
+         $1,
+         $2::entity_kind,
+         $3,
+         $4,
+         thread.id
+       from thread
+       returning id, content_thread_id
+     ),
+     ver as (
+       insert into entity_versions (
+         entity_id, version_no, state, title, summary, body, content, created_by_member_id
+       )
+       select
+         ent.id,
+         1,
+         'published',
+         $5,
+         $6,
+         $7,
+         $8::jsonb,
+         $3
+       from ent
+       returning id
+     )
+     select
+       ent.content_thread_id as thread_id,
+       ent.id as entity_id,
+       ver.id as entity_version_id
+     from ent
+     cross join ver`,
+    [
+      input.clubId,
+      input.kind,
+      input.authorMemberId,
+      openLoop,
+      input.title ?? 'seeded entity',
+      input.summary ?? null,
+      input.body ?? null,
+      JSON.stringify(input.content ?? {}),
+    ],
+  );
+
+  if (input.kind === 'event') {
+    const startsAt = input.event?.startsAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const endsAt = input.event?.endsAt
+      ?? new Date(new Date(startsAt).getTime() + 2 * 60 * 60 * 1000).toISOString();
+    await h.sqlClubs(
+      `insert into event_version_details (
+         entity_version_id, location, starts_at, ends_at, timezone, recurrence_rule, capacity
+       ) values ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        row.entity_version_id,
+        input.event?.location ?? 'Online',
+        startsAt,
+        endsAt,
+        input.event?.timezone ?? 'UTC',
+        input.event?.recurrenceRule ?? null,
+        input.event?.capacity ?? null,
+      ],
+    );
+  }
+
+  return {
+    threadId: row.thread_id,
+    entityId: row.entity_id,
+    entityVersionId: row.entity_version_id,
+  };
+}
+
 export async function seedProfileEmbedding(h: TestHarness, memberId: string, vector: string): Promise<void> {
   let pvRows = await h.sql<{ id: string; club_id: string }>(
     `select id, club_id from current_member_club_profiles where member_id = $1`,
@@ -85,27 +193,15 @@ export async function seedEntityWithEmbedding(
   kind: string,
   vector: string,
 ): Promise<string> {
-  const entityRows = await h.sqlClubs<{ id: string }>(
-    `insert into entities (club_id, kind, author_member_id, open_loop)
-     values (
-       $1,
-       $2::entity_kind,
-       $3,
-       case
-         when $2::entity_kind in ('ask', 'gift', 'service', 'opportunity') then true
-         else null
-       end
-     ) returning id`,
-    [clubId, kind, authorMemberId],
-  );
-  const entityId = entityRows[0].id;
-
-  const versionRows = await h.sqlClubs<{ id: string }>(
-    `insert into entity_versions (entity_id, version_no, state, title, summary)
-     values ($1, 1, 'published', 'test entity', 'test summary') returning id`,
-    [entityId],
-  );
-  const entityVersionId = versionRows[0].id;
+  const seeded = await seedPublishedEntity(h, {
+    clubId,
+    authorMemberId,
+    kind,
+    title: 'test entity',
+    summary: 'test summary',
+  });
+  const entityId = seeded.entityId;
+  const entityVersionId = seeded.entityVersionId;
 
   await h.sqlClubs(
     `insert into entity_embeddings

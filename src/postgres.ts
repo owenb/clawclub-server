@@ -326,9 +326,24 @@ export function createRepository(pool: Pool): Repository {
     // ── Entities ──────────────────────────────────────────
     async createEntity(input) {
       const actor = await identity.readActor(input.authorMemberId);
-      const membership = actor?.memberships.find((m) => m.clubId === input.clubId);
+      const accessibleClubIds = actor?.memberships.map((membership) => membership.clubId) ?? [];
+      const quotaClubId = input.clubId
+        ?? (input.threadId
+          ? (await pool.query<{ club_id: string }>(
+            `select club_id
+             from content_threads
+             where id = $1
+               and archived_at is null
+               and club_id = any($2::text[])`,
+            [input.threadId, accessibleClubIds],
+          )).rows[0]?.club_id
+          : null);
+      if (!quotaClubId) {
+        throw new AppError(404, 'not_found', 'Club or thread not found inside the actor scope');
+      }
+      const membership = actor?.memberships.find((m) => m.clubId === quotaClubId);
       const actorInfo = { role: membership?.role ?? 'member' as const, isOwner: membership?.isOwner ?? false };
-      await clubs.enforceQuota(input.authorMemberId, input.clubId, 'content.create', actorInfo);
+      await clubs.enforceQuota(input.authorMemberId, quotaClubId, 'content.create', actorInfo);
       return clubs.createEntity(input);
     },
 
@@ -349,60 +364,12 @@ export function createRepository(pool: Pool): Repository {
     }),
 
     listEntities: (input) => clubs.listEntities(input),
+    readContentThread: (input) => clubs.readContentThread(input),
 
     // ── Events ──────────────────────────────────────────
-    async createEvent(input) {
-      const actor = await identity.readActor(input.authorMemberId);
-      const membership = actor?.memberships.find((m) => m.clubId === input.clubId);
-      const actorInfo = { role: membership?.role ?? 'member' as const, isOwner: membership?.isOwner ?? false };
-      await clubs.enforceQuota(input.authorMemberId, input.clubId, 'events.create', actorInfo);
-      return clubs.createEvent(input);
-    },
-
-    async listEvents(input) {
-      // Get viewer's membership IDs for RSVP state
-      const actor = await identity.readActor(input.actorMemberId);
-      const viewerMembershipIds = actor?.memberships.map((m) => m.membershipId) ?? [];
-      return clubs.listEvents({
-        clubIds: input.clubIds,
-        limit: input.limit,
-        query: input.query,
-        viewerMembershipIds,
-      });
-    },
-
-    async rsvpEvent(input) {
-      // Look up the event's club to find the right membership
-      const eventClubResult = await pool.query<{ club_id: string }>(
-        `select e.club_id from entities e where e.id = $1 and e.kind = 'event' limit 1`,
-        [input.eventEntityId],
-      );
-      const eventClubId = eventClubResult.rows[0]?.club_id;
-      if (!eventClubId) return null;
-
-      // Find the actor's membership for that specific club
-      const membership = input.accessibleMemberships.find((m) => m.clubId === eventClubId);
-      if (!membership) return null;
-
-      return clubs.rsvpEvent({
-        eventEntityId: input.eventEntityId,
-        membershipId: membership.membershipId,
-        memberId: input.actorMemberId,
-        response: input.response,
-        note: input.note,
-        clubIds: [eventClubId],
-      });
-    },
-
-    async removeEvent(input) {
-      return clubs.removeEvent({
-        entityId: input.entityId,
-        clubIds: input.accessibleClubIds,
-        actorMemberId: input.actorMemberId,
-        reason: input.reason,
-        skipAuthCheck: input.skipAuthCheck,
-      });
-    },
+    listEvents: (input) => clubs.listEvents(input),
+    rsvpEvent: (input) => clubs.rsvpEvent(input),
+    cancelEventRsvp: (input) => clubs.cancelEventRsvp(input),
 
     // ── Vouches ──────────────────────────────────────────
     async createVouch(input) {
@@ -1608,11 +1575,11 @@ export function createRepository(pool: Pool): Repository {
     async adminListContent({ clubId, kind, limit, cursor }) {
       const fetchLimit = limit + 1;
       const result = await pool.query<{
-        entity_id: string; club_id: string; club_name: string; kind: string;
+        entity_id: string; content_thread_id: string; club_id: string; club_name: string; kind: string;
         author_member_id: string; author_public_name: string; author_handle: string | null;
         title: string | null; state: string; created_at: string;
       }>(
-        `select e.id as entity_id, e.club_id, c.name as club_name,
+        `select e.id as entity_id, e.content_thread_id, e.club_id, c.name as club_name,
                 e.kind::text as kind, e.author_member_id,
                 m.public_name as author_public_name, m.handle as author_handle,
                 cev.title, cev.state::text as state, e.created_at::text as created_at
@@ -1630,7 +1597,7 @@ export function createRepository(pool: Pool): Repository {
 
       const rows = result.rows.map((r) => {
         return {
-          entityId: r.entity_id, clubId: r.club_id, clubName: r.club_name,
+          entityId: r.entity_id, contentThreadId: r.content_thread_id, clubId: r.club_id, clubName: r.club_name,
           kind: r.kind as any, author: { memberId: r.author_member_id, publicName: r.author_public_name, handle: r.author_handle },
           title: r.title, state: r.state as any, createdAt: r.created_at,
         };

@@ -6,7 +6,6 @@ import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
 const GATED_ACTIONS = new Set([
   'content.create',
   'content.update',
-  'events.create',
   'profile.update',
   'vouches.create',
   'admissions.sponsorCandidate',

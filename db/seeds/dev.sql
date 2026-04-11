@@ -427,12 +427,9 @@ on conflict do nothing;
 
 -- Club-specific quota overrides (global defaults are in init.sql)
 insert into quota_policies (scope, club_id, action_name, max_per_day) values
-  ('club', :'dogclub_id', 'content.create', 20),
-  ('club', :'dogclub_id', 'events.create',   5),
-  ('club', :'catclub_id', 'content.create', 15),
-  ('club', :'catclub_id', 'events.create',   5),
-  ('club', :'foxclub_id', 'content.create', 10),
-  ('club', :'foxclub_id', 'events.create',   3)
+  ('club', :'dogclub_id', 'content.create', 25),
+  ('club', :'catclub_id', 'content.create', 20),
+  ('club', :'foxclub_id', 'content.create', 13)
 on conflict do nothing;
 
 -- ============================================================
@@ -440,8 +437,12 @@ on conflict do nothing;
 -- ============================================================
 
 -- dog_post1: "Annual Dog Show 2026 Recap" by Alice
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'dogclub_id', 'post', :'alice_id', now() - interval '14 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'dogclub_id', :'alice_id', now() - interval '14 days', now() - interval '14 days')
+returning id as dog_post1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'dogclub_id', 'post', :'alice_id', :'dog_post1_thread', now() - interval '14 days')
 returning id as dog_post1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -452,8 +453,12 @@ values (:'dog_post1', 1, 'published',
   now() - interval '14 days', now() - interval '14 days', :'alice_id');
 
 -- dog_post2: "Best Dog-Friendly Hiking Trails" by Charlie
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'dogclub_id', 'post', :'charlie_id', now() - interval '7 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'dogclub_id', :'charlie_id', now() - interval '7 days', now() - interval '7 days')
+returning id as dog_post2_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'dogclub_id', 'post', :'charlie_id', :'dog_post2_thread', now() - interval '7 days')
 returning id as dog_post2 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -464,8 +469,12 @@ values (:'dog_post2', 1, 'published',
   now() - interval '7 days', now() - interval '7 days', :'charlie_id');
 
 -- dog_opp1: "Dog Walking Business Partnership" by Owen
-insert into entities (club_id, kind, author_member_id, open_loop, created_at)
-values (:'dogclub_id', 'opportunity', :'owen_id', true, now() - interval '10 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'dogclub_id', :'owen_id', now() - interval '10 days', now() - interval '10 days')
+returning id as dog_opp1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+values (:'dogclub_id', 'opportunity', :'owen_id', :'dog_opp1_thread', true, now() - interval '10 days')
 returning id as dog_opp1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
@@ -477,8 +486,12 @@ values (:'dog_opp1', 1, 'published',
   now() - interval '10 days', :'owen_id');
 
 -- dog_svc1: "Professional Obedience Training" by Alice
-insert into entities (club_id, kind, author_member_id, open_loop, created_at)
-values (:'dogclub_id', 'service', :'alice_id', true, now() - interval '21 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'dogclub_id', :'alice_id', now() - interval '21 days', now() - interval '21 days')
+returning id as dog_svc1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+values (:'dogclub_id', 'service', :'alice_id', :'dog_svc1_thread', true, now() - interval '21 days')
 returning id as dog_svc1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -489,8 +502,12 @@ values (:'dog_svc1', 1, 'published',
   now() - interval '21 days', now() - interval '21 days', :'alice_id');
 
 -- dog_ask1: "Vet Recommendations Near Downtown?" by Charlie
-insert into entities (club_id, kind, author_member_id, open_loop, created_at)
-values (:'dogclub_id', 'ask', :'charlie_id', true, now() - interval '3 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'dogclub_id', :'charlie_id', now() - interval '3 days', now() - interval '3 days')
+returning id as dog_ask1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+values (:'dogclub_id', 'ask', :'charlie_id', :'dog_ask1_thread', true, now() - interval '3 days')
 returning id as dog_ask1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
@@ -502,8 +519,12 @@ values (:'dog_ask1', 1, 'published',
   now() - interval '3 days', :'charlie_id');
 
 -- dog_evt1: "DogClub Monthly Meetup - April" by Owen (future)
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'dogclub_id', 'event', :'owen_id', now() - interval '8 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'dogclub_id', :'owen_id', now() - interval '8 days', now() - interval '8 days')
+returning id as dog_evt1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'dogclub_id', 'event', :'owen_id', :'dog_evt1_thread', now() - interval '8 days')
 returning id as dog_evt1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -521,8 +542,12 @@ values (:'dog_evt1_v', 'Riverside Park, Shelter #3',
   'America/New_York', 20);
 
 -- dog_evt2: "Puppy Socialization Workshop" by Alice (past)
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'dogclub_id', 'event', :'alice_id', now() - interval '20 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'dogclub_id', :'alice_id', now() - interval '20 days', now() - interval '20 days')
+returning id as dog_evt2_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'dogclub_id', 'event', :'alice_id', :'dog_evt2_thread', now() - interval '20 days')
 returning id as dog_evt2 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -540,8 +565,12 @@ values (:'dog_evt2_v', 'Alice''s Training Center, 42 Oak Street',
   'America/New_York', 8);
 
 -- dog_post3: "Training Tips for Stubborn Breeds" by Ivan
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'dogclub_id', 'post', :'ivan_id', now() - interval '2 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'dogclub_id', :'ivan_id', now() - interval '2 days', now() - interval '2 days')
+returning id as dog_post3_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'dogclub_id', 'post', :'ivan_id', :'dog_post3_thread', now() - interval '2 days')
 returning id as dog_post3 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -551,19 +580,23 @@ values (:'dog_post3', 1, 'published',
   'After spending hundreds of hours photographing working dogs on farms and in the field, I''ve picked up some training insights. Stubborn breeds aren''t actually stubborn — they''re independent thinkers bred for autonomous decision-making. Key tips: 1) Make training worth their while with high-value rewards. 2) Keep sessions short and varied. 3) Never repeat commands — say it once and wait. 4) Channel their drive into structured activities.',
   now() - interval '2 days', now() - interval '2 days', :'ivan_id');
 
--- Comments on dog_post1
-insert into entities (club_id, kind, author_member_id, parent_entity_id, created_at)
-values (:'dogclub_id', 'comment', :'charlie_id', :'dog_post1', now() - interval '13 days')
+-- Comments on dog_post1 (replies in dog_post1's thread)
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'dogclub_id', 'post', :'charlie_id', :'dog_post1_thread', now() - interval '13 days')
 returning id as dog_cmt1 \gset
+
+update content_threads set last_activity_at = now() - interval '13 days' where id = :'dog_post1_thread';
 
 insert into entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
 values (:'dog_cmt1', 1, 'published',
   'Great recap Alice! My husky Blizzard had such a blast in the agility ring. Third place felt like a win — those border collies are impossibly fast. Already training for next year!',
   now() - interval '13 days', now() - interval '13 days', :'charlie_id');
 
-insert into entities (club_id, kind, author_member_id, parent_entity_id, created_at)
-values (:'dogclub_id', 'comment', :'owen_id', :'dog_post1', now() - interval '13 days' + interval '2 hours')
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'dogclub_id', 'post', :'owen_id', :'dog_post1_thread', now() - interval '13 days' + interval '2 hours')
 returning id as dog_cmt2 \gset
+
+update content_threads set last_activity_at = now() - interval '13 days' + interval '2 hours' where id = :'dog_post1_thread';
 
 insert into entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
 values (:'dog_cmt2', 1, 'published',
@@ -575,8 +608,12 @@ values (:'dog_cmt2', 1, 'published',
 -- ============================================================
 
 -- cat_post1: "Understanding Feline Body Language" by Alice
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'catclub_id', 'post', :'alice_id', now() - interval '20 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'catclub_id', :'alice_id', now() - interval '20 days', now() - interval '20 days')
+returning id as cat_post1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'catclub_id', 'post', :'alice_id', :'cat_post1_thread', now() - interval '20 days')
 returning id as cat_post1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -587,8 +624,12 @@ values (:'cat_post1', 1, 'published',
   now() - interval '20 days', now() - interval '20 days', :'alice_id');
 
 -- cat_post2: "Top Cat Toys of 2026" by Bob
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'catclub_id', 'post', :'bob_id', now() - interval '12 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'catclub_id', :'bob_id', now() - interval '12 days', now() - interval '12 days')
+returning id as cat_post2_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'catclub_id', 'post', :'bob_id', :'cat_post2_thread', now() - interval '12 days')
 returning id as cat_post2 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -599,8 +640,12 @@ values (:'cat_post2', 1, 'published',
   now() - interval '12 days', now() - interval '12 days', :'bob_id');
 
 -- cat_opp1: "Cat Cafe Opening" by Diana
-insert into entities (club_id, kind, author_member_id, open_loop, created_at)
-values (:'catclub_id', 'opportunity', :'diana_id', true, now() - interval '8 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'catclub_id', :'diana_id', now() - interval '8 days', now() - interval '8 days')
+returning id as cat_opp1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+values (:'catclub_id', 'opportunity', :'diana_id', :'cat_opp1_thread', true, now() - interval '8 days')
 returning id as cat_opp1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
@@ -612,8 +657,12 @@ values (:'cat_opp1', 1, 'published',
   now() - interval '8 days', :'diana_id');
 
 -- cat_svc1: "Cat Sitting & Pet Care" by Bob
-insert into entities (club_id, kind, author_member_id, open_loop, created_at)
-values (:'catclub_id', 'service', :'bob_id', true, now() - interval '15 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'catclub_id', :'bob_id', now() - interval '15 days', now() - interval '15 days')
+returning id as cat_svc1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+values (:'catclub_id', 'service', :'bob_id', :'cat_svc1_thread', true, now() - interval '15 days')
 returning id as cat_svc1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -624,8 +673,12 @@ values (:'cat_svc1', 1, 'published',
   now() - interval '15 days', now() - interval '15 days', :'bob_id');
 
 -- cat_ask1: "Help with a Shy Rescue Cat" by Julia
-insert into entities (club_id, kind, author_member_id, open_loop, created_at)
-values (:'catclub_id', 'ask', :'julia_id', true, now() - interval '4 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'catclub_id', :'julia_id', now() - interval '4 days', now() - interval '4 days')
+returning id as cat_ask1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+values (:'catclub_id', 'ask', :'julia_id', :'cat_ask1_thread', true, now() - interval '4 days')
 returning id as cat_ask1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -636,8 +689,12 @@ values (:'cat_ask1', 1, 'published',
   now() - interval '4 days', now() - interval '4 days', :'julia_id');
 
 -- cat_evt1: "CatClub Virtual Q&A with a Vet" by Diana (future)
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'catclub_id', 'event', :'diana_id', now() - interval '6 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'catclub_id', :'diana_id', now() - interval '6 days', now() - interval '6 days')
+returning id as cat_evt1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'catclub_id', 'event', :'diana_id', :'cat_evt1_thread', now() - interval '6 days')
 returning id as cat_evt1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -654,10 +711,12 @@ values (:'cat_evt1_v', 'Zoom (link sent day of event)',
   now() + interval '3 days' + interval '20 hours' + interval '30 minutes',
   'America/New_York');
 
--- Comment on cat_post1 by Bob
-insert into entities (club_id, kind, author_member_id, parent_entity_id, created_at)
-values (:'catclub_id', 'comment', :'bob_id', :'cat_post1', now() - interval '19 days')
+-- Comment on cat_post1 by Bob (reply in cat_post1's thread)
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'catclub_id', 'post', :'bob_id', :'cat_post1_thread', now() - interval '19 days')
 returning id as cat_cmt1 \gset
+
+update content_threads set last_activity_at = now() - interval '19 days' where id = :'cat_post1_thread';
 
 insert into entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
 values (:'cat_cmt1', 1, 'published',
@@ -665,8 +724,12 @@ values (:'cat_cmt1', 1, 'published',
   now() - interval '19 days', now() - interval '19 days', :'bob_id');
 
 -- cat_spam: spam post by George (published then removed by admin Diana)
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'catclub_id', 'post', :'george_id', now() - interval '16 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'catclub_id', :'george_id', now() - interval '16 days', now() - interval '16 days')
+returning id as cat_spam_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'catclub_id', 'post', :'george_id', :'cat_spam_thread', now() - interval '16 days')
 returning id as cat_spam \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -687,8 +750,12 @@ values (:'cat_spam', 2, 'removed',
 -- ============================================================
 
 -- fox_post1: "Fox Conservation Update Q1 2026" by Bob
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'foxclub_id', 'post', :'bob_id', now() - interval '18 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'foxclub_id', :'bob_id', now() - interval '18 days', now() - interval '18 days')
+returning id as fox_post1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'foxclub_id', 'post', :'bob_id', :'fox_post1_thread', now() - interval '18 days')
 returning id as fox_post1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -699,8 +766,12 @@ values (:'fox_post1', 1, 'published',
   now() - interval '18 days', now() - interval '18 days', :'bob_id');
 
 -- fox_post2: "Wildlife Photography Tips & Tricks" by Charlie
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'foxclub_id', 'post', :'charlie_id', now() - interval '9 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'foxclub_id', :'charlie_id', now() - interval '9 days', now() - interval '9 days')
+returning id as fox_post2_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'foxclub_id', 'post', :'charlie_id', :'fox_post2_thread', now() - interval '9 days')
 returning id as fox_post2 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -711,8 +782,12 @@ values (:'fox_post2', 1, 'published',
   now() - interval '9 days', now() - interval '9 days', :'charlie_id');
 
 -- fox_opp1: "Fox Sanctuary Volunteer Positions" by Owen
-insert into entities (club_id, kind, author_member_id, open_loop, created_at)
-values (:'foxclub_id', 'opportunity', :'owen_id', true, now() - interval '6 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'foxclub_id', :'owen_id', now() - interval '6 days', now() - interval '6 days')
+returning id as fox_opp1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+values (:'foxclub_id', 'opportunity', :'owen_id', :'fox_opp1_thread', true, now() - interval '6 days')
 returning id as fox_opp1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, expires_at, created_at, created_by_member_id)
@@ -724,8 +799,12 @@ values (:'fox_opp1', 1, 'published',
   now() - interval '6 days', :'owen_id');
 
 -- fox_svc1: "Wildlife Photography Workshops" by Charlie
-insert into entities (club_id, kind, author_member_id, open_loop, created_at)
-values (:'foxclub_id', 'service', :'charlie_id', true, now() - interval '14 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'foxclub_id', :'charlie_id', now() - interval '14 days', now() - interval '14 days')
+returning id as fox_svc1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+values (:'foxclub_id', 'service', :'charlie_id', :'fox_svc1_thread', true, now() - interval '14 days')
 returning id as fox_svc1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -736,8 +815,12 @@ values (:'fox_svc1', 1, 'published',
   now() - interval '14 days', now() - interval '14 days', :'charlie_id');
 
 -- fox_ask1: "Fox Sighting Tracking Apps?" by Ivan
-insert into entities (club_id, kind, author_member_id, open_loop, created_at)
-values (:'foxclub_id', 'ask', :'ivan_id', true, now() - interval '5 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'foxclub_id', :'ivan_id', now() - interval '5 days', now() - interval '5 days')
+returning id as fox_ask1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+values (:'foxclub_id', 'ask', :'ivan_id', :'fox_ask1_thread', true, now() - interval '5 days')
 returning id as fox_ask1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -748,8 +831,12 @@ values (:'fox_ask1', 1, 'published',
   now() - interval '5 days', now() - interval '5 days', :'ivan_id');
 
 -- fox_evt1: "Fox Watch Night Walk" by Owen (future, capacity-limited)
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'foxclub_id', 'event', :'owen_id', now() - interval '5 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'foxclub_id', :'owen_id', now() - interval '5 days', now() - interval '5 days')
+returning id as fox_evt1_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'foxclub_id', 'event', :'owen_id', :'fox_evt1_thread', now() - interval '5 days')
 returning id as fox_evt1 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -767,8 +854,12 @@ values (:'fox_evt1_v', 'Green Corridor Trailhead, North Entrance',
   'Europe/London', 10);
 
 -- fox_evt2: "Annual Fox Census" by Bob (past)
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'foxclub_id', 'event', :'bob_id', now() - interval '30 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'foxclub_id', :'bob_id', now() - interval '30 days', now() - interval '30 days')
+returning id as fox_evt2_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'foxclub_id', 'event', :'bob_id', :'fox_evt2_thread', now() - interval '30 days')
 returning id as fox_evt2 \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -785,10 +876,12 @@ values (:'fox_evt2_v', 'Woodland Community Center',
   now() - interval '20 days' + interval '16 hours',
   'Europe/London');
 
--- Comment on fox_post1 by Ivan
-insert into entities (club_id, kind, author_member_id, parent_entity_id, created_at)
-values (:'foxclub_id', 'comment', :'ivan_id', :'fox_post1', now() - interval '17 days')
+-- Comment on fox_post1 by Ivan (reply in fox_post1's thread)
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'foxclub_id', 'post', :'ivan_id', :'fox_post1_thread', now() - interval '17 days')
 returning id as fox_cmt1 \gset
+
+update content_threads set last_activity_at = now() - interval '17 days' where id = :'fox_post1_thread';
 
 insert into entity_versions (entity_id, version_no, state, body, effective_at, created_at, created_by_member_id)
 values (:'fox_cmt1', 1, 'published',
@@ -796,8 +889,12 @@ values (:'fox_cmt1', 1, 'published',
   now() - interval '17 days', now() - interval '17 days', :'ivan_id');
 
 -- fox_draft: draft post by Ivan (unpublished)
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'foxclub_id', 'post', :'ivan_id', now() - interval '1 day')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'foxclub_id', :'ivan_id', now() - interval '1 day', now() - interval '1 day')
+returning id as fox_draft_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'foxclub_id', 'post', :'ivan_id', :'fox_draft_thread', now() - interval '1 day')
 returning id as fox_draft \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -808,8 +905,12 @@ values (:'fox_draft', 1, 'draft',
   now() - interval '1 day', now() - interval '1 day', :'ivan_id');
 
 -- fox_complaint: complaint by Fiona
-insert into entities (club_id, kind, author_member_id, created_at)
-values (:'foxclub_id', 'complaint', :'fiona_id', now() - interval '2 days')
+insert into content_threads (club_id, created_by_member_id, last_activity_at, created_at)
+values (:'foxclub_id', :'fiona_id', now() - interval '2 days', now() - interval '2 days')
+returning id as fox_complaint_thread \gset
+
+insert into entities (club_id, kind, author_member_id, content_thread_id, created_at)
+values (:'foxclub_id', 'complaint', :'fiona_id', :'fox_complaint_thread', now() - interval '2 days')
 returning id as fox_complaint \gset
 
 insert into entity_versions (entity_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)
@@ -1033,13 +1134,13 @@ insert into ai_llm_usage_log (member_id, requested_club_id, action_name, gate_na
   (:'alice_id',   :'dogclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 320, 45, now() - interval '21 days'),
   (:'alice_id',   :'dogclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 410, 38, now() - interval '14 days'),
   (:'charlie_id', :'dogclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 350, 42, now() - interval '7 days'),
-  (:'owen_id',    :'dogclub_id', 'events.create',   'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 290, 40, now() - interval '8 days'),
+  (:'owen_id',    :'dogclub_id', 'content.create',   'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 290, 40, now() - interval '8 days'),
   (:'alice_id',   :'catclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 380, 44, now() - interval '20 days'),
   (:'bob_id',     :'catclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 340, 41, now() - interval '12 days'),
   (:'diana_id',   :'catclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 400, 48, now() - interval '8 days'),
   (:'bob_id',     :'foxclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 420, 50, now() - interval '18 days'),
   (:'ivan_id',    :'foxclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 260, 36, now() - interval '5 days'),
-  (:'owen_id',    :'foxclub_id', 'events.create',   'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 310, 41, now() - interval '5 days'),
+  (:'owen_id',    :'foxclub_id', 'content.create',   'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 310, 41, now() - interval '5 days'),
   (:'alice_id',   null,          'profile.update',  'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 480, 55, now() - interval '25 days'),
   (:'owen_id',    null,          'profile.update',  'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 520, 60, now() - interval '30 days')
 on conflict do nothing;

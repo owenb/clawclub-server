@@ -233,9 +233,23 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
 
     // Look up entity kind and current version
     const entityResult = await pools.db.query<{
-      kind: string; author_member_id: string; current_version_id: string; open_loop: boolean | null;
+      kind: string; author_member_id: string; current_version_id: string; open_loop: boolean | null; is_thread_subject: boolean;
     }>(
-      `select e.kind::text as kind, e.author_member_id, cev.id as current_version_id, e.open_loop
+      `select e.kind::text as kind,
+              e.author_member_id,
+              cev.id as current_version_id,
+              e.open_loop,
+              not exists (
+                select 1
+                from entities earlier
+                where earlier.content_thread_id = e.content_thread_id
+                  and earlier.archived_at is null
+                  and earlier.deleted_at is null
+                  and (
+                    earlier.created_at < e.created_at
+                    or (earlier.created_at = e.created_at and earlier.id < e.id)
+                  )
+              ) as is_thread_subject
        from entities e
        join current_entity_versions cev on cev.entity_id = e.id
        where e.id = $1 and e.deleted_at is null and cev.state = 'published'`,
@@ -243,6 +257,7 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
     );
     const entity = entityResult.rows[0];
     if (!entity) continue;
+    if (!entity.is_thread_subject) continue;
     if (entity.open_loop === false) continue;
     const kind = entity.kind;
 

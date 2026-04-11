@@ -435,12 +435,39 @@ export type UpdateClubProfileInput = {
   profile?: unknown;
 };
 
-export type EntityKind = 'post' | 'opportunity' | 'service' | 'ask' | 'gift';
+export type EntityKind = 'post' | 'opportunity' | 'service' | 'ask' | 'gift' | 'event';
 export type EntityState = 'draft' | 'published' | 'removed';
 
-export type EntitySummary = {
+export type EventFields = {
+  location: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  timezone: string | null;
+  recurrenceRule: string | null;
+  capacity: number | null;
+};
+
+export type EventRsvpState = 'yes' | 'maybe' | 'no' | 'waitlist';
+
+export type EventRsvpAttendee = {
+  membershipId: string;
+  memberId: string;
+  publicName: string;
+  handle: string | null;
+  response: EventRsvpState;
+  note: string | null;
+  createdAt: string;
+};
+
+export type EventRsvpSummary = {
+  viewerResponse: EventRsvpState | null;
+  counts: Record<EventRsvpState, number>;
+  attendees: EventRsvpAttendee[];
+};
+
+export type ContentEntity = {
   entityId: string;
-  entityVersionId: string;
+  contentThreadId: string;
   clubId: string;
   kind: EntityKind;
   openLoop: boolean | null;
@@ -448,6 +475,7 @@ export type EntitySummary = {
     memberId: string;
     publicName: string;
     handle: string | null;
+    displayName: string;
   };
   version: {
     versionNo: number;
@@ -460,12 +488,42 @@ export type EntitySummary = {
     createdAt: string;
     content: Record<string, unknown>;
   };
+  event: EventFields | null;
+  rsvps: EventRsvpSummary | null;
   createdAt: string;
+};
+
+export type ContentEntitySearchResult = ContentEntity & {
+  score: number;
+};
+
+export type EntitySummary = ContentEntity;
+export type EventSummary = ContentEntity;
+
+export type ContentThreadSummary = {
+  threadId: string;
+  clubId: string;
+  firstEntity: ContentEntity;
+  thread: {
+    entityCount: number;
+    lastActivityAt: string;
+  };
+};
+
+export type ContentThread = {
+  threadId: string;
+  clubId: string;
+  entities: ContentEntity[];
+  entityCount: number;
+  lastActivityAt: string;
+  hasMore: boolean;
+  nextCursor: string | null;
 };
 
 export type CreateEntityInput = {
   authorMemberId: string;
-  clubId: string;
+  clubId?: string;
+  threadId?: string;
   kind: EntityKind;
   title: string | null;
   summary: string | null;
@@ -473,6 +531,51 @@ export type CreateEntityInput = {
   expiresAt: string | null;
   content: Record<string, unknown>;
   clientKey?: string | null;
+  event?: EventFields | null;
+};
+
+export type ListEventsInput = {
+  actorMemberId: string;
+  clubIds: string[];
+  limit: number;
+  query?: string;
+  cursor?: { startsAt: string; entityId: string } | null;
+};
+
+export type RsvpEventInput = {
+  actorMemberId: string;
+  eventEntityId: string;
+  response: EventRsvpState;
+  note?: string | null;
+  clientKey?: string | null;
+  accessibleMemberships: Array<{
+    membershipId: string;
+    clubId: string;
+  }>;
+};
+
+export type ListEntitiesInput = {
+  actorMemberId: string;
+  clubIds: string[];
+  kinds: EntityKind[];
+  limit: number;
+  query?: string;
+  includeClosed: boolean;
+  cursor?: { lastActivityAt: string; threadId: string } | null;
+};
+
+export type ReadContentThreadInput = {
+  actorMemberId: string;
+  accessibleMemberships: Array<{
+    membershipId: string;
+    clubId: string;
+  }>;
+  accessibleClubIds: string[];
+  entityId?: string;
+  threadId?: string;
+  includeClosed: boolean;
+  limit: number;
+  cursor?: { createdAt: string; entityId: string } | null;
 };
 
 export type RemoveEntityInput = {
@@ -504,95 +607,6 @@ export type MessageRemovalResult = {
   removedByMemberId: string;
   reason: string | null;
   removedAt: string;
-};
-
-export type EventRsvpState = 'yes' | 'maybe' | 'no' | 'waitlist';
-
-export type EventSummary = {
-  entityId: string;
-  entityVersionId: string;
-  clubId: string;
-  author: {
-    memberId: string;
-    publicName: string;
-    handle: string | null;
-  };
-  version: {
-    versionNo: number;
-    state: EntityState;
-    title: string | null;
-    summary: string | null;
-    body: string | null;
-    location: string | null;
-    startsAt: string | null;
-    endsAt: string | null;
-    timezone: string | null;
-    recurrenceRule: string | null;
-    capacity: number | null;
-    effectiveAt: string;
-    expiresAt: string | null;
-    createdAt: string;
-    content: Record<string, unknown>;
-  };
-  rsvps: {
-    viewerResponse: EventRsvpState | null;
-    counts: Record<EventRsvpState, number>;
-    attendees: Array<{
-      membershipId: string;
-      memberId: string;
-      publicName: string;
-      handle: string | null;
-      response: EventRsvpState;
-      note: string | null;
-      createdAt: string;
-    }>;
-  };
-  createdAt: string;
-};
-
-export type CreateEventInput = {
-  authorMemberId: string;
-  clubId: string;
-  title: string;
-  summary: string;
-  location: string;
-  body: string | null;
-  startsAt: string;
-  endsAt: string | null;
-  timezone: string | null;
-  recurrenceRule: string | null;
-  capacity: number | null;
-  expiresAt: string | null;
-  content: Record<string, unknown>;
-  clientKey?: string | null;
-};
-
-export type ListEventsInput = {
-  actorMemberId: string;
-  clubIds: string[];
-  limit: number;
-  query?: string;
-};
-
-export type RsvpEventInput = {
-  actorMemberId: string;
-  eventEntityId: string;
-  response: EventRsvpState;
-  note?: string | null;
-  clientKey?: string | null;
-  accessibleMemberships: Array<{
-    membershipId: string;
-    clubId: string;
-  }>;
-};
-
-export type ListEntitiesInput = {
-  actorMemberId: string;
-  clubIds: string[];
-  kinds: EntityKind[];
-  limit: number;
-  query?: string;
-  includeClosed: boolean;
 };
 
 export type BearerTokenSummary = {
@@ -704,6 +718,7 @@ export type UpdateEntityInput = {
     body?: string | null;
     expiresAt?: string | null;
     content?: Record<string, unknown>;
+    event?: Partial<EventFields> | null;
   };
 };
 
@@ -810,6 +825,7 @@ export type AdminClubStats = {
 
 export type AdminContentSummary = {
   entityId: string;
+  contentThreadId: string;
   clubId: string;
   clubName: string;
   kind: EntityKind;
@@ -903,18 +919,16 @@ export type Repository = {
   }): Promise<MemberProfileEnvelope | null>;
   updateMemberIdentity?(input: { actor: ActorContext; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
   updateClubProfile?(input: { actor: ActorContext; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
-  // Internal entity methods back the public `content.*` API. Events use the same
-  // underlying entity/version tables but have separate event-specific methods below.
-  createEntity(input: CreateEntityInput): Promise<EntitySummary>;
-  updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
-  closeEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
-  reopenEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
-  removeEntity?(input: RemoveEntityInput): Promise<EntitySummary | null>;
-  listEntities(input: ListEntitiesInput & { rawCursor?: string | null }): Promise<Paginated<EntitySummary>>;
-  createEvent(input: CreateEventInput): Promise<EventSummary>;
-  listEvents(input: ListEventsInput & { cursor?: { effectiveAt: string; entityId: string } | null }): Promise<Paginated<EventSummary>>;
-  rsvpEvent(input: RsvpEventInput): Promise<EventSummary | null>;
-  removeEvent?(input: RemoveEntityInput): Promise<EventSummary | null>;
+  createEntity(input: CreateEntityInput): Promise<ContentEntity>;
+  updateEntity(input: UpdateEntityInput): Promise<ContentEntity | null>;
+  closeEntityLoop(input: SetEntityLoopInput): Promise<ContentEntity | null>;
+  reopenEntityLoop(input: SetEntityLoopInput): Promise<ContentEntity | null>;
+  removeEntity?(input: RemoveEntityInput): Promise<ContentEntity | null>;
+  listEntities(input: ListEntitiesInput): Promise<Paginated<ContentThreadSummary>>;
+  readContentThread(input: ReadContentThreadInput): Promise<{ thread: ContentThreadSummary; entities: ContentEntity[]; hasMore: boolean; nextCursor: string | null } | null>;
+  listEvents(input: ListEventsInput): Promise<Paginated<ContentEntity>>;
+  rsvpEvent(input: RsvpEventInput): Promise<ContentEntity | null>;
+  cancelEventRsvp(input: { actorMemberId: string; eventEntityId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<ContentEntity | null>;
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
@@ -1021,7 +1035,7 @@ export type Repository = {
     kinds?: string[];
     limit: number;
     cursor?: { distance: string; entityId: string } | null;
-  }): Promise<Paginated<EntitySummary>>;
+  }): Promise<Paginated<ContentEntitySearchResult>>;
 };
 
 export type LogLlmUsageInput = {
