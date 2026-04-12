@@ -25,7 +25,7 @@ We initially designed a full protocol rewrite:
 - introduce an explicit `scopeToken` (base64url-encoded visibility scope) so clients can detect scope changes and the server can invalidate stale cursors
 - break the entire `/updates` API — polling and streaming — in one coordinated change
 
-That design is architecturally clean and sets up well for the notification system planned in `docs/system-notifications-design.md`. The full plan is preserved in git history for reference.
+That design is architecturally clean and sets up well for the notification system planned in `plans/system-notifications-design.md`. The full plan is preserved in git history for reference.
 
 We rejected it for now because:
 
