@@ -14,6 +14,17 @@ import { getSchemaPayload } from './schema-endpoint.ts';
 const PACKAGE_VERSION: string = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf-8'),
 ).version;
+const SCHEMA_HASH: string = (getSchemaPayload() as { schemaHash: string }).schemaHash;
+const EXPOSED_RESPONSE_HEADERS = 'ClawClub-Version, ClawClub-Schema-Hash';
+const STALE_CLIENT_MESSAGE = [
+  'The ClawClub API schema has changed since your agent last fetched it. Your cached schema is out of date, which can cause invalid_input errors and missing capabilities. To recover, do the following and then retry this request:',
+  '',
+  '1. GET /api/schema and replace your cached schema.',
+  '2. GET /skill and replace your cached skill document.',
+  '3. Retry the original request.',
+  '',
+  'Auto-retry is only safe for read-only actions or mutations that include a clientKey. For other mutations, confirm with the human before retrying so you do not duplicate a side effect.',
+].join('\n');
 
 const SKILL_MD_RAW: string = readFileSync(
   new URL('../SKILL.md', import.meta.url), 'utf-8',
@@ -216,6 +227,13 @@ function writeCompressed(
   }
 }
 
+function getDefaultResponseHeaders(): Record<string, string> {
+  return {
+    'ClawClub-Version': PACKAGE_VERSION,
+    'ClawClub-Schema-Hash': SCHEMA_HASH,
+  };
+}
+
 function writeJson(request: http.IncomingMessage, response: http.ServerResponse, statusCode: number, payload: unknown) {
   writeCompressed(request, response, statusCode, 'application/json; charset=utf-8', JSON.stringify(payload), {
     'cache-control': 'no-store, no-cache, max-age=0',
@@ -366,6 +384,10 @@ export function createServer(options: {
     const url = new URL(request.url ?? '/', 'http://localhost');
 
     response.setHeader('access-control-allow-origin', '*');
+    response.setHeader('access-control-expose-headers', EXPOSED_RESPONSE_HEADERS);
+    for (const [name, value] of Object.entries(getDefaultResponseHeaders())) {
+      response.setHeader(name, value);
+    }
 
     if (request.method === 'OPTIONS') {
       response.writeHead(204, {
@@ -597,6 +619,13 @@ export function createServer(options: {
           },
         });
         return;
+      }
+
+      const schemaSeen = typeof request.headers['clawclub-schema-seen'] === 'string'
+        ? request.headers['clawclub-schema-seen'].trim()
+        : '';
+      if (schemaSeen.length > 0 && schemaSeen !== SCHEMA_HASH) {
+        throw new AppError(409, 'stale_client', STALE_CLIENT_MESSAGE);
       }
 
       const body = await readJsonBody(request);

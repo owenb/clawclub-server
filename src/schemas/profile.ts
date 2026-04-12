@@ -11,6 +11,24 @@ import {
 import { memberProfileEnvelope } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
+const PROFILE_UPDATE_ERRORS = [
+  {
+    code: 'illegal_content',
+    meaning: 'The profile update was rejected for soliciting or facilitating clearly illegal activity.',
+    recovery: 'Relay the reason to the user, revise the profile fields, and resubmit.',
+  },
+  {
+    code: 'gate_rejected',
+    meaning: 'The profile update failed the quality gate after schema validation.',
+    recovery: 'Review the feedback, revise the profile fields, and resubmit.',
+  },
+  {
+    code: 'gate_unavailable',
+    meaning: 'The profile quality gate is temporarily unavailable.',
+    recovery: 'Retry after a short delay. If the problem persists, surface the outage to the user.',
+  },
+] as const;
+
 type ProfileListInput = {
   memberId?: string;
   clubId?: string;
@@ -85,10 +103,14 @@ function validateProfileUpdateInput(patch: ProfileUpdateInput): void {
 const profileUpdate: ActionDefinition = {
   action: 'profile.update',
   domain: 'profile',
-  description: 'Update the current actor profile.',
+  description: 'Update the current actor club-scoped profile fields for one club.',
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Updates own profile only.',
+  businessErrors: [...PROFILE_UPDATE_ERRORS],
+  notes: [
+    'Use members.updateIdentity for global identity fields like handle and displayName. profile.update only changes club-scoped profile fields.',
+  ],
 
   wire: {
     input: z.object({

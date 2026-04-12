@@ -21,6 +21,9 @@ const quotasStatus: ActionDefinition = {
   description: 'Get quota usage for the current member across accessible clubs.',
   auth: 'member',
   safety: 'read_only',
+  notes: [
+    'This returns the effective per-club limit after applying any club-specific override and the clubadmin/owner 3x multiplier.',
+  ],
 
   wire: {
     input: z.object({}),

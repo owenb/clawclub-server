@@ -56,8 +56,11 @@ describe('smoke', () => {
       actions: Array<{
         action: string;
         auth: string;
+        businessErrors?: Array<{ code: string; meaning: string; recovery: string }>;
         input: unknown;
+        notes?: string[];
         output: unknown;
+        scopeRules?: string[];
       }>;
     };
     assert.ok(data.version, 'schema should have a version');
@@ -83,6 +86,27 @@ describe('smoke', () => {
     assert.ok(names.some(n => n.startsWith('clubadmin.')), 'should include clubadmin.*');
     assert.ok(names.some(n => n.startsWith('superadmin.')), 'should include superadmin.*');
     assert.ok(!names.some(n => n.startsWith('admin.')), 'should not include admin.*');
+
+    const sessionGetContext = data.actions.find((a) => a.action === 'session.getContext');
+    assert.ok(sessionGetContext?.notes?.some((note) => /actor block/i.test(note)), 'session.getContext should document actor-envelope notes');
+
+    const messagesSend = data.actions.find((a) => a.action === 'messages.send');
+    assert.ok(messagesSend?.scopeRules?.some((rule) => /not club-scoped/i.test(rule)), 'messages.send should document DM scope rules');
+
+    const contentCreate = data.actions.find((a) => a.action === 'content.create');
+    const contentCreateErrorCodes = new Set(contentCreate?.businessErrors?.map((error) => error.code) ?? []);
+    assert.ok(contentCreateErrorCodes.has('quota_exceeded'), 'content.create should document quota_exceeded');
+    assert.ok(contentCreateErrorCodes.has('illegal_content'), 'content.create should document illegal_content');
+    assert.ok(contentCreateErrorCodes.has('gate_unavailable'), 'content.create should document gate_unavailable');
+
+    const publicSubmit = data.actions.find((a) => a.action === 'admissions.public.submitApplication');
+    assert.ok(publicSubmit?.notes?.some((note) => /canonical response text/i.test(note)), 'public submit should note the accepted message semantics');
+
+    const eventsList = data.actions.find((a) => a.action === 'events.list') as Record<string, unknown> | undefined;
+    assert.ok(eventsList, 'events.list should exist');
+    assert.equal('businessErrors' in eventsList, false, 'actions without metadata should omit empty businessErrors arrays');
+    assert.equal('scopeRules' in eventsList, false, 'actions without metadata should omit empty scopeRules arrays');
+    assert.equal('notes' in eventsList, false, 'actions without metadata should omit empty notes arrays');
 
     // Verify a second call returns identical output (cached, stable)
     const { body: body2 } = await h.getSchema();
@@ -187,6 +211,7 @@ describe('smoke', () => {
     assert.ok(codes.includes('not_found'), 'should include not_found for unsupported routes');
     assert.ok(codes.includes('too_many_streams'), 'should include too_many_streams');
     assert.ok(codes.includes('not_available'), 'should include not_available for missing capabilities');
+    assert.ok(codes.includes('stale_client'), 'should include stale_client for schema refresh mismatches');
 
     // schemaHash covers full payload
     assert.ok(typeof data.schemaHash === 'string');

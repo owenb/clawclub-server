@@ -20,6 +20,34 @@ type CrossChallengeInput = {
   clubSlug: string;
 };
 
+const CROSS_CHALLENGE_ERRORS = [
+  {
+    code: 'no_active_membership',
+    meaning: 'Only active members of an existing club can use the cross-club apply path.',
+    recovery: 'Use the cold public admissions path, or authenticate as a member with an active membership.',
+  },
+  {
+    code: 'membership_exists',
+    meaning: 'The actor already has a membership record in the target club.',
+    recovery: 'Stop retrying this path and contact the club admin instead.',
+  },
+  {
+    code: 'admission_pending',
+    meaning: 'The actor already has a pending admission for the target club.',
+    recovery: 'Wait for the current admission to be resolved before retrying.',
+  },
+  {
+    code: 'too_many_pending',
+    meaning: 'The actor has too many pending cross-club applications across the network.',
+    recovery: 'Wait for existing applications to resolve before applying to more clubs.',
+  },
+  {
+    code: 'incomplete_profile',
+    meaning: 'The actor profile is missing the required name or email for cross-application.',
+    recovery: 'Update the profile first, then request a fresh challenge.',
+  },
+] as const;
+
 const admissionsCrossChallenge: ActionDefinition = {
   action: 'admissions.crossClub.requestChallenge',
   domain: 'admissions',
@@ -27,6 +55,7 @@ const admissionsCrossChallenge: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Requires at least one active membership in any club. Must not already be a member of the target club. Capped at 3 pending cross-applications across all clubs.',
+  businessErrors: [...CROSS_CHALLENGE_ERRORS],
 
   wire: {
     input: z.object({
@@ -62,12 +91,56 @@ type CrossApplyInput = {
   application: string;
 };
 
+const CROSS_SUBMIT_ERRORS = [
+  {
+    code: 'challenge_not_found',
+    meaning: 'The challenge ID does not exist or is no longer available.',
+    recovery: 'Request a fresh challenge and try again.',
+  },
+  {
+    code: 'challenge_not_yours',
+    meaning: 'The challenge was issued to a different authenticated member.',
+    recovery: 'Use the token that requested the challenge, or request a new one under the current account.',
+  },
+  {
+    code: 'challenge_expired',
+    meaning: 'The challenge expired before submission.',
+    recovery: 'Request a fresh challenge.',
+  },
+  {
+    code: 'invalid_proof',
+    meaning: 'The proof-of-work nonce did not satisfy the challenge difficulty.',
+    recovery: 'Re-solve the PoW for this challenge and resubmit.',
+  },
+  {
+    code: 'challenge_consumed',
+    meaning: 'A concurrent request already consumed this challenge.',
+    recovery: 'Request a fresh challenge and try again.',
+  },
+  {
+    code: 'incomplete_profile',
+    meaning: 'The actor profile is missing the required name or email for cross-application.',
+    recovery: 'Update the profile first, then request a fresh challenge.',
+  },
+  {
+    code: 'gate_unavailable',
+    meaning: 'The admission gate is temporarily unavailable.',
+    recovery: 'Retry the same submission after a short delay. If the outage persists, surface it to the user.',
+  },
+] as const;
+
 const admissionsCrossApply: ActionDefinition = {
   action: 'admissions.crossClub.submitApplication',
   domain: 'admissions',
   description: 'Submit a solved cross-apply PoW challenge with an application. Name and email are locked to your profile. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.',
   auth: 'member',
   safety: 'mutating',
+  businessErrors: [...CROSS_SUBMIT_ERRORS],
+  notes: [
+    'Name and email are locked to the current profile. Do not send them again on submit.',
+    'A needs_revision status means the challenge remains valid and the same challengeId and nonce can be reused.',
+    'When status is accepted, the message field is the server\'s canonical response text.',
+  ],
 
   wire: {
     input: z.object({

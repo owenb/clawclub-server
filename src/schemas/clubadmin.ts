@@ -29,6 +29,10 @@ import {
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
+const CLUBADMIN_SCOPE_RULES = [
+  'clubadmin actions require an explicit clubId. The server does not infer it from session context.',
+] as const;
+
 // ── clubadmin.memberships.list ─────────────────────────
 
 type MembershipsListInput = {
@@ -45,6 +49,7 @@ const clubadminMembershipsList: ActionDefinition = {
   auth: 'clubadmin',
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
   wire: {
     input: z.object({
@@ -111,6 +116,7 @@ const clubadminMembershipsReview: ActionDefinition = {
   auth: 'clubadmin',
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
   wire: {
     input: z.object({
@@ -179,6 +185,7 @@ const clubadminMembershipsCreate: ActionDefinition = {
   auth: 'clubadmin',
   safety: 'mutating',
   authorizationNote: 'Requires club admin role. Members are always created with role member. Use promoteToAdmin to elevate.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
   wire: {
     input: z.object({
@@ -263,6 +270,7 @@ const clubadminMembershipsTransition: ActionDefinition = {
   auth: 'clubadmin',
   safety: 'mutating',
   authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
   wire: {
     input: z.object({
@@ -324,6 +332,7 @@ const clubadminAdmissionsList: ActionDefinition = {
   auth: 'clubadmin',
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
   wire: {
     input: z.object({
@@ -401,6 +410,7 @@ const clubadminAdmissionsTransition: ActionDefinition = {
   auth: 'clubadmin',
   safety: 'mutating',
   authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
   wire: {
     input: z.object({
@@ -466,6 +476,7 @@ const clubadminAdmissionsIssueAccess: ActionDefinition = {
   auth: 'clubadmin',
   safety: 'mutating',
   authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
   wire: {
     input: z.object({
@@ -522,6 +533,7 @@ const clubadminClubsStats: ActionDefinition = {
   auth: 'clubadmin',
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
   requiredCapability: 'adminGetClubStats',
 
@@ -565,6 +577,7 @@ const clubadminEntitiesRemove: ActionDefinition = {
   auth: 'clubadmin',
   safety: 'mutating',
   authorizationNote: 'Club admin may remove any entity in their club. Reason is required for moderation audit trail.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
   requiredCapability: 'removeEntity',
 

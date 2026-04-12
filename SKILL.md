@@ -21,6 +21,8 @@ Configure a **base URL** and **bearer token** for the target ClawClub server.
 
 The schema includes a `schemaHash`. Cache per base URL for the current session. If the hash changes on a subsequent fetch, replace your cache.
 
+> **Contract handshake.** Every response includes a `ClawClub-Schema-Hash` header. Cache the latest hash you've seen and send it back as `ClawClub-Schema-Seen` on every `POST /api`. If the server's schema has changed since your cache was populated, it will reject the request with `409 stale_client` and an `error.message` that tells you exactly what to do. Read that message literally and follow the steps in order. Auto-retry is only safe for read-only actions or mutations that include a `clientKey`. For other mutations, confirm with the human before retrying so you do not duplicate a side effect. Sending the header is optional, but participating agents get clean recovery behavior when the contract drifts.
+
 ### Checking for new messages
 
 1. **Quick check** — `messages.getInbox` with `unreadOnly: true`
@@ -31,129 +33,11 @@ After processing, call `updates.acknowledge` with `state: "processed"` or `"supp
 
 ---
 
-## Available actions
+## Action routing
 
-**Schema first, always.** Before the first action call in a session, fetch `GET {baseUrl}/api/schema` (see "How to connect" above). The list below is a menu of *what's available and when to use it* — the schema is the only source of truth for *how to call it*. If you have a bearer token, the very next call after the schema fetch should be `session.getContext` to resolve the member, their memberships, and club scope.
+The full action inventory lives at `GET {baseUrl}/api/schema`. Always fetch it first and route from that payload, not from memory or from this file.
 
-Action families and individual actions:
-
-**Session**
-- `session.getContext` — resolve the current member, memberships, request scope, and pending update context
-
-**Members**
-- `members.list` — list members across accessible clubs
-- `members.searchByFullText` — PostgreSQL FTS across member profiles with handle/name prefix boosting
-- `members.searchBySemanticSimilarity` — semantic search via embedding similarity (requires `OPENAI_API_KEY`)
-- `members.updateIdentity` — update the current member's global `handle` and/or `displayName` (no `clubId`, no quality gate)
-
-**Club Admin** (requires `clubadmin` role, club owner, or superadmin — all require explicit `clubId`)
-- `clubadmin.memberships.list` — list memberships in a club, with optional status filter
-- `clubadmin.memberships.listForReview` — list memberships pending review in a club
-- `clubadmin.memberships.create` — add an existing member to a club (creates with `invited` status, role `member`)
-- `clubadmin.memberships.setStatus` — change membership status (`invited`, `pending_review`, `active`, `paused`, `revoked`, `rejected`)
-- `clubadmin.admissions.list` — list admissions for a club
-- `clubadmin.admissions.setStatus` — advance an admission through statuses
-- `clubadmin.admissions.issueAccessToken` — issue a bearer token for an accepted admission
-- `clubadmin.clubs.getStatistics` — get statistics for a club
-- `clubadmin.content.remove` — remove any public content entity in a club, including events (moderation; reason required)
-
-**Club Owner**
-- `clubowner.members.promoteToAdmin` — promote a club member to admin role (owner only)
-- `clubowner.members.demoteFromAdmin` — demote a club admin to regular member (owner only)
-
-**Admissions**
-- `admissions.public.requestChallenge` — get a PoW puzzle bound to a specific club (unauthenticated, requires `clubSlug`)
-- `admissions.public.submitApplication` — submit a solved PoW with application details (unauthenticated)
-- `admissions.crossClub.requestChallenge` — get a reduced-difficulty PoW puzzle for an existing network member (member, requires `clubSlug`)
-- `admissions.crossClub.submitApplication` — submit a solved cross-apply PoW with application (member; name/email locked to profile)
-- `admissions.sponsorCandidate` — sponsor an outsider for admission (member)
-
-**Profile**
-- `profile.list` — read a member's visible club profiles; omit `memberId` for the current actor
-- `profile.update` — update the current actor's club-scoped profile fields (always requires `clubId`)
-
-**Content** (all public threaded content, including events)
-- `content.create` — publish a new thread subject or reply in an existing thread (subject to legality gate)
-- `content.getThread` — read a public content thread by `threadId` or any `entityId` inside it; supports `includeClosed` for closed-loop thread reads
-- `content.list` — list public content threads with optional kind/query filters
-- `content.update` — update an existing entity (author only, subject to legality gate)
-- `content.remove` — remove an entity (author only; optional reason)
-- `content.searchBySemanticSimilarity` — semantic entity search via embedding similarity (requires `OPENAI_API_KEY`)
-
-**Events**
-- `events.list` — list upcoming events with optional query/club filter
-- `events.rsvp` — RSVP to an event (`yes`, `maybe`, `no`, `waitlist`)
-- `events.cancelRsvp` — cancel the actor's RSVP without removing the event
-
-**Messages**
-- `messages.send` — send a DM to another member
-- `messages.getInbox` — list DM inbox with unread counts
-- `messages.getThread` — read messages in a thread
-- `messages.remove` — remove a message (sender only; optional reason)
-
-**Updates**
-- `updates.list` — list pending updates for the current member
-- `updates.acknowledge` — acknowledge updates with `processed` or `suppressed`
-
-**Vouches**
-- `vouches.create` — vouch for another member in a shared club
-- `vouches.list` — list vouches for a member
-
-**Quotas**
-- `quotas.getUsage` — check remaining daily quotas
-
-**Access Tokens**
-- `accessTokens.list` — list bearer tokens for the current member (includes revoked tokens with `revokedAt`)
-- `accessTokens.create` — create a new bearer token (max 10 active per member)
-- `accessTokens.revoke` — revoke a bearer token
-
-### Common surprises
-
-The schema is the only reliable source for field names and types. This list highlights non-obvious behaviors:
-
-- `session.getContext` returns `data: {}`. The useful result — who you are, what clubs you belong to, what's pending — is in the response envelope's `actor` object, not in `data`. Read `actor.member`, `actor.activeMemberships`, `actor.requestScope`, and `actor.sharedContext`. Every authenticated response includes this same `actor` envelope, but `session.getContext` is the action where it is the whole point.
-- `members.updateIdentity` is the only action for global identity fields like `handle` and `displayName`. `profile.update` is club-scoped and will reject identity fields.
-- `socials` is a **string** (not an object) in both `admissions.public.submitApplication` and `admissions.sponsorCandidate`
-- `admissions.public.submitApplication` uses `application` (not `reason`) for the free-text field
-- `admissions.public.submitApplication` does not take `clubSlug` — the club is bound to the challenge
-- `clubadmin.memberships.create` creates the membership in `invited` status, not `active` — a club admin must transition it to `active` separately
-- `clubadmin.memberships.create` and `clubadmin.memberships.setStatus` do **not** manage admin roles. Only `clubowner.members.promoteToAdmin` and `clubowner.members.demoteFromAdmin` change who is a club admin.
-- `content.remove` is **author-only** for all public content kinds, including events — club admins use `clubadmin.content.remove` (requires a reason)
-- All `clubadmin.*` actions require an explicit `clubId` — no scope inference
-- `superadmin` is platform-operator access. A superadmin can call `clubadmin.*` and `clubowner.*` actions without being a member of that club.
-- DMs are **not** club-scoped. Shared clubs only matter when starting a thread. Once a thread exists, it remains replyable even if shared clubs later drop to zero.
-- `clientKey` is scoped **per member globally**, not per club. The same key reused by the same actor in a different club will return `409 client_key_conflict`. An exact replay (same key, same payload) returns the original entity without creating a duplicate. Use unique keys per logical creation intent.
-
-### Resolving club IDs
-
-There is no slug-to-ID lookup action. Club IDs are returned by `session.getContext` in the `activeMemberships` array. Always resolve IDs from there — never hardcode them.
-
-### `clubId` behavior
-
-When omitted on read actions, the server searches all clubs accessible to the member. When provided, it must be a club the member belongs to (403 otherwise). `content.create` requires `clubId` when starting a new thread and uses `threadId` when replying inside an existing thread. `messages.send` does **not** take `clubId` — DMs are not club-scoped.
-
-### `body` vs `content`
-
-- `body` — primary human-readable text. Plain text.
-- `content` — optional structured JSON for client/club-specific metadata.
-
-### Self-applied admissions (cold and cross-club)
-
-Both `admissions.public.*` (unauthenticated cold apply) and `admissions.crossClub.*` (authenticated cross-apply for existing members) follow the same canonical playbook. See **How someone joins a club → Path 2** below for the full flow: order of operations, drafting rule, timing, retry protocol, failure modes, and the PoW solver. Don't paraphrase that section here — it is the single source of truth.
-
-### Search and discovery
-
-Three actions for finding members and content:
-
-- `members.searchByFullText` — PostgreSQL full-text search across member profiles with handle/name prefix boosting. Input: `query`, optional `clubId`, `limit`. Use for exact name/handle lookups and keyword searches.
-- `members.searchBySemanticSimilarity` — semantic search via embedding similarity (e.g. "someone who knows about sustainable architecture"). Input: `query` (max 1000 chars), optional `clubId`, `limit`. Requires `OPENAI_API_KEY` — returns 503 if unavailable.
-- `content.searchBySemanticSimilarity` — semantic entity search via embedding similarity. Input: `query` (max 1000 chars), optional `clubId`, optional `kinds`, `limit`. Returns content entities with a numeric `score` field. Requires `OPENAI_API_KEY` — returns 503 if unavailable.
-
-All respect club scope. Lexical and semantic search are separate — no hidden fallback between modes.
-
-### Default quotas
-
-Daily quotas are unified under `content.create`: 50 public-content creates per member per club by default, across posts, asks, services, opportunities, gifts, events, and replies. Clubs can override this base. Admins and owners get 3x the base limit. Exceeding returns 429 `quota_exceeded`. Direct messages are not subject to quotas.
+If you have a bearer token, call `session.getContext` immediately after fetching the schema so you know who the actor is, what clubs they belong to, and what scope is available. Use each action's `description`, `businessErrors`, `scopeRules`, and `notes` from the schema to guide routing and recovery.
 
 ---
 
@@ -169,7 +53,7 @@ All paths into a club go through the unified admissions model. There are two ori
 
 **Path 2: Self-applied (no account, or cross-club from an existing membership)**
 
-There are two flavors of self-apply with the same gate semantics, the same retry behavior, and the same one-hour challenge lifetime. This is the canonical playbook for both — the action listing above and the agent-behavior section both point here.
+There are two flavors of self-apply with the same gate semantics, the same retry behavior, and the same one-hour challenge lifetime. This section is the canonical playbook for both.
 
 The applicant must already know the club slug (e.g. from an invitation link or the club's website). There is no slug lookup.
 
@@ -309,22 +193,6 @@ Discover clubs from `session.getContext`, not from hardcoded values. If the huma
 - Do not leak membership across clubs
 - When in doubt, keep membership private
 
-## What exists in the system
-
-Primitives: member, club (`clubId`), membership, public content thread, entity, event RSVP, admission, message thread, message, update, vouch.
-
-Entity kinds: `post`, `opportunity`, `service`, `ask`, `gift`, `event`
-
-Event RSVP states: `yes`, `maybe`, `no`, `waitlist`
-
-Membership roles: `clubadmin`, `member`. The club owner's role is always `clubadmin`. Multiple members can be `clubadmin`. `session.getContext` returns `isOwner: true` on the ownership membership. Only the owner can promote or demote other club admins. Superadmins can perform those owner-only actions as platform operators.
-
-Membership states: `invited`, `pending_review`, `active`, `paused`, `revoked`, `rejected`
-
-Admission statuses: `draft`, `submitted`, `interview_scheduled`, `interview_completed`, `accepted`, `declined`, `withdrawn`
-
-There is no enforced state machine — club admins can transition between any statuses freely (e.g. `declined` → `accepted` is allowed). `clubadmin.admissions.issueAccessToken` requires `accepted` status and can be called multiple times (each call generates a new bearer token).
-
 ## Interaction patterns
 
 ### Search
@@ -353,9 +221,6 @@ Before calling `content.create`, verify that the user intends to address the clu
 
 Treat this as publish-now, not draft-save.
 
-- Every public entity belongs to a thread. Omit `threadId` to start a new thread; pass `threadId` to reply inside an existing thread.
-- There is no separate reply kind. Replies are just additional public entities inside the same thread.
-
 - For `post`, first check whether the content is actually a private message in disguise. Do not broadcast personally addressed or sensitive content to the whole club by default.
 - `post` — do not publish generic filler or a body with no concrete point
 - `opportunity` — ask for what it is, who it is for, how to engage, and compensation/budget or an explicit note that it is negotiable or voluntary
@@ -367,10 +232,10 @@ Treat this as publish-now, not draft-save.
 If the user is vague, ask one or two focused questions before posting.
 
 ### Create an event
-Events are created through `content.create` with `kind: "event"`, not through a separate `events.create` action. Treat that call as publish-ready, not draft-save. Ask for: what it is called, when it starts, where it happens, enough description for someone to decide whether to attend, and timezone if the time could be ambiguous.
+Treat this as publish-ready, not draft-save. Ask for: what it is called, when it starts, where it happens, enough description for someone to decide whether to attend, and timezone if the time could be ambiguous.
 
 ### DM a member
-Keep messages clear and human. Do not reveal which clubs the recipient belongs to. Never send a message to the user themselves. **DMs are not club-scoped — `messages.send` does not take a `clubId`.** A shared club is only an eligibility check for whether a thread can be started in the first place; once that's satisfied, do not ask the user to pick a club. Existing threads remain replyable even if the participants no longer share any club.
+Keep messages clear and human. Do not reveal which clubs the recipient belongs to. Never send a message to the user themselves.
 Do not use `content.create` as a substitute for a DM. If the content could plausibly be either a public post or a private message, clarify before choosing the action.
 
 ### Vouch for a member
@@ -394,30 +259,21 @@ Short factual changes are fine. Push back only when the human is asking you to i
 
 ### `quotas.getUsage`
 
-Use this when the human asks how much public-content allowance is left, or after a 429 `quota_exceeded` response. Returns the effective daily limit after applying role multiplier (admins/owners get 3x), current usage, and remaining allowance for each club. DMs are not included.
+Use this when the human asks how much public-content allowance is left, or after a 429 `quota_exceeded` response.
 
 ### `updates.list` / `updates.acknowledge`
 
-Use polling or SSE to notice new activity. Acknowledge only inbox items (`source: "inbox"`) after you process them so pending targeted updates do not accumulate indefinitely; club activity items are cursor-tracked.
+Use polling or SSE to notice new activity. Acknowledge inbox items after you process them so targeted updates do not accumulate indefinitely.
 
 ### Apply to join a club
 
 If the user has no token, this is a cold apply. If the user is already a member of any club and wants to join another, this is a cross-club apply. The flow, drafting rule, retry protocol, and PoW solver are documented in one place: **How someone joins a club → Path 2**. Follow that section literally — especially the drafting rule, since the admission gate is a literal completeness check and a generic "why I want to join" paragraph will fail.
 
-Ask the user for the club slug if you don't already have it — there is no slug lookup.
-
 ## Legality gate
 
-Gated actions: `content.create`, `content.update`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`.
+Some mutating actions go through a legality or quality gate. The schema documents which actions are gated and what business error codes they can return.
 
-The gate blocks submissions that solicit or facilitate **clearly illegal activity** — solicitation of violence, CSAM, fraud, forgery, trafficking of controlled substances. It does NOT reject offensive, profane, vulgar, low-quality, or politically extreme content. Offensive-but-legal content will pass.
-
-If the gate is unavailable (provider outage, missing API key), the action fails with 503 `gate_unavailable` — content is never published without gate clearance.
-
-Error codes from the gate:
-- `illegal_content` (422) — the submission solicits or facilitates illegal activity, with an explanation
-- `gate_rejected` (422) — action-specific quality check failed after the request passed schema validation
-- `gate_unavailable` (503) — the LLM provider is unreachable or unconfigured
+Treat gate feedback as authoritative server feedback. Relay it literally, help the user revise when appropriate, and only retry when it is safe to do so. A gate outage is an infrastructure problem, not a content problem.
 
 Optimized for relevance, not engagement. Quality over quantity. Clarity over hype. Do not publish vague content when a question would fix it.
 

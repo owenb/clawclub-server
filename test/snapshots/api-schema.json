@@ -232,6 +232,33 @@
       "action": "admissions.crossClub.requestChallenge",
       "auth": "member",
       "authorizationNote": "Requires at least one active membership in any club. Must not already be a member of the target club. Capped at 3 pending cross-applications across all clubs.",
+      "businessErrors": [
+        {
+          "code": "no_active_membership",
+          "meaning": "Only active members of an existing club can use the cross-club apply path.",
+          "recovery": "Use the cold public admissions path, or authenticate as a member with an active membership."
+        },
+        {
+          "code": "membership_exists",
+          "meaning": "The actor already has a membership record in the target club.",
+          "recovery": "Stop retrying this path and contact the club admin instead."
+        },
+        {
+          "code": "admission_pending",
+          "meaning": "The actor already has a pending admission for the target club.",
+          "recovery": "Wait for the current admission to be resolved before retrying."
+        },
+        {
+          "code": "too_many_pending",
+          "meaning": "The actor has too many pending cross-club applications across the network.",
+          "recovery": "Wait for existing applications to resolve before applying to more clubs."
+        },
+        {
+          "code": "incomplete_profile",
+          "meaning": "The actor profile is missing the required name or email for cross-application.",
+          "recovery": "Update the profile first, then request a fresh challenge."
+        }
+      ],
       "description": "Request a reduced-difficulty PoW challenge for an existing network member applying to a new club. The response carries the club's admission policy and an expiresAt timestamp; the challenge is valid for one hour from creation. Read the policy before drafting — the admission gate is a literal completeness check, the same one cold applicants face.",
       "domain": "admissions",
       "input": {
@@ -310,6 +337,43 @@
     {
       "action": "admissions.crossClub.submitApplication",
       "auth": "member",
+      "businessErrors": [
+        {
+          "code": "challenge_not_found",
+          "meaning": "The challenge ID does not exist or is no longer available.",
+          "recovery": "Request a fresh challenge and try again."
+        },
+        {
+          "code": "challenge_not_yours",
+          "meaning": "The challenge was issued to a different authenticated member.",
+          "recovery": "Use the token that requested the challenge, or request a new one under the current account."
+        },
+        {
+          "code": "challenge_expired",
+          "meaning": "The challenge expired before submission.",
+          "recovery": "Request a fresh challenge."
+        },
+        {
+          "code": "invalid_proof",
+          "meaning": "The proof-of-work nonce did not satisfy the challenge difficulty.",
+          "recovery": "Re-solve the PoW for this challenge and resubmit."
+        },
+        {
+          "code": "challenge_consumed",
+          "meaning": "A concurrent request already consumed this challenge.",
+          "recovery": "Request a fresh challenge and try again."
+        },
+        {
+          "code": "incomplete_profile",
+          "meaning": "The actor profile is missing the required name or email for cross-application.",
+          "recovery": "Update the profile first, then request a fresh challenge."
+        },
+        {
+          "code": "gate_unavailable",
+          "meaning": "The admission gate is temporarily unavailable.",
+          "recovery": "Retry the same submission after a short delay. If the outage persists, surface it to the user."
+        }
+      ],
       "description": "Submit a solved cross-apply PoW challenge with an application. Name and email are locked to your profile. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.",
       "domain": "admissions",
       "input": {
@@ -342,6 +406,11 @@
         ],
         "type": "object"
       },
+      "notes": [
+        "Name and email are locked to the current profile. Do not send them again on submit.",
+        "A needs_revision status means the challenge remains valid and the same challengeId and nonce can be reused.",
+        "When status is accepted, the message field is the server's canonical response text."
+      ],
       "output": {
         "oneOf": [
           {
@@ -572,6 +641,38 @@
     {
       "action": "admissions.public.submitApplication",
       "auth": "none",
+      "businessErrors": [
+        {
+          "code": "challenge_not_found",
+          "meaning": "The challenge ID does not exist or is no longer available.",
+          "recovery": "Request a fresh challenge and try again."
+        },
+        {
+          "code": "challenge_not_cold",
+          "meaning": "The challenge was issued for the authenticated cross-club path, not the cold public path.",
+          "recovery": "Use admissions.crossClub.submitApplication with the authenticated member token instead."
+        },
+        {
+          "code": "challenge_expired",
+          "meaning": "The challenge expired before submission.",
+          "recovery": "Request a fresh challenge."
+        },
+        {
+          "code": "invalid_proof",
+          "meaning": "The proof-of-work nonce did not satisfy the challenge difficulty.",
+          "recovery": "Re-solve the PoW for this challenge and resubmit."
+        },
+        {
+          "code": "challenge_consumed",
+          "meaning": "A concurrent request already consumed this challenge.",
+          "recovery": "Request a fresh challenge and try again."
+        },
+        {
+          "code": "gate_unavailable",
+          "meaning": "The admission gate is temporarily unavailable.",
+          "recovery": "Retry the same submission after a short delay. If the outage persists, surface it to the user."
+        }
+      ],
       "description": "Submit a solved proof-of-work challenge with an application. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.",
       "domain": "admissions",
       "input": {
@@ -617,6 +718,12 @@
         ],
         "type": "object"
       },
+      "notes": [
+        "The club is bound to the challenge. Do not send clubSlug again on submit.",
+        "Use application for the free-text field; do not send reason.",
+        "A needs_revision status means the challenge remains valid and the same challengeId and nonce can be reused.",
+        "When status is accepted, the message field is the server's canonical response text."
+      ],
       "output": {
         "oneOf": [
           {
@@ -690,6 +797,23 @@
       "action": "admissions.sponsorCandidate",
       "auth": "member",
       "authorizationNote": "Requires club membership.",
+      "businessErrors": [
+        {
+          "code": "illegal_content",
+          "meaning": "The submission was rejected for soliciting or facilitating clearly illegal activity.",
+          "recovery": "Relay the reason to the user, revise the sponsorship text, and resubmit."
+        },
+        {
+          "code": "gate_rejected",
+          "meaning": "The content gate returned a non-passing verdict after schema validation.",
+          "recovery": "Review the feedback, revise the sponsorship text, and resubmit."
+        },
+        {
+          "code": "gate_unavailable",
+          "meaning": "The content gate is temporarily unavailable.",
+          "recovery": "Retry after a short delay. If the problem persists, surface the outage to the user."
+        }
+      ],
       "description": "Sponsor a candidate for admission to a club.",
       "domain": "admissions",
       "input": {
@@ -728,6 +852,9 @@
         ],
         "type": "object"
       },
+      "notes": [
+        "socials is a plain string, not a structured object."
+      ],
       "output": {
         "additionalProperties": false,
         "properties": {
@@ -1222,7 +1349,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubadmin.admissions.list",
@@ -1499,7 +1629,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubadmin.admissions.setStatus",
@@ -1793,7 +1926,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubadmin.clubs.getStatistics",
@@ -1869,7 +2005,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubadmin.content.remove",
@@ -2164,7 +2303,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubadmin.memberships.create",
@@ -2357,7 +2499,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubadmin.memberships.list",
@@ -2579,7 +2724,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubadmin.memberships.listForReview",
@@ -2880,7 +3028,10 @@
         ],
         "type": "object"
       },
-      "safety": "read_only"
+      "safety": "read_only",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubadmin.memberships.setStatus",
@@ -3069,7 +3220,10 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubowner.members.demoteFromAdmin",
@@ -3698,6 +3852,33 @@
       "action": "content.create",
       "auth": "member",
       "authorizationNote": "Requires club membership. Subject to the unified daily content quota.",
+      "businessErrors": [
+        {
+          "code": "quota_exceeded",
+          "meaning": "The member has reached the daily content.create quota for this club.",
+          "recovery": "Inform the user, check quotas.getUsage for remaining budget, or retry later."
+        },
+        {
+          "code": "client_key_conflict",
+          "meaning": "The clientKey has already been used with a different payload.",
+          "recovery": "Generate a new clientKey for the new creation intent, or resend the exact same payload to replay safely."
+        },
+        {
+          "code": "illegal_content",
+          "meaning": "The content gate rejected the submission for soliciting or facilitating clearly illegal activity.",
+          "recovery": "Relay the reason to the user, revise the content, and resubmit."
+        },
+        {
+          "code": "gate_rejected",
+          "meaning": "The content gate returned a non-passing verdict after schema validation.",
+          "recovery": "Review the feedback, revise the content, and resubmit."
+        },
+        {
+          "code": "gate_unavailable",
+          "meaning": "The content gate is temporarily unavailable.",
+          "recovery": "Retry after a short delay. If the problem persists, surface the outage to the user."
+        }
+      ],
       "description": "Create public content or respond inside an existing content thread.",
       "domain": "content",
       "input": {
@@ -3806,6 +3987,9 @@
         ],
         "type": "object"
       },
+      "notes": [
+        "Publishes immediately. There is no draft-save state."
+      ],
       "output": {
         "additionalProperties": false,
         "properties": {
@@ -6113,6 +6297,23 @@
       "action": "content.update",
       "auth": "member",
       "authorizationNote": "Only the original author may update. At least one field must change.",
+      "businessErrors": [
+        {
+          "code": "illegal_content",
+          "meaning": "The content gate rejected the update for soliciting or facilitating clearly illegal activity.",
+          "recovery": "Relay the reason to the user, revise the update, and resubmit."
+        },
+        {
+          "code": "gate_rejected",
+          "meaning": "The content gate returned a non-passing verdict after schema validation.",
+          "recovery": "Review the feedback, revise the update, and resubmit."
+        },
+        {
+          "code": "gate_unavailable",
+          "meaning": "The content gate is temporarily unavailable.",
+          "recovery": "Retry after a short delay. If the problem persists, surface the outage to the user."
+        }
+      ],
       "description": "Update an existing content entity (author only).",
       "domain": "content",
       "input": {
@@ -8105,6 +8306,9 @@
         },
         "type": "object"
       },
+      "notes": [
+        "Use this action for global identity fields like handle and displayName. Club-scoped profile fields belong on profile.update."
+      ],
       "output": {
         "additionalProperties": false,
         "properties": {
@@ -8624,6 +8828,13 @@
     {
       "action": "messages.send",
       "auth": "member",
+      "businessErrors": [
+        {
+          "code": "client_key_conflict",
+          "meaning": "The clientKey has already been used for a different conversation or message text.",
+          "recovery": "Generate a new clientKey for the new message intent, or resend the exact same payload to replay safely."
+        }
+      ],
       "description": "Send a direct message to another member. Requires at least one shared club, or an existing thread between the participants.",
       "domain": "messages",
       "input": {
@@ -8650,6 +8861,9 @@
         ],
         "type": "object"
       },
+      "notes": [
+        "clientKey is scoped per sender globally, not per thread."
+      ],
       "output": {
         "additionalProperties": false,
         "properties": {
@@ -8719,7 +8933,11 @@
         ],
         "type": "object"
       },
-      "safety": "mutating"
+      "safety": "mutating",
+      "scopeRules": [
+        "DMs are not club-scoped. Do not send clubId when calling messages.send.",
+        "A shared club is only required to start a new thread; existing threads remain replyable even if shared clubs later drop to zero."
+      ]
     },
     {
       "action": "profile.list",
@@ -8869,7 +9087,24 @@
       "action": "profile.update",
       "auth": "member",
       "authorizationNote": "Updates own profile only.",
-      "description": "Update the current actor profile.",
+      "businessErrors": [
+        {
+          "code": "illegal_content",
+          "meaning": "The profile update was rejected for soliciting or facilitating clearly illegal activity.",
+          "recovery": "Relay the reason to the user, revise the profile fields, and resubmit."
+        },
+        {
+          "code": "gate_rejected",
+          "meaning": "The profile update failed the quality gate after schema validation.",
+          "recovery": "Review the feedback, revise the profile fields, and resubmit."
+        },
+        {
+          "code": "gate_unavailable",
+          "meaning": "The profile quality gate is temporarily unavailable.",
+          "recovery": "Retry after a short delay. If the problem persists, surface the outage to the user."
+        }
+      ],
+      "description": "Update the current actor club-scoped profile fields for one club.",
       "domain": "profile",
       "input": {
         "properties": {
@@ -8929,6 +9164,9 @@
         ],
         "type": "object"
       },
+      "notes": [
+        "Use members.updateIdentity for global identity fields like handle and displayName. profile.update only changes club-scoped profile fields."
+      ],
       "output": {
         "additionalProperties": false,
         "properties": {
@@ -9064,6 +9302,9 @@
         "properties": {},
         "type": "object"
       },
+      "notes": [
+        "This returns the effective per-club limit after applying any club-specific override and the clubadmin/owner 3x multiplier."
+      ],
       "output": {
         "additionalProperties": false,
         "properties": {
@@ -9115,6 +9356,9 @@
         "properties": {},
         "type": "object"
       },
+      "notes": [
+        "Useful session information lives in the response envelope's actor block, not in data."
+      ],
       "output": {
         "additionalProperties": false,
         "properties": {},
@@ -11347,6 +11591,9 @@
         ],
         "type": "object"
       },
+      "notes": [
+        "Only inbox updates create receipts. Activity updates advance via the stream cursor and are silently ignored here."
+      ],
       "output": {
         "additionalProperties": false,
         "properties": {
@@ -11438,6 +11685,9 @@
         },
         "type": "object"
       },
+      "notes": [
+        "Use after=\"latest\" to skip backlog and start from the current stream tip. The server resolves it to the real cursor before listing."
+      ],
       "output": {
         "additionalProperties": false,
         "properties": {
@@ -11541,6 +11791,33 @@
       "action": "vouches.create",
       "auth": "member",
       "authorizationNote": "Requires club membership. Cannot self-vouch.",
+      "businessErrors": [
+        {
+          "code": "self_vouch",
+          "meaning": "A member cannot vouch for themselves.",
+          "recovery": "Do not retry this request."
+        },
+        {
+          "code": "duplicate_vouch",
+          "meaning": "The actor has already vouched for this member in this club.",
+          "recovery": "Treat the existing vouch as canonical instead of retrying."
+        },
+        {
+          "code": "illegal_content",
+          "meaning": "The submission was rejected for soliciting or facilitating clearly illegal activity.",
+          "recovery": "Relay the reason to the user, revise the vouch text, and resubmit."
+        },
+        {
+          "code": "gate_rejected",
+          "meaning": "The content gate returned a non-passing verdict after schema validation.",
+          "recovery": "Review the feedback, revise the vouch text, and resubmit."
+        },
+        {
+          "code": "gate_unavailable",
+          "meaning": "The content gate is temporarily unavailable.",
+          "recovery": "Retry after a short delay. If the problem persists, surface the outage to the user."
+        }
+      ],
       "description": "Vouch for another member in a club.",
       "domain": "vouches",
       "input": {
@@ -12139,6 +12416,11 @@
         "status": 413
       },
       {
+        "code": "stale_client",
+        "meaning": "The client cached an older schema. Refetch /api/schema and /skill, then retry.",
+        "status": 409
+      },
+      {
         "code": "internal_error",
         "status": 500
       },
@@ -12305,6 +12587,6 @@
       }
     }
   },
-  "version": "0.2.17",
-  "schemaHash": "45e941ad5ffbb261"
+  "version": "0.2.20",
+  "schemaHash": "c4019b2eb8f845df"
 }

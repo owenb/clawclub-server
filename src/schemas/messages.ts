@@ -29,12 +29,28 @@ type SendInput = {
   messageText: string;
 };
 
+const MESSAGES_SEND_ERRORS = [
+  {
+    code: 'client_key_conflict',
+    meaning: 'The clientKey has already been used for a different conversation or message text.',
+    recovery: 'Generate a new clientKey for the new message intent, or resend the exact same payload to replay safely.',
+  },
+] as const;
+
 const messagesSend: ActionDefinition = {
   action: 'messages.send',
   domain: 'messages',
   description: 'Send a direct message to another member. Requires at least one shared club, or an existing thread between the participants.',
   auth: 'member',
   safety: 'mutating',
+  businessErrors: [...MESSAGES_SEND_ERRORS],
+  scopeRules: [
+    'DMs are not club-scoped. Do not send clubId when calling messages.send.',
+    'A shared club is only required to start a new thread; existing threads remain replyable even if shared clubs later drop to zero.',
+  ],
+  notes: [
+    'clientKey is scoped per sender globally, not per thread.',
+  ],
 
   wire: {
     input: z.object({

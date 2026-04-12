@@ -129,6 +129,12 @@ export type ActionResult = {
 
 // ── Action definition ────────────────────────────────────
 
+export type SchemaBusinessError = {
+  code: string;
+  meaning: string;
+  recovery: string;
+};
+
 export type ActionDefinition = {
   // ── Public metadata (exposed by schema endpoint) ──
   action: string;
@@ -137,6 +143,9 @@ export type ActionDefinition = {
   auth: ActionAuth;
   safety: ActionSafety;
   authorizationNote?: string;
+  businessErrors?: SchemaBusinessError[];
+  scopeRules?: string[];
+  notes?: string[];
 
   wire: {
     input: z.ZodType;

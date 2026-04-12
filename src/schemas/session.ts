@@ -10,6 +10,9 @@ const sessionGetContext: ActionDefinition = {
   description: 'Resolve the current member session, accessible clubs, and any pending update context.',
   auth: 'member',
   safety: 'read_only',
+  notes: [
+    'Useful session information lives in the response envelope\'s actor block, not in data.',
+  ],
 
   wire: {
     input: z.object({}),

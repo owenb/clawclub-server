@@ -32,6 +32,24 @@ type AdmissionsSponsorInput = {
   reason: string;
 };
 
+const SPONSOR_GATE_ERRORS = [
+  {
+    code: 'illegal_content',
+    meaning: 'The submission was rejected for soliciting or facilitating clearly illegal activity.',
+    recovery: 'Relay the reason to the user, revise the sponsorship text, and resubmit.',
+  },
+  {
+    code: 'gate_rejected',
+    meaning: 'The content gate returned a non-passing verdict after schema validation.',
+    recovery: 'Review the feedback, revise the sponsorship text, and resubmit.',
+  },
+  {
+    code: 'gate_unavailable',
+    meaning: 'The content gate is temporarily unavailable.',
+    recovery: 'Retry after a short delay. If the problem persists, surface the outage to the user.',
+  },
+] as const;
+
 const admissionsSponsor: ActionDefinition = {
   action: 'admissions.sponsorCandidate',
   domain: 'admissions',
@@ -39,6 +57,10 @@ const admissionsSponsor: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Requires club membership.',
+  businessErrors: [...SPONSOR_GATE_ERRORS],
+  notes: [
+    'socials is a plain string, not a structured object.',
+  ],
 
   wire: {
     input: z.object({
@@ -226,6 +248,9 @@ const membersUpdateIdentity: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Updates own global identity only.',
+  notes: [
+    'Use this action for global identity fields like handle and displayName. Club-scoped profile fields belong on profile.update.',
+  ],
 
   wire: {
     input: z.object({
@@ -272,6 +297,34 @@ type VouchesCreateInput = {
   reason: string;
 };
 
+const VOUCH_CREATE_ERRORS = [
+  {
+    code: 'self_vouch',
+    meaning: 'A member cannot vouch for themselves.',
+    recovery: 'Do not retry this request.',
+  },
+  {
+    code: 'duplicate_vouch',
+    meaning: 'The actor has already vouched for this member in this club.',
+    recovery: 'Treat the existing vouch as canonical instead of retrying.',
+  },
+  {
+    code: 'illegal_content',
+    meaning: 'The submission was rejected for soliciting or facilitating clearly illegal activity.',
+    recovery: 'Relay the reason to the user, revise the vouch text, and resubmit.',
+  },
+  {
+    code: 'gate_rejected',
+    meaning: 'The content gate returned a non-passing verdict after schema validation.',
+    recovery: 'Review the feedback, revise the vouch text, and resubmit.',
+  },
+  {
+    code: 'gate_unavailable',
+    meaning: 'The content gate is temporarily unavailable.',
+    recovery: 'Retry after a short delay. If the problem persists, surface the outage to the user.',
+  },
+] as const;
+
 const vouchesCreate: ActionDefinition = {
   action: 'vouches.create',
   domain: 'vouches',
@@ -279,6 +332,7 @@ const vouchesCreate: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Requires club membership. Cannot self-vouch.',
+  businessErrors: [...VOUCH_CREATE_ERRORS],
 
   wire: {
     input: z.object({

@@ -28,6 +28,52 @@ type EventInput = {
   capacity: number | null;
 };
 
+const CONTENT_CREATE_ERRORS = [
+  {
+    code: 'quota_exceeded',
+    meaning: 'The member has reached the daily content.create quota for this club.',
+    recovery: 'Inform the user, check quotas.getUsage for remaining budget, or retry later.',
+  },
+  {
+    code: 'client_key_conflict',
+    meaning: 'The clientKey has already been used with a different payload.',
+    recovery: 'Generate a new clientKey for the new creation intent, or resend the exact same payload to replay safely.',
+  },
+  {
+    code: 'illegal_content',
+    meaning: 'The content gate rejected the submission for soliciting or facilitating clearly illegal activity.',
+    recovery: 'Relay the reason to the user, revise the content, and resubmit.',
+  },
+  {
+    code: 'gate_rejected',
+    meaning: 'The content gate returned a non-passing verdict after schema validation.',
+    recovery: 'Review the feedback, revise the content, and resubmit.',
+  },
+  {
+    code: 'gate_unavailable',
+    meaning: 'The content gate is temporarily unavailable.',
+    recovery: 'Retry after a short delay. If the problem persists, surface the outage to the user.',
+  },
+] as const;
+
+const CONTENT_UPDATE_ERRORS = [
+  {
+    code: 'illegal_content',
+    meaning: 'The content gate rejected the update for soliciting or facilitating clearly illegal activity.',
+    recovery: 'Relay the reason to the user, revise the update, and resubmit.',
+  },
+  {
+    code: 'gate_rejected',
+    meaning: 'The content gate returned a non-passing verdict after schema validation.',
+    recovery: 'Review the feedback, revise the update, and resubmit.',
+  },
+  {
+    code: 'gate_unavailable',
+    meaning: 'The content gate is temporarily unavailable.',
+    recovery: 'Retry after a short delay. If the problem persists, surface the outage to the user.',
+  },
+] as const;
+
 function parseIsoDate(value: string, fieldName: string): Date {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -108,6 +154,10 @@ const entitiesCreate: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Requires club membership. Subject to the unified daily content quota.',
+  businessErrors: [...CONTENT_CREATE_ERRORS],
+  notes: [
+    'Publishes immediately. There is no draft-save state.',
+  ],
 
   wire: {
     input: z.object({
@@ -193,6 +243,7 @@ const entitiesUpdate: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Only the original author may update. At least one field must change.',
+  businessErrors: [...CONTENT_UPDATE_ERRORS],
 
   wire: {
     input: z.object({

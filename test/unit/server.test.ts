@@ -4,6 +4,29 @@ import { createServer, DEFAULT_SERVER_LIMITS } from '../../src/server.ts';
 import type { Repository } from '../../src/contract.ts';
 import { makeAuthResult, makePendingUpdate, makeRepository, makeUpdatesNotifier } from './fixtures.ts';
 
+async function listenOnRandomPort(server: ReturnType<typeof createServer>['server']): Promise<number> {
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const address = server.address();
+  return typeof address === 'object' && address ? address.port : 0;
+}
+
+function assertContractHeaders(response: Response, expectedSchemaHash?: string): string {
+  const version = response.headers.get('clawclub-version');
+  const schemaHash = response.headers.get('clawclub-schema-hash');
+  const exposed = response.headers.get('access-control-expose-headers') ?? '';
+
+  assert.ok(version, 'responses should expose ClawClub-Version');
+  assert.ok(schemaHash, 'responses should expose ClawClub-Schema-Hash');
+  assert.match(exposed, /ClawClub-Version/);
+  assert.match(exposed, /ClawClub-Schema-Hash/);
+
+  if (expectedSchemaHash) {
+    assert.equal(schemaHash, expectedSchemaHash, 'schema hash should stay stable within one process');
+  }
+
+  return schemaHash;
+}
+
 test('createServer applies hardened HTTP server limits', async () => {
   const { server, shutdown } = createServer({
     repository: makeRepository(),
@@ -42,6 +65,74 @@ test('createServer serves SKILL.md from uppercase path variants', async () => {
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type') ?? '', /^text\/markdown\b/i);
     assert.match(body, /^# /m);
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer exposes contract headers on core routes and JSON responses', async () => {
+  const requestFetch = globalThis.fetch;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createAdmissionChallenge() {
+      return {
+        challengeId: 'challenge-1',
+        difficulty: 7,
+        expiresAt: '2026-03-15T13:00:00.000Z',
+        maxAttempts: 5,
+        club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    const port = await listenOnRandomPort(server);
+
+    const root = await requestFetch(`http://127.0.0.1:${port}/`);
+    assert.equal(root.status, 200);
+    const schemaHash = assertContractHeaders(root);
+
+    const skill = await requestFetch(`http://127.0.0.1:${port}/skill`);
+    assert.equal(skill.status, 200);
+    assertContractHeaders(skill, schemaHash);
+
+    const schema = await requestFetch(`http://127.0.0.1:${port}/api/schema`);
+    assert.equal(schema.status, 200);
+    assert.equal(assertContractHeaders(schema, schemaHash), schemaHash);
+    const schemaBody = await schema.json();
+    assert.equal(schemaBody.data.schemaHash, schemaHash);
+
+    const options = await requestFetch(`http://127.0.0.1:${port}/api`, { method: 'OPTIONS' });
+    assert.equal(options.status, 204);
+    assertContractHeaders(options, schemaHash);
+
+    const postOk = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action: 'admissions.public.requestChallenge',
+        input: { clubSlug: 'test' },
+      }),
+    });
+    assert.equal(postOk.status, 200);
+    assertContractHeaders(postOk, schemaHash);
+
+    const postErr = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        action: 'admissions.public.requestChallenge',
+        input: {},
+      }),
+    });
+    assert.equal(postErr.status, 400);
+    assertContractHeaders(postErr, schemaHash);
   } finally {
     await shutdown();
   }
@@ -405,9 +496,7 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
   const { server, shutdown } = createServer({ repository, updatesNotifier });
 
   try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
+    const port = await listenOnRandomPort(server);
 
     const response = await requestFetch(`http://127.0.0.1:${port}/updates/stream`, {
       headers: {
@@ -418,6 +507,7 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
 
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
+    assertContractHeaders(response);
 
     const reader = response.body?.getReader();
     assert.ok(reader, 'SSE response should expose a readable body');
@@ -443,6 +533,212 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
 
     requestAbort.abort();
     await reader.cancel().catch(() => {});
+  } finally {
+    requestAbort.abort();
+    await shutdown();
+  }
+});
+
+test('createServer accepts missing, empty, and matching ClawClub-Schema-Seen headers', async () => {
+  const requestFetch = globalThis.fetch;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createAdmissionChallenge() {
+      return {
+        challengeId: 'challenge-1',
+        difficulty: 7,
+        expiresAt: '2026-03-15T13:00:00.000Z',
+        maxAttempts: 5,
+        club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    const port = await listenOnRandomPort(server);
+    const schemaResponse = await requestFetch(`http://127.0.0.1:${port}/api/schema`);
+    assert.equal(schemaResponse.status, 200);
+    const schemaHash = assertContractHeaders(schemaResponse);
+
+    for (const headerValue of [undefined, '', schemaHash]) {
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (headerValue !== undefined) {
+        headers['clawclub-schema-seen'] = headerValue;
+      }
+
+      const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          action: 'admissions.public.requestChallenge',
+          input: { clubSlug: 'test' },
+        }),
+      });
+      const body = await response.json();
+
+      assert.equal(response.status, 200);
+      assertContractHeaders(response, schemaHash);
+      assert.equal(body.ok, true);
+    }
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer returns stale_client when ClawClub-Schema-Seen mismatches', async () => {
+  const requestFetch = globalThis.fetch;
+  let challengeCalls = 0;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async createAdmissionChallenge() {
+      challengeCalls += 1;
+      return {
+        challengeId: 'challenge-1',
+        difficulty: 7,
+        expiresAt: '2026-03-15T13:00:00.000Z',
+        maxAttempts: 5,
+        club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    const port = await listenOnRandomPort(server);
+    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'clawclub-schema-seen': 'stale-schema-hash',
+      },
+      body: JSON.stringify({
+        action: 'admissions.public.requestChallenge',
+        input: { clubSlug: 'test' },
+      }),
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 409);
+    assertContractHeaders(response);
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, 'stale_client');
+    assert.match(body.error.message, /GET \/api\/schema/);
+    assert.match(body.error.message, /GET \/skill/);
+    assert.equal(challengeCalls, 0, 'stale_client should short-circuit before dispatch');
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer checks stale_client before parsing JSON bodies', async () => {
+  const requestFetch = globalThis.fetch;
+
+  const { server, shutdown } = createServer({
+    repository: makeRepository(),
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    const port = await listenOnRandomPort(server);
+    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'clawclub-schema-seen': 'stale-schema-hash',
+      },
+      body: '{"action":"admissions.public.requestChallenge","input":',
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 409);
+    assert.equal(body.error.code, 'stale_client');
+    assert.match(body.error.message, /GET \/api\/schema/);
+    assert.match(body.error.message, /GET \/skill/);
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer does not gate recovery endpoints on ClawClub-Schema-Seen', async () => {
+  const requestFetch = globalThis.fetch;
+  const requestAbort = new AbortController();
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_test' ? makeAuthResult() : null;
+    },
+    async listMemberUpdates() {
+      return {
+        items: [],
+        nextAfter: null,
+        polledAt: '2026-03-14T11:05:00Z',
+      };
+    },
+  };
+  const updatesNotifier = {
+    async waitForUpdate({ signal }: { signal?: AbortSignal }) {
+      return new Promise<'timed_out'>((_, reject) => {
+        const onAbort = () => {
+          signal?.removeEventListener('abort', onAbort);
+          reject(new Error('aborted'));
+        };
+
+        if (signal?.aborted) {
+          onAbort();
+          return;
+        }
+
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    },
+    async close() {},
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier,
+  });
+
+  try {
+    const port = await listenOnRandomPort(server);
+
+    const schemaResponse = await requestFetch(`http://127.0.0.1:${port}/api/schema`, {
+      headers: { 'clawclub-schema-seen': 'stale-schema-hash' },
+    });
+    assert.equal(schemaResponse.status, 200);
+    assertContractHeaders(schemaResponse);
+
+    const skillResponse = await requestFetch(`http://127.0.0.1:${port}/skill`, {
+      headers: { 'clawclub-schema-seen': 'stale-schema-hash' },
+    });
+    assert.equal(skillResponse.status, 200);
+    assertContractHeaders(skillResponse);
+
+    const streamResponse = await requestFetch(`http://127.0.0.1:${port}/updates/stream`, {
+      headers: {
+        authorization: 'Bearer cc_live_test',
+        'clawclub-schema-seen': 'stale-schema-hash',
+      },
+      signal: requestAbort.signal,
+    });
+    assert.equal(streamResponse.status, 200);
+    assertContractHeaders(streamResponse);
+    const reader = streamResponse.body?.getReader();
+    await reader?.read();
+    requestAbort.abort();
+    await reader?.cancel().catch(() => {});
   } finally {
     requestAbort.abort();
     await shutdown();

@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { getRegistry } from './schemas/registry.ts';
+import { getRegistry, type SchemaBusinessError } from './schemas/registry.ts';
 import {
   authenticatedSuccessEnvelope,
   unauthenticatedSuccessEnvelope,
@@ -31,6 +31,9 @@ type SchemaAction = {
   auth: string;
   safety: string;
   authorizationNote?: string;
+  businessErrors?: SchemaBusinessError[];
+  scopeRules?: string[];
+  notes?: string[];
   input: unknown;
   output: unknown;
 };
@@ -147,6 +150,7 @@ function buildTransport(): unknown {
       { code: 'rate_limited', status: 429 },
       { code: 'too_many_streams', status: 429 },
       { code: 'payload_too_large', status: 413 },
+      { code: 'stale_client', status: 409, meaning: 'The client cached an older schema. Refetch /api/schema and /skill, then retry.' },
       { code: 'internal_error', status: 500 },
       { code: 'not_available', status: 501 },
       { code: 'not_implemented', status: 501 },
@@ -173,6 +177,15 @@ function buildSchema(): unknown {
 
     if (def.authorizationNote) {
       entry.authorizationNote = def.authorizationNote;
+    }
+    if (def.businessErrors) {
+      entry.businessErrors = def.businessErrors;
+    }
+    if (def.scopeRules) {
+      entry.scopeRules = def.scopeRules;
+    }
+    if (def.notes) {
+      entry.notes = def.notes;
     }
 
     actions.push(entry);

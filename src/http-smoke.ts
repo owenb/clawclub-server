@@ -121,12 +121,30 @@ async function listenOnLoopback(server: ReturnType<typeof createServer>['server'
   return address.port;
 }
 
-async function postAction(baseUrl: string, bearerToken: string, action: string, input: Record<string, unknown>) {
+async function getSchemaHash(baseUrl: string): Promise<string> {
+  const response = await fetch(`${baseUrl}/api/schema`);
+  const body = await response.json() as { data?: { schemaHash?: string } };
+
+  assert.equal(response.status, 200, 'GET /api/schema should return 200');
+  const headerHash = response.headers.get('clawclub-schema-hash');
+  assert.ok(headerHash, 'GET /api/schema should return ClawClub-Schema-Hash');
+  assert.equal(body.data?.schemaHash, headerHash, 'schema hash header should match the schema payload');
+  return headerHash;
+}
+
+async function postAction(
+  baseUrl: string,
+  bearerToken: string,
+  action: string,
+  input: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
+) {
   const response = await fetch(`${baseUrl}/api`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${bearerToken}`,
       'content-type': 'application/json',
+      ...extraHeaders,
     },
     body: JSON.stringify({ action, input }),
   });
@@ -157,7 +175,7 @@ export async function runHttpSmoke(): Promise<{
   const identityUrl = requireEnv('DATABASE_URL');
   const setupPool = new Pool({ connectionString: identityUrl });
   const memberHandle = readSmokeHandle();
-  const actions = ['GET /updates/stream', 'session.getContext', 'members.searchByFullText', 'profile.list', 'messages.getInbox', 'content.list', 'events.list'];
+  const actions = ['GET /api/schema', 'GET /updates/stream', 'session.getContext', 'session.getContext (stale_client)', 'members.searchByFullText', 'profile.list', 'messages.getInbox', 'content.list', 'events.list'];
   let tokenId: string | null = null;
   let shutdown: (() => Promise<void>) | null = null;
 
@@ -170,10 +188,28 @@ export async function runHttpSmoke(): Promise<{
     shutdown = serverState.shutdown;
     const port = await listenOnLoopback(serverState.server);
     const baseUrl = `http://127.0.0.1:${port}`;
+    const schemaHash = await getSchemaHash(baseUrl);
 
-    const session = await postAction(baseUrl, token.bearerToken, 'session.getContext', {}) as SessionDescribeResponse;
+    const session = await postAction(baseUrl, token.bearerToken, 'session.getContext', {}, {
+      'clawclub-schema-seen': schemaHash,
+    }) as SessionDescribeResponse;
     assert.equal(session.actor.member.id, memberId);
     assert.ok(session.actor.activeMemberships.length > 0, 'HTTP smoke member must have at least one active membership');
+
+    const staleClient = await fetch(`${baseUrl}/api`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token.bearerToken}`,
+        'content-type': 'application/json',
+        'clawclub-schema-seen': 'stale-schema-hash',
+      },
+      body: JSON.stringify({ action: 'session.getContext', input: {} }),
+    });
+    const staleBody = await staleClient.json() as { error?: { code?: string; message?: string } };
+    assert.equal(staleClient.status, 409, 'mismatched ClawClub-Schema-Seen should return 409');
+    assert.equal(staleBody.error?.code, 'stale_client', 'mismatched schema hash should return stale_client');
+    assert.match(staleBody.error?.message ?? '', /GET \/api\/schema/, 'stale_client should instruct agents to refetch the schema');
+    assert.match(staleBody.error?.message ?? '', /GET \/skill/, 'stale_client should instruct agents to refetch the skill');
 
     const clubId = session.actor.activeMemberships[0]!.clubId;
 
@@ -185,28 +221,38 @@ export async function runHttpSmoke(): Promise<{
       query: memberQuery,
       clubId,
       limit: 5,
+    }, {
+      'clawclub-schema-seen': schemaHash,
     });
     assert.ok(Array.isArray(members.data?.results), 'members.searchByFullText should return a results array');
 
-    const profile = await postAction(baseUrl, token.bearerToken, 'profile.list', {});
+    const profile = await postAction(baseUrl, token.bearerToken, 'profile.list', {}, {
+      'clawclub-schema-seen': schemaHash,
+    });
     assert.equal(profile.data?.memberId, memberId);
     assert.ok(Array.isArray(profile.data?.profiles), 'profile.list should return a profiles array');
 
     const inbox = await postAction(baseUrl, token.bearerToken, 'messages.getInbox', {
       clubId,
       limit: 5,
+    }, {
+      'clawclub-schema-seen': schemaHash,
     });
     assert.ok(Array.isArray(inbox.data?.results), 'messages.getInbox should return a results array');
 
     const entities = await postAction(baseUrl, token.bearerToken, 'content.list', {
       clubId,
       limit: 5,
+    }, {
+      'clawclub-schema-seen': schemaHash,
     });
     assert.ok(Array.isArray(entities.data?.results), 'content.list should return a results array');
 
     const events = await postAction(baseUrl, token.bearerToken, 'events.list', {
       clubId,
       limit: 5,
+    }, {
+      'clawclub-schema-seen': schemaHash,
     });
     assert.ok(Array.isArray(events.data?.results), 'events.list should return a results array');
 

@@ -26,6 +26,9 @@ const updatesList: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
   requiredCapability: 'listMemberUpdates',
+  notes: [
+    'Use after="latest" to skip backlog and start from the current stream tip. The server resolves it to the real cursor before listing.',
+  ],
 
   wire: {
     input: z.object({
@@ -79,6 +82,9 @@ const updatesAcknowledge: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   requiredCapability: 'acknowledgeUpdates',
+  notes: [
+    'Only inbox updates create receipts. Activity updates advance via the stream cursor and are silently ignored here.',
+  ],
 
   wire: {
     input: z.object({

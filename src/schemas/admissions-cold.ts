@@ -63,12 +63,52 @@ type ApplyInput = {
   application: string;
 };
 
+const COLD_SUBMIT_ERRORS = [
+  {
+    code: 'challenge_not_found',
+    meaning: 'The challenge ID does not exist or is no longer available.',
+    recovery: 'Request a fresh challenge and try again.',
+  },
+  {
+    code: 'challenge_not_cold',
+    meaning: 'The challenge was issued for the authenticated cross-club path, not the cold public path.',
+    recovery: 'Use admissions.crossClub.submitApplication with the authenticated member token instead.',
+  },
+  {
+    code: 'challenge_expired',
+    meaning: 'The challenge expired before submission.',
+    recovery: 'Request a fresh challenge.',
+  },
+  {
+    code: 'invalid_proof',
+    meaning: 'The proof-of-work nonce did not satisfy the challenge difficulty.',
+    recovery: 'Re-solve the PoW for this challenge and resubmit.',
+  },
+  {
+    code: 'challenge_consumed',
+    meaning: 'A concurrent request already consumed this challenge.',
+    recovery: 'Request a fresh challenge and try again.',
+  },
+  {
+    code: 'gate_unavailable',
+    meaning: 'The admission gate is temporarily unavailable.',
+    recovery: 'Retry the same submission after a short delay. If the outage persists, surface it to the user.',
+  },
+] as const;
+
 const admissionsApply: ActionDefinition = {
   action: 'admissions.public.submitApplication',
   domain: 'admissions',
   description: 'Submit a solved proof-of-work challenge with an application. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.',
   auth: 'none',
   safety: 'mutating',
+  businessErrors: [...COLD_SUBMIT_ERRORS],
+  notes: [
+    'The club is bound to the challenge. Do not send clubSlug again on submit.',
+    'Use application for the free-text field; do not send reason.',
+    'A needs_revision status means the challenge remains valid and the same challengeId and nonce can be reused.',
+    'When status is accepted, the message field is the server\'s canonical response text.',
+  ],
 
   wire: {
     input: z.object({
