@@ -204,6 +204,39 @@ If one club, default. If multiple, ask. Keep posts concise.
 ### Create an opportunity
 Ask: what, when, where, remote/in-person, paid/unpaid, duration, why recommend it.
 
+## Mentions
+
+Both public posts and DMs support literal `@handle` mentions inside plain-text fields (`title`, `summary`, `body` for `content.create` / `content.update`; `messageText` for `messages.send`). The server resolves each mention at write time and **re-hydrates the mentioned member's current identity on every read**, so recipients always see the latest `publicName` and `handle` — even if the mentioned member has renamed since the content was written.
+
+**Use mentions silently** whenever it is crystal clear which specific member the human is referring to. No confirmation prompt, just write the `@handle` inline. If the human is replying to Alice's post and says "tell her thanks", `@alice-hound` is the right call and you should just do it.
+
+**Do NOT guess.** If the human says "tell Kevin I'm in" and you are not 100% sure *which* Kevin — maybe there are multiple Kevins in the club, maybe they mean someone who is not a member at all — leave the name as plain text (`Kevin`). Resolve the ambiguity with a members search first, or just write the name in plain text and let the human correct you. Writing the wrong `@kevin-spots` misroutes the message, which is worse than not mentioning anyone.
+
+The server enforces scope: mentioned handles must belong to active members with access to the target club (for public content) or the conversation (for DMs). Unresolvable handles return `invalid_mentions` with the literal offending handles echoed back in the error message — relay the error to the human, do not retry with a fabricated handle.
+
+On read, mention-bearing responses include a per-field `mentions` array with `memberId` + `authoredHandle` spans plus a deduplicated top-level `included.membersById` bundle. Use `memberId` for any follow-up action input (it is the stable identity). Treat `authoredHandle` as preserved author text — it may differ from the current handle at `included.membersById[memberId].handle` if the mentioned member has since renamed. Never copy `authoredHandle` into a structured input field that expects a member ID.
+
+```json
+{
+  "entity": {
+    "version": {
+      "body": "Thanks @alice-hound for the intro.",
+      "mentions": {
+        "title": [], "summary": [],
+        "body": [{ "memberId": "mem_8kg5", "authoredHandle": "alice-hound", "start": 7, "end": 19 }]
+      }
+    }
+  },
+  "included": {
+    "membersById": {
+      "mem_8kg5": { "memberId": "mem_8kg5", "publicName": "Alice Hound", "displayName": "Alice Hound", "handle": "alice-hound" }
+    }
+  }
+}
+```
+
+Mentions inside URLs like `https://github.com/@alice` and inside email addresses like `alice@example.com` are never parsed as mentions — boundary rules skip them automatically.
+
 ## When To Clarify First
 
 Some actions are structurally valid long before they are conversationally ready. The schema tells you what JSON is accepted. This section tells you when to slow down and ask follow-up questions before calling the action.
