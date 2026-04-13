@@ -1,5 +1,5 @@
 /**
- * Clubs domain — entities, events, admissions, activity, vouches, quotas, LLM, embeddings.
+ * Clubs domain — entities, events, activity, vouches, quotas, LLM, embeddings.
  */
 
 import type { Pool } from 'pg';
@@ -9,28 +9,18 @@ import type {
   EntitySummary,
   IncludedBundle,
   ListEntitiesInput,
-  MemberAdmissionRecord,
   ReadContentThreadInput,
   SetEntityLoopInput,
   UpdateEntityInput,
   MembershipVouchSummary,
   QuotaAllowance,
   LogLlmUsageInput,
-  AdmissionSummary,
-  AdmissionStatus,
-  CreateAdmissionSponsorInput,
-  CreateAdmissionChallengeInput,
-  AdmissionChallengeResult,
-  SolveAdmissionChallengeInput,
-  AdmissionApplyResult,
-  TransitionAdmissionInput,
   WithIncluded,
 } from '../contract.ts';
 import { AppError } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { encodeCursor } from '../schemas/fields.ts';
 import { emptyIncludedBundle } from '../mentions.ts';
-import * as admissionsModule from './admissions.ts';
 import * as entities from './entities.ts';
 import * as events from './events.ts';
 
@@ -571,7 +561,6 @@ export type ClubsRepository = {
   removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean }): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
   listEntities(input: ListEntitiesInput): Promise<import('./entities.ts').PaginatedThreads>;
   readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: import('../contract.ts').ContentThreadSummary; entities: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null }> | null>;
-  getAdmissionsForMember(input: { memberId: string; clubId?: string }): Promise<MemberAdmissionRecord[]>;
 
   createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
   listVouches(input: { clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<PaginatedVouches>;
@@ -610,7 +599,6 @@ export function createClubsRepository(pool: Pool): ClubsRepository {
     removeEntity: (input) => entities.removeEntity(pool, input),
     listEntities: (input) => entities.listEntities(pool, input),
     readContentThread: (input) => entities.readContentThread(pool, input),
-    getAdmissionsForMember: (input) => admissionsModule.getAdmissionsForMember(pool, input),
 
     createVouch: (input) => createVouch(pool, input),
     listVouches: (input) => listVouches(pool, input),

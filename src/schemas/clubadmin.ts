@@ -1,7 +1,6 @@
 /**
  * Club admin action contracts: clubadmin.memberships.list, clubadmin.memberships.listForReview,
- * clubadmin.memberships.create, clubadmin.memberships.setStatus,
- * clubadmin.admissions.list, clubadmin.admissions.setStatus, clubadmin.admissions.issueAccessToken,
+ * clubadmin.memberships.create, clubadmin.memberships.get, clubadmin.memberships.setStatus,
  * clubadmin.clubs.getStatistics
  *
  * All actions require auth: 'clubadmin' — the caller must be a club admin,
@@ -13,19 +12,17 @@ import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   wireOptionalRecord, parseOptionalRecord,
-  membershipState, admissionStatus,
+  membershipState,
   membershipCreateInitialStatus,
   wireMembershipStates, parseMembershipStates,
-  wireAdmissionStatuses, parseAdmissionStatuses,
-  wireIntake, parseIntake,
-  type MembershipState, type AdmissionStatus,
+  type MembershipState,
   wireCursor, parseCursor, decodeCursor,
   wireLimitOf, parseLimitOf,
 } from './fields.ts';
 import {
   membershipAdminSummary, membershipReviewSummary,
   membershipApplicationAdminSummary,
-  admissionSummary, adminClubStats,
+  adminClubStats,
   contentEntity, includedBundle, messageRemovalResult,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
@@ -367,268 +364,6 @@ const clubadminMembershipsGet: ActionDefinition = {
   },
 };
 
-// ── clubadmin.admissions.list ──────────────────────────
-
-type AdmissionsListInput = {
-  clubId: string;
-  statuses?: AdmissionStatus[];
-  limit: number;
-  cursor: string | null;
-};
-
-const clubadminAdmissionsList: ActionDefinition = {
-  action: 'clubadmin.admissions.list',
-  domain: 'clubadmin',
-  description: 'List admissions for the specified club.',
-  auth: 'clubadmin',
-  safety: 'read_only',
-  authorizationNote: 'Requires club admin role.',
-  scopeRules: [...CLUBADMIN_SCOPE_RULES],
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club to list admissions for'),
-      statuses: wireAdmissionStatuses.describe('Filter by admission statuses'),
-      limit: wireLimitOf(20),
-      cursor: wireCursor,
-    }),
-    output: z.object({
-      limit: z.number(),
-      statuses: z.array(admissionStatus).nullable(),
-      results: z.array(admissionSummary),
-      hasMore: z.boolean(),
-      nextCursor: z.string().nullable(),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      statuses: parseAdmissionStatuses,
-      limit: parseLimitOf(20, 20),
-      cursor: parseCursor,
-    }),
-  },
-
-  requiredCapability: 'listAdmissions',
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, statuses, limit, cursor: rawCursor } = input as AdmissionsListInput;
-    ctx.requireClubAdmin(clubId);
-    ctx.requireCapability('listAdmissions');
-
-    const cursor = rawCursor ? (() => {
-      const [versionCreatedAt, id] = decodeCursor(rawCursor, 2);
-      return { versionCreatedAt, id };
-    })() : null;
-
-    const result = await ctx.repository.listAdmissions!({
-      actorMemberId: ctx.actor.member.id,
-      clubIds: [clubId],
-      limit,
-      statuses,
-      cursor,
-    });
-
-    return {
-      data: { limit, statuses: statuses ?? null, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
-      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
-    };
-  },
-};
-
-// ── clubadmin.admissions.get ─────────────────────────────
-
-const clubadminAdmissionsGet: ActionDefinition = {
-  action: 'clubadmin.admissions.get',
-  domain: 'clubadmin',
-  description: 'Get one admission in the specified club.',
-  auth: 'clubadmin',
-  safety: 'read_only',
-  authorizationNote: 'Requires club admin role.',
-  scopeRules: [...CLUBADMIN_SCOPE_RULES],
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club the admission belongs to'),
-      admissionId: wireRequiredString.describe('Admission to fetch'),
-    }),
-    output: z.object({ admission: admissionSummary }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      admissionId: parseRequiredString,
-    }),
-  },
-
-  requiredCapability: 'getAdmission',
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, admissionId } = input as { clubId: string; admissionId: string };
-    ctx.requireClubAdmin(clubId);
-    ctx.requireCapability('getAdmission');
-
-    const admission = await ctx.repository.getAdmission?.({
-      actorMemberId: ctx.actor.member.id,
-      admissionId,
-      accessibleClubIds: [clubId],
-    });
-
-    if (admission === undefined) {
-      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.get is not implemented');
-    }
-
-    if (!admission || admission.clubId !== clubId) {
-      throw new AppError(404, 'not_found', 'Admission not found in the specified club');
-    }
-
-    return {
-      data: { admission },
-      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
-    };
-  },
-};
-
-// ── clubadmin.admissions.setStatus ────────────────────
-
-type AdmissionsTransitionInput = {
-  clubId: string;
-  admissionId: string;
-  status: AdmissionStatus;
-  notes: string | null;
-  intake?: {
-    kind?: 'fit_check' | 'advice_call' | 'other';
-    price?: { amount?: number | null; currency?: string | null };
-    bookingUrl?: string | null;
-    bookedAt?: string | null;
-    completedAt?: string | null;
-  };
-  metadata?: Record<string, unknown>;
-};
-
-const clubadminAdmissionsTransition: ActionDefinition = {
-  action: 'clubadmin.admissions.setStatus',
-  domain: 'clubadmin',
-  description: 'Transition an admission to a new status.',
-  auth: 'clubadmin',
-  safety: 'mutating',
-  authorizationNote: 'Requires club admin role.',
-  scopeRules: [...CLUBADMIN_SCOPE_RULES],
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club the admission belongs to'),
-      admissionId: wireRequiredString.describe('Admission to transition'),
-      status: admissionStatus.describe('Target status'),
-      notes: wireOptionalString.describe('Notes for the transition'),
-      intake: wireIntake,
-      metadata: wireOptionalRecord.describe('Metadata patch'),
-    }),
-    output: z.object({ admission: admissionSummary }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      admissionId: parseRequiredString,
-      status: admissionStatus,
-      notes: parseTrimmedNullableString.default(null),
-      intake: parseIntake,
-      metadata: z.record(z.string(), z.unknown()).optional(),
-    }),
-  },
-
-  requiredCapability: 'transitionAdmission',
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, admissionId, status, notes, intake, metadata } = input as AdmissionsTransitionInput;
-    ctx.requireClubAdmin(clubId);
-    ctx.requireCapability('transitionAdmission');
-
-    const admission = await ctx.repository.transitionAdmission!({
-      actorMemberId: ctx.actor.member.id,
-      admissionId,
-      nextStatus: status,
-      notes,
-      accessibleClubIds: [clubId],
-      intake,
-      metadataPatch: metadata,
-    });
-
-    if (admission === undefined) {
-      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.setStatus is not implemented');
-    }
-
-    if (!admission) {
-      throw new AppError(404, 'not_found', 'Admission not found in the specified club');
-    }
-
-    return {
-      data: { admission },
-      requestScope: { requestedClubId: admission.clubId, activeClubIds: [admission.clubId] },
-    };
-  },
-};
-
-// ── clubadmin.admissions.issueAccessToken ──────────────
-
-const clubadminAdmissionsIssueAccess: ActionDefinition = {
-  action: 'clubadmin.admissions.issueAccessToken',
-  domain: 'clubadmin',
-  description: 'Issue access credentials for an accepted admission.',
-  auth: 'clubadmin',
-  safety: 'mutating',
-  authorizationNote: 'Requires club admin role.',
-  scopeRules: [...CLUBADMIN_SCOPE_RULES],
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club the admission belongs to'),
-      admissionId: wireRequiredString.describe('Admission to issue access for'),
-    }),
-    output: z.object({
-      admission: admissionSummary,
-      bearerToken: z.string(),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      admissionId: parseRequiredString,
-    }),
-  },
-
-  requiredCapability: 'issueAdmissionAccess',
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, admissionId } = input as { clubId: string; admissionId: string };
-    ctx.requireClubAdmin(clubId);
-    ctx.requireCapability('issueAdmissionAccess');
-
-    const result = await ctx.repository.issueAdmissionAccess!({
-      actorMemberId: ctx.actor.member.id,
-      admissionId,
-      accessibleClubIds: [clubId],
-    });
-
-    if (result === undefined) {
-      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.issueAccessToken is not implemented');
-    }
-
-    if (!result) {
-      throw new AppError(404, 'not_found', 'Admission not found in the specified club');
-    }
-
-    return {
-      data: { admission: result.admission, bearerToken: result.bearerToken },
-      requestScope: { requestedClubId: result.admission.clubId, activeClubIds: [result.admission.clubId] },
-    };
-  },
-};
-
 // ── clubadmin.clubs.getStatistics ──────────────────────────────
 
 const clubadminClubsStats: ActionDefinition = {
@@ -733,7 +468,6 @@ const clubadminEntitiesRemove: ActionDefinition = {
 registerActions([
   clubadminMembershipsList, clubadminMembershipsReview,
   clubadminMembershipsCreate, clubadminMembershipsTransition, clubadminMembershipsGet,
-  clubadminAdmissionsList, clubadminAdmissionsGet, clubadminAdmissionsTransition, clubadminAdmissionsIssueAccess,
   clubadminClubsStats,
   clubadminEntitiesRemove,
 ]);

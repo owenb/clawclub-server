@@ -12,7 +12,6 @@ import {
   type Repository,
   type EntitySummary,
   type MembershipVouchSummary,
-  type AdmissionStatus,
   type IncludedBundle,
   type IncludedMember,
   type MessageFramePayload,
@@ -21,11 +20,9 @@ import {
 } from './contract.ts';
 import { withTransaction } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
-import { generateAdmissionClubProfile, normalizeClubProfileFields } from './identity/profiles.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
 import { createClubsRepository, batchListVouches, type ClubsRepository } from './clubs/index.ts';
 import * as unifiedClubs from './clubs/unified.ts';
-import * as admissionsModule from './clubs/admissions.ts';
 import {
   emptyIncludedBundle,
   loadIncludedMembers,
@@ -54,66 +51,6 @@ function mapVouchToSummary(v: { edgeId: string; fromMemberId: string; fromPublic
     metadata: v.metadata,
     createdAt: v.createdAt,
     createdByMemberId: v.createdByMemberId,
-  };
-}
-
-/** Read an admission by ID with member display info resolved via JOIN. */
-async function readAdmissionEnriched(
-  db: Pool | import('pg').PoolClient,
-  admissionId: string,
-): Promise<import('./contract.ts').AdmissionSummary | null> {
-  const result = await db.query<Record<string, unknown>>(
-    `select ca.id as admission_id, ca.club_id, ca.applicant_member_id, ca.applicant_email,
-            ca.applicant_name, ca.sponsor_member_id, ca.membership_id, ca.origin,
-            ca.intake_kind, ca.intake_price_amount, ca.intake_price_currency,
-            ca.intake_booking_url, ca.intake_booked_at::text as intake_booked_at,
-            ca.intake_completed_at::text as intake_completed_at,
-            ca.status, ca.notes, ca.version_no, ca.version_created_at::text as version_created_at,
-            ca.version_created_by_member_id, ca.admission_details, ca.metadata,
-            ca.created_at::text as created_at,
-            am.public_name as applicant_public_name, am.handle as applicant_handle,
-            sm.public_name as sponsor_public_name, sm.handle as sponsor_handle
-     from current_admissions ca
-     left join members am on am.id = ca.applicant_member_id
-     left join members sm on sm.id = ca.sponsor_member_id
-     where ca.id = $1 limit 1`,
-    [admissionId],
-  );
-  const r = result.rows[0];
-  if (!r) return null;
-  return {
-    admissionId: r.admission_id as string,
-    clubId: r.club_id as string,
-    applicant: {
-      memberId: (r.applicant_member_id as string) ?? null,
-      publicName: (r.applicant_public_name as string) ?? (r.applicant_name as string) ?? 'Unknown applicant',
-      handle: (r.applicant_handle as string) ?? null,
-      email: (r.applicant_email as string) ?? null,
-    },
-    sponsor: r.sponsor_member_id ? {
-      memberId: r.sponsor_member_id as string,
-      publicName: (r.sponsor_public_name as string) ?? 'Unknown sponsor',
-      handle: (r.sponsor_handle as string) ?? null,
-    } : null,
-    membershipId: (r.membership_id as string) ?? null,
-    origin: r.origin as 'self_applied' | 'member_sponsored' | 'owner_nominated',
-    intake: {
-      kind: (r.intake_kind as 'fit_check' | 'advice_call' | 'other') ?? 'other',
-      price: { amount: r.intake_price_amount != null ? Number(r.intake_price_amount) : null, currency: (r.intake_price_currency as string) ?? null },
-      bookingUrl: (r.intake_booking_url as string) ?? null,
-      bookedAt: (r.intake_booked_at as string) ?? null,
-      completedAt: (r.intake_completed_at as string) ?? null,
-    },
-    state: {
-      status: r.status as AdmissionStatus,
-      notes: (r.notes as string) ?? null,
-      versionNo: Number(r.version_no),
-      createdAt: r.version_created_at as string,
-      createdByMemberId: (r.version_created_by_member_id as string) ?? null,
-    },
-    admissionDetails: (r.admission_details as Record<string, unknown>) ?? {},
-    metadata: (r.metadata as Record<string, unknown>) ?? {},
-    createdAt: r.created_at as string,
   };
 }
 
@@ -245,7 +182,7 @@ async function listMaterializedNotifications(pool: Pool, input: {
   });
 }
 
-async function listDerivedAdmissionNotifications(pool: Pool, input: {
+async function listDerivedApplicationNotifications(pool: Pool, input: {
   adminClubIds: string[];
   limit: number;
   after: string | null;
@@ -258,22 +195,22 @@ async function listDerivedAdmissionNotifications(pool: Pool, input: {
   const afterCursor = input.after ? decodeNotificationCursor(input.after) : null;
 
   const result = await pool.query<{
-    admission_id: string;
+    membership_id: string;
     club_id: string;
     created_at: string;
   }>(
-    `select ca.id as admission_id,
-            ca.club_id,
-            ca.version_created_at::text as created_at
-     from current_admissions ca
-     where ca.status = 'submitted'
-       and ca.club_id = any($1::text[])
+    `select cm.id as membership_id,
+            cm.club_id,
+            cm.state_created_at::text as created_at
+     from current_club_memberships cm
+     where cm.status = 'submitted'
+       and cm.club_id = any($1::text[])
        and (
          $2::timestamptz is null
-         or ca.version_created_at > $2
-         or (ca.version_created_at = $2 and ('admission.submitted:' || ca.id) > $3)
+         or cm.state_created_at > $2
+         or (cm.state_created_at = $2 and ('application.submitted:' || cm.id) > $3)
        )
-     order by ca.version_created_at asc, ca.id asc
+     order by cm.state_created_at asc, cm.id asc
      limit $4`,
     [
       input.adminClubIds,
@@ -284,14 +221,14 @@ async function listDerivedAdmissionNotifications(pool: Pool, input: {
   );
 
   return result.rows.map((row) => {
-    const notificationId = buildNotificationId('admission.submitted', row.admission_id);
+    const notificationId = buildNotificationId('application.submitted', row.membership_id);
     return {
       notificationId,
       cursor: encodeNotificationCursor(row.created_at, notificationId),
-      kind: 'admission.submitted',
+      kind: 'application.submitted',
       clubId: row.club_id,
-      ref: { admissionId: row.admission_id },
-      payload: { admissionId: row.admission_id },
+      ref: { membershipId: row.membership_id },
+      payload: { membershipId: row.membership_id },
       createdAt: row.created_at,
       acknowledgeable: false,
       acknowledgedState: null,
@@ -830,484 +767,6 @@ export function createRepository(pool: Pool): Repository {
     listIssuedInvitations: (input) => unifiedClubs.listIssuedInvitations(pool, input),
     revokeInvitation: (input) => unifiedClubs.revokeInvitation(pool, input),
 
-    // ── Admissions ─────────────────────────────────────────
-    async createAdmissionSponsorship(input) {
-      const sponsorRow = await pool.query<{ public_name: string; handle: string | null }>(
-        `select public_name, handle from members where id = $1 and state = 'active'`,
-        [input.actorMemberId],
-      );
-      const sponsorName = sponsorRow.rows[0]?.public_name ?? 'Unknown';
-      const sponsorHandle = sponsorRow.rows[0]?.handle ?? null;
-
-      // Insert admission
-      const result = await pool.query<{
-        admission_id: string; club_id: string; sponsor_member_id: string;
-        created_at: string;
-      }>(
-        `with inserted_admission as (
-           insert into admissions (club_id, sponsor_member_id, origin, applicant_email, applicant_name, admission_details)
-           values ($1, $2, 'member_sponsored', $3, $4, $5::jsonb)
-           returning id, club_id, sponsor_member_id, created_at
-         )
-         select id as admission_id, club_id, sponsor_member_id, created_at::text as created_at
-         from inserted_admission`,
-        [input.clubId, input.actorMemberId, input.candidateEmail, input.candidateName,
-         JSON.stringify({ ...input.candidateDetails, reason: input.reason })],
-      );
-
-      const row = result.rows[0];
-      if (!row) throw new Error('Admission row was not returned after insert');
-
-      await pool.query(
-        `insert into admission_versions (admission_id, status, notes, version_no, created_by_member_id)
-         values ($1, 'submitted', 'Sponsored admission created by member', 1, $2)`,
-        [row.admission_id, input.actorMemberId],
-      );
-
-      return {
-        admissionId: row.admission_id,
-        clubId: row.club_id,
-        applicant: { memberId: null, publicName: input.candidateName, handle: null, email: input.candidateEmail },
-        sponsor: { memberId: row.sponsor_member_id, publicName: sponsorName, handle: sponsorHandle },
-        membershipId: null,
-        origin: 'member_sponsored' as const,
-        intake: { kind: 'other' as const, price: { amount: null, currency: null }, bookingUrl: null, bookedAt: null, completedAt: null },
-        state: { status: 'submitted' as const, notes: 'Sponsored admission created by member', versionNo: 1, createdAt: row.created_at, createdByMemberId: input.actorMemberId },
-        admissionDetails: { ...input.candidateDetails, reason: input.reason },
-        metadata: {},
-        createdAt: row.created_at,
-      };
-    },
-
-    async listAdmissions(input) {
-      if (!input.clubIds || input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
-      const fetchLimit = input.limit + 1;
-      const cursorVersionCreatedAt = input.cursor?.versionCreatedAt ?? null;
-      const cursorId = input.cursor?.id ?? null;
-
-      const result = await pool.query<Record<string, unknown>>(
-        `select ca.id as admission_id, ca.club_id, ca.applicant_member_id, ca.applicant_email,
-                ca.applicant_name, ca.sponsor_member_id, ca.membership_id, ca.origin,
-                ca.intake_kind, ca.intake_price_amount, ca.intake_price_currency,
-                ca.intake_booking_url, ca.intake_booked_at::text as intake_booked_at,
-                ca.intake_completed_at::text as intake_completed_at,
-                ca.status, ca.notes, ca.version_no, ca.version_created_at::text as version_created_at,
-                ca.version_created_by_member_id, ca.admission_details, ca.metadata,
-                ca.created_at::text as created_at,
-                am.public_name as applicant_public_name, am.handle as applicant_handle,
-                sm.public_name as sponsor_public_name, sm.handle as sponsor_handle
-         from current_admissions ca
-         left join members am on am.id = ca.applicant_member_id
-         left join members sm on sm.id = ca.sponsor_member_id
-         where ca.club_id = any($1::text[])
-           and ($2::text[] is null or ca.status::text = any($2::text[]))
-           and ($4::timestamptz is null
-             or ca.version_created_at < $4
-             or (ca.version_created_at = $4 and ca.id < $5))
-         order by ca.version_created_at desc, ca.id desc
-         limit $3`,
-        [input.clubIds, input.statuses ?? null, fetchLimit, cursorVersionCreatedAt, cursorId],
-      );
-
-      const rows = result.rows.map((r) => ({
-        admissionId: r.admission_id as string,
-        clubId: r.club_id as string,
-        applicant: {
-          memberId: (r.applicant_member_id as string) ?? null,
-          publicName: (r.applicant_public_name as string) ?? (r.applicant_name as string) ?? 'Unknown applicant',
-          handle: (r.applicant_handle as string) ?? null,
-          email: (r.applicant_email as string) ?? null,
-        },
-        sponsor: r.sponsor_member_id ? {
-          memberId: r.sponsor_member_id as string,
-          publicName: (r.sponsor_public_name as string) ?? 'Unknown sponsor',
-          handle: (r.sponsor_handle as string) ?? null,
-        } : null,
-        membershipId: (r.membership_id as string) ?? null,
-        origin: r.origin as 'self_applied' | 'member_sponsored' | 'owner_nominated',
-        intake: {
-          kind: (r.intake_kind as 'fit_check' | 'advice_call' | 'other') ?? 'other',
-          price: { amount: r.intake_price_amount != null ? Number(r.intake_price_amount) : null, currency: (r.intake_price_currency as string) ?? null },
-          bookingUrl: (r.intake_booking_url as string) ?? null,
-          bookedAt: (r.intake_booked_at as string) ?? null,
-          completedAt: (r.intake_completed_at as string) ?? null,
-        },
-        state: {
-          status: r.status as AdmissionStatus,
-          notes: (r.notes as string) ?? null,
-          versionNo: Number(r.version_no),
-          createdAt: r.version_created_at as string,
-          createdByMemberId: (r.version_created_by_member_id as string) ?? null,
-        },
-        admissionDetails: (r.admission_details as Record<string, unknown>) ?? {},
-        metadata: (r.metadata as Record<string, unknown>) ?? {},
-        createdAt: r.created_at as string,
-      }));
-
-      const hasMore = rows.length > input.limit;
-      if (hasMore) rows.pop();
-      const last = rows[rows.length - 1];
-      const nextCursor = last
-        ? paginationEncodeCursor([last.state.createdAt, last.admissionId])
-        : null;
-
-      return { results: rows, hasMore, nextCursor };
-    },
-
-    async getAdmission(input) {
-      const admission = await readAdmissionEnriched(pool, input.admissionId);
-      if (!admission) return null;
-      return input.accessibleClubIds.includes(admission.clubId) ? admission : null;
-    },
-
-    getAdmissionsForMember: (input) => admissionsModule.getAdmissionsForMember(pool, input),
-
-    async transitionAdmission(input) {
-      let storedProfileDraft = null;
-      let skipTransition = false;
-      let currentAdmission: {
-        admission_id: string;
-        club_id: string;
-        applicant_member_id: string | null;
-        applicant_email: string | null;
-        applicant_name: string | null;
-        sponsor_member_id: string | null;
-        membership_id: string | null;
-        admission_details: Record<string, unknown> | null;
-        status: AdmissionStatus;
-        club_name: string;
-        club_summary: string | null;
-        admission_policy: string | null;
-        generated_profile_draft: Record<string, unknown> | null;
-      } | null = null;
-
-      if (input.nextStatus === 'accepted') {
-        const admissionContext = await pool.query<{
-          admission_id: string;
-          club_id: string;
-          applicant_member_id: string | null;
-          applicant_email: string | null;
-          applicant_name: string | null;
-          sponsor_member_id: string | null;
-          membership_id: string | null;
-          admission_details: Record<string, unknown> | null;
-          status: AdmissionStatus;
-          club_name: string;
-          club_summary: string | null;
-          admission_policy: string | null;
-          generated_profile_draft: Record<string, unknown> | null;
-        }>(
-          `select
-             ca.id as admission_id,
-             ca.club_id,
-             ca.applicant_member_id,
-             ca.applicant_email,
-             ca.applicant_name,
-             ca.sponsor_member_id,
-             ca.membership_id,
-             ca.admission_details,
-             ca.status,
-             c.name as club_name,
-             c.summary as club_summary,
-             c.admission_policy,
-             a.generated_profile_draft
-           from current_admissions ca
-           join admissions a on a.id = ca.id
-           join clubs c on c.id = ca.club_id
-           where ca.id = $1 and ca.club_id = any($2::text[])
-           limit 1`,
-          [input.admissionId, input.accessibleClubIds],
-        );
-        currentAdmission = admissionContext.rows[0] ?? null;
-        if (!currentAdmission) return null;
-
-        skipTransition = currentAdmission.status === 'accepted';
-        if (currentAdmission.generated_profile_draft) {
-          storedProfileDraft = normalizeClubProfileFields(currentAdmission.generated_profile_draft);
-        } else {
-          const admissionDetails = currentAdmission.admission_details ?? {};
-          const generatedDraft = await generateAdmissionClubProfile({
-            club: {
-              name: currentAdmission.club_name,
-              summary: currentAdmission.club_summary,
-              admissionPolicy: currentAdmission.admission_policy,
-            },
-            applicantName: currentAdmission.applicant_name ?? 'New Member',
-            application: typeof admissionDetails.application === 'string' ? admissionDetails.application : '',
-            socials: typeof admissionDetails.socials === 'string' ? admissionDetails.socials : '',
-          });
-
-          const persistedDraft = await pool.query<{ generated_profile_draft: Record<string, unknown> }>(
-            `update admissions
-             set generated_profile_draft = $2::jsonb
-             where id = $1
-               and generated_profile_draft is null
-             returning generated_profile_draft`,
-            [currentAdmission.admission_id, JSON.stringify(generatedDraft)],
-          );
-
-          if (persistedDraft.rows[0]?.generated_profile_draft) {
-            storedProfileDraft = normalizeClubProfileFields(persistedDraft.rows[0].generated_profile_draft);
-          } else {
-            const rereadDraft = await pool.query<{ generated_profile_draft: Record<string, unknown> | null }>(
-              `select generated_profile_draft from admissions where id = $1 limit 1`,
-              [currentAdmission.admission_id],
-            );
-            storedProfileDraft = normalizeClubProfileFields(rereadDraft.rows[0]?.generated_profile_draft ?? generatedDraft);
-          }
-        }
-      }
-
-      const result = skipTransition
-        ? {
-            admission: currentAdmission!,
-            isAcceptance: true,
-            isOutsider: currentAdmission!.applicant_member_id === null,
-          }
-        : await admissionsModule.transitionAdmission(pool, {
-            admissionId: input.admissionId,
-            clubIds: input.accessibleClubIds,
-            actorMemberId: input.actorMemberId,
-            nextStatus: input.nextStatus,
-            notes: input.notes,
-            intake: input.intake,
-            metadataPatch: input.metadataPatch,
-          });
-      if (!result) return null;
-
-      // On acceptance, create member + membership
-      if (result.isAcceptance) {
-        const adm = result.admission;
-        const clubId = adm.club_id;
-        let memberId = adm.applicant_member_id;
-        let membershipId = adm.membership_id;
-
-        if (result.isOutsider) {
-          // Retry safety — three-layer lookup:
-          // 1. Check if membership already exists (source_admission_id anchor)
-          const existingMembership = await pool.query<{ member_id: string; id: string }>(
-            `select member_id, id from club_memberships where source_admission_id = $1 limit 1`,
-            [adm.admission_id],
-          );
-          if (existingMembership.rows[0]) {
-            memberId = existingMembership.rows[0].member_id;
-            membershipId = existingMembership.rows[0].id;
-            await admissionsModule.linkAdmissionToMember(pool, adm.admission_id, memberId, membershipId);
-          } else {
-            // 2. Check if member was created but membership wasn't (clubs-side link exists)
-            const clubsSideLink = await pool.query<{ applicant_member_id: string | null }>(
-              `select applicant_member_id from admissions where id = $1`,
-              [adm.admission_id],
-            );
-            if (clubsSideLink.rows[0]?.applicant_member_id) {
-              // Member exists from prior attempt — reuse it
-              memberId = clubsSideLink.rows[0].applicant_member_id;
-            } else {
-              // 3. No prior state — create the member
-              const displayName = adm.applicant_name ?? 'New Member';
-              const email = adm.applicant_email;
-              if (!email) throw new AppError(409, 'admission_missing_email', 'Cannot accept an outsider admission without an email address');
-
-              memberId = await identity.createMemberFromAdmission({
-                name: adm.applicant_name ?? displayName,
-                email,
-                displayName,
-                details: adm.admission_details ?? {},
-                admissionId: adm.admission_id,
-              });
-
-              // Immediately link the member in clubs so retries can find it
-              await pool.query(
-                `update admissions set applicant_member_id = $2 where id = $1`,
-                [adm.admission_id, memberId],
-              );
-            }
-          }
-        }
-
-        if (memberId) {
-          if (!membershipId) {
-            const existingMembership = await pool.query<{ id: string; member_id: string }>(
-              `select id, member_id from club_memberships where source_admission_id = $1 limit 1`,
-              [adm.admission_id],
-            );
-            if (existingMembership.rows[0]) {
-              membershipId = existingMembership.rows[0].id;
-              memberId = existingMembership.rows[0].member_id;
-              await admissionsModule.linkAdmissionToMember(pool, adm.admission_id, memberId, membershipId);
-            }
-          }
-
-          // Check if this is a paid club — determines initial membership state
-          const clubPriceResult = await pool.query<{ membership_price_amount: string | null; membership_price_currency: string }>(
-            `select membership_price_amount, membership_price_currency from clubs where id = $1`,
-            [clubId],
-          );
-          const isPaidClub = clubPriceResult.rows[0]?.membership_price_amount != null;
-
-          if (!membershipId) {
-            const sponsorId = adm.sponsor_member_id ?? input.actorMemberId;
-            const membershipResult = await identity.createMembership({
-              actorMemberId: input.actorMemberId,
-              clubId,
-              memberId,
-              sponsorMemberId: sponsorId,
-              role: 'member',
-              initialStatus: isPaidClub ? 'payment_pending' : 'active',
-              sourceAdmissionId: adm.admission_id,
-              reason: isPaidClub ? 'Admitted — awaiting payment' : 'Admitted from accepted admission',
-              metadata: {},
-              initialProfile: {
-                fields: storedProfileDraft ?? normalizeClubProfileFields(null),
-                generationSource: 'admission_generated',
-              },
-            });
-
-            if (membershipResult) {
-              membershipId = membershipResult.membershipId;
-              // Snapshot the approved price on the membership for paid clubs
-              if (isPaidClub) {
-                const priceRow = clubPriceResult.rows[0]!;
-                await pool.query(
-                  `update club_memberships set approved_price_amount = $2, approved_price_currency = $3
-                   where id = $1`,
-                  [membershipResult.membershipId, priceRow.membership_price_amount, priceRow.membership_price_currency],
-                );
-              }
-
-              await admissionsModule.linkAdmissionToMember(pool, adm.admission_id, memberId, membershipResult.membershipId);
-            }
-          }
-        }
-      }
-
-      // Re-read with member info resolved via JOIN
-      return readAdmissionEnriched(pool, input.admissionId);
-    },
-
-    async createAdmissionChallenge(input) {
-      // Look up club
-      const clubResult = await pool.query<{
-        club_id: string; name: string; summary: string | null;
-        admission_policy: string; owner_member_id: string;
-      }>(
-        `select c.id as club_id, c.name, c.summary, c.admission_policy, c.owner_member_id
-         from clubs c
-         where c.slug = $1 and c.archived_at is null and c.admission_policy is not null
-         limit 1`,
-        [input.clubSlug],
-      );
-      const club = clubResult.rows[0];
-      if (!club) throw new AppError(404, 'club_not_found', 'Club not found or is not accepting applications');
-
-      // Get owner name
-      const ownerInfo = await identity.getMemberPublicContact(club.owner_member_id);
-      const ownerName = ownerInfo?.memberName ?? 'Club Owner';
-
-      // Create challenge
-      const challenge = await admissionsModule.createAdmissionChallenge(pool, {
-        clubSlug: input.clubSlug,
-        clubId: club.club_id,
-        clubName: club.name,
-        clubSummary: club.summary,
-        admissionPolicy: club.admission_policy,
-        ownerName,
-      });
-
-      return {
-        ...challenge,
-        club: {
-          slug: input.clubSlug,
-          name: club.name,
-          summary: club.summary,
-          ownerName,
-          admissionPolicy: club.admission_policy,
-        },
-      };
-    },
-
-    async solveAdmissionChallenge(input) {
-      return admissionsModule.solveAdmissionChallenge(pool, input);
-    },
-
-    async createCrossAdmissionChallenge(input) {
-      // Look up club by slug
-      const clubResult = await pool.query<{
-        club_id: string; name: string; summary: string | null;
-        admission_policy: string; owner_member_id: string;
-      }>(
-        `select c.id as club_id, c.name, c.summary, c.admission_policy, c.owner_member_id
-         from clubs c
-         where c.slug = $1 and c.archived_at is null and c.admission_policy is not null
-         limit 1`,
-        [input.clubSlug],
-      );
-      const club = clubResult.rows[0];
-      if (!club) throw new AppError(404, 'club_not_found', 'Club not found or is not accepting applications');
-
-      const ownerInfo = await identity.getMemberPublicContact(club.owner_member_id);
-      const ownerName = ownerInfo?.memberName ?? 'Club Owner';
-
-      const challenge = await admissionsModule.createCrossChallenge(pool, {
-        memberId: input.actorMemberId,
-        clubId: club.club_id,
-        clubName: club.name,
-        clubSummary: club.summary,
-        admissionPolicy: club.admission_policy,
-        ownerName,
-      });
-
-      return {
-        ...challenge,
-        club: {
-          slug: input.clubSlug,
-          name: club.name,
-          summary: club.summary,
-          ownerName,
-          admissionPolicy: club.admission_policy,
-        },
-      };
-    },
-
-    async solveCrossAdmissionChallenge(input) {
-      return admissionsModule.solveCrossChallenge(pool, {
-        memberId: input.actorMemberId,
-        challengeId: input.challengeId,
-        nonce: input.nonce,
-        socials: input.socials,
-        application: input.application,
-      });
-    },
-
-    async issueAdmissionAccess(input) {
-      // Look up admission
-      const admResult = await pool.query<{
-        admission_id: string; applicant_member_id: string | null; status: string;
-      }>(
-        `select ca.id as admission_id, ca.applicant_member_id, ca.status
-         from current_admissions ca
-         where ca.id = $1 and ca.club_id = any($2::text[])
-         limit 1`,
-        [input.admissionId, input.accessibleClubIds],
-      );
-      const admission = admResult.rows[0];
-      if (!admission) return null;
-      if (admission.status !== 'accepted') throw new AppError(409, 'admission_not_accepted', 'Access can only be issued for accepted admissions');
-      if (!admission.applicant_member_id) throw new AppError(409, 'admission_not_finalized', 'Admission has no linked member');
-
-      // Create token
-      const { bearerToken } = await identity.issueTokenForMember(
-        admission.applicant_member_id,
-        input.label ?? 'Issued from admission acceptance',
-        { source: 'admission', admissionId: input.admissionId },
-      );
-
-      // Re-read admission for response
-      const enriched = await readAdmissionEnriched(pool, input.admissionId);
-      if (!enriched) return null;
-      return { admission: enriched, bearerToken };
-    },
-
     // ── Messages ─────────────────────────────────────────
     // DMs are not club-scoped. Clubs are only an eligibility check for starting
     // a conversation. Existing threads continue even if clubs diverge.
@@ -1471,7 +930,7 @@ export function createRepository(pool: Pool): Repository {
           limit,
           after: input.after,
         }),
-        listDerivedAdmissionNotifications(pool, {
+        listDerivedApplicationNotifications(pool, {
           adminClubIds: input.adminClubIds,
           limit,
           after: input.after,
@@ -1582,13 +1041,17 @@ export function createRepository(pool: Pool): Repository {
 
     // ── Admin ───────────────────────────────────────────
     async adminGetOverview() {
-      const [totalMemberCount, activeMemberCount, clubCount, entityCount, messageCount, admissionCount] = await Promise.all([
+      const [totalMemberCount, activeMemberCount, clubCount, entityCount, messageCount, applicationCount] = await Promise.all([
         pool.query<{ count: string }>(`select count(*)::text as count from members`),
         pool.query<{ count: string }>(`select count(*)::text as count from members where state = 'active'`),
         pool.query<{ count: string }>(`select count(*)::text as count from clubs where archived_at is null`),
         pool.query<{ count: string }>(`select count(*)::text as count from entities where deleted_at is null`),
         pool.query<{ count: string }>(`select count(*)::text as count from dm_messages`),
-        pool.query<{ count: string }>(`select count(*)::text as count from admissions`),
+        pool.query<{ count: string }>(
+          `select count(*)::text as count
+           from current_club_memberships
+           where status in ('applying', 'submitted', 'interview_scheduled', 'interview_completed', 'payment_pending', 'declined', 'withdrawn')`,
+        ),
       ]);
 
       const recentMembers = await pool.query<{
@@ -1605,7 +1068,7 @@ export function createRepository(pool: Pool): Repository {
         totalClubs: Number(clubCount.rows[0]?.count ?? 0),
         totalEntities: Number(entityCount.rows[0]?.count ?? 0),
         totalMessages: Number(messageCount.rows[0]?.count ?? 0),
-        totalAdmissions: Number(admissionCount.rows[0]?.count ?? 0),
+        totalApplications: Number(applicationCount.rows[0]?.count ?? 0),
         recentMembers: recentMembers.rows.map((r) => ({
           memberId: r.member_id,
           publicName: r.public_name,
@@ -1744,7 +1207,7 @@ export function createRepository(pool: Pool): Repository {
     },
 
     async adminGetClubStats({ clubId }) {
-      const [clubResult, memberCounts, entityCount, admissionCounts] = await Promise.all([
+      const [clubResult, memberCounts, entityCount, applicationCounts] = await Promise.all([
         pool.query<{ club_id: string; slug: string; name: string; archived_at: string | null }>(
           `select id as club_id, slug, name, archived_at::text as archived_at from clubs where id = $1 limit 1`,
           [clubId],
@@ -1759,8 +1222,11 @@ export function createRepository(pool: Pool): Repository {
           [clubId],
         ),
         pool.query<{ status: string; count: string }>(
-          `select cav.status::text as status, count(*)::text as count
-           from current_admissions cav where cav.club_id = $1 group by cav.status`,
+          `select cm.status::text as status, count(*)::text as count
+           from current_club_memberships cm
+           where cm.club_id = $1
+             and cm.status in ('applying', 'submitted', 'interview_scheduled', 'interview_completed', 'payment_pending', 'declined', 'withdrawn')
+           group by cm.status`,
           [clubId],
         ),
       ]);
@@ -1788,7 +1254,7 @@ export function createRepository(pool: Pool): Repository {
         memberCounts: Object.fromEntries(memberCounts.rows.map((r) => [r.status, Number(r.count)])),
         entityCount: Number(entityCount.rows[0]?.count ?? 0),
         messageCount: Number(messageCount.rows[0]?.count ?? 0),
-        admissionCounts: Object.fromEntries(admissionCounts.rows.map((r) => [r.status, Number(r.count)])),
+        applicationCounts: Object.fromEntries(applicationCounts.rows.map((r) => [r.status, Number(r.count)])),
       };
     },
 

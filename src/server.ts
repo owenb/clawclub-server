@@ -46,9 +46,9 @@ const SKILL_MD: string = [
   '',
 ].join('\n') + SKILL_MD_BODY;
 
-const NOTIFICATION_WAKEUP_KINDS = new Set(['notification', 'admission_version']);
+const NOTIFICATION_WAKEUP_KINDS = new Set(['notification']);
 
-type ColdAdmissionAction = 'admissions.public.requestChallenge' | 'admissions.public.submitApplication';
+type AnonymousJoinAction = 'clubs.join';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
 type FixedWindowRateLimitState = { count: number; resetAt: number };
 
@@ -64,13 +64,9 @@ export const DEFAULT_SERVER_LIMITS = {
   maxStreamsPerMember: 3,
 } as const;
 
-export const DEFAULT_COLD_APPLICATION_RATE_LIMITS: Record<ColdAdmissionAction, FixedWindowRateLimit> = {
-  'admissions.public.requestChallenge': {
+export const DEFAULT_ANONYMOUS_JOIN_RATE_LIMITS: Record<AnonymousJoinAction, FixedWindowRateLimit> = {
+  'clubs.join': {
     limit: 10,
-    windowMs: 60 * 60 * 1000,
-  },
-  'admissions.public.submitApplication': {
-    limit: 30,
     windowMs: 60 * 60 * 1000,
   },
 } as const;
@@ -283,10 +279,10 @@ function writeSseComment(response: http.ServerResponse, comment: string) {
   response.write(`: ${comment}\n\n`);
 }
 
-function isColdAdmissionAction(value: unknown): value is ColdAdmissionAction {
+function isAnonymousJoinAction(value: unknown): value is AnonymousJoinAction {
   if (typeof value !== 'string') return false;
   const def = getAction(value);
-  return def?.auth === 'none' && (value === 'admissions.public.requestChallenge' || value === 'admissions.public.submitApplication');
+  return def?.auth === 'optional_member' && value === 'clubs.join';
 }
 
 function getClientIp(request: http.IncomingMessage, trustProxy: boolean): string {
@@ -368,7 +364,7 @@ function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
 export function createServer(options: {
   repository?: Repository;
   updatesNotifier?: MemberUpdateNotifier;
-  coldAdmissionRateLimits?: Partial<Record<ColdAdmissionAction, FixedWindowRateLimit>>;
+  anonymousJoinRateLimits?: Partial<Record<AnonymousJoinAction, FixedWindowRateLimit>>;
   qualityGate?: QualityGateFn;
   trustProxy?: boolean;
   streamScopeRefreshMs?: number;
@@ -399,11 +395,10 @@ export function createServer(options: {
   const dbUrl = process.env.DATABASE_URL;
   const updatesNotifier = options.updatesNotifier
     ?? (dbUrl ? createPostgresMemberUpdateNotifier(dbUrl) : createTimeoutOnlyNotifier());
-  const coldAdmissionRateLimits: Record<ColdAdmissionAction, FixedWindowRateLimit> = {
-    'admissions.public.requestChallenge': options.coldAdmissionRateLimits?.['admissions.public.requestChallenge'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.public.requestChallenge'],
-    'admissions.public.submitApplication': options.coldAdmissionRateLimits?.['admissions.public.submitApplication'] ?? DEFAULT_COLD_APPLICATION_RATE_LIMITS['admissions.public.submitApplication'],
+  const anonymousJoinRateLimits: Record<AnonymousJoinAction, FixedWindowRateLimit> = {
+    'clubs.join': options.anonymousJoinRateLimits?.['clubs.join'] ?? DEFAULT_ANONYMOUS_JOIN_RATE_LIMITS['clubs.join'],
   };
-  const coldAdmissionRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
+  const anonymousJoinRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
   const activeStreams = new Map<string, number>();
   const streamScopeRefreshMs = options.streamScopeRefreshMs ?? 60_000;
   const dispatcher = buildDispatcher({ repository, qualityGate: options.qualityGate });
@@ -762,12 +757,12 @@ export function createServer(options: {
         throw err;
       }
 
-      // Rate-limit cold admission actions by IP (before dispatch)
-      if (isColdAdmissionAction(body.action)) {
+      // Rate-limit anonymous join by IP (before dispatch)
+      if (isAnonymousJoinAction(body.action) && !getBearerToken(request)) {
         const clientIp = getClientIp(request, trustProxy);
         const key = `${body.action}:${clientIp}`;
 
-        if (!consumeFixedWindowRateLimit(coldAdmissionRateLimitBuckets, key, coldAdmissionRateLimits[body.action])) {
+        if (!consumeFixedWindowRateLimit(anonymousJoinRateLimitBuckets, key, anonymousJoinRateLimits[body.action])) {
           throw new AppError(429, 'rate_limited', `Too many ${body.action} requests from this IP`);
         }
       }

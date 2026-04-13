@@ -1,9 +1,8 @@
 /**
- * Action contracts: admissions.sponsorCandidate, members.searchByFullText, members.list,
+ * Action contracts: members.searchByFullText, members.list,
  * members.searchBySemanticSimilarity, members.updateIdentity, vouches.create, vouches.list
  *
- * Member-auth actions for discovery, sponsorship, and vouching.
- * Club admin actions (memberships, admissions management) are in clubadmin.ts.
+ * Member-auth actions for discovery and vouching.
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -11,99 +10,14 @@ import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   wireBoundedString, parseBoundedString,
-  wireFullName, parseFullName,
-  wireEmail, parseEmail,
   wireCursor, parseCursor, decodeCursor,
   wireLimitOf, parseLimitOf,
 } from './fields.ts';
 import {
-  membershipSummary, admissionSummary,
+  membershipSummary,
   memberSearchResult, clubMemberSummary, memberIdentity, vouchSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
-
-// ── admissions.sponsorCandidate ──────────────────────────────────
-
-type AdmissionsSponsorInput = {
-  clubId: string;
-  name: string;
-  email: string;
-  socials: string;
-  reason: string;
-};
-
-const SPONSOR_GATE_ERRORS = [
-  {
-    code: 'illegal_content',
-    meaning: 'The submission was rejected for soliciting or facilitating clearly illegal activity.',
-    recovery: 'Relay the reason to the user, revise the sponsorship text, and resubmit.',
-  },
-  {
-    code: 'gate_rejected',
-    meaning: 'The content gate returned a non-passing verdict after schema validation.',
-    recovery: 'Review the feedback, revise the sponsorship text, and resubmit.',
-  },
-  {
-    code: 'gate_unavailable',
-    meaning: 'The content gate is temporarily unavailable.',
-    recovery: 'Retry after a short delay. If the problem persists, surface the outage to the user.',
-  },
-] as const;
-
-const admissionsSponsor: ActionDefinition = {
-  action: 'admissions.sponsorCandidate',
-  domain: 'admissions',
-  description: 'Sponsor a candidate for admission to a club.',
-  auth: 'member',
-  safety: 'mutating',
-  authorizationNote: 'Requires club membership.',
-  businessErrors: [...SPONSOR_GATE_ERRORS],
-  notes: [
-    'socials is a plain string, not a structured object.',
-  ],
-
-  wire: {
-    input: z.object({
-      clubId: wireRequiredString.describe('Club to sponsor into'),
-      name: wireFullName.describe('Candidate full name'),
-      email: wireEmail.describe('Candidate email'),
-      socials: wireBoundedString.describe('Social media handles or URLs'),
-      reason: wireBoundedString.describe('Why this person should join'),
-    }),
-    output: z.object({ admission: admissionSummary }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      name: parseFullName,
-      email: parseEmail,
-      socials: parseBoundedString,
-      reason: parseBoundedString,
-    }),
-  },
-
-  qualityGate: 'admissions-sponsorCandidate',
-
-  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, name, email, socials, reason } = input as AdmissionsSponsorInput;
-    const club = ctx.requireAccessibleClub(clubId);
-
-    const admission = await ctx.repository.createAdmissionSponsorship({
-      actorMemberId: ctx.actor.member.id,
-      clubId: club.clubId,
-      candidateName: name,
-      candidateEmail: email,
-      candidateDetails: { socials },
-      reason,
-    });
-
-    return {
-      data: { admission },
-      requestScope: { requestedClubId: club.clubId, activeClubIds: [club.clubId] },
-    };
-  },
-};
 
 // ── members.searchByFullText ──────────────────────────────
 
@@ -601,7 +515,6 @@ const membersFindViaEmbedding: ActionDefinition = {
 };
 
 registerActions([
-  admissionsSponsor,
   membersFullTextSearch,
   membersList,
   membersUpdateIdentity,

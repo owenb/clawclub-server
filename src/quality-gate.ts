@@ -9,7 +9,6 @@ const GATED_ACTIONS = new Set([
   'profile.update',
   'vouches.create',
   'invitations.issue',
-  'admissions.sponsorCandidate',
 ]);
 
 const GATE_WRAPPER = `You are a content legality gate for a private members club platform. Your only job is to block submissions that solicit or facilitate clearly illegal activity.

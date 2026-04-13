@@ -74,8 +74,7 @@ export type IdentityRepository = {
     };
   }): Promise<MembershipAdminSummary | null>;
 
-  // Admission acceptance helpers
-  createMemberFromAdmission(input: { name: string; email: string; displayName: string; details: Record<string, unknown>; admissionId: string }): Promise<string>;
+  // Membership helpers
   setComped(membershipId: string, compedByMemberId: string): Promise<void>;
   hasLiveAccess(membershipId: string): Promise<boolean>;
   getMemberPublicContact(memberId: string): Promise<{ memberName: string; email: string | null } | null>;
@@ -123,8 +122,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     createMemberDirect: (input) => memberships.createMemberDirect(pool, input),
     createMembershipAsSuperadmin: (input) => memberships.createMembershipAsSuperadmin(pool, input),
 
-    // Admission acceptance helpers
-    createMemberFromAdmission: (input) => memberships.createMemberFromAdmission(pool, input),
+    // Membership helpers
     setComped: (membershipId, compedByMemberId) => {
       return pool.query(
         `update club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2

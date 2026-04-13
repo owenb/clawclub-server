@@ -100,7 +100,7 @@ function buildTransport(): unknown {
     auth: {
       type: 'bearer',
       headerFormat: 'Authorization: Bearer cc_live_...',
-      unauthenticatedActions: ['admissions.public.requestChallenge', 'admissions.public.submitApplication'],
+      unauthenticatedActions: ['clubs.join'],
     },
     requestEnvelope: {
       schema: {

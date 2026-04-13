@@ -561,57 +561,6 @@ export { setComped };
 export { hasLiveAccess };
 
 /**
- * Create a member record from an admission (outsider acceptance).
- * Returns the new member ID.
- */
-export async function createMemberFromAdmission(pool: Pool, input: {
-  name: string; email: string; displayName: string; details: Record<string, unknown>;
-  admissionId: string;
-}): Promise<string> {
-  return withTransaction(pool, async (client) => {
-    // Generate a handle from the name
-    const baseHandle = input.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 30) || 'member';
-    const suffix = Math.random().toString(36).slice(2, 8);
-    const handle = `${baseHandle}-${suffix}`;
-
-    // Atomic idempotency via no-op upsert. ON CONFLICT ... DO UPDATE SET id = id
-    // is a no-op that makes the conflicting row visible to RETURNING in the same
-    // statement, which avoids the snapshot-isolation gap of DO NOTHING + fallback SELECT.
-    const memberResult = await client.query<{ id: string; already_existed: boolean }>(
-      `insert into members (public_name, display_name, handle, state, source_admission_id)
-       values ($1, $2, $3, 'active', $4)
-       on conflict (source_admission_id) where source_admission_id is not null
-       do update set id = members.id
-       returning id, (xmax <> 0) as already_existed`,
-      [input.name, input.displayName, handle, input.admissionId],
-    );
-    const row = memberResult.rows[0];
-    if (!row) throw new AppError(500, 'member_creation_failed', 'Failed to create or find member for admission');
-
-    // If this member already existed from a prior attempt, skip profile/contact creation
-    if (row.already_existed) {
-      return row.id;
-    }
-
-    const memberId = row.id;
-
-    // Store private contact email
-    if (input.email) {
-      await client.query(
-        `insert into member_private_contacts (member_id, email) values ($1, $2)`,
-        [memberId, input.email],
-      );
-    }
-
-    return memberId;
-  });
-}
-
-/**
  * Create a member record directly (superadmin bypass, no admission).
  * Returns the new member ID, handle, and a bearer token.
  */

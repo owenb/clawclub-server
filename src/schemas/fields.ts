@@ -35,12 +35,6 @@ export const membershipState = z.enum([
 ]);
 export type MembershipState = z.infer<typeof membershipState>;
 
-export const admissionStatus = z.enum([
-  'draft', 'submitted', 'interview_scheduled',
-  'interview_completed', 'accepted', 'declined', 'withdrawn',
-]);
-export type AdmissionStatus = z.infer<typeof admissionStatus>;
-
 export const eventRsvpState = z.enum(['yes', 'maybe', 'no', 'waitlist']);
 export type EventRsvpState = z.infer<typeof eventRsvpState>;
 
@@ -51,14 +45,10 @@ export const membershipCreateRole = z.enum(['clubadmin', 'member']);
 
 export const membershipCreateInitialStatus = z.enum(['applying', 'submitted', 'active', 'payment_pending']);
 
-export const intakeKind = z.enum(['fit_check', 'advice_call', 'other']);
-
 export const updateReceiptState = z.enum(['processed', 'suppressed']);
 export type UpdateReceiptState = z.infer<typeof updateReceiptState>;
 
 export const messageRole = z.enum(['member', 'agent', 'system']);
-
-export const admissionOrigin = z.enum(['self_applied', 'member_sponsored', 'owner_nominated']);
 
 // ── Shared transforms ───────────────────────────────────
 
@@ -310,18 +300,6 @@ export const parseMembershipStates = (defaultStates: MembershipState[]) =>
     .transform(states => [...new Set(states)]);
 
 /**
- * Wire: admission statuses array filter
- */
-export const wireAdmissionStatuses = z.array(admissionStatus).min(1).optional();
-
-/**
- * Parse: deduplicates. No default — undefined means "no filter".
- */
-export const parseAdmissionStatuses = z.array(admissionStatus).min(1)
-  .transform(statuses => [...new Set(statuses)])
-  .optional();
-
-/**
  * Wire: optional positive integer (nullable)
  */
 export const wireOptionalPositiveInt = z.number().int().min(1).nullable().optional()
@@ -417,30 +395,6 @@ export const parseSlug = safeString.pipe(z.string().trim())
   );
 
 // ── Nested object builders ───────────────────────────────
-
-/** Wire: admission intake object */
-export const wireIntake = z.object({
-  kind: intakeKind.optional(),
-  price: z.object({
-    amount: wireMoneyAmount,
-    currency: wireCurrencyCode,
-  }).optional(),
-  bookingUrl: wireOptionalString,
-  bookedAt: wireOptionalString,
-  completedAt: wireOptionalString,
-}).optional().describe('Intake details. All fields optional.');
-
-/** Parse: admission intake normalization */
-export const parseIntake = z.object({
-  kind: intakeKind.optional(),
-  price: z.object({
-    amount: parseMoneyAmount,
-    currency: parseCurrencyCode,
-  }).optional(),
-  bookingUrl: parseTrimmedNullableString,
-  bookedAt: parseTrimmedNullableString,
-  completedAt: parseTrimmedNullableString,
-}).optional();
 
 /** Wire: update IDs array */
 export const wireUpdateIds = z.array(z.string().min(1)).min(1)

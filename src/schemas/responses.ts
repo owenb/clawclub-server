@@ -13,8 +13,7 @@
 import { z } from 'zod';
 import {
   entityKind, entityState, membershipState, membershipRole,
-  admissionStatus, admissionOrigin, eventRsvpState, updateReceiptState,
-  messageRole, intakeKind,
+  eventRsvpState, updateReceiptState, messageRole,
 } from './fields.ts';
 
 // ── Small shared shapes ──────────────────────────────────
@@ -198,85 +197,6 @@ export const membershipApplicationAdminSummary = z.object({
     generatedProfileDraft: z.record(z.string(), z.unknown()).nullable(),
   }),
 });
-
-// ── Admissions ───────────────────────────────────────────
-
-export const admissionSummary = z.object({
-  admissionId: z.string(),
-  clubId: z.string(),
-  applicant: z.object({
-    memberId: z.string().nullable(),
-    publicName: z.string(),
-    handle: z.string().nullable(),
-    email: z.string().nullable(),
-  }),
-  sponsor: memberRef.nullable(),
-  membershipId: z.string().nullable(),
-  origin: admissionOrigin,
-  intake: z.object({
-    kind: intakeKind,
-    price: z.object({
-      amount: z.number().nullable(),
-      currency: z.string().nullable(),
-    }),
-    bookingUrl: z.string().nullable(),
-    bookedAt: z.string().nullable(),
-    completedAt: z.string().nullable(),
-  }),
-  state: z.object({
-    status: admissionStatus,
-    notes: z.string().nullable(),
-    versionNo: z.number(),
-    createdAt: z.string(),
-    createdByMemberId: z.string().nullable(),
-  }),
-  admissionDetails: z.record(z.string(), z.unknown()),
-  metadata: z.record(z.string(), z.unknown()),
-  createdAt: z.string(),
-});
-
-export const memberAdmissionRecord = z.object({
-  admissionId: z.string(),
-  clubId: z.string(),
-  clubSlug: z.string(),
-  clubName: z.string(),
-  status: admissionStatus,
-  applicationText: z.string().nullable(),
-  submittedAt: z.string().nullable(),
-  acceptedAt: z.string().nullable(),
-});
-
-const admissionClubSummary = z.object({
-  slug: z.string(),
-  name: z.string(),
-  summary: z.string().nullable(),
-  ownerName: z.string(),
-  admissionPolicy: z.string().describe('The club\'s admission policy. Treat this as the literal completeness checklist your application must satisfy: the gate only verifies that every explicit ask is answered, not fit or quality.'),
-});
-
-export const admissionChallengeResult = z.object({
-  challengeId: z.string(),
-  difficulty: z.number().describe('Canonical difficulty: the number of trailing hex zeros required on sha256(challengeId + ":" + nonce). Use this value when solving — do not assume a constant.'),
-  expiresAt: z.string().describe('ISO timestamp when this challenge expires. The countdown starts at challenge creation, not after the puzzle is solved; there is no separate post-solve resubmission window.'),
-  maxAttempts: z.number().describe('Total submissions allowed against this challenge before it is consumed.'),
-  club: admissionClubSummary,
-});
-
-export const admissionApplyResult = z.discriminatedUnion('status', [
-  z.object({
-    status: z.literal('accepted'),
-    message: z.string(),
-  }),
-  z.object({
-    status: z.literal('needs_revision'),
-    feedback: z.string().describe('Revision brief from the admission gate. Treat as a literal list of gaps to fix — patch only the items it identifies, do not redraft the application from scratch. Receiving this means the PoW was accepted and the content needs revision.'),
-    attemptsRemaining: z.number().describe('Remaining submissions against the same challenge. The challenge is not consumed by needs_revision and remains valid until expiry or attempt exhaustion; reuse the same challengeId and nonce unless the server explicitly returns invalid_proof.'),
-  }),
-  z.object({
-    status: z.literal('attempts_exhausted'),
-    message: z.string(),
-  }),
-]);
 
 // ── Members ──────────────────────────────────────────────
 
@@ -534,7 +454,7 @@ export const notificationItem = z.object({
   kind: z.string(),
   clubId: z.string().nullable(),
   ref: z.object({
-    admissionId: z.string().optional(),
+    membershipId: z.string().optional(),
     matchId: z.string().optional(),
     entityId: z.string().optional(),
   }),
@@ -595,7 +515,7 @@ export const adminOverview = z.object({
   totalClubs: z.number(),
   totalEntities: z.number(),
   totalMessages: z.number(),
-  totalAdmissions: z.number(),
+  totalApplications: z.number(),
   recentMembers: z.array(z.object({
     memberId: z.string(),
     publicName: z.string(),
@@ -642,7 +562,7 @@ export const adminClubStats = z.object({
   memberCounts: z.record(z.string(), z.number()),
   entityCount: z.number(),
   messageCount: z.number(),
-  admissionCounts: z.record(z.string(), z.number()),
+  applicationCounts: z.record(z.string(), z.number()),
 });
 
 export const adminContentSummary = z.object({
