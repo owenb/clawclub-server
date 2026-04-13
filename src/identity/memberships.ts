@@ -36,7 +36,7 @@ type MembershipAdminRow = {
   state_version_no: number;
   state_created_at: string;
   state_created_by_member_id: string | null;
-  joined_at: string;
+  joined_at: string | null;
   accepted_covenant_at: string | null;
   metadata: Record<string, unknown> | null;
 };
@@ -127,11 +127,10 @@ async function reuseOrRejectExistingMembership(client: DbClient, input: {
   memberId: string;
   sponsorMemberId: string | null;
   role: 'member' | 'clubadmin';
-  initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
+  initialStatus: Extract<MembershipState, 'applying' | 'submitted' | 'active' | 'payment_pending'>;
   reason: string | null;
   metadata: Record<string, unknown>;
   actorMemberId: string;
-  sourceAdmissionId?: string | null;
 }): Promise<string | null> {
   const existing = await client.query<{
     id: string;
@@ -156,11 +155,14 @@ async function reuseOrRejectExistingMembership(client: DbClient, input: {
       `update club_memberships
        set sponsor_member_id = $2,
            role = $3::membership_role,
-           joined_at = now(),
-           metadata = $4::jsonb,
-           source_admission_id = coalesce(source_admission_id, $5)
+           joined_at = case
+             when joined_at is not null then joined_at
+             when $5::membership_state = 'active' then now()
+             else null
+           end,
+           metadata = $4::jsonb
        where id = $1`,
-      [row.id, input.sponsorMemberId, input.role, JSON.stringify(input.metadata), input.sourceAdmissionId ?? null],
+      [row.id, input.sponsorMemberId, input.role, JSON.stringify(input.metadata), input.initialStatus],
     );
   } finally {
     await client.query(`select set_config('app.allow_membership_state_sync', '', true)`);
@@ -343,7 +345,7 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
     // Verify sponsor exists in club.
     // When the club admin check is skipped (superadmin path), always validate —
     // the actor may not be a member of this club at all.
-    if (input.skipClubAdminCheck || input.sponsorMemberId !== input.actorMemberId) {
+    if (input.sponsorMemberId && (input.skipClubAdminCheck || input.sponsorMemberId !== input.actorMemberId)) {
       const sponsorCheck = await client.query<{ id: string }>(
         `select cnm.id from current_club_memberships cnm
          where cnm.club_id = $1 and cnm.member_id = $2 and cnm.status = 'active' limit 1`,
@@ -355,22 +357,23 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
     let membershipId = await reuseOrRejectExistingMembership(client, {
       clubId: input.clubId,
       memberId: input.memberId,
-      sponsorMemberId: input.sponsorMemberId,
+      sponsorMemberId: input.sponsorMemberId ?? null,
       role: input.role,
       initialStatus: input.initialStatus,
       reason: input.reason ?? null,
       metadata: input.metadata ?? {},
       actorMemberId: input.actorMemberId,
-      sourceAdmissionId: input.sourceAdmissionId ?? null,
     });
 
     if (!membershipId) {
       const membershipResult = await client.query<{ id: string }>(
-        `insert into club_memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata, source_admission_id)
-         select $1::short_id, $6::short_id, $2::short_id, $3::membership_role, $4::membership_state, now(), $5::jsonb, $7
+        `insert into club_memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata)
+         select $1::short_id, $6::short_id, $2::short_id, $3::membership_role, $4::membership_state,
+                case when $4::membership_state = 'active' then now() else null end,
+                $5::jsonb
          where exists (select 1 from members where id = $6::short_id and state = 'active')
          returning id`,
-        [input.clubId, input.sponsorMemberId, input.role, input.initialStatus, JSON.stringify(input.metadata ?? {}), input.memberId, input.sourceAdmissionId ?? null],
+        [input.clubId, input.sponsorMemberId, input.role, input.initialStatus, JSON.stringify(input.metadata ?? {}), input.memberId],
       );
 
       membershipId = membershipResult.rows[0]?.id ?? null;
@@ -382,14 +385,16 @@ export async function createMembership(pool: Pool, input: CreateMembershipInput)
         [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
       );
 
-      await createInitialClubProfileVersion(client, {
-        membershipId,
-        memberId: input.memberId,
-        clubId: input.clubId,
-        fields: input.initialProfile.fields,
-        createdByMemberId: input.actorMemberId,
-        generationSource: input.initialProfile.generationSource,
-      });
+      if (input.initialStatus === 'active') {
+        await createInitialClubProfileVersion(client, {
+          membershipId,
+          memberId: input.memberId,
+          clubId: input.clubId,
+          fields: input.initialProfile.fields,
+          createdByMemberId: input.actorMemberId,
+          generationSource: input.initialProfile.generationSource,
+        });
+      }
     }
 
     if (input.initialStatus === 'active') {
@@ -619,7 +624,7 @@ export async function createMemberDirect(pool: Pool, input: {
 
 /**
  * Create a membership as superadmin (bypasses club admin check).
- * If sponsorMemberId is not provided, falls back to the club owner.
+ * Sponsor is optional under the unified join model.
  */
 export async function createMembershipAsSuperadmin(pool: Pool, input: {
   actorMemberId: string;
@@ -627,7 +632,7 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
   memberId: string;
   role: 'member' | 'clubadmin';
   sponsorMemberId?: string | null;
-  initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
+  initialStatus: Extract<MembershipState, 'applying' | 'submitted' | 'active' | 'payment_pending'>;
   reason?: string | null;
   initialProfile: {
     fields: ClubProfileFields;
@@ -635,17 +640,12 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
   };
 }): Promise<MembershipAdminSummary | null> {
   return withTransaction(pool, async (client) => {
-    // Resolve sponsor: use provided, fall back to club owner
-    let sponsorMemberId = input.sponsorMemberId ?? null;
     const clubResult = await client.query<{ owner_member_id: string }>(
       `select owner_member_id from clubs where id = $1 and archived_at is null limit 1`,
       [input.clubId],
     );
     if (!clubResult.rows[0]) {
       throw new AppError(404, 'not_found', 'Club not found or archived');
-    }
-    if (!sponsorMemberId) {
-      sponsorMemberId = clubResult.rows[0].owner_member_id;
     }
 
     // Validate explicit sponsor exists and has an active membership in the club
@@ -660,13 +660,10 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
       }
     }
 
-    // For clubadmin role, sponsor_member_id can be null
-    const effectiveSponsor = input.role === 'clubadmin' ? null : sponsorMemberId;
-
     let membershipId = await reuseOrRejectExistingMembership(client, {
       clubId: input.clubId,
       memberId: input.memberId,
-      sponsorMemberId: effectiveSponsor,
+      sponsorMemberId: input.role === 'clubadmin' ? null : (input.sponsorMemberId ?? null),
       role: input.role,
       initialStatus: input.initialStatus,
       reason: input.reason ?? null,
@@ -677,10 +674,12 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
     if (!membershipId) {
       const membershipResult = await client.query<{ id: string }>(
         `insert into club_memberships (club_id, member_id, sponsor_member_id, role, status, joined_at, metadata)
-         select $1::short_id, $2::short_id, $3::short_id, $4::membership_role, $5::membership_state, now(), '{}'::jsonb
+         select $1::short_id, $2::short_id, $3::short_id, $4::membership_role, $5::membership_state,
+                case when $5::membership_state = 'active' then now() else null end,
+                '{}'::jsonb
          where exists (select 1 from members where id = $2::short_id and state = 'active')
          returning id`,
-        [input.clubId, input.memberId, effectiveSponsor, input.role, input.initialStatus],
+        [input.clubId, input.memberId, input.role === 'clubadmin' ? null : (input.sponsorMemberId ?? null), input.role, input.initialStatus],
       );
 
       membershipId = membershipResult.rows[0]?.id ?? null;
@@ -692,14 +691,16 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
         [membershipId, input.initialStatus, input.reason ?? null, input.actorMemberId],
       );
 
-      await createInitialClubProfileVersion(client, {
-        membershipId,
-        memberId: input.memberId,
-        clubId: input.clubId,
-        fields: input.initialProfile.fields,
-        createdByMemberId: input.actorMemberId,
-        generationSource: input.initialProfile.generationSource,
-      });
+      if (input.initialStatus === 'active') {
+        await createInitialClubProfileVersion(client, {
+          membershipId,
+          memberId: input.memberId,
+          clubId: input.clubId,
+          fields: input.initialProfile.fields,
+          createdByMemberId: input.actorMemberId,
+          generationSource: input.initialProfile.generationSource,
+        });
+      }
     }
 
     if (input.initialStatus === 'active') {

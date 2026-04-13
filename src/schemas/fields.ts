@@ -19,9 +19,19 @@ export const entityState = z.enum(['draft', 'published', 'removed']);
 export type EntityState = z.infer<typeof entityState>;
 
 export const membershipState = z.enum([
-  'invited', 'pending_review', 'active',
-  'paused', 'revoked', 'rejected',
-  'payment_pending', 'renewal_pending', 'cancelled', 'banned', 'expired',
+  'applying',
+  'submitted',
+  'interview_scheduled',
+  'interview_completed',
+  'payment_pending',
+  'active',
+  'renewal_pending',
+  'cancelled',
+  'expired',
+  'removed',
+  'banned',
+  'declined',
+  'withdrawn',
 ]);
 export type MembershipState = z.infer<typeof membershipState>;
 
@@ -39,7 +49,7 @@ export type MembershipRole = z.infer<typeof membershipRole>;
 
 export const membershipCreateRole = z.enum(['clubadmin', 'member']);
 
-export const membershipCreateInitialStatus = z.enum(['invited', 'pending_review', 'active', 'payment_pending']);
+export const membershipCreateInitialStatus = z.enum(['applying', 'submitted', 'active', 'payment_pending']);
 
 export const intakeKind = z.enum(['fit_check', 'advice_call', 'other']);
 

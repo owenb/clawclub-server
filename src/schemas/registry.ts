@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { AppError } from '../contract.ts';
 import type {
   ActorContext,
+  MaybeMemberActorContext,
   MembershipSummary,
   Repository,
   ResponseNotice,
@@ -23,7 +24,7 @@ import type {
 
 // ── Auth and safety types ────────────────────────────────
 
-export type ActionAuth = 'none' | 'member' | 'clubadmin' | 'clubowner' | 'superadmin';
+export type ActionAuth = 'none' | 'optional_member' | 'member' | 'clubadmin' | 'clubowner' | 'superadmin';
 export type ActionSafety = 'read_only' | 'mutating';
 
 // ── Repository capability ────────────────────────────────
@@ -31,6 +32,15 @@ export type ActionSafety = 'read_only' | 'mutating';
 // Used to check runtime availability before dispatch (→ 501 if missing).
 
 export type RepositoryCapability =
+  | 'joinClub'
+  | 'submitClubApplication'
+  | 'getClubApplication'
+  | 'listClubApplications'
+  | 'startMembershipCheckout'
+  | 'issueInvitation'
+  | 'listIssuedInvitations'
+  | 'revokeInvitation'
+  | 'getMembershipApplication'
   | 'listClubs'
   | 'createClub'
   | 'archiveClub'
@@ -100,6 +110,22 @@ export type HandlerContext = {
  */
 export type ColdHandlerContext = {
   repository: Repository;
+};
+
+export type OptionalHandlerContext = {
+  actor: MaybeMemberActorContext;
+  bearerToken: string | null;
+  requestScope: RequestScope;
+  sharedContext: SharedResponseContext;
+  repository: Repository;
+
+  getNotifications: () => Promise<{
+    items: import('../contract.ts').NotificationItem[];
+    nextAfter: string | null;
+  }>;
+
+  /** Check that a repository capability exists at runtime. Throws 501 if missing. */
+  requireCapability: (capability: RepositoryCapability) => void;
 };
 
 export type PreGateContext = {
@@ -185,6 +211,12 @@ export type ActionDefinition = {
    * Receives parsed input and minimal context (repository only).
    */
   handleCold?: (input: unknown, ctx: ColdHandlerContext) => Promise<ActionResult>;
+
+  /**
+   * Handler for auth: 'optional_member' actions.
+   * Receives either an authenticated member actor or an anonymous actor shape.
+   */
+  handleOptionalMember?: (input: unknown, ctx: OptionalHandlerContext) => Promise<ActionResult>;
 };
 
 // ── Registry ─────────────────────────────────────────────

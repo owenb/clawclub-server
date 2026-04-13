@@ -24,6 +24,7 @@ import { createIdentityRepository, type IdentityRepository } from './identity/in
 import { generateAdmissionClubProfile, normalizeClubProfileFields } from './identity/profiles.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
 import { createClubsRepository, batchListVouches, type ClubsRepository } from './clubs/index.ts';
+import * as unifiedClubs from './clubs/unified.ts';
 import * as admissionsModule from './clubs/admissions.ts';
 import {
   emptyIncludedBundle,
@@ -812,6 +813,22 @@ export function createRepository(pool: Pool): Repository {
         nextCursor: raw.nextCursor,
       };
     },
+
+    // ── Unified club join ─────────────────────────────────
+    joinClub: (input) => unifiedClubs.joinClub(pool, input),
+    submitClubApplication: (input) => unifiedClubs.submitClubApplication(pool, input),
+    getClubApplication: (input) => unifiedClubs.getClubApplication(pool, input.actorMemberId, input.membershipId),
+    listClubApplications: (input) => unifiedClubs.listClubApplications(pool, input),
+    getMembershipApplication: (input) => unifiedClubs.getMembershipApplication(
+      pool,
+      input.actorMemberId,
+      input.membershipId,
+      input.accessibleClubIds,
+    ),
+    startMembershipCheckout: (input) => unifiedClubs.startMembershipCheckout(pool, input),
+    issueInvitation: (input) => unifiedClubs.issueInvitation(pool, input),
+    listIssuedInvitations: (input) => unifiedClubs.listIssuedInvitations(pool, input),
+    revokeInvitation: (input) => unifiedClubs.revokeInvitation(pool, input),
 
     // ── Admissions ─────────────────────────────────────────
     async createAdmissionSponsorship(input) {

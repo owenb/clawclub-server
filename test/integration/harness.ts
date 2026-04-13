@@ -394,7 +394,8 @@ export class TestHarness {
               // ── Test-enforced contract validation ──
               if (parsed.ok === true) {
                 const def = getAction(action);
-                if (def?.auth === 'none') {
+                const expectsUnauthenticatedEnvelope = def?.auth === 'none' || (def?.auth === 'optional_member' && !token);
+                if (expectsUnauthenticatedEnvelope) {
                   const envResult = strictify(unauthenticatedSuccessEnvelope).safeParse(parsed);
                   if (!envResult.success) {
                     reject(new Error(`[contract] ${action} unauthenticated envelope validation failed: ${envResult.error.message}`));

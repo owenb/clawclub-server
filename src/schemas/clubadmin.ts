@@ -24,6 +24,7 @@ import {
 } from './fields.ts';
 import {
   membershipAdminSummary, membershipReviewSummary,
+  membershipApplicationAdminSummary,
   admissionSummary, adminClubStats,
   contentEntity, includedBundle, messageRemovalResult,
 } from './responses.ts';
@@ -121,7 +122,7 @@ const clubadminMembershipsReview: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe('Club to review memberships for'),
-      statuses: wireMembershipStates.describe('Filter by statuses (default: invited, pending_review)'),
+      statuses: wireMembershipStates.describe('Filter by statuses (default: submitted, interview_scheduled, interview_completed)'),
       limit: wireLimitOf(20),
       cursor: wireCursor,
     }),
@@ -137,7 +138,7 @@ const clubadminMembershipsReview: ActionDefinition = {
   parse: {
     input: z.object({
       clubId: parseRequiredString,
-      statuses: parseMembershipStates(['invited', 'pending_review']),
+      statuses: parseMembershipStates(['submitted', 'interview_scheduled', 'interview_completed']),
       limit: parseLimitOf(20, 20),
       cursor: parseCursor,
     }),
@@ -172,8 +173,8 @@ const clubadminMembershipsReview: ActionDefinition = {
 type MembershipsCreateInput = {
   clubId: string;
   memberId: string;
-  sponsorMemberId: string;
-  initialStatus: 'invited' | 'pending_review' | 'active' | 'payment_pending';
+  sponsorMemberId: string | null;
+  initialStatus: 'applying' | 'submitted' | 'active' | 'payment_pending';
   reason: string | null;
   metadata: Record<string, unknown>;
 };
@@ -191,8 +192,8 @@ const clubadminMembershipsCreate: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.describe('Club to add membership in'),
       memberId: wireRequiredString.describe('Member to add'),
-      sponsorMemberId: wireRequiredString.describe('Sponsoring member'),
-      initialStatus: membershipCreateInitialStatus.default('invited').describe('Initial status'),
+      sponsorMemberId: wireOptionalString.describe('Optional sponsor member'),
+      initialStatus: membershipCreateInitialStatus.default('active').describe('Initial status'),
       reason: wireOptionalString.describe('Reason for creation'),
       metadata: wireOptionalRecord.describe('Additional metadata'),
     }),
@@ -203,8 +204,8 @@ const clubadminMembershipsCreate: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString,
       memberId: parseRequiredString,
-      sponsorMemberId: parseRequiredString,
-      initialStatus: membershipCreateInitialStatus.default('invited'),
+      sponsorMemberId: parseTrimmedNullableString.default(null),
+      initialStatus: membershipCreateInitialStatus.default('active'),
       reason: parseTrimmedNullableString.default(null),
       metadata: parseOptionalRecord,
     }),
@@ -312,6 +313,56 @@ const clubadminMembershipsTransition: ActionDefinition = {
     return {
       data: { membership },
       requestScope: { requestedClubId: membership.clubId, activeClubIds: [membership.clubId] },
+    };
+  },
+};
+
+// ── clubadmin.memberships.get ─────────────────────────────
+
+const clubadminMembershipsGet: ActionDefinition = {
+  action: 'clubadmin.memberships.get',
+  domain: 'clubadmin',
+  description: 'Get one membership/application in the specified club.',
+  auth: 'clubadmin',
+  safety: 'read_only',
+  authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club the membership belongs to'),
+      membershipId: wireRequiredString.describe('Membership to fetch'),
+    }),
+    output: z.object({ membership: membershipApplicationAdminSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      membershipId: parseRequiredString,
+    }),
+  },
+
+  requiredCapability: 'getMembershipApplication',
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, membershipId } = input as { clubId: string; membershipId: string };
+    ctx.requireClubAdmin(clubId);
+    ctx.requireCapability('getMembershipApplication');
+
+    const membership = await ctx.repository.getMembershipApplication!({
+      actorMemberId: ctx.actor.member.id,
+      membershipId,
+      accessibleClubIds: [clubId],
+    });
+
+    if (!membership || membership.club.clubId !== clubId) {
+      throw new AppError(404, 'not_found', 'Membership not found in the specified club');
+    }
+
+    return {
+      data: { membership },
+      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
     };
   },
 };
@@ -681,7 +732,7 @@ const clubadminEntitiesRemove: ActionDefinition = {
 
 registerActions([
   clubadminMembershipsList, clubadminMembershipsReview,
-  clubadminMembershipsCreate, clubadminMembershipsTransition,
+  clubadminMembershipsCreate, clubadminMembershipsTransition, clubadminMembershipsGet,
   clubadminAdmissionsList, clubadminAdmissionsGet, clubadminAdmissionsTransition, clubadminAdmissionsIssueAccess,
   clubadminClubsStats,
   clubadminEntitiesRemove,

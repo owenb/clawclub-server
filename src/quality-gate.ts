@@ -8,6 +8,7 @@ const GATED_ACTIONS = new Set([
   'content.update',
   'profile.update',
   'vouches.create',
+  'invitations.issue',
   'admissions.sponsorCandidate',
 ]);
 

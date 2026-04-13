@@ -13,8 +13,19 @@ export class AppError extends Error {
 }
 
 export type MembershipState =
-  | 'invited' | 'pending_review' | 'active' | 'paused' | 'revoked' | 'rejected'
-  | 'payment_pending' | 'renewal_pending' | 'cancelled' | 'banned' | 'expired';
+  | 'applying'
+  | 'submitted'
+  | 'interview_scheduled'
+  | 'interview_completed'
+  | 'payment_pending'
+  | 'active'
+  | 'renewal_pending'
+  | 'cancelled'
+  | 'expired'
+  | 'removed'
+  | 'banned'
+  | 'declined'
+  | 'withdrawn';
 
 export type MembershipSummary = {
   membershipId: string;
@@ -64,7 +75,7 @@ export type MembershipAdminSummary = {
     createdAt: string;
     createdByMemberId: string | null;
   };
-  joinedAt: string;
+  joinedAt: string | null;
   acceptedCovenantAt: string | null;
   metadata: Record<string, unknown>;
 };
@@ -73,9 +84,9 @@ export type CreateMembershipInput = {
   actorMemberId: string;
   clubId: string;
   memberId: string;
-  sponsorMemberId: string;
+  sponsorMemberId?: string | null;
   role: 'member';
-  initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
+  initialStatus: Extract<MembershipState, 'applying' | 'submitted' | 'active' | 'payment_pending'>;
   reason?: string | null;
   metadata: Record<string, unknown>;
   sourceAdmissionId?: string | null;
@@ -229,6 +240,125 @@ export type TransitionMembershipInput = {
   skipClubAdminCheck?: boolean;
 };
 
+export type InvitationStatus = 'open' | 'used' | 'revoked' | 'expired';
+
+export type JoinClubInput = {
+  actorMemberId: string | null;
+  clubSlug: string;
+  email?: string;
+  invitationCode?: string;
+};
+
+export type JoinClubResult = {
+  memberToken: string;
+  clubId: string;
+  membershipId: string;
+  proof:
+    | { kind: 'pow'; challengeId: string; difficulty: number; expiresAt: string; maxAttempts: number }
+    | { kind: 'none' };
+  club: {
+    name: string;
+    summary: string | null;
+    ownerName: string;
+    admissionPolicy: string | null;
+    priceUsd?: number | null;
+  };
+};
+
+export type SubmitClubApplicationInput = {
+  actorMemberId: string;
+  membershipId: string;
+  nonce?: string;
+  name: string;
+  socials: string;
+  application: string;
+};
+
+export type SubmitClubApplicationResult =
+  | {
+      status: 'submitted';
+      membershipId: string;
+      applicationSubmittedAt: string;
+    }
+  | {
+      status: 'needs_revision';
+      feedback: string;
+      attemptsRemaining: number;
+    }
+  | {
+      status: 'attempts_exhausted';
+      message: string;
+    };
+
+export type ApplicationSummary = {
+  membershipId: string;
+  clubId: string;
+  clubSlug: string;
+  clubName: string;
+  state: MembershipState;
+  submissionPath: 'cold' | 'invitation' | 'cross_apply' | 'owner_nominated';
+  appliedAt: string;
+  submittedAt: string | null;
+  decidedAt: string | null;
+  applicationName: string | null;
+  applicationEmail: string | null;
+  applicationSocials: string | null;
+  applicationText: string | null;
+  billing: {
+    required: boolean;
+    membershipState: MembershipState;
+    accessible: boolean;
+  };
+};
+
+export type MembershipApplicationAdminSummary = {
+  membership: MembershipAdminSummary;
+  club: {
+    clubId: string;
+    slug: string;
+    name: string;
+    summary: string | null;
+    admissionPolicy: string | null;
+    ownerName: string;
+    priceUsd: number | null;
+  };
+  application: {
+    submissionPath: 'cold' | 'invitation' | 'cross_apply' | 'owner_nominated' | null;
+    proofKind: 'pow' | 'invitation' | 'none' | null;
+    appliedAt: string | null;
+    submittedAt: string | null;
+    applicationName: string | null;
+    applicationEmail: string | null;
+    applicationSocials: string | null;
+    applicationText: string | null;
+    generatedProfileDraft: Record<string, unknown> | null;
+  };
+};
+
+export type IssueInvitationInput = {
+  actorMemberId: string;
+  clubId: string;
+  candidateName: string;
+  candidateEmail: string;
+  reason: string;
+};
+
+export type InvitationSummary = {
+  invitationId: string;
+  clubId: string;
+  candidateName: string;
+  candidateEmail: string;
+  sponsor: {
+    memberId: string;
+    publicName: string;
+    handle: string | null;
+  };
+  reason: string;
+  status: InvitationStatus;
+  expiresAt: string | null;
+  createdAt: string;
+};
+
 export type ClubSummary = {
   clubId: string;
   slug: string;
@@ -278,12 +408,24 @@ export type UpdateClubInput = {
   };
 };
 
+export type MemberActor = {
+  id: string;
+  handle: string | null;
+  publicName: string;
+};
+
 export type ActorContext = {
+  member: MemberActor;
+  memberships: MembershipSummary[];
+  globalRoles: Array<'superadmin'>;
+};
+
+export type MaybeMemberActorContext = {
   member: {
     id: string;
     handle: string | null;
     publicName: string;
-  };
+  } | null;
   memberships: MembershipSummary[];
   globalRoles: Array<'superadmin'>;
 };
@@ -891,6 +1033,37 @@ export type AdminDiagnostics = {
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
   validateBearerTokenPassive?(bearerToken: string): Promise<AuthResult | null>;
+  joinClub?(input: JoinClubInput): Promise<JoinClubResult>;
+  submitClubApplication?(input: SubmitClubApplicationInput): Promise<SubmitClubApplicationResult>;
+  getClubApplication?(input: {
+    actorMemberId: string;
+    membershipId: string;
+  }): Promise<ApplicationSummary | null>;
+  listClubApplications?(input: {
+    actorMemberId: string;
+    clubId?: string;
+    statuses?: MembershipState[];
+  }): Promise<ApplicationSummary[]>;
+  startMembershipCheckout?(input: {
+    actorMemberId: string;
+    clubId: string;
+  }): Promise<{ checkoutUrl: string } | null>;
+  issueInvitation?(input: IssueInvitationInput): Promise<{ invitation: InvitationSummary; invitationCode: string } | null>;
+  listIssuedInvitations?(input: {
+    actorMemberId: string;
+    clubId?: string;
+    status?: InvitationStatus;
+  }): Promise<InvitationSummary[]>;
+  revokeInvitation?(input: {
+    actorMemberId: string;
+    invitationId: string;
+    adminClubIds?: string[];
+  }): Promise<InvitationSummary | null>;
+  getMembershipApplication?(input: {
+    actorMemberId: string;
+    membershipId: string;
+    accessibleClubIds: string[];
+  }): Promise<MembershipApplicationAdminSummary | null>;
   listClubs?(input: { actorMemberId: string; includeArchived: boolean }): Promise<ClubSummary[]>;
   createClub?(input: CreateClubInput): Promise<ClubSummary | null>;
   archiveClub?(input: ArchiveClubInput): Promise<ClubSummary | null>;
@@ -1046,7 +1219,7 @@ export type Repository = {
     memberId: string;
     role: 'member' | 'clubadmin';
     sponsorMemberId?: string | null;
-    initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
+    initialStatus: Extract<MembershipState, 'applying' | 'submitted' | 'active' | 'payment_pending'>;
     reason?: string | null;
     initialProfile: {
       fields: ClubProfileFields;

@@ -801,7 +801,7 @@ type SuperadminMembershipsCreateInput = {
   memberId: string;
   role: 'member' | 'clubadmin';
   sponsorMemberId?: string | null;
-  initialStatus: 'invited' | 'pending_review' | 'active' | 'payment_pending';
+  initialStatus: 'applying' | 'submitted' | 'active' | 'payment_pending';
   reason?: string | null;
 };
 
@@ -819,7 +819,7 @@ const superadminMembershipsCreate: ActionDefinition = {
       clubId: wireRequiredString.describe('Club to add the member to'),
       memberId: wireRequiredString.describe('Member to add'),
       role: membershipRole.default('member').describe('Role: member or clubadmin'),
-      sponsorMemberId: wireOptionalString.describe('Sponsoring member (defaults to club owner)'),
+      sponsorMemberId: wireOptionalString.describe('Optional sponsoring member'),
       initialStatus: membershipCreateInitialStatus.default('active').describe('Initial membership status'),
       reason: wireOptionalString.describe('Reason for creation'),
     }),

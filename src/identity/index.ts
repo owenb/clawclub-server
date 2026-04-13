@@ -66,7 +66,7 @@ export type IdentityRepository = {
     memberId: string;
     role: 'member' | 'clubadmin';
     sponsorMemberId?: string | null;
-    initialStatus: Extract<MembershipState, 'invited' | 'pending_review' | 'active' | 'payment_pending'>;
+    initialStatus: Extract<MembershipState, 'applying' | 'submitted' | 'active' | 'payment_pending'>;
     reason?: string | null;
     initialProfile: {
       fields: ClubProfileFields;

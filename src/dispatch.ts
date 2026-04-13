@@ -23,6 +23,7 @@ import { AppError } from './contract.ts';
 import type {
   ActorContext,
   LogLlmUsageInput,
+  MaybeMemberActorContext,
   MembershipSummary,
   Repository,
   RequestScope,
@@ -37,6 +38,7 @@ import {
   type ActionResult,
   type HandlerContext,
   type ColdHandlerContext,
+  type OptionalHandlerContext,
   type RepositoryCapability,
 } from './schemas/registry.ts';
 import { runQualityGate as defaultRunQualityGate, QUALITY_GATE_PROVIDER, type QualityGateResult } from './quality-gate.ts';
@@ -47,6 +49,8 @@ import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
 
 // ── Import all schema modules to trigger registration ────
 import './schemas/session.ts';
+import './schemas/clubs.ts';
+import './schemas/invitations.ts';
 import './schemas/admissions-cold.ts';
 import './schemas/admissions-cross.ts';
 import './schemas/admissions-self.ts';
@@ -285,6 +289,9 @@ export function buildDispatcher({ repository, qualityGate }: { repository: Repos
       if (def.auth === 'none') {
         return await dispatchCold(def, actionName, payload, repository, runQualityGate);
       }
+      if (def.auth === 'optional_member') {
+        return await dispatchOptionalMember(def, actionName, payload, input.bearerToken, repository, runQualityGate);
+      }
 
       return await dispatchAuthenticated(def, actionName, payload, input.bearerToken, repository, runQualityGate);
     },
@@ -337,6 +344,98 @@ async function dispatchCold(
   const result = await def.handleCold(parsedInput, ctx);
 
   // Assemble unauthenticated envelope
+  return assembleUnauthenticatedResponse(actionName, result, notices);
+}
+
+async function dispatchOptionalMember(
+  def: ActionDefinition,
+  actionName: string,
+  payload: Record<string, unknown>,
+  bearerToken: string | null,
+  repository: Repository,
+  runQualityGate: QualityGateFn,
+) {
+  let actor: MaybeMemberActorContext = { member: null, memberships: [], globalRoles: [] };
+  let sharedContext: SharedResponseContext = { notifications: [], notificationsTruncated: false };
+  let defaultRequestScope: RequestScope = { requestedClubId: null, activeClubIds: [] };
+  let notificationsMemo: Promise<{ items: import('./contract.ts').NotificationItem[]; nextAfter: string | null }> | null = null;
+
+  if (bearerToken !== null) {
+    if (typeof bearerToken !== 'string' || bearerToken.trim().length === 0) {
+      throw new AppError(401, 'unauthorized', 'Authorization bearer token must be a non-empty string');
+    }
+    const auth = await repository.authenticateBearerToken(bearerToken);
+    if (!auth) {
+      throw new AppError(401, 'unauthorized', 'Unknown bearer token');
+    }
+    actor = auth.actor;
+    sharedContext = auth.sharedContext ?? { notifications: [], notificationsTruncated: false };
+    defaultRequestScope = {
+      requestedClubId: auth.requestScope.requestedClubId,
+      activeClubIds: auth.requestScope.activeClubIds,
+    };
+  }
+
+  if (def.requiredCapability) {
+    checkCapability(repository, def.requiredCapability, actionName);
+  }
+
+  const parsedInput = parseActionInput(def, payload);
+
+  let notices: ResponseNotice[] = [];
+  if (def.qualityGate) {
+    const gate = await runQualityGate(actionName, parsedInput as Record<string, unknown>);
+    const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
+    if (!(gate.status === 'skipped' && gate.reason === 'no_gate_for_action')) {
+      fireAndForgetLlmLog(repository, buildLlmLogEntry(actionName, actor.member?.id ?? null, requestedClubId, gate));
+    }
+    if (gate.status === 'failed') {
+      throw new AppError(503, 'gate_unavailable', `Content gate unavailable (${gate.reason}). Gated actions cannot proceed.`);
+    }
+    if (gate.status === 'rejected_illegal') {
+      throw new AppError(422, 'illegal_content', gate.feedback);
+    }
+    if (gate.status === 'rejected') {
+      throw new AppError(422, 'gate_rejected', gate.feedback);
+    }
+    notices = gateNotices(gate);
+  }
+
+  if (!def.handleOptionalMember) {
+    throw new AppError(501, 'not_implemented', `Action ${actionName} has no optional-member handler`);
+  }
+
+  const ctx: OptionalHandlerContext = {
+    actor,
+    bearerToken,
+    requestScope: defaultRequestScope,
+    sharedContext,
+    repository,
+    getNotifications: async () => {
+      if (!actor.member) return { items: [], nextAfter: null };
+      if (!notificationsMemo) {
+        const accessibleClubIds = actor.memberships.map((membership) => membership.clubId);
+        const adminClubIds = actor.memberships
+          .filter((membership) => membership.role === 'clubadmin')
+          .map((membership) => membership.clubId);
+        notificationsMemo = repository.listNotifications({
+          actorMemberId: actor.member.id,
+          accessibleClubIds,
+          adminClubIds,
+          limit: NOTIFICATIONS_PAGE_SIZE,
+          after: null,
+        });
+      }
+      return notificationsMemo;
+    },
+    requireCapability: (capability: RepositoryCapability) => checkCapability(repository, capability, actionName),
+  };
+
+  const result = await def.handleOptionalMember(parsedInput, ctx);
+
+  if (actor.member) {
+    return assembleAuthenticatedResponse(actionName, result, actor as ActorContext, defaultRequestScope, sharedContext, notices);
+  }
   return assembleUnauthenticatedResponse(actionName, result, notices);
 }
 

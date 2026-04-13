@@ -78,7 +78,7 @@ export const membershipAdminSummary = z.object({
     createdAt: z.string(),
     createdByMemberId: z.string().nullable(),
   }),
-  joinedAt: z.string(),
+  joinedAt: z.string().nullable(),
   acceptedCovenantAt: z.string().nullable(),
   metadata: z.record(z.string(), z.unknown()),
 });
@@ -98,6 +98,105 @@ export const membershipReviewSummary = membershipAdminSummary.extend({
     sponsoredThisMonthCount: z.number(),
   }),
   vouches: z.array(vouchSummary),
+});
+
+export const clubJoinResult = z.object({
+  memberToken: z.string(),
+  clubId: z.string(),
+  membershipId: z.string(),
+  proof: z.discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('pow'),
+      challengeId: z.string(),
+      difficulty: z.number(),
+      expiresAt: z.string(),
+      maxAttempts: z.number(),
+    }),
+    z.object({
+      kind: z.literal('none'),
+    }),
+  ]),
+  club: z.object({
+    name: z.string(),
+    summary: z.string().nullable(),
+    ownerName: z.string(),
+    admissionPolicy: z.string().nullable(),
+    priceUsd: z.number().nullable().optional(),
+  }),
+});
+
+export const applicationSummary = z.object({
+  membershipId: z.string(),
+  clubId: z.string(),
+  clubSlug: z.string(),
+  clubName: z.string(),
+  state: membershipState,
+  submissionPath: z.enum(['cold', 'invitation', 'cross_apply', 'owner_nominated']),
+  appliedAt: z.string(),
+  submittedAt: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  applicationName: z.string().nullable(),
+  applicationEmail: z.string().nullable(),
+  applicationSocials: z.string().nullable(),
+  applicationText: z.string().nullable(),
+  billing: z.object({
+    required: z.boolean(),
+    membershipState: membershipState,
+    accessible: z.boolean(),
+  }),
+});
+
+export const clubsApplicationsSubmitResult = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('submitted'),
+    membershipId: z.string(),
+    applicationSubmittedAt: z.string(),
+  }),
+  z.object({
+    status: z.literal('needs_revision'),
+    feedback: z.string(),
+    attemptsRemaining: z.number(),
+  }),
+  z.object({
+    status: z.literal('attempts_exhausted'),
+    message: z.string(),
+  }),
+]);
+
+export const invitationSummary = z.object({
+  invitationId: z.string(),
+  clubId: z.string(),
+  candidateName: z.string(),
+  candidateEmail: z.string(),
+  sponsor: memberRef,
+  reason: z.string(),
+  status: z.enum(['open', 'used', 'revoked', 'expired']),
+  expiresAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const membershipApplicationAdminSummary = z.object({
+  membership: membershipAdminSummary,
+  club: z.object({
+    clubId: z.string(),
+    slug: z.string(),
+    name: z.string(),
+    summary: z.string().nullable(),
+    admissionPolicy: z.string().nullable(),
+    ownerName: z.string(),
+    priceUsd: z.number().nullable(),
+  }),
+  application: z.object({
+    submissionPath: z.enum(['cold', 'invitation', 'cross_apply', 'owner_nominated']).nullable(),
+    proofKind: z.enum(['pow', 'invitation', 'none']).nullable(),
+    appliedAt: z.string().nullable(),
+    submittedAt: z.string().nullable(),
+    applicationName: z.string().nullable(),
+    applicationEmail: z.string().nullable(),
+    applicationSocials: z.string().nullable(),
+    applicationText: z.string().nullable(),
+    generatedProfileDraft: z.record(z.string(), z.unknown()).nullable(),
+  }),
 });
 
 // ── Admissions ───────────────────────────────────────────
