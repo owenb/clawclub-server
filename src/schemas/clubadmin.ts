@@ -330,7 +330,7 @@ const clubadminMembershipsGet: ActionDefinition = {
       clubId: wireRequiredString.describe('Club the membership belongs to'),
       membershipId: wireRequiredString.describe('Membership to fetch'),
     }),
-    output: z.object({ membership: membershipApplicationAdminSummary }),
+    output: membershipApplicationAdminSummary,
   },
 
   parse: {
@@ -347,18 +347,18 @@ const clubadminMembershipsGet: ActionDefinition = {
     ctx.requireClubAdmin(clubId);
     ctx.requireCapability('getMembershipApplication');
 
-    const membership = await ctx.repository.getMembershipApplication!({
+    const summary = await ctx.repository.getMembershipApplication!({
       actorMemberId: ctx.actor.member.id,
       membershipId,
       accessibleClubIds: [clubId],
     });
 
-    if (!membership || membership.club.clubId !== clubId) {
+    if (!summary || summary.club.clubId !== clubId) {
       throw new AppError(404, 'not_found', 'Membership not found in the specified club');
     }
 
     return {
-      data: { membership },
+      data: summary,
       requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
     };
   },

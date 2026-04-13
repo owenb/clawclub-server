@@ -159,9 +159,10 @@ describe('clubadmin.memberships.get returns the unified application summary', ()
       membershipId: applicant.membership.id,
     });
 
-    const membership = ((body.data as Record<string, unknown>).membership) as Record<string, unknown>;
-    const application = membership.application as Record<string, unknown> | undefined;
-    assert.equal(((membership.membership as Record<string, unknown>).state as Record<string, unknown>).status, 'submitted');
+    const data = body.data as Record<string, unknown>;
+    const membership = data.membership as Record<string, unknown>;
+    const application = data.application as Record<string, unknown> | undefined;
+    assert.equal(((membership.state as Record<string, unknown>).status), 'submitted');
     assert.equal(application?.submissionPath, 'invitation');
     assert.equal(application?.proofKind, 'invitation');
     assert.equal(application?.applicationEmail, 'get-gail@example.com');

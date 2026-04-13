@@ -1143,8 +1143,8 @@ test('clubadmin.memberships.get returns the unified membership/application summa
     accessibleClubIds: ['club-2'],
   });
   assert.equal(result.action, 'clubadmin.memberships.get');
-  assert.equal(result.data.membership.membership.state.status, 'interview_scheduled');
-  assert.equal(result.data.membership.application.submissionPath, 'cross_apply');
+  assert.equal(result.data.membership.state.status, 'interview_scheduled');
+  assert.equal(result.data.application.submissionPath, 'cross_apply');
 });
 
 test('clubs.join returns the anonymous envelope and forwards normalized email', async () => {
