@@ -114,10 +114,38 @@ export function makeNotificationItem(overrides: Partial<NotificationItem> = {}):
 export function makeRepository(overrides: Partial<Repository> = {}): Repository {
   return {
     async authenticateBearerToken() { return null; },
+    async joinClub() {
+      return {
+        memberToken: 'cc_live_member_abc',
+        clubId: 'club-1',
+        membershipId: 'membership-1',
+        proof: {
+          kind: 'pow' as const,
+          challengeId: 'challenge-1',
+          difficulty: 7,
+          expiresAt: '2026-04-03T00:00:00Z',
+          maxAttempts: 5,
+        },
+        club: {
+          name: 'Alpha Club',
+          summary: 'A test club',
+          ownerName: 'Owner One',
+          admissionPolicy: 'Tell us your name and city.',
+          priceUsd: null,
+        },
+      };
+    },
+    async submitClubApplication() {
+      return { status: 'submitted' as const, membershipId: 'membership-1', applicationSubmittedAt: '2026-04-03T00:00:00Z' };
+    },
+    async getClubApplication() { return null; },
+    async listClubApplications() { return []; },
+    async startMembershipCheckout() { return null; },
+    async issueInvitation() { return null; },
+    async listIssuedInvitations() { return []; },
+    async revokeInvitation() { return null; },
+    async getMembershipApplication() { return null; },
     async listMemberships() { return { results: [], hasMore: false, nextCursor: null }; },
-    async listAdmissions() { return { results: [], hasMore: false, nextCursor: null }; },
-    async getAdmissionsForMember() { return []; },
-    async transitionAdmission() { return null; },
     async createMembership() { return null; },
     async transitionMembershipState() { return null; },
     async listMembershipReviews() { return { results: [], hasMore: false, nextCursor: null }; },
@@ -154,7 +182,6 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async acknowledgeNotifications() { return []; },
     async createVouch() { return null; },
     async listVouches() { return { results: [], hasMore: false, nextCursor: null }; },
-    async createAdmissionSponsorship() { throw new Error('not used'); },
     async getQuotaStatus() { return []; },
     async fullTextSearchMembers() { return { results: [], hasMore: false, nextCursor: null }; },
     async findMembersViaEmbedding() { return { results: [], hasMore: false, nextCursor: null }; },

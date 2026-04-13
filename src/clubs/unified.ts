@@ -123,7 +123,7 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function validateApplicationPow(challengeId: string, nonce: string, difficulty: number): boolean {
+export function validateApplicationPow(challengeId: string, nonce: string, difficulty: number): boolean {
   const hash = createHash('sha256').update(`${challengeId}:${nonce}`, 'utf8').digest('hex');
   return hash.endsWith('0'.repeat(difficulty));
 }

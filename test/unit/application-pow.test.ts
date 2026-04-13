@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { validateAdmissionPow } from '../../src/clubs/admissions.ts';
+import { validateApplicationPow } from '../../src/clubs/unified.ts';
 
 function findNonce(challengeId: string, difficulty: number, mode: 'trailing' | 'leading_only'): string {
   const zeros = '0'.repeat(difficulty);
@@ -17,20 +17,20 @@ function findNonce(challengeId: string, difficulty: number, mode: 'trailing' | '
   throw new Error(`failed to find ${mode} nonce for difficulty ${difficulty}`);
 }
 
-test('validateAdmissionPow accepts canonical trailing-zero proofs', () => {
+test('validateApplicationPow accepts canonical trailing-zero proofs', () => {
   const challengeId = '6t3kves5zeqg';
   const nonce = findNonce(challengeId, 3, 'trailing');
 
-  assert.equal(validateAdmissionPow(challengeId, nonce, 3), 'canonical_trailing');
+  assert.equal(validateApplicationPow(challengeId, nonce, 3), true);
 });
 
-test('validateAdmissionPow accepts leading-zero compatibility proofs', () => {
+test('validateApplicationPow rejects leading-zero compatibility proofs', () => {
   const challengeId = '6t3kves5zeqg';
   const nonce = findNonce(challengeId, 3, 'leading_only');
 
-  assert.equal(validateAdmissionPow(challengeId, nonce, 3), 'compat_leading');
+  assert.equal(validateApplicationPow(challengeId, nonce, 3), false);
 });
 
-test('validateAdmissionPow rejects non-matching proofs', () => {
-  assert.equal(validateAdmissionPow('6t3kves5zeqg', 'not-a-hit', 3), null);
+test('validateApplicationPow rejects non-matching proofs', () => {
+  assert.equal(validateApplicationPow('6t3kves5zeqg', 'not-a-hit', 3), false);
 });
