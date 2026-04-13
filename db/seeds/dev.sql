@@ -218,7 +218,7 @@ insert into club_memberships (
   (:'foxclub_id', :'fiona_id', 'member', :'bob_id', 'active', now() - interval '28 days',
    null, null, null, null, null, null, null, null),
   (:'dogclub_id', :'fiona_id', 'member', :'alice_id', 'applying', null,
-   'Fiona Hooves', null, null, null,
+   'Fiona Hooves', 'fiona@fionahooves.example.com', null, null,
    now() - interval '7 days', null, 'invitation', 'invitation')
 on conflict do nothing;
 
@@ -235,7 +235,7 @@ insert into club_memberships (
   applied_at, application_submitted_at, submission_path, proof_kind
 ) values
   (:'dogclub_id', :'hannah_id', 'member', :'charlie_id', 'submitted', null,
-   'Hannah Fins', null, '@hannahfins', 'I recently adopted my first dog and I want to learn from experienced owners while contributing to local dog meetups.',
+   'Hannah Fins', 'hannah@example.com', '@hannahfins', 'I recently adopted my first dog and I want to learn from experienced owners while contributing to local dog meetups.',
    now() - interval '3 days', now() - interval '3 days', 'invitation', 'invitation')
 on conflict do nothing;
 
@@ -254,7 +254,7 @@ insert into club_memberships (
 ) values
   (:'catclub_id', :'julia_id', 'member', :'diana_id', 'active', now() - interval '15 days',
    null, null, null, null, null, null, null, null, null, null),
-  (:'dogclub_id', :'julia_id', 'member', :'owen_id', 'payment_pending', null,
+  (:'dogclub_id', :'julia_id', 'member', null, 'payment_pending', null,
    'Julia Stripes', 'julia@juliastripes.example.com', null, 'I would like to bring my feline behavior work into a broader animal-care community and contribute workshops for dog owners with shy rescue pets.',
    now() - interval '2 days', now() - interval '2 days', 'cross_apply', 'pow',
    29, 'USD')
@@ -400,6 +400,7 @@ select
   smp.created_at
 from club_memberships cm
 join seed_member_profiles smp on smp.member_id = cm.member_id
+where cm.status in ('active', 'renewal_pending', 'cancelled')
 on conflict do nothing;
 
 -- ============================================================

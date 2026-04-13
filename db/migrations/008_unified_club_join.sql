@@ -588,6 +588,7 @@ SELECT
     'legacy-migrated-' || lac.admission_id,
     lac.admission_created_at + interval '30 days',
     CASE
+        WHEN coalesce(lac.submitted_at, lac.admission_created_at) IS NOT NULL THEN NULL
         WHEN lac.admission_created_at + interval '30 days' < now() THEN now()
         ELSE NULL
     END,
@@ -720,16 +721,29 @@ ALTER TABLE public.club_membership_state_versions
     ALTER COLUMN status TYPE public.membership_state
     USING status::public.membership_state;
 
-ALTER TABLE public.club_memberships
-    ADD CONSTRAINT club_memberships_sponsor_check CHECK (
-        sponsor_member_id IS NOT NULL
-        OR role = 'clubadmin'
-        OR status IN ('applying', 'submitted', 'interview_scheduled', 'interview_completed', 'declined', 'withdrawn')
-    );
-
 CREATE UNIQUE INDEX club_memberships_non_terminal_unique
     ON public.club_memberships (club_id, member_id)
     WHERE status NOT IN ('declined', 'withdrawn', 'expired', 'removed', 'banned');
+
+CREATE OR REPLACE FUNCTION public.club_memberships_require_profile_version() RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW.status NOT IN ('active', 'renewal_pending', 'cancelled') THEN
+        RETURN NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+          FROM public.member_club_profile_versions
+         WHERE membership_id = NEW.id
+    ) THEN
+        RAISE EXCEPTION 'club_memberships row % has no profile version — version 1 must be inserted in the same transaction', NEW.id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION public.lock_club_membership_mutation() RETURNS trigger
     LANGUAGE plpgsql
