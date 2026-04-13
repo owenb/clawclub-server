@@ -33,6 +33,8 @@ The schema includes a `schemaHash`. Cache per base URL for the current session. 
 4. **Notification worklist drain** — `notifications.list` with `{ limit, after }` until `nextAfter === null`
 5. **Real-time** — `GET {baseUrl}/stream?after=latest`
 
+> **Club admins:** new admission submissions appear automatically as derived `admission.submitted` notifications in the worklist (items 2 and 4 above, or the real-time stream) — no need to poll `clubadmin.admissions.list` on a schedule. When one appears, use the notification's `ref.admissionId` directly with `clubadmin.admissions.get`.
+
 After processing:
 - call `messages.acknowledge` with `threadId` to mark a DM thread read
 - call `notifications.acknowledge` with `state: "processed"` or `"suppressed"` for materialized notifications
