@@ -30,9 +30,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 describe('stream scope refresh', () => {
-  it('stops delivering activity from a club after membership is paused', async () => {
+  it('stops delivering activity from a club after membership is removed', async () => {
     const owner = await h.seedOwner('scope-remove', 'Scope Remove Club');
-    const member = await h.seedClubMember(owner.club.id, 'Alice Scope', 'alice-scope-remove', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Alice Scope', 'alice-scope-remove');
 
     // Open stream and wait for ready
     const stream = h.connectStream(member.token, { after: 'latest' });
@@ -40,11 +40,11 @@ describe('stream scope refresh', () => {
       await stream.waitForEvents(1);
       assert.equal(stream.events[0]!.event, 'ready');
 
-      // Pause the membership — member loses access
+      // Remove the membership — member loses access
       await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
         clubId: owner.club.id,
         membershipId: member.membership.id,
-        status: 'paused',
+        status: 'removed',
         reason: 'test scope removal',
       });
 
@@ -71,7 +71,7 @@ describe('stream scope refresh', () => {
   it('starts delivering updates from a newly-joined club without reconnect', async () => {
     const ownerA = await h.seedOwner('scope-expand-a', 'Scope Expand A');
     const ownerB = await h.seedOwner('scope-expand-b', 'Scope Expand B');
-    const member = await h.seedClubMember(ownerA.club.id, 'Bob Expand', 'bob-expand', { sponsorId: ownerA.id });
+    const member = await h.seedCompedMember(ownerA.club.id, 'Bob Expand', 'bob-expand');
 
     // Open stream — member is only in club A
     const stream = h.connectStream(member.token, { after: 'latest' });
@@ -80,7 +80,7 @@ describe('stream scope refresh', () => {
       assert.equal(stream.events[0]!.event, 'ready');
 
       // Add member to club B
-      await h.seedMembership(ownerB.club.id, member.id, { sponsorId: ownerB.id });
+      await h.seedCompedMembership(ownerB.club.id, member.id);
 
       // Wait for scope refresh cadence to elapse
       await sleep(SCOPE_REFRESH_MS + 200);
@@ -111,7 +111,7 @@ describe('stream scope refresh', () => {
 
   it('server closes the stream when the token is revoked', async () => {
     const owner = await h.seedOwner('scope-revoke', 'Scope Revoke Club');
-    const member = await h.seedClubMember(owner.club.id, 'Charlie Revoke', 'charlie-revoke', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Charlie Revoke', 'charlie-revoke');
 
     const stream = h.connectStream(member.token, { after: 'latest' });
     try {
@@ -144,7 +144,7 @@ describe('stream scope refresh', () => {
 
   it('activeStreams decrements when server closes a revoked stream (same member can reopen)', async () => {
     const owner = await h.seedOwner('scope-count', 'Scope Count Club');
-    const member = await h.seedClubMember(owner.club.id, 'Dana Count', 'dana-count', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Dana Count', 'dana-count');
 
     // Open a stream for this member
     const stream1 = h.connectStream(member.token, { after: 'latest' });

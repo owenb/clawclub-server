@@ -1461,10 +1461,13 @@ export function createRepository(pool: Pool): Repository {
            s.current_period_end::text as current_period_end,
            m.approved_price_amount::text as approved_price_amount,
            m.approved_price_currency
-         from club_memberships m
+         from current_club_memberships m
          left join club_subscriptions s on s.membership_id = m.id
            and s.status in ('trialing', 'active', 'past_due')
-         where m.club_id = $1 and m.member_id = $2
+         where m.club_id = $1
+           and m.member_id = $2
+           and m.left_at is null
+         order by m.state_created_at desc, m.id desc
          limit 1`,
         [clubId, memberId],
       );

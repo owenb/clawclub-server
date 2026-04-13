@@ -120,7 +120,7 @@ describe('legality gate: passes legal content regardless of quality', () => {
 
   it('passes a vague vouch reason (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-vouch-1', 'QG Vouch Club 1');
-    const member = await h.seedClubMember(owner.club.id, 'Vouch Target', 'qg-vouch-target-1', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Vouch Target', 'qg-vouch-target-1');
 
     const result = await h.apiOk(owner.token, 'vouches.create', {
       clubId: owner.club.id,
@@ -133,17 +133,17 @@ describe('legality gate: passes legal content regardless of quality', () => {
 
   it('passes a generic sponsorship reason (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-sponsor-1', 'QG Sponsor Club 1');
-    const member = await h.seedClubMember(owner.club.id, 'Sponsor Member', 'qg-sponsor-member-1', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Sponsor Member', 'qg-sponsor-member-1');
 
-    const result = await h.apiOk(member.token, 'admissions.sponsorCandidate', {
+    const result = await h.apiOk(member.token, 'invitations.issue', {
       clubId: owner.club.id,
-      name: 'Jane Doe',
-      email: 'jane@example.com',
-      socials: '@janedoe',
+      candidateName: 'Jane Doe',
+      candidateEmail: 'jane@example.com',
       reason: 'Amazing person, would be a great addition to the club!',
     });
-    const admission = (result.data as Record<string, unknown>).admission as Record<string, unknown>;
-    assert.ok(admission.admissionId);
+    const invitation = (result.data as Record<string, unknown>).invitation as Record<string, unknown>;
+    assert.ok(invitation.invitationId);
+    assert.ok((result.data as Record<string, unknown>).invitationCode);
   });
 });
 

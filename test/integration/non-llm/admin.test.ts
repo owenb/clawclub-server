@@ -615,7 +615,7 @@ describe('superadmin.platform.getOverview', () => {
     assert.ok(typeof overview.totalClubs === 'number');
     assert.ok(typeof overview.totalEntities === 'number');
     assert.ok(typeof overview.totalMessages === 'number');
-    assert.ok(typeof overview.totalAdmissions === 'number');
+    assert.ok(typeof overview.pendingApplications === 'number');
     assert.ok(Array.isArray(overview.recentMembers));
     assert.ok(overview.totalMembers >= 1, 'at least the admin member exists');
     assert.ok(overview.activeMembers >= 1, 'at least the admin member is active');
@@ -707,7 +707,7 @@ describe('clubadmin.clubs.getStatistics', () => {
   it('returns club stats with member counts', async () => {
     const admin = await h.seedSuperadmin('Admin Stats', 'admin-clubs-stats');
     const ownerCtx = await h.seedOwner('stats-club', 'Stats Club');
-    await h.seedClubMember(ownerCtx.club.id, 'Stats Member', 'stats-club-member', { sponsorId: ownerCtx.id });
+    await h.seedCompedMember(ownerCtx.club.id, 'Stats Member', 'stats-club-member');
 
     const result = await h.apiOk(admin.token, 'clubadmin.clubs.getStatistics', { clubId: ownerCtx.club.id });
     const data = result.data as Record<string, unknown>;
@@ -734,7 +734,7 @@ describe('clubadmin.clubs.getStatistics', () => {
 
   it('regular member cannot access club stats', async () => {
     const ownerCtx = await h.seedOwner('stats-auth-club', 'Stats Auth Club');
-    const member = await h.seedClubMember(ownerCtx.club.id, 'Stats Regular', 'stats-regular-member', { sponsorId: ownerCtx.id });
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Stats Regular', 'stats-regular-member');
     const err = await h.apiErr(member.token, 'clubadmin.clubs.getStatistics', { clubId: ownerCtx.club.id });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
@@ -753,7 +753,7 @@ describe('clubadmin.clubs.getStatistics', () => {
 describe('clubowner.members.promoteToAdmin', () => {
   it('owner promotes a regular member to admin', async () => {
     const owner = await h.seedOwner('promote-club', 'Promote Club');
-    const member = await h.seedClubMember(owner.club.id, 'Promo Target', 'promo-target', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Promo Target', 'promo-target');
 
     const result = await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
       clubId: owner.club.id,
@@ -769,7 +769,7 @@ describe('clubowner.members.promoteToAdmin', () => {
 
   it('promoted member can access clubadmin actions', async () => {
     const owner = await h.seedOwner('promote-access', 'Promote Access Club');
-    const member = await h.seedClubMember(owner.club.id, 'Promo Access', 'promo-access', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Promo Access', 'promo-access');
 
     // Before promotion — regular member cannot access stats
     const errBefore = await h.apiErr(member.token, 'clubadmin.clubs.getStatistics', { clubId: owner.club.id });
@@ -789,7 +789,7 @@ describe('clubowner.members.promoteToAdmin', () => {
 
   it('promoting already-admin member is idempotent with changed: false', async () => {
     const owner = await h.seedOwner('promote-idem', 'Promote Idempotent Club');
-    const member = await h.seedClubMember(owner.club.id, 'Already Admin', 'already-admin', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Already Admin', 'already-admin');
 
     // Promote twice
     const first = await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
@@ -809,12 +809,12 @@ describe('clubowner.members.promoteToAdmin', () => {
 
   it('non-owner admin cannot promote members', async () => {
     const owner = await h.seedOwner('promote-noauth', 'Promote NoAuth Club');
-    const admin = await h.seedClubMember(owner.club.id, 'Non-Owner Admin', 'non-owner-admin-promote', { sponsorId: owner.id });
+    const admin = await h.seedCompedMember(owner.club.id, 'Non-Owner Admin', 'non-owner-admin-promote');
     await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
       clubId: owner.club.id,
       memberId: admin.id,
     });
-    const target = await h.seedClubMember(owner.club.id, 'Promote Target2', 'promote-target2', { sponsorId: owner.id });
+    const target = await h.seedCompedMember(owner.club.id, 'Promote Target2', 'promote-target2');
 
     const err = await h.apiErr(admin.token, 'clubowner.members.promoteToAdmin', {
       clubId: owner.club.id,
@@ -826,8 +826,8 @@ describe('clubowner.members.promoteToAdmin', () => {
 
   it('regular member cannot promote', async () => {
     const owner = await h.seedOwner('promote-reg', 'Promote Reg Club');
-    const memberA = await h.seedClubMember(owner.club.id, 'Regular A', 'promote-reg-a', { sponsorId: owner.id });
-    const memberB = await h.seedClubMember(owner.club.id, 'Regular B', 'promote-reg-b', { sponsorId: owner.id });
+    const memberA = await h.seedCompedMember(owner.club.id, 'Regular A', 'promote-reg-a');
+    const memberB = await h.seedCompedMember(owner.club.id, 'Regular B', 'promote-reg-b');
 
     const err = await h.apiErr(memberA.token, 'clubowner.members.promoteToAdmin', {
       clubId: owner.club.id,
@@ -863,7 +863,7 @@ describe('clubowner.members.promoteToAdmin', () => {
   it('superadmin can promote a member', async () => {
     const admin = await h.seedSuperadmin('SA Promote', 'sa-promote');
     const owner = await h.seedOwner('sa-promote-club', 'SA Promote Club');
-    const member = await h.seedClubMember(owner.club.id, 'SA Promo Target', 'sa-promo-target', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'SA Promo Target', 'sa-promo-target');
 
     const result = await h.apiOk(admin.token, 'clubowner.members.promoteToAdmin', {
       clubId: owner.club.id,
@@ -877,7 +877,7 @@ describe('clubowner.members.promoteToAdmin', () => {
 describe('clubowner.members.demoteFromAdmin', () => {
   it('owner demotes an admin to regular member', async () => {
     const owner = await h.seedOwner('demote-club', 'Demote Club');
-    const member = await h.seedClubMember(owner.club.id, 'Demote Target', 'demote-target', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Demote Target', 'demote-target');
     await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
       clubId: owner.club.id,
       memberId: member.id,
@@ -897,7 +897,7 @@ describe('clubowner.members.demoteFromAdmin', () => {
 
   it('demoted member loses admin access', async () => {
     const owner = await h.seedOwner('demote-access', 'Demote Access Club');
-    const member = await h.seedClubMember(owner.club.id, 'Demote Access', 'demote-access-member', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Demote Access', 'demote-access-member');
 
     // Promote then verify access
     await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
@@ -928,7 +928,7 @@ describe('clubowner.members.demoteFromAdmin', () => {
 
   it('demoting a regular member is idempotent with changed: false', async () => {
     const owner = await h.seedOwner('demote-idem', 'Demote Idempotent Club');
-    const member = await h.seedClubMember(owner.club.id, 'Not Admin', 'demote-idem-member', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Not Admin', 'demote-idem-member');
 
     const result = await h.apiOk(owner.token, 'clubowner.members.demoteFromAdmin', {
       clubId: owner.club.id,
@@ -942,8 +942,8 @@ describe('clubowner.members.demoteFromAdmin', () => {
 
   it('non-owner admin cannot demote', async () => {
     const owner = await h.seedOwner('demote-noauth', 'Demote NoAuth Club');
-    const adminA = await h.seedClubMember(owner.club.id, 'Admin A', 'demote-noauth-a', { sponsorId: owner.id });
-    const adminB = await h.seedClubMember(owner.club.id, 'Admin B', 'demote-noauth-b', { sponsorId: owner.id });
+    const adminA = await h.seedCompedMember(owner.club.id, 'Admin A', 'demote-noauth-a');
+    const adminB = await h.seedCompedMember(owner.club.id, 'Admin B', 'demote-noauth-b');
     await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', { clubId: owner.club.id, memberId: adminA.id });
     await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', { clubId: owner.club.id, memberId: adminB.id });
 
@@ -957,9 +957,9 @@ describe('clubowner.members.demoteFromAdmin', () => {
 
   it('regular member cannot demote', async () => {
     const owner = await h.seedOwner('demote-reg', 'Demote Reg Club');
-    const admin = await h.seedClubMember(owner.club.id, 'Admin Demote', 'demote-reg-admin', { sponsorId: owner.id });
+    const admin = await h.seedCompedMember(owner.club.id, 'Admin Demote', 'demote-reg-admin');
     await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', { clubId: owner.club.id, memberId: admin.id });
-    const regular = await h.seedClubMember(owner.club.id, 'Regular Demote', 'demote-reg-member', { sponsorId: owner.id });
+    const regular = await h.seedCompedMember(owner.club.id, 'Regular Demote', 'demote-reg-member');
 
     const err = await h.apiErr(regular.token, 'clubowner.members.demoteFromAdmin', {
       clubId: owner.club.id,
@@ -983,7 +983,7 @@ describe('clubowner.members.demoteFromAdmin', () => {
   it('superadmin can demote an admin', async () => {
     const admin = await h.seedSuperadmin('SA Demote', 'sa-demote');
     const owner = await h.seedOwner('sa-demote-club', 'SA Demote Club');
-    const member = await h.seedClubMember(owner.club.id, 'SA Demote Target', 'sa-demote-target', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'SA Demote Target', 'sa-demote-target');
     await h.apiOk(owner.token, 'clubowner.members.promoteToAdmin', {
       clubId: owner.club.id,
       memberId: member.id,
@@ -1022,7 +1022,7 @@ describe('superadmin.messages.listThreads', () => {
   it('lists threads across all clubs', async () => {
     const admin = await h.seedSuperadmin('Admin Threads', 'admin-msg-threads');
     const ownerCtx = await h.seedOwner('threads-club', 'Threads Club');
-    const member = await h.seedClubMember(ownerCtx.club.id, 'Thread Sender', 'thread-sender', { sponsorId: ownerCtx.id });
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Thread Sender', 'thread-sender');
 
     await h.apiOk(member.token, 'messages.send', {
       clubId: ownerCtx.club.id,
@@ -1054,7 +1054,7 @@ describe('superadmin.messages.getThread', () => {
   it('reads any thread', async () => {
     const admin = await h.seedSuperadmin('Admin Read Thread', 'admin-msg-read');
     const ownerCtx = await h.seedOwner('read-thread-club', 'Read Thread Club');
-    const member = await h.seedClubMember(ownerCtx.club.id, 'Thread Reader Sender', 'thread-read-sender', { sponsorId: ownerCtx.id });
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Thread Reader Sender', 'thread-read-sender');
 
     const sendResult = await h.apiOk(member.token, 'messages.send', {
       clubId: ownerCtx.club.id,
@@ -1195,7 +1195,8 @@ describe('accessTokens.list', () => {
 
 describe('accessTokens.create', () => {
   it('member creates new token; new token works', async () => {
-    const member = await h.seedMember('Token Creator', 'token-creator-member');
+    const ownerCtx = await h.seedOwner('token-create-club', 'Token Create Club');
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Token Creator', 'token-creator-member');
 
     const createResult = await h.apiOk(member.token, 'accessTokens.create', { label: 'my-new-token' });
     const data = createResult.data as Record<string, unknown>;
@@ -1217,7 +1218,8 @@ describe('accessTokens.create', () => {
 
 describe('accessTokens.revoke', () => {
   it('member revokes token; revoked token stops working', async () => {
-    const member = await h.seedMember('Token Revoker', 'token-revoker-member');
+    const ownerCtx = await h.seedOwner('token-revoke-club', 'Token Revoke Club');
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Token Revoker', 'token-revoker-member');
 
     // Create a second token to revoke
     const createResult = await h.apiOk(member.token, 'accessTokens.create', { label: 'to-revoke' });
@@ -1283,7 +1285,7 @@ describe('quotas.getUsage', () => {
 
   it('normal member gets 1x base quota', async () => {
     const ownerCtx = await h.seedOwner('quota-member-1x', 'Quota Member Club');
-    const member = await h.seedClubMember(ownerCtx.club.id, 'Regular Member', 'regular-quota-member', { sponsorId: ownerCtx.id });
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Regular Member', 'regular-quota-member');
 
     const result = await h.apiOk(member.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
@@ -1295,7 +1297,7 @@ describe('quotas.getUsage', () => {
   it('clubadmin gets 3x base quota', async () => {
     const ownerCtx = await h.seedOwner('quota-admin-3x', 'Quota Admin Club');
     const admin = await h.seedMember('Club Admin', 'quota-admin-member');
-    await h.seedMembership(ownerCtx.club.id, admin.id, { role: 'clubadmin' });
+    await h.seedClubMembership(ownerCtx.club.id, admin.id, { role: 'clubadmin' });
 
     const result = await h.apiOk(admin.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
@@ -1312,7 +1314,7 @@ describe('quotas.getUsage', () => {
       [ownerCtx.club.id],
     );
 
-    const member = await h.seedClubMember(ownerCtx.club.id, 'Override Member', 'override-member', { sponsorId: ownerCtx.id });
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Override Member', 'override-member');
     const result = await h.apiOk(member.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
     const contentQuota = quotas.find((q) => q.action === 'content.create' && q.clubId === ownerCtx.club.id);
@@ -1377,7 +1379,7 @@ describe('quotas.getUsage', () => {
        values ('club', $1, 'content.create', 4)`,
       [ownerCtx.club.id],
     );
-    const member = await h.seedClubMember(ownerCtx.club.id, 'Quota Event Member', 'quota-event-member', { sponsorId: ownerCtx.id });
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Quota Event Member', 'quota-event-member');
 
     await seedPublishedEntity(h, {
       clubId: ownerCtx.club.id,
@@ -1432,7 +1434,7 @@ describe('quotas.getUsage', () => {
       [ownerCtx.club.id],
     );
 
-    const member = await h.seedClubMember(ownerCtx.club.id, 'Quota Test Member', 'quota-test-member', { sponsorId: ownerCtx.id });
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Quota Test Member', 'quota-test-member');
 
     // Create 2 posts (the limit for a normal member)
     for (let i = 0; i < 2; i++) {

@@ -106,11 +106,11 @@ describe('activity and notifications surfaces', () => {
     assert.equal(dbRows[0]?.suppression_reason, 'not relevant');
   });
 
-  it('notifications.acknowledge rejects derived admission notifications', async () => {
+  it('notifications.acknowledge rejects derived application notifications', async () => {
     const owner = await h.seedOwner('notifderivedclub', 'NotificationDerivedClub');
 
     const err = await h.apiErr(owner.token, 'notifications.acknowledge', {
-      notificationIds: ['admission.submitted:admission-1'],
+      notificationIds: ['application.submitted:membership-1'],
       state: 'processed',
     });
     assert.equal(err.status, 422);
@@ -144,7 +144,7 @@ describe('activity and notifications surfaces', () => {
 
   it('activity.list enforces audience filtering by role', async () => {
     const owner = await h.seedOwner('activityaudienceclub', 'ActivityAudienceClub');
-    const member = await h.seedClubMember(owner.club.id, 'Regular Member', 'activity-audience-member', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Regular Member', 'activity-audience-member');
 
     await h.sqlClubs(
       `insert into club_activity (club_id, topic, payload, audience, created_by_member_id)

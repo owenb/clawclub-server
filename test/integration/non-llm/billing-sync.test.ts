@@ -1,6 +1,6 @@
 /**
  * Integration tests for the billing sync surface (superadmin.billing.*),
- * paid admission fork, billing.getMembershipStatus, and paid-club guards.
+ * paid club join flow, billing.getMembershipStatus, and paid-club guards.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,9 +19,9 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-// ── Paid admission fork ─────────────────────────────────────────────────────
+// ── Paid club join fork ─────────────────────────────────────────────────────
 
-describe('paid admission creates payment_pending membership', () => {
+describe('paid club acceptance creates payment_pending membership', () => {
   it('member joining a paid club enters payment_pending, not active', async () => {
     const owner = await h.seedOwner('paid-club', 'Paid Club');
 
@@ -32,7 +32,7 @@ describe('paid admission creates payment_pending membership', () => {
       currency: 'USD',
     });
 
-    // Create a new member and admission
+    // Create a new member and pending paid-club membership
     const member = await h.seedMember('Pay Member', 'pay-member');
     const createBody = await h.apiOk(owner.token, 'clubadmin.memberships.create', {
       clubId: owner.club.id,
@@ -167,9 +167,7 @@ describe('superadmin.billing.cancelAtPeriodEnd preserves access', () => {
 describe('superadmin.billing.expireMembership removes access', () => {
   it('expired member loses access', async () => {
     const owner = await h.seedOwner('expire-sync-club', 'ExpireSync Club');
-    const member = await h.seedClubMember(owner.club.id, 'Expire Eric', 'expire-eric', {
-      sponsorId: owner.id,
-    });
+    const member = await h.seedCompedMember(owner.club.id, 'Expire Eric', 'expire-eric');
 
     // Confirm access
     let session = await h.apiOk(member.token, 'session.getContext', {});
@@ -301,9 +299,7 @@ describe('paid club guards', () => {
 describe('billing.getMembershipStatus returns membership billing info', () => {
   it('returns comped status for free club member', async () => {
     const owner = await h.seedOwner('status-free-club', 'StatusFree Club');
-    const member = await h.seedClubMember(owner.club.id, 'Status Sam', 'status-sam', {
-      sponsorId: owner.id,
-    });
+    const member = await h.seedCompedMember(owner.club.id, 'Status Sam', 'status-sam');
 
     const body = await h.apiOk(member.token, 'billing.getMembershipStatus', {
       clubId: owner.club.id,
@@ -322,7 +318,7 @@ describe('billing.getMembershipStatus returns membership billing info', () => {
 
     // Outsider needs at least one accessible club to authenticate
     const otherOwner = await h.seedOwner('outsider-home', 'Outsider Home');
-    await h.seedMembership(otherOwner.club.id, outsider.id, { sponsorId: otherOwner.id });
+    await h.seedCompedMembership(otherOwner.club.id, outsider.id);
 
     const body = await h.apiOk(outsider.token, 'billing.getMembershipStatus', {
       clubId: owner.club.id,
@@ -343,12 +339,9 @@ describe('parseIsoDatetime rejects non-ISO date formats', () => {
       amount: 2900,
       currency: 'usd',
     });
-    const member = await h.seedClubMember(owner.club.id, 'Iso Member', 'iso-member', { sponsorId: owner.id, status: 'payment_pending' });
-    const msRows = await h.sql<{ id: string }>(
-      `select id from club_memberships where club_id = $1 and member_id = $2`,
-      [owner.club.id, member.id],
-    );
-    const msId = msRows[0]!.id;
+    const member = await h.seedMember('Iso Member', 'iso-member');
+    const membership = await h.seedClubMembership(owner.club.id, member.id, { status: 'payment_pending' });
+    const msId = membership.id;
 
     // Non-ISO formats should be rejected at the parse layer
     for (const badDate of ['March 5, 2027', '12/31/2027', '2027-12-31 23:59:59']) {

@@ -140,6 +140,7 @@ async function reuseOrRejectExistingMembership(client: DbClient, input: {
     `select id, left_at::text as left_at, state_version_no
      from current_club_memberships
      where club_id = $1 and member_id = $2
+     order by (left_at is null) desc, state_created_at desc, id desc
      limit 1`,
     [input.clubId, input.memberId],
   );
@@ -545,11 +546,7 @@ export async function demoteMemberFromAdmin(pool: Pool, input: {
     if (!membership) return null;
     const changed = membership.role === 'clubadmin';
     if (changed) {
-      const ownerId = ownerCheck.rows[0]?.owner_member_id ?? null;
-      await client.query(
-        `update club_memberships set role = 'member', sponsor_member_id = coalesce(sponsor_member_id, $2) where id = $1`,
-        [membership.id, ownerId],
-      );
+      await client.query(`update club_memberships set role = 'member' where id = $1`, [membership.id]);
     }
     const summary = await readMembershipSummary(client, membership.id);
     if (!summary) return null;

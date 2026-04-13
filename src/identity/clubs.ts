@@ -98,11 +98,10 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
     const clubId = clubResult.rows[0]?.club_id;
     if (!clubId) return null;
 
-    // Create owner's clubadmin membership + active state + comp
-    await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
+    // Create owner's clubadmin membership + active state + comp.
     const ownerMsResult = await client.query<{ id: string }>(
-      `insert into club_memberships (club_id, member_id, role, sponsor_member_id)
-       values ($1::short_id, $2::short_id, 'clubadmin', null)
+      `insert into club_memberships (club_id, member_id, role, status, joined_at, metadata)
+       values ($1::short_id, $2::short_id, 'clubadmin', 'active', now(), '{}'::jsonb)
        returning id`,
       [clubId, input.ownerMemberId],
     );
@@ -117,7 +116,6 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
        where id = $1 and is_comped = false`,
       [ownerMsId, input.actorMemberId],
     );
-    await client.query(`select set_config('app.allow_membership_state_sync', '', true)`);
 
     await createInitialClubProfileVersion(client, {
       membershipId: ownerMsId,
@@ -170,26 +168,33 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
        Number(current.current_version_no) + 1, current.current_version_id, input.actorMemberId],
     );
 
-    // 2. Ensure new owner has clubadmin membership
+    // 2. Ensure new owner has a live clubadmin membership. Historical terminal
+    // rows are ignored now that re-application can create multiple records for
+    // the same (member, club) pair over time.
     const existingMs = await client.query<{ id: string }>(
-      `select id from club_memberships where club_id = $1 and member_id = $2 limit 1`,
+      `select cnm.id
+       from current_club_memberships cnm
+       where cnm.club_id = $1
+         and cnm.member_id = $2
+         and cnm.left_at is null
+       order by cnm.state_created_at desc, cnm.id desc
+       limit 1`,
       [input.clubId, input.ownerMemberId],
     );
     const existingMembershipId = existingMs.rows[0]?.id ?? null;
 
-    await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
     let newMembershipId = existingMembershipId;
     if (!newMembershipId) {
       const insertResult = await client.query<{ id: string }>(
-        `insert into club_memberships (club_id, member_id, role, sponsor_member_id)
-         values ($1::short_id, $2::short_id, 'clubadmin', null)
+        `insert into club_memberships (club_id, member_id, role, status, joined_at, metadata)
+         values ($1::short_id, $2::short_id, 'clubadmin', 'active', now(), '{}'::jsonb)
          returning id`,
         [input.clubId, input.ownerMemberId],
       );
       newMembershipId = insertResult.rows[0]!.id;
     } else {
       await client.query(
-        `update club_memberships set role = 'clubadmin', sponsor_member_id = null
+        `update club_memberships set role = 'clubadmin'
          where id = $1`,
         [newMembershipId],
       );
@@ -220,17 +225,21 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
 
     // 4. Demote old owner to 'member' role
     if (current.current_owner_member_id !== input.ownerMemberId) {
-      await client.query(`select set_config('app.allow_membership_state_sync', '1', true)`);
       await client.query(
-        `update club_memberships set role = 'member', sponsor_member_id = $3
+        `update club_memberships set role = 'member'
          where club_id = $1 and member_id = $2 and role = 'clubadmin'`,
-        [input.clubId, current.current_owner_member_id, input.ownerMemberId],
+        [input.clubId, current.current_owner_member_id],
       );
-      await client.query(`select set_config('app.allow_membership_state_sync', '', true)`);
 
       // 5. Comp demoted owner to retain access
       const oldMsRows = await client.query<{ id: string }>(
-        `select id from club_memberships where club_id = $1 and member_id = $2`,
+        `select cnm.id
+         from current_club_memberships cnm
+         where cnm.club_id = $1
+           and cnm.member_id = $2
+           and cnm.left_at is null
+         order by cnm.state_created_at desc, cnm.id desc
+         limit 1`,
         [input.clubId, current.current_owner_member_id],
       );
       if (oldMsRows.rows[0]) {
@@ -240,8 +249,6 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
           [oldMsRows.rows[0].id, input.ownerMemberId],
         );
       }
-    } else {
-      await client.query(`select set_config('app.allow_membership_state_sync', '', true)`);
     }
 
     return readClub(client, input.clubId);

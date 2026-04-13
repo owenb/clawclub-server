@@ -5,7 +5,7 @@
  * to evaluate content quality before allowing the action through.
  *
  * Gated actions tested here: profile.update, vouches.create, content.create,
- * admissions.sponsorCandidate
+ * invitations.issue
  *
  * Run with: npm run test:integration:with-llm
  */
@@ -46,7 +46,7 @@ describe('profile.update (LLM-gated)', () => {
 
   it('updated profile is visible to shared-club members', async () => {
     const owner = await h.seedOwner('llm-profiles-visibility', 'LLM ProfilesVisibilityClub');
-    const dave = await h.seedClubMember(owner.club.id, 'Dave Viewer', 'llm-dave-viewer', { sponsorId: owner.id });
+    const dave = await h.seedCompedMember(owner.club.id, 'Dave Viewer', 'llm-dave-viewer');
 
     await h.apiOk(owner.token, 'profile.update', {
       clubId: owner.club.id,
@@ -67,7 +67,7 @@ describe('profile.update (LLM-gated)', () => {
 describe('Vouching (LLM-gated)', () => {
   it('vouches.create — member vouches for another shared-club member', async () => {
     const owner = await h.seedOwner('llm-vouch-club', 'LLM VouchClub');
-    const voter = await h.seedClubMember(owner.club.id, 'Vouch Voter', 'llm-vouch-voter', { sponsorId: owner.id });
+    const voter = await h.seedCompedMember(owner.club.id, 'Vouch Voter', 'llm-vouch-voter');
 
     const result = await h.apiOk(voter.token, 'vouches.create', {
       clubId: owner.club.id,
@@ -83,7 +83,7 @@ describe('Vouching (LLM-gated)', () => {
 
   it('vouches.list — vouch is visible', async () => {
     const owner = await h.seedOwner('llm-vouch-list-club', 'LLM VouchListClub');
-    const voter = await h.seedClubMember(owner.club.id, 'Vouch Lister', 'llm-vouch-lister', { sponsorId: owner.id });
+    const voter = await h.seedCompedMember(owner.club.id, 'Vouch Lister', 'llm-vouch-lister');
 
     await h.apiOk(voter.token, 'vouches.create', {
       clubId: owner.club.id,
@@ -123,7 +123,7 @@ describe('Vouching (LLM-gated)', () => {
 
   it('duplicate vouch is rejected', async () => {
     const owner = await h.seedOwner('llm-vouch-dup-club', 'LLM VouchDupClub');
-    const voter = await h.seedClubMember(owner.club.id, 'Dup Voter', 'llm-dup-voter', { sponsorId: owner.id });
+    const voter = await h.seedCompedMember(owner.club.id, 'Dup Voter', 'llm-dup-voter');
 
     await h.apiOk(voter.token, 'vouches.create', {
       clubId: owner.club.id,
@@ -161,8 +161,8 @@ describe('Vouching (LLM-gated)', () => {
 describe('entity update fan-out (LLM-gated)', () => {
   it('club members get entity updates after content is created', async () => {
     const owner = await h.seedOwner('llm-upd-club-2', 'LLM UpdClub2');
-    const author = await h.seedClubMember(owner.club.id, 'Alice ContentAuthor', 'llm-alice-upd-2', { sponsorId: owner.id });
-    const viewer = await h.seedClubMember(owner.club.id, 'Bob ContentViewer', 'llm-bob-upd-2', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Alice ContentAuthor', 'llm-alice-upd-2');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Bob ContentViewer', 'llm-bob-upd-2');
 
     const seedResult = await h.apiOk(viewer.token, 'activity.list', { clubId: owner.club.id, after: 'latest' });
     const seedAfter = (seedResult.data as Record<string, unknown>).nextAfter as string;
@@ -232,25 +232,22 @@ describe('superadmin.content (LLM-gated)', () => {
   });
 });
 
-// ── Admissions Sponsor (gated: admissions.sponsorCandidate) ──────────────────────────
+// ── Invitations (gated: invitations.issue) ──────────────────────────
 
-describe('admissions.sponsorCandidate (LLM-gated)', () => {
-  it('member sponsors an outsider for admission', async () => {
+describe('invitations.issue (LLM-gated)', () => {
+  it('member issues an invitation for a candidate', async () => {
     const owner = await h.seedOwner('llm-sponsor-club', 'LLM Sponsor Club');
-    const sponsor = await h.seedClubMember(owner.club.id, 'Sponsor Member', 'llm-sponsor-member', {
-      sponsorId: owner.id,
-    });
+    const sponsor = await h.seedCompedMember(owner.club.id, 'Sponsor Member', 'llm-sponsor-member');
 
-    const result = await h.apiOk(sponsor.token, 'admissions.sponsorCandidate', {
+    const result = await h.apiOk(sponsor.token, 'invitations.issue', {
       clubId: owner.club.id,
-      name: 'Jane Morrison',
-      email: 'jane.morrison@greenfield.io',
-      socials: '@janemorrison',
+      candidateName: 'Jane Morrison',
+      candidateEmail: 'jane.morrison@greenfield.io',
       reason: 'I have worked with Jane for three years at Greenfield building the carbon tracking platform. She designed the data ingestion pipeline that processes 2 million records daily and mentored two junior engineers to production readiness. She would be a strong fit for this club because she brings deep technical expertise in exactly the B2B SaaS infrastructure space that several members work in.',
     });
-    const adm = (result.data as Record<string, unknown>).admission as Record<string, unknown>;
-    assert.ok(adm.admissionId, 'admissions.sponsorCandidate should return an admissionId');
-    assert.equal(adm.origin, 'member_sponsored');
-    assert.equal((adm.sponsor as Record<string, unknown>).memberId, sponsor.id);
+    const invitation = (result.data as Record<string, unknown>).invitation as Record<string, unknown>;
+    assert.ok(invitation.invitationId, 'invitations.issue should return an invitationId');
+    assert.equal((invitation.sponsor as Record<string, unknown>).memberId, sponsor.id);
+    assert.ok((result.data as Record<string, unknown>).invitationCode);
   });
 });
