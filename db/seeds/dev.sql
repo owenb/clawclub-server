@@ -170,83 +170,106 @@ on conflict do nothing;
 -- ============================================================
 
 -- Owen: clubadmin of all three
-insert into club_memberships (club_id, member_id, role, joined_at) values
-  (:'dogclub_id', :'owen_id', 'clubadmin', now() - interval '58 days'),
-  (:'catclub_id', :'owen_id', 'clubadmin', now() - interval '58 days'),
-  (:'foxclub_id', :'owen_id', 'clubadmin', now() - interval '58 days')
-on conflict (club_id, member_id) do nothing;
+insert into club_memberships (club_id, member_id, role, status, joined_at) values
+  (:'dogclub_id', :'owen_id', 'clubadmin', 'active', now() - interval '58 days'),
+  (:'catclub_id', :'owen_id', 'clubadmin', 'active', now() - interval '58 days'),
+  (:'foxclub_id', :'owen_id', 'clubadmin', 'active', now() - interval '58 days')
+on conflict do nothing;
 
 -- Alice: member of DogClub and CatClub
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'dogclub_id', :'alice_id', 'member', :'owen_id', now() - interval '50 days'),
-  (:'catclub_id', :'alice_id', 'member', :'owen_id', now() - interval '50 days')
-on conflict (club_id, member_id) do nothing;
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, status, joined_at) values
+  (:'dogclub_id', :'alice_id', 'member', :'owen_id', 'active', now() - interval '50 days'),
+  (:'catclub_id', :'alice_id', 'member', :'owen_id', 'active', now() - interval '50 days')
+on conflict do nothing;
 
 -- Bob: member of CatClub and FoxClub
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'catclub_id', :'bob_id', 'member', :'owen_id', now() - interval '50 days'),
-  (:'foxclub_id', :'bob_id', 'member', :'owen_id', now() - interval '50 days')
-on conflict (club_id, member_id) do nothing;
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, status, joined_at) values
+  (:'catclub_id', :'bob_id', 'member', :'owen_id', 'active', now() - interval '50 days'),
+  (:'foxclub_id', :'bob_id', 'member', :'owen_id', 'active', now() - interval '50 days')
+on conflict do nothing;
 
 -- Charlie: member of DogClub and FoxClub
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'dogclub_id', :'charlie_id', 'member', :'owen_id', now() - interval '50 days'),
-  (:'foxclub_id', :'charlie_id', 'member', :'owen_id', now() - interval '50 days')
-on conflict (club_id, member_id) do nothing;
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, status, joined_at) values
+  (:'dogclub_id', :'charlie_id', 'member', :'owen_id', 'active', now() - interval '50 days'),
+  (:'foxclub_id', :'charlie_id', 'member', :'owen_id', 'active', now() - interval '50 days')
+on conflict do nothing;
 
 -- Diana: member of DogClub and FoxClub, clubadmin of CatClub
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'dogclub_id', :'diana_id', 'member', :'owen_id', now() - interval '40 days'),
-  (:'foxclub_id', :'diana_id', 'member', :'owen_id', now() - interval '40 days')
-on conflict (club_id, member_id) do nothing;
-insert into club_memberships (club_id, member_id, role, joined_at) values
-  (:'catclub_id', :'diana_id', 'clubadmin', now() - interval '40 days')
-on conflict (club_id, member_id) do nothing;
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, status, joined_at) values
+  (:'dogclub_id', :'diana_id', 'member', :'owen_id', 'active', now() - interval '40 days'),
+  (:'foxclub_id', :'diana_id', 'member', :'owen_id', 'active', now() - interval '40 days')
+on conflict do nothing;
+insert into club_memberships (club_id, member_id, role, status, joined_at) values
+  (:'catclub_id', :'diana_id', 'clubadmin', 'active', now() - interval '40 days')
+on conflict do nothing;
 
--- Eddie: member of DogClub (active) and CatClub (will be paused)
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'dogclub_id', :'eddie_id', 'member', :'alice_id', now() - interval '38 days'),
-  (:'catclub_id', :'eddie_id', 'member', :'alice_id', now() - interval '38 days')
-on conflict (club_id, member_id) do nothing;
+-- Eddie: member of DogClub (active) and CatClub (expired)
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, status, joined_at, left_at) values
+  (:'dogclub_id', :'eddie_id', 'member', :'alice_id', 'active', now() - interval '38 days', null),
+  (:'catclub_id', :'eddie_id', 'member', :'alice_id', 'expired', now() - interval '38 days', now() - interval '10 days')
+on conflict do nothing;
 
--- Fiona: member of FoxClub (active) and DogClub (invited, not yet accepted)
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'foxclub_id', :'fiona_id', 'member', :'bob_id',   now() - interval '28 days'),
-  (:'dogclub_id', :'fiona_id', 'member', :'alice_id', now() - interval '7 days')
-on conflict (club_id, member_id) do nothing;
+-- Fiona: member of FoxClub (active) and DogClub (applying via invitation)
+insert into club_memberships (
+  club_id, member_id, role, sponsor_member_id, status, joined_at,
+  application_name, application_email, application_socials, application_text,
+  applied_at, application_submitted_at, submission_path, proof_kind
+) values
+  (:'foxclub_id', :'fiona_id', 'member', :'bob_id', 'active', now() - interval '28 days',
+   null, null, null, null, null, null, null, null),
+  (:'dogclub_id', :'fiona_id', 'member', :'alice_id', 'applying', null,
+   'Fiona Hooves', null, null, null,
+   now() - interval '7 days', null, 'invitation', 'invitation')
+on conflict do nothing;
 
 -- George: member of CatClub (active) and FoxClub (removed)
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'catclub_id', :'george_id', 'member', :'bob_id',  now() - interval '28 days'),
-  (:'foxclub_id', :'george_id', 'member', :'bob_id',  now() - interval '28 days')
-on conflict (club_id, member_id) do nothing;
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, status, joined_at, left_at) values
+  (:'catclub_id', :'george_id', 'member', :'bob_id', 'active', now() - interval '28 days', null),
+  (:'foxclub_id', :'george_id', 'member', :'bob_id', 'removed', now() - interval '28 days', now() - interval '14 days')
+on conflict do nothing;
 
--- Hannah: member of DogClub (pending_review)
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'dogclub_id', :'hannah_id', 'member', :'charlie_id', now() - interval '3 days')
-on conflict (club_id, member_id) do nothing;
+-- Hannah: member of DogClub (submitted via invitation)
+insert into club_memberships (
+  club_id, member_id, role, sponsor_member_id, status, joined_at,
+  application_name, application_email, application_socials, application_text,
+  applied_at, application_submitted_at, submission_path, proof_kind
+) values
+  (:'dogclub_id', :'hannah_id', 'member', :'charlie_id', 'submitted', null,
+   'Hannah Fins', null, '@hannahfins', 'I recently adopted my first dog and I want to learn from experienced owners while contributing to local dog meetups.',
+   now() - interval '3 days', now() - interval '3 days', 'invitation', 'invitation')
+on conflict do nothing;
 
 -- Ivan: member of DogClub and FoxClub
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'dogclub_id', :'ivan_id', 'member', :'charlie_id', now() - interval '18 days'),
-  (:'foxclub_id', :'ivan_id', 'member', :'charlie_id', now() - interval '18 days')
-on conflict (club_id, member_id) do nothing;
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, status, joined_at) values
+  (:'dogclub_id', :'ivan_id', 'member', :'charlie_id', 'active', now() - interval '18 days'),
+  (:'foxclub_id', :'ivan_id', 'member', :'charlie_id', 'active', now() - interval '18 days')
+on conflict do nothing;
 
--- Julia: member of CatClub
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'catclub_id', :'julia_id', 'member', :'diana_id', now() - interval '15 days')
-on conflict (club_id, member_id) do nothing;
+-- Julia: active in CatClub, payment pending in DogClub
+insert into club_memberships (
+  club_id, member_id, role, sponsor_member_id, status, joined_at,
+  application_name, application_email, application_socials, application_text,
+  applied_at, application_submitted_at, submission_path, proof_kind,
+  approved_price_amount, approved_price_currency
+) values
+  (:'catclub_id', :'julia_id', 'member', :'diana_id', 'active', now() - interval '15 days',
+   null, null, null, null, null, null, null, null, null, null),
+  (:'dogclub_id', :'julia_id', 'member', :'owen_id', 'payment_pending', null,
+   'Julia Stripes', 'julia@juliastripes.example.com', null, 'I would like to bring my feline behavior work into a broader animal-care community and contribute workshops for dog owners with shy rescue pets.',
+   now() - interval '2 days', now() - interval '2 days', 'cross_apply', 'pow',
+   29, 'USD')
+on conflict do nothing;
 
 -- Kevin: member of DogClub (recently accepted via admission)
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'dogclub_id', :'kevin_id', 'member', :'owen_id', now() - interval '5 days')
-on conflict (club_id, member_id) do nothing;
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, status, joined_at) values
+  (:'dogclub_id', :'kevin_id', 'member', :'owen_id', 'active', now() - interval '5 days')
+on conflict do nothing;
 
--- Sam: member of DogClub and CatClub (both will be revoked)
-insert into club_memberships (club_id, member_id, role, sponsor_member_id, joined_at) values
-  (:'dogclub_id', :'sam_id', 'member', :'owen_id', now() - interval '44 days'),
-  (:'catclub_id', :'sam_id', 'member', :'owen_id', now() - interval '44 days')
-on conflict (club_id, member_id) do nothing;
+-- Sam: member of DogClub and CatClub (both removed after suspension)
+insert into club_memberships (club_id, member_id, role, sponsor_member_id, status, joined_at, left_at) values
+  (:'dogclub_id', :'sam_id', 'member', :'owen_id', 'removed', now() - interval '44 days', now() - interval '30 days'),
+  (:'catclub_id', :'sam_id', 'member', :'owen_id', 'removed', now() - interval '44 days', now() - interval '30 days')
+on conflict do nothing;
 
 -- Capture all membership IDs
 select id as owen_dog_mid    from club_memberships where club_id = :'dogclub_id' and member_id = :'owen_id' \gset
@@ -270,6 +293,7 @@ select id as george_fox_mid  from club_memberships where club_id = :'foxclub_id'
 select id as hannah_dog_mid  from club_memberships where club_id = :'dogclub_id' and member_id = :'hannah_id' \gset
 select id as ivan_dog_mid    from club_memberships where club_id = :'dogclub_id' and member_id = :'ivan_id' \gset
 select id as ivan_fox_mid    from club_memberships where club_id = :'foxclub_id' and member_id = :'ivan_id' \gset
+select id as julia_dog_mid   from club_memberships where club_id = :'dogclub_id' and member_id = :'julia_id' \gset
 select id as julia_cat_mid   from club_memberships where club_id = :'catclub_id' and member_id = :'julia_id' \gset
 select id as kevin_dog_mid   from club_memberships where club_id = :'dogclub_id' and member_id = :'kevin_id' \gset
 select id as sam_dog_mid     from club_memberships where club_id = :'dogclub_id' and member_id = :'sam_id' \gset
@@ -300,25 +324,26 @@ values
   (:'diana_dog_mid', 'active', 'seed',    1, :'owen_id', now() - interval '40 days'),
   (:'diana_cat_mid', 'active', 'seed',    1, :'owen_id', now() - interval '40 days'),
   (:'diana_fox_mid', 'active', 'seed',    1, :'owen_id', now() - interval '40 days'),
-  -- Eddie (both start active; CatClub will be paused in round 2)
+  -- Eddie (both start active; CatClub will expire in round 2)
   (:'eddie_dog_mid', 'active', 'seed',    1, :'owen_id', now() - interval '38 days'),
   (:'eddie_cat_mid', 'active', 'seed',    1, :'owen_id', now() - interval '38 days'),
-  -- Fiona: FoxClub active, DogClub invited
+  -- Fiona: FoxClub active, DogClub applying
   (:'fiona_fox_mid', 'active', 'seed',    1, :'owen_id', now() - interval '28 days'),
-  (:'fiona_dog_mid', 'invited', null,     1, :'alice_id', now() - interval '7 days'),
+  (:'fiona_dog_mid', 'applying', 'Invitation accepted; application draft not submitted yet', 1, :'alice_id', now() - interval '7 days'),
   -- George: CatClub active, FoxClub starts active (removed in round 2)
   (:'george_cat_mid', 'active', 'seed',   1, :'owen_id', now() - interval '28 days'),
   (:'george_fox_mid', 'active', 'seed',   1, :'owen_id', now() - interval '28 days'),
-  -- Hannah: pending_review
-  (:'hannah_dog_mid', 'pending_review', null, 1, :'charlie_id', now() - interval '3 days'),
+  -- Hannah: submitted
+  (:'hannah_dog_mid', 'submitted', 'Application submitted', 1, :'charlie_id', now() - interval '3 days'),
   -- Ivan (active)
   (:'ivan_dog_mid',  'active', 'seed',    1, :'owen_id', now() - interval '18 days'),
   (:'ivan_fox_mid',  'active', 'seed',    1, :'owen_id', now() - interval '18 days'),
-  -- Julia (active)
+  -- Julia (active in CatClub, payment pending in DogClub)
   (:'julia_cat_mid', 'active', 'seed',    1, :'diana_id', now() - interval '15 days'),
+  (:'julia_dog_mid', 'payment_pending', 'Accepted; awaiting first payment', 1, :'owen_id', now() - interval '1 day'),
   -- Kevin (active, admitted)
   (:'kevin_dog_mid', 'active', 'admitted via owner nomination', 1, :'owen_id', now() - interval '5 days'),
-  -- Sam (both start active; revoked in round 2)
+  -- Sam (both start active; removed in round 2)
   (:'sam_dog_mid',   'active', 'seed',    1, :'owen_id', now() - interval '44 days'),
   (:'sam_cat_mid',   'active', 'seed',    1, :'owen_id', now() - interval '44 days')
 on conflict do nothing;
@@ -327,13 +352,13 @@ on conflict do nothing;
 insert into club_membership_state_versions
   (membership_id, status, reason, version_no, created_by_member_id, created_at)
 values
-  -- Eddie paused in CatClub (unpaid dues)
-  (:'eddie_cat_mid', 'paused', 'Membership paused due to unpaid subscription', 2, :'owen_id', now() - interval '10 days'),
+  -- Eddie expired in CatClub (unpaid dues lapsed)
+  (:'eddie_cat_mid', 'expired', 'Membership lapsed after unpaid subscription', 2, :'owen_id', now() - interval '10 days'),
   -- George removed from FoxClub (posted inappropriate content)
   (:'george_fox_mid', 'removed', 'Repeated posting of off-topic content after warnings', 2, :'owen_id', now() - interval '14 days'),
-  -- Sam revoked from both clubs (suspended from platform)
-  (:'sam_dog_mid', 'revoked', 'Account suspended — platform policy violation', 2, :'owen_id', now() - interval '30 days'),
-  (:'sam_cat_mid', 'revoked', 'Account suspended — platform policy violation', 2, :'owen_id', now() - interval '30 days')
+  -- Sam removed from both clubs (suspended from platform)
+  (:'sam_dog_mid', 'removed', 'Account suspended — platform policy violation', 2, :'owen_id', now() - interval '30 days'),
+  (:'sam_cat_mid', 'removed', 'Account suspended — platform policy violation', 2, :'owen_id', now() - interval '30 days')
 on conflict do nothing;
 
 -- ============================================================
@@ -988,115 +1013,78 @@ insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, cre
 on conflict do nothing;
 
 -- ============================================================
--- Admissions (6 in various states)
+-- Invitations
 -- ============================================================
 
--- 1. Cold application (self_applied) to DogClub — submitted, waiting for review
-insert into admissions (club_id, origin, applicant_email, applicant_name, admission_details, created_at)
-values (:'dogclub_id', 'self_applied', 'liam@example.com', 'Liam Barker',
-  '{"socials":"twitter: @liambarker, linkedin: linkedin.com/in/liambarker","application":"I have been working with rescue dogs for over 5 years and would love to join a community of like-minded dog enthusiasts. I currently foster dogs through the local SPCA and organize monthly adoption events in my neighborhood. I specialize in working with large breed dogs that are often overlooked in shelters."}'::jsonb,
-  now() - interval '3 days')
-returning id as adm_liam \gset
+insert into invitations (
+  club_id,
+  sponsor_member_id,
+  candidate_name,
+  candidate_email,
+  reason,
+  code_hash,
+  expires_at,
+  used_at,
+  used_membership_id,
+  metadata,
+  created_at
+) values
+  (
+    :'dogclub_id',
+    :'alice_id',
+    'Fiona Hooves',
+    'fiona@example.com',
+    'Alice invited Fiona to join DogClub through the new invitation flow.',
+    'seed-inv-fiona-used',
+    now() + interval '23 days',
+    now() - interval '7 days',
+    :'fiona_dog_mid',
+    '{"seed":"used"}'::jsonb,
+    now() - interval '7 days'
+  ),
+  (
+    :'dogclub_id',
+    :'charlie_id',
+    'Hannah Fins',
+    'hannah@example.com',
+    'Charlie invited Hannah after meeting her at a dog training workshop.',
+    'seed-inv-hannah-used',
+    now() + interval '27 days',
+    now() - interval '3 days',
+    :'hannah_dog_mid',
+    '{"seed":"used"}'::jsonb,
+    now() - interval '3 days'
+  ),
+  (
+    :'dogclub_id',
+    :'alice_id',
+    'Nora Walks',
+    'nora@example.com',
+    'Open invitation example for local rescue volunteers.',
+    'seed-inv-nora-open',
+    now() + interval '30 days',
+    null,
+    null,
+    '{"seed":"open"}'::jsonb,
+    now() - interval '1 day'
+)
+on conflict do nothing;
 
-insert into admission_versions (admission_id, status, version_no, created_at)
-values (:'adm_liam', 'submitted', 1, now() - interval '3 days');
+select set_config('app.allow_membership_state_sync', '1', true);
 
--- 2. Warm referral (member_sponsored) to CatClub — submitted by Alice
-insert into admissions (club_id, origin, sponsor_member_id, applicant_email, applicant_name, admission_details, created_at)
-values (:'catclub_id', 'member_sponsored', :'alice_id', 'mia@example.com', 'Mia Purrs',
-  '{"socials":"instagram: @miapurrs, tiktok: @miapurrs"}'::jsonb,
-  now() - interval '4 days')
-returning id as adm_mia \gset
+update club_memberships
+set invitation_id = (
+  select id from invitations where code_hash = 'seed-inv-fiona-used'
+)
+where id = :'fiona_dog_mid';
 
-insert into admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
-values (:'adm_mia', 'submitted', 'Alice''s friend — runs a popular cat wellness account with 50k followers', 1, now() - interval '4 days', :'alice_id');
+update club_memberships
+set invitation_id = (
+  select id from invitations where code_hash = 'seed-inv-hannah-used'
+)
+where id = :'hannah_dog_mid';
 
--- 3. Warm referral (member_sponsored) to FoxClub — interview_scheduled
-insert into admissions (club_id, origin, sponsor_member_id, applicant_email, applicant_name, admission_details, created_at)
-values (:'foxclub_id', 'member_sponsored', :'bob_id', 'noah@example.com', 'Noah Trails',
-  '{"socials":"linkedin.com/in/noahtrails"}'::jsonb,
-  now() - interval '6 days')
-returning id as adm_noah \gset
-
-insert into admission_versions (admission_id, status, version_no, created_at, created_by_member_id)
-values (:'adm_noah', 'submitted', 1, now() - interval '6 days', :'bob_id');
-
-insert into admission_versions (admission_id, status, notes, intake_kind, intake_booking_url, intake_booked_at, version_no, created_at, created_by_member_id)
-values (:'adm_noah', 'interview_scheduled',
-  'Scheduling a fit check call to discuss Noah''s conservation background',
-  'fit_check', 'https://calendly.com/clawclub-foxclub/fit-check', now() + interval '2 days',
-  2, now() - interval '2 days', :'owen_id');
-
--- 4. Owner-nominated to DogClub — accepted (Kevin's admission)
-insert into admissions (club_id, origin, applicant_member_id, sponsor_member_id, membership_id, created_at)
-values (:'dogclub_id', 'owner_nominated', :'kevin_id', :'owen_id', :'kevin_dog_mid',
-  now() - interval '6 days')
-returning id as adm_kevin \gset
-
-insert into admission_versions (admission_id, status, version_no, created_at, created_by_member_id)
-values (:'adm_kevin', 'submitted', 1, now() - interval '6 days', :'owen_id');
-
-insert into admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
-values (:'adm_kevin', 'accepted', 'Kevin runs an exemplary Dalmatian breeding program. Direct nomination.', 2, now() - interval '5 days', :'owen_id');
-
--- 5. Cold application to CatClub — declined
-insert into admissions (club_id, origin, applicant_email, applicant_name, admission_details, created_at)
-values (:'catclub_id', 'self_applied', 'olive@example.com', 'Olive Claws',
-  '{"socials":"none","application":"I want to join because I like cats. I have two cats at home."}'::jsonb,
-  now() - interval '10 days')
-returning id as adm_olive \gset
-
-insert into admission_versions (admission_id, status, version_no, created_at)
-values (:'adm_olive', 'submitted', 1, now() - interval '10 days');
-
-insert into admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
-values (:'adm_olive', 'declined',
-  'Application did not demonstrate sufficient involvement in cat welfare or community activities. Encouraged to reapply with more detail.',
-  2, now() - interval '7 days', :'diana_id');
-
--- 6. Warm referral to DogClub — interview_completed, pending decision
-insert into admissions (club_id, origin, sponsor_member_id, applicant_email, applicant_name, admission_details, created_at)
-values (:'dogclub_id', 'member_sponsored', :'charlie_id', 'pete@example.com', 'Pete Runner',
-  '{"socials":"strava: pete-runner, instagram: @pete.runs"}'::jsonb,
-  now() - interval '8 days')
-returning id as adm_pete \gset
-
-insert into admission_versions (admission_id, status, notes, version_no, created_at, created_by_member_id)
-values (:'adm_pete', 'submitted', 'Pete is my running partner — he just adopted a rescue greyhound and wants to get involved', 1, now() - interval '8 days', :'charlie_id');
-
-insert into admission_versions (admission_id, status, intake_kind, intake_booking_url, intake_booked_at, version_no, created_at, created_by_member_id)
-values (:'adm_pete', 'interview_scheduled', 'advice_call', 'https://calendly.com/clawclub-dogclub/intro', now() - interval '4 days', 2, now() - interval '6 days', :'owen_id');
-
-insert into admission_versions (admission_id, status, notes, intake_kind, intake_completed_at, version_no, created_at, created_by_member_id)
-values (:'adm_pete', 'interview_completed',
-  'Great call — Pete is passionate about greyhound rescue. Recommended for acceptance.',
-  'advice_call', now() - interval '4 days', 3, now() - interval '4 days', :'owen_id');
-
--- ============================================================
--- Admission challenges (cold application flow)
--- ============================================================
-
--- Active challenge for DogClub (expires in 1 hour)
-insert into admission_challenges (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at, created_at)
-values (7, :'dogclub_id',
-  'Members must demonstrate genuine passion for dogs and canine welfare.',
-  'DogClub', 'A club for dog lovers and canine professionals.', 'Owen Barnes',
-  now() + interval '1 hour', now());
-
--- Expired challenge for CatClub (with an attempt)
-insert into admission_challenges (difficulty, club_id, policy_snapshot, club_name, club_summary, owner_name, expires_at, created_at)
-values (7, :'catclub_id',
-  'We welcome cat enthusiasts who contribute positively to feline communities.',
-  'CatClub', 'A club for cat enthusiasts and feline experts.', 'Owen Barnes',
-  now() - interval '23 hours', now() - interval '1 day')
-returning id as expired_challenge \gset
-
-insert into admission_attempts (challenge_id, club_id, attempt_no, applicant_name, applicant_email, payload, gate_status, policy_snapshot, created_at)
-values (:'expired_challenge', :'catclub_id', 1, 'Olive Claws', 'olive@example.com',
-  '{"socials":"none","application":"I want to join because I like cats. I have two cats at home."}'::jsonb,
-  'passed',
-  'We welcome cat enthusiasts who contribute positively to feline communities.',
-  now() - interval '23 hours' + interval '5 minutes');
+select set_config('app.allow_membership_state_sync', '', true);
 
 -- ============================================================
 -- Club activity log
@@ -1110,19 +1098,19 @@ insert into club_activity (club_id, topic, audience, payload, entity_id, created
   (:'dogclub_id', 'entity.version.published', 'members',    '{"kind":"event","title":"DogClub Monthly Meetup - April"}'::jsonb,     :'dog_evt1',  :'owen_id',    now() - interval '8 days'),
   (:'dogclub_id', 'entity.version.published', 'members',    '{"kind":"post","title":"Best Dog-Friendly Hiking Trails"}'::jsonb,     :'dog_post2', :'charlie_id', now() - interval '7 days'),
   (:'dogclub_id', 'membership.activated',     'clubadmins', '{"handle":"kevin-spots","publicName":"Kevin Spots"}'::jsonb,            null,         :'owen_id',    now() - interval '5 days'),
-  (:'dogclub_id', 'admission.submitted',      'clubadmins', '{"applicantName":"Liam Barker","origin":"self_applied"}'::jsonb,        null,         null,          now() - interval '3 days'),
+  (:'dogclub_id', 'application.submitted',    'clubadmins', jsonb_build_object('membershipId', :'hannah_dog_mid', 'applicantName', 'Hannah Fins', 'origin', 'invitation'), null, :'charlie_id', now() - interval '3 days'),
   (:'dogclub_id', 'entity.version.published', 'members',    '{"kind":"post","title":"Training Tips for Stubborn Breeds"}'::jsonb,    :'dog_post3', :'ivan_id',    now() - interval '2 days'),
   -- CatClub
   (:'catclub_id', 'entity.version.published', 'members',    '{"kind":"post","title":"Understanding Feline Body Language"}'::jsonb,   :'cat_post1', :'alice_id',   now() - interval '20 days'),
   (:'catclub_id', 'entity.removed',           'members',    '{"kind":"post","title":"CHECK OUT MY BIRD FEEDER STORE!!!","reason":"Promotional spam"}'::jsonb, :'cat_spam', :'diana_id', now() - interval '15 days'),
   (:'catclub_id', 'entity.version.published', 'members',    '{"kind":"post","title":"Top Cat Toys of 2026"}'::jsonb,                 :'cat_post2', :'bob_id',     now() - interval '12 days'),
   (:'catclub_id', 'entity.version.published', 'members',    '{"kind":"event","title":"CatClub Virtual Q&A with a Vet"}'::jsonb,     :'cat_evt1',  :'diana_id',   now() - interval '6 days'),
-  (:'catclub_id', 'admission.submitted',      'clubadmins', '{"applicantName":"Mia Purrs","origin":"member_sponsored"}'::jsonb,      null,         :'alice_id',   now() - interval '4 days'),
+  (:'dogclub_id', 'application.submitted',    'clubadmins', jsonb_build_object('membershipId', :'julia_dog_mid', 'applicantName', 'Julia Stripes', 'origin', 'cross_apply'), null, :'julia_id', now() - interval '2 days'),
   -- FoxClub
   (:'foxclub_id', 'entity.version.published', 'members',    '{"kind":"post","title":"Fox Conservation Update Q1 2026"}'::jsonb,      :'fox_post1', :'bob_id',     now() - interval '18 days'),
   (:'foxclub_id', 'entity.version.published', 'members',    '{"kind":"service","title":"Wildlife Photography Workshops"}'::jsonb,    :'fox_svc1',  :'charlie_id', now() - interval '14 days'),
   (:'foxclub_id', 'entity.version.published', 'members',    '{"kind":"post","title":"Wildlife Photography Tips & Tricks"}'::jsonb,   :'fox_post2', :'charlie_id', now() - interval '9 days'),
-  (:'foxclub_id', 'admission.submitted',      'clubadmins', '{"applicantName":"Noah Trails","origin":"member_sponsored"}'::jsonb,    null,         :'bob_id',     now() - interval '6 days'),
+  (:'dogclub_id', 'application.submitted',    'clubadmins', jsonb_build_object('membershipId', :'kevin_dog_mid', 'applicantName', 'Kevin Spots', 'origin', 'owner_nominated'), null, :'owen_id', now() - interval '6 days'),
   (:'foxclub_id', 'entity.version.published', 'members',    '{"kind":"event","title":"Fox Watch Night Walk"}'::jsonb,                :'fox_evt1',  :'owen_id',    now() - interval '5 days')
 on conflict do nothing;
 
