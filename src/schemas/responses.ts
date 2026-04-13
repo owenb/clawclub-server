@@ -101,7 +101,7 @@ export const membershipReviewSummary = membershipAdminSummary.extend({
 });
 
 export const clubJoinResult = z.object({
-  memberToken: z.string(),
+  memberToken: z.string().nullable(),
   clubId: z.string(),
   membershipId: z.string(),
   proof: z.discriminatedUnion('kind', [

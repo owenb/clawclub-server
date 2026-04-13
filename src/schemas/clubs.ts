@@ -77,11 +77,7 @@ const clubsJoin: ActionDefinition = {
       email,
       invitationCode,
     });
-    return {
-      data: ctx.actor.member && ctx.bearerToken
-        ? { ...join, memberToken: ctx.bearerToken }
-        : join,
-    };
+    return { data: join };
   },
 };
 

@@ -18,7 +18,7 @@ import {
 } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { encodeCursor } from '../schemas/fields.ts';
-import { createInitialClubProfileVersion } from './profiles.ts';
+import { createInitialClubProfileVersion, emptyClubProfileFields, normalizeClubProfileFields } from './profiles.ts';
 
 type MembershipAdminRow = {
   membership_id: string;
@@ -183,6 +183,44 @@ async function setComped(client: DbClient, membershipId: string, compedByMemberI
      where id = $1 and is_comped = false`,
     [membershipId, compedByMemberId],
   );
+}
+
+async function ensureProfileVersionForActiveMembership(client: DbClient, input: {
+  membershipId: string;
+  memberId: string;
+  clubId: string;
+  createdByMemberId: string | null;
+}): Promise<void> {
+  const existing = await client.query<{ ok: boolean }>(
+    `select exists(
+       select 1
+       from current_member_club_profiles
+       where membership_id = $1
+     ) as ok`,
+    [input.membershipId],
+  );
+  if (existing.rows[0]?.ok) {
+    return;
+  }
+
+  const membership = await client.query<{ generated_profile_draft: Record<string, unknown> | null }>(
+    `select generated_profile_draft
+     from club_memberships
+     where id = $1
+     limit 1`,
+    [input.membershipId],
+  );
+  const draft = membership.rows[0]?.generated_profile_draft ?? null;
+  const fields = draft ? normalizeClubProfileFields(draft) : emptyClubProfileFields();
+
+  await createInitialClubProfileVersion(client, {
+    membershipId: input.membershipId,
+    memberId: input.memberId,
+    clubId: input.clubId,
+    fields,
+    createdByMemberId: input.createdByMemberId,
+    generationSource: draft ? 'admission_generated' : 'membership_seed',
+  });
 }
 
 // ── Exported functions ────────────────────────────────────────
@@ -438,9 +476,27 @@ export async function transitionMembershipState(pool: Pool, input: TransitionMem
     );
 
     if (input.nextStatus === 'active') {
+      await ensureProfileVersionForActiveMembership(client, {
+        membershipId: membership.membership_id,
+        memberId: membership.member_id,
+        clubId: membership.club_id,
+        createdByMemberId: input.actorMemberId,
+      });
       if (!(await hasLiveAccess(client, membership.membership_id))) {
         await setComped(client, membership.membership_id, input.actorMemberId);
       }
+    }
+
+    if (input.nextStatus === 'removed' || input.nextStatus === 'banned' || input.nextStatus === 'expired') {
+      await client.query(
+        `update invitations
+         set revoked_at = coalesce(revoked_at, now())
+         where sponsor_member_id = $1
+           and club_id = $2
+           and revoked_at is null
+           and used_at is null`,
+        [membership.member_id, membership.club_id],
+      );
     }
 
     return readMembershipSummary(client, membership.membership_id);

@@ -625,7 +625,7 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
           });
         }
         return {
-          memberToken: '',
+          memberToken: null,
           clubId: club.club_id,
           membershipId: existing.membership_id,
           proof: await summarizeProofForMembership(client, existing.membership_id, existing.proof_kind, true),
@@ -672,7 +672,7 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
       }
 
       return {
-        memberToken: '',
+        memberToken: null,
         clubId: club.club_id,
         membershipId,
         proof: invitation

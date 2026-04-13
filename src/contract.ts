@@ -250,7 +250,7 @@ export type JoinClubInput = {
 };
 
 export type JoinClubResult = {
-  memberToken: string;
+  memberToken: string | null;
   clubId: string;
   membershipId: string;
   proof:
