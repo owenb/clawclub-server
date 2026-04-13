@@ -22,6 +22,16 @@ That is not a clean system. It works, but it does not read cleanly, teach cleanl
 
 This plan fixes that from first principles.
 
+### Surfaces added since this plan was first drafted
+
+The system-notifications rewrite (migration 007) and the mentions work (migration 006) have shipped and are live in production. Their surfaces are absorbed into this rename's scope:
+
+- `signal_deliveries` has already been renamed to `member_notifications`. This plan does **not** touch the table name again — it only renames the `entity_id` column and its foreign key (`member_notifications_entity_fkey` → `member_notifications_content_fkey`).
+- New table `entity_version_mentions` is pulled in and renames to `content_version_mentions`. Its own `entity_version_id` column follows the general `entity_version_id → content_version_id` rule.
+- New read surfaces `activity.*` and `notifications.*` ship with response types (`ActivityEvent`, `NotificationItem`, `NotificationReceipt`) that carry `entityId` / `entityVersionId` wire fields. Those fields are pulled into the rename map below.
+- The `updates.*` namespace, the `PendingUpdate` type, the `memberUpdates` polling response, and `sharedContext.pendingUpdates` have all been deleted by the system-notifications rewrite. They are no longer rename targets — they do not exist. The envelope now carries `sharedContext.notifications: NotificationItem[]`, and the rename cascades through the `NotificationItem` definition in `src/schemas/responses.ts`.
+- New code files `src/mentions.ts`, `src/schemas/activity.ts`, and `src/schemas/notifications.ts` are in scope for internal column and type references. `src/notifications-core.ts` exists but carries no entity-named fields and needs no edits.
+
 ## Problem Statement
 
 There are two separate issues:
@@ -164,6 +174,7 @@ The awkwardness of pluralizing a mass noun is smaller than the awkwardness of gi
 | `entities` | `contents` |
 | `entity_versions` | `content_versions` |
 | `entity_embeddings` | `content_embeddings` |
+| `entity_version_mentions` | `content_version_mentions` |
 | `current_entity_versions` | `current_content_versions` |
 | `published_entity_versions` | `published_content_versions` |
 | `live_entities` | `live_content` |
@@ -184,6 +195,21 @@ The awkwardness of pluralizing a mass noun is smaller than the awkwardness of gi
 | `from_entity_version_id` | `from_content_version_id` |
 | `to_entity_id` | `to_content_id` |
 | `to_entity_version_id` | `to_content_version_id` |
+
+These column renames apply everywhere the old names appear. Known dependent tables that must be updated in the migration:
+
+- `contents` (was `entities`) — drops `parent_entity_id`
+- `content_versions` (was `entity_versions`) — `entity_id` → `content_id`
+- `content_embeddings` (was `entity_embeddings`) — `entity_id`, `entity_version_id`
+- `content_version_mentions` (was `entity_version_mentions`) — `entity_version_id` → `content_version_id`
+- `event_version_details` — `entity_version_id` → `content_version_id`
+- `event_rsvps` — `event_entity_id` → `event_content_id`
+- `club_edges` — `from_entity_id`, `from_entity_version_id`, `to_entity_id`, `to_entity_version_id`
+- `club_activity` — `entity_id`, `entity_version_id`
+- `member_notifications` — `entity_id` → `content_id` with FK `member_notifications_entity_fkey` → `member_notifications_content_fkey`
+- `signal_background_matches` and `signal_recompute_queue` — any `entity_*` columns that still exist
+
+The implementer must grep `db/init.sql` for `entity_id` / `entity_version_id` before writing the migration; the list above is a checklist, not an exhaustive contract.
 
 ### Core TypeScript / contract types
 
@@ -211,6 +237,10 @@ The awkwardness of pluralizing a mass noun is smaller than the awkwardness of gi
 | `entities` | `content` |
 | `version.content` | `version.payload` |
 | `eventEntityId` | `eventId` |
+| `activityEvent.entityId` | `activityEvent.contentId` |
+| `activityEvent.entityVersionId` | `activityEvent.contentVersionId` |
+| `notificationItem.ref.entityId` | `notificationItem.ref.contentId` |
+| `notificationReceipt.entityId` | `notificationReceipt.contentId` |
 
 ### Module and file names
 
@@ -368,7 +398,8 @@ Create a new migration after the threaded-content migration. Do **not** edit the
    - `entities` → `contents`
    - `entity_versions` → `content_versions`
    - `entity_embeddings` → `content_embeddings`
-6. Rename columns across all dependent tables:
+   - `entity_version_mentions` → `content_version_mentions`
+6. Rename columns across all dependent tables (including `member_notifications`, `club_activity`, `club_edges`, `event_rsvps`, `event_version_details`, `signal_background_matches`):
    - `entity_id` → `content_id`
    - `entity_version_id` → `content_version_id`
    - `content_thread_id` → `thread_id`
@@ -400,6 +431,8 @@ Update:
 - `src/schemas/fields.ts`
 - `src/schemas/content.ts` (renamed from `entities.ts`)
 - `src/schemas/events.ts`
+- `src/schemas/activity.ts` — update `ActivityEvent` to use `contentId` / `contentVersionId`
+- `src/schemas/notifications.ts` — update `NotificationItem.ref` and `NotificationReceipt` to use `contentId`
 - `src/schemas/clubadmin.ts`
 - `src/schemas/superadmin.ts`
 
@@ -419,6 +452,7 @@ Rename and refactor:
 
 - `src/clubs/entities.ts` → `src/clubs/content.ts`
 - repository interfaces from `createEntity`, `updateEntity`, `removeEntity`, `readContentEntity` to `createContent`, `updateContent`, `removeContent`, `readContent`
+- `src/mentions.ts` — update SQL against the renamed `content_version_mentions` table and rename internal `entity_version_id` references to `content_version_id`
 
 Keep behavior the same unless the new wire shape naturally collapses duplicate mapping code.
 
@@ -428,7 +462,7 @@ Update:
 
 - embeddings worker
 - similarity worker
-- synchronicity worker
+- synchronicity worker — also inserts into `member_notifications` with an `entity_id` reference that must become `content_id`
 - any queue subject-kind strings
 
 The rename should remove `entity` from the active public-content path, but it should not accidentally broaden or narrow matching/search behavior.
@@ -468,7 +502,7 @@ This refactor touches almost every contract surface. The rename is incomplete un
 Must update:
 
 - `test/snapshots/api-schema.json`
-- integration tests for all `content.*` and `events.*` actions
+- integration tests for all `content.*`, `events.*`, `activity.*`, and `notifications.*` actions
 - unit tests that mock repository methods
 - SQL-facing tests that assert column names or response shapes
 
@@ -477,7 +511,10 @@ Add explicit regression tests for:
 - `content.getThread` response uses `thread.id`, `thread.firstContent`, `thread.contentCount`, and `thread.content`
 - `events.rsvp` and `events.cancelRsvp` return `{ event: Content }`
 - semantic search returns `ContentSearchResult[]`
-- no active API response exposes `entityId`, `contentThreadId`, `firstEntity`, `entityCount`, or `version.content`
+- `activity.list` response items expose `contentId` and `contentVersionId`, not `entityId` / `entityVersionId`
+- `notifications.list` items use `ref.contentId` when present
+- `notifications.acknowledge` receipts use `contentId`
+- no active API response exposes `entityId`, `entityVersionId`, `contentThreadId`, `firstEntity`, `entityCount`, or `version.content` — including `ActivityEvent`, `NotificationItem`, and `NotificationReceipt`
 
 ## Implementation Order
 
