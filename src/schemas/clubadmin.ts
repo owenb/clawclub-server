@@ -25,7 +25,7 @@ import {
 import {
   membershipAdminSummary, membershipReviewSummary,
   admissionSummary, adminClubStats,
-  contentEntity, messageRemovalResult,
+  contentEntity, includedBundle, messageRemovalResult,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -587,7 +587,7 @@ const clubadminEntitiesRemove: ActionDefinition = {
       entityId: wireRequiredString.describe('Entity to remove'),
       reason: wireRequiredString.describe('Reason for removal (required for moderation)'),
     }),
-    output: z.object({ entity: contentEntity }),
+    output: z.object({ entity: contentEntity, included: includedBundle }),
   },
 
   parse: {
@@ -603,7 +603,7 @@ const clubadminEntitiesRemove: ActionDefinition = {
     ctx.requireClubAdmin(clubId);
     ctx.requireCapability('removeEntity');
 
-    const entity = await ctx.repository.removeEntity!({
+    const result = await ctx.repository.removeEntity!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: [clubId],
       entityId,
@@ -611,13 +611,13 @@ const clubadminEntitiesRemove: ActionDefinition = {
       skipAuthCheck: true,
     });
 
-    if (!entity) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Entity not found in the specified club');
     }
 
     return {
-      data: { entity },
-      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+      data: result,
+      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
     };
   },
 };

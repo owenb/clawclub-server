@@ -18,7 +18,7 @@ import {
 import {
   directMessageSummary, directMessageThreadSummary,
   directMessageEntry, directMessageInboxSummary,
-  messageRemovalResult,
+  includedBundle, messageRemovalResult,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -34,6 +34,11 @@ const MESSAGES_SEND_ERRORS = [
     code: 'client_key_conflict',
     meaning: 'The clientKey has already been used for a different conversation or message text.',
     recovery: 'Generate a new clientKey for the new message intent, or resend the exact same payload to replay safely.',
+  },
+  {
+    code: 'invalid_mentions',
+    meaning: 'One or more @handle mentions could not be resolved in the current DM scope.',
+    recovery: 'Correct or remove the listed mentions, then resend the message.',
   },
 ] as const;
 
@@ -58,7 +63,7 @@ const messagesSend: ActionDefinition = {
       messageText: wireMessageText.describe('Message text'),
       clientKey: wireOptionalString.describe('Idempotency key — same key with same payload returns the original message; same key with different payload returns 409 client_key_conflict'),
     }),
-    output: z.object({ message: directMessageSummary }),
+    output: z.object({ message: directMessageSummary, included: includedBundle }),
   },
 
   parse: {
@@ -76,7 +81,7 @@ const messagesSend: ActionDefinition = {
       throw new AppError(400, 'invalid_input', 'Cannot send a message to yourself');
     }
 
-    const message = await ctx.repository.sendDirectMessage({
+    const result = await ctx.repository.sendDirectMessage({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map((club) => club.clubId),
       recipientMemberId,
@@ -84,11 +89,11 @@ const messagesSend: ActionDefinition = {
       clientKey,
     });
 
-    if (!message) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Recipient not found or no shared club with recipient');
     }
 
-    return { data: { message } };
+    return { data: result };
   },
 };
 
@@ -119,6 +124,7 @@ const messagesGetInbox: ActionDefinition = {
       results: z.array(directMessageInboxSummary),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
+      included: includedBundle,
     }),
   },
 
@@ -145,7 +151,16 @@ const messagesGetInbox: ActionDefinition = {
       cursor,
     });
 
-    return { data: { limit, unreadOnly, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor } };
+    return {
+      data: {
+        limit,
+        unreadOnly,
+        results: result.results,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+        included: result.included,
+      },
+    };
   },
 };
 
@@ -175,6 +190,7 @@ const messagesGetThread: ActionDefinition = {
       messages: z.array(directMessageEntry),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
+      included: includedBundle,
     }),
   },
 
@@ -205,7 +221,15 @@ const messagesGetThread: ActionDefinition = {
       throw new AppError(404, 'not_found', 'Thread not found or not a participant');
     }
 
-    return { data: { thread: result.thread, messages: result.messages, hasMore: result.hasMore, nextCursor: result.nextCursor } };
+    return {
+      data: {
+        thread: result.thread,
+        messages: result.messages,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+        included: result.included,
+      },
+    };
   },
 };
 

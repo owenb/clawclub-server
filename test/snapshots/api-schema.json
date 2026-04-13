@@ -2249,6 +2249,98 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "mentions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "summary": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "title": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "summary",
+                      "body"
+                    ],
+                    "type": "object"
+                  },
                   "state": {
                     "enum": [
                       "draft",
@@ -2278,7 +2370,8 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content"
+                  "content",
+                  "mentions"
                 ],
                 "type": "object"
               }
@@ -2296,10 +2389,48 @@
               "createdAt"
             ],
             "type": "object"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "entity"
+          "entity",
+          "included"
         ],
         "type": "object"
       },
@@ -3792,6 +3923,98 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "mentions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "summary": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "title": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "summary",
+                      "body"
+                    ],
+                    "type": "object"
+                  },
                   "state": {
                     "enum": [
                       "draft",
@@ -3821,7 +4044,8 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content"
+                  "content",
+                  "mentions"
                 ],
                 "type": "object"
               }
@@ -3839,10 +4063,48 @@
               "createdAt"
             ],
             "type": "object"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "entity"
+          "entity",
+          "included"
         ],
         "type": "object"
       },
@@ -3862,6 +4124,11 @@
           "code": "client_key_conflict",
           "meaning": "The clientKey has already been used with a different payload.",
           "recovery": "Generate a new clientKey for the new creation intent, or resend the exact same payload to replay safely."
+        },
+        {
+          "code": "invalid_mentions",
+          "meaning": "One or more @handle mentions could not be resolved in the target club.",
+          "recovery": "Correct or remove the listed mentions, then resubmit the content."
         },
         {
           "code": "illegal_content",
@@ -4201,6 +4468,98 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "mentions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "summary": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "title": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "summary",
+                      "body"
+                    ],
+                    "type": "object"
+                  },
                   "state": {
                     "enum": [
                       "draft",
@@ -4230,7 +4589,8 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content"
+                  "content",
+                  "mentions"
                 ],
                 "type": "object"
               }
@@ -4248,10 +4608,48 @@
               "createdAt"
             ],
             "type": "object"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "entity"
+          "entity",
+          "included"
         ],
         "type": "object"
       },
@@ -4502,6 +4900,98 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "mentions": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "body": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "authoredHandle": {
+                                "type": "string"
+                              },
+                              "end": {
+                                "type": "number"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "memberId",
+                              "authoredHandle",
+                              "start",
+                              "end"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "summary": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "authoredHandle": {
+                                "type": "string"
+                              },
+                              "end": {
+                                "type": "number"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "memberId",
+                              "authoredHandle",
+                              "start",
+                              "end"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "authoredHandle": {
+                                "type": "string"
+                              },
+                              "end": {
+                                "type": "number"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "memberId",
+                              "authoredHandle",
+                              "start",
+                              "end"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "title",
+                        "summary",
+                        "body"
+                      ],
+                      "type": "object"
+                    },
                     "state": {
                       "enum": [
                         "draft",
@@ -4531,7 +5021,8 @@
                     "effectiveAt",
                     "expiresAt",
                     "createdAt",
-                    "content"
+                    "content",
+                    "mentions"
                   ],
                   "type": "object"
                 }
@@ -4554,6 +5045,43 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           },
           "nextCursor": {
             "nullable": true,
@@ -4773,6 +5301,98 @@
                         "nullable": true,
                         "type": "string"
                       },
+                      "mentions": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "body": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "authoredHandle": {
+                                  "type": "string"
+                                },
+                                "end": {
+                                  "type": "number"
+                                },
+                                "memberId": {
+                                  "type": "string"
+                                },
+                                "start": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "memberId",
+                                "authoredHandle",
+                                "start",
+                                "end"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "summary": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "authoredHandle": {
+                                  "type": "string"
+                                },
+                                "end": {
+                                  "type": "number"
+                                },
+                                "memberId": {
+                                  "type": "string"
+                                },
+                                "start": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "memberId",
+                                "authoredHandle",
+                                "start",
+                                "end"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "title": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "authoredHandle": {
+                                  "type": "string"
+                                },
+                                "end": {
+                                  "type": "number"
+                                },
+                                "memberId": {
+                                  "type": "string"
+                                },
+                                "start": {
+                                  "type": "number"
+                                }
+                              },
+                              "required": [
+                                "memberId",
+                                "authoredHandle",
+                                "start",
+                                "end"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "summary",
+                          "body"
+                        ],
+                        "type": "object"
+                      },
                       "state": {
                         "enum": [
                           "draft",
@@ -4802,7 +5422,8 @@
                       "effectiveAt",
                       "expiresAt",
                       "createdAt",
-                      "content"
+                      "content",
+                      "mentions"
                     ],
                     "type": "object"
                   }
@@ -4854,7 +5475,8 @@
           "thread",
           "entities",
           "hasMore",
-          "nextCursor"
+          "nextCursor",
+          "included"
         ],
         "type": "object"
       },
@@ -4981,6 +5603,43 @@
           },
           "includeClosed": {
             "type": "boolean"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           },
           "kinds": {
             "items": {
@@ -5222,6 +5881,98 @@
                           "nullable": true,
                           "type": "string"
                         },
+                        "mentions": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "body": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authoredHandle": {
+                                    "type": "string"
+                                  },
+                                  "end": {
+                                    "type": "number"
+                                  },
+                                  "memberId": {
+                                    "type": "string"
+                                  },
+                                  "start": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "memberId",
+                                  "authoredHandle",
+                                  "start",
+                                  "end"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "summary": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authoredHandle": {
+                                    "type": "string"
+                                  },
+                                  "end": {
+                                    "type": "number"
+                                  },
+                                  "memberId": {
+                                    "type": "string"
+                                  },
+                                  "start": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "memberId",
+                                  "authoredHandle",
+                                  "start",
+                                  "end"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "title": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authoredHandle": {
+                                    "type": "string"
+                                  },
+                                  "end": {
+                                    "type": "number"
+                                  },
+                                  "memberId": {
+                                    "type": "string"
+                                  },
+                                  "start": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "memberId",
+                                  "authoredHandle",
+                                  "start",
+                                  "end"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "title",
+                            "summary",
+                            "body"
+                          ],
+                          "type": "object"
+                        },
                         "state": {
                           "enum": [
                             "draft",
@@ -5251,7 +6002,8 @@
                         "effectiveAt",
                         "expiresAt",
                         "createdAt",
-                        "content"
+                        "content",
+                        "mentions"
                       ],
                       "type": "object"
                     }
@@ -5309,7 +6061,8 @@
           "clubScope",
           "results",
           "hasMore",
-          "nextCursor"
+          "nextCursor",
+          "included"
         ],
         "type": "object"
       },
@@ -5550,6 +6303,98 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "mentions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "summary": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "title": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "summary",
+                      "body"
+                    ],
+                    "type": "object"
+                  },
                   "state": {
                     "enum": [
                       "draft",
@@ -5579,7 +6424,8 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content"
+                  "content",
+                  "mentions"
                 ],
                 "type": "object"
               }
@@ -5597,10 +6443,48 @@
               "createdAt"
             ],
             "type": "object"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "entity"
+          "entity",
+          "included"
         ],
         "type": "object"
       },
@@ -5835,6 +6719,98 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "mentions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "summary": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "title": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "summary",
+                      "body"
+                    ],
+                    "type": "object"
+                  },
                   "state": {
                     "enum": [
                       "draft",
@@ -5864,7 +6840,8 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content"
+                  "content",
+                  "mentions"
                 ],
                 "type": "object"
               }
@@ -5882,10 +6859,48 @@
               "createdAt"
             ],
             "type": "object"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "entity"
+          "entity",
+          "included"
         ],
         "type": "object"
       },
@@ -6006,6 +7021,43 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           },
           "limit": {
             "type": "number"
@@ -6229,6 +7281,98 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "mentions": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "body": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "authoredHandle": {
+                                "type": "string"
+                              },
+                              "end": {
+                                "type": "number"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "memberId",
+                              "authoredHandle",
+                              "start",
+                              "end"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "summary": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "authoredHandle": {
+                                "type": "string"
+                              },
+                              "end": {
+                                "type": "number"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "memberId",
+                              "authoredHandle",
+                              "start",
+                              "end"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "authoredHandle": {
+                                "type": "string"
+                              },
+                              "end": {
+                                "type": "number"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "memberId",
+                              "authoredHandle",
+                              "start",
+                              "end"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "title",
+                        "summary",
+                        "body"
+                      ],
+                      "type": "object"
+                    },
                     "state": {
                       "enum": [
                         "draft",
@@ -6258,7 +7402,8 @@
                     "effectiveAt",
                     "expiresAt",
                     "createdAt",
-                    "content"
+                    "content",
+                    "mentions"
                   ],
                   "type": "object"
                 }
@@ -6287,7 +7432,8 @@
           "clubScope",
           "results",
           "hasMore",
-          "nextCursor"
+          "nextCursor",
+          "included"
         ],
         "type": "object"
       },
@@ -6298,6 +7444,11 @@
       "auth": "member",
       "authorizationNote": "Only the original author may update. At least one field must change.",
       "businessErrors": [
+        {
+          "code": "invalid_mentions",
+          "meaning": "One or more @handle mentions could not be resolved in the target club.",
+          "recovery": "Correct or remove the listed mentions, then resubmit the update."
+        },
         {
           "code": "illegal_content",
           "meaning": "The content gate rejected the update for soliciting or facilitating clearly illegal activity.",
@@ -6611,6 +7762,98 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "mentions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "summary": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "title": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "summary",
+                      "body"
+                    ],
+                    "type": "object"
+                  },
                   "state": {
                     "enum": [
                       "draft",
@@ -6640,7 +7883,8 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content"
+                  "content",
+                  "mentions"
                 ],
                 "type": "object"
               }
@@ -6658,10 +7902,48 @@
               "createdAt"
             ],
             "type": "object"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "entity"
+          "entity",
+          "included"
         ],
         "type": "object"
       },
@@ -6895,6 +8177,98 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "mentions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "summary": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "title": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "summary",
+                      "body"
+                    ],
+                    "type": "object"
+                  },
                   "state": {
                     "enum": [
                       "draft",
@@ -6924,7 +8298,8 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content"
+                  "content",
+                  "mentions"
                 ],
                 "type": "object"
               }
@@ -6942,10 +8317,48 @@
               "createdAt"
             ],
             "type": "object"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "entity"
+          "entity",
+          "included"
         ],
         "type": "object"
       },
@@ -7049,6 +8462,43 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           },
           "limit": {
             "type": "number"
@@ -7270,6 +8720,98 @@
                       "nullable": true,
                       "type": "string"
                     },
+                    "mentions": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "body": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "authoredHandle": {
+                                "type": "string"
+                              },
+                              "end": {
+                                "type": "number"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "memberId",
+                              "authoredHandle",
+                              "start",
+                              "end"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "summary": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "authoredHandle": {
+                                "type": "string"
+                              },
+                              "end": {
+                                "type": "number"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "memberId",
+                              "authoredHandle",
+                              "start",
+                              "end"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "authoredHandle": {
+                                "type": "string"
+                              },
+                              "end": {
+                                "type": "number"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "start": {
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "memberId",
+                              "authoredHandle",
+                              "start",
+                              "end"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "title",
+                        "summary",
+                        "body"
+                      ],
+                      "type": "object"
+                    },
                     "state": {
                       "enum": [
                         "draft",
@@ -7299,7 +8841,8 @@
                     "effectiveAt",
                     "expiresAt",
                     "createdAt",
-                    "content"
+                    "content",
+                    "mentions"
                   ],
                   "type": "object"
                 }
@@ -7327,7 +8870,8 @@
           "clubScope",
           "results",
           "hasMore",
-          "nextCursor"
+          "nextCursor",
+          "included"
         ],
         "type": "object"
       },
@@ -7578,6 +9122,98 @@
                     "nullable": true,
                     "type": "string"
                   },
+                  "mentions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "summary": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "title": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredHandle": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredHandle",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "summary",
+                      "body"
+                    ],
+                    "type": "object"
+                  },
                   "state": {
                     "enum": [
                       "draft",
@@ -7607,7 +9243,8 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content"
+                  "content",
+                  "mentions"
                 ],
                 "type": "object"
               }
@@ -7625,10 +9262,48 @@
               "createdAt"
             ],
             "type": "object"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
           }
         },
         "required": [
-          "entity"
+          "entity",
+          "included"
         ],
         "type": "object"
       },
@@ -8367,6 +10042,43 @@
           "hasMore": {
             "type": "boolean"
           },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
+          },
           "limit": {
             "type": "number"
           },
@@ -8394,6 +10106,33 @@
                     "createdAt": {
                       "type": "string"
                     },
+                    "mentions": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "authoredHandle": {
+                            "type": "string"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "memberId": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "memberId",
+                          "authoredHandle",
+                          "start",
+                          "end"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
                     "messageId": {
                       "type": "string"
                     },
@@ -8419,6 +10158,7 @@
                     "senderMemberId",
                     "role",
                     "messageText",
+                    "mentions",
                     "createdAt"
                   ],
                   "type": "object"
@@ -8501,7 +10241,8 @@
           "unreadOnly",
           "results",
           "hasMore",
-          "nextCursor"
+          "nextCursor",
+          "included"
         ],
         "type": "object"
       },
@@ -8541,6 +10282,43 @@
           "hasMore": {
             "type": "boolean"
           },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
+          },
           "messages": {
             "items": {
               "additionalProperties": false,
@@ -8551,6 +10329,33 @@
                 "inReplyToMessageId": {
                   "nullable": true,
                   "type": "string"
+                },
+                "mentions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "authoredHandle": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "number"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "start": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "authoredHandle",
+                      "start",
+                      "end"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
                 },
                 "messageId": {
                   "type": "string"
@@ -8652,6 +10457,7 @@
                 "senderMemberId",
                 "role",
                 "messageText",
+                "mentions",
                 "payload",
                 "createdAt",
                 "inReplyToMessageId",
@@ -8684,6 +10490,33 @@
                   "createdAt": {
                     "type": "string"
                   },
+                  "mentions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "authoredHandle": {
+                          "type": "string"
+                        },
+                        "end": {
+                          "type": "number"
+                        },
+                        "memberId": {
+                          "type": "string"
+                        },
+                        "start": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "memberId",
+                        "authoredHandle",
+                        "start",
+                        "end"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
                   "messageId": {
                     "type": "string"
                   },
@@ -8709,6 +10542,7 @@
                   "senderMemberId",
                   "role",
                   "messageText",
+                  "mentions",
                   "createdAt"
                 ],
                 "type": "object"
@@ -8759,7 +10593,8 @@
           "thread",
           "messages",
           "hasMore",
-          "nextCursor"
+          "nextCursor",
+          "included"
         ],
         "type": "object"
       },
@@ -8833,6 +10668,11 @@
           "code": "client_key_conflict",
           "meaning": "The clientKey has already been used for a different conversation or message text.",
           "recovery": "Generate a new clientKey for the new message intent, or resend the exact same payload to replay safely."
+        },
+        {
+          "code": "invalid_mentions",
+          "meaning": "One or more @handle mentions could not be resolved in the current DM scope.",
+          "recovery": "Correct or remove the listed mentions, then resend the message."
         }
       ],
       "description": "Send a direct message to another member. Requires at least one shared club, or an existing thread between the participants.",
@@ -8867,11 +10707,75 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
+          },
           "message": {
             "additionalProperties": false,
             "properties": {
               "createdAt": {
                 "type": "string"
+              },
+              "mentions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "authoredHandle": {
+                      "type": "string"
+                    },
+                    "end": {
+                      "type": "number"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "start": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "authoredHandle",
+                    "start",
+                    "end"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
               },
               "messageId": {
                 "type": "string"
@@ -8922,6 +10826,7 @@
               "recipientMemberId",
               "messageId",
               "messageText",
+              "mentions",
               "createdAt",
               "updateCount"
             ],
@@ -8929,7 +10834,8 @@
           }
         },
         "required": [
-          "message"
+          "message",
+          "included"
         ],
         "type": "object"
       },
@@ -10498,6 +12404,33 @@
                 "title": {
                   "nullable": true,
                   "type": "string"
+                },
+                "titleMentions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "authoredHandle": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "number"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "start": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "authoredHandle",
+                      "start",
+                      "end"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
                 }
               },
               "required": [
@@ -10508,6 +12441,7 @@
                 "kind",
                 "author",
                 "title",
+                "titleMentions",
                 "state",
                 "createdAt"
               ],
@@ -10518,6 +12452,43 @@
           "hasMore": {
             "type": "boolean"
           },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
+          },
           "nextCursor": {
             "nullable": true,
             "type": "string"
@@ -10526,7 +12497,8 @@
         "required": [
           "content",
           "hasMore",
-          "nextCursor"
+          "nextCursor",
+          "included"
         ],
         "type": "object"
       },
@@ -11163,6 +13135,43 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
+          },
           "messages": {
             "items": {
               "additionalProperties": false,
@@ -11173,6 +13182,33 @@
                 "inReplyToMessageId": {
                   "nullable": true,
                   "type": "string"
+                },
+                "mentions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "authoredHandle": {
+                        "type": "string"
+                      },
+                      "end": {
+                        "type": "number"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "start": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "authoredHandle",
+                      "start",
+                      "end"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
                 },
                 "messageId": {
                   "type": "string"
@@ -11274,6 +13310,7 @@
                 "senderMemberId",
                 "role",
                 "messageText",
+                "mentions",
                 "payload",
                 "createdAt",
                 "inReplyToMessageId",
@@ -11355,7 +13392,8 @@
         },
         "required": [
           "thread",
-          "messages"
+          "messages",
+          "included"
         ],
         "type": "object"
       },
@@ -12587,6 +14625,6 @@
       }
     }
   },
-  "version": "0.2.20",
-  "schemaHash": "c4019b2eb8f845df"
+  "version": "0.2.21",
+  "schemaHash": "badf308fb6115146"
 }

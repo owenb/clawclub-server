@@ -31,6 +31,24 @@ export const sharedClubRef = z.object({
   name: z.string(),
 });
 
+export const mentionSpan = z.object({
+  memberId: z.string(),
+  authoredHandle: z.string(),
+  start: z.number(),
+  end: z.number(),
+});
+
+export const includedMember = z.object({
+  memberId: z.string(),
+  publicName: z.string(),
+  displayName: z.string(),
+  handle: z.string().nullable(),
+});
+
+export const includedBundle = z.object({
+  membersById: z.record(z.string(), includedMember),
+});
+
 // ── Membership ───────────────────────────────────────────
 
 export const membershipSummary = z.object({
@@ -262,6 +280,11 @@ export const contentEntity = z.object({
     expiresAt: z.string().nullable(),
     createdAt: z.string(),
     content: z.record(z.string(), z.unknown()),
+    mentions: z.object({
+      title: z.array(mentionSpan),
+      summary: z.array(mentionSpan),
+      body: z.array(mentionSpan),
+    }),
   }),
   event: z.object({
     location: z.string().nullable(),
@@ -320,6 +343,7 @@ export const directMessageSummary = z.object({
   recipientMemberId: z.string(),
   messageId: z.string(),
   messageText: z.string(),
+  mentions: z.array(mentionSpan),
   createdAt: z.string(),
   updateCount: z.number(),
 });
@@ -335,6 +359,7 @@ export const directMessageThreadSummary = z.object({
     senderMemberId: z.string().nullable(),
     role: messageRole,
     messageText: z.string().nullable(),
+    mentions: z.array(mentionSpan),
     createdAt: z.string(),
   }),
   messageCount: z.number(),
@@ -361,6 +386,7 @@ export const directMessageEntry = z.object({
   senderMemberId: z.string().nullable(),
   role: messageRole,
   messageText: z.string().nullable(),
+  mentions: z.array(mentionSpan),
   payload: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
   inReplyToMessageId: z.string().nullable(),
@@ -537,6 +563,7 @@ export const adminContentSummary = z.object({
   kind: entityKind,
   author: memberRef,
   title: z.string().nullable(),
+  titleMentions: z.array(mentionSpan),
   state: entityState,
   createdAt: z.string(),
 });

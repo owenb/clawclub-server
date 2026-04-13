@@ -13,6 +13,7 @@ import {
   type DirectMessageThreadSummary,
   type EntitySummary,
   type EventSummary,
+  type IncludedBundle,
   type ListEntitiesInput,
   type ListEventsInput,
   type MembershipAdminSummary,
@@ -29,6 +30,12 @@ import {
 } from '../../src/contract.ts';
 import { buildDispatcher } from '../../src/dispatch.ts';
 import { passthroughGate } from './fixtures.ts';
+
+const EMPTY_INCLUDED: IncludedBundle = { membersById: {} };
+
+function withIncluded<T>(value: T): T & { included: IncludedBundle } {
+  return { ...value, included: EMPTY_INCLUDED };
+}
 
 function makeActor(): ActorContext {
   return {
@@ -232,6 +239,7 @@ function makeDirectMessage(overrides: Partial<DirectMessageSummary> = {}): Direc
     recipientMemberId: 'member-2',
     messageId: 'message-1',
     messageText: 'Hello there',
+    mentions: [],
     createdAt: '2026-03-12T00:03:00Z',
     updateCount: 1,
     ...overrides,
@@ -250,6 +258,7 @@ function makeDirectMessageThread(overrides: Partial<DirectMessageThreadSummary> 
       senderMemberId: 'member-2',
       role: 'member',
       messageText: 'Hello there',
+      mentions: [],
       createdAt: '2026-03-12T00:03:00Z',
     },
     messageCount: 2,
@@ -279,6 +288,7 @@ function makeDirectMessageTranscriptEntry(
     senderMemberId: 'member-2',
     role: 'member',
     messageText: 'Hello there',
+    mentions: [],
     payload: {},
     createdAt: '2026-03-12T00:03:00Z',
     inReplyToMessageId: null,
@@ -484,6 +494,7 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
       expiresAt: null,
       createdAt: '2026-03-12T00:00:00Z',
       content: {},
+      mentions: { title: [], summary: [], body: [] },
       ...(overrides.version ?? {}),
     },
     event: null,
@@ -517,6 +528,7 @@ function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
       expiresAt: null,
       createdAt: '2026-03-12T00:00:00Z',
       content: {},
+      mentions: { title: [], summary: [], body: [] },
       ...(overrides.version ?? {}),
     },
     event: {
@@ -607,19 +619,19 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return makeProfile();
     },
     async createEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async updateEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async createEvent() {
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
-      return makeEvent();
+      return withIncluded({ entity: makeEvent() });
     },
     async listBearerTokens() {
       return [makeBearerTokenSummary()];
@@ -631,24 +643,24 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return makeBearerTokenSummary({ revokedAt: '2026-03-12T01:00:00Z' });
     },
     async sendDirectMessage() {
-      return makeDirectMessage();
+      return withIncluded({ message: makeDirectMessage() });
     },
     async listDirectMessageThreads() {
       return [makeDirectMessageThread()];
     },
     async listDirectMessageInbox() {
-      return { results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null };
+      return withIncluded({ results: [makeDirectMessageInbox()], hasMore: false, nextCursor: null });
     },
     async readDirectMessageThread() {
-      return {
+      return withIncluded({
         thread: makeDirectMessageThread(),
         messages: [makeDirectMessageTranscriptEntry()],
         hasMore: false,
         nextCursor: null,
-      };
+      });
     },
     async listEntities() {
-      return { results: [makeEntity()], hasMore: false, nextCursor: null };
+      return withIncluded({ results: [makeThreadSummary()], hasMore: false, nextCursor: null });
     },
   };
 }
@@ -1127,10 +1139,10 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
       return makeProfile();
     },
     async createEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async updateEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async createEvent() {
       return makeEvent();
@@ -1228,19 +1240,19 @@ test('members.list returns active members with scoped membership context', async
       return makeProfile();
     },
     async createEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async updateEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async createEvent() {
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
-      return makeEvent();
+      return withIncluded({ entity: makeEvent() });
     },
     async listBearerTokens() {
       return [makeBearerTokenSummary()];
@@ -1521,19 +1533,21 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
     },
     async createEntity(input) {
       capturedInput = input;
-      return {
-        ...makeEntity(),
-        clubId: input.clubId,
-        kind: input.kind,
-        version: {
-          ...makeEntity().version,
-          title: input.title,
-          summary: input.summary,
-          body: input.body,
-          expiresAt: input.expiresAt,
-          content: input.content,
+      return withIncluded({
+        entity: {
+          ...makeEntity(),
+          clubId: input.clubId,
+          kind: input.kind,
+          version: {
+            ...makeEntity().version,
+            title: input.title,
+            summary: input.summary,
+            body: input.body,
+            expiresAt: input.expiresAt,
+            content: input.content,
+          },
         },
-      };
+      });
     },
     async updateEntity() {
       return makeEntity();
@@ -1641,22 +1655,24 @@ test('content.update appends a new version on the shared entity surface', async 
       return makeProfile();
     },
     async createEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async updateEntity(input) {
       capturedInput = input;
-      return makeEntity({
-        entityVersionId: 'entity-version-2',
-        clubId: 'club-2',
-        version: {
-          ...makeEntity().version,
-          versionNo: 2,
-          title: input.patch.title ?? null,
-          summary: input.patch.summary ?? null,
-          body: input.patch.body ?? null,
-          expiresAt: input.patch.expiresAt ?? null,
-          content: input.patch.content ?? {},
-        },
+      return withIncluded({
+        entity: makeEntity({
+          entityVersionId: 'entity-version-2',
+          clubId: 'club-2',
+          version: {
+            ...makeEntity().version,
+            versionNo: 2,
+            title: input.patch.title ?? null,
+            summary: input.patch.summary ?? null,
+            body: input.patch.body ?? null,
+            expiresAt: input.patch.expiresAt ?? null,
+            content: input.patch.content ?? {},
+          },
+        }),
       });
     },
     async sendDirectMessage() {
@@ -1730,24 +1746,26 @@ test('content.remove appends a removed version on the shared entity surface', as
       return makeProfile();
     },
     async createEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async updateEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async removeEntity(input) {
       capturedInput = input;
-      return makeEntity({
-        entityVersionId: 'entity-version-3',
-        clubId: 'club-2',
-        version: {
-          ...makeEntity().version,
-          versionNo: 3,
-          state: 'removed',
-          effectiveAt: '2026-03-12T01:00:00Z',
-          expiresAt: '2026-03-12T01:00:00Z',
-          createdAt: '2026-03-12T01:00:00Z',
-        },
+      return withIncluded({
+        entity: makeEntity({
+          entityVersionId: 'entity-version-3',
+          clubId: 'club-2',
+          version: {
+            ...makeEntity().version,
+            versionNo: 3,
+            state: 'removed',
+            effectiveAt: '2026-03-12T01:00:00Z',
+            expiresAt: '2026-03-12T01:00:00Z',
+            createdAt: '2026-03-12T01:00:00Z',
+          },
+        }),
       });
     },
     async sendDirectMessage() {
@@ -1902,24 +1920,26 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
       return makeProfile();
     },
     async createEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async updateEntity() {
-      return makeEntity();
+      return withIncluded({ entity: makeEntity() });
     },
     async createEntity(input) {
       capturedInput = input as Record<string, unknown>;
-      return makeEvent({
-        clubId: input.clubId ?? 'club-2',
-        version: { ...makeEvent().version, title: input.title },
-        event: { ...makeEvent().event!, capacity: input.event?.capacity ?? null },
+      return withIncluded({
+        entity: makeEvent({
+          clubId: input.clubId ?? 'club-2',
+          version: { ...makeEvent().version, title: input.title },
+          event: { ...makeEvent().event!, capacity: input.event?.capacity ?? null },
+        }),
       });
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
-      return makeEvent();
+      return withIncluded({ entity: makeEvent() });
     },
     async listBearerTokens() {
       return [makeBearerTokenSummary()];
@@ -2128,27 +2148,29 @@ test('events.rsvp uses the actor membership in the event club', async () => {
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent(input) {
       capturedInput = input;
-      return makeEvent({
-        clubId: 'club-2',
-        rsvps: {
-          viewerResponse: 'yes',
-          counts: { yes: 1, maybe: 0, no: 0, waitlist: 0 },
-          attendees: [
-            {
-              membershipId: 'membership-2',
-              memberId: 'member-1',
-              publicName: 'Member One',
-              handle: 'member-one',
-              response: 'yes',
-              note: 'I am in',
-              createdAt: '2026-03-12T00:00:00Z',
-            },
-          ],
-        },
+      return withIncluded({
+        entity: makeEvent({
+          clubId: 'club-2',
+          rsvps: {
+            viewerResponse: 'yes',
+            counts: { yes: 1, maybe: 0, no: 0, waitlist: 0 },
+            attendees: [
+              {
+                membershipId: 'membership-2',
+                memberId: 'member-1',
+                publicName: 'Member One',
+                handle: 'member-one',
+                response: 'yes',
+                note: 'I am in',
+                createdAt: '2026-03-12T00:00:00Z',
+              },
+            ],
+          },
+        }),
       });
     },
     async sendDirectMessage() {
@@ -2474,10 +2496,12 @@ test('messages.send picks a shared club, appends the request scope, and returns 
     },
     async sendDirectMessage(input) {
       capturedInput = input as Record<string, unknown>;
-      return makeDirectMessage({
-        recipientMemberId: 'member-9',
-        messageText: input.messageText,
-        updateCount: 2,
+      return withIncluded({
+        message: makeDirectMessage({
+          recipientMemberId: 'member-9',
+          messageText: input.messageText,
+          updateCount: 2,
+        }),
       });
     },
     async listDirectMessageThreads() {

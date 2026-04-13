@@ -100,6 +100,11 @@ export type ColdHandlerContext = {
   repository: Repository;
 };
 
+export type PreGateContext = {
+  actor: ActorContext;
+  repository: Repository;
+};
+
 // ── Action result ────────────────────────────────────────
 // Structured return type from handlers. The transport layer
 // assembles the canonical envelope from this.
@@ -164,6 +169,13 @@ export type ActionDefinition = {
   requiredCapability?: RepositoryCapability;
 
   /**
+   * Optional preflight hook for authenticated actions.
+   * Runs after parsing and before any quality gate execution.
+   * Signals failure by throwing AppError.
+   */
+  preGate?: (input: unknown, ctx: PreGateContext) => Promise<void>;
+
+  /**
    * Handler for authenticated actions.
    * Receives parsed input and full handler context.
    */
@@ -188,6 +200,9 @@ export function registerActions(actions: ActionDefinition[]): void {
   for (const action of actions) {
     if (registry.has(action.action)) {
       throw new Error(`Duplicate action registration: ${action.action}`);
+    }
+    if (action.auth === 'none' && action.preGate) {
+      throw new Error(`Cold action ${action.action} must not define preGate`);
     }
     registry.set(action.action, action);
   }

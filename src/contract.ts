@@ -487,6 +487,11 @@ export type ContentEntity = {
     expiresAt: string | null;
     createdAt: string;
     content: Record<string, unknown>;
+    mentions: {
+      title: MentionSpan[];
+      summary: MentionSpan[];
+      body: MentionSpan[];
+    };
   };
   event: EventFields | null;
   rsvps: EventRsvpSummary | null;
@@ -602,6 +607,28 @@ export type SharedClubRef = {
   name: string;
 };
 
+export type MentionSpan = {
+  memberId: string;
+  authoredHandle: string;
+  start: number;
+  end: number;
+};
+
+export type IncludedMember = {
+  memberId: string;
+  publicName: string;
+  displayName: string;
+  handle: string | null;
+};
+
+export type IncludedBundle = {
+  membersById: Record<string, IncludedMember>;
+};
+
+export type WithIncluded<T> = T & {
+  included: IncludedBundle;
+};
+
 export type MessageRemovalResult = {
   messageId: string;
   removedByMemberId: string;
@@ -644,6 +671,7 @@ export type DirectMessageSummary = {
   recipientMemberId: string;
   messageId: string;
   messageText: string;
+  mentions: MentionSpan[];
   createdAt: string;
   updateCount: number;
 };
@@ -659,6 +687,7 @@ export type DirectMessageThreadSummary = {
     senderMemberId: string | null;
     role: 'member' | 'agent' | 'system';
     messageText: string | null;
+    mentions: MentionSpan[];
     createdAt: string;
   };
   messageCount: number;
@@ -694,6 +723,7 @@ export type DirectMessageEntry = {
   senderMemberId: string | null;
   role: 'member' | 'agent' | 'system';
   messageText: string | null;
+  mentions: MentionSpan[];
   payload: Record<string, unknown>;
   createdAt: string;
   inReplyToMessageId: string | null;
@@ -835,6 +865,7 @@ export type AdminContentSummary = {
     handle: string | null;
   };
   title: string | null;
+  titleMentions: MentionSpan[];
   state: EntityState;
   createdAt: string;
 };
@@ -919,16 +950,36 @@ export type Repository = {
   }): Promise<MemberProfileEnvelope | null>;
   updateMemberIdentity?(input: { actor: ActorContext; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
   updateClubProfile?(input: { actor: ActorContext; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
-  createEntity(input: CreateEntityInput): Promise<ContentEntity>;
-  updateEntity(input: UpdateEntityInput): Promise<ContentEntity | null>;
-  closeEntityLoop(input: SetEntityLoopInput): Promise<ContentEntity | null>;
-  reopenEntityLoop(input: SetEntityLoopInput): Promise<ContentEntity | null>;
-  removeEntity?(input: RemoveEntityInput): Promise<ContentEntity | null>;
-  listEntities(input: ListEntitiesInput): Promise<Paginated<ContentThreadSummary>>;
-  readContentThread(input: ReadContentThreadInput): Promise<{ thread: ContentThreadSummary; entities: ContentEntity[]; hasMore: boolean; nextCursor: string | null } | null>;
-  listEvents(input: ListEventsInput): Promise<Paginated<ContentEntity>>;
-  rsvpEvent(input: RsvpEventInput): Promise<ContentEntity | null>;
-  cancelEventRsvp(input: { actorMemberId: string; eventEntityId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<ContentEntity | null>;
+  preflightCreateEntityMentions?(input: {
+    actorMemberId: string;
+    actorClubIds: string[];
+    clubId?: string;
+    threadId?: string;
+    title: string | null;
+    summary: string | null;
+    body: string | null;
+    clientKey?: string | null;
+  }): Promise<void>;
+  preflightUpdateEntityMentions?(input: {
+    actorMemberId: string;
+    actorClubIds: string[];
+    entityId: string;
+    patch: {
+      title?: string | null;
+      summary?: string | null;
+      body?: string | null;
+    };
+  }): Promise<void>;
+  createEntity(input: CreateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }>>;
+  updateEntity(input: UpdateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
+  closeEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
+  reopenEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
+  removeEntity?(input: RemoveEntityInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
+  listEntities(input: ListEntitiesInput): Promise<WithIncluded<Paginated<ContentThreadSummary>>>;
+  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: ContentThreadSummary; entities: ContentEntity[]; hasMore: boolean; nextCursor: string | null }> | null>;
+  listEvents(input: ListEventsInput): Promise<WithIncluded<Paginated<ContentEntity>>>;
+  rsvpEvent(input: RsvpEventInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
+  cancelEventRsvp(input: { actorMemberId: string; eventEntityId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
@@ -940,20 +991,20 @@ export type Repository = {
   }): Promise<MemberUpdates>;
   getLatestCursor?(input: { actorMemberId: string; clubIds: string[] }): Promise<string | null>;
   acknowledgeUpdates?(input: AcknowledgeUpdatesInput): Promise<UpdateReceipt[]>;
-  sendDirectMessage(input: SendDirectMessageInput): Promise<DirectMessageSummary | null>;
+  sendDirectMessage(input: SendDirectMessageInput): Promise<WithIncluded<{ message: DirectMessageSummary }> | null>;
   listDirectMessageThreads(input: { actorMemberId: string; limit: number }): Promise<DirectMessageThreadSummary[]>;
   listDirectMessageInbox(input: {
     actorMemberId: string;
     limit: number;
     unreadOnly: boolean;
     cursor?: { latestActivityAt: string; threadId: string } | null;
-  }): Promise<Paginated<DirectMessageInboxSummary>>;
+  }): Promise<WithIncluded<Paginated<DirectMessageInboxSummary>>>;
   readDirectMessageThread(input: {
     actorMemberId: string;
     threadId: string;
     limit: number;
     cursor?: { createdAt: string; messageId: string } | null;
-  }): Promise<{ thread: DirectMessageThreadSummary; messages: DirectMessageEntry[]; hasMore: boolean; nextCursor: string | null } | null>;
+  }): Promise<WithIncluded<{ thread: DirectMessageThreadSummary; messages: DirectMessageEntry[]; hasMore: boolean; nextCursor: string | null }> | null>;
 
   createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
   listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<Paginated<MembershipVouchSummary>>;
@@ -983,9 +1034,9 @@ export type Repository = {
   adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminMemberSummary>>;
   adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;
   adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
-  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminContentSummary>>;
+  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<WithIncluded<Paginated<AdminContentSummary>>>;
   adminListThreads?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminThreadSummary>>;
-  adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] } | null>;
+  adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<WithIncluded<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] }> | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
   adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
   adminGetDiagnostics?(input: { actorMemberId: string }): Promise<AdminDiagnostics>;
@@ -1035,7 +1086,7 @@ export type Repository = {
     kinds?: string[];
     limit: number;
     cursor?: { distance: string; entityId: string } | null;
-  }): Promise<Paginated<ContentEntitySearchResult>>;
+  }): Promise<WithIncluded<Paginated<ContentEntitySearchResult>>>;
 };
 
 export type LogLlmUsageInput = {

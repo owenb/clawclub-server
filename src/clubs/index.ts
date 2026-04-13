@@ -7,6 +7,7 @@ import type {
   ContentEntitySearchResult,
   CreateEntityInput,
   EntitySummary,
+  IncludedBundle,
   ListEntitiesInput,
   MemberAdmissionRecord,
   ReadContentThreadInput,
@@ -23,10 +24,12 @@ import type {
   SolveAdmissionChallengeInput,
   AdmissionApplyResult,
   TransitionAdmissionInput,
+  WithIncluded,
 } from '../contract.ts';
 import { AppError } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { encodeCursor } from '../schemas/fields.ts';
+import { emptyIncludedBundle } from '../mentions.ts';
 import * as admissionsModule from './admissions.ts';
 import * as entities from './entities.ts';
 import * as events from './events.ts';
@@ -466,13 +469,20 @@ export async function listClubActivity(pool: Pool, input: {
 
 // ── Entity embedding search ─────────────────────────────────
 
-export type PaginatedEntitySearch = { results: ContentEntitySearchResult[]; hasMore: boolean; nextCursor: string | null };
+export type PaginatedEntitySearch = {
+  results: ContentEntitySearchResult[];
+  hasMore: boolean;
+  nextCursor: string | null;
+  included: IncludedBundle;
+};
 
 export async function findEntitiesViaEmbedding(pool: Pool, input: {
   actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number;
   cursor?: { distance: string; entityId: string } | null;
 }): Promise<PaginatedEntitySearch> {
-  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
+  if (input.clubIds.length === 0) {
+    return { results: [], hasMore: false, nextCursor: null, included: emptyIncludedBundle() };
+  }
 
   const fetchLimit = input.limit + 1;
   const cursorDist = input.cursor ? parseFloat(input.cursor.distance) : null;
@@ -516,7 +526,7 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
          and club_id = any($2::text[])`,
       [input.actorMemberId, input.clubIds],
     );
-    return entities.readContentEntitiesByIds(
+    return entities.readContentEntitiesBundleByIds(
       client,
       pageRows.map(row => row.entity_id),
       viewerMembershipIds.rows.map(row => row.membership_id),
@@ -525,7 +535,7 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
   });
 
   const scoreByEntityId = new Map(pageRows.map((row) => [row.entity_id, row._distance]));
-  const rows = contentRows.map((entity) => ({
+  const rows = contentRows.entities.map((entity) => ({
     ...entity,
     score: scoreByEntityId.get(entity.entityId) ?? Number.POSITIVE_INFINITY,
   }));
@@ -535,19 +545,19 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
     ? encodeCursor([String(lastRow._distance), lastRow.entity_id])
     : null;
 
-  return { results: rows, hasMore, nextCursor };
+  return { results: rows, hasMore, nextCursor, included: contentRows.included };
 }
 
 // ── Clubs Repository type ───────────────────────────────────
 
 export type ClubsRepository = {
-  createEntity(input: CreateEntityInput): Promise<EntitySummary>;
-  updateEntity(input: UpdateEntityInput): Promise<EntitySummary | null>;
-  closeEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
-  reopenEntityLoop(input: SetEntityLoopInput): Promise<EntitySummary | null>;
-  removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean }): Promise<EntitySummary | null>;
+  createEntity(input: CreateEntityInput): Promise<WithIncluded<{ entity: EntitySummary }>>;
+  updateEntity(input: UpdateEntityInput): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
+  closeEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
+  reopenEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
+  removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean }): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
   listEntities(input: ListEntitiesInput): Promise<import('./entities.ts').PaginatedThreads>;
-  readContentThread(input: ReadContentThreadInput): Promise<{ thread: import('../contract.ts').ContentThreadSummary; entities: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null } | null>;
+  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: import('../contract.ts').ContentThreadSummary; entities: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null }> | null>;
   getAdmissionsForMember(input: { memberId: string; clubId?: string }): Promise<MemberAdmissionRecord[]>;
 
   createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
@@ -562,9 +572,9 @@ export type ClubsRepository = {
 
   findEntitiesViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; entityId: string } | null }): Promise<PaginatedEntitySearch>;
 
-  listEvents(input: { actorMemberId: string; clubIds: string[]; limit: number; query?: string; cursor?: { startsAt: string; entityId: string } | null }): Promise<{ results: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null }>;
-  rsvpEvent(input: { actorMemberId: string; eventEntityId: string; response: import('../contract.ts').EventRsvpState; note?: string | null; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<import('../contract.ts').ContentEntity | null>;
-  cancelEventRsvp(input: { actorMemberId: string; eventEntityId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<import('../contract.ts').ContentEntity | null>;
+  listEvents(input: { actorMemberId: string; clubIds: string[]; limit: number; query?: string; cursor?: { startsAt: string; entityId: string } | null }): Promise<WithIncluded<{ results: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null }>>;
+  rsvpEvent(input: { actorMemberId: string; eventEntityId: string; response: import('../contract.ts').EventRsvpState; note?: string | null; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ entity: import('../contract.ts').ContentEntity }> | null>;
+  cancelEventRsvp(input: { actorMemberId: string; eventEntityId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ entity: import('../contract.ts').ContentEntity }> | null>;
 };
 
 export function createClubsRepository(pool: Pool): ClubsRepository {

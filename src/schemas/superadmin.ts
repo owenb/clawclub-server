@@ -27,6 +27,7 @@ import {
   adminDiagnostics, clubSummary,
   adminContentSummary, adminThreadSummary,
   directMessageEntry,
+  includedBundle,
   bearerTokenSummary,
   memberRef, membershipAdminSummary,
 } from './responses.ts';
@@ -502,7 +503,12 @@ const superadminContentList: ActionDefinition = {
       limit: wireLimit,
       cursor: wireCursor,
     }),
-    output: z.object({ content: z.array(adminContentSummary), hasMore: z.boolean(), nextCursor: z.string().nullable() }),
+    output: z.object({
+      content: z.array(adminContentSummary),
+      hasMore: z.boolean(),
+      nextCursor: z.string().nullable(),
+      included: includedBundle,
+    }),
   },
 
   parse: {
@@ -528,7 +534,14 @@ const superadminContentList: ActionDefinition = {
       cursor,
     });
 
-    return { data: { content: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor } };
+    return {
+      data: {
+        content: result.results,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+        included: result.included,
+      },
+    };
   },
 };
 
@@ -603,6 +616,7 @@ const superadminMessagesRead: ActionDefinition = {
     output: z.object({
       thread: adminThreadSummary,
       messages: z.array(directMessageEntry),
+      included: includedBundle,
     }),
   },
 

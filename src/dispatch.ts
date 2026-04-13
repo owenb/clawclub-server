@@ -372,6 +372,10 @@ async function dispatchAuthenticated(
     }
   }
 
+  if (def.preGate) {
+    await def.preGate(parsedInput, { actor, repository });
+  }
+
   // Legality gate (runs on parsed/normalized input, after auth, before execution)
   let notices: ResponseNotice[] = [];
   if (def.qualityGate) {

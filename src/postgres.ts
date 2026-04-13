@@ -14,6 +14,13 @@ import { generateAdmissionClubProfile, normalizeClubProfileFields } from './iden
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
 import { createClubsRepository, batchListVouches, type ClubsRepository } from './clubs/index.ts';
 import * as admissionsModule from './clubs/admissions.ts';
+import {
+  emptyIncludedBundle,
+  loadEntityVersionMentions,
+  loadDmMentions,
+  preflightContentCreateMentions,
+  preflightContentUpdateMentions,
+} from './mentions.ts';
 import { encodeCursor as paginationEncodeCursor } from './schemas/fields.ts';
 
 // ── Cursor helpers ──────────────────────────────────────────
@@ -313,6 +320,8 @@ export function createRepository(pool: Pool): Repository {
     buildMembershipSeedProfile: (input) => identity.buildMembershipSeedProfile(input),
     updateMemberIdentity: (input) => identity.updateMemberIdentity(input),
     updateClubProfile: (input) => identity.updateClubProfile(input),
+    preflightCreateEntityMentions: (input) => preflightContentCreateMentions(pool, input),
+    preflightUpdateEntityMentions: (input) => preflightContentUpdateMentions(pool, input),
 
     // ── Tokens ─────────────────────────────────────────────
     listBearerTokens: (input) => identity.listBearerTokens(input),
@@ -896,14 +905,18 @@ export function createRepository(pool: Pool): Repository {
       });
 
       return {
-        threadId: msg.threadId,
-        sharedClubs,
-        senderMemberId: msg.senderMemberId,
-        recipientMemberId: msg.recipientMemberId,
-        messageId: msg.messageId,
-        messageText: msg.messageText,
-        createdAt: msg.createdAt,
-        updateCount: 1,
+        message: {
+          threadId: msg.message.threadId,
+          sharedClubs,
+          senderMemberId: msg.message.senderMemberId,
+          recipientMemberId: msg.message.recipientMemberId,
+          messageId: msg.message.messageId,
+          messageText: msg.message.messageText,
+          mentions: msg.message.mentions,
+          createdAt: msg.message.createdAt,
+          updateCount: 1,
+        },
+        included: msg.included,
       };
     },
 
@@ -952,6 +965,7 @@ export function createRepository(pool: Pool): Repository {
         })),
         hasMore: paginated.hasMore,
         nextCursor: paginated.nextCursor,
+        included: paginated.included,
       };
     },
 
@@ -982,6 +996,7 @@ export function createRepository(pool: Pool): Repository {
         })),
         hasMore: result.hasMore,
         nextCursor: result.nextCursor,
+        included: result.included,
       };
     },
 
@@ -1577,11 +1592,12 @@ export function createRepository(pool: Pool): Repository {
       const result = await pool.query<{
         entity_id: string; content_thread_id: string; club_id: string; club_name: string; kind: string;
         author_member_id: string; author_public_name: string; author_handle: string | null;
-        title: string | null; state: string; created_at: string;
+        entity_version_id: string; title: string | null; state: string; created_at: string;
       }>(
         `select e.id as entity_id, e.content_thread_id, e.club_id, c.name as club_name,
                 e.kind::text as kind, e.author_member_id,
                 m.public_name as author_public_name, m.handle as author_handle,
+                cev.id as entity_version_id,
                 cev.title, cev.state::text as state, e.created_at::text as created_at
          from entities e
          join current_entity_versions cev on cev.entity_id = e.id
@@ -1595,18 +1611,28 @@ export function createRepository(pool: Pool): Repository {
         [clubId ?? null, kind ?? null, cursor?.createdAt ?? null, cursor?.id ?? null, fetchLimit],
       );
 
-      const rows = result.rows.map((r) => {
+      const hasMore = result.rows.length > limit;
+      const pageRows = hasMore ? result.rows.slice(0, limit) : result.rows;
+      const mentionBundle = await loadEntityVersionMentions(
+        pool,
+        pageRows.map((row) => row.entity_version_id),
+      );
+
+      const rows = pageRows.map((r) => {
         return {
           entityId: r.entity_id, contentThreadId: r.content_thread_id, clubId: r.club_id, clubName: r.club_name,
           kind: r.kind as any, author: { memberId: r.author_member_id, publicName: r.author_public_name, handle: r.author_handle },
-          title: r.title, state: r.state as any, createdAt: r.created_at,
+          title: r.state === 'removed' ? '[redacted]' : r.title,
+          titleMentions: r.state === 'removed'
+            ? []
+            : (mentionBundle.mentionsByVersionId.get(r.entity_version_id)?.title ?? []),
+          state: r.state as any,
+          createdAt: r.created_at,
         };
       });
-      const hasMore = rows.length > limit;
-      if (hasMore) rows.pop();
       const last = rows[rows.length - 1];
       const nextCursor = last ? paginationEncodeCursor([last.createdAt, last.entityId]) : null;
-      return { results: rows, hasMore, nextCursor };
+      return { results: rows, hasMore, nextCursor, included: mentionBundle.included };
     },
 
     async adminListThreads({ limit, cursor }) {
@@ -1678,13 +1704,14 @@ export function createRepository(pool: Pool): Repository {
       const messages = await pool.query<{
         message_id: string; thread_id: string; sender_member_id: string | null;
         role: string; message_text: string | null; payload: Record<string, unknown> | null;
-        created_at: string; in_reply_to_message_id: string | null;
+        created_at: string; in_reply_to_message_id: string | null; is_removed: boolean;
       }>(
         `select m.id as message_id, m.thread_id, m.sender_member_id,
                 m.role::text as role,
                 case when rmv.message_id is not null then '[Message removed]' else m.message_text end as message_text,
                 case when rmv.message_id is not null then null else m.payload end as payload,
-                m.created_at::text as created_at, m.in_reply_to_message_id
+                m.created_at::text as created_at, m.in_reply_to_message_id,
+                (rmv.message_id is not null) as is_removed
          from dm_messages m
          left join dm_message_removals rmv on rmv.message_id = m.id
          where m.thread_id = $1
@@ -1698,6 +1725,10 @@ export function createRepository(pool: Pool): Repository {
       const threadSharedClubs = participantIds.length === 2
         ? await resolveSharedClubsUnscoped(pool, participantIds[0], participantIds[1])
         : [];
+      const mentionBundle = await loadDmMentions(
+        pool,
+        messages.rows.filter((row) => !row.is_removed).map((row) => row.message_id),
+      );
 
       return {
         thread: {
@@ -1710,10 +1741,13 @@ export function createRepository(pool: Pool): Repository {
         messages: messages.rows.map((r) => ({
           messageId: r.message_id, threadId: r.thread_id, senderMemberId: r.sender_member_id,
           role: r.role as 'member' | 'agent' | 'system',
-          messageText: r.message_text, payload: r.payload ?? {},
+          messageText: r.message_text,
+          mentions: r.is_removed ? [] : (mentionBundle.mentionsByMessageId.get(r.message_id) ?? []),
+          payload: r.payload ?? {},
           createdAt: r.created_at, inReplyToMessageId: r.in_reply_to_message_id,
           updateReceipts: [],
         })).reverse(),
+        included: mentionBundle.included,
       };
     },
 

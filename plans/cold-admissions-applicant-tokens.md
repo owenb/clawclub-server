@@ -1,234 +1,149 @@
 # Plan: Outsider Admissions Redesign
 
-## Context for the reviewing agent
+## Context
 
-This plan has already been discussed with the owner.
+This plan is for the outsider admissions redesign in [clawclub-server](/Users/owen/Work/ClawClub/clawclub-server).
 
-- Breaking API changes are explicitly allowed.
-- Database migration is explicitly allowed.
-- The goal is the cleanest design from first principles, not compatibility with the current API.
-- The main product scope is outsider admissions:
-  - cold self-apply
-  - member sponsorship of outsiders
+Constraints and decisions:
+
+- breaking API changes are allowed
+- database migration is allowed
+- the goal is the cleanest design from first principles, not compatibility
+- the main scope is:
+  - cold outsider self-apply
+  - outsider sponsorship
   - applicant status polling
   - applicant token exchange after acceptance
-- Cross-applying should stay behaviorally the same, but API naming may be cleaned up if that makes the overall surface more coherent.
-- Billing compatibility is mandatory. This design must fit the existing and planned `payment_pending -> active` membership lifecycle in [docs/billing-sync-contract.md](/Users/owen/Work/ClawClub/clawclub-server/docs/billing-sync-contract.md) and [company/billing-design.md](/Users/owen/Work/ClawClub/clawclub-server/company/billing-design.md).
+- cross-apply should stay behaviorally unchanged for agents
+- billing compatibility is mandatory:
+  - accepted paid admissions still become `payment_pending`
+  - exchange should not wait for billing activation
 
-## Executive recommendation
+Relevant current code and docs:
 
-The right design is:
+- [src/clubs/admissions.ts](/Users/owen/Work/ClawClub/clawclub-server/src/clubs/admissions.ts)
+- [src/postgres.ts](/Users/owen/Work/ClawClub/clawclub-server/src/postgres.ts)
+- [src/token.ts](/Users/owen/Work/ClawClub/clawclub-server/src/token.ts)
+- [docs/billing-sync-contract.md](/Users/owen/Work/ClawClub/clawclub-server/docs/billing-sync-contract.md)
+- [company/billing-design.md](/Users/owen/Work/ClawClub/clawclub-server/company/billing-design.md)
 
-1. Sponsorship becomes a first-class record in its own table.
-2. Sponsorship does **not** create an admission.
-3. There is exactly one outsider admission path:
+## Executive decision
+
+The clean model is:
+
+1. Sponsorship becomes a first-class record in a new table.
+2. Sponsorship does not create an admission.
+3. There is exactly one outsider application path:
    - begin application
    - submit application
    - poll applicant status
    - exchange applicant token after acceptance
-4. A valid sponsorship code lets the outsider skip PoW during that normal outsider application flow.
-5. The resulting admission is still a normal self-application, with one or more attached sponsorship signals.
-6. On acceptance, the outsider gets a normal member token by exchanging their applicant token.
-7. Billing remains separate. Accepted paid admissions still become `payment_pending` before they become accessible.
+4. A valid sponsorship code skips PoW inside that one outsider path.
+5. Successful outsider submit returns an applicant-scoped token.
+6. Applicant exchange happens after acceptance, not after billing activation.
+7. Cross-apply keeps its current API for agents, but moves onto the same session/attempt storage under the hood.
 
-This is cleaner than bolting sponsorship onto the old model, and much cleaner than creating a separate sponsored-admission record and trying to merge it later.
+This keeps the model sharp:
 
----
+- admission = the real join attempt
+- sponsorship = a trust signal and PoW bypass
+- applicant token = narrow post-submit workflow credential
+- member token = normal member auth only
 
 ## Design goals
 
-## 1. One outsider join attempt = one admission
+### 1. One outsider join attempt equals one admission
 
-The current `member_sponsored` admission model is structurally awkward because it creates an admission before the outsider has actually applied.
+Do not create a second admission for sponsorship. That creates ambiguity around status, acceptance, billing, and reporting.
 
-That makes it hard to answer basic questions cleanly:
+### 2. Sponsorship is a signal, not a parallel path
 
-- Which application text is the real one?
-- Which record gets accepted?
-- What if the outsider was sponsored by multiple members?
-- What happens when billing later needs the accepted admission to map to one membership?
+Sponsorship should do one thing:
 
-The clean model is:
+- let a specific outsider skip PoW and give admins a sponsor signal
 
-- one outsider application -> one admission
-- zero or more sponsorships -> signals attached to that admission
+### 3. Agents should never have to guess the next method
 
-## 2. Sponsorship is a trust signal, not a path
+The API must make the next step explicit:
 
-Sponsorship should not be a parallel admissions path.
+- begin
+- submit
+- poll
+- exchange
 
-It should do one thing:
+### 4. Cold outsiders are not members before acceptance
 
-- reduce friction for a specific outsider by replacing PoW with sponsor-backed trust
+Do not create normal member tokens or early member accounts just to support polling.
 
-That preserves a single outsider application workflow while still rewarding real-world trust.
+### 5. Billing remains downstream of admission
 
-## 3. Agents should never have to guess which API to call
-
-The current public outsider flow is:
-
-- request challenge
-- solve PoW
-- submit application
-
-As soon as sponsorship can skip PoW, `requestChallenge` becomes the wrong abstraction.
-
-The agent should not have to infer:
-
-- "Am I in a challenge flow?"
-- "Am I in a sponsorship flow?"
-- "Should I call a different submit endpoint?"
-
-The API should make the next step explicit in the response.
-
-## 4. The auth boundary should stay sharp
-
-Cold outsiders are not members before acceptance.
-
-So they should not receive normal member tokens before acceptance, and they should not get early member rows just to support status polling.
-
-Applicant auth should remain:
-
-- admission-scoped
-- narrow
-- non-member
-
-## 5. Billing remains downstream of admission
-
-Admission acceptance and club access are not the same thing for paid clubs.
-
-The design must preserve:
-
-- accepted outsider -> member exists
-- paid club -> membership may still be `payment_pending`
-- access appears only after billing activation
-
----
-
-## The core model
-
-## Sponsorships become a separate primitive
-
-A sponsorship is:
-
-- a member in a club saying "this outsider should be able to apply without PoW"
-- addressed to a specific outsider email
-- represented by a shareable sponsorship code
-- redeemable into the outsider's one real admission
-
-It is **not**:
-
-- itself an admission
-- itself an account
-- itself a membership
-
-## Outsider applications become session-based
-
-Replace the public "request challenge" abstraction with a broader "begin application" abstraction.
-
-Why:
-
-- an outsider may need PoW
-- an outsider may have a sponsorship code and need no PoW
-- the agent should always start in the same place
-
-So the flow becomes:
-
-1. `beginApplication`
-2. inspect returned `proof.kind`
-3. `submitApplication`
-
-That is explicit and simple.
-
-## Applicant tokens remain the post-submit credential
-
-Once the outsider successfully submits an application, they receive an applicant token.
-
-That token can:
-
-- read status of that one admission
-- exchange into a normal member token after acceptance
-
-It cannot:
-
-- call member actions
-- access club data
-- access updates or SSE
-
----
+Acceptance and club access are distinct states for paid clubs.
 
 ## Recommended API surface
 
-## Remove or replace the current outsider/sponsorship actions
-
-Replace:
-
-- `admissions.public.requestChallenge`
-- `admissions.public.submitApplication` result semantics
-- `admissions.sponsorCandidate`
-
-Recommended forward API:
+### Outsider public flow
 
 - `admissions.public.beginApplication`
 - `admissions.public.submitApplication`
 - `admissions.applicant.getStatus`
 - `admissions.applicant.exchange`
+
+### Sponsorship flow
+
 - `admissions.sponsorships.issue`
 - `admissions.sponsorships.listMine`
 - `admissions.sponsorships.revoke`
 
-Recommended consistency rename:
+### Cross-apply
 
-- `admissions.crossClub.requestChallenge` -> `admissions.crossClub.beginApplication`
+Keep the current agent-facing API unchanged:
 
-Cross-applying does not need new behavior, but the begin/submit naming pattern is clearer and more consistent for agents.
+- `admissions.crossClub.requestChallenge`
+- `admissions.crossClub.submitApplication`
 
----
+Under the hood, cross-apply storage moves to the same session and attempt tables as the outsider flow.
 
 ## Agent call sequences
 
-This section is the most important one for API ergonomics.
+### Flow A: outsider with no sponsorship
 
-If the agent can follow these flows without guesswork, the API is doing its job.
-
-## Flow A: outsider with no sponsorship
-
-1. Agent calls `admissions.public.beginApplication` with:
-   - `clubSlug`
+1. Call `admissions.public.beginApplication` with `clubSlug`.
 2. Server returns:
    - `sessionId`
-   - `club`
+   - `expiresAt`
    - `proof.kind = 'pow'`
    - PoW parameters
-3. Agent solves PoW.
-4. Agent calls `admissions.public.submitApplication` with:
+3. Solve PoW.
+4. Call `admissions.public.submitApplication` with:
    - `sessionId`
    - `email`
-   - `nonce`
    - `nonce`
    - `name`
    - `socials`
    - `application`
-5. If accepted by the admission gate, server returns:
+5. On success, server returns:
    - `status = 'submitted'`
    - `admissionId`
    - `applicantToken`
-6. Agent stores the applicant token.
-7. Agent polls `admissions.applicant.getStatus`.
-8. Once accepted, agent calls `admissions.applicant.exchange`.
+6. Store the applicant token.
+7. Poll `admissions.applicant.getStatus`.
+8. When `exchange.eligible = true`, call `admissions.applicant.exchange`.
 
-## Flow B: outsider with sponsorship code
+### Flow B: outsider with sponsorship
 
-1. Agent asks the human for:
+1. Ask the human for:
    - `clubSlug`
    - `email`
    - `sponsorshipCode`
-2. Agent calls `admissions.public.beginApplication`.
+2. Call `admissions.public.beginApplication` with:
+   - `clubSlug`
+   - `email`
+   - `sponsorshipCode`
 3. Server returns:
    - `sessionId`
-   - `club`
+   - `expiresAt`
    - `proof.kind = 'sponsorship'`
-4. Agent calls `admissions.public.submitApplication` with:
+4. Call `admissions.public.submitApplication` with:
    - `sessionId`
    - `email`
    - `name`
@@ -236,11 +151,9 @@ If the agent can follow these flows without guesswork, the API is doing its job.
    - `application`
 5. The rest is identical to Flow A.
 
-There is no separate "sponsored outsider admissions" path after that point.
+### Flow C: sponsor issues a code
 
-## Flow C: member sponsoring an outsider
-
-1. Agent calls `admissions.sponsorships.issue` with:
+1. Call `admissions.sponsorships.issue` with:
    - `clubId`
    - `name`
    - `email`
@@ -248,39 +161,26 @@ There is no separate "sponsored outsider admissions" path after that point.
 2. Server returns:
    - sponsorship summary
    - `sponsorshipCode`
-3. Agent tells the sponsor to pass:
-   - the `clubSlug`
-   - the `sponsorshipCode`
-   - to the outsider
-4. The outsider then follows Flow B.
+3. Sponsor shares the code with the outsider.
+4. Outsider follows Flow B.
 
-That is the whole member-side sponsorship flow.
-
-## Flow D: accepted applicant in a paid club
+### Flow D: accepted outsider in a paid club
 
 1. Applicant polls `admissions.applicant.getStatus`.
-2. Status becomes `accepted`.
-3. Agent calls `admissions.applicant.exchange`.
-4. Server returns:
+2. Once status is `accepted` and `exchange.eligible = true`, call `admissions.applicant.exchange`.
+3. Server returns:
    - `status = 'exchanged'`
    - a normal `cc_live_...` bearer token
-5. Agent can now call:
+4. Agent can then call:
    - `session.getContext`
    - `billing.getMembershipStatus`
-6. If membership state is `payment_pending`, the user is admitted but not yet in the club's accessible surface.
-7. The agent must store the live token from the first successful exchange response. If it retries later, the API may report `already_exchanged` without returning the token again.
-
-That preserves the billing contract cleanly.
-
----
+5. If membership is `payment_pending`, the user is admitted but still has zero accessible clubs.
 
 ## Public outsider API
 
-## `admissions.public.beginApplication`
+### `admissions.public.beginApplication`
 
-This replaces the current "request challenge" concept.
-
-### Input
+#### Input
 
 ```ts
 {
@@ -290,21 +190,30 @@ This replaces the current "request challenge" concept.
 }
 ```
 
-### Why `email` is optional here
-
-Cold PoW applications do not need an email at session-creation time. Collecting email up front for every unauthenticated begin call creates unnecessary write amplification and a larger spam surface.
-
-But sponsorship validation does need an email, because the sponsorship code should be bound to the intended outsider identity.
-
-So the rule should be:
+#### Rules
 
 - if `sponsorshipCode` is absent:
-  - `email` must be omitted or ignored
+  - `email` should be omitted or ignored
+  - return `proof.kind = 'pow'`
 - if `sponsorshipCode` is present:
   - `email` is required
-  - the code must match that normalized email and club
+  - parse code as `cc_spon_<sponsorshipId>_<secret>`
+  - load the exact sponsorship row by `sponsorshipId`
+  - require:
+    - `revoked_at IS NULL`
+    - `redeemed_at IS NULL`
+    - `expired_at IS NULL`
+    - `(expires_at IS NULL OR expires_at > now())`
+    - club match
+    - normalized email match
+    - `hashTokenSecret(secret) = code_hash`
+  - create a sponsorship-backed session with:
+    - `proof.kind = 'sponsorship'`
+    - persisted `sponsorship_id`
+- invalid sponsorship must return an explicit error
+- do not silently fall back from invalid sponsorship to PoW
 
-### Output
+#### Output
 
 ```ts
 {
@@ -323,53 +232,32 @@ So the rule should be:
         kind: 'pow';
         difficulty: number;
       }
-    | { kind: 'sponsorship' };
+    | {
+        kind: 'sponsorship';
+      };
 }
 ```
 
-### Rules
+#### Duplicate-admission rule
 
-- no `sponsorshipCode`:
-  - return `proof.kind = 'pow'`
-- valid `sponsorshipCode` for this club and email:
-  - return `proof.kind = 'sponsorship'`
-- invalid or expired `sponsorshipCode`:
-  - return explicit error
-- if the outsider already has an active admission in this club:
-  - return explicit error such as `admission_exists`
-
-Do not silently fall back from invalid sponsorship to PoW. That would make the API feel magical and make agent behavior ambiguous.
-
-### Duplicate-admission rule
-
-`beginApplication` should reject if the product already has a current outsider admission for the same `(clubId, normalizedEmail)` in one of these statuses:
+`beginApplication` should reject when the product already has a current outsider admission for the same `(clubId, normalizedEmail)` in one of:
 
 - `submitted`
 - `interview_scheduled`
 - `interview_completed`
 - `accepted`
 
-`declined` and `withdrawn` admissions do not block a fresh begin.
+`declined` and `withdrawn` do not block a fresh begin.
 
-This prevents duplicate outsider admissions while still allowing a genuine re-application after a decision.
-
-### Recommended TTL
-
-Change the current outsider session TTL from "challenge-like" to "application-like."
-
-Recommendation:
+#### Session TTL
 
 - public outsider application session TTL: `24h`
 
-Why:
+Keep per-IP rate limits on public begin calls.
 
-- sessions now represent a drafting window, not just a puzzle
-- one hour is unnecessarily tight for humans answering a club policy well
-- the attempt cap already limits abuse
+### `admissions.public.submitApplication`
 
-## `admissions.public.submitApplication`
-
-### Input
+#### Input
 
 ```ts
 {
@@ -382,11 +270,9 @@ Why:
 }
 ```
 
-There is only one submit shape.
+There is one submit shape. The server already knows the session proof kind.
 
-The server already knows the session's proof kind. It should not require the client to echo that back.
-
-### Output
+#### Output
 
 ```ts
 type PublicSubmitResult =
@@ -406,52 +292,78 @@ type PublicSubmitResult =
     };
 ```
 
-### Why `submitted`, not `accepted`
+#### Phasing
 
-Because the action is not approving the outsider into the club.
+Mirror the existing cold-submit structure in [src/clubs/admissions.ts](/Users/owen/Work/ClawClub/clawclub-server/src/clubs/admissions.ts). The legality/completeness gate must not run inside a DB transaction or while holding the dedupe advisory lock.
 
-It is only:
+##### Phase 1: proof and attempt count
 
-- validating submission proof
-- running the admission completeness gate
-- creating the admission in `submitted`
+Run inside a short transaction:
 
-The current `accepted` result is semantically wrong and should be removed.
+1. load the session
+2. verify the session has not expired
+3. verify the proof
+4. count prior attempts
+5. reject if attempts are exhausted
+6. commit
 
-### Submit-time revalidation
+Proof rules:
 
-The server must re-check the proof at submit time, not just trust the begin response.
+- if `session.proof_kind = 'pow'`:
+  - `nonce` is required
+  - reject missing nonce with `missing_nonce`
+  - verify nonce against the session
+- if `session.proof_kind = 'sponsorship'`:
+  - ignore any supplied nonce
+  - re-load `session.sponsorship_id`
+  - require:
+    - `revoked_at IS NULL`
+    - `redeemed_at IS NULL`
+    - `expired_at IS NULL`
+    - `(expires_at IS NULL OR expires_at > now())`
+    - club match
+    - normalized email match
 
-For PoW:
+##### Phase 2: completeness gate
 
-- verify the nonce against the session
+Run the admission completeness / legality gate with no DB transaction and no advisory lock held.
 
-For sponsorship:
+##### Phase 3: record and create
 
-- verify at least one linked sponsorship is still open and valid for that club/email
+Run inside a second transaction:
 
-### Email rule at submit
+1. reload the session and verify it is still valid
+2. re-verify the proof
+3. acquire the canonical advisory lock:
+   - `admission_dedupe:<clubId>:<normalizedEmail>`
+4. query `current_admissions` for blocking statuses on the same `(clubId, normalizedEmail)`
+5. enforce the duplicate-admission rule again
+6. record the submission attempt
+7. on gate pass:
+   - create the `admissions` row
+   - write `origin = 'self_applied'`
+   - write immutable `submission_path`
+   - create the `admission_versions` row with `submitted`
+   - mint the applicant token
+   - if `session.sponsorship_id` exists, link exactly that sponsorship row and mark it `redeemed`
+8. commit
 
-`submitApplication` always carries the outsider's email.
+Do not hold the advisory lock or any row locks across the gate call.
 
-- for cold PoW sessions:
-  - this is the first time the server sees the outsider email
-- for sponsorship sessions:
-  - this must match the session-bound sponsored email
+#### Duplicate-admission enforcement
 
-That gives us a single submit shape without forcing all begin calls to write email-addressed sessions.
+The duplicate rule cannot be implemented as a partial unique index because status lives in `admission_versions` / `current_admissions`, not directly on `admissions`.
 
-This matches the existing cross-apply pattern where eligibility is checked again at submit time.
+Implementation rule:
 
----
+- outsider submit serializes on `admission_dedupe:<clubId>:<normalizedEmail>`
+- inside that transaction, re-check `current_admissions`
 
 ## Sponsorship API
 
-## `admissions.sponsorships.issue`
+### `admissions.sponsorships.issue`
 
-This replaces `admissions.sponsorCandidate`.
-
-### Input
+#### Input
 
 ```ts
 {
@@ -462,7 +374,7 @@ This replaces `admissions.sponsorCandidate`.
 }
 ```
 
-### Output
+#### Output
 
 ```ts
 {
@@ -487,38 +399,27 @@ This replaces `admissions.sponsorCandidate`.
 }
 ```
 
-### Why this action should be called `issue`
+#### Semantics
 
-Because it does two things:
-
-- creates a sponsorship signal
-- issues the code that the outsider needs
-
-That is clearer than `create`, and much clearer than the old `sponsorCandidate`, which implied that a whole admission was being created.
-
-### Recommended semantics
-
-This action should also solve the "lost sponsorship code" problem cleanly.
-
-Recommendation:
-
-- only one open sponsorship per `(clubId, sponsorMemberId, normalizedCandidateEmail)`
+- sponsor must be a member of the club with access to sponsor
+- run the quality gate on `reason`
+- sponsorship code format:
+  - `cc_spon_<sponsorshipId>_<secret>`
+- compute `code_hash` with the existing `hashTokenSecret` helper from [src/token.ts](/Users/owen/Work/ClawClub/clawclub-server/src/token.ts)
+- allow only one open sponsorship per `(clubId, sponsorMemberId, normalizedEmail)`
+- serialize revoke-plus-insert on:
+  - `sponsorship_issue:<clubId>:<sponsorMemberId>:<normalizedEmail>`
 - calling `issue` again for the same tuple:
-  - revokes any prior unused open sponsorship from that same sponsor for that same outsider in that club
-  - creates a fresh sponsorship with a fresh code
-  - returns the new code
+  - revokes any prior open unused sponsorship from the same sponsor for the same outsider in the same club
+  - creates a fresh sponsorship and code
+  - returns the fresh code
+- open sponsorship quota:
+  - `10` open sponsorships per sponsor per club per rolling `30 days`
+- if a sponsor loses membership access in the club, auto-revoke their open sponsorships in that club
 
-Why:
+### `admissions.sponsorships.listMine`
 
-- the sponsor gets one obvious action to call
-- the system avoids multiple open codes from the same sponsor for the same outsider
-- the server does not need to store sponsorship codes in recoverable plaintext
-
-This is slightly more opinionated than a pure "create" action, but it is much simpler for agents.
-
-## `admissions.sponsorships.listMine`
-
-### Input
+Input:
 
 ```ts
 {
@@ -527,18 +428,19 @@ This is slightly more opinionated than a pure "create" action, but it is much si
 }
 ```
 
-### Output
+Behavior:
 
-- list of sponsorship summaries
-- no raw sponsorship codes
+- returns sponsorship summaries only
+- never returns the raw code
+- status is derived as:
+  - `revoked` if `revoked_at IS NOT NULL`
+  - `redeemed` if `redeemed_at IS NOT NULL`
+  - `expired` if `expired_at IS NOT NULL OR expires_at < now()`
+  - otherwise `open`
 
-The code is only returned at `issue` time.
+### `admissions.sponsorships.revoke`
 
-If the sponsor wants a fresh code, call `issue` again.
-
-## `admissions.sponsorships.revoke`
-
-### Input
+Input:
 
 ```ts
 {
@@ -546,33 +448,25 @@ If the sponsor wants a fresh code, call `issue` again.
 }
 ```
 
-### Behavior
+Behavior:
 
-- sponsor can revoke their own unused sponsorship
-- club admin can revoke any unused sponsorship in their club
-- redeemed sponsorships cannot be revoked
-
-### Why revoke exists even if `issue` can replace
-
-Because "stop this sponsorship" and "give me a fresh code" are different intentions.
-
----
+- sponsor may revoke their own unused sponsorship
+- club admin may revoke any unused sponsorship in their club
+- redeemed sponsorships remain immutable history and cannot be revoked
 
 ## Applicant API
 
-## `admissions.applicant.getStatus`
+### `admissions.applicant.getStatus`
 
-Keep the applicant token plan, but update the status shape to fit the redesigned outsider model.
-
-### Input
+Input:
 
 ```ts
 {}
 ```
 
-The applicant token identifies the admission. No `admissionId` input should be required.
+The applicant token identifies the admission.
 
-### Output
+Output:
 
 ```ts
 {
@@ -599,206 +493,185 @@ The applicant token identifies the admission. No `admissionId` input should be r
 }
 ```
 
-### Important exclusions
+Rules:
 
-This endpoint must not expose:
+- `exchange.eligible` is true only when:
+  - status is `accepted`
+  - `applicant_member_id IS NOT NULL`
+- do not expose:
+  - admin notes
+  - intake fields
+  - sponsorship reasons
+  - sponsorship counts
 
-- admin notes
-- intake fields
-- arbitrary metadata
-- sponsorship reasons
-- sponsorship counts
+### `admissions.applicant.exchange`
 
-It is a workflow-status endpoint, not a dossier endpoint.
-
-## `admissions.applicant.exchange`
-
-### Input
+Input:
 
 ```ts
 {}
 ```
 
-### Output
+Output:
 
 ```ts
 type ApplicantExchangeResult =
   | {
       status: 'exchanged';
       bearerToken: string;
-      application: {
-        admissionId: string;
-        clubId: string;
-        clubSlug: string;
-        clubName: string;
-        path: 'outsider_public' | 'outsider_sponsored' | 'cross_apply' | 'owner_nominated';
-        status: AdmissionStatus;
-        submittedAt: string | null;
-        statusUpdatedAt: string;
-        exchange: {
-          eligible: boolean;
-          exchangedAt: string | null;
-        };
-        membership: {
-          exists: boolean;
-          state: MembershipState | null;
-          billingRequired: boolean | null;
-          hasClubAccess: boolean | null;
-        };
-      };
+      application: ApplicationStatus;
     }
   | {
       status: 'already_exchanged';
       memberTokenId: string;
-      application: {
-        admissionId: string;
-        clubId: string;
-        clubSlug: string;
-        clubName: string;
-        path: 'outsider_public' | 'outsider_sponsored' | 'cross_apply' | 'owner_nominated';
-        status: AdmissionStatus;
-        submittedAt: string | null;
-        statusUpdatedAt: string;
-        exchange: {
-          eligible: boolean;
-          exchangedAt: string | null;
-        };
-        membership: {
-          exists: boolean;
-          state: MembershipState | null;
-          billingRequired: boolean | null;
-          hasClubAccess: boolean | null;
-        };
-      };
+      application: ApplicationStatus;
     };
 ```
 
-### Rules
+Rules:
 
-- only allowed when admission status is `accepted`
-- requires `applicant_member_id` to be populated
-- is idempotent per applicant token
+- only allowed when the admission is accepted
+- requires `applicant_member_id IS NOT NULL`
+- if status is `accepted` but provisioning is not complete yet, do not expose that state:
+  - the acceptance path must be atomic so this mid-state does not leak
+- exchange means:
+  - the outsider is now a member
+- exchange does not mean:
+  - club access is already active
 
-Recommended idempotent behavior:
+#### Idempotency and recovery
 
 - first successful exchange:
+  - creates a normal member bearer token
   - returns `status = 'exchanged'`
-  - returns the live bearer token
-- later retries:
-  - return `status = 'already_exchanged'`
-  - return `memberTokenId`
-  - do not return the live token secret again
+  - stores:
+    - `exchanged_at`
+    - `exchanged_member_token_id`
+    - encrypted recovery copy of the live bearer token for a short retry window
+- retry during the recovery window:
+  - returns the same bearer token again
+- retry after the recovery window:
+  - returns `status = 'already_exchanged'`
+  - returns `memberTokenId`
+  - does not return the live secret again
 
-### Billing meaning
+Recovery-secret construction:
 
-Exchange means:
+- encrypt the recovery secret with AES-256-GCM
+- use a per-row random 12-byte IV
+- derive the encryption key with HKDF-SHA256
+- HKDF input key material is the full applicant token string as presented in `Authorization: Bearer ...`
+- HKDF salt is `APPLICANT_EXCHANGE_RECOVERY_PEPPER`
+- HKDF info is `applicant-exchange-recovery-v1`
 
-- the outsider has been admitted and is now a member
+`APPLICANT_EXCHANGE_RECOVERY_PEPPER` contract:
 
-It does **not** mean:
+- base64-encoded environment variable
+- at least 32 bytes after decode
+- separate value per environment
+- server startup fails if missing or too short
+- rotation is out of scope for v1
 
-- the outsider now has club access
+If the previously issued live token is later revoked, exchange does not re-mint. The member must obtain a fresh live token through the normal member-token path.
 
-Paid clubs still rely on the membership state machine.
+## Cross-apply
 
----
+### API surface
 
-## Cross-apply API
+Keep the current agent-facing methods unchanged:
 
-## Recommended cleanup rename only
+- `admissions.crossClub.requestChallenge`
+- `admissions.crossClub.submitApplication`
 
-Cross-applying does not need sponsorship logic.
+Do not redesign cross-apply for agents in this pass.
 
-But for overall API coherence, I recommend renaming:
+### Storage and locking
 
-- `admissions.crossClub.requestChallenge` -> `admissions.crossClub.beginApplication`
+Under the hood, cross-apply moves to:
 
-Behavior stays the same:
+- `admission_application_sessions`
+- `admission_submission_attempts`
 
-- lower-difficulty PoW
-- member-bound eligibility
-- same submit semantics
+Cross-apply submit must acquire locks in this order:
 
-This gives the entire admissions surface a uniform verb pair:
+1. `admission_dedupe:<clubId>:<normalizedEmail>`
+2. `cross_apply:<memberId>`
 
-- begin
-- submit
+This prevents cross-flow duplicates between:
 
-That is better for agents than having outsider flows use `begin` and cross flows use `requestChallenge`.
+- outsider submit for `foo@example.com`
+- cross-apply submit by a member whose profile email is `foo@example.com`
 
----
+## Public admission read model
 
-## Public-facing admission summary redesign
+### Replace overloaded fields
 
-The current public contract has two problems:
-
-1. `origin` is too coarse and overloaded
-2. `sponsor` is singular, but the forward design needs plural sponsorships
-
-## Recommended API change
-
-Replace:
-
-- `origin`
-- singular `sponsor`
-
-With:
+Expose:
 
 - `path`
-- plural `sponsorships`
+- `sponsorships`
 
-Suggested `path` enum:
+Instead of:
+
+- overloaded `origin`
+- singular `sponsor`
+
+Recommended `path` values:
 
 - `outsider_public`
 - `outsider_sponsored`
 - `cross_apply`
 - `owner_nominated`
 
-Suggested `sponsorships` shape:
+Persist `path` as immutable `admissions.submission_path`. Do not derive it from mutable state.
 
-```ts
-Array<{
-  sponsorshipId: string | null;
-  sponsor: {
-    memberId: string;
-    publicName: string;
-    handle: string | null;
-  };
-  reason: string | null;
-  createdAt: string;
-}>
-```
+Write rules:
 
-### Why this is better
+- outsider submit without sponsorship -> `outsider_public`
+- outsider submit with sponsorship -> `outsider_sponsored`
+- cross-apply submit -> `cross_apply`
+- owner nomination -> `owner_nominated`
 
-- admin clients stop inferring path from a mix of `origin`, `applicant.memberId`, and side facts
-- the data model now correctly supports multiple sponsorships
-- legacy `member_sponsored` rows can still be represented without forcing an immediate destructive data migration
+Legacy handling:
 
-### Legacy handling recommendation
+- keep old DB columns for old rows in this pass
+- synthesize plural `sponsorships` at the read layer for legacy `member_sponsored` rows
+- expose legacy sponsored rows as `path = 'outsider_sponsored'`
 
-Do not try to rewrite historical `member_sponsored` admissions into the new DB model in this pass.
-
-But do normalize them at the API layer.
-
-Recommendation:
-
-- keep legacy DB fields for old rows
-- stop writing them for new flows
-- synthesize a one-element `sponsorships` array at read time for legacy rows
-- expose `path = 'outsider_sponsored'`, not a legacy-only enum value
-
-That keeps the public API clean while avoiding a risky historical rewrite.
-
----
+Pre-existing accepted admissions do not gain applicant tokens retroactively. They remain on their existing out-of-band token path.
 
 ## Database changes
 
-## 1. New table: `admission_sponsorships`
+### 1. `admissions` table additions
 
-This is the core new primitive.
+Add:
 
-Suggested shape:
+- `submission_path text`
+- `applicant_email_normalized text GENERATED ALWAYS AS (lower(btrim(applicant_email))) STORED`
+
+`submission_path` values:
+
+- `outsider_public`
+- `outsider_sponsored`
+- `cross_apply`
+- `owner_nominated`
+
+Rollout:
+
+- migration 1:
+  - add `submission_path` as nullable
+  - backfill existing rows
+- migration 2 after at least one full deploy cycle:
+  - set `submission_path NOT NULL`
+
+Backfill rule:
+
+- legacy `origin = 'owner_nominated'` -> `owner_nominated`
+- legacy `origin = 'member_sponsored'` -> `outsider_sponsored`
+- legacy `origin = 'self_applied'` and `admission_versions.version_no = 1` created by member -> `cross_apply`
+- remaining `origin = 'self_applied'` -> `outsider_public`
+
+### 2. New table: `admission_sponsorships`
 
 ```sql
 CREATE TABLE admission_sponsorships (
@@ -807,15 +680,16 @@ CREATE TABLE admission_sponsorships (
     sponsor_member_id          short_id NOT NULL,
     candidate_name             text NOT NULL,
     candidate_email            text NOT NULL,
-    candidate_email_normalized text NOT NULL,
+    candidate_email_normalized text GENERATED ALWAYS AS (lower(btrim(candidate_email))) STORED,
     reason                     text NOT NULL,
     code_hash                  text NOT NULL,
     expires_at                 timestamptz,
+    expired_at                 timestamptz,
     redeemed_at                timestamptz,
     revoked_at                 timestamptz,
     admission_id               short_id,
-    metadata                   jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at                 timestamptz DEFAULT now() NOT NULL,
+    metadata                   jsonb DEFAULT '{}'::jsonb NOT NULL,
 
     CONSTRAINT admission_sponsorships_pkey PRIMARY KEY (id),
     CONSTRAINT admission_sponsorships_code_hash_unique UNIQUE (code_hash),
@@ -829,23 +703,15 @@ CREATE INDEX admission_sponsorships_candidate_lookup_idx
 
 CREATE UNIQUE INDEX admission_sponsorships_open_per_sponsor_candidate_idx
     ON admission_sponsorships (club_id, sponsor_member_id, candidate_email_normalized)
-    WHERE revoked_at IS NULL AND redeemed_at IS NULL;
+    WHERE revoked_at IS NULL AND redeemed_at IS NULL AND expired_at IS NULL;
 ```
 
-### Recommended expiry
+Why both `expires_at` and `expired_at`:
 
-- sponsorship code TTL: `30 days`
+- `expires_at` is the policy TTL
+- `expired_at` is the materialized state used by partial indexes because Postgres partial indexes cannot reference `now()`
 
-Why:
-
-- long enough for normal human coordination
-- short enough to reduce leaked-code risk
-
-## 2. Replace `admission_challenges` with `admission_application_sessions`
-
-The old table name no longer fits the model once a sponsorship can skip PoW.
-
-Suggested replacement:
+### 3. New table: `admission_application_sessions`
 
 ```sql
 CREATE TABLE admission_application_sessions (
@@ -854,8 +720,14 @@ CREATE TABLE admission_application_sessions (
     club_id                    short_id NOT NULL,
     member_id                  short_id,
     applicant_email            text,
-    applicant_email_normalized text,
+    applicant_email_normalized text GENERATED ALWAYS AS (
+        CASE
+            WHEN applicant_email IS NULL THEN NULL
+            ELSE lower(btrim(applicant_email))
+        END
+    ) STORED,
     proof_kind                 text NOT NULL,
+    sponsorship_id             short_id,
     difficulty                 integer,
     policy_snapshot            text NOT NULL,
     club_name                  text NOT NULL,
@@ -867,57 +739,73 @@ CREATE TABLE admission_application_sessions (
     CONSTRAINT admission_application_sessions_pkey PRIMARY KEY (id),
     CONSTRAINT admission_application_sessions_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
     CONSTRAINT admission_application_sessions_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT admission_application_sessions_sponsorship_fkey FOREIGN KEY (sponsorship_id) REFERENCES admission_sponsorships(id),
     CONSTRAINT admission_application_sessions_flow_kind_check
         CHECK (flow_kind IN ('public', 'cross_apply')),
     CONSTRAINT admission_application_sessions_proof_kind_check
         CHECK (proof_kind IN ('pow', 'sponsorship')),
+    CONSTRAINT admission_application_sessions_member_shape_check
+        CHECK (
+            (flow_kind = 'cross_apply' AND member_id IS NOT NULL)
+            OR
+            (flow_kind = 'public' AND member_id IS NULL)
+        ),
     CONSTRAINT admission_application_sessions_pow_shape_check
         CHECK (
-            (proof_kind = 'pow' AND difficulty IS NOT NULL)
+            (proof_kind = 'pow' AND difficulty IS NOT NULL AND sponsorship_id IS NULL)
             OR
-            (proof_kind = 'sponsorship' AND difficulty IS NULL)
+            (proof_kind = 'sponsorship' AND difficulty IS NULL AND sponsorship_id IS NOT NULL)
         ),
     CONSTRAINT admission_application_sessions_cross_must_pow
         CHECK (flow_kind != 'cross_apply' OR proof_kind = 'pow')
 );
 ```
 
-### Recommended migration strategy
+### 4. New table: `admission_submission_attempts`
 
-Do not try to preserve old `admission_challenges` rows.
+```sql
+CREATE TABLE admission_submission_attempts (
+    id              short_id DEFAULT new_id() NOT NULL,
+    session_id      short_id NOT NULL,
+    club_id         short_id NOT NULL,
+    attempt_no      integer NOT NULL,
+    applicant_name  text NOT NULL,
+    applicant_email text NOT NULL,
+    payload         jsonb NOT NULL,
+    gate_status     text NOT NULL,
+    gate_feedback   text,
+    policy_snapshot text NOT NULL,
+    created_at      timestamptz DEFAULT now() NOT NULL,
 
-Those rows are ephemeral drafting state. It is acceptable to discard them in migration.
+    CONSTRAINT admission_submission_attempts_pkey PRIMARY KEY (id),
+    CONSTRAINT admission_submission_attempts_session_fkey
+        FOREIGN KEY (session_id) REFERENCES admission_application_sessions(id) ON DELETE CASCADE,
+    CONSTRAINT admission_submission_attempts_club_fkey
+        FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT admission_submission_attempts_gate_status_check
+        CHECK (gate_status IN ('passed', 'skipped', 'rejected', 'rejected_illegal'))
+);
 
-## 3. Replace `admission_attempts` with `admission_submission_attempts`
+CREATE UNIQUE INDEX admission_submission_attempts_session_attempt_idx
+    ON admission_submission_attempts (session_id, attempt_no);
+```
 
-This should be the same concept as today, but renamed around the session model:
-
-- one row per submit attempt against an application session
-- gate result recorded
-- payload recorded
-
-Suggested key change:
-
-- `challenge_id` -> `session_id`
-
-## 4. New table: `admission_applicant_tokens`
-
-This is the narrow post-submit credential layer for outsiders.
-
-Suggested shape:
+### 5. New table: `admission_applicant_tokens`
 
 ```sql
 CREATE TABLE admission_applicant_tokens (
-    id                        short_id DEFAULT new_id() NOT NULL,
-    admission_id              short_id NOT NULL,
-    token_hash                text NOT NULL,
-    created_at                timestamptz DEFAULT now() NOT NULL,
-    last_used_at              timestamptz,
-    revoked_at                timestamptz,
-    expires_at                timestamptz,
-    exchanged_at              timestamptz,
-    exchanged_member_token_id short_id,
-    metadata                  jsonb DEFAULT '{}'::jsonb NOT NULL,
+    id                           short_id DEFAULT new_id() NOT NULL,
+    admission_id                 short_id NOT NULL,
+    token_hash                   text NOT NULL,
+    created_at                   timestamptz DEFAULT now() NOT NULL,
+    last_used_at                 timestamptz,
+    revoked_at                   timestamptz,
+    expires_at                   timestamptz,
+    exchanged_at                 timestamptz,
+    exchanged_member_token_id    short_id,
+    exchange_secret_ciphertext   bytea,
+    exchange_secret_expires_at   timestamptz,
+    metadata                     jsonb DEFAULT '{}'::jsonb NOT NULL,
 
     CONSTRAINT admission_applicant_tokens_pkey PRIMARY KEY (id),
     CONSTRAINT admission_applicant_tokens_token_hash_unique UNIQUE (token_hash),
@@ -935,203 +823,82 @@ CREATE UNIQUE INDEX admission_applicant_tokens_active_per_admission_idx
     WHERE revoked_at IS NULL;
 ```
 
-Design rules:
+Applicant token lifecycle:
 
-- one active applicant token per admission
-- token is minted only on successful outsider submission
-- token is narrow and not recoverable from plaintext storage
-- token may remain valid after exchange for status re-checks and idempotent retries
+- hard cap: `90 days`
+- on decline or withdrawal:
+  - keep valid for `7 days` so the applicant can read the final state
+- on acceptance:
+  - keep valid through exchange and for `7 days` after exchange
 
-## 5. Leave legacy `admissions` columns in place for now
+### 6. Legacy tables and columns
 
-Do not make the first migration larger than necessary by trying to remove:
+Keep legacy `admissions` sponsorship-related columns for read compatibility in PR 1.
 
-- `sponsor_member_id`
-- `member_sponsored` origin rows
+Do not try to clean historical rows in this redesign beyond the `submission_path` backfill.
 
-Recommendation:
+## Acceptance must be atomic
 
-- leave legacy columns and enum values in the DB
-- stop writing them in new code
-- move the public API to the cleaner read model immediately
+The new applicant API cannot expose `accepted` before member provisioning is ready. The acceptance saga in [src/postgres.ts](/Users/owen/Work/ClawClub/clawclub-server/src/postgres.ts) must be refactored so acceptance is a single shared transaction.
 
-That is the best tradeoff between elegance and migration risk.
+Constraints:
 
----
+1. Any LLM-generated profile draft must be computed and persisted before the acceptance transaction starts. No LLM call belongs inside the transaction.
+2. `identity.createMemberFromAdmission` gains an optional shared `client` parameter.
+3. `identity.createMembership` gains an optional shared `client` parameter.
+4. `admissionsModule.transitionAdmission` gains an optional shared `client` parameter.
+5. `admissionsModule.linkAdmissionToMember` gains an optional shared `client` parameter.
+6. The acceptance transaction uses one shared client for all of:
+   - `transitionAdmission(client, ...)`
+   - `createMemberFromAdmission(client, ...)`
+   - `linkAdmissionToMember(client, ...)`
+   - `createMembership(client, ...)`
+   - final admission link updates
+7. Delete the old retry-safety lookup that existed only because the saga was non-atomic.
+8. Simplify `skipTransition` so "already accepted" means "already fully provisioned" for post-redesign rows.
+9. If the accepted version-row insert fails on `(admission_id, version_no)` uniqueness, roll back and return `concurrent_modification` (`409`).
 
-## Token design
+Accepted is terminal for this redesign. Do not support accepted-to-non-accepted reversals here. Removing a member after acceptance is a membership-management concern, not an admissions-state rollback.
 
-## Member tokens
+Legacy pre-redesign accepted rows are not retroactively repaired and are not callers of the new applicant API.
 
-Keep:
+## Auth and transport changes
 
-- `cc_live_<tokenId>_<secret>`
+### Add `auth: 'applicant'`
 
-## Applicant tokens
+Applicant auth should be its own auth kind, not a special case of member auth.
 
-Keep the recommended applicant token format:
+### Applicant actor envelope
 
-- `cc_app_<tokenId>_<secret>`
+Suggested response envelope:
 
-Applicant tokens are:
+```ts
+{
+  ok: true,
+  action: string,
+  actor: {
+    applicant: {
+      admissionId: string;
+      clubId: string;
+    }
+  },
+  data: ...
+}
+```
 
-- scoped to one admission
-- created only after successful outsider submission
-- usable only for applicant-auth actions
+### Member-only surfaces
 
-## Sponsorship codes
+Applicant tokens must not work on:
 
-Do **not** use a row id as the secret.
+- `/updates/stream`
+- `updates.list`
+- `updates.acknowledge`
 
-Use a real high-entropy code with the same philosophy as bearer tokens:
-
-- public identifier
-- secret component
-- stored as hash on the server
-
-Recommended wire format:
-
-- `cc_spon_<id>_<secret>`
-
-or similar.
-
-The exact prefix is less important than the rule:
-
-- a sponsorship code is a real secret
-- not a guessable request id
-
-## Why sponsorship code and applicant token should be different
-
-Because they mean different things:
-
-- sponsorship code = "you may skip PoW for this outsider application"
-- applicant token = "you may inspect and later exchange this submitted admission"
-
-Keeping them separate prevents overloading and keeps agent behavior obvious.
-
----
-
-## Domain behavior
-
-## Sponsorship issuance
-
-When a member issues a sponsorship:
-
-1. verify the actor has access to the club
-2. run the quality gate on the sponsor's `reason`
-3. revoke any previous open unused sponsorship for the same sponsor + club + normalized candidate email
-4. insert the new sponsorship row
-5. return the new code
-
-Redeemed sponsorships are audit history. They do not reopen automatically after rejection or withdrawal.
-
-If an outsider needs to apply again after a prior sponsored admission was rejected or withdrawn, the sponsor simply issues a fresh sponsorship. That works because only `open` sponsorships participate in the uniqueness rule.
-
-## Begin application
-
-When an outsider begins an application:
-
-1. look up the club and its admission policy
-2. if no `sponsorshipCode`:
-   - create `proof_kind = 'pow'` session
-3. if `sponsorshipCode` present:
-   - validate code
-   - require club match
-    - require normalized email match
-   - create `proof_kind = 'sponsorship'` session
-4. return the session and proof instructions
-
-Keep or extend the existing server-side IP rate limits on public admissions actions.
-
-Recommended begin safeguards:
-
-- retain fixed-window per-IP rate limits
-- for sponsorship begins, allow at most one live session per `(clubId, normalizedEmail)`
-- replace older unused session rows for the same `(clubId, normalizedEmail, proof_kind = 'sponsorship')`
-
-## Submit application
-
-When an outsider submits:
-
-1. load session
-2. verify session has not expired
-3. verify proof:
-   - PoW nonce for `proof_kind = 'pow'`
-   - sponsorship still valid for `proof_kind = 'sponsorship'`
-4. run the admission completeness gate
-5. record the attempt
-6. on pass:
-   - create the `admissions` row
-   - write `origin = 'self_applied'` for both cold and sponsored outsider submissions
-   - create the `admission_versions` row with `submitted`
-   - mint the applicant token
-   - link sponsorships
-7. return `submitted`
-
-## Linking sponsorships to the admission
-
-This is where the design should be slightly helpful, but still explicit and deterministic.
-
-Recommendation:
-
-On successful outsider submission, link:
-
-- the sponsorship explicitly used to skip PoW
-- plus any other open sponsorships for the same `(clubId, normalizedEmail)`
-
-Why:
-
-- multiple sponsorships remain a positive signal
-- the outsider does not need to collect and submit multiple codes
-- admins see the full sponsor context on the one admission
-
-This is acceptable "server helpfulness," not bad magic, because:
-
-- the rule is deterministic
-- it is easy to explain
-- it removes pointless client burden
-
-When linked, those sponsorships transition from `open` to `redeemed`.
-
-If the resulting admission is later `declined` or `withdrawn`, the redeemed sponsorships remain redeemed as immutable history. Re-application requires fresh sponsorship issuance.
-
-## Applicant exchange
-
-Keep the prior applicant exchange design:
-
-- only valid after admission acceptance
-- idempotent per applicant token
-- returns the same member token on retry
-- does not require club access to already exist
-
-The exchange path should reuse the existing acceptance saga output in [src/postgres.ts](/Users/owen/Work/ClawClub/clawclub-server/src/postgres.ts), not move member creation earlier.
-
-### Idempotency recommendation
-
-The exchange path must not mint a fresh live token on every retry.
-
-Recommended design:
-
-1. applicant token row stores `exchanged_member_token_id`
-2. first successful exchange chooses a member token id and persists it
-3. live token secret is deterministically derived from:
-   - the applicant token secret from the request
-   - the persisted member token id
-   - a domain-separated exchange constant
-4. server stores only the hash of that derived live secret in `member_bearer_tokens`
-5. retries recompute the same live token and return it again
-
-This gives us:
-
-- idempotent exchange
-- no plaintext live token storage
-- no weird "maybe you got a different token" behavior under retry
-
----
+Applicants poll one admission directly.
 
 ## Billing interaction
 
-The billing behavior should be unchanged.
+Billing behavior stays unchanged.
 
 ### Free club
 
@@ -1147,157 +914,88 @@ The billing behavior should be unchanged.
 - member created
 - membership created as `payment_pending`
 - applicant exchanges
-- `session.getContext` authenticates but may show zero active memberships
+- member auth succeeds
+- `session.getContext` may show zero accessible clubs
 - `billing.getMembershipStatus` shows `payment_pending`
-- billing system later activates membership
-- club access appears
+- billing later activates the membership
 
-This is exactly what the current and planned billing design wants.
+Do not delay exchange until payment succeeds. Acceptance and access are distinct states.
 
-Do not delay applicant exchange until payment succeeds.
-
-That would conflate:
-
-- "the club accepted you"
-- "your paid access is active"
-
-Those are distinct states and should remain distinct.
-
----
-
-## Transport and auth changes
-
-## Add `auth: 'applicant'`
-
-Extend the action auth union with `applicant`.
-
-That is cleaner than pretending applicant tokens are weird member tokens.
-
-## Add applicant-auth response envelope
-
-Applicant-auth success should have its own actor envelope, not the member one.
-
-Suggested shape:
-
-```ts
-{
-  ok: true,
-  action: string,
-  actor: {
-    applicant: {
-      admissionId: string,
-      clubId: string
-    }
-  },
-  data: ...
-}
-```
-
-## Keep SSE and updates member-only
-
-Applicant tokens must not work on:
-
-- `/updates/stream`
-- `updates.list`
-- `updates.acknowledge`
-
-Applicants poll one admission directly. They do not enter the member update surface.
-
-## Update schema endpoint docs
-
-The schema docs should explicitly describe token kinds:
-
-- member token
-- applicant token
-- sponsorship code
-
-And they should document the outsider flow in terms of:
-
-- begin
-- submit
-- status
-- exchange
-
-That is the agent mental model we want.
-
----
-
-## Documentation and skill changes
+## Documentation changes
 
 Update:
 
 - [SKILL.md](/Users/owen/Work/ClawClub/clawclub-server/SKILL.md)
 - [docs/design-decisions.md](/Users/owen/Work/ClawClub/clawclub-server/docs/design-decisions.md)
-- [README.md](/Users/owen/Work/ClawClub/clawclub-server/README.md) where relevant
+- [README.md](/Users/owen/Work/ClawClub/clawclub-server/README.md)
 - schema snapshot tests
 
-The skill should include explicit outsider algorithms:
+Skill guidance should explicitly say:
 
-- if the human has no sponsorship code:
-  - begin -> solve PoW -> submit
-- if the human has a sponsorship code:
-  - begin with code -> submit
+- no sponsorship code:
+  - begin
+  - solve PoW
+  - submit
+- sponsorship code present:
+  - begin with code
+  - submit
 - after submit:
   - store applicant token
   - poll status
   - exchange on acceptance
 
-The skill should also explicitly describe the sponsor algorithm:
-
-- issue sponsorship
-- share code with outsider
-- outsider uses normal public application flow with the code
-
----
-
 ## Test plan
 
-## Unit tests
+### Unit tests
 
-Add focused unit coverage for:
+Add focused coverage for:
 
-1. token parsing and formatting across:
+1. token parsing and formatting for:
    - member tokens
    - applicant tokens
    - sponsorship codes
 2. applicant-auth dispatch
 3. member-token rejection on applicant actions
 4. applicant-token rejection on member actions
-5. `admissions.sponsorships.issue` same-sponsor same-email replacement semantics
-6. public begin response for:
+5. sponsorship issue replacement semantics
+6. public begin responses:
    - no sponsorship
    - valid sponsorship
    - invalid sponsorship
-   - duplicate pending outsider admission
-7. applicant exchange idempotency
+7. exchange recovery-window behavior
+8. ASCII email validation at the action schema boundary
 
-## Integration tests: non-LLM
+### Integration tests: non-LLM
 
-Add or update non-LLM tests covering:
+Add or update tests covering:
 
-1. outsider begins without sponsorship -> gets `proof.kind = 'pow'`
-2. outsider begins with valid sponsorship -> gets `proof.kind = 'sponsorship'`
+1. outsider begins without sponsorship -> `proof.kind = 'pow'`
+2. outsider begins with valid sponsorship -> `proof.kind = 'sponsorship'`
 3. outsider begins with invalid sponsorship -> explicit error
-4. sponsored outsider submit creates:
+4. outsider begins with sponsorship past TTL but before cleanup -> explicit error
+5. sponsored outsider submit creates:
    - one admission
-   - applicant token
-   - linked sponsorship
-5. multiple sponsorships on same email auto-link to the one admission
-6. same sponsor issuing again for same email revokes old open sponsorship and returns a fresh code
-7. rejected or withdrawn sponsored admission does not reopen redeemed sponsorships; fresh sponsorship can still be issued
-8. applicant exchange rejected before acceptance
-9. accepted free-club outsider -> exchange yields visible club
-10. accepted paid-club outsider -> first exchange yields live token but no visible club until billing
-11. repeat exchange returns `already_exchanged` and not the bearer secret
-12. `billing.getMembershipStatus` reflects `payment_pending` after accepted paid outsider exchange
-13. `admissions.sponsorships.listMine` returns open/redeemed/revoked statuses
-14. applicant tokens cannot hit updates endpoints
-15. admin admission list/read surfaces show plural sponsorships
-16. legacy `member_sponsored` admissions still render coherently as `outsider_sponsored` in the new summary shape
+   - one applicant token
+   - one linked sponsorship
+6. revoke-and-reissue between begin and submit does not silently switch to a different sponsorship; submit revalidates `session.sponsorship_id`
+7. same sponsor issuing again for same email revokes old open sponsorship and returns a fresh code
+8. rejected or withdrawn sponsored admission does not reopen redeemed sponsorships; fresh sponsorship can still be issued
+9. applicant exchange rejected before acceptance
+10. accepted free-club outsider -> exchange yields visible club
+11. accepted paid-club outsider -> first exchange yields live token but no visible club until billing
+12. repeat exchange during recovery window re-delivers the same bearer token
+13. repeat exchange after recovery window returns `already_exchanged`
+14. `billing.getMembershipStatus` reflects `payment_pending` after paid outsider exchange
+15. applicant tokens cannot hit member update endpoints
+16. admin read models expose plural sponsorships and immutable `path`
+17. legacy `member_sponsored` rows still render as `outsider_sponsored`
+18. concurrent outsider submits for the same `(clubId, normalizedEmail)` serialize
+19. cross-apply submit and outsider submit for the same `(clubId, normalizedEmail)` serialize on the shared dedupe lock
+20. accepted version-row uniqueness conflict returns `concurrent_modification`
 
-## Integration tests: with LLM
+### Integration tests: with LLM
 
-Update the public outsider tests so successful submit now asserts:
+Update outsider submit tests so successful submit asserts:
 
 - `status === 'submitted'`
 - `admissionId` present
@@ -1305,77 +1003,96 @@ Update the public outsider tests so successful submit now asserts:
 
 Add at least one sponsored outsider happy-path test through the real gate.
 
-## Schema snapshot
+### Structural / harness tests
 
-Update the schema snapshot to capture:
+1. Add `withInstrumentedPool(...)` or equivalent to [test/integration/harness.ts](/Users/owen/Work/ClawClub/clawclub-server/test/integration/harness.ts) so tests can count `BEGIN` / `COMMIT` / `ROLLBACK`.
+2. Wrapped acceptance-pool test:
+   - reset counters immediately before the acceptance request
+   - assert exactly one transaction is opened for the acceptance request
+   - assert no nested helper-owned transaction begins are observed
+3. Failure-injection test:
+   - throw after member creation or admission link update
+   - assert the whole acceptance transaction rolls back cleanly
+4. Hammer test:
+   - run repeated concurrent acceptance and read requests
+   - assert no caller observes `accepted` while `applicant_member_id` is still null
 
-- new sponsorship actions
-- `auth: 'applicant'`
-- `beginApplication` replacing `requestChallenge`
-- changed outsider submit result shape
-- applicant-auth response envelope
+## Cleanup and retention
 
----
+Add or extend an admissions cleanup worker to:
+
+- delete expired application sessions
+- materialize sponsorship expiry by setting `expired_at`
+- expire or revoke applicant tokens after their retention windows
+- clean expired exchange recovery secrets
+
+This can live in the existing worker area; do not invent a separate subsystem for it.
 
 ## Implementation order
 
-1. Add the new sponsorship table migration.
-2. Add the new application-session and submission-attempt tables.
-3. Add the applicant-token table.
-4. Update [db/init.sql](/Users/owen/Work/ClawClub/clawclub-server/db/init.sql).
-5. Generalize token utilities for token kinds and sponsorship codes.
-6. Extend contract and registry types.
-7. Implement sponsorship issuance, listing, and revocation.
-8. Implement public `beginApplication`.
-9. Implement public `submitApplication` on the new session model.
-10. Implement applicant status and exchange.
-11. Update admission read models to expose:
-    - `path`
-    - plural `sponsorships`
-12. Keep legacy sponsored admissions readable through adapter logic.
-13. Rename cross-apply `requestChallenge` to `beginApplication` if adopting the naming cleanup.
-14. Update docs and skill guidance.
-15. Add and update tests.
+This redesign rolls out in two PRs.
+
+- PR 1:
+  - steps 1 through 16
+  - tests and docs
+- PR 2 after at least one full deploy cycle:
+  - steps 17 and 18
+
+### PR 1
+
+1. Add `admission_sponsorships`.
+2. Add `admission_application_sessions`.
+3. Add `admission_submission_attempts`.
+4. Add `admission_applicant_tokens`.
+5. Add nullable `admissions.submission_path` and generated `admissions.applicant_email_normalized`.
+6. Backfill `submission_path`.
+7. Update [db/init.sql](/Users/owen/Work/ClawClub/clawclub-server/db/init.sql).
+8. Generalize token parsing and hashing utilities for applicant tokens and sponsorship codes.
+9. Migrate cross-apply storage to `admission_application_sessions` and `admission_submission_attempts`. Cross-apply API stays unchanged. Cross-apply submit takes:
+   - `admission_dedupe:<clubId>:<normalizedEmail>` first
+   - `cross_apply:<memberId>` second
+10. Implement sponsorship issue, list, and revoke.
+11. Implement public `beginApplication` and `submitApplication` on the new session model, including three-phase submit handling.
+12. Implement applicant status and exchange.
+13. Refactor acceptance to one shared transaction:
+   - profile draft before transaction
+   - shared client threaded through admissions and identity helpers
+   - delete the old non-atomic retry logic
+14. Update admission read models to expose immutable `path` and plural `sponsorships`.
+15. Update docs, skill guidance, and schema snapshots.
 16. Run:
-    - `npm run check`
-    - `npm run test:unit`
-    - `npm run test:integration:non-llm`
-    - relevant `npm run test:integration:with-llm` admissions files
+   - `npm run check`
+   - `npm run test:unit`
+   - `npm run test:integration:non-llm`
+   - relevant `npm run test:integration:with-llm` admissions files
 
----
+### PR 2 after one deploy cycle
 
-## Why this is the best design
+17. Drop legacy `admission_challenges` and `admission_attempts` after confirming both public and cross-apply writers have been deployed on the new storage for at least one full cycle.
+18. Set `admissions.submission_path NOT NULL` after confirming all writers populate it.
 
-It is the best design because it gives each concept exactly one job.
+## Deliberate non-goals
 
-Admissions:
+- Do not issue normal member tokens before acceptance.
+- Do not create sponsorship-backed admissions.
+- Do not redesign cross-apply from the agent's point of view.
+- Do not add DB-level ASCII CHECK constraints to legacy tables in this migration.
+  - ASCII email is enforced at the action schema boundary for new writes.
+  - Adding DB-level ASCII checks here would turn this into legacy data cleanup, which is out of scope.
 
-- record the outsider's actual application
+## Why this design is the right one
 
-Sponsorships:
+It gives each concept exactly one job:
 
-- grant PoW bypass and provide admin signal
+- admission:
+  - the real join attempt
+- sponsorship:
+  - PoW bypass and sponsor signal
+- applicant token:
+  - post-submit polling and exchange
+- member token:
+  - normal member auth
+- billing:
+  - access control after acceptance
 
-Applicant tokens:
-
-- let submitted outsiders poll and later exchange
-
-Member tokens:
-
-- authenticate real members only
-
-Billing:
-
-- decides when an admitted member actually gets access in paid clubs
-
-The agent story becomes simple:
-
-- sponsor -> issue code
-- outsider -> begin -> submit
-- applicant -> poll -> exchange
-
-Nothing is overloaded.
-Nothing relies on hidden inference.
-Nothing requires stitching multiple admissions together after the fact.
-
-That is the cleanest forward model for this product.
+That is the simplest model that remains correct under sponsorship, billing, and cross-apply.

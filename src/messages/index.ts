@@ -5,9 +5,17 @@
  */
 
 import type { Pool } from 'pg';
-import { AppError } from '../contract.ts';
+import { AppError, type MentionSpan, type WithIncluded } from '../contract.ts';
 import { withTransaction } from '../db.ts';
 import { encodeCursor } from '../schemas/fields.ts';
+import {
+  emptyIncludedBundle,
+  hasPotentialMentionChar,
+  insertDmMessageMentions,
+  loadDmMentions,
+  mergeIncludedBundles,
+  resolveDirectMessageMentions,
+} from '../mentions.ts';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -17,6 +25,7 @@ export type MessageSummary = {
   senderMemberId: string;
   recipientMemberId: string;
   messageText: string;
+  mentions: MentionSpan[];
   createdAt: string;
 };
 
@@ -30,6 +39,7 @@ export type ThreadSummary = {
     senderMemberId: string | null;
     role: 'member' | 'agent' | 'system';
     messageText: string | null;
+    mentions: MentionSpan[];
     createdAt: string;
   };
   messageCount: number;
@@ -47,6 +57,7 @@ export type MessageEntry = {
   senderMemberId: string | null;
   role: 'member' | 'agent' | 'system';
   messageText: string | null;
+  mentions: MentionSpan[];
   payload: Record<string, unknown>;
   createdAt: string;
   inReplyToMessageId: string | null;
@@ -59,6 +70,56 @@ export type MessageRemovalResult = {
   removedAt: string;
 };
 
+type ThreadPairRow = { id: string };
+
+type SharedClubIdRow = { club_id: string };
+
+function withMessageMentions<T extends { messageId: string }>(
+  row: T,
+  mentionsByMessageId: Map<string, MentionSpan[]>,
+): T & { mentions: MentionSpan[] } {
+  return {
+    ...row,
+    mentions: mentionsByMessageId.get(row.messageId) ?? [],
+  };
+}
+
+async function findExistingDirectThreadId(
+  client: Pool | import('pg').PoolClient,
+  senderMemberId: string,
+  recipientMemberId: string,
+): Promise<string | null> {
+  const memberA = senderMemberId < recipientMemberId ? senderMemberId : recipientMemberId;
+  const memberB = senderMemberId < recipientMemberId ? recipientMemberId : senderMemberId;
+  const result = await client.query<ThreadPairRow>(
+    `select id
+     from dm_threads
+     where kind = 'direct'
+       and member_a_id = $1
+       and member_b_id = $2
+       and archived_at is null
+     limit 1`,
+    [memberA, memberB],
+  );
+  return result.rows[0]?.id ?? null;
+}
+
+async function resolveSharedClubIds(
+  client: Pool | import('pg').PoolClient,
+  memberA: string,
+  memberB: string,
+): Promise<string[]> {
+  const result = await client.query<SharedClubIdRow>(
+    `select a.club_id
+     from accessible_club_memberships a
+     join accessible_club_memberships b on b.club_id = a.club_id and b.member_id = $2
+     where a.member_id = $1
+     order by a.club_id asc`,
+    [memberA, memberB],
+  );
+  return result.rows.map((row) => row.club_id);
+}
+
 // ── Repository ──────────────────────────────────────────────
 
 export type MessagingRepository = {
@@ -67,7 +128,7 @@ export type MessagingRepository = {
     recipientMemberId: string;
     messageText: string;
     clientKey?: string | null;
-  }): Promise<MessageSummary>;
+  }): Promise<WithIncluded<{ message: MessageSummary }>>;
 
   listThreads(input: {
     memberId: string;
@@ -79,14 +140,14 @@ export type MessagingRepository = {
     limit: number;
     unreadOnly: boolean;
     cursor?: { latestActivityAt: string; threadId: string } | null;
-  }): Promise<{ results: InboxEntry[]; hasMore: boolean; nextCursor: string | null }>;
+  }): Promise<WithIncluded<{ results: InboxEntry[]; hasMore: boolean; nextCursor: string | null }>>;
 
   readThread(input: {
     memberId: string;
     threadId: string;
     limit: number;
     cursor?: { createdAt: string; messageId: string } | null;
-  }): Promise<{ thread: ThreadSummary; messages: MessageEntry[]; hasMore: boolean; nextCursor: string | null } | null>;
+  }): Promise<WithIncluded<{ thread: ThreadSummary; messages: MessageEntry[]; hasMore: boolean; nextCursor: string | null }> | null>;
 
   removeMessage(input: {
     messageId: string;
@@ -107,10 +168,6 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
   return {
     async sendMessage({ senderMemberId, recipientMemberId, messageText, clientKey }) {
       return withTransaction(pool, async (client) => {
-        // Idempotency: check BEFORE any thread/message creation to avoid phantom threads.
-        // If a message exists with this clientKey for this sender:
-        //   - same conversation → return the original (true retry)
-        //   - different conversation → reject with conflict error
         if (clientKey) {
           const existing = await client.query<{
             id: string; thread_id: string; member_a_id: string; member_b_id: string;
@@ -136,20 +193,30 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
               throw new AppError(409, 'client_key_conflict',
                 'This clientKey was already used with a different message. Use a unique key per message.');
             }
+            const hydrated = await loadDmMentions(client, [orig.id]);
             return {
-              threadId: orig.thread_id,
-              messageId: orig.id,
-              senderMemberId,
-              recipientMemberId,
-              messageText: orig.message_text ?? messageText,
-              createdAt: orig.created_at,
+              message: {
+                threadId: orig.thread_id,
+                messageId: orig.id,
+                senderMemberId,
+                recipientMemberId,
+                messageText: orig.message_text ?? messageText,
+                mentions: hydrated.mentionsByMessageId.get(orig.id) ?? [],
+                createdAt: orig.created_at,
+              },
+              included: hydrated.included,
             };
           }
         }
 
-        // Normalize pair ordering for direct thread uniqueness
         const memberA = senderMemberId < recipientMemberId ? senderMemberId : recipientMemberId;
         const memberB = senderMemberId < recipientMemberId ? recipientMemberId : senderMemberId;
+        const existingThreadId = await findExistingDirectThreadId(client, senderMemberId, recipientMemberId);
+        const participantIds = [senderMemberId, recipientMemberId];
+        const sharedClubIds = await resolveSharedClubIds(client, senderMemberId, recipientMemberId);
+        const mentions = hasPotentialMentionChar(messageText)
+          ? await resolveDirectMessageMentions(client, messageText, participantIds, sharedClubIds)
+          : [];
 
         // Find or create thread
         const threadResult = await client.query<{ id: string }>(
@@ -160,48 +227,58 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
           [senderMemberId, memberA, memberB],
         );
 
-        let threadId = threadResult.rows[0]?.id;
+        const createdThreadId = threadResult.rows[0]?.id ?? null;
+        let threadId: string | null = createdThreadId ?? existingThreadId;
         if (!threadId) {
-          const existing = await client.query<{ id: string }>(
-            `select id from dm_threads
-             where kind = 'direct' and member_a_id = $1 and member_b_id = $2
-               and archived_at is null
-             limit 1`,
-            [memberA, memberB],
-          );
-          threadId = existing.rows[0]?.id;
-          if (!threadId) throw new AppError(500, 'thread_not_found', 'Failed to find or create direct thread');
-        } else {
+          threadId = await findExistingDirectThreadId(client, senderMemberId, recipientMemberId);
+          if (!threadId) {
+            throw new AppError(500, 'thread_not_found', 'Failed to find or create direct thread');
+          }
+        }
+        if (createdThreadId) {
           await client.query(
             `insert into dm_thread_participants (thread_id, member_id) values ($1, $2), ($1, $3)`,
             [threadId, senderMemberId, recipientMemberId],
           );
         }
+        if (threadId === null) {
+          throw new AppError(500, 'thread_not_found', 'Failed to resolve direct thread');
+        }
+        const ensuredThreadId: string = threadId;
 
         // Insert message
         const msgResult = await client.query<{ id: string; created_at: string }>(
           `insert into dm_messages (thread_id, sender_member_id, role, message_text, client_key)
            values ($1, $2, 'member', $3, $4)
            returning id, created_at::text as created_at`,
-          [threadId, senderMemberId, messageText, clientKey ?? null],
+          [ensuredThreadId, senderMemberId, messageText, clientKey ?? null],
         );
         const msg = msgResult.rows[0]!;
 
-        // Create inbox entry for recipient (idempotent via unique constraint)
+        await insertDmMessageMentions(client, msg.id, mentions);
+
         await client.query(
           `insert into dm_inbox_entries (recipient_member_id, thread_id, message_id)
            values ($1, $2, $3)
            on conflict (recipient_member_id, message_id) do nothing`,
-          [recipientMemberId, threadId, msg.id],
+          [recipientMemberId, ensuredThreadId, msg.id],
         );
 
+        const included = mentions.length > 0
+          ? (await loadDmMentions(client, [msg.id])).included
+          : emptyIncludedBundle();
+
         return {
-          threadId,
-          messageId: msg.id,
-          senderMemberId,
-          recipientMemberId,
-          messageText,
-          createdAt: msg.created_at,
+          message: {
+            threadId: ensuredThreadId,
+            messageId: msg.id,
+            senderMemberId,
+            recipientMemberId,
+            messageText,
+            mentions,
+            createdAt: msg.created_at,
+          },
+          included,
         };
       });
     },
@@ -212,7 +289,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         counterpart_public_name: string; counterpart_handle: string | null;
         latest_message_id: string; latest_sender_member_id: string | null;
         latest_role: string; latest_message_text: string | null;
-        latest_created_at: string; message_count: number;
+        latest_created_at: string; message_count: number; latest_is_removed: boolean;
       }>(
         `with my_threads as (
            select tp.thread_id
@@ -234,6 +311,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                   m.role::text as latest_role,
                   case when rmv.message_id is not null then '[Message removed]' else m.message_text end as latest_message_text,
                   m.created_at::text as latest_created_at,
+                  (rmv.message_id is not null) as latest_is_removed,
                   count(*) over (partition by c.thread_id)::int as message_count,
                   row_number() over (partition by c.thread_id order by m.created_at desc, m.id desc) as rn
            from counterparts c
@@ -244,7 +322,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                 mbr.public_name as counterpart_public_name,
                 mbr.handle as counterpart_handle,
                 r.latest_message_id, r.latest_sender_member_id,
-                r.latest_role, r.latest_message_text, r.latest_created_at, r.message_count
+                r.latest_role, r.latest_message_text, r.latest_created_at, r.message_count, r.latest_is_removed
          from ranked r
          join members mbr on mbr.id = r.counterpart_member_id
          where r.rn = 1
@@ -253,18 +331,23 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         [memberId, limit],
       );
 
+      const latestVisibleMessageIds = result.rows
+        .filter((row) => !row.latest_is_removed)
+        .map((row) => row.latest_message_id);
+      const { mentionsByMessageId } = await loadDmMentions(pool, latestVisibleMessageIds);
+
       return result.rows.map((row) => ({
         threadId: row.thread_id,
         counterpartMemberId: row.counterpart_member_id,
         counterpartPublicName: row.counterpart_public_name,
         counterpartHandle: row.counterpart_handle,
-        latestMessage: {
+        latestMessage: withMessageMentions({
           messageId: row.latest_message_id,
           senderMemberId: row.latest_sender_member_id,
           role: row.latest_role as 'member' | 'agent' | 'system',
           messageText: row.latest_message_text,
           createdAt: row.latest_created_at,
-        },
+        }, row.latest_is_removed ? new Map() : mentionsByMessageId),
         messageCount: Number(row.message_count),
       }));
     },
@@ -279,7 +362,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         counterpart_public_name: string; counterpart_handle: string | null;
         latest_message_id: string; latest_sender_member_id: string | null;
         latest_role: string; latest_message_text: string | null;
-        latest_created_at: string; message_count: number;
+        latest_created_at: string; message_count: number; latest_is_removed: boolean;
         unread_count: number; has_unread: boolean; latest_unread_at: string | null;
         _latest_activity_ts: string;
       }>(
@@ -313,6 +396,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                   m.role::text as latest_role,
                   case when rmv.message_id is not null then '[Message removed]' else m.message_text end as latest_message_text,
                   m.created_at::text as latest_created_at,
+                  (rmv.message_id is not null) as latest_is_removed,
                   (select count(*)::int from dm_messages mm where mm.thread_id = c.thread_id) as message_count
            from counterparts c
            join dm_messages m on m.thread_id = c.thread_id
@@ -324,7 +408,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                 mbr.handle as counterpart_handle,
                 lm.latest_message_id, lm.latest_sender_member_id,
                 lm.latest_role, lm.latest_message_text, lm.latest_created_at,
-                lm.message_count,
+                lm.message_count, lm.latest_is_removed,
                 coalesce(ist.unread_count, 0) as unread_count,
                 coalesce(ist.has_unread, false) as has_unread,
                 ist.latest_unread_at,
@@ -342,32 +426,37 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         [memberId, fetchLimit, unreadOnly, cursorActivityAt, cursorThreadId],
       );
 
-      const rows: InboxEntry[] = result.rows.map((row) => ({
+      const pageRows = result.rows.slice(0, limit);
+      const latestVisibleMessageIds = pageRows
+        .filter((row) => !row.latest_is_removed)
+        .map((row) => row.latest_message_id);
+      const hydrated = await loadDmMentions(pool, latestVisibleMessageIds);
+
+      const rows: InboxEntry[] = pageRows.map((row) => ({
         threadId: row.thread_id,
         counterpartMemberId: row.counterpart_member_id,
         counterpartPublicName: row.counterpart_public_name,
         counterpartHandle: row.counterpart_handle,
-        latestMessage: {
+        latestMessage: withMessageMentions({
           messageId: row.latest_message_id,
           senderMemberId: row.latest_sender_member_id,
           role: row.latest_role as 'member' | 'agent' | 'system',
           messageText: row.latest_message_text,
           createdAt: row.latest_created_at,
-        },
+        }, row.latest_is_removed ? new Map() : hydrated.mentionsByMessageId),
         messageCount: Number(row.message_count),
         unreadCount: Number(row.unread_count),
         hasUnread: row.has_unread,
         latestUnreadAt: row.latest_unread_at,
       }));
 
-      const hasMore = rows.length > limit;
-      if (hasMore) rows.pop();
-      const lastRow = hasMore || rows.length === limit ? result.rows[rows.length - 1] : null;
+      const hasMore = result.rows.length > limit;
+      const lastRow = hasMore || rows.length === limit ? pageRows[rows.length - 1] : null;
       const nextCursor = lastRow && rows.length > 0
         ? encodeCursor([lastRow._latest_activity_ts, lastRow.thread_id])
         : null;
 
-      return { results: rows, hasMore, nextCursor };
+      return { results: rows, hasMore, nextCursor, included: hydrated.included };
     },
 
     async readThread({ memberId, threadId, limit, cursor }) {
@@ -398,12 +487,13 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       const threadResult = await pool.query<{
         latest_message_id: string; latest_sender_member_id: string | null;
         latest_role: string; latest_message_text: string | null;
-        latest_created_at: string; message_count: number;
+        latest_created_at: string; message_count: number; latest_is_removed: boolean;
       }>(
         `select m.id as latest_message_id, m.sender_member_id as latest_sender_member_id,
                 m.role::text as latest_role,
                 case when rmv.message_id is not null then '[Message removed]' else m.message_text end as latest_message_text,
                 m.created_at::text as latest_created_at,
+                (rmv.message_id is not null) as latest_is_removed,
                 (select count(*)::int from dm_messages mm where mm.thread_id = $1) as message_count
          from dm_messages m
          left join dm_message_removals rmv on rmv.message_id = m.id
@@ -416,18 +506,22 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       const threadRow = threadResult.rows[0];
       if (!threadRow) return null;
 
+      const latestThreadMentions = threadRow.latest_is_removed
+        ? { mentionsByMessageId: new Map<string, MentionSpan[]>(), included: emptyIncludedBundle() }
+        : await loadDmMentions(pool, [threadRow.latest_message_id]);
+
       const thread: ThreadSummary = {
         threadId,
         counterpartMemberId,
         counterpartPublicName,
         counterpartHandle,
-        latestMessage: {
+        latestMessage: withMessageMentions({
           messageId: threadRow.latest_message_id,
           senderMemberId: threadRow.latest_sender_member_id,
           role: threadRow.latest_role as 'member' | 'agent' | 'system',
           messageText: threadRow.latest_message_text,
           createdAt: threadRow.latest_created_at,
-        },
+        }, latestThreadMentions.mentionsByMessageId),
         messageCount: Number(threadRow.message_count),
       };
 
@@ -439,14 +533,15 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       const messagesResult = await pool.query<{
         message_id: string; thread_id: string; sender_member_id: string | null;
         role: string; message_text: string | null; payload: Record<string, unknown> | null;
-        created_at: string; in_reply_to_message_id: string | null;
+        created_at: string; in_reply_to_message_id: string | null; is_removed: boolean;
       }>(
         `select m.id as message_id, m.thread_id, m.sender_member_id,
                 m.role::text as role,
                 case when rmv.message_id is not null then '[Message removed]' else m.message_text end as message_text,
                 case when rmv.message_id is not null then null else m.payload end as payload,
                 m.created_at::text as created_at,
-                m.in_reply_to_message_id
+                m.in_reply_to_message_id,
+                (rmv.message_id is not null) as is_removed
          from dm_messages m
          left join dm_message_removals rmv on rmv.message_id = m.id
          where m.thread_id = $1
@@ -467,18 +562,30 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         ? encodeCursor([lastRow.created_at, lastRow.message_id])
         : null;
 
+      const visibleMessageIds = allRows
+        .filter((row) => !row.is_removed)
+        .map((row) => row.message_id);
+      const pageMentions = await loadDmMentions(pool, visibleMessageIds);
+
       const messages: MessageEntry[] = allRows.map((row) => ({
         messageId: row.message_id,
         threadId: row.thread_id,
         senderMemberId: row.sender_member_id,
         role: row.role as 'member' | 'agent' | 'system',
         messageText: row.message_text,
+        mentions: row.is_removed ? [] : (pageMentions.mentionsByMessageId.get(row.message_id) ?? []),
         payload: row.payload ?? {},
         createdAt: row.created_at,
         inReplyToMessageId: row.in_reply_to_message_id,
       })).reverse();
 
-      return { thread, messages, hasMore, nextCursor };
+      return {
+        thread,
+        messages,
+        hasMore,
+        nextCursor,
+        included: mergeIncludedBundles(latestThreadMentions.included, pageMentions.included),
+      };
     },
 
     async removeMessage({ messageId, removedByMemberId, reason, skipAuthCheck }) {

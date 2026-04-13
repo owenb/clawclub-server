@@ -16,7 +16,7 @@ import {
   wireEventFieldsCreate, parseEventFieldsCreate,
   wireEventFieldsPatch, parseEventFieldsPatch,
 } from './fields.ts';
-import { contentEntity, contentEntitySearchResult, contentThreadSummary, membershipSummary } from './responses.ts';
+import { contentEntity, contentEntitySearchResult, contentThreadSummary, includedBundle, membershipSummary } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 type EventInput = {
@@ -40,6 +40,11 @@ const CONTENT_CREATE_ERRORS = [
     recovery: 'Generate a new clientKey for the new creation intent, or resend the exact same payload to replay safely.',
   },
   {
+    code: 'invalid_mentions',
+    meaning: 'One or more @handle mentions could not be resolved in the target club.',
+    recovery: 'Correct or remove the listed mentions, then resubmit the content.',
+  },
+  {
     code: 'illegal_content',
     meaning: 'The content gate rejected the submission for soliciting or facilitating clearly illegal activity.',
     recovery: 'Relay the reason to the user, revise the content, and resubmit.',
@@ -57,6 +62,11 @@ const CONTENT_CREATE_ERRORS = [
 ] as const;
 
 const CONTENT_UPDATE_ERRORS = [
+  {
+    code: 'invalid_mentions',
+    meaning: 'One or more @handle mentions could not be resolved in the target club.',
+    recovery: 'Correct or remove the listed mentions, then resubmit the update.',
+  },
   {
     code: 'illegal_content',
     meaning: 'The content gate rejected the update for soliciting or facilitating clearly illegal activity.',
@@ -172,7 +182,7 @@ const entitiesCreate: ActionDefinition = {
       clientKey: wireOptionalString.describe('Idempotency key scoped per member.'),
       event: wireEventFieldsCreate.describe('Required when kind=event.'),
     }),
-    output: z.object({ entity: contentEntity }),
+    output: z.object({ entity: contentEntity, included: includedBundle }),
   },
 
   parse: {
@@ -191,6 +201,23 @@ const entitiesCreate: ActionDefinition = {
   },
 
   qualityGate: 'content-create',
+  preGate: async (input, ctx) => {
+    const parsed = input as CreateInput;
+    validateCreatePayload(parsed);
+    if (!parsed.threadId && !parsed.clubId) {
+      throw new AppError(400, 'invalid_input', 'clubId is required when starting a new thread');
+    }
+    await ctx.repository.preflightCreateEntityMentions?.({
+      actorMemberId: ctx.actor.member.id,
+      actorClubIds: ctx.actor.memberships.map((membership) => membership.clubId),
+      clubId: parsed.clubId,
+      threadId: parsed.threadId,
+      title: parsed.title,
+      summary: parsed.summary,
+      body: parsed.body,
+      clientKey: parsed.clientKey,
+    });
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const parsed = input as CreateInput;
@@ -217,11 +244,11 @@ const entitiesCreate: ActionDefinition = {
       ...(parsed.event ? { event: parsed.event } : {}),
     };
 
-    const entity = await ctx.repository.createEntity(createInput);
+    const result = await ctx.repository.createEntity(createInput);
 
     return {
-      data: { entity },
-      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+      data: result,
+      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
     };
   },
 };
@@ -255,7 +282,7 @@ const entitiesUpdate: ActionDefinition = {
       content: z.record(z.string(), z.unknown()).optional().describe('New structured metadata'),
       event: wireEventFieldsPatch.describe('Event patch fields (only valid for event entities)'),
     }),
-    output: z.object({ entity: contentEntity }),
+    output: z.object({ entity: contentEntity, included: includedBundle }),
   },
 
   parse: {
@@ -274,6 +301,20 @@ const entitiesUpdate: ActionDefinition = {
   },
 
   qualityGate: 'content-create',
+  preGate: async (input, ctx) => {
+    const parsed = input as UpdateInput;
+    validateUpdateEventPatch(parsed.event);
+    await ctx.repository.preflightUpdateEntityMentions?.({
+      actorMemberId: ctx.actor.member.id,
+      actorClubIds: ctx.actor.memberships.map((membership) => membership.clubId),
+      entityId: parsed.entityId,
+      patch: {
+        title: parsed.title,
+        summary: parsed.summary,
+        body: parsed.body,
+      },
+    });
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { entityId, ...patchFields } = input as UpdateInput;
@@ -286,7 +327,7 @@ const entitiesUpdate: ActionDefinition = {
       }
     }
 
-    const entity = await ctx.repository.updateEntity({
+    const result = await ctx.repository.updateEntity({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
       entityId,
@@ -300,13 +341,13 @@ const entitiesUpdate: ActionDefinition = {
       },
     });
 
-    if (!entity) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
     }
 
     return {
-      data: { entity },
-      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+      data: result,
+      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
     };
   },
 };
@@ -324,7 +365,7 @@ const entitiesRemove: ActionDefinition = {
       entityId: wireRequiredString.describe('Entity to remove'),
       reason: wireOptionalString.describe('Reason for removal (optional)'),
     }),
-    output: z.object({ entity: contentEntity }),
+    output: z.object({ entity: contentEntity, included: includedBundle }),
   },
 
   parse: {
@@ -340,20 +381,20 @@ const entitiesRemove: ActionDefinition = {
     const { entityId, reason } = input as { entityId: string; reason: string | null };
     ctx.requireCapability('removeEntity');
 
-    const entity = await ctx.repository.removeEntity!({
+    const result = await ctx.repository.removeEntity!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
       entityId,
       reason,
     });
 
-    if (!entity) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
     }
 
     return {
-      data: { entity },
-      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+      data: result,
+      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
     };
   },
 };
@@ -386,6 +427,7 @@ const contentGetThread: ActionDefinition = {
       entities: z.array(contentEntity),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
+      included: includedBundle,
     }),
   },
 
@@ -470,6 +512,7 @@ const entitiesList: ActionDefinition = {
       results: z.array(contentThreadSummary),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
+      included: includedBundle,
     }),
   },
 
@@ -515,6 +558,7 @@ const entitiesList: ActionDefinition = {
         results: result.results,
         hasMore: result.hasMore,
         nextCursor: result.nextCursor,
+        included: result.included,
       },
       requestScope: {
         requestedClubId: clubId ?? null,
@@ -554,6 +598,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
       results: z.array(contentEntitySearchResult),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
+      included: includedBundle,
     }),
   },
 
@@ -666,7 +711,15 @@ const entitiesFindViaEmbedding: ActionDefinition = {
     const clubScope = ctx.actor.memberships.filter(m => clubIds.includes(m.clubId));
 
     return {
-      data: { query, limit, clubScope, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
+      data: {
+        query,
+        limit,
+        clubScope,
+        results: result.results,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+        included: result.included,
+      },
       requestScope: { requestedClubId: clubId ?? null, activeClubIds: clubIds },
     };
   },
@@ -684,7 +737,7 @@ const entitiesCloseLoop: ActionDefinition = {
     input: z.object({
       entityId: wireRequiredString.describe('Entity to close'),
     }),
-    output: z.object({ entity: contentEntity }),
+    output: z.object({ entity: contentEntity, included: includedBundle }),
   },
 
   parse: {
@@ -695,19 +748,19 @@ const entitiesCloseLoop: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { entityId } = input as { entityId: string };
-    const entity = await ctx.repository.closeEntityLoop({
+    const result = await ctx.repository.closeEntityLoop({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
       entityId,
     });
 
-    if (!entity) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
     }
 
     return {
-      data: { entity },
-      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+      data: result,
+      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
     };
   },
 };
@@ -724,7 +777,7 @@ const entitiesReopenLoop: ActionDefinition = {
     input: z.object({
       entityId: wireRequiredString.describe('Entity to reopen'),
     }),
-    output: z.object({ entity: contentEntity }),
+    output: z.object({ entity: contentEntity, included: includedBundle }),
   },
 
   parse: {
@@ -735,19 +788,19 @@ const entitiesReopenLoop: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { entityId } = input as { entityId: string };
-    const entity = await ctx.repository.reopenEntityLoop({
+    const result = await ctx.repository.reopenEntityLoop({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
       entityId,
     });
 
-    if (!entity) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
     }
 
     return {
-      data: { entity },
-      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+      data: result,
+      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
     };
   },
 };

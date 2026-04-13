@@ -3,11 +3,12 @@
  */
 
 import type { Pool } from 'pg';
-import type { ContentEntity, EventRsvpState } from '../contract.ts';
+import type { ContentEntity, EventRsvpState, WithIncluded } from '../contract.ts';
 import { withTransaction } from '../db.ts';
 import { AppError } from '../contract.ts';
 import { encodeCursor } from '../schemas/fields.ts';
-import { readContentEntitiesByIds, readContentEntity } from './entities.ts';
+import { readContentEntitiesBundleByIds, readContentEntityBundle } from './entities.ts';
+import { emptyIncludedBundle } from '../mentions.ts';
 
 async function viewerMembershipIdsForClubs(pool: Pool, actorMemberId: string, clubIds: string[]): Promise<string[]> {
   if (clubIds.length === 0) return [];
@@ -53,8 +54,8 @@ export async function listEvents(pool: Pool, input: {
   limit: number;
   query?: string;
   cursor?: { startsAt: string; entityId: string } | null;
-}): Promise<{ results: ContentEntity[]; hasMore: boolean; nextCursor: string | null }> {
-  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
+}): Promise<WithIncluded<{ results: ContentEntity[]; hasMore: boolean; nextCursor: string | null }>> {
+  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null, included: emptyIncludedBundle() };
 
   const trimmedQuery = input.query?.trim().slice(0, 120) || null;
   const likePattern = trimmedQuery ? `%${trimmedQuery.replace(/[%_\\]/g, '\\$&')}%` : null;
@@ -91,14 +92,16 @@ export async function listEvents(pool: Pool, input: {
     ],
   );
 
-  if (identityRows.rows.length === 0) return { results: [], hasMore: false, nextCursor: null };
+  if (identityRows.rows.length === 0) {
+    return { results: [], hasMore: false, nextCursor: null, included: emptyIncludedBundle() };
+  }
 
   const hasMore = identityRows.rows.length > input.limit;
   const pageRows = hasMore ? identityRows.rows.slice(0, input.limit) : identityRows.rows;
   const viewerMembershipIds = await viewerMembershipIdsForClubs(pool, input.actorMemberId, input.clubIds);
 
   return withTransaction(pool, async (client) => {
-    const entities = await readContentEntitiesByIds(
+    const bundle = await readContentEntitiesBundleByIds(
       client,
       pageRows.map(row => row.entity_id),
       viewerMembershipIds,
@@ -107,9 +110,10 @@ export async function listEvents(pool: Pool, input: {
 
     const last = pageRows[pageRows.length - 1];
     return {
-      results: entities,
+      results: bundle.entities,
       hasMore,
       nextCursor: hasMore && last ? encodeCursor([last.starts_at, last.entity_id]) : null,
+      included: bundle.included,
     };
   });
 }
@@ -120,7 +124,7 @@ export async function rsvpEvent(pool: Pool, input: {
   response: EventRsvpState;
   note?: string | null;
   accessibleMemberships: Array<{ membershipId: string; clubId: string }>;
-}): Promise<ContentEntity | null> {
+}): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
   const clubIds = input.accessibleMemberships.map(membership => membership.clubId);
   const event = await resolveEventIdentity(pool, input.eventEntityId, clubIds);
   if (!event) return null;
@@ -156,7 +160,8 @@ export async function rsvpEvent(pool: Pool, input: {
       ],
     );
 
-    return readContentEntity(client, input.eventEntityId, [membership.membershipId], { includeExpired: false });
+    const result = await readContentEntityBundle(client, input.eventEntityId, [membership.membershipId], { includeExpired: false });
+    return result.entity ? { entity: result.entity, included: result.included } : null;
   });
 }
 
@@ -164,7 +169,7 @@ export async function cancelEventRsvp(pool: Pool, input: {
   actorMemberId: string;
   eventEntityId: string;
   accessibleMemberships: Array<{ membershipId: string; clubId: string }>;
-}): Promise<ContentEntity | null> {
+}): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
   const clubIds = input.accessibleMemberships.map(membership => membership.clubId);
   const event = await resolveEventIdentity(pool, input.eventEntityId, clubIds);
   if (!event) return null;
@@ -183,7 +188,8 @@ export async function cancelEventRsvp(pool: Pool, input: {
     );
 
     if (!currentRsvp.rows[0] || currentRsvp.rows[0].response === 'cancelled') {
-      return readContentEntity(client, input.eventEntityId, [membership.membershipId], { includeExpired: false });
+      const result = await readContentEntityBundle(client, input.eventEntityId, [membership.membershipId], { includeExpired: false });
+      return result.entity ? { entity: result.entity, included: result.included } : null;
     }
 
     await client.query(
@@ -199,6 +205,7 @@ export async function cancelEventRsvp(pool: Pool, input: {
       ],
     );
 
-    return readContentEntity(client, input.eventEntityId, [membership.membershipId], { includeExpired: false });
+    const result = await readContentEntityBundle(client, input.eventEntityId, [membership.membershipId], { includeExpired: false });
+    return result.entity ? { entity: result.entity, included: result.included } : null;
   });
 }

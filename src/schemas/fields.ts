@@ -8,6 +8,7 @@
  * Where both are identical the field is exported once without a prefix.
  */
 import { z } from 'zod';
+import { HANDLE_REGEX } from '../identity/handles.ts';
 
 // ── Enums ────────────────────────────────────────────────
 
@@ -233,7 +234,7 @@ export const parseHandle = safeString.pipe(z.string().trim())
   .nullable()
   .optional()
   .refine(
-    val => val === undefined || val === null || /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(val),
+    val => val === undefined || val === null || HANDLE_REGEX.test(val),
     'handle must use lowercase letters, numbers, and single hyphens',
   );
 
@@ -401,7 +402,7 @@ export const wireSlug = z.string()
 /** Parse: validates slug format */
 export const parseSlug = safeString.pipe(z.string().trim())
   .refine(
-    s => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s),
+    s => HANDLE_REGEX.test(s),
     'slug must use lowercase letters, numbers, and single hyphens',
   );
 

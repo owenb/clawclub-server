@@ -682,6 +682,28 @@ CREATE INDEX entity_versions_entity_version_idx ON entity_versions (entity_id, v
 CREATE INDEX entity_versions_effective_idx ON entity_versions (effective_at DESC);
 CREATE INDEX entity_versions_expires_idx ON entity_versions (expires_at);
 
+CREATE TABLE entity_version_mentions (
+    entity_version_id        short_id NOT NULL,
+    field                    text NOT NULL,
+    start_offset             integer NOT NULL,
+    end_offset               integer NOT NULL,
+    mentioned_member_id      short_id NOT NULL,
+    authored_handle          text NOT NULL,
+    created_at               timestamptz DEFAULT now() NOT NULL,
+
+    CONSTRAINT entity_version_mentions_pkey PRIMARY KEY (entity_version_id, field, start_offset),
+    CONSTRAINT entity_version_mentions_field_check CHECK (field IN ('title', 'summary', 'body')),
+    CONSTRAINT entity_version_mentions_offset_check CHECK (
+        start_offset >= 0
+        AND end_offset > start_offset
+    ),
+    CONSTRAINT entity_version_mentions_version_fkey FOREIGN KEY (entity_version_id) REFERENCES entity_versions(id),
+    CONSTRAINT entity_version_mentions_member_fkey FOREIGN KEY (mentioned_member_id) REFERENCES members(id)
+);
+
+CREATE INDEX entity_version_mentions_member_created_idx
+    ON entity_version_mentions (mentioned_member_id, created_at DESC);
+
 -- ── Event version details (extension table for event-specific fields) ──
 
 CREATE TABLE event_version_details (
@@ -993,6 +1015,26 @@ CREATE UNIQUE INDEX dm_messages_idempotent_idx
 CREATE INDEX dm_messages_thread_created_desc_idx ON dm_messages (thread_id, created_at DESC, id DESC);
 CREATE INDEX dm_messages_thread_created_asc_idx ON dm_messages (thread_id, created_at);
 CREATE INDEX dm_messages_sender_idx ON dm_messages (sender_member_id, created_at DESC);
+
+CREATE TABLE dm_message_mentions (
+    message_id               short_id NOT NULL,
+    start_offset             integer NOT NULL,
+    end_offset               integer NOT NULL,
+    mentioned_member_id      short_id NOT NULL,
+    authored_handle          text NOT NULL,
+    created_at               timestamptz DEFAULT now() NOT NULL,
+
+    CONSTRAINT dm_message_mentions_pkey PRIMARY KEY (message_id, start_offset),
+    CONSTRAINT dm_message_mentions_offset_check CHECK (
+        start_offset >= 0
+        AND end_offset > start_offset
+    ),
+    CONSTRAINT dm_message_mentions_message_fkey FOREIGN KEY (message_id) REFERENCES dm_messages(id),
+    CONSTRAINT dm_message_mentions_member_fkey FOREIGN KEY (mentioned_member_id) REFERENCES members(id)
+);
+
+CREATE INDEX dm_message_mentions_member_created_idx
+    ON dm_message_mentions (mentioned_member_id, created_at DESC);
 
 -- ── DM inbox entries ──────────────────────────────────────────
 

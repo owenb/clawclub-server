@@ -10,7 +10,7 @@ import {
   wireCursor, parseCursor, decodeCursor,
   wireLimitOf, parseLimitOf,
 } from './fields.ts';
-import { contentEntity, membershipSummary } from './responses.ts';
+import { contentEntity, includedBundle, membershipSummary } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 type EventListInput = {
@@ -41,6 +41,7 @@ const eventsList: ActionDefinition = {
       results: z.array(contentEntity),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
+      included: includedBundle,
     }),
   },
 
@@ -80,6 +81,7 @@ const eventsList: ActionDefinition = {
         results: result.results,
         hasMore: result.hasMore,
         nextCursor: result.nextCursor,
+        included: result.included,
       },
       requestScope: { requestedClubId: clubId ?? null, activeClubIds: clubIds },
     };
@@ -105,7 +107,7 @@ const eventsRsvp: ActionDefinition = {
       response: eventRsvpState.describe('RSVP response'),
       note: wireOptionalString.describe('Optional note'),
     }),
-    output: z.object({ entity: contentEntity }),
+    output: z.object({ entity: contentEntity, included: includedBundle }),
   },
 
   parse: {
@@ -119,7 +121,7 @@ const eventsRsvp: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { eventEntityId, response, note } = input as RsvpInput;
 
-    const entity = await ctx.repository.rsvpEvent({
+    const result = await ctx.repository.rsvpEvent({
       actorMemberId: ctx.actor.member.id,
       eventEntityId,
       response,
@@ -130,13 +132,13 @@ const eventsRsvp: ActionDefinition = {
       })),
     });
 
-    if (!entity) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Event not found inside the actor scope');
     }
 
     return {
-      data: { entity },
-      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+      data: result,
+      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
     };
   },
 };
@@ -152,7 +154,7 @@ const eventsCancelRsvp: ActionDefinition = {
     input: z.object({
       eventEntityId: wireRequiredString.describe('Event entity ID'),
     }),
-    output: z.object({ entity: contentEntity }),
+    output: z.object({ entity: contentEntity, included: includedBundle }),
   },
 
   parse: {
@@ -164,7 +166,7 @@ const eventsCancelRsvp: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { eventEntityId } = input as { eventEntityId: string };
 
-    const entity = await ctx.repository.cancelEventRsvp({
+    const result = await ctx.repository.cancelEventRsvp({
       actorMemberId: ctx.actor.member.id,
       eventEntityId,
       accessibleMemberships: ctx.actor.memberships.map(m => ({
@@ -173,13 +175,13 @@ const eventsCancelRsvp: ActionDefinition = {
       })),
     });
 
-    if (!entity) {
+    if (!result) {
       throw new AppError(404, 'not_found', 'Event not found inside the actor scope');
     }
 
     return {
-      data: { entity },
-      requestScope: { requestedClubId: entity.clubId, activeClubIds: [entity.clubId] },
+      data: result,
+      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
     };
   },
 };

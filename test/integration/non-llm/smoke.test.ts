@@ -98,6 +98,15 @@ describe('smoke', () => {
     assert.ok(contentCreateErrorCodes.has('quota_exceeded'), 'content.create should document quota_exceeded');
     assert.ok(contentCreateErrorCodes.has('illegal_content'), 'content.create should document illegal_content');
     assert.ok(contentCreateErrorCodes.has('gate_unavailable'), 'content.create should document gate_unavailable');
+    assert.ok(contentCreateErrorCodes.has('invalid_mentions'), 'content.create should document invalid_mentions');
+
+    const contentUpdate = data.actions.find((a) => a.action === 'content.update');
+    const contentUpdateErrorCodes = new Set(contentUpdate?.businessErrors?.map((error) => error.code) ?? []);
+    assert.ok(contentUpdateErrorCodes.has('invalid_mentions'), 'content.update should document invalid_mentions');
+
+    const messagesSendAction = data.actions.find((a) => a.action === 'messages.send');
+    const messagesSendErrorCodes = new Set(messagesSendAction?.businessErrors?.map((error) => error.code) ?? []);
+    assert.ok(messagesSendErrorCodes.has('invalid_mentions'), 'messages.send should document invalid_mentions');
 
     const publicSubmit = data.actions.find((a) => a.action === 'admissions.public.submitApplication');
     assert.ok(publicSubmit?.notes?.some((note) => /canonical response text/i.test(note)), 'public submit should note the accepted message semantics');

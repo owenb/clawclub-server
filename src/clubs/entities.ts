@@ -8,15 +8,32 @@ import type {
   ContentThreadSummary,
   CreateEntityInput,
   EventFields,
+  IncludedBundle,
   ListEntitiesInput,
   ReadContentThreadInput,
   SetEntityLoopInput,
   UpdateEntityInput,
+  WithIncluded,
 } from '../contract.ts';
 import { AppError } from '../contract.ts';
 import { EMBEDDING_PROFILES } from '../ai.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { encodeCursor, decodeCursor } from '../schemas/fields.ts';
+import {
+  applyContentMentionLimitsForUpdate,
+  copyEntityVersionMentions,
+  emptyContentMentions,
+  emptyIncludedBundle,
+  extractContentMentionCandidates,
+  hasPotentialMentionChar,
+  insertEntityVersionMentions,
+  loadEntityVersionMentions,
+  loadEntityVersionMentionsForVersion,
+  mergeIncludedBundles,
+  resolvePublicContentMentions,
+  type ContentMentionField,
+  type ContentMentionsByField,
+} from '../mentions.ts';
 
 type ContentEntityRow = {
   ord?: number;
@@ -251,6 +268,7 @@ function mapContentEntityRow(row: ContentEntityRow): ContentEntity {
       expiresAt: isRemoved ? null : row.expires_at,
       createdAt: row.version_created_at,
       content: isRemoved ? {} : (row.content ?? {}),
+      mentions: emptyContentMentions(),
     },
     event: isRemoved || row.kind !== 'event'
       ? null
@@ -283,6 +301,16 @@ function mapContentEntityRow(row: ContentEntityRow): ContentEntity {
         })),
       },
     createdAt: row.entity_created_at,
+  };
+}
+
+function withContentMentions(entity: ContentEntity, mentions?: ContentMentionsByField): ContentEntity {
+  return {
+    ...entity,
+    version: {
+      ...entity.version,
+      mentions: mentions ?? emptyContentMentions(),
+    },
   };
 }
 
@@ -448,8 +476,31 @@ export async function readContentEntitiesByIds(
   viewerMembershipIds: string[],
   options: { includeExpired?: boolean } = {},
 ): Promise<ContentEntity[]> {
+  const result = await readContentEntitiesBundleByIds(client, entityIds, viewerMembershipIds, options);
+  return result.entities;
+}
+
+export async function readContentEntitiesBundleByIds(
+  client: DbClient,
+  entityIds: string[],
+  viewerMembershipIds: string[],
+  options: { includeExpired?: boolean } = {},
+): Promise<{ entities: ContentEntity[]; included: IncludedBundle }> {
   const rows = await readContentRowsByIds(client, entityIds, viewerMembershipIds, options);
-  return rows.map(mapContentEntityRow);
+  if (rows.length === 0) {
+    return { entities: [], included: emptyIncludedBundle() };
+  }
+
+  const mapped = rows.map(mapContentEntityRow);
+  const { mentionsByVersionId, included } = await loadEntityVersionMentions(
+    client,
+    rows.map((row) => row.entity_version_id),
+  );
+
+  const entities = mapped.map((entity, index) =>
+    withContentMentions(entity, mentionsByVersionId.get(rows[index]!.entity_version_id)));
+
+  return { entities, included };
 }
 
 export async function readContentEntity(
@@ -458,8 +509,21 @@ export async function readContentEntity(
   viewerMembershipIds: string[],
   options: { includeExpired?: boolean } = {},
 ): Promise<ContentEntity | null> {
-  const entities = await readContentEntitiesByIds(client, [entityId], viewerMembershipIds, options);
-  return entities[0] ?? null;
+  const result = await readContentEntityBundle(client, entityId, viewerMembershipIds, options);
+  return result.entity;
+}
+
+export async function readContentEntityBundle(
+  client: DbClient,
+  entityId: string,
+  viewerMembershipIds: string[],
+  options: { includeExpired?: boolean } = {},
+): Promise<WithIncluded<{ entity: ContentEntity | null }>> {
+  const { entities, included } = await readContentEntitiesBundleByIds(client, [entityId], viewerMembershipIds, options);
+  return {
+    entity: entities[0] ?? null,
+    included,
+  };
 }
 
 async function insertEventVersionDetails(client: DbClient, entityVersionId: string, event: EventFields | null): Promise<void> {
@@ -521,7 +585,7 @@ async function readExistingClientKeyRow(client: DbClient, memberId: string, clie
   return result.rows[0] ?? null;
 }
 
-export async function createEntity(pool: Pool, input: CreateEntityInput): Promise<ContentEntity> {
+export async function createEntity(pool: Pool, input: CreateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }>> {
   return withTransaction(pool, async (client) => {
     if (!input.threadId && !input.clubId) {
       throw new AppError(400, 'invalid_input', 'clubId is required when starting a new thread');
@@ -561,13 +625,18 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
           input.authorMemberId,
           existingThreadTarget?.clubId ?? input.clubId,
         );
-        const replay = await readContentEntity(client, existing.id, viewerMembershipIds, { includeExpired: true });
-        if (replay) return replay;
+        const replay = await readContentEntityBundle(client, existing.id, viewerMembershipIds, { includeExpired: true });
+        if (replay.entity) return { entity: replay.entity, included: replay.included };
       }
     }
 
+    const targetClubId = existingThreadTarget?.clubId ?? input.clubId!;
+    const resolvedMentions = hasPotentialMentionChar(input.title, input.summary, input.body)
+      ? await resolvePublicContentMentions(client, extractContentMentionCandidates(input), targetClubId)
+      : emptyContentMentions();
+
     const target = existingThreadTarget
-      ?? await createThreadTarget(client, input.authorMemberId, input.clubId!);
+      ?? await createThreadTarget(client, input.authorMemberId, targetClubId);
 
     const entityResult = await client.query<{ id: string; created_at: string }>(
       `insert into entities (club_id, kind, author_member_id, open_loop, content_thread_id, client_key)
@@ -611,6 +680,8 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
       await insertEventVersionDetails(client, version.id, validateResolvedEventFields(canonicalizeEventFields(input.event ?? null)));
     }
 
+    await insertEntityVersionMentions(client, version.id, resolvedMentions);
+
     if (input.threadId) {
       await client.query(
         `update content_threads
@@ -631,15 +702,15 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
     await enqueueEmbeddingJob(client, version.id);
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.authorMemberId, target.clubId);
-    const summary = await readContentEntity(client, entity.id, viewerMembershipIds, { includeExpired: true });
-    if (!summary) {
+    const summary = await readContentEntityBundle(client, entity.id, viewerMembershipIds, { includeExpired: true });
+    if (!summary.entity) {
       throw new AppError(500, 'missing_row', 'Created entity could not be reloaded');
     }
-    return summary;
+    return { entity: summary.entity, included: summary.included };
   });
 }
 
-export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promise<ContentEntity | null> {
+export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
   return withTransaction(pool, async (client) => {
     const currentResult = await client.query<CurrentEntityForUpdateRow>(
       `select
@@ -687,6 +758,42 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
       content: input.patch.content !== undefined ? input.patch.content : (current.content ?? {}),
     };
 
+    const changedMentionFields: ContentMentionField[] = [];
+    const unchangedMentionFields: ContentMentionField[] = [];
+    const fieldPairs: Array<[ContentMentionField, string | null, string | null]> = [
+      ['title', current.title, nextCommon.title],
+      ['summary', current.summary, nextCommon.summary],
+      ['body', current.body, nextCommon.body],
+    ];
+    for (const [field, previousValue, nextValue] of fieldPairs) {
+      if (previousValue === nextValue) {
+        unchangedMentionFields.push(field);
+      } else {
+        changedMentionFields.push(field);
+      }
+    }
+
+    const carriedMentions = await loadEntityVersionMentionsForVersion(client, current.version_id);
+    const changedMentions = changedMentionFields.length > 0
+      ? await resolvePublicContentMentions(
+        client,
+        extractContentMentionCandidates({
+          title: changedMentionFields.includes('title') ? nextCommon.title : null,
+          summary: changedMentionFields.includes('summary') ? nextCommon.summary : null,
+          body: changedMentionFields.includes('body') ? nextCommon.body : null,
+        }),
+        current.club_id,
+      )
+      : emptyContentMentions();
+
+    const mergedMentions: ContentMentionsByField = {
+      title: changedMentionFields.includes('title') ? changedMentions.title : carriedMentions.title,
+      summary: changedMentionFields.includes('summary') ? changedMentions.summary : carriedMentions.summary,
+      body: changedMentionFields.includes('body') ? changedMentions.body : carriedMentions.body,
+    };
+    const changedFieldSpanCount = changedMentionFields.reduce((total, field) => total + changedMentions[field].length, 0);
+    applyContentMentionLimitsForUpdate(mergedMentions, changedFieldSpanCount);
+
     const versionResult = await client.query<{ id: string }>(
       `insert into entity_versions (
          entity_id, version_no, state, title, summary, body, expires_at, content, supersedes_version_id, created_by_member_id
@@ -708,6 +815,9 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
     if (!version) {
       throw new AppError(500, 'missing_row', 'Updated entity version row was not returned');
     }
+
+    await copyEntityVersionMentions(client, current.version_id, version.id, unchangedMentionFields);
+    await insertEntityVersionMentions(client, version.id, changedMentions);
 
     if (current.kind === 'event') {
       const mergedEvent = validateResolvedEventFields({
@@ -732,7 +842,8 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
     await enqueueEmbeddingJob(client, version.id);
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, current.club_id);
-    return readContentEntity(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
+    const summary = await readContentEntityBundle(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
+    return summary.entity ? { entity: summary.entity, included: summary.included } : null;
   });
 }
 
@@ -742,7 +853,7 @@ export async function removeEntity(pool: Pool, input: {
   actorMemberId: string;
   reason?: string | null;
   skipAuthCheck?: boolean;
-}): Promise<ContentEntity | null> {
+}): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
   return withTransaction(pool, async (client) => {
     const currentResult = await client.query<{
       entity_id: string;
@@ -777,7 +888,8 @@ export async function removeEntity(pool: Pool, input: {
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, current.club_id);
 
     if (current.state === 'removed') {
-      return readContentEntity(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
+      const existing = await readContentEntityBundle(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
+      return existing.entity ? { entity: existing.entity, included: existing.included } : null;
     }
 
     const removeResult = await client.query<{ id: string }>(
@@ -798,7 +910,8 @@ export async function removeEntity(pool: Pool, input: {
       });
     }
 
-    return readContentEntity(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
+    const summary = await readContentEntityBundle(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
+    return summary.entity ? { entity: summary.entity, included: summary.included } : null;
   });
 }
 
@@ -806,7 +919,7 @@ async function setEntityLoopState(
   pool: Pool,
   input: SetEntityLoopInput,
   nextOpenLoop: boolean,
-): Promise<ContentEntity | null> {
+): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
   return withTransaction(pool, async (client) => {
     const updateResult = await client.query<{ entity_id: string; club_id: string }>(
       `update entities e
@@ -846,19 +959,20 @@ async function setEntityLoopState(
     }
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, row.club_id);
-    return readContentEntity(client, row.entity_id, viewerMembershipIds, { includeExpired: true });
+    const summary = await readContentEntityBundle(client, row.entity_id, viewerMembershipIds, { includeExpired: true });
+    return summary.entity ? { entity: summary.entity, included: summary.included } : null;
   });
 }
 
-export async function closeEntityLoop(pool: Pool, input: SetEntityLoopInput): Promise<ContentEntity | null> {
+export async function closeEntityLoop(pool: Pool, input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
   return setEntityLoopState(pool, input, false);
 }
 
-export async function reopenEntityLoop(pool: Pool, input: SetEntityLoopInput): Promise<ContentEntity | null> {
+export async function reopenEntityLoop(pool: Pool, input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
   return setEntityLoopState(pool, input, true);
 }
 
-export type PaginatedThreads = { results: ContentThreadSummary[]; hasMore: boolean; nextCursor: string | null };
+export type PaginatedThreads = WithIncluded<{ results: ContentThreadSummary[]; hasMore: boolean; nextCursor: string | null }>;
 
 async function loadThreadSummaryRows(
   client: DbClient,
@@ -986,7 +1100,7 @@ async function loadThreadSummaryRows(
 
 export async function listEntities(pool: Pool, input: ListEntitiesInput): Promise<PaginatedThreads> {
   if (input.clubIds.length === 0) {
-    return { results: [], hasMore: false, nextCursor: null };
+    return { results: [], hasMore: false, nextCursor: null, included: emptyIncludedBundle() };
   }
 
   const rows = await withTransaction(pool, async (client) => {
@@ -1006,13 +1120,13 @@ export async function listEntities(pool: Pool, input: ListEntitiesInput): Promis
 
   return withTransaction(pool, async (client) => {
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId);
-    const firstEntities = await readContentEntitiesByIds(
+    const firstEntityBundle = await readContentEntitiesBundleByIds(
       client,
       pageRows.map(row => row.first_entity_id),
       viewerMembershipIds,
       { includeExpired: true },
     );
-    const firstEntityById = new Map(firstEntities.map(entity => [entity.entityId, entity]));
+    const firstEntityById = new Map(firstEntityBundle.entities.map(entity => [entity.entityId, entity]));
 
     const results = pageRows
       .map((row) => {
@@ -1035,7 +1149,7 @@ export async function listEntities(pool: Pool, input: ListEntitiesInput): Promis
       ? encodeCursor([lastRow.last_activity_at, lastRow.thread_id])
       : null;
 
-    return { results, hasMore, nextCursor };
+    return { results, hasMore, nextCursor, included: firstEntityBundle.included };
   });
 }
 
@@ -1127,7 +1241,7 @@ async function loadThreadHeader(
 export async function readContentThread(
   pool: Pool,
   input: ReadContentThreadInput,
-): Promise<{ thread: ContentThreadSummary; entities: ContentEntity[]; hasMore: boolean; nextCursor: string | null } | null> {
+): Promise<WithIncluded<{ thread: ContentThreadSummary; entities: ContentEntity[]; hasMore: boolean; nextCursor: string | null }> | null> {
   return withTransaction(pool, async (client) => {
     const resolvedThreadId = input.threadId
       ? (await client.query<{ id: string }>(
@@ -1157,8 +1271,8 @@ export async function readContentThread(
       .filter(membership => membership.clubId === threadRow.club_id)
       .map(membership => membership.membershipId);
 
-    const firstEntity = await readContentEntity(client, threadRow.first_entity_id, viewerMembershipIds, { includeExpired: true });
-    if (!firstEntity) return null;
+    const firstEntityBundle = await readContentEntityBundle(client, threadRow.first_entity_id, viewerMembershipIds, { includeExpired: true });
+    if (!firstEntityBundle.entity) return null;
 
     const pageResult = await client.query<{ entity_id: string; created_at: string }>(
       `select e.id as entity_id, e.created_at::text as created_at
@@ -1198,7 +1312,7 @@ export async function readContentThread(
     const hasMore = pageResult.rows.length > input.limit;
     const entityPage = hasMore ? pageResult.rows.slice(0, input.limit) : pageResult.rows;
     const pageEntityIds = [...entityPage].reverse().map(row => row.entity_id);
-    const entities = await readContentEntitiesByIds(client, pageEntityIds, viewerMembershipIds, { includeExpired: false });
+    const entityBundle = await readContentEntitiesBundleByIds(client, pageEntityIds, viewerMembershipIds, { includeExpired: false });
 
     const oldest = entityPage[entityPage.length - 1];
     const nextCursor = hasMore && oldest
@@ -1209,15 +1323,16 @@ export async function readContentThread(
       thread: {
         threadId: threadRow.thread_id,
         clubId: threadRow.club_id,
-        firstEntity,
+        firstEntity: firstEntityBundle.entity,
         thread: {
           entityCount: Number(threadRow.entity_count),
           lastActivityAt: threadRow.last_activity_at,
         },
       },
-      entities,
+      entities: entityBundle.entities,
       hasMore,
       nextCursor,
+      included: mergeIncludedBundles(firstEntityBundle.included, entityBundle.included),
     };
   });
 }
