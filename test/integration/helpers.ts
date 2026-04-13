@@ -5,14 +5,6 @@ export function activeMemberships(sessionBody: Record<string, unknown>): Array<R
   return (actor.activeMemberships ?? []) as Array<Record<string, unknown>>;
 }
 
-export function admission(responseBody: Record<string, unknown>): Record<string, unknown> {
-  return (responseBody.data as Record<string, unknown>).admission as Record<string, unknown>;
-}
-
-export function admissionList(responseBody: Record<string, unknown>): Array<Record<string, unknown>> {
-  return (responseBody.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-}
-
 export function makeVector(values: number[]): string {
   const full = new Array(1536).fill(0);
   for (let i = 0; i < values.length; i++) full[i] = values[i];

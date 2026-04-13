@@ -137,7 +137,7 @@ function buildTransport(): unknown {
       },
       note: 'Browser EventSource cannot set Authorization headers; use fetch with a streaming reader.',
     },
-    acknowledgment: 'Acknowledge materialized notifications via notifications.acknowledge and DM inbox entries via messages.acknowledge(threadId). Activity advances via the activity cursor.',
+    acknowledgment: 'Acknowledge materialized notifications via notifications.acknowledge and DM inbox entries via messages.acknowledge(threadId). Sending a DM reply also auto-marks that thread read for the sender. Activity advances via the activity cursor.',
     // Transport-surface and dispatch-layer error codes only.
     // Action-level business codes (illegal_content, gate_unavailable, quota_exceeded, etc.)
     // are documented per-action and are NOT included here.

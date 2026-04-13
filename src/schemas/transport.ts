@@ -4,7 +4,7 @@
  * These define the HTTP response shapes that wrap action-specific data.
  * Two success envelopes:
  *   - Authenticated: includes actor context (member, roles, memberships, scope)
- *   - Unauthenticated: bare action + data (cold admissions only)
+ *   - Unauthenticated: bare action + data (anonymous clubs.join only)
  *
  * Plus the error envelope and SSE response shapes.
  */

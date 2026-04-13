@@ -220,7 +220,7 @@ async function ensureProfileVersionForActiveMembership(client: DbClient, input: 
     clubId: input.clubId,
     fields,
     createdByMemberId: input.createdByMemberId,
-    generationSource: draft ? 'admission_generated' : 'membership_seed',
+    generationSource: draft ? 'application_generated' : 'membership_seed',
   });
 }
 
@@ -558,7 +558,7 @@ export { setComped };
 export { hasLiveAccess };
 
 /**
- * Create a member record directly (superadmin bypass, no admission).
+ * Create a member record directly (superadmin bypass, no application flow).
  * Returns the new member ID, handle, and a bearer token.
  */
 export async function createMemberDirect(pool: Pool, input: {
@@ -638,7 +638,7 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
   reason?: string | null;
   initialProfile: {
     fields: ClubProfileFields;
-    generationSource: 'membership_seed' | 'admission_generated';
+    generationSource: 'membership_seed' | 'application_generated';
   };
 }): Promise<MembershipAdminSummary | null> {
   return withTransaction(pool, async (client) => {
@@ -711,21 +711,4 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
 
     return readMembershipSummary(client, membershipId);
   });
-}
-
-/**
- * Get member name and email for admission workflow.
- */
-export async function getMemberPublicContact(pool: Pool, memberId: string): Promise<{
-  memberName: string; email: string | null;
-} | null> {
-  const result = await pool.query<{ public_name: string; email: string | null }>(
-    `select m.public_name, mpc.email
-     from members m
-     left join member_private_contacts mpc on mpc.member_id = m.id
-     where m.id = $1 limit 1`,
-    [memberId],
-  );
-  if (!result.rows[0]) return null;
-  return { memberName: result.rows[0].public_name, email: result.rows[0].email };
 }

@@ -40,6 +40,8 @@ After processing:
 - call `notifications.acknowledge` with `state: "processed"` or `"suppressed"` for materialized notifications
 - activity items advance only via the activity cursor and are not explicitly acknowledged
 
+Replying in a DM via `messages.send` also auto-marks that thread read for the sender. Use `messages.acknowledge` when you read a thread without replying.
+
 If `actor.sharedContext.notificationsTruncated` is `true`, or the `ready` frame on `/stream` says `notificationsTruncated: true`, call `notifications.list` to drain the rest of the worklist. `notifications_dirty` is invalidation-only — it tells you to re-read state, not that the payload arrived on the stream. `Last-Event-ID` only resumes activity; after reconnect, call `messages.getInbox` to catch up on DM state.
 
 ---

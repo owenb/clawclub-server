@@ -335,7 +335,7 @@ async function insertClubProfileVersion(client: DbClient, input: {
   clubId: string;
   fields: ClubProfileFields;
   createdByMemberId: string | null;
-  generationSource: 'manual' | 'migration_backfill' | 'admission_generated' | 'membership_seed';
+  generationSource: 'manual' | 'migration_backfill' | 'application_generated' | 'membership_seed';
   versionNo?: number;
 }): Promise<string> {
   const result = await client.query<{ id: string }>(
@@ -385,7 +385,7 @@ export async function createInitialClubProfileVersion(client: DbClient, input: {
   clubId: string;
   fields: ClubProfileFields;
   createdByMemberId: string | null;
-  generationSource: 'admission_generated' | 'membership_seed' | 'migration_backfill';
+  generationSource: 'application_generated' | 'membership_seed' | 'migration_backfill';
 }): Promise<string> {
   const versionId = await insertClubProfileVersion(client, {
     ...input,
@@ -519,7 +519,7 @@ function scrubPrivateContactValue(value: unknown): unknown {
   return value;
 }
 
-function sanitizeAdmissionClubProfile(fields: Partial<ClubProfileFields>): ClubProfileFields {
+function sanitizeClubApplicationProfile(fields: Partial<ClubProfileFields>): ClubProfileFields {
   const websiteUrl = scrubPrivateContactText(fields.websiteUrl ?? null);
   const links = Array.isArray(fields.links)
     ? scrubPrivateContactValue(fields.links)
@@ -536,7 +536,7 @@ function sanitizeAdmissionClubProfile(fields: Partial<ClubProfileFields>): ClubP
   });
 }
 
-function fallbackAdmissionClubProfile(input: {
+function fallbackClubApplicationProfile(input: {
   application: string;
   socials: string;
 }): ClubProfileFields {
@@ -551,7 +551,7 @@ function fallbackAdmissionClubProfile(input: {
     .filter((url) => url !== websiteUrl)
     .map((url) => ({ url }));
 
-  return sanitizeAdmissionClubProfile({
+  return sanitizeClubApplicationProfile({
     summary: application.length > 0 ? application : null,
     websiteUrl,
     links,
@@ -559,7 +559,7 @@ function fallbackAdmissionClubProfile(input: {
   });
 }
 
-function mergeAdmissionProfileFallback(
+function mergeClubApplicationProfileFallback(
   generated: ClubProfileFields,
   fallback: ClubProfileFields,
 ): ClubProfileFields {
@@ -571,7 +571,7 @@ function mergeAdmissionProfileFallback(
   });
 }
 
-export async function generateAdmissionClubProfile(input: {
+export async function generateClubApplicationProfile(input: {
   club: { name: string; summary: string | null; admissionPolicy: string | null };
   applicantName: string;
   application: string;
@@ -579,7 +579,7 @@ export async function generateAdmissionClubProfile(input: {
 }): Promise<ClubProfileFields> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return fallbackAdmissionClubProfile(input);
+    return fallbackClubApplicationProfile(input);
   }
 
   const provider = createOpenAI({ apiKey });
@@ -592,13 +592,13 @@ export async function generateAdmissionClubProfile(input: {
     application: input.application,
     socials: input.socials,
   };
-  const fallbackProfile = fallbackAdmissionClubProfile(input);
+  const fallbackProfile = fallbackClubApplicationProfile(input);
 
   try {
     const result = await generateObject({
       model,
       schema: clubProfileFieldsSchema,
-      system: `You generate public, club-specific member profiles from admission applications.
+      system: `You generate public, club-specific member profiles from club applications.
 
 Only use the submitted application text and socials as source material.
 Do not invent facts, credentials, achievements, pricing, experience, or contact details.
@@ -607,12 +607,12 @@ If the application does not justify a field, leave it null.
       Only output the club-scoped fields defined by the schema.`,
       prompt: JSON.stringify(promptPayload),
     });
-    return mergeAdmissionProfileFallback(
-      sanitizeAdmissionClubProfile(result.object),
+    return mergeClubApplicationProfileFallback(
+      sanitizeClubApplicationProfile(result.object),
       fallbackProfile,
     );
   } catch (error) {
-    console.error('Admission profile generation failed:', error);
+    console.error('Application profile generation failed:', error);
     throw new AppError(503, 'profile_generation_unavailable', 'Profile generation service is temporarily unavailable');
   }
 }

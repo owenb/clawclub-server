@@ -425,6 +425,83 @@ describe('messages', () => {
     assert.equal((secondAck.data as Record<string, unknown>).acknowledgedCount, 0);
   });
 
+  it('replying auto-acknowledges the sender side of the DM thread', async () => {
+    const owner = await h.seedOwner('msg-auto-ack', 'MsgAutoAck');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice AutoAck', 'alice-auto-ack');
+
+    const first = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: owner.id,
+      messageText: 'First unread message',
+    });
+    const threadId = ((first.data as Record<string, unknown>).message as Record<string, unknown>).threadId as string;
+
+    await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: owner.id,
+      messageText: 'Second unread message',
+    });
+
+    const ownerUnreadBefore = await h.apiOk(owner.token, 'messages.getInbox', { unreadOnly: true });
+    const ownerUnreadThreadsBefore = (ownerUnreadBefore.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    assert.equal(ownerUnreadThreadsBefore.length, 1);
+    assert.equal(ownerUnreadThreadsBefore[0]!.threadId, threadId);
+    assert.equal((ownerUnreadThreadsBefore[0]!.unread as Record<string, unknown>).unreadMessageCount, 2);
+
+    await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Replying means I have seen the thread',
+    });
+
+    const ownerUnreadAfter = await h.apiOk(owner.token, 'messages.getInbox', { unreadOnly: true });
+    const ownerUnreadThreadsAfter = (ownerUnreadAfter.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    assert.equal(ownerUnreadThreadsAfter.length, 0, 'replying should clear the sender unread state for that thread');
+
+    const ownerFullInbox = await h.apiOk(owner.token, 'messages.getInbox', {});
+    const ownerFullThreads = (ownerFullInbox.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    const ownerThread = ownerFullThreads.find((entry) => entry.threadId === threadId);
+    assert.ok(ownerThread, 'thread should remain in the full inbox after replying');
+    assert.equal((ownerThread.unread as Record<string, unknown>).unreadMessageCount, 0);
+
+    const aliceUnreadAfter = await h.apiOk(alice.token, 'messages.getInbox', { unreadOnly: true });
+    const aliceUnreadThreadsAfter = (aliceUnreadAfter.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    assert.equal(aliceUnreadThreadsAfter.length, 1, 'recipient-side unread state should still reflect the new reply');
+    assert.equal(aliceUnreadThreadsAfter[0]!.threadId, threadId);
+    assert.equal((aliceUnreadThreadsAfter[0]!.unread as Record<string, unknown>).unreadMessageCount, 1);
+  });
+
+  it('reply auto-ack is isolated to the replied thread', async () => {
+    const owner = await h.seedOwner('msg-auto-ack-iso', 'MsgAutoAckIso');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice IsoAck', 'alice-auto-ack-iso');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob IsoAck', 'bob-auto-ack-iso');
+
+    const aliceThread = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: owner.id,
+      messageText: 'Unread from Alice',
+    });
+    const aliceThreadId = ((aliceThread.data as Record<string, unknown>).message as Record<string, unknown>).threadId as string;
+
+    const bobThread = await h.apiOk(bob.token, 'messages.send', {
+      recipientMemberId: owner.id,
+      messageText: 'Unread from Bob',
+    });
+    const bobThreadId = ((bobThread.data as Record<string, unknown>).message as Record<string, unknown>).threadId as string;
+
+    const ownerUnreadBefore = await h.apiOk(owner.token, 'messages.getInbox', { unreadOnly: true });
+    const ownerUnreadThreadsBefore = (ownerUnreadBefore.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    assert.equal(ownerUnreadThreadsBefore.length, 2);
+
+    await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Replying only to Alice',
+    });
+
+    const ownerUnreadAfter = await h.apiOk(owner.token, 'messages.getInbox', { unreadOnly: true });
+    const ownerUnreadThreadsAfter = (ownerUnreadAfter.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    assert.equal(ownerUnreadThreadsAfter.length, 1, 'replying should only clear unread state in the replied thread');
+    assert.equal(ownerUnreadThreadsAfter[0]!.threadId, bobThreadId);
+    assert.notEqual(ownerUnreadThreadsAfter[0]!.threadId, aliceThreadId);
+    assert.equal((ownerUnreadThreadsAfter[0]!.unread as Record<string, unknown>).unreadMessageCount, 1);
+  });
+
   it('messages.acknowledge returns not_found for an unknown thread', async () => {
     const owner = await h.seedOwner('msg-ack-missing', 'MsgAckMissing');
 
@@ -461,6 +538,43 @@ describe('messages', () => {
       [owner.id, clientKey],
     );
     assert.equal(Number(messages[0]!.count), 1);
+  });
+
+  it('clientKey replay does not auto-ack unread replies that arrived later', async () => {
+    const owner = await h.seedOwner('msg-client-key-ack', 'MsgClientKeyAck');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice ClientKeyAck', 'alice-client-key-ack');
+    const clientKey = 'retry-key-ack-1';
+
+    await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Original send',
+      clientKey,
+    });
+
+    await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: owner.id,
+      messageText: 'Unread reply after original send',
+    });
+
+    const unreadBeforeReplay = await h.apiOk(owner.token, 'messages.getInbox', { unreadOnly: true });
+    const unreadThreadsBeforeReplay = (unreadBeforeReplay.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    assert.equal(unreadThreadsBeforeReplay.length, 1);
+    const threadId = unreadThreadsBeforeReplay[0]!.threadId as string;
+    assert.equal((unreadThreadsBeforeReplay[0]!.unread as Record<string, unknown>).unreadMessageCount, 1);
+
+    const replay = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Original send',
+      clientKey,
+    });
+    const replayMessage = (replay.data as Record<string, unknown>).message as Record<string, unknown>;
+    assert.equal(replayMessage.threadId, threadId);
+
+    const unreadAfterReplay = await h.apiOk(owner.token, 'messages.getInbox', { unreadOnly: true });
+    const unreadThreadsAfterReplay = (unreadAfterReplay.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    assert.equal(unreadThreadsAfterReplay.length, 1, 'clientKey replay should not clear unread state');
+    assert.equal(unreadThreadsAfterReplay[0]!.threadId, threadId);
+    assert.equal((unreadThreadsAfterReplay[0]!.unread as Record<string, unknown>).unreadMessageCount, 1);
   });
 
   it('clientKey with different messageText returns 409 client_key_conflict', async () => {

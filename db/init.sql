@@ -1179,7 +1179,7 @@ CREATE TABLE public.member_club_profile_versions (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by_member_id public.short_id,
     generation_source text DEFAULT 'manual'::text NOT NULL,
-    CONSTRAINT member_club_profile_versions_generation_source_check CHECK ((generation_source = ANY (ARRAY['manual'::text, 'migration_backfill'::text, 'admission_generated'::text, 'membership_seed'::text]))),
+    CONSTRAINT member_club_profile_versions_generation_source_check CHECK ((generation_source = ANY (ARRAY['manual'::text, 'migration_backfill'::text, 'application_generated'::text, 'membership_seed'::text]))),
     CONSTRAINT member_club_profile_versions_version_no_check CHECK ((version_no > 0))
 );
 

@@ -70,14 +70,13 @@ export type IdentityRepository = {
     reason?: string | null;
     initialProfile: {
       fields: ClubProfileFields;
-      generationSource: 'membership_seed' | 'admission_generated';
+      generationSource: 'membership_seed' | 'application_generated';
     };
   }): Promise<MembershipAdminSummary | null>;
 
   // Membership helpers
   setComped(membershipId: string, compedByMemberId: string): Promise<void>;
   hasLiveAccess(membershipId: string): Promise<boolean>;
-  getMemberPublicContact(memberId: string): Promise<{ memberName: string; email: string | null } | null>;
 
   // Profiles
   listMemberProfiles(input: { actorMemberId: string; targetMemberId: string; actorClubIds: string[]; clubId?: string }): Promise<MemberProfileEnvelope | null>;
@@ -145,7 +144,6 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
       );
       return result.rows[0]?.has_access === true;
     },
-    getMemberPublicContact: (memberId) => memberships.getMemberPublicContact(pool, memberId),
 
     // Profiles
     listMemberProfiles: ({ actorMemberId, targetMemberId, actorClubIds, clubId }) => profiles.listMemberProfiles(pool, { actorMemberId, targetMemberId, actorClubIds, clubId }),

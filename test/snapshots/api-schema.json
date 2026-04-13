@@ -10436,7 +10436,8 @@
         "type": "object"
       },
       "notes": [
-        "clientKey is scoped per sender globally, not per thread."
+        "clientKey is scoped per sender globally, not per thread.",
+        "Sending a reply implicitly marks that thread read for the sender; use messages.acknowledge when you read without replying."
       ],
       "output": {
         "additionalProperties": false,
@@ -13715,7 +13716,7 @@
     }
   ],
   "transport": {
-    "acknowledgment": "Acknowledge materialized notifications via notifications.acknowledge and DM inbox entries via messages.acknowledge(threadId). Activity advances via the activity cursor.",
+    "acknowledgment": "Acknowledge materialized notifications via notifications.acknowledge and DM inbox entries via messages.acknowledge(threadId). Sending a DM reply also auto-marks that thread read for the sender. Activity advances via the activity cursor.",
     "auth": {
       "headerFormat": "Authorization: Bearer cc_live_...",
       "type": "bearer",
@@ -14568,5 +14569,5 @@
     ]
   },
   "version": "0.2.45",
-  "schemaHash": "cbd00ac2eb7ee1d6"
+  "schemaHash": "775ff109ab2abaed"
 }

@@ -92,7 +92,7 @@ export type CreateMembershipInput = {
   skipClubAdminCheck?: boolean;
   initialProfile: {
     fields: ClubProfileFields;
-    generationSource: 'admission_generated' | 'membership_seed';
+    generationSource: 'application_generated' | 'membership_seed';
   };
 };
 
@@ -1049,7 +1049,7 @@ export type Repository = {
     reason?: string | null;
     initialProfile: {
       fields: ClubProfileFields;
-      generationSource: 'membership_seed' | 'admission_generated';
+      generationSource: 'membership_seed' | 'application_generated';
     };
   }): Promise<MembershipAdminSummary | null>;
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;

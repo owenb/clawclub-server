@@ -55,6 +55,7 @@ const messagesSend: ActionDefinition = {
   ],
   notes: [
     'clientKey is scoped per sender globally, not per thread.',
+    'Sending a reply implicitly marks that thread read for the sender; use messages.acknowledge when you read without replying.',
   ],
 
   wire: {

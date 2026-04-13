@@ -269,6 +269,14 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
           [recipientMemberId, ensuredThreadId, msg.id],
         );
 
+        // Replying in a thread implies the sender has seen any unread items already waiting for them there.
+        await client.query(
+          `update dm_inbox_entries
+           set acknowledged = true
+           where recipient_member_id = $1 and thread_id = $2 and acknowledged = false`,
+          [senderMemberId, ensuredThreadId],
+        );
+
         const included = mentions.length > 0
           ? await loadIncludedMembers(client, [...new Set(mentions.map((mention) => mention.memberId))])
           : emptyIncludedBundle();

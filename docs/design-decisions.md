@@ -186,6 +186,7 @@ Rules:
 - `activity.list` is cursor-tracked and replayable
 - `notifications.list` is a paginated FIFO worklist with opaque per-item cursors
 - `messages.acknowledge` marks DM inbox entries read at the thread level
+- `messages.send` implicitly marks the sender's unread inbox entries for that thread read, because replying proves the thread was seen
 - `notifications.acknowledge` durably stores `processed` / `suppressed` state for materialized notifications
 - club-wide activity is never explicitly acknowledged
 - activity audience filtering (`members`, `clubadmins`, `owners`) restricts visibility by role

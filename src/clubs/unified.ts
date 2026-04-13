@@ -13,9 +13,9 @@ import {
   type SubmitClubApplicationResult,
 } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
-import { generateAdmissionClubProfile } from '../identity/profiles.ts';
+import { generateClubApplicationProfile } from '../identity/profiles.ts';
 import { buildBearerToken, buildInvitationCode, generateTokenId, hashTokenSecret, parseInvitationCode } from '../token.ts';
-import { runAdmissionGate } from '../quality-gate.ts';
+import { runApplicationGate } from '../quality-gate.ts';
 
 const COLD_APPLICATION_DIFFICULTY = 7;
 const CROSS_APPLICATION_DIFFICULTY = 5;
@@ -922,7 +922,7 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
     return phaseOne;
   }
 
-  const gate = await runAdmissionGate(
+  const gate = await runApplicationGate(
     {
       name: input.name,
       email: phaseOne.applicationEmail,
@@ -943,7 +943,7 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
     throw new AppError(422, 'illegal_content', gate.feedback);
   }
 
-  const generatedProfileDraft = await generateAdmissionClubProfile({
+  const generatedProfileDraft = await generateClubApplicationProfile({
     club: {
       name: phaseOne.clubName,
       summary: phaseOne.clubSummary,

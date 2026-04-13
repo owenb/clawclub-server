@@ -193,7 +193,7 @@ describe('application profile generation (LLM)', () => {
     const websiteUrl = currentProfile.website_url as string | null;
     const flattened = JSON.stringify(currentProfile);
 
-    assert.equal(currentProfile.generation_source, 'admission_generated');
+    assert.equal(currentProfile.generation_source, 'application_generated');
     assert.ok(summary.length > 0, 'summary should be non-empty');
     assert.ok(!flattened.includes('alicia.private@example.com'), 'private email must not leak into generated profile');
     assert.equal(websiteUrl, 'https://dogtrainer.example.com');
@@ -231,7 +231,7 @@ describe('application profile generation (LLM)', () => {
     const currentProfile = await getCurrentClubProfile(memberId, owner.club.id);
     const flattened = JSON.stringify(currentProfile);
 
-    assert.equal(currentProfile.generation_source, 'admission_generated');
+    assert.equal(currentProfile.generation_source, 'application_generated');
     assert.ok(!flattened.includes('sparse@example.com'));
     assert.ok('summary' in currentProfile, 'profile row should exist even for sparse input');
   });
@@ -284,7 +284,7 @@ describe('application profile generation (LLM)', () => {
     );
 
     assert.equal(oldClubProfile.summary, 'Dog-club profile about rescue dogs and canine behaviour.');
-    assert.equal(newClubProfile.generation_source, 'admission_generated');
+    assert.equal(newClubProfile.generation_source, 'application_generated');
     assert.notEqual(newClubProfile.summary, oldClubProfile.summary);
     assert.equal(memberRow[0]?.display_name, 'Ada MultiClub');
     assert.equal(memberRow[0]?.handle, 'ada-multiclub');
@@ -326,6 +326,6 @@ describe('application profile generation (LLM)', () => {
 
     assert.equal(await countProfileVersions(memberId, owner.club.id), 1, 'acceptance should materialize the first club profile version');
     const currentProfile = await getCurrentClubProfile(memberId, owner.club.id);
-    assert.equal(currentProfile.generation_source, 'admission_generated');
+    assert.equal(currentProfile.generation_source, 'application_generated');
   });
 });
