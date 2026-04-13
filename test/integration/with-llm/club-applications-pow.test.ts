@@ -1,9 +1,9 @@
 /**
- * Real cold-admission integration tests covering PoW solving plus the
- * admission completeness gate.
+ * Real club-application integration tests covering PoW solving plus the
+ * application completeness gate.
  *
  * These tests require OPENAI_API_KEY. They run against the real HTTP server,
- * real Postgres, and the real admission gate. A test-only env override lowers
+ * real Postgres, and the real application gate. A test-only env override lowers
  * the cold PoW difficulty so the suite can solve proofs quickly.
  */
 
@@ -51,14 +51,32 @@ function findNonce(challengeId: string, difficulty: number, mode: 'trailing' | '
   throw new Error(`Unable to find ${mode} nonce for difficulty ${difficulty}`);
 }
 
-async function countAdmissions(clubId: string, email: string): Promise<number> {
+async function countSubmittedApplications(clubId: string, email: string): Promise<number> {
   const rows = await h.sql<{ count: string }>(
     `select count(*)::text as count
-     from current_admissions
-     where club_id = $1 and applicant_email = $2 and status = 'submitted'`,
+     from current_club_memberships
+     where club_id = $1
+       and application_email = $2
+       and status = 'submitted'`,
     [clubId, email],
   );
   return Number(rows[0]?.count ?? 0);
+}
+
+async function readPowChallenge(membershipId: string): Promise<{ attempts: number; solvedAt: string | null } | null> {
+  const rows = await h.sql<{ attempts: string; solved_at: string | null }>(
+    `select attempts::text as attempts, solved_at::text as solved_at
+     from application_pow_challenges
+     where membership_id = $1
+     order by created_at desc
+     limit 1`,
+    [membershipId],
+  );
+  if (!rows[0]) return null;
+  return {
+    attempts: Number(rows[0].attempts),
+    solvedAt: rows[0].solved_at,
+  };
 }
 
 before(async () => {
@@ -76,126 +94,127 @@ after(async () => {
   }
 }, { timeout: 15_000 });
 
-describe('admissions.public cold PoW (LLM-gated)', () => {
-  it('accepts the canonical trailing-zero PoW and creates an admission', async () => {
-    const owner = await h.seedOwner('llm-cold-pow-trailing', 'LLM Cold PoW Trailing');
+describe('clubs.join + clubs.applications.submit cold PoW (LLM-gated)', () => {
+  it('accepts the canonical trailing-zero PoW and submits the application', async () => {
+    const owner = await h.seedOwner('llm-app-pow-trailing', 'LLM App Pow Trailing');
     await setAdmissionPolicy(
       owner.club.id,
       'Answer these two questions directly:\n1. What city do you live in?\n2. What do you build?',
     );
 
-    const challengeBody = await h.apiOk(null, 'admissions.public.requestChallenge', {
+    const joinBody = await h.apiOk(null, 'clubs.join', {
       clubSlug: owner.club.slug,
+      email: 'taylor.trailing@example.com',
     });
-    const challenge = challengeBody.data as Record<string, unknown>;
-    const challengeId = challenge.challengeId as string;
-    const difficulty = challenge.difficulty as number;
+    const join = joinBody.data as Record<string, unknown>;
+    const proof = join.proof as Record<string, unknown>;
+    const memberToken = join.memberToken as string;
+    const membershipId = join.membershipId as string;
+    const challengeId = proof.challengeId as string;
+    const difficulty = proof.difficulty as number;
 
+    assert.equal(proof.kind, 'pow');
     assert.equal(difficulty, 1);
 
     const nonce = findNonce(challengeId, difficulty, 'trailing');
-    const submitBody = await h.apiOk(null, 'admissions.public.submitApplication', {
-      challengeId,
+    const submitBody = await h.apiOk(memberToken, 'clubs.applications.submit', {
+      membershipId,
       nonce,
       name: 'Taylor Builder',
-      email: 'taylor.trailing@example.com',
       socials: '@taylorbuilder',
       application: '1. I live in London.\n2. I build workflow tools for operations teams.',
     });
 
     const result = submitBody.data as Record<string, unknown>;
-    assert.equal(result.status, 'accepted');
-    assert.equal(submitBody.notices, undefined);
-    assert.equal(await countAdmissions(owner.club.id, 'taylor.trailing@example.com'), 1);
+    assert.equal(result.status, 'submitted');
+    assert.equal(result.membershipId, membershipId);
+    assert.equal(await countSubmittedApplications(owner.club.id, 'taylor.trailing@example.com'), 1);
+
+    const challenge = await readPowChallenge(membershipId);
+    assert.equal(challenge?.attempts, 1);
+    assert.notEqual(challenge?.solvedAt, null);
+
+    const application = await h.apiOk(memberToken, 'clubs.applications.get', { membershipId });
+    assert.equal((application.data as any).application.state, 'submitted');
   });
 
-  it('accepts leading-zero compatibility proofs and emits a notice', async () => {
-    const owner = await h.seedOwner('llm-cold-pow-leading', 'LLM Cold PoW Leading');
+  it('rejects leading-zero-only compatibility proofs and leaves the challenge unsolved', async () => {
+    const owner = await h.seedOwner('llm-app-pow-leading', 'LLM App Pow Leading');
     await setAdmissionPolicy(
       owner.club.id,
       'Answer these two questions directly:\n1. What city do you live in?\n2. What do you build?',
     );
 
-    const challengeBody = await h.apiOk(null, 'admissions.public.requestChallenge', {
+    const joinBody = await h.apiOk(null, 'clubs.join', {
       clubSlug: owner.club.slug,
+      email: 'morgan.leading@example.com',
     });
-    const challenge = challengeBody.data as Record<string, unknown>;
-    const challengeId = challenge.challengeId as string;
-    const difficulty = challenge.difficulty as number;
-
-    assert.equal(difficulty, 1);
+    const join = joinBody.data as Record<string, unknown>;
+    const proof = join.proof as Record<string, unknown>;
+    const memberToken = join.memberToken as string;
+    const membershipId = join.membershipId as string;
+    const challengeId = proof.challengeId as string;
+    const difficulty = proof.difficulty as number;
 
     const nonce = findNonce(challengeId, difficulty, 'leading_only');
-    const submitBody = await h.apiOk(null, 'admissions.public.submitApplication', {
-      challengeId,
+    const invalid = await h.apiErr(memberToken, 'clubs.applications.submit', {
+      membershipId,
       nonce,
       name: 'Morgan Operator',
-      email: 'morgan.leading@example.com',
       socials: '@morganoperator',
       application: '1. I live in Bristol.\n2. I build internal tools for finance teams.',
-    });
+    }, 'invalid_proof');
 
-    const result = submitBody.data as Record<string, unknown>;
-    assert.equal(result.status, 'accepted');
-    assert.deepEqual(submitBody.notices, [{
-      code: 'pow_compatibility_fallback',
-      message: 'ClawClub accepted this nonce via a compatibility fallback for leading hex zeros. Clients should solve the canonical trailing-zero rule on sha256(challengeId + ":" + nonce).',
-    }]);
-    assert.equal(await countAdmissions(owner.club.id, 'morgan.leading@example.com'), 1);
+    assert.equal(invalid.status, 400);
+
+    const challenge = await readPowChallenge(membershipId);
+    assert.equal(challenge?.attempts, 0);
+    assert.equal(challenge?.solvedAt, null);
   });
 
   it('rejects invalid proofs and still allows a valid retry on the same challenge', async () => {
-    const owner = await h.seedOwner('llm-cold-pow-invalid', 'LLM Cold PoW Invalid');
+    const owner = await h.seedOwner('llm-app-pow-invalid', 'LLM App Pow Invalid');
     await setAdmissionPolicy(
       owner.club.id,
       'Answer these two questions directly:\n1. What city do you live in?\n2. What do you build?',
     );
 
-    const challengeBody = await h.apiOk(null, 'admissions.public.requestChallenge', {
+    const joinBody = await h.apiOk(null, 'clubs.join', {
       clubSlug: owner.club.slug,
+      email: 'jamie.retry@example.com',
     });
-    const challenge = challengeBody.data as Record<string, unknown>;
-    const challengeId = challenge.challengeId as string;
-    const difficulty = challenge.difficulty as number;
-
-    assert.equal(difficulty, 1);
+    const join = joinBody.data as Record<string, unknown>;
+    const proof = join.proof as Record<string, unknown>;
+    const memberToken = join.memberToken as string;
+    const membershipId = join.membershipId as string;
+    const challengeId = proof.challengeId as string;
+    const difficulty = proof.difficulty as number;
 
     const invalidNonce = findNonce(challengeId, difficulty, 'invalid');
-    const invalid = await h.apiErr(null, 'admissions.public.submitApplication', {
-      challengeId,
+    const invalid = await h.apiErr(memberToken, 'clubs.applications.submit', {
+      membershipId,
       nonce: invalidNonce,
       name: 'Jamie Retry',
-      email: 'jamie.retry@example.com',
       socials: '@jamieretry',
       application: '1. I live in Leeds.\n2. I build analytics software for logistics teams.',
     }, 'invalid_proof');
 
     assert.equal(invalid.status, 400);
-
-    const attemptRows = await h.sql<{ count: string }>(
-      `select count(*)::text as count from admission_attempts where challenge_id = $1`,
-      [challengeId],
-    );
-    assert.equal(Number(attemptRows[0]?.count ?? 0), 0);
-
-    const challengeRows = await h.sql<{ count: string }>(
-      `select count(*)::text as count from admission_challenges where id = $1`,
-      [challengeId],
-    );
-    assert.equal(Number(challengeRows[0]?.count ?? 0), 1);
+    const beforeRetry = await readPowChallenge(membershipId);
+    assert.equal(beforeRetry?.attempts, 0);
+    assert.equal(beforeRetry?.solvedAt, null);
 
     const trailingNonce = findNonce(challengeId, difficulty, 'trailing');
-    const submitBody = await h.apiOk(null, 'admissions.public.submitApplication', {
-      challengeId,
+    const submitBody = await h.apiOk(memberToken, 'clubs.applications.submit', {
+      membershipId,
       nonce: trailingNonce,
       name: 'Jamie Retry',
-      email: 'jamie.retry@example.com',
       socials: '@jamieretry',
       application: '1. I live in Leeds.\n2. I build analytics software for logistics teams.',
     });
 
     const result = submitBody.data as Record<string, unknown>;
-    assert.equal(result.status, 'accepted');
-    assert.equal(await countAdmissions(owner.club.id, 'jamie.retry@example.com'), 1);
+    assert.equal(result.status, 'submitted');
+    assert.equal(await countSubmittedApplications(owner.club.id, 'jamie.retry@example.com'), 1);
   });
 });
