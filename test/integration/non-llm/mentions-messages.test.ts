@@ -162,4 +162,54 @@ describe('message mentions', () => {
     assert.deepEqual(adminMessages[0]?.mentions, []);
     assert.deepEqual(included(adminThread), {});
   });
+
+  it('rejects third-party mentions outside the participants shared-club set', async () => {
+    const ownerA = await h.seedOwner('dm-third-party-a', 'DM Third Party A');
+    const ownerB = await h.seedOwner('dm-third-party-b', 'DM Third Party B');
+    const alice = await h.seedClubMember(ownerA.club.id, 'Third Alice', 'dm-third-alice', { sponsorId: ownerA.id });
+    const bob = await h.seedClubMember(ownerA.club.id, 'Third Bob', 'dm-third-bob', { sponsorId: ownerA.id });
+    const charlie = await h.seedClubMember(ownerB.club.id, 'Third Charlie', 'dm-third-charlie', { sponsorId: ownerB.id });
+
+    await h.seedMembership(ownerB.club.id, alice.id, { sponsorId: ownerB.id });
+
+    const err = await h.apiErr(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Trying to bring in @dm-third-charlie from a non-shared club.',
+    });
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_mentions');
+    assert.match(err.message, /@dm-third-charlie/);
+  });
+
+  it('existing threads remain mentionable for the participants after shared clubs drop to zero', async () => {
+    const owner = await h.seedOwner('dm-zero-shared-club', 'DM Zero Shared Club');
+    const alice = await h.seedClubMember(owner.club.id, 'Zero Alice', 'dm-zero-alice', { sponsorId: owner.id });
+    const bob = await h.seedClubMember(owner.club.id, 'Zero Bob', 'dm-zero-bob', { sponsorId: owner.id });
+
+    await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Initial thread bootstrap.',
+    });
+
+    await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
+      clubId: owner.club.id,
+      membershipId: bob.membership.id,
+      status: 'paused',
+      reason: 'zero shared clubs mention test',
+    });
+
+    const followUp = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Still tagging @dm-zero-bob inside the existing thread.',
+    });
+    const messageText = ((message(followUp).messageText) as string);
+    const start = messageText.indexOf('@dm-zero-bob');
+
+    assert.deepEqual(message(followUp).mentions, [{
+      memberId: bob.id,
+      authoredHandle: 'dm-zero-bob',
+      start,
+      end: start + '@dm-zero-bob'.length,
+    }]);
+  });
 });

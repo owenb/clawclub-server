@@ -11,6 +11,7 @@ import { encodeCursor } from '../schemas/fields.ts';
 import {
   emptyIncludedBundle,
   hasPotentialMentionChar,
+  loadIncludedMembers,
   insertDmMessageMentions,
   loadDmMentions,
   mergeIncludedBundles,
@@ -193,7 +194,9 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
               throw new AppError(409, 'client_key_conflict',
                 'This clientKey was already used with a different message. Use a unique key per message.');
             }
-            const hydrated = await loadDmMentions(client, [orig.id]);
+            const hydrated = hasPotentialMentionChar(orig.message_text ?? messageText)
+              ? await loadDmMentions(client, [orig.id])
+              : { mentionsByMessageId: new Map<string, MentionSpan[]>(), included: emptyIncludedBundle() };
             return {
               message: {
                 threadId: orig.thread_id,
@@ -211,10 +214,12 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
 
         const memberA = senderMemberId < recipientMemberId ? senderMemberId : recipientMemberId;
         const memberB = senderMemberId < recipientMemberId ? recipientMemberId : senderMemberId;
-        const existingThreadId = await findExistingDirectThreadId(client, senderMemberId, recipientMemberId);
         const participantIds = [senderMemberId, recipientMemberId];
-        const sharedClubIds = await resolveSharedClubIds(client, senderMemberId, recipientMemberId);
-        const mentions = hasPotentialMentionChar(messageText)
+        const wantsMentions = hasPotentialMentionChar(messageText);
+        const sharedClubIds = wantsMentions
+          ? await resolveSharedClubIds(client, senderMemberId, recipientMemberId)
+          : [];
+        const mentions = wantsMentions
           ? await resolveDirectMessageMentions(client, messageText, participantIds, sharedClubIds)
           : [];
 
@@ -228,7 +233,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         );
 
         const createdThreadId = threadResult.rows[0]?.id ?? null;
-        let threadId: string | null = createdThreadId ?? existingThreadId;
+        let threadId: string | null = createdThreadId;
         if (!threadId) {
           threadId = await findExistingDirectThreadId(client, senderMemberId, recipientMemberId);
           if (!threadId) {
@@ -265,7 +270,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         );
 
         const included = mentions.length > 0
-          ? (await loadDmMentions(client, [msg.id])).included
+          ? await loadIncludedMembers(client, [...new Set(mentions.map((mention) => mention.memberId))])
           : emptyIncludedBundle();
 
         return {

@@ -26,6 +26,29 @@ function versionMentions(entityResult: Record<string, unknown>): Record<string, 
   return ((entityResult.version as Record<string, unknown>).mentions as Record<string, Array<Record<string, unknown>>>);
 }
 
+function buildMentionBody(handles: string[], repeats = 1): string {
+  return Array.from({ length: repeats }, () => handles.map((handle) => `@${handle}`).join(' ')).join(' ');
+}
+
+async function seedMentionTargets(
+  clubId: string,
+  sponsorId: string,
+  count: number,
+  prefix: string,
+): Promise<Array<{ id: string; handle: string }>> {
+  const targets: Array<{ id: string; handle: string }> = [];
+  for (let index = 0; index < count; index += 1) {
+    const member = await h.seedClubMember(
+      clubId,
+      `Mention Target ${prefix} ${index + 1}`,
+      `${prefix}-${index + 1}`,
+      { sponsorId },
+    );
+    targets.push({ id: member.id, handle: member.handle });
+  }
+  return targets;
+}
+
 describe('content mentions', () => {
   it('hydrates mentions across thread reads, dedupes included members, and preserves authoredHandle across renames', async () => {
     const owner = await h.seedOwner('mention-thread-club', 'Mention Thread Club');
@@ -183,5 +206,121 @@ describe('content mentions', () => {
     } finally {
       await isolated.stop();
     }
+  });
+
+  it('clientKey replays bypass mention revalidation after the mentioned member is banned', async () => {
+    const admin = await h.seedSuperadmin('Content Replay Admin', 'content-replay-admin');
+    const owner = await h.seedOwner('content-replay-club', 'Content Replay Club');
+    const author = await h.seedClubMember(owner.club.id, 'Replay Author', 'content-replay-author', { sponsorId: owner.id });
+    const target = await h.seedClubMember(owner.club.id, 'Replay Target', 'content-replay-target', { sponsorId: owner.id });
+    const clientKey = 'content-mention-replay';
+
+    const first = await h.apiOk(author.token, 'content.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      title: 'Thanks @content-replay-target',
+      body: 'Checking with @content-replay-target before we publish.',
+      clientKey,
+    });
+    const firstEntity = entity(first);
+
+    await h.apiOk(admin.token, 'superadmin.billing.banMember', {
+      memberId: target.id,
+      reason: 'content mention replay test',
+    });
+
+    const replay = await h.apiOk(author.token, 'content.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      title: 'Thanks @content-replay-target',
+      body: 'Checking with @content-replay-target before we publish.',
+      clientKey,
+    });
+    const replayEntity = entity(replay);
+
+    assert.equal(replayEntity.entityId, firstEntity.entityId);
+    assert.deepEqual(versionMentions(replayEntity), versionMentions(firstEntity));
+  });
+
+  it('enforces mention caps on create and update', async () => {
+    const owner = await h.seedOwner('mention-cap-club', 'Mention Cap Club');
+    const author = await h.seedClubMember(owner.club.id, 'Cap Author', 'mention-cap-author', { sponsorId: owner.id });
+    const targets = await seedMentionTargets(owner.club.id, owner.id, 26, 'mention-cap-target');
+
+    const hundredMentionBody = buildMentionBody(targets.slice(0, 25).map((target) => target.handle), 4);
+    const created = await h.apiOk(author.token, 'content.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      body: hundredMentionBody,
+    });
+    const createdEntity = entity(created);
+    assert.equal(versionMentions(createdEntity).body.length, 100);
+
+    const tooManyUnique = await h.apiErr(author.token, 'content.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      body: buildMentionBody(targets.map((target) => target.handle)),
+    });
+    assert.equal(tooManyUnique.status, 400);
+    assert.equal(tooManyUnique.code, 'invalid_input');
+    assert.match(tooManyUnique.message, /25 unique mentions and 100 mention spans/i);
+
+    const tooManySpans = await h.apiErr(author.token, 'content.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      body: Array.from({ length: 101 }, () => `@${targets[0]!.handle}`).join(' '),
+    });
+    assert.equal(tooManySpans.status, 400);
+    assert.equal(tooManySpans.code, 'invalid_input');
+
+    const updateErr = await h.apiErr(author.token, 'content.update', {
+      entityId: createdEntity.entityId as string,
+      body: `${hundredMentionBody} @${targets[0]!.handle}`,
+    });
+    assert.equal(updateErr.status, 400);
+    assert.equal(updateErr.code, 'invalid_input');
+  });
+
+  it('suppresses mentions on removed content in member and admin reads', async () => {
+    const admin = await h.seedSuperadmin('Content Remove Admin', 'content-remove-admin');
+    const owner = await h.seedOwner('content-remove-club', 'Content Remove Club');
+    const author = await h.seedClubMember(owner.club.id, 'Remove Author', 'content-remove-author', { sponsorId: owner.id });
+    const target = await h.seedClubMember(owner.club.id, 'Remove Target', 'content-remove-target', { sponsorId: owner.id });
+
+    const root = await h.apiOk(author.token, 'content.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      title: 'Visible root',
+      body: 'No mentions here.',
+    });
+    const reply = await h.apiOk(author.token, 'content.create', {
+      threadId: (entity(root).contentThreadId as string),
+      kind: 'post',
+      title: 'Reply to @content-remove-target',
+      body: 'This reply mentions @content-remove-target.',
+    });
+
+    await h.apiOk(author.token, 'content.remove', {
+      entityId: entity(reply).entityId as string,
+    });
+
+    const thread = await h.apiOk(author.token, 'content.getThread', {
+      threadId: entity(root).contentThreadId as string,
+      limit: 20,
+    });
+    const removedReply = (((thread.data as Record<string, unknown>).entities as Array<Record<string, unknown>>)
+      .find((row) => row.entityId === entity(reply).entityId) as Record<string, unknown>);
+    assert.deepEqual(versionMentions(removedReply), { title: [], summary: [], body: [] });
+    assert.deepEqual(included(thread), {});
+
+    const adminList = await h.apiOk(admin.token, 'superadmin.content.list', {
+      clubId: owner.club.id,
+      limit: 20,
+    });
+    const removedAdminRow = (((adminList.data as Record<string, unknown>).content as Array<Record<string, unknown>>)
+      .find((row) => row.entityId === entity(reply).entityId) as Record<string, unknown>);
+    assert.equal(removedAdminRow.title, '[redacted]');
+    assert.deepEqual(removedAdminRow.titleMentions, []);
+    assert.deepEqual(included(adminList), {});
   });
 });

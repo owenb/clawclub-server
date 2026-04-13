@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 import {
   AppError,
   type ActorContext,
@@ -29,9 +30,16 @@ import {
   type UpdateReceipt,
 } from '../../src/contract.ts';
 import { buildDispatcher } from '../../src/dispatch.ts';
+import { registerActions } from '../../src/schemas/registry.ts';
 import { passthroughGate } from './fixtures.ts';
 
 const EMPTY_INCLUDED: IncludedBundle = { membersById: {} };
+let testActionCounter = 0;
+
+function nextTestActionName(prefix: string): string {
+  testActionCounter += 1;
+  return `test.${prefix}.${testActionCounter}`;
+}
 
 function withIncluded<T>(value: T): T & { included: IncludedBundle } {
   return { ...value, included: EMPTY_INCLUDED };
@@ -3423,5 +3431,148 @@ test('gated actions fail with 422 gate_rejected when the gate returns a non-PASS
       assert.equal(error.code, 'gate_rejected');
       return true;
     },
+  );
+});
+
+test('dispatcher runs preGate after parse and before the quality gate', async () => {
+  const action = nextTestActionName('pregate-order');
+  const calls: string[] = [];
+
+  registerActions([{
+    action,
+    domain: 'test',
+    description: 'PreGate ordering test',
+    auth: 'member',
+    safety: 'read_only',
+    qualityGate: 'test-quality-gate',
+    wire: {
+      input: z.object({ text: z.string() }),
+      output: z.object({ ok: z.boolean() }),
+    },
+    parse: {
+      input: z.object({ text: z.string().trim() }),
+    },
+    preGate: async (input) => {
+      const parsed = input as { text: string };
+      calls.push(`preGate:${parsed.text}`);
+    },
+    handle: async () => {
+      calls.push('handle');
+      return { data: { ok: true } };
+    },
+  }]);
+
+  const gate: typeof passthroughGate = async (_action, payload) => {
+    calls.push(`gate:${(payload as { text: string }).text}`);
+    return { status: 'passed', usage: { promptTokens: 0, completionTokens: 0 } };
+  };
+
+  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: gate });
+  const result = await dispatcher.dispatch({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action,
+    payload: { text: '  parsed first  ' },
+  });
+
+  assert.deepEqual(calls, ['preGate:parsed first', 'gate:parsed first', 'handle']);
+  assert.deepEqual(result.data, { ok: true });
+});
+
+test('dispatcher runs preGate even when no quality gate is configured', async () => {
+  const action = nextTestActionName('pregate-no-gate');
+  const calls: string[] = [];
+
+  registerActions([{
+    action,
+    domain: 'test',
+    description: 'PreGate without quality gate',
+    auth: 'member',
+    safety: 'read_only',
+    wire: {
+      input: z.object({ text: z.string() }),
+      output: z.object({ ok: z.boolean() }),
+    },
+    parse: {
+      input: z.object({ text: z.string().trim() }),
+    },
+    preGate: async (input) => {
+      calls.push(`preGate:${(input as { text: string }).text}`);
+    },
+    handle: async () => {
+      calls.push('handle');
+      return { data: { ok: true } };
+    },
+  }]);
+
+  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
+  await dispatcher.dispatch({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action,
+    payload: { text: '  still runs  ' },
+  });
+
+  assert.deepEqual(calls, ['preGate:still runs', 'handle']);
+});
+
+test('AppError thrown from preGate propagates through the dispatcher unchanged', async () => {
+  const action = nextTestActionName('pregate-error');
+
+  registerActions([{
+    action,
+    domain: 'test',
+    description: 'PreGate failure test',
+    auth: 'member',
+    safety: 'read_only',
+    wire: {
+      input: z.object({}),
+      output: z.object({ ok: z.boolean() }),
+    },
+    parse: {
+      input: z.object({}),
+    },
+    preGate: async () => {
+      throw new AppError(400, 'invalid_input', 'preGate rejected this input');
+    },
+    handle: async () => ({ data: { ok: true } }),
+  }]);
+
+  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
+  await assert.rejects(
+    () => dispatcher.dispatch({
+      bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+      action,
+      payload: {},
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 400);
+      assert.equal(error.code, 'invalid_input');
+      assert.equal(error.message, 'preGate rejected this input');
+      return true;
+    },
+  );
+});
+
+test('registerActions rejects cold actions that define preGate', () => {
+  const action = nextTestActionName('cold-pregate');
+
+  assert.throws(
+    () => registerActions([{
+      action,
+      domain: 'test',
+      description: 'Cold preGate rejection test',
+      auth: 'none',
+      safety: 'read_only',
+      wire: {
+        input: z.object({}),
+        output: z.object({ ok: z.boolean() }),
+      },
+      parse: {
+        input: z.object({}),
+      },
+      preGate: async () => {},
+      handleCold: async () => ({ data: { ok: true } }),
+    }]),
+    /must not define preGate/,
   );
 });

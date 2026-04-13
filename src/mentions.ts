@@ -203,7 +203,7 @@ function mapResolvedMentions(
   }));
 }
 
-async function loadIncludedMembers(client: DbClient, memberIds: string[]): Promise<IncludedBundle> {
+export async function loadIncludedMembers(client: DbClient, memberIds: string[]): Promise<IncludedBundle> {
   if (memberIds.length === 0) return emptyIncludedBundle();
 
   const result = await client.query<IncludedMemberRow>(
@@ -276,6 +276,8 @@ export async function resolveDirectMessageMentions(
   const handles = uniqueHandlesInOrder(extracted);
   if (handles.length === 0) return [];
 
+  // Active thread participants bypass the shared-club requirement, but not the
+  // active-member requirement. Third-party mentions must satisfy both.
   const result = await client.query<{ member_id: string; handle: string }>(
     `select m.id as member_id, m.handle
      from members m
@@ -492,18 +494,19 @@ export async function preflightContentCreateMentions(
 ): Promise<void> {
   if (!input.clubId && !input.threadId) return;
 
-  const result = await pool.query<{ club_id: string }>(
-    input.threadId
-      ? `select ct.club_id
-         from content_threads ct
-         where ct.id = $1
-           and ct.archived_at is null`
-      : `select $1::text as club_id`,
-    [input.threadId ?? input.clubId!],
-  );
-  const clubId = result.rows[0]?.club_id;
+  let clubId = input.clubId ?? null;
   if (!clubId) {
-    throw new AppError(404, 'not_found', 'Thread not found inside the actor scope');
+    const result = await pool.query<{ club_id: string }>(
+      `select ct.club_id
+       from content_threads ct
+       where ct.id = $1
+         and ct.archived_at is null`,
+      [input.threadId!],
+    );
+    clubId = result.rows[0]?.club_id ?? null;
+    if (!clubId) {
+      throw new AppError(404, 'not_found', 'Thread not found inside the actor scope');
+    }
   }
   if (!input.actorClubIds.includes(clubId)) {
     throw new AppError(
@@ -512,6 +515,8 @@ export async function preflightContentCreateMentions(
       input.threadId ? 'Thread not found inside the actor scope' : 'Requested club is outside your access scope',
     );
   }
+
+  if (!hasPotentialMentionChar(input.title, input.summary, input.body)) return;
 
   if (input.clientKey) {
     const existing = await pool.query<{ id: string }>(
@@ -526,8 +531,6 @@ export async function preflightContentCreateMentions(
     );
     if (existing.rows[0]) return;
   }
-
-  if (!hasPotentialMentionChar(input.title, input.summary, input.body)) return;
 
   const extracted = extractContentMentionCandidates(input);
   if (extracted.title.length === 0 && extracted.summary.length === 0 && extracted.body.length === 0) return;

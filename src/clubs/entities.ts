@@ -309,7 +309,9 @@ function withContentMentions(entity: ContentEntity, mentions?: ContentMentionsBy
     ...entity,
     version: {
       ...entity.version,
-      mentions: mentions ?? emptyContentMentions(),
+      mentions: entity.version.state === 'removed'
+        ? emptyContentMentions()
+        : (mentions ?? emptyContentMentions()),
     },
   };
 }

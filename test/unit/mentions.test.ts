@@ -43,3 +43,37 @@ test('extractContentMentionCandidates extracts per field independently', () => {
   assert.deepEqual(extracted.summary, []);
   assert.deepEqual(extracted.body.map((mention) => mention.authoredHandle), ['bob', 'carol']);
 });
+
+test('extractMentionCandidates uses UTF-16 offsets for non-ASCII text', () => {
+  const text = 'héllo 👋 @alice';
+  const mentions = extractMentionCandidates(text);
+
+  assert.deepEqual(mentions, [{
+    authoredHandle: 'alice',
+    start: 10,
+    end: 16,
+  }]);
+  assert.equal(text.slice(mentions[0]!.start, mentions[0]!.end), '@alice');
+});
+
+test('extractMentionCandidates supports start-of-string, self-mentions, and repeated spans in order', () => {
+  const text = '@alice mentioned herself: @alice';
+  const mentions = extractMentionCandidates(text);
+
+  assert.deepEqual(mentions, [
+    { authoredHandle: 'alice', start: 0, end: 6 },
+    { authoredHandle: 'alice', start: 26, end: 32 },
+  ]);
+});
+
+test('extractMentionCandidates ignores malformed tokens and preserves trailing punctuation outside the span', () => {
+  const text = 'Bad @, bad @-oops, good @dora, and @erin.';
+  const mentions = extractMentionCandidates(text);
+
+  assert.deepEqual(mentions, [
+    { authoredHandle: 'dora', start: text.indexOf('@dora'), end: text.indexOf('@dora') + 5 },
+    { authoredHandle: 'erin', start: text.indexOf('@erin'), end: text.indexOf('@erin') + 5 },
+  ]);
+  assert.equal(text[mentions[0]!.end], ',');
+  assert.equal(text[mentions[1]!.end], '.');
+});
