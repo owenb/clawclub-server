@@ -515,7 +515,7 @@ export const adminOverview = z.object({
   totalClubs: z.number(),
   totalEntities: z.number(),
   totalMessages: z.number(),
-  totalApplications: z.number(),
+  pendingApplications: z.number(),
   recentMembers: z.array(z.object({
     memberId: z.string(),
     publicName: z.string(),
@@ -562,7 +562,6 @@ export const adminClubStats = z.object({
   memberCounts: z.record(z.string(), z.number()),
   entityCount: z.number(),
   messageCount: z.number(),
-  applicationCounts: z.record(z.string(), z.number()),
 });
 
 export const adminContentSummary = z.object({

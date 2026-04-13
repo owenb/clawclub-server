@@ -791,7 +791,7 @@ export type AdminOverview = {
   totalClubs: number;
   totalEntities: number;
   totalMessages: number;
-  totalApplications: number;
+  pendingApplications: number;
   recentMembers: Array<{
     memberId: string;
     publicName: string;
@@ -838,7 +838,6 @@ export type AdminClubStats = {
   memberCounts: Record<string, number>;
   entityCount: number;
   messageCount: number;
-  applicationCounts: Record<string, number>;
 };
 
 export type AdminContentSummary = {

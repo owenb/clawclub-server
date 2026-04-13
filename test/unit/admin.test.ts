@@ -30,10 +30,11 @@ test('superadmin.platform.getOverview returns platform stats for superadmin', as
     async adminGetOverview() {
       return {
         totalMembers: 42,
+        activeMembers: 30,
         totalClubs: 3,
         totalEntities: 150,
         totalMessages: 500,
-        totalApplications: 10,
+        pendingApplications: 10,
         recentMembers: [{
           memberId: 'member-1',
           publicName: 'Alice',
@@ -200,10 +201,9 @@ test('admin.clubs.stats returns club statistics', async () => {
         slug: 'alpha',
         name: 'Alpha',
         archivedAt: null,
-        memberCounts: { active: 10, invited: 2 },
+        memberCounts: { active: 10, applying: 2 },
         entityCount: 25,
         messageCount: 100,
-        applicationCounts: { submitted: 3, accepted: 5 },
       };
     },
   };
@@ -222,7 +222,7 @@ test('admin.clubs.stats returns club statistics', async () => {
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.equal(body.data.stats.entityCount, 25);
-    assert.deepEqual(body.data.stats.memberCounts, { active: 10, invited: 2 });
+    assert.deepEqual(body.data.stats.memberCounts, { active: 10, applying: 2 });
   } finally {
     await shutdown();
   }

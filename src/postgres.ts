@@ -1041,7 +1041,7 @@ export function createRepository(pool: Pool): Repository {
 
     // ── Admin ───────────────────────────────────────────
     async adminGetOverview() {
-      const [totalMemberCount, activeMemberCount, clubCount, entityCount, messageCount, applicationCount] = await Promise.all([
+      const [totalMemberCount, activeMemberCount, clubCount, entityCount, messageCount, pendingApplicationCount] = await Promise.all([
         pool.query<{ count: string }>(`select count(*)::text as count from members`),
         pool.query<{ count: string }>(`select count(*)::text as count from members where state = 'active'`),
         pool.query<{ count: string }>(`select count(*)::text as count from clubs where archived_at is null`),
@@ -1050,7 +1050,7 @@ export function createRepository(pool: Pool): Repository {
         pool.query<{ count: string }>(
           `select count(*)::text as count
            from current_club_memberships
-           where status in ('applying', 'submitted', 'interview_scheduled', 'interview_completed', 'payment_pending', 'declined', 'withdrawn')`,
+           where status in ('applying', 'submitted', 'interview_scheduled', 'interview_completed')`,
         ),
       ]);
 
@@ -1068,7 +1068,7 @@ export function createRepository(pool: Pool): Repository {
         totalClubs: Number(clubCount.rows[0]?.count ?? 0),
         totalEntities: Number(entityCount.rows[0]?.count ?? 0),
         totalMessages: Number(messageCount.rows[0]?.count ?? 0),
-        totalApplications: Number(applicationCount.rows[0]?.count ?? 0),
+        pendingApplications: Number(pendingApplicationCount.rows[0]?.count ?? 0),
         recentMembers: recentMembers.rows.map((r) => ({
           memberId: r.member_id,
           publicName: r.public_name,
@@ -1207,7 +1207,7 @@ export function createRepository(pool: Pool): Repository {
     },
 
     async adminGetClubStats({ clubId }) {
-      const [clubResult, memberCounts, entityCount, applicationCounts] = await Promise.all([
+      const [clubResult, memberCounts, entityCount] = await Promise.all([
         pool.query<{ club_id: string; slug: string; name: string; archived_at: string | null }>(
           `select id as club_id, slug, name, archived_at::text as archived_at from clubs where id = $1 limit 1`,
           [clubId],
@@ -1219,14 +1219,6 @@ export function createRepository(pool: Pool): Repository {
         ),
         pool.query<{ count: string }>(
           `select count(*)::text as count from entities where club_id = $1 and deleted_at is null`,
-          [clubId],
-        ),
-        pool.query<{ status: string; count: string }>(
-          `select cm.status::text as status, count(*)::text as count
-           from current_club_memberships cm
-           where cm.club_id = $1
-             and cm.status in ('applying', 'submitted', 'interview_scheduled', 'interview_completed', 'payment_pending', 'declined', 'withdrawn')
-           group by cm.status`,
           [clubId],
         ),
       ]);
@@ -1254,7 +1246,6 @@ export function createRepository(pool: Pool): Repository {
         memberCounts: Object.fromEntries(memberCounts.rows.map((r) => [r.status, Number(r.count)])),
         entityCount: Number(entityCount.rows[0]?.count ?? 0),
         messageCount: Number(messageCount.rows[0]?.count ?? 0),
-        applicationCounts: Object.fromEntries(applicationCounts.rows.map((r) => [r.status, Number(r.count)])),
       };
     },
 
