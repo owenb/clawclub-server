@@ -45,7 +45,7 @@ test('extractContentMentionCandidates extracts per field independently', () => {
 });
 
 test('extractMentionCandidates uses UTF-16 offsets for non-ASCII text', () => {
-  const text = 'héllo 👋 @alice';
+  const text = 'he\u0301llo \u{1F44B} @alice';
   const mentions = extractMentionCandidates(text);
 
   assert.deepEqual(mentions, [{
