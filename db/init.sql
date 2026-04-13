@@ -2,15 +2,25 @@
 -- Single database, single schema, no RLS.
 -- NOTE: Do NOT wrap in BEGIN/COMMIT — apply with --single-transaction.
 
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
 SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
 SET default_tablespace = '';
 SET default_table_access_method = heap;
+SET row_security = off;
 
 -- ============================================================
 -- Extensions (require superuser)
 -- ============================================================
 
-CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 
 -- ============================================================
 -- Schema ownership
@@ -28,270 +38,287 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 SET SESSION AUTHORIZATION clawclub_app;
 
--- ============================================================
--- Schema
--- ============================================================
+CREATE TYPE public.assignment_state AS ENUM (
+    'active',
+    'revoked'
+);
 
--- ============================================================
--- Domain
--- ============================================================
 
-CREATE DOMAIN short_id AS text
-    CONSTRAINT short_id_check CHECK (VALUE ~ '^[23456789abcdefghjkmnpqrstuvwxyz]{12}$');
+--
+-- Name: billing_interval; Type: TYPE; Schema: public; Owner: -
+--
 
--- ============================================================
--- ID generator
--- ============================================================
+CREATE TYPE public.billing_interval AS ENUM (
+    'month',
+    'year',
+    'manual'
+);
 
-CREATE FUNCTION new_id() RETURNS short_id
+
+--
+-- Name: club_activity_audience; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.club_activity_audience AS ENUM (
+    'members',
+    'clubadmins',
+    'owners'
+);
+
+
+--
+-- Name: edge_kind; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.edge_kind AS ENUM (
+    'vouched_for',
+    'about',
+    'related_to',
+    'mentions'
+);
+
+
+--
+-- Name: entity_kind; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.entity_kind AS ENUM (
+    'post',
+    'opportunity',
+    'service',
+    'ask',
+    'gift',
+    'event',
+    'complaint',
+    'migration_canary'
+);
+
+
+--
+-- Name: entity_state; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.entity_state AS ENUM (
+    'draft',
+    'published',
+    'removed'
+);
+
+
+--
+-- Name: global_role; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.global_role AS ENUM (
+    'superadmin'
+);
+
+
+--
+-- Name: member_state; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.member_state AS ENUM (
+    'pending',
+    'active',
+    'suspended',
+    'deleted',
+    'banned'
+);
+
+
+--
+-- Name: membership_role; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.membership_role AS ENUM (
+    'clubadmin',
+    'member'
+);
+
+
+--
+-- Name: membership_state; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.membership_state AS ENUM (
+    'applying',
+    'submitted',
+    'interview_scheduled',
+    'interview_completed',
+    'payment_pending',
+    'active',
+    'renewal_pending',
+    'cancelled',
+    'expired',
+    'removed',
+    'banned',
+    'declined',
+    'withdrawn'
+);
+
+
+--
+-- Name: message_role; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.message_role AS ENUM (
+    'member',
+    'agent',
+    'system'
+);
+
+
+--
+-- Name: quality_gate_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.quality_gate_status AS ENUM (
+    'passed',
+    'rejected',
+    'rejected_illegal',
+    'skipped'
+);
+
+
+--
+-- Name: quota_scope; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.quota_scope AS ENUM (
+    'global',
+    'club'
+);
+
+
+--
+-- Name: rsvp_state; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.rsvp_state AS ENUM (
+    'yes',
+    'maybe',
+    'no',
+    'waitlist',
+    'cancelled'
+);
+
+
+--
+-- Name: short_id; Type: DOMAIN; Schema: public; Owner: -
+--
+
+CREATE DOMAIN public.short_id AS text
+	CONSTRAINT short_id_check CHECK ((VALUE ~ '^[23456789abcdefghjkmnpqrstuvwxyz]{12}$'::text));
+
+
+--
+-- Name: subscription_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.subscription_status AS ENUM (
+    'trialing',
+    'active',
+    'past_due',
+    'paused',
+    'canceled',
+    'ended'
+);
+
+
+--
+-- Name: thread_kind; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.thread_kind AS ENUM (
+    'direct'
+);
+
+
+--
+-- Name: club_memberships_require_profile_version(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.club_memberships_require_profile_version() RETURNS trigger
     LANGUAGE plpgsql
-AS $$
-declare
-  alphabet constant text := '23456789abcdefghjkmnpqrstuvwxyz';
-  output text := '';
-  idx integer;
-begin
-  for idx in 1..12 loop
-    output := output || substr(alphabet, 1 + floor(random() * length(alphabet))::integer, 1);
-  end loop;
-
-  return output::short_id;
-end;
-$$;
-
--- ============================================================
--- Enums
--- ============================================================
-
--- Identity
-CREATE TYPE member_state AS ENUM ('pending', 'active', 'suspended', 'deleted', 'banned');
-CREATE TYPE membership_role AS ENUM ('clubadmin', 'member');
-CREATE TYPE membership_state AS ENUM ('invited', 'active', 'paused', 'left', 'removed', 'pending_review', 'revoked', 'rejected', 'payment_pending', 'renewal_pending', 'cancelled', 'banned', 'expired');
-CREATE TYPE global_role AS ENUM ('superadmin');
-CREATE TYPE assignment_state AS ENUM ('active', 'revoked');
-CREATE TYPE subscription_status AS ENUM ('trialing', 'active', 'past_due', 'paused', 'canceled', 'ended');
-CREATE TYPE billing_interval AS ENUM ('month', 'year', 'manual');
-
--- Content
-CREATE TYPE entity_kind AS ENUM ('post', 'opportunity', 'service', 'ask', 'gift', 'event', 'complaint');
-CREATE TYPE entity_state AS ENUM ('draft', 'published', 'removed');
-CREATE TYPE edge_kind AS ENUM ('vouched_for', 'about', 'related_to', 'mentions');
-CREATE TYPE rsvp_state AS ENUM ('yes', 'maybe', 'no', 'waitlist', 'cancelled');
-
--- Admissions
-CREATE TYPE application_status AS ENUM ('draft', 'submitted', 'interview_scheduled', 'interview_completed', 'accepted', 'declined', 'withdrawn');
-
--- Quality
-CREATE TYPE quality_gate_status AS ENUM ('passed', 'rejected', 'rejected_illegal', 'skipped');
-CREATE TYPE club_activity_audience AS ENUM ('members', 'clubadmins', 'owners');
-
--- Messaging
-CREATE TYPE thread_kind AS ENUM ('direct');
-CREATE TYPE message_role AS ENUM ('member', 'agent', 'system');
-
-
--- ============================================================
--- Tables: Members & Identity
--- ============================================================
-
-CREATE TABLE members (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    handle              text NOT NULL,
-    public_name         text NOT NULL,
-    display_name        text NOT NULL,
-    state               member_state DEFAULT 'active' NOT NULL,
-    source_admission_id short_id,
-    metadata            jsonb DEFAULT '{}' NOT NULL,
-    created_at          timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT members_pkey PRIMARY KEY (id),
-    CONSTRAINT members_handle_unique UNIQUE (handle),
-    CONSTRAINT members_public_name_check CHECK (length(btrim(public_name)) > 0),
-    CONSTRAINT members_display_name_check CHECK (length(btrim(display_name)) > 0)
-);
-
-CREATE INDEX members_state_idx ON members (state);
-CREATE UNIQUE INDEX members_source_admission_unique_idx
-    ON members (source_admission_id) WHERE source_admission_id IS NOT NULL;
-
--- ── Member bearer tokens ──────────────────────────────────────────
-
-CREATE TABLE member_bearer_tokens (
-    id              short_id DEFAULT new_id() NOT NULL,
-    member_id       short_id NOT NULL,
-    label           text,
-    token_hash      text NOT NULL,
-    created_at      timestamptz DEFAULT now() NOT NULL,
-    last_used_at    timestamptz,
-    revoked_at      timestamptz,
-    metadata        jsonb DEFAULT '{}' NOT NULL,
-    expires_at      timestamptz,
-
-    CONSTRAINT member_bearer_tokens_pkey PRIMARY KEY (id),
-    CONSTRAINT member_bearer_tokens_token_hash_unique UNIQUE (token_hash),
-    CONSTRAINT member_bearer_tokens_member_fkey FOREIGN KEY (member_id) REFERENCES members(id)
-);
-
-CREATE INDEX member_bearer_tokens_member_created_idx ON member_bearer_tokens (member_id, created_at DESC);
-CREATE INDEX member_bearer_tokens_active_idx ON member_bearer_tokens (id) WHERE revoked_at IS NULL;
-
--- ── Member global roles ───────────────────────────────────────────
-
-CREATE TABLE member_global_role_versions (
-    id                          short_id DEFAULT new_id() NOT NULL,
-    member_id                   short_id NOT NULL,
-    role                        global_role NOT NULL,
-    status                      assignment_state DEFAULT 'active' NOT NULL,
-    version_no                  integer NOT NULL,
-    supersedes_role_version_id  short_id,
-    created_at                  timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id        short_id,
-
-    CONSTRAINT member_global_role_versions_pkey PRIMARY KEY (id),
-    CONSTRAINT member_global_role_versions_version_unique UNIQUE (member_id, role, version_no),
-    CONSTRAINT member_global_role_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT member_global_role_versions_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT member_global_role_versions_supersedes_fkey FOREIGN KEY (supersedes_role_version_id) REFERENCES member_global_role_versions(id),
-    CONSTRAINT member_global_role_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
-);
-
-CREATE INDEX member_global_role_versions_lookup_idx
-    ON member_global_role_versions (member_id, role, version_no DESC, created_at DESC);
-
--- ── Member private contacts ───────────────────────────────────────
-
-CREATE TABLE member_private_contacts (
-    member_id       short_id NOT NULL,
-    email           text,
-    created_at      timestamptz DEFAULT now() NOT NULL,
-    updated_at      timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT member_private_contacts_pkey PRIMARY KEY (member_id),
-    CONSTRAINT member_private_contacts_email_check CHECK (email IS NULL OR email LIKE '%@%'),
-    CONSTRAINT member_private_contacts_member_fkey FOREIGN KEY (member_id) REFERENCES members(id)
-);
-
--- ── Member club profile versions ──────────────────────────────────
-
-CREATE TABLE member_club_profile_versions (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    membership_id           short_id NOT NULL,
-    member_id               short_id NOT NULL,
-    club_id                 short_id NOT NULL,
-    version_no              integer NOT NULL,
-    tagline                 text,
-    summary                 text,
-    what_i_do               text,
-    known_for               text,
-    services_summary        text,
-    website_url             text,
-    links                   jsonb DEFAULT '[]' NOT NULL,
-    profile                 jsonb DEFAULT '{}' NOT NULL,
-    search_vector           tsvector,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    short_id,
-    generation_source       text DEFAULT 'manual' NOT NULL,
-
-    CONSTRAINT member_club_profile_versions_pkey PRIMARY KEY (id),
-    CONSTRAINT member_club_profile_versions_member_club_version_unique UNIQUE (member_id, club_id, version_no),
-    CONSTRAINT member_club_profile_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT member_club_profile_versions_generation_source_check
-        CHECK (generation_source IN ('manual', 'migration_backfill', 'admission_generated', 'membership_seed')),
-    CONSTRAINT member_club_profile_versions_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT member_club_profile_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
-);
-
-CREATE INDEX member_club_profile_versions_membership_idx ON member_club_profile_versions (membership_id, version_no DESC);
-CREATE INDEX member_club_profile_versions_member_club_idx ON member_club_profile_versions (member_id, club_id, version_no DESC);
-CREATE INDEX member_club_profile_versions_club_member_idx ON member_club_profile_versions (club_id, member_id, version_no DESC);
-CREATE INDEX member_club_profile_versions_search_idx ON member_club_profile_versions USING gin (search_vector);
-
-CREATE FUNCTION reject_row_mutation() RETURNS trigger
-    LANGUAGE plpgsql
-AS $$
+    AS $$
 BEGIN
-    RAISE EXCEPTION '% not allowed on %', TG_OP, TG_TABLE_NAME;
+    IF NEW.status NOT IN ('active', 'renewal_pending', 'cancelled') THEN
+        RETURN NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+          FROM public.member_club_profile_versions
+         WHERE membership_id = NEW.id
+    ) THEN
+        RAISE EXCEPTION 'club_memberships row % has no profile version — version 1 must be inserted in the same transaction', NEW.id;
+    END IF;
+
+    RETURN NULL;
 END;
 $$;
 
-CREATE FUNCTION member_club_profile_versions_search_vector_trigger() RETURNS trigger
+
+--
+-- Name: lock_club_membership_mutation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.lock_club_membership_mutation() RETURNS trigger
     LANGUAGE plpgsql
-AS $$
+    AS $$
 BEGIN
-    NEW.search_vector := to_tsvector('english',
-        coalesce(NEW.tagline, '') || ' ' ||
-        coalesce(NEW.summary, '') || ' ' ||
-        coalesce(NEW.what_i_do, '') || ' ' ||
-        coalesce(NEW.known_for, '') || ' ' ||
-        coalesce(NEW.services_summary, '')
-    );
-    RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER member_club_profile_versions_immutable
-    BEFORE UPDATE OR DELETE ON member_club_profile_versions
-    FOR EACH ROW
-    EXECUTE FUNCTION reject_row_mutation();
-
-CREATE TRIGGER member_club_profile_versions_search_vector_insert
-    BEFORE INSERT ON member_club_profile_versions
-    FOR EACH ROW
-    EXECUTE FUNCTION member_club_profile_versions_search_vector_trigger();
-
-
--- ============================================================
--- Tables: Clubs & Membership
--- ============================================================
-
-CREATE TABLE clubs (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    slug                text NOT NULL,
-    name                text NOT NULL,
-    summary             text,
-    owner_member_id     short_id NOT NULL,
-    admission_policy    text,
-    membership_price_amount   numeric(12,2),
-    membership_price_currency text DEFAULT 'USD' NOT NULL,
-    created_at          timestamptz DEFAULT now() NOT NULL,
-    archived_at         timestamptz,
-
-    CONSTRAINT clubs_pkey PRIMARY KEY (id),
-    CONSTRAINT clubs_slug_unique UNIQUE (slug),
-    CONSTRAINT clubs_slug_check CHECK (slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
-    CONSTRAINT clubs_name_check CHECK (length(btrim(name)) > 0),
-    CONSTRAINT clubs_admission_policy_length CHECK (
-        admission_policy IS NULL OR char_length(admission_policy) BETWEEN 1 AND 2000
-    ),
-    CONSTRAINT clubs_price_check CHECK (membership_price_amount IS NULL OR membership_price_amount >= 0),
-    CONSTRAINT clubs_currency_check CHECK (membership_price_currency ~ '^[A-Z]{3}$'),
-    CONSTRAINT clubs_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES members(id)
-);
-
-ALTER TABLE member_club_profile_versions
-    ADD CONSTRAINT member_club_profile_versions_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id);
-
-CREATE FUNCTION normalize_admission_policy() RETURNS trigger
-    LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF NEW.admission_policy IS NOT NULL THEN
-        NEW.admission_policy := btrim(NEW.admission_policy);
-        IF NEW.admission_policy = '' THEN
-            NEW.admission_policy := NULL;
+    IF current_setting('app.allow_membership_state_sync', true) = '1' THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.club_id IS DISTINCT FROM OLD.club_id THEN
+        RAISE EXCEPTION 'club_memberships.club_id is immutable';
+    END IF;
+    IF NEW.member_id IS DISTINCT FROM OLD.member_id THEN
+        RAISE EXCEPTION 'club_memberships.member_id is immutable';
+    END IF;
+    IF NEW.sponsor_member_id IS DISTINCT FROM OLD.sponsor_member_id THEN
+        RAISE EXCEPTION 'club_memberships.sponsor_member_id is immutable';
+    END IF;
+    IF NEW.applied_at IS DISTINCT FROM OLD.applied_at THEN
+        RAISE EXCEPTION 'club_memberships.applied_at is immutable';
+    END IF;
+    IF NEW.application_email IS DISTINCT FROM OLD.application_email THEN
+        RAISE EXCEPTION 'club_memberships.application_email is immutable';
+    END IF;
+    IF NEW.submission_path IS DISTINCT FROM OLD.submission_path THEN
+        RAISE EXCEPTION 'club_memberships.submission_path is immutable';
+    END IF;
+    IF NEW.proof_kind IS DISTINCT FROM OLD.proof_kind THEN
+        RAISE EXCEPTION 'club_memberships.proof_kind is immutable';
+    END IF;
+    IF NEW.invitation_id IS DISTINCT FROM OLD.invitation_id THEN
+        RAISE EXCEPTION 'club_memberships.invitation_id is immutable';
+    END IF;
+    IF NEW.joined_at IS DISTINCT FROM OLD.joined_at THEN
+        IF OLD.joined_at IS NULL AND NEW.joined_at IS NOT NULL THEN
+            RETURN NEW;
         END IF;
+        RAISE EXCEPTION 'club_memberships.joined_at is immutable except for first active transition';
+    END IF;
+    IF NEW.status IS DISTINCT FROM OLD.status THEN
+        RAISE EXCEPTION 'club_memberships.status must change via club_membership_state_versions';
+    END IF;
+    IF NEW.left_at IS DISTINCT FROM OLD.left_at THEN
+        RAISE EXCEPTION 'club_memberships.left_at must change via club_membership_state_versions';
     END IF;
     RETURN NEW;
 END;
 $$;
 
-CREATE TRIGGER clubs_normalize_admission_policy
-    BEFORE INSERT OR UPDATE OF admission_policy ON clubs
-    FOR EACH ROW EXECUTE FUNCTION normalize_admission_policy();
 
-CREATE FUNCTION lock_club_versioned_mutation() RETURNS trigger
+--
+-- Name: lock_club_versioned_mutation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.lock_club_versioned_mutation() RETURNS trigger
     LANGUAGE plpgsql
-AS $$
+    AS $$
 BEGIN
     IF tg_op <> 'UPDATE' THEN RETURN NEW; END IF;
     IF coalesce(current_setting('app.allow_club_version_sync', true), '') = '1' THEN
@@ -319,199 +346,14 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER clubs_versioned_field_lock
-    BEFORE UPDATE ON clubs
-    FOR EACH ROW EXECUTE FUNCTION lock_club_versioned_mutation();
 
--- ── Club versions ──────────────────────────────────────────
+--
+-- Name: member_club_profile_versions_check_membership(); Type: FUNCTION; Schema: public; Owner: -
+--
 
-CREATE TABLE club_versions (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    club_id                 short_id NOT NULL,
-    owner_member_id         short_id NOT NULL,
-    name                    text NOT NULL,
-    summary                 text,
-    admission_policy        text,
-    membership_price_amount   numeric(12,2),
-    membership_price_currency text DEFAULT 'USD' NOT NULL,
-    version_no              integer NOT NULL,
-    supersedes_version_id   short_id,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    short_id,
-
-    CONSTRAINT club_versions_pkey PRIMARY KEY (id),
-    CONSTRAINT club_versions_club_version_unique UNIQUE (club_id, version_no),
-    CONSTRAINT club_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT club_versions_name_check CHECK (length(btrim(name)) > 0),
-    CONSTRAINT club_versions_admission_policy_length CHECK (
-        admission_policy IS NULL OR char_length(admission_policy) BETWEEN 1 AND 2000
-    ),
-    CONSTRAINT club_versions_price_check CHECK (membership_price_amount IS NULL OR membership_price_amount >= 0),
-    CONSTRAINT club_versions_currency_check CHECK (membership_price_currency ~ '^[A-Z]{3}$'),
-    CONSTRAINT club_versions_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT club_versions_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES members(id),
-    CONSTRAINT club_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id),
-    CONSTRAINT club_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES club_versions(id)
-);
-
-CREATE INDEX club_versions_club_idx ON club_versions (club_id, version_no DESC, created_at DESC);
-
-CREATE TRIGGER club_versions_normalize_admission_policy
-    BEFORE INSERT OR UPDATE OF admission_policy ON club_versions
-    FOR EACH ROW EXECUTE FUNCTION normalize_admission_policy();
-
-CREATE FUNCTION sync_club_version_to_club() RETURNS trigger
+CREATE FUNCTION public.member_club_profile_versions_check_membership() RETURNS trigger
     LANGUAGE plpgsql
-AS $$
-BEGIN
-    PERFORM set_config('app.allow_club_version_sync', '1', true);
-    UPDATE clubs c SET
-        owner_member_id           = NEW.owner_member_id,
-        name                      = NEW.name,
-        summary                   = NEW.summary,
-        admission_policy          = NEW.admission_policy,
-        membership_price_amount   = NEW.membership_price_amount,
-        membership_price_currency = NEW.membership_price_currency
-    WHERE c.id = NEW.club_id;
-    PERFORM set_config('app.allow_club_version_sync', '', true);
-    RETURN NEW;
-EXCEPTION
-    WHEN others THEN
-        PERFORM set_config('app.allow_club_version_sync', '', true);
-        RAISE;
-END;
-$$;
-
-CREATE TRIGGER club_versions_sync
-    AFTER INSERT ON club_versions
-    FOR EACH ROW EXECUTE FUNCTION sync_club_version_to_club();
-
--- ── Club memberships ────────────────────────────────────────────
-
-CREATE TABLE club_memberships (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    club_id                 short_id NOT NULL,
-    member_id               short_id NOT NULL,
-    sponsor_member_id       short_id,
-    role                    membership_role DEFAULT 'member' NOT NULL,
-    status                  membership_state DEFAULT 'active' NOT NULL,
-    joined_at               timestamptz DEFAULT now() NOT NULL,
-    left_at                 timestamptz,
-    accepted_covenant_at    timestamptz,
-    metadata                jsonb DEFAULT '{}' NOT NULL,
-    source_admission_id     short_id,
-    is_comped               boolean DEFAULT false NOT NULL,
-    comped_at               timestamptz,
-    comped_by_member_id     short_id,
-    approved_price_amount   numeric(12,2),
-    approved_price_currency text,
-
-    CONSTRAINT club_memberships_pkey PRIMARY KEY (id),
-    CONSTRAINT club_memberships_club_member_unique UNIQUE (club_id, member_id),
-    CONSTRAINT club_memberships_sponsor_check CHECK (sponsor_member_id IS NOT NULL OR role = 'clubadmin'),
-    CONSTRAINT club_memberships_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT club_memberships_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT club_memberships_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES members(id),
-    CONSTRAINT club_memberships_comped_by_fkey FOREIGN KEY (comped_by_member_id) REFERENCES members(id)
-);
-
-CREATE UNIQUE INDEX club_memberships_source_admission_unique
-    ON club_memberships (source_admission_id) WHERE source_admission_id IS NOT NULL;
-
-CREATE INDEX club_memberships_club_status_idx ON club_memberships (club_id, status);
-CREATE INDEX club_memberships_member_status_idx ON club_memberships (member_id, status);
-CREATE INDEX club_memberships_sponsor_joined_idx ON club_memberships (sponsor_member_id, joined_at);
-
-CREATE FUNCTION lock_club_membership_mutation() RETURNS trigger
-    LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF current_setting('app.allow_membership_state_sync', true) = '1' THEN
-        RETURN NEW;
-    END IF;
-    IF NEW.club_id IS DISTINCT FROM OLD.club_id THEN
-        RAISE EXCEPTION 'club_memberships.club_id is immutable';
-    END IF;
-    IF NEW.member_id IS DISTINCT FROM OLD.member_id THEN
-        RAISE EXCEPTION 'club_memberships.member_id is immutable';
-    END IF;
-    IF NEW.sponsor_member_id IS DISTINCT FROM OLD.sponsor_member_id THEN
-        RAISE EXCEPTION 'club_memberships.sponsor_member_id is immutable';
-    END IF;
-    IF NEW.joined_at IS DISTINCT FROM OLD.joined_at THEN
-        RAISE EXCEPTION 'club_memberships.joined_at is immutable';
-    END IF;
-    IF NEW.status IS DISTINCT FROM OLD.status THEN
-        RAISE EXCEPTION 'club_memberships.status must change via club_membership_state_versions';
-    END IF;
-    IF NEW.left_at IS DISTINCT FROM OLD.left_at THEN
-        RAISE EXCEPTION 'club_memberships.left_at must change via club_membership_state_versions';
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER club_memberships_guard
-    BEFORE UPDATE ON club_memberships
-    FOR EACH ROW EXECUTE FUNCTION lock_club_membership_mutation();
-
--- ── Club membership state versions ──────────────────────────────
-
-CREATE TABLE club_membership_state_versions (
-    id                              short_id DEFAULT new_id() NOT NULL,
-    membership_id                   short_id NOT NULL,
-    status                          membership_state NOT NULL,
-    reason                          text,
-    version_no                      integer NOT NULL,
-    supersedes_state_version_id     short_id,
-    created_at                      timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id            short_id,
-
-    CONSTRAINT club_membership_state_versions_pkey PRIMARY KEY (id),
-    CONSTRAINT club_membership_state_versions_version_unique UNIQUE (membership_id, version_no),
-    CONSTRAINT club_membership_state_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT club_membership_state_versions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id),
-    CONSTRAINT club_membership_state_versions_supersedes_fkey FOREIGN KEY (supersedes_state_version_id) REFERENCES club_membership_state_versions(id),
-    CONSTRAINT club_membership_state_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
-);
-
-CREATE INDEX club_membership_state_versions_lookup_idx
-    ON club_membership_state_versions (membership_id, version_no DESC, created_at DESC);
-
-CREATE FUNCTION sync_club_membership_state() RETURNS trigger
-    LANGUAGE plpgsql
-AS $$
-DECLARE
-    mirrored_left_at timestamptz;
-BEGIN
-    mirrored_left_at := CASE
-        WHEN NEW.status IN ('revoked', 'rejected', 'expired', 'banned', 'removed') THEN NEW.created_at
-        ELSE NULL
-    END;
-    PERFORM set_config('app.allow_membership_state_sync', '1', true);
-    UPDATE club_memberships m
-       SET status = NEW.status,
-           left_at = mirrored_left_at
-     WHERE m.id = NEW.membership_id;
-    PERFORM set_config('app.allow_membership_state_sync', '', true);
-    RETURN NEW;
-EXCEPTION
-    WHEN others THEN
-        PERFORM set_config('app.allow_membership_state_sync', '', true);
-        RAISE;
-END;
-$$;
-
-CREATE TRIGGER club_membership_state_versions_sync
-    AFTER INSERT ON club_membership_state_versions
-    FOR EACH ROW EXECUTE FUNCTION sync_club_membership_state();
-
-ALTER TABLE member_club_profile_versions
-    ADD CONSTRAINT member_club_profile_versions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id);
-
-CREATE FUNCTION member_club_profile_versions_check_membership() RETURNS trigger
-    LANGUAGE plpgsql
-AS $$
+    AS $$
 DECLARE
     m_member_id short_id;
     m_club_id short_id;
@@ -534,854 +376,74 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER member_club_profile_versions_check_membership_trigger
-    BEFORE INSERT ON member_club_profile_versions
-    FOR EACH ROW
-    EXECUTE FUNCTION member_club_profile_versions_check_membership();
 
-CREATE FUNCTION club_memberships_require_profile_version() RETURNS trigger
+--
+-- Name: member_club_profile_versions_search_vector_trigger(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.member_club_profile_versions_search_vector_trigger() RETURNS trigger
     LANGUAGE plpgsql
-AS $$
+    AS $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-          FROM member_club_profile_versions
-         WHERE membership_id = NEW.id
-    ) THEN
-        RAISE EXCEPTION 'club_memberships row % has no profile version — version 1 must be inserted in the same transaction', NEW.id;
-    END IF;
-
-    RETURN NULL;
+    NEW.search_vector := to_tsvector('english',
+        coalesce(NEW.tagline, '') || ' ' ||
+        coalesce(NEW.summary, '') || ' ' ||
+        coalesce(NEW.what_i_do, '') || ' ' ||
+        coalesce(NEW.known_for, '') || ' ' ||
+        coalesce(NEW.services_summary, '')
+    );
+    RETURN NEW;
 END;
 $$;
 
-CREATE CONSTRAINT TRIGGER club_memberships_require_profile_version_trigger
-    AFTER INSERT ON club_memberships
-    DEFERRABLE INITIALLY DEFERRED
-    FOR EACH ROW
-    EXECUTE FUNCTION club_memberships_require_profile_version();
 
--- ── Club subscriptions ──────────────────────────────────────────
+--
+-- Name: new_id(); Type: FUNCTION; Schema: public; Owner: -
+--
 
-CREATE TABLE club_subscriptions (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    membership_id       short_id NOT NULL,
-    payer_member_id     short_id NOT NULL,
-    status              subscription_status DEFAULT 'active' NOT NULL,
-    amount              numeric(12,2) NOT NULL,
-    currency            text DEFAULT 'USD' NOT NULL,
-    started_at          timestamptz DEFAULT now() NOT NULL,
-    current_period_end  timestamptz,
-    ended_at            timestamptz,
-
-    CONSTRAINT club_subscriptions_pkey PRIMARY KEY (id),
-    CONSTRAINT club_subscriptions_amount_check CHECK (amount >= 0),
-    CONSTRAINT club_subscriptions_currency_check CHECK (currency ~ '^[A-Z]{3}$'),
-    CONSTRAINT club_subscriptions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id),
-    CONSTRAINT club_subscriptions_payer_fkey FOREIGN KEY (payer_member_id) REFERENCES members(id)
-);
-
-CREATE INDEX club_subscriptions_membership_status_idx ON club_subscriptions (membership_id, status);
-CREATE INDEX club_subscriptions_payer_status_idx ON club_subscriptions (payer_member_id, status);
-CREATE UNIQUE INDEX club_subscriptions_one_live_per_membership
-    ON club_subscriptions (membership_id) WHERE status IN ('active', 'trialing', 'past_due');
-
-
--- ============================================================
--- Tables: Content
--- ============================================================
-
-CREATE TABLE content_threads (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    club_id                 short_id NOT NULL,
-    created_by_member_id    short_id NOT NULL,
-    last_activity_at        timestamptz DEFAULT now() NOT NULL,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-    archived_at             timestamptz,
-
-    CONSTRAINT content_threads_pkey PRIMARY KEY (id),
-    CONSTRAINT content_threads_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT content_threads_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
-);
-
-CREATE UNIQUE INDEX content_threads_id_club_idx ON content_threads (id, club_id);
-CREATE INDEX content_threads_club_activity_idx
-    ON content_threads (club_id, last_activity_at DESC, id DESC)
-    WHERE archived_at IS NULL;
-
-CREATE TABLE entities (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    club_id             short_id NOT NULL,
-    kind                entity_kind NOT NULL,
-    author_member_id    short_id NOT NULL,
-    open_loop           boolean,
-    content_thread_id   short_id NOT NULL,
-    parent_entity_id    short_id,
-    client_key          text,
-    created_at          timestamptz DEFAULT now() NOT NULL,
-    archived_at         timestamptz,
-    deleted_at          timestamptz,
-    metadata            jsonb DEFAULT '{}' NOT NULL,
-
-    CONSTRAINT entities_pkey PRIMARY KEY (id),
-    CONSTRAINT entities_open_loop_kind_check CHECK (
-        (
-            kind IN ('ask', 'gift', 'service', 'opportunity')
-            AND open_loop IS NOT NULL
-        )
-        OR (
-            kind NOT IN ('ask', 'gift', 'service', 'opportunity')
-            AND open_loop IS NULL
-        )
-    ),
-    CONSTRAINT entities_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT entities_author_fkey FOREIGN KEY (author_member_id) REFERENCES members(id),
-    CONSTRAINT entities_content_thread_same_club_fkey
-        FOREIGN KEY (content_thread_id, club_id) REFERENCES content_threads (id, club_id),
-    CONSTRAINT entities_parent_fkey FOREIGN KEY (parent_entity_id) REFERENCES entities(id)
-);
-
-CREATE UNIQUE INDEX entities_idempotent_idx
-    ON entities (author_member_id, client_key) WHERE client_key IS NOT NULL;
-CREATE INDEX entities_club_kind_idx ON entities (club_id, kind, created_at DESC);
-CREATE INDEX entities_author_idx ON entities (author_member_id, created_at DESC);
-CREATE INDEX entities_parent_idx ON entities (parent_entity_id);
-CREATE INDEX entities_thread_created_idx
-    ON entities (content_thread_id, created_at ASC, id ASC)
-    WHERE archived_at IS NULL AND deleted_at IS NULL;
-CREATE INDEX entities_live_idx ON entities (club_id, kind) WHERE archived_at IS NULL AND deleted_at IS NULL;
-
--- ── Entity versions ────────────────────────────────────────
-
-CREATE TABLE entity_versions (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    entity_id               short_id NOT NULL,
-    version_no              integer NOT NULL,
-    state                   entity_state DEFAULT 'published' NOT NULL,
-    title                   text,
-    summary                 text,
-    body                    text,
-    effective_at            timestamptz DEFAULT now() NOT NULL,
-    expires_at              timestamptz,
-    content                 jsonb DEFAULT '{}' NOT NULL,
-    reason                  text,
-    supersedes_version_id   short_id,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    short_id,
-
-    CONSTRAINT entity_versions_pkey PRIMARY KEY (id),
-    CONSTRAINT entity_versions_entity_version_unique UNIQUE (entity_id, version_no),
-    CONSTRAINT entity_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT entity_versions_expiry_check CHECK (expires_at IS NULL OR expires_at >= effective_at),
-    CONSTRAINT entity_versions_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id),
-    CONSTRAINT entity_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES entity_versions(id),
-    CONSTRAINT entity_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
-);
-
-CREATE INDEX entity_versions_entity_version_idx ON entity_versions (entity_id, version_no DESC);
-CREATE INDEX entity_versions_effective_idx ON entity_versions (effective_at DESC);
-CREATE INDEX entity_versions_expires_idx ON entity_versions (expires_at);
-
-CREATE TABLE entity_version_mentions (
-    entity_version_id        short_id NOT NULL,
-    field                    text NOT NULL,
-    start_offset             integer NOT NULL,
-    end_offset               integer NOT NULL,
-    mentioned_member_id      short_id NOT NULL,
-    authored_handle          text NOT NULL,
-    created_at               timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT entity_version_mentions_pkey PRIMARY KEY (entity_version_id, field, start_offset),
-    CONSTRAINT entity_version_mentions_field_check CHECK (field IN ('title', 'summary', 'body')),
-    CONSTRAINT entity_version_mentions_offset_check CHECK (
-        start_offset >= 0
-        AND end_offset > start_offset
-    ),
-    CONSTRAINT entity_version_mentions_version_fkey FOREIGN KEY (entity_version_id) REFERENCES entity_versions(id),
-    CONSTRAINT entity_version_mentions_member_fkey FOREIGN KEY (mentioned_member_id) REFERENCES members(id)
-);
-
-CREATE INDEX entity_version_mentions_member_created_idx
-    ON entity_version_mentions (mentioned_member_id, created_at DESC);
-
--- ── Event version details (extension table for event-specific fields) ──
-
-CREATE TABLE event_version_details (
-    entity_version_id       short_id NOT NULL,
-    location                text,
-    starts_at               timestamptz,
-    ends_at                 timestamptz,
-    timezone                text,
-    recurrence_rule         text,
-    capacity                integer,
-
-    CONSTRAINT event_version_details_pkey PRIMARY KEY (entity_version_id),
-    CONSTRAINT event_version_details_capacity_check CHECK (capacity IS NULL OR capacity > 0),
-    CONSTRAINT event_version_details_dates_check CHECK (ends_at IS NULL OR starts_at IS NULL OR ends_at >= starts_at),
-    CONSTRAINT event_version_details_version_fkey FOREIGN KEY (entity_version_id) REFERENCES entity_versions(id)
-);
-
-CREATE INDEX event_version_details_starts_idx ON event_version_details (starts_at);
-
--- ── Event RSVPs ──────────────────────────────────────────────────
-
-CREATE TABLE event_rsvps (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    event_entity_id         short_id NOT NULL,
-    membership_id           short_id NOT NULL,
-    response                rsvp_state NOT NULL,
-    note                    text,
-    client_key              text,
-    version_no              integer DEFAULT 1 NOT NULL,
-    supersedes_rsvp_id      short_id,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    short_id,
-
-    CONSTRAINT event_rsvps_pkey PRIMARY KEY (id),
-    CONSTRAINT event_rsvps_event_membership_version_unique UNIQUE (event_entity_id, membership_id, version_no),
-    CONSTRAINT event_rsvps_event_fkey FOREIGN KEY (event_entity_id) REFERENCES entities(id),
-    CONSTRAINT event_rsvps_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id),
-    CONSTRAINT event_rsvps_supersedes_fkey FOREIGN KEY (supersedes_rsvp_id) REFERENCES event_rsvps(id),
-    CONSTRAINT event_rsvps_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
-);
-
-CREATE UNIQUE INDEX event_rsvps_idempotent_idx
-    ON event_rsvps (created_by_member_id, client_key) WHERE client_key IS NOT NULL;
-CREATE INDEX event_rsvps_event_idx ON event_rsvps (event_entity_id, response);
-CREATE INDEX event_rsvps_event_membership_version_idx ON event_rsvps (event_entity_id, membership_id, version_no DESC, created_at DESC);
-CREATE INDEX event_rsvps_membership_idx ON event_rsvps (membership_id, created_at DESC);
-
--- ── Club edges (vouches, etc.) ──────────────────────────────────
-
-CREATE TABLE club_edges (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    club_id                 short_id,
-    kind                    edge_kind NOT NULL,
-    from_member_id          short_id,
-    from_entity_id          short_id,
-    from_entity_version_id  short_id,
-    to_member_id            short_id,
-    to_entity_id            short_id,
-    to_entity_version_id    short_id,
-    reason                  text,
-    metadata                jsonb DEFAULT '{}' NOT NULL,
-    client_key              text,
-    created_by_member_id    short_id,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-    archived_at             timestamptz,
-
-    CONSTRAINT club_edges_pkey PRIMARY KEY (id),
-    CONSTRAINT club_edges_from_check CHECK (
-        ((from_member_id IS NOT NULL)::integer
-        + (from_entity_id IS NOT NULL)::integer
-        + (from_entity_version_id IS NOT NULL)::integer) = 1
-    ),
-    CONSTRAINT club_edges_to_check CHECK (
-        ((to_member_id IS NOT NULL)::integer
-        + (to_entity_id IS NOT NULL)::integer
-        + (to_entity_version_id IS NOT NULL)::integer) = 1
-    ),
-    CONSTRAINT club_edges_vouch_check CHECK (
-        kind <> 'vouched_for' OR (from_member_id IS NOT NULL AND to_member_id IS NOT NULL AND reason IS NOT NULL)
-    ),
-    CONSTRAINT club_edges_no_self_vouch CHECK (
-        kind <> 'vouched_for' OR from_member_id <> to_member_id
-    ),
-    CONSTRAINT club_edges_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT club_edges_from_member_fkey FOREIGN KEY (from_member_id) REFERENCES members(id),
-    CONSTRAINT club_edges_from_entity_fkey FOREIGN KEY (from_entity_id) REFERENCES entities(id),
-    CONSTRAINT club_edges_from_entity_version_fkey FOREIGN KEY (from_entity_version_id) REFERENCES entity_versions(id),
-    CONSTRAINT club_edges_to_member_fkey FOREIGN KEY (to_member_id) REFERENCES members(id),
-    CONSTRAINT club_edges_to_entity_fkey FOREIGN KEY (to_entity_id) REFERENCES entities(id),
-    CONSTRAINT club_edges_to_entity_version_fkey FOREIGN KEY (to_entity_version_id) REFERENCES entity_versions(id),
-    CONSTRAINT club_edges_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
-);
-
-CREATE UNIQUE INDEX club_edges_idempotent_idx
-    ON club_edges (created_by_member_id, client_key) WHERE client_key IS NOT NULL;
-CREATE UNIQUE INDEX club_edges_unique_active_vouch
-    ON club_edges (club_id, from_member_id, to_member_id)
-    WHERE kind = 'vouched_for' AND archived_at IS NULL;
-CREATE INDEX club_edges_club_kind_idx ON club_edges (club_id, kind, created_at DESC);
-CREATE INDEX club_edges_from_member_idx ON club_edges (from_member_id, kind, created_at DESC);
-CREATE INDEX club_edges_to_entity_idx ON club_edges (to_entity_id, kind, created_at DESC);
-CREATE INDEX club_edges_to_member_idx ON club_edges (to_member_id, kind, created_at DESC);
-
-
--- ============================================================
--- Tables: Admissions
--- ============================================================
-
-CREATE TABLE admissions (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    club_id             short_id NOT NULL,
-    applicant_member_id short_id,
-    sponsor_member_id   short_id,
-    membership_id       short_id,
-    origin              text NOT NULL,
-    metadata            jsonb DEFAULT '{}' NOT NULL,
-    created_at          timestamptz DEFAULT now() NOT NULL,
-    applicant_email     text,
-    applicant_name      text,
-    admission_details   jsonb DEFAULT '{}' NOT NULL,
-    generated_profile_draft jsonb,
-
-    CONSTRAINT admissions_pkey PRIMARY KEY (id),
-    CONSTRAINT admissions_origin_check CHECK (
-        origin IN ('self_applied', 'member_sponsored', 'owner_nominated')
-    ),
-    CONSTRAINT admissions_outsider_identity_check CHECK (
-        (origin = 'owner_nominated' AND applicant_member_id IS NOT NULL)
-        OR (origin IN ('self_applied', 'member_sponsored')
-            AND applicant_email IS NOT NULL
-            AND applicant_name IS NOT NULL
-            AND length(btrim(applicant_email)) > 0
-            AND length(btrim(applicant_name)) > 0)
-    ),
-    CONSTRAINT admissions_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT admissions_applicant_fkey FOREIGN KEY (applicant_member_id) REFERENCES members(id),
-    CONSTRAINT admissions_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES members(id),
-    CONSTRAINT admissions_membership_fkey FOREIGN KEY (membership_id) REFERENCES club_memberships(id)
-);
-
-CREATE INDEX admissions_club_created_idx ON admissions (club_id, created_at DESC);
--- Supports cross-apply eligibility checks: pending admissions by applicant
-CREATE INDEX admissions_applicant_idx ON admissions (applicant_member_id, club_id);
-
--- ── Admission versions ─────────────────────────────────────
-
-CREATE TABLE admission_versions (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    admission_id            short_id NOT NULL,
-    status                  application_status NOT NULL,
-    notes                   text,
-    intake_kind             text DEFAULT 'other' NOT NULL,
-    intake_price_amount     numeric(12,2),
-    intake_price_currency   text,
-    intake_booking_url      text,
-    intake_booked_at        timestamptz,
-    intake_completed_at     timestamptz,
-    version_no              integer NOT NULL,
-    supersedes_version_id   short_id,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-    created_by_member_id    short_id,
-
-    CONSTRAINT admission_versions_pkey PRIMARY KEY (id),
-    CONSTRAINT admission_versions_admission_version_unique UNIQUE (admission_id, version_no),
-    CONSTRAINT admission_versions_version_no_check CHECK (version_no > 0),
-    CONSTRAINT admission_versions_intake_kind_check CHECK (
-        intake_kind IN ('fit_check', 'advice_call', 'other')
-    ),
-    CONSTRAINT admission_versions_intake_price_check CHECK (
-        intake_price_amount IS NULL OR intake_price_amount >= 0
-    ),
-    CONSTRAINT admission_versions_intake_currency_check CHECK (
-        intake_price_currency IS NULL OR intake_price_currency ~ '^[A-Z]{3}$'
-    ),
-    CONSTRAINT admission_versions_intake_dates_check CHECK (
-        intake_completed_at IS NULL OR intake_booked_at IS NULL OR intake_completed_at >= intake_booked_at
-    ),
-    CONSTRAINT admission_versions_admission_fkey FOREIGN KEY (admission_id) REFERENCES admissions(id),
-    CONSTRAINT admission_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES admission_versions(id),
-    CONSTRAINT admission_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
-);
-
-CREATE INDEX admission_versions_admission_version_idx
-    ON admission_versions (admission_id, version_no DESC, created_at DESC);
-
--- ── Admission challenges ───────────────────────────────────
-
-CREATE TABLE admission_challenges (
-    id              short_id DEFAULT new_id() NOT NULL,
-    difficulty      integer NOT NULL,
-    club_id         short_id,
-    member_id       short_id,              -- bound to authenticated member for cross-apply challenges (NULL for cold)
-    policy_snapshot text,
-    club_name       text,
-    club_summary    text,
-    owner_name      text,
-    expires_at      timestamptz NOT NULL,
-    created_at      timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT admission_challenges_pkey PRIMARY KEY (id),
-    CONSTRAINT admission_challenges_difficulty_check CHECK (difficulty > 0),
-    CONSTRAINT admission_challenges_expiry_check CHECK (expires_at > created_at),
-    CONSTRAINT admission_challenges_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT admission_challenges_member_fkey FOREIGN KEY (member_id) REFERENCES members(id)
-);
-
-CREATE INDEX admission_challenges_expires_idx ON admission_challenges (expires_at);
-
--- ── Admission attempts ─────────────────────────────────────
-
-CREATE TABLE admission_attempts (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    challenge_id        short_id NOT NULL,
-    club_id             short_id NOT NULL,
-    attempt_no          integer NOT NULL,
-    applicant_name      text NOT NULL,
-    applicant_email     text NOT NULL,
-    payload             jsonb NOT NULL DEFAULT '{}',
-    gate_status         quality_gate_status NOT NULL,
-    gate_feedback       text,
-    policy_snapshot     text NOT NULL,
-    created_at          timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT admission_attempts_pkey PRIMARY KEY (id),
-    CONSTRAINT admission_attempts_attempt_no_check CHECK (attempt_no BETWEEN 1 AND 5),
-    CONSTRAINT admission_attempts_challenge_fkey FOREIGN KEY (challenge_id) REFERENCES admission_challenges(id) ON DELETE CASCADE,
-    CONSTRAINT admission_attempts_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id)
-);
-
-CREATE INDEX admission_attempts_challenge_idx ON admission_attempts (challenge_id, attempt_no);
-
-
--- ============================================================
--- Tables: Messaging
--- ============================================================
-
-CREATE TABLE dm_threads (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    kind                    thread_kind NOT NULL,
-    created_by_member_id    short_id,
-    subject_entity_id       short_id,
-    member_a_id             short_id,
-    member_b_id             short_id,
-    metadata                jsonb DEFAULT '{}' NOT NULL,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-    archived_at             timestamptz,
-
-    CONSTRAINT dm_threads_pkey PRIMARY KEY (id),
-    CONSTRAINT dm_threads_direct_pair_check CHECK (
-        kind <> 'direct' OR (
-            member_a_id IS NOT NULL
-            AND member_b_id IS NOT NULL
-            AND member_a_id < member_b_id
-        )
-    ),
-    CONSTRAINT dm_threads_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id),
-    CONSTRAINT dm_threads_subject_entity_fkey FOREIGN KEY (subject_entity_id) REFERENCES entities(id),
-    CONSTRAINT dm_threads_member_a_fkey FOREIGN KEY (member_a_id) REFERENCES members(id),
-    CONSTRAINT dm_threads_member_b_fkey FOREIGN KEY (member_b_id) REFERENCES members(id)
-);
-
-CREATE UNIQUE INDEX dm_threads_direct_pair_unique_idx
-    ON dm_threads (kind, member_a_id, member_b_id)
-    WHERE kind = 'direct' AND archived_at IS NULL;
-CREATE INDEX dm_threads_created_by_idx ON dm_threads (created_by_member_id, created_at DESC);
-
--- ── DM thread participants ────────────────────────────────────
-
-CREATE TABLE dm_thread_participants (
-    id              short_id DEFAULT new_id() NOT NULL,
-    thread_id       short_id NOT NULL,
-    member_id       short_id NOT NULL,
-    role            text NOT NULL DEFAULT 'participant',
-    joined_at       timestamptz DEFAULT now() NOT NULL,
-    left_at         timestamptz,
-
-    CONSTRAINT dm_thread_participants_pkey PRIMARY KEY (id),
-    CONSTRAINT dm_thread_participants_unique UNIQUE (thread_id, member_id),
-    CONSTRAINT dm_thread_participants_thread_fkey FOREIGN KEY (thread_id) REFERENCES dm_threads(id),
-    CONSTRAINT dm_thread_participants_member_fkey FOREIGN KEY (member_id) REFERENCES members(id)
-);
-
-CREATE INDEX dm_thread_participants_member_idx ON dm_thread_participants (member_id, thread_id);
-
--- ── DM messages ───────────────────────────────────────────────
-
-CREATE TABLE dm_messages (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    thread_id               short_id NOT NULL,
-    sender_member_id        short_id,
-    role                    message_role NOT NULL,
-    message_text            text,
-    payload                 jsonb DEFAULT '{}' NOT NULL,
-    in_reply_to_message_id  short_id,
-    client_key              text,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT dm_messages_pkey PRIMARY KEY (id),
-    CONSTRAINT dm_messages_content_check CHECK (
-        message_text IS NOT NULL OR payload <> '{}'
-    ),
-    CONSTRAINT dm_messages_thread_fkey FOREIGN KEY (thread_id) REFERENCES dm_threads(id),
-    CONSTRAINT dm_messages_sender_fkey FOREIGN KEY (sender_member_id) REFERENCES members(id),
-    CONSTRAINT dm_messages_reply_fkey FOREIGN KEY (in_reply_to_message_id) REFERENCES dm_messages(id)
-);
-
-CREATE UNIQUE INDEX dm_messages_idempotent_idx
-    ON dm_messages (sender_member_id, client_key) WHERE client_key IS NOT NULL;
-CREATE INDEX dm_messages_thread_created_desc_idx ON dm_messages (thread_id, created_at DESC, id DESC);
-CREATE INDEX dm_messages_thread_created_asc_idx ON dm_messages (thread_id, created_at);
-CREATE INDEX dm_messages_sender_idx ON dm_messages (sender_member_id, created_at DESC);
-
-CREATE TABLE dm_message_mentions (
-    message_id               short_id NOT NULL,
-    start_offset             integer NOT NULL,
-    end_offset               integer NOT NULL,
-    mentioned_member_id      short_id NOT NULL,
-    authored_handle          text NOT NULL,
-    created_at               timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT dm_message_mentions_pkey PRIMARY KEY (message_id, start_offset),
-    CONSTRAINT dm_message_mentions_offset_check CHECK (
-        start_offset >= 0
-        AND end_offset > start_offset
-    ),
-    CONSTRAINT dm_message_mentions_message_fkey FOREIGN KEY (message_id) REFERENCES dm_messages(id),
-    CONSTRAINT dm_message_mentions_member_fkey FOREIGN KEY (mentioned_member_id) REFERENCES members(id)
-);
-
-CREATE INDEX dm_message_mentions_member_created_idx
-    ON dm_message_mentions (mentioned_member_id, created_at DESC);
-
--- ── DM inbox entries ──────────────────────────────────────────
-
-CREATE TABLE dm_inbox_entries (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    recipient_member_id     short_id NOT NULL,
-    thread_id               short_id NOT NULL,
-    message_id              short_id NOT NULL,
-    acknowledged            boolean NOT NULL DEFAULT false,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT dm_inbox_entries_pkey PRIMARY KEY (id),
-    CONSTRAINT dm_inbox_entries_recipient_message_unique UNIQUE (recipient_member_id, message_id),
-    CONSTRAINT dm_inbox_entries_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES members(id),
-    CONSTRAINT dm_inbox_entries_thread_fkey FOREIGN KEY (thread_id) REFERENCES dm_threads(id),
-    CONSTRAINT dm_inbox_entries_message_fkey FOREIGN KEY (message_id) REFERENCES dm_messages(id)
-);
-
-CREATE INDEX dm_inbox_entries_unread_idx
-    ON dm_inbox_entries (recipient_member_id) WHERE acknowledged = false;
-CREATE INDEX dm_inbox_entries_recipient_created_idx
-    ON dm_inbox_entries (recipient_member_id, created_at DESC);
--- Supports update-polling query: recipient + unread + created_at cursor (ASC order)
-CREATE INDEX dm_inbox_entries_unread_poll_idx
-    ON dm_inbox_entries (recipient_member_id, created_at ASC)
-    WHERE acknowledged = false;
--- Supports inbox-stats CTE: recipient + thread grouping for unread aggregation
-CREATE INDEX dm_inbox_entries_unread_thread_idx
-    ON dm_inbox_entries (recipient_member_id, thread_id)
-    WHERE acknowledged = false;
-
--- ── DM message removals ───────────────────────────────────────
-
-CREATE TABLE dm_message_removals (
-    message_id              short_id NOT NULL,
-    removed_by_member_id    short_id NOT NULL,
-    reason                  text,
-    removed_at              timestamptz NOT NULL DEFAULT now(),
-
-    CONSTRAINT dm_message_removals_pkey PRIMARY KEY (message_id),
-    CONSTRAINT dm_message_removals_message_fkey FOREIGN KEY (message_id) REFERENCES dm_messages(id),
-    CONSTRAINT dm_message_removals_removed_by_fkey FOREIGN KEY (removed_by_member_id) REFERENCES members(id)
-);
-
-
--- ============================================================
--- Tables: Activity & Signals
--- ============================================================
-
-CREATE TABLE club_activity (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    club_id                 short_id NOT NULL,
-    seq                     bigint GENERATED ALWAYS AS IDENTITY,
-    topic                   text NOT NULL,
-    audience                club_activity_audience NOT NULL DEFAULT 'members',
-    payload                 jsonb NOT NULL DEFAULT '{}',
-    entity_id               short_id,
-    entity_version_id       short_id,
-    created_by_member_id    short_id,
-    created_at              timestamptz NOT NULL DEFAULT now(),
-
-    CONSTRAINT club_activity_pkey PRIMARY KEY (id),
-    CONSTRAINT club_activity_seq_unique UNIQUE (seq),
-    CONSTRAINT club_activity_topic_check CHECK (length(btrim(topic)) > 0),
-    CONSTRAINT club_activity_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT club_activity_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id),
-    CONSTRAINT club_activity_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES members(id)
-);
-
-CREATE INDEX club_activity_club_seq_idx ON club_activity (club_id, seq);
-
--- ── Club activity cursors ───────────────────────────────────────
-
-CREATE TABLE club_activity_cursors (
-    member_id       short_id NOT NULL,
-    club_id         short_id NOT NULL,
-    last_seq        bigint NOT NULL DEFAULT 0,
-    updated_at      timestamptz NOT NULL DEFAULT now(),
-
-    CONSTRAINT club_activity_cursors_pkey PRIMARY KEY (member_id, club_id),
-    CONSTRAINT club_activity_cursors_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT club_activity_cursors_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id)
-);
-
--- ── Member notifications ─────────────────────────────────────────────
-
-CREATE TABLE member_notifications (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    club_id                 short_id,
-    recipient_member_id     short_id NOT NULL,
-    seq                     bigint GENERATED ALWAYS AS IDENTITY,
-    topic                   text NOT NULL,
-    payload                 jsonb NOT NULL DEFAULT '{}',
-    entity_id               short_id,
-    match_id                short_id,
-    acknowledged_state      text,
-    acknowledged_at         timestamptz,
-    suppression_reason      text,
-    created_at              timestamptz NOT NULL DEFAULT now(),
-
-    CONSTRAINT member_notifications_pkey PRIMARY KEY (id),
-    CONSTRAINT member_notifications_seq_unique UNIQUE (seq),
-    CONSTRAINT member_notifications_topic_check CHECK (length(btrim(topic)) > 0),
-    CONSTRAINT member_notifications_ack_state_check CHECK (
-        acknowledged_state IS NULL OR acknowledged_state IN ('processed', 'suppressed')
-    ),
-    CONSTRAINT member_notifications_suppression_check CHECK (
-        (acknowledged_state = 'suppressed' AND suppression_reason IS NOT NULL)
-        OR (acknowledged_state IS DISTINCT FROM 'suppressed')
-    ),
-    CONSTRAINT member_notifications_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT member_notifications_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES members(id),
-    CONSTRAINT member_notifications_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id)
-);
-
-CREATE INDEX member_notifications_recipient_poll_idx
-    ON member_notifications (recipient_member_id, club_id, seq) WHERE acknowledged_state IS NULL;
-CREATE UNIQUE INDEX member_notifications_match_unique_idx
-    ON member_notifications (match_id) WHERE match_id IS NOT NULL;
-
-
--- ============================================================
--- Tables: Quotas & Quality
--- ============================================================
-
-CREATE TYPE quota_scope AS ENUM ('global', 'club');
-
-CREATE TABLE quota_policies (
-    id              short_id DEFAULT new_id() NOT NULL,
-    scope           quota_scope NOT NULL,
-    club_id         short_id,
-    action_name     text NOT NULL,
-    max_per_day     integer NOT NULL,
-    created_at      timestamptz DEFAULT now() NOT NULL,
-    updated_at      timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT quota_policies_pkey PRIMARY KEY (id),
-    CONSTRAINT quota_policies_action_check CHECK (
-        action_name IN ('content.create')
-    ),
-    CONSTRAINT quota_policies_max_check CHECK (max_per_day > 0),
-    CONSTRAINT quota_policies_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    -- Global rows must not have a club_id; club rows must have one
-    CONSTRAINT quota_policies_scope_club_check CHECK (
-        (scope = 'global' AND club_id IS NULL) OR
-        (scope = 'club'   AND club_id IS NOT NULL)
-    )
-);
-
--- At most one global policy per action
-CREATE UNIQUE INDEX quota_policies_global_action_unique
-    ON quota_policies (action_name) WHERE (scope = 'global');
-
--- At most one club override per club/action
-CREATE UNIQUE INDEX quota_policies_club_action_unique
-    ON quota_policies (club_id, action_name) WHERE (scope = 'club');
-
--- Global default quotas (bootstrap data)
-INSERT INTO quota_policies (scope, club_id, action_name, max_per_day) VALUES
-    ('global', NULL, 'content.create', 50);
-
-CREATE TABLE ai_llm_usage_log (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    member_id               short_id,
-    requested_club_id       short_id,
-    action_name             text NOT NULL,
-    gate_name               text NOT NULL DEFAULT 'quality_gate',
-    provider                text NOT NULL,
-    model                   text NOT NULL,
-    gate_status             quality_gate_status NOT NULL,
-    skip_reason             text,
-    prompt_tokens           integer,
-    completion_tokens       integer,
-    provider_error_code     text,
-    created_at              timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT ai_llm_usage_log_pkey PRIMARY KEY (id),
-    CONSTRAINT ai_llm_usage_log_skip_reason_check CHECK (
-        (gate_status = 'skipped' AND skip_reason IS NOT NULL)
-        OR (gate_status <> 'skipped' AND skip_reason IS NULL)
-    ),
-    CONSTRAINT ai_llm_usage_log_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT ai_llm_usage_log_club_fkey FOREIGN KEY (requested_club_id) REFERENCES clubs(id)
-);
-
-CREATE INDEX ai_llm_usage_log_club_created_idx ON ai_llm_usage_log (requested_club_id, created_at DESC);
-CREATE INDEX ai_llm_usage_log_member_created_idx ON ai_llm_usage_log (member_id, created_at DESC);
-
-
--- ============================================================
--- Tables: Embeddings
--- ============================================================
-
-CREATE TABLE member_profile_embeddings (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    member_id           short_id NOT NULL,
-    club_id             short_id NOT NULL,
-    profile_version_id  short_id NOT NULL,
-    model               text NOT NULL,
-    dimensions          integer NOT NULL,
-    source_version      text NOT NULL,
-    chunk_index         integer NOT NULL DEFAULT 0,
-    source_text         text NOT NULL,
-    source_hash         text NOT NULL,
-    embedding           vector(1536) NOT NULL,
-    metadata            jsonb NOT NULL DEFAULT '{}',
-    created_at          timestamptz DEFAULT now() NOT NULL,
-    updated_at          timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT member_profile_embeddings_pkey PRIMARY KEY (id),
-    CONSTRAINT member_profile_embeddings_unique UNIQUE (member_id, club_id, model, dimensions, source_version, chunk_index),
-    CONSTRAINT member_profile_embeddings_dimensions_check CHECK (dimensions > 0),
-    CONSTRAINT member_profile_embeddings_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT member_profile_embeddings_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT member_profile_embeddings_version_fkey FOREIGN KEY (profile_version_id) REFERENCES member_club_profile_versions(id) ON DELETE CASCADE
-);
-
-CREATE INDEX member_profile_embeddings_member_idx ON member_profile_embeddings (member_id);
-CREATE INDEX member_profile_embeddings_version_idx ON member_profile_embeddings (profile_version_id);
-CREATE INDEX member_profile_embeddings_club_member_idx ON member_profile_embeddings (club_id, member_id);
-
-CREATE TABLE entity_embeddings (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    entity_id           short_id NOT NULL,
-    entity_version_id   short_id NOT NULL,
-    model               text NOT NULL,
-    dimensions          integer NOT NULL,
-    source_version      text NOT NULL,
-    chunk_index         integer NOT NULL DEFAULT 0,
-    source_text         text NOT NULL,
-    source_hash         text NOT NULL,
-    embedding           vector(1536) NOT NULL,
-    metadata            jsonb NOT NULL DEFAULT '{}',
-    created_at          timestamptz DEFAULT now() NOT NULL,
-    updated_at          timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT entity_embeddings_pkey PRIMARY KEY (id),
-    CONSTRAINT entity_embeddings_unique UNIQUE (entity_id, model, dimensions, source_version, chunk_index),
-    CONSTRAINT entity_embeddings_dimensions_check CHECK (dimensions > 0),
-    CONSTRAINT entity_embeddings_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id),
-    CONSTRAINT entity_embeddings_version_fkey FOREIGN KEY (entity_version_id) REFERENCES entity_versions(id) ON DELETE CASCADE
-);
-
-CREATE INDEX entity_embeddings_entity_idx ON entity_embeddings (entity_id);
-CREATE INDEX entity_embeddings_version_idx ON entity_embeddings (entity_version_id);
-
--- Unified embedding jobs queue (profiles + entities)
-
-CREATE TABLE ai_embedding_jobs (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    subject_kind        text NOT NULL,
-    subject_version_id  short_id NOT NULL,
-    model               text NOT NULL,
-    dimensions          integer NOT NULL,
-    source_version      text NOT NULL,
-    attempt_count       integer NOT NULL DEFAULT 0,
-    next_attempt_at     timestamptz NOT NULL DEFAULT now(),
-    failure_kind        text,
-    last_error          text,
-    created_at          timestamptz DEFAULT now() NOT NULL,
-
-    CONSTRAINT ai_embedding_jobs_pkey PRIMARY KEY (id),
-    CONSTRAINT ai_embedding_jobs_unique UNIQUE (subject_kind, subject_version_id, model, dimensions, source_version),
-    CONSTRAINT ai_embedding_jobs_subject_kind_check CHECK (subject_kind IN ('member_club_profile_version', 'entity_version')),
-    CONSTRAINT ai_embedding_jobs_dimensions_check CHECK (dimensions > 0)
-);
-
-CREATE INDEX ai_embedding_jobs_claimable_idx
-    ON ai_embedding_jobs (next_attempt_at ASC) WHERE attempt_count < 5;
-
-
--- ============================================================
--- Tables: Background Work
--- ============================================================
-
-CREATE TABLE signal_background_matches (
-    id                      short_id DEFAULT new_id() NOT NULL,
-    club_id                 short_id NOT NULL,
-    match_kind              text NOT NULL,
-    source_id               text NOT NULL,
-    target_member_id        short_id NOT NULL,
-    score                   double precision NOT NULL,
-    state                   text NOT NULL DEFAULT 'pending',
-    payload                 jsonb NOT NULL DEFAULT '{}',
-    signal_id               short_id,
-    created_at              timestamptz NOT NULL DEFAULT now(),
-    delivered_at            timestamptz,
-    expires_at              timestamptz,
-
-    CONSTRAINT signal_background_matches_pkey PRIMARY KEY (id),
-    CONSTRAINT signal_background_matches_state_check CHECK (state IN ('pending', 'delivered', 'expired')),
-    CONSTRAINT signal_background_matches_unique UNIQUE (match_kind, source_id, target_member_id),
-    CONSTRAINT signal_background_matches_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT signal_background_matches_target_fkey FOREIGN KEY (target_member_id) REFERENCES members(id),
-    CONSTRAINT signal_background_matches_signal_fkey FOREIGN KEY (signal_id) REFERENCES member_notifications(id)
-);
-
-CREATE INDEX signal_background_matches_pending_idx
-    ON signal_background_matches (state, created_at) WHERE state = 'pending';
-CREATE INDEX signal_background_matches_expires_idx
-    ON signal_background_matches (expires_at) WHERE expires_at IS NOT NULL AND state = 'pending';
-CREATE INDEX signal_background_matches_delivery_idx
-    ON signal_background_matches (target_member_id, delivered_at) WHERE state = 'delivered';
-CREATE INDEX signal_background_matches_kind_delivery_idx
-    ON signal_background_matches (target_member_id, match_kind, delivered_at) WHERE state = 'delivered';
-
-CREATE TABLE signal_recompute_queue (
-    id                  short_id DEFAULT new_id() NOT NULL,
-    queue_name          text NOT NULL,
-    member_id           short_id NOT NULL,
-    club_id             short_id NOT NULL,
-    recompute_after     timestamptz NOT NULL DEFAULT now(),
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    claimed_at          timestamptz,
-
-    CONSTRAINT signal_recompute_queue_pkey PRIMARY KEY (id),
-    CONSTRAINT signal_recompute_queue_pending_unique UNIQUE (queue_name, member_id, club_id),
-    CONSTRAINT signal_recompute_queue_member_fkey FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT signal_recompute_queue_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id)
-);
-
-CREATE INDEX signal_recompute_queue_claimable_idx
-    ON signal_recompute_queue (queue_name, recompute_after) WHERE claimed_at IS NULL;
-
-CREATE TABLE worker_state (
-    worker_id       text NOT NULL,
-    state_key       text NOT NULL,
-    state_value     text NOT NULL,
-    updated_at      timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT worker_state_pkey PRIMARY KEY (worker_id, state_key)
-);
-
-
--- ============================================================
--- NOTIFY triggers
--- ============================================================
-
--- Single unified channel for all real-time notifications.
--- The notifier dispatches by payload shape:
---   { clubId, kind: 'activity' } → wake activity waiters for that club
---   { clubId, recipientMemberId, kind: 'notification' } → wake notification waiters
---   { recipientMemberId, kind: 'message' } → wake DM waiters
---   { clubId, kind: 'admission_version' } → wake derived-admission invalidation
-
-CREATE FUNCTION notify_club_activity() RETURNS trigger
+CREATE FUNCTION public.new_id() RETURNS public.short_id
     LANGUAGE plpgsql
-AS $$
+    AS $$
+declare
+  alphabet constant text := '23456789abcdefghjkmnpqrstuvwxyz';
+  output text := '';
+  idx integer;
+begin
+  for idx in 1..12 loop
+    output := output || substr(alphabet, 1 + floor(random() * length(alphabet))::integer, 1);
+  end loop;
+
+  return output::short_id;
+end;
+$$;
+
+
+--
+-- Name: normalize_admission_policy(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.normalize_admission_policy() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.admission_policy IS NOT NULL THEN
+        NEW.admission_policy := btrim(NEW.admission_policy);
+        IF NEW.admission_policy = '' THEN
+            NEW.admission_policy := NULL;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: notify_club_activity(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_club_activity() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
 BEGIN
     PERFORM pg_notify('stream', json_build_object(
         'clubId', NEW.club_id,
@@ -1391,13 +453,55 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER club_activity_notify
-    AFTER INSERT ON club_activity
-    FOR EACH ROW EXECUTE FUNCTION notify_club_activity();
 
-CREATE FUNCTION notify_member_notification() RETURNS trigger
+--
+-- Name: notify_club_membership_state_version(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_club_membership_state_version() RETURNS trigger
     LANGUAGE plpgsql
-AS $$
+    AS $$
+DECLARE
+    v_club_id short_id;
+BEGIN
+    SELECT club_id
+    INTO v_club_id
+    FROM public.club_memberships
+    WHERE id = NEW.membership_id;
+
+    PERFORM pg_notify('stream', json_build_object(
+        'clubId', v_club_id,
+        'kind', 'notification'
+    )::text);
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: notify_dm_inbox(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_dm_inbox() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    PERFORM pg_notify('stream', json_build_object(
+        'recipientMemberId', NEW.recipient_member_id,
+        'kind', 'message'
+    )::text);
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: notify_member_notification(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.notify_member_notification() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
 BEGIN
     PERFORM pg_notify('stream', json_build_object(
         'clubId', NEW.club_id,
@@ -1408,262 +512,2986 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER member_notifications_notify
-    AFTER INSERT ON member_notifications
-    FOR EACH ROW EXECUTE FUNCTION notify_member_notification();
 
-CREATE FUNCTION notify_dm_inbox() RETURNS trigger
+--
+-- Name: reject_row_mutation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.reject_row_mutation() RETURNS trigger
     LANGUAGE plpgsql
-AS $$
+    AS $$
 BEGIN
-    PERFORM pg_notify('stream', json_build_object(
-        'recipientMemberId', NEW.recipient_member_id,
-        'kind', 'message'
-    )::text);
-    RETURN NEW;
+    RAISE EXCEPTION '% not allowed on %', TG_OP, TG_TABLE_NAME;
 END;
 $$;
 
-CREATE TRIGGER dm_inbox_entries_notify
-    AFTER INSERT ON dm_inbox_entries
-    FOR EACH ROW EXECUTE FUNCTION notify_dm_inbox();
 
-CREATE FUNCTION notify_admission_version() RETURNS trigger
-    LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_club_id short_id;
-BEGIN
-    SELECT club_id INTO v_club_id
-    FROM admissions
-    WHERE id = NEW.admission_id;
+--
+-- Name: resolve_active_member_id_by_handle(text); Type: FUNCTION; Schema: public; Owner: -
+--
 
-    PERFORM pg_notify('stream', json_build_object(
-        'clubId', v_club_id,
-        'kind', 'admission_version'
-    )::text);
-    RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER admission_versions_notify
-    AFTER INSERT ON admission_versions
-    FOR EACH ROW EXECUTE FUNCTION notify_admission_version();
-
-
--- ============================================================
--- Views
--- ============================================================
-
--- ── Profiles ───────────────────────────────────────────────
-
-CREATE VIEW current_member_club_profiles AS
-    SELECT DISTINCT ON (member_id, club_id) *
-    FROM member_club_profile_versions
-    ORDER BY member_id, club_id, version_no DESC, created_at DESC;
-
--- ── Member global roles ───────────────────────────────────────────
-
-CREATE VIEW current_member_global_role_versions AS
-    SELECT DISTINCT ON (member_id, role) *
-    FROM member_global_role_versions
-    ORDER BY member_id, role, version_no DESC, created_at DESC;
-
-CREATE VIEW current_member_global_roles AS
-    SELECT * FROM current_member_global_role_versions WHERE status = 'active';
-
--- ── Club memberships ────────────────────────────────────────────
-
-CREATE VIEW current_club_membership_states AS
-    SELECT DISTINCT ON (membership_id) *
-    FROM club_membership_state_versions
-    ORDER BY membership_id, version_no DESC, created_at DESC;
-
-CREATE VIEW current_club_memberships AS
-    SELECT
-        m.id,
-        m.club_id,
-        m.member_id,
-        m.sponsor_member_id,
-        m.role,
-        m.status,
-        m.joined_at,
-        m.left_at,
-        m.accepted_covenant_at,
-        m.metadata,
-        m.source_admission_id,
-        m.is_comped,
-        m.comped_at,
-        m.comped_by_member_id,
-        m.approved_price_amount,
-        m.approved_price_currency,
-        cms.id              AS state_version_id,
-        cms.reason          AS state_reason,
-        cms.version_no      AS state_version_no,
-        cms.created_at      AS state_created_at,
-        cms.created_by_member_id AS state_created_by_member_id
-    FROM club_memberships m
-    LEFT JOIN current_club_membership_states cms ON cms.membership_id = m.id;
-
-CREATE VIEW active_club_memberships AS
-    SELECT * FROM current_club_memberships
-    WHERE status = 'active' AND left_at IS NULL;
-
-CREATE VIEW accessible_club_memberships AS
-    SELECT cm.*
-    FROM current_club_memberships cm
-    WHERE cm.left_at IS NULL
-      AND (
-          -- Club admins always have access
-          cm.role = 'clubadmin'
-          -- Comped members: access without subscription
-          OR (cm.is_comped = true AND cm.status = 'active')
-          -- Paid members: active or cancelled with live subscription
-          OR (
-              cm.status IN ('active', 'cancelled')
-              AND EXISTS (
-                  SELECT 1 FROM club_subscriptions s
-                  WHERE s.membership_id = cm.id
-                    AND s.status IN ('trialing', 'active', 'past_due')
-                    AND coalesce(s.ended_at, 'infinity'::timestamptz) > now()
-                    AND coalesce(s.current_period_end, 'infinity'::timestamptz) > now()
-              )
-          )
-          -- Grace period: 7 days from state entry, regardless of subscription dates
-          OR (
-              cm.status = 'renewal_pending'
-              AND cm.state_created_at + interval '7 days' > now()
-          )
-      );
-
--- ── Clubs ──────────────────────────────────────────────────
-
-CREATE VIEW current_club_versions AS
-    SELECT DISTINCT ON (club_id) *
-    FROM club_versions
-    ORDER BY club_id, version_no DESC, created_at DESC;
-
--- ── Admissions ─────────────────────────────────────────────
-
-CREATE VIEW current_admission_versions AS
-    SELECT DISTINCT ON (admission_id) *
-    FROM admission_versions
-    ORDER BY admission_id, version_no DESC, created_at DESC;
-
-CREATE VIEW current_admissions AS
-    SELECT
-        a.id,
-        a.club_id,
-        a.applicant_member_id,
-        a.sponsor_member_id,
-        a.membership_id,
-        a.origin,
-        a.admission_details,
-        a.metadata,
-        a.created_at,
-        a.applicant_email,
-        a.applicant_name,
-        a.generated_profile_draft,
-        cav.id              AS version_id,
-        cav.status,
-        cav.notes,
-        cav.intake_kind,
-        cav.intake_price_amount,
-        cav.intake_price_currency,
-        cav.intake_booking_url,
-        cav.intake_booked_at,
-        cav.intake_completed_at,
-        cav.version_no,
-        cav.supersedes_version_id,
-        cav.created_at      AS version_created_at,
-        cav.created_by_member_id AS version_created_by_member_id
-    FROM admissions a
-    JOIN current_admission_versions cav ON cav.admission_id = a.id;
-
--- ── Entities ───────────────────────────────────────────────
-
-CREATE VIEW current_entity_versions AS
-    SELECT DISTINCT ON (entity_id) *
-    FROM entity_versions
-    ORDER BY entity_id, version_no DESC, created_at DESC;
-
-CREATE VIEW published_entity_versions AS
-    SELECT * FROM current_entity_versions WHERE state = 'published';
-
-CREATE VIEW current_event_rsvps AS
-    SELECT DISTINCT ON (event_entity_id, membership_id) *
-    FROM event_rsvps
-    ORDER BY event_entity_id, membership_id, version_no DESC, created_at DESC;
-
-CREATE VIEW live_entities AS
-    SELECT
-        e.id                AS entity_id,
-        e.club_id,
-        e.kind,
-        e.open_loop,
-        e.author_member_id,
-        e.content_thread_id,
-        e.parent_entity_id,
-        e.created_at        AS entity_created_at,
-        pev.id              AS entity_version_id,
-        pev.version_no,
-        pev.state,
-        pev.title,
-        pev.summary,
-        pev.body,
-        pev.effective_at,
-        pev.expires_at,
-        pev.content,
-        pev.created_at      AS version_created_at,
-        pev.created_by_member_id
-    FROM entities e
-    JOIN published_entity_versions pev ON pev.entity_id = e.id
-    WHERE e.archived_at IS NULL
-      AND e.deleted_at IS NULL
-      AND (pev.expires_at IS NULL OR pev.expires_at > now());
-
--- ── Event-focused views ────────────────────────────────────────
-
-CREATE VIEW current_event_versions AS
-    SELECT cev.*, evd.location, evd.starts_at, evd.ends_at,
-           evd.timezone, evd.recurrence_rule, evd.capacity
-    FROM current_entity_versions cev
-    JOIN event_version_details evd ON evd.entity_version_id = cev.id;
-
-CREATE VIEW live_events AS
-    SELECT le.*, evd.location, evd.starts_at, evd.ends_at,
-           evd.timezone, evd.recurrence_rule, evd.capacity
-    FROM live_entities le
-    JOIN event_version_details evd ON evd.entity_version_id = le.entity_version_id
-    WHERE le.kind = 'event';
-
-
--- ============================================================
--- Utility functions
--- ============================================================
-
--- ============================================================
--- Migration tracking
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS public.schema_migrations (
-    filename text PRIMARY KEY,
-    applied_at timestamptz NOT NULL DEFAULT now()
-);
-
-INSERT INTO public.schema_migrations (filename) VALUES ('0001_init.sql');
-
-
--- ============================================================
--- Utility functions
--- ============================================================
-
-CREATE FUNCTION resolve_active_member_id_by_handle(target_handle text) RETURNS short_id
+CREATE FUNCTION public.resolve_active_member_id_by_handle(target_handle text) RETURNS public.short_id
     LANGUAGE sql STABLE
-AS $$
+    AS $$
     SELECT m.id
     FROM members m
     WHERE m.handle = target_handle
       AND m.state = 'active'
     LIMIT 1;
 $$;
+
+
+--
+-- Name: sync_club_membership_state(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sync_club_membership_state() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    PERFORM set_config('app.allow_membership_state_sync', '1', true);
+    UPDATE public.club_memberships m
+       SET status = NEW.status,
+           joined_at = CASE
+               WHEN NEW.status = 'active' AND m.joined_at IS NULL THEN NEW.created_at
+               ELSE m.joined_at
+           END,
+           left_at = CASE
+               WHEN NEW.status IN ('declined', 'withdrawn', 'expired', 'removed', 'banned')
+                   THEN coalesce(m.left_at, NEW.created_at)
+               ELSE NULL
+           END
+     WHERE m.id = NEW.membership_id;
+    PERFORM set_config('app.allow_membership_state_sync', '', true);
+    RETURN NEW;
+EXCEPTION
+    WHEN others THEN
+        PERFORM set_config('app.allow_membership_state_sync', '', true);
+        RAISE;
+END;
+$$;
+
+
+--
+-- Name: sync_club_version_to_club(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.sync_club_version_to_club() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    PERFORM set_config('app.allow_club_version_sync', '1', true);
+    UPDATE clubs c SET
+        owner_member_id           = NEW.owner_member_id,
+        name                      = NEW.name,
+        summary                   = NEW.summary,
+        admission_policy          = NEW.admission_policy,
+        membership_price_amount   = NEW.membership_price_amount,
+        membership_price_currency = NEW.membership_price_currency
+    WHERE c.id = NEW.club_id;
+    PERFORM set_config('app.allow_club_version_sync', '', true);
+    RETURN NEW;
+EXCEPTION
+    WHEN others THEN
+        PERFORM set_config('app.allow_club_version_sync', '', true);
+        RAISE;
+END;
+$$;
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: club_membership_state_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.club_membership_state_versions (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    membership_id public.short_id NOT NULL,
+    status public.membership_state NOT NULL,
+    reason text,
+    version_no integer NOT NULL,
+    supersedes_state_version_id public.short_id,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by_member_id public.short_id,
+    CONSTRAINT club_membership_state_versions_version_no_check CHECK ((version_no > 0))
+);
+
+
+--
+-- Name: club_memberships; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.club_memberships (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    club_id public.short_id NOT NULL,
+    member_id public.short_id NOT NULL,
+    sponsor_member_id public.short_id,
+    role public.membership_role DEFAULT 'member'::public.membership_role NOT NULL,
+    status public.membership_state NOT NULL,
+    joined_at timestamp with time zone,
+    left_at timestamp with time zone,
+    accepted_covenant_at timestamp with time zone,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    is_comped boolean DEFAULT false NOT NULL,
+    comped_at timestamp with time zone,
+    comped_by_member_id public.short_id,
+    approved_price_amount numeric(12,2),
+    approved_price_currency text,
+    application_name text,
+    application_email text,
+    application_email_normalized text GENERATED ALWAYS AS (lower(btrim(application_email))) STORED,
+    application_socials text,
+    application_text text,
+    applied_at timestamp with time zone,
+    application_submitted_at timestamp with time zone,
+    submission_path text,
+    proof_kind text,
+    invitation_id public.short_id,
+    generated_profile_draft jsonb,
+    CONSTRAINT club_memberships_proof_kind_check CHECK (((proof_kind IS NULL) OR (proof_kind = ANY (ARRAY['pow'::text, 'invitation'::text, 'none'::text])))),
+    CONSTRAINT club_memberships_submission_path_check CHECK (((submission_path IS NULL) OR (submission_path = ANY (ARRAY['cold'::text, 'invitation'::text, 'cross_apply'::text, 'owner_nominated'::text]))))
+);
+
+
+--
+-- Name: club_subscriptions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.club_subscriptions (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    membership_id public.short_id NOT NULL,
+    payer_member_id public.short_id NOT NULL,
+    status public.subscription_status DEFAULT 'active'::public.subscription_status NOT NULL,
+    amount numeric(12,2) NOT NULL,
+    currency text DEFAULT 'USD'::text NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    current_period_end timestamp with time zone,
+    ended_at timestamp with time zone,
+    CONSTRAINT club_subscriptions_amount_check CHECK ((amount >= (0)::numeric)),
+    CONSTRAINT club_subscriptions_currency_check CHECK ((currency ~ '^[A-Z]{3}$'::text))
+);
+
+
+--
+-- Name: current_club_membership_states; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.current_club_membership_states AS
+ SELECT DISTINCT ON (membership_id) id,
+    membership_id,
+    status,
+    reason,
+    version_no,
+    supersedes_state_version_id,
+    created_at,
+    created_by_member_id
+   FROM public.club_membership_state_versions
+  ORDER BY membership_id, version_no DESC, created_at DESC;
+
+
+--
+-- Name: current_club_memberships; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.current_club_memberships AS
+ SELECT m.id,
+    m.club_id,
+    m.member_id,
+    m.sponsor_member_id,
+    m.role,
+    m.status,
+    m.joined_at,
+    m.left_at,
+    m.accepted_covenant_at,
+    m.metadata,
+    m.is_comped,
+    m.comped_at,
+    m.comped_by_member_id,
+    m.approved_price_amount,
+    m.approved_price_currency,
+    m.application_name,
+    m.application_email,
+    m.application_email_normalized,
+    m.application_socials,
+    m.application_text,
+    m.applied_at,
+    m.application_submitted_at,
+    m.submission_path,
+    m.proof_kind,
+    m.invitation_id,
+    m.generated_profile_draft,
+    cms.id AS state_version_id,
+    cms.reason AS state_reason,
+    cms.version_no AS state_version_no,
+    cms.created_at AS state_created_at,
+    cms.created_by_member_id AS state_created_by_member_id
+   FROM (public.club_memberships m
+     LEFT JOIN public.current_club_membership_states cms ON (((cms.membership_id)::text = (m.id)::text)));
+
+
+--
+-- Name: accessible_club_memberships; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.accessible_club_memberships AS
+ SELECT id,
+    club_id,
+    member_id,
+    sponsor_member_id,
+    role,
+    status,
+    joined_at,
+    left_at,
+    accepted_covenant_at,
+    metadata,
+    is_comped,
+    comped_at,
+    comped_by_member_id,
+    approved_price_amount,
+    approved_price_currency,
+    application_name,
+    application_email,
+    application_email_normalized,
+    application_socials,
+    application_text,
+    applied_at,
+    application_submitted_at,
+    submission_path,
+    proof_kind,
+    invitation_id,
+    generated_profile_draft,
+    state_version_id,
+    state_reason,
+    state_version_no,
+    state_created_at,
+    state_created_by_member_id
+   FROM public.current_club_memberships cm
+  WHERE ((left_at IS NULL) AND ((role = 'clubadmin'::public.membership_role) OR ((is_comped = true) AND (status = 'active'::public.membership_state)) OR ((status = ANY (ARRAY['active'::public.membership_state, 'cancelled'::public.membership_state])) AND (EXISTS ( SELECT 1
+           FROM public.club_subscriptions s
+          WHERE (((s.membership_id)::text = (cm.id)::text) AND (s.status = ANY (ARRAY['trialing'::public.subscription_status, 'active'::public.subscription_status, 'past_due'::public.subscription_status])) AND (COALESCE(s.ended_at, 'infinity'::timestamp with time zone) > now()) AND (COALESCE(s.current_period_end, 'infinity'::timestamp with time zone) > now()))))) OR ((status = 'renewal_pending'::public.membership_state) AND ((state_created_at + '7 days'::interval) > now()))));
+
+
+--
+-- Name: active_club_memberships; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.active_club_memberships AS
+ SELECT id,
+    club_id,
+    member_id,
+    sponsor_member_id,
+    role,
+    status,
+    joined_at,
+    left_at,
+    accepted_covenant_at,
+    metadata,
+    is_comped,
+    comped_at,
+    comped_by_member_id,
+    approved_price_amount,
+    approved_price_currency,
+    application_name,
+    application_email,
+    application_email_normalized,
+    application_socials,
+    application_text,
+    applied_at,
+    application_submitted_at,
+    submission_path,
+    proof_kind,
+    invitation_id,
+    generated_profile_draft,
+    state_version_id,
+    state_reason,
+    state_version_no,
+    state_created_at,
+    state_created_by_member_id
+   FROM public.current_club_memberships
+  WHERE ((status = 'active'::public.membership_state) AND (left_at IS NULL));
+
+
+--
+-- Name: ai_embedding_jobs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ai_embedding_jobs (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    subject_kind text NOT NULL,
+    subject_version_id public.short_id NOT NULL,
+    model text NOT NULL,
+    dimensions integer NOT NULL,
+    source_version text NOT NULL,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    next_attempt_at timestamp with time zone DEFAULT now() NOT NULL,
+    failure_kind text,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ai_embedding_jobs_dimensions_check CHECK ((dimensions > 0)),
+    CONSTRAINT ai_embedding_jobs_subject_kind_check CHECK ((subject_kind = ANY (ARRAY['member_club_profile_version'::text, 'entity_version'::text])))
+);
+
+
+--
+-- Name: ai_llm_usage_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ai_llm_usage_log (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    member_id public.short_id,
+    requested_club_id public.short_id,
+    action_name text NOT NULL,
+    gate_name text DEFAULT 'quality_gate'::text NOT NULL,
+    provider text NOT NULL,
+    model text NOT NULL,
+    gate_status public.quality_gate_status NOT NULL,
+    skip_reason text,
+    prompt_tokens integer,
+    completion_tokens integer,
+    provider_error_code text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ai_llm_usage_log_skip_reason_check CHECK ((((gate_status = 'skipped'::public.quality_gate_status) AND (skip_reason IS NOT NULL)) OR ((gate_status <> 'skipped'::public.quality_gate_status) AND (skip_reason IS NULL))))
+);
+
+
+--
+-- Name: application_pow_challenges; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.application_pow_challenges (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    membership_id public.short_id NOT NULL,
+    difficulty integer NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    solved_at timestamp with time zone,
+    attempts integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: club_activity; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.club_activity (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    club_id public.short_id NOT NULL,
+    seq bigint NOT NULL,
+    topic text NOT NULL,
+    audience public.club_activity_audience DEFAULT 'members'::public.club_activity_audience NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    entity_id public.short_id,
+    entity_version_id public.short_id,
+    created_by_member_id public.short_id,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT club_activity_topic_check CHECK ((length(btrim(topic)) > 0))
+);
+
+
+--
+-- Name: club_activity_cursors; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.club_activity_cursors (
+    member_id public.short_id NOT NULL,
+    club_id public.short_id NOT NULL,
+    last_seq bigint DEFAULT 0 NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: club_activity_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.club_activity ALTER COLUMN seq ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.club_activity_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: club_edges; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.club_edges (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    club_id public.short_id,
+    kind public.edge_kind NOT NULL,
+    from_member_id public.short_id,
+    from_entity_id public.short_id,
+    from_entity_version_id public.short_id,
+    to_member_id public.short_id,
+    to_entity_id public.short_id,
+    to_entity_version_id public.short_id,
+    reason text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    client_key text,
+    created_by_member_id public.short_id,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone,
+    CONSTRAINT club_edges_from_check CHECK ((((((from_member_id IS NOT NULL))::integer + ((from_entity_id IS NOT NULL))::integer) + ((from_entity_version_id IS NOT NULL))::integer) = 1)),
+    CONSTRAINT club_edges_no_self_vouch CHECK (((kind <> 'vouched_for'::public.edge_kind) OR ((from_member_id)::text <> (to_member_id)::text))),
+    CONSTRAINT club_edges_to_check CHECK ((((((to_member_id IS NOT NULL))::integer + ((to_entity_id IS NOT NULL))::integer) + ((to_entity_version_id IS NOT NULL))::integer) = 1)),
+    CONSTRAINT club_edges_vouch_check CHECK (((kind <> 'vouched_for'::public.edge_kind) OR ((from_member_id IS NOT NULL) AND (to_member_id IS NOT NULL) AND (reason IS NOT NULL))))
+);
+
+
+--
+-- Name: club_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.club_versions (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    club_id public.short_id NOT NULL,
+    owner_member_id public.short_id NOT NULL,
+    name text NOT NULL,
+    summary text,
+    admission_policy text,
+    membership_price_amount numeric(12,2),
+    membership_price_currency text DEFAULT 'USD'::text NOT NULL,
+    version_no integer NOT NULL,
+    supersedes_version_id public.short_id,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by_member_id public.short_id,
+    CONSTRAINT club_versions_admission_policy_length CHECK (((admission_policy IS NULL) OR ((char_length(admission_policy) >= 1) AND (char_length(admission_policy) <= 2000)))),
+    CONSTRAINT club_versions_currency_check CHECK ((membership_price_currency ~ '^[A-Z]{3}$'::text)),
+    CONSTRAINT club_versions_name_check CHECK ((length(btrim(name)) > 0)),
+    CONSTRAINT club_versions_price_check CHECK (((membership_price_amount IS NULL) OR (membership_price_amount >= (0)::numeric))),
+    CONSTRAINT club_versions_version_no_check CHECK ((version_no > 0))
+);
+
+
+--
+-- Name: clubs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.clubs (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    slug text NOT NULL,
+    name text NOT NULL,
+    summary text,
+    owner_member_id public.short_id NOT NULL,
+    admission_policy text,
+    membership_price_amount numeric(12,2),
+    membership_price_currency text DEFAULT 'USD'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone,
+    CONSTRAINT clubs_admission_policy_length CHECK (((admission_policy IS NULL) OR ((char_length(admission_policy) >= 1) AND (char_length(admission_policy) <= 2000)))),
+    CONSTRAINT clubs_currency_check CHECK ((membership_price_currency ~ '^[A-Z]{3}$'::text)),
+    CONSTRAINT clubs_name_check CHECK ((length(btrim(name)) > 0)),
+    CONSTRAINT clubs_price_check CHECK (((membership_price_amount IS NULL) OR (membership_price_amount >= (0)::numeric))),
+    CONSTRAINT clubs_slug_check CHECK ((slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'::text))
+);
+
+
+--
+-- Name: content_threads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.content_threads (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    club_id public.short_id NOT NULL,
+    created_by_member_id public.short_id NOT NULL,
+    last_activity_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone
+);
+
+
+--
+-- Name: current_club_versions; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.current_club_versions AS
+ SELECT DISTINCT ON (club_id) id,
+    club_id,
+    owner_member_id,
+    name,
+    summary,
+    admission_policy,
+    membership_price_amount,
+    membership_price_currency,
+    version_no,
+    supersedes_version_id,
+    created_at,
+    created_by_member_id
+   FROM public.club_versions
+  ORDER BY club_id, version_no DESC, created_at DESC;
+
+
+--
+-- Name: entity_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entity_versions (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    entity_id public.short_id NOT NULL,
+    version_no integer NOT NULL,
+    state public.entity_state DEFAULT 'published'::public.entity_state NOT NULL,
+    title text,
+    summary text,
+    body text,
+    effective_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone,
+    content jsonb DEFAULT '{}'::jsonb NOT NULL,
+    reason text,
+    supersedes_version_id public.short_id,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by_member_id public.short_id,
+    CONSTRAINT entity_versions_expiry_check CHECK (((expires_at IS NULL) OR (expires_at >= effective_at))),
+    CONSTRAINT entity_versions_version_no_check CHECK ((version_no > 0))
+);
+
+
+--
+-- Name: current_entity_versions; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.current_entity_versions AS
+ SELECT DISTINCT ON (entity_id) id,
+    entity_id,
+    version_no,
+    state,
+    title,
+    summary,
+    body,
+    effective_at,
+    expires_at,
+    content,
+    reason,
+    supersedes_version_id,
+    created_at,
+    created_by_member_id
+   FROM public.entity_versions
+  ORDER BY entity_id, version_no DESC, created_at DESC;
+
+
+--
+-- Name: event_rsvps; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.event_rsvps (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    event_entity_id public.short_id NOT NULL,
+    membership_id public.short_id NOT NULL,
+    response public.rsvp_state NOT NULL,
+    note text,
+    client_key text,
+    version_no integer DEFAULT 1 NOT NULL,
+    supersedes_rsvp_id public.short_id,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by_member_id public.short_id
+);
+
+
+--
+-- Name: current_event_rsvps; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.current_event_rsvps AS
+ SELECT DISTINCT ON (event_entity_id, membership_id) id,
+    event_entity_id,
+    membership_id,
+    response,
+    note,
+    client_key,
+    version_no,
+    supersedes_rsvp_id,
+    created_at,
+    created_by_member_id
+   FROM public.event_rsvps
+  ORDER BY event_entity_id, membership_id, version_no DESC, created_at DESC;
+
+
+--
+-- Name: event_version_details; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.event_version_details (
+    entity_version_id public.short_id NOT NULL,
+    location text,
+    starts_at timestamp with time zone,
+    ends_at timestamp with time zone,
+    timezone text,
+    recurrence_rule text,
+    capacity integer,
+    CONSTRAINT event_version_details_capacity_check CHECK (((capacity IS NULL) OR (capacity > 0))),
+    CONSTRAINT event_version_details_dates_check CHECK (((ends_at IS NULL) OR (starts_at IS NULL) OR (ends_at >= starts_at)))
+);
+
+
+--
+-- Name: current_event_versions; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.current_event_versions AS
+ SELECT cev.id,
+    cev.entity_id,
+    cev.version_no,
+    cev.state,
+    cev.title,
+    cev.summary,
+    cev.body,
+    cev.effective_at,
+    cev.expires_at,
+    cev.content,
+    cev.reason,
+    cev.supersedes_version_id,
+    cev.created_at,
+    cev.created_by_member_id,
+    evd.location,
+    evd.starts_at,
+    evd.ends_at,
+    evd.timezone,
+    evd.recurrence_rule,
+    evd.capacity
+   FROM (public.current_entity_versions cev
+     JOIN public.event_version_details evd ON (((evd.entity_version_id)::text = (cev.id)::text)));
+
+
+--
+-- Name: member_club_profile_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.member_club_profile_versions (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    membership_id public.short_id NOT NULL,
+    member_id public.short_id NOT NULL,
+    club_id public.short_id NOT NULL,
+    version_no integer NOT NULL,
+    tagline text,
+    summary text,
+    what_i_do text,
+    known_for text,
+    services_summary text,
+    website_url text,
+    links jsonb DEFAULT '[]'::jsonb NOT NULL,
+    profile jsonb DEFAULT '{}'::jsonb NOT NULL,
+    search_vector tsvector,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by_member_id public.short_id,
+    generation_source text DEFAULT 'manual'::text NOT NULL,
+    CONSTRAINT member_club_profile_versions_generation_source_check CHECK ((generation_source = ANY (ARRAY['manual'::text, 'migration_backfill'::text, 'admission_generated'::text, 'membership_seed'::text]))),
+    CONSTRAINT member_club_profile_versions_version_no_check CHECK ((version_no > 0))
+);
+
+
+--
+-- Name: current_member_club_profiles; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.current_member_club_profiles AS
+ SELECT DISTINCT ON (member_id, club_id) id,
+    membership_id,
+    member_id,
+    club_id,
+    version_no,
+    tagline,
+    summary,
+    what_i_do,
+    known_for,
+    services_summary,
+    website_url,
+    links,
+    profile,
+    search_vector,
+    created_at,
+    created_by_member_id,
+    generation_source
+   FROM public.member_club_profile_versions
+  ORDER BY member_id, club_id, version_no DESC, created_at DESC;
+
+
+--
+-- Name: member_global_role_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.member_global_role_versions (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    member_id public.short_id NOT NULL,
+    role public.global_role NOT NULL,
+    status public.assignment_state DEFAULT 'active'::public.assignment_state NOT NULL,
+    version_no integer NOT NULL,
+    supersedes_role_version_id public.short_id,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by_member_id public.short_id,
+    CONSTRAINT member_global_role_versions_version_no_check CHECK ((version_no > 0))
+);
+
+
+--
+-- Name: current_member_global_role_versions; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.current_member_global_role_versions AS
+ SELECT DISTINCT ON (member_id, role) id,
+    member_id,
+    role,
+    status,
+    version_no,
+    supersedes_role_version_id,
+    created_at,
+    created_by_member_id
+   FROM public.member_global_role_versions
+  ORDER BY member_id, role, version_no DESC, created_at DESC;
+
+
+--
+-- Name: current_member_global_roles; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.current_member_global_roles AS
+ SELECT id,
+    member_id,
+    role,
+    status,
+    version_no,
+    supersedes_role_version_id,
+    created_at,
+    created_by_member_id
+   FROM public.current_member_global_role_versions
+  WHERE (status = 'active'::public.assignment_state);
+
+
+--
+-- Name: dm_inbox_entries; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dm_inbox_entries (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    recipient_member_id public.short_id NOT NULL,
+    thread_id public.short_id NOT NULL,
+    message_id public.short_id NOT NULL,
+    acknowledged boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: dm_message_mentions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dm_message_mentions (
+    message_id public.short_id NOT NULL,
+    start_offset integer NOT NULL,
+    end_offset integer NOT NULL,
+    mentioned_member_id public.short_id NOT NULL,
+    authored_handle text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT dm_message_mentions_offset_check CHECK (((start_offset >= 0) AND (end_offset > start_offset)))
+);
+
+
+--
+-- Name: dm_message_removals; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dm_message_removals (
+    message_id public.short_id NOT NULL,
+    removed_by_member_id public.short_id NOT NULL,
+    reason text,
+    removed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: dm_messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dm_messages (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    thread_id public.short_id NOT NULL,
+    sender_member_id public.short_id,
+    role public.message_role NOT NULL,
+    message_text text,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    in_reply_to_message_id public.short_id,
+    client_key text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT dm_messages_content_check CHECK (((message_text IS NOT NULL) OR (payload <> '{}'::jsonb)))
+);
+
+
+--
+-- Name: dm_thread_participants; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dm_thread_participants (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    thread_id public.short_id NOT NULL,
+    member_id public.short_id NOT NULL,
+    role text DEFAULT 'participant'::text NOT NULL,
+    joined_at timestamp with time zone DEFAULT now() NOT NULL,
+    left_at timestamp with time zone
+);
+
+
+--
+-- Name: dm_threads; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dm_threads (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    kind public.thread_kind NOT NULL,
+    created_by_member_id public.short_id,
+    subject_entity_id public.short_id,
+    member_a_id public.short_id,
+    member_b_id public.short_id,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone,
+    CONSTRAINT dm_threads_direct_pair_check CHECK (((kind <> 'direct'::public.thread_kind) OR ((member_a_id IS NOT NULL) AND (member_b_id IS NOT NULL) AND ((member_a_id)::text < (member_b_id)::text))))
+);
+
+
+--
+-- Name: entities; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entities (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    club_id public.short_id NOT NULL,
+    kind public.entity_kind NOT NULL,
+    author_member_id public.short_id NOT NULL,
+    open_loop boolean,
+    content_thread_id public.short_id NOT NULL,
+    parent_entity_id public.short_id,
+    client_key text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    archived_at timestamp with time zone,
+    deleted_at timestamp with time zone,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT entities_open_loop_kind_check CHECK ((((kind = ANY (ARRAY['ask'::public.entity_kind, 'gift'::public.entity_kind, 'service'::public.entity_kind, 'opportunity'::public.entity_kind])) AND (open_loop IS NOT NULL)) OR ((kind <> ALL (ARRAY['ask'::public.entity_kind, 'gift'::public.entity_kind, 'service'::public.entity_kind, 'opportunity'::public.entity_kind])) AND (open_loop IS NULL))))
+);
+
+
+--
+-- Name: entity_embeddings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entity_embeddings (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    entity_id public.short_id NOT NULL,
+    entity_version_id public.short_id NOT NULL,
+    model text NOT NULL,
+    dimensions integer NOT NULL,
+    source_version text NOT NULL,
+    chunk_index integer DEFAULT 0 NOT NULL,
+    source_text text NOT NULL,
+    source_hash text NOT NULL,
+    embedding public.vector(1536) NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT entity_embeddings_dimensions_check CHECK ((dimensions > 0))
+);
+
+
+--
+-- Name: entity_version_mentions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.entity_version_mentions (
+    entity_version_id public.short_id NOT NULL,
+    field text NOT NULL,
+    start_offset integer NOT NULL,
+    end_offset integer NOT NULL,
+    mentioned_member_id public.short_id NOT NULL,
+    authored_handle text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT entity_version_mentions_field_check CHECK ((field = ANY (ARRAY['title'::text, 'summary'::text, 'body'::text]))),
+    CONSTRAINT entity_version_mentions_offset_check CHECK (((start_offset >= 0) AND (end_offset > start_offset)))
+);
+
+
+--
+-- Name: invitations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.invitations (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    club_id public.short_id NOT NULL,
+    sponsor_member_id public.short_id NOT NULL,
+    candidate_name text NOT NULL,
+    candidate_email text NOT NULL,
+    candidate_email_normalized text GENERATED ALWAYS AS (lower(btrim(candidate_email))) STORED,
+    reason text NOT NULL,
+    code_hash text NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    expired_at timestamp with time zone,
+    used_at timestamp with time zone,
+    used_membership_id public.short_id,
+    revoked_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL
+);
+
+
+--
+-- Name: published_entity_versions; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.published_entity_versions AS
+ SELECT id,
+    entity_id,
+    version_no,
+    state,
+    title,
+    summary,
+    body,
+    effective_at,
+    expires_at,
+    content,
+    reason,
+    supersedes_version_id,
+    created_at,
+    created_by_member_id
+   FROM public.current_entity_versions
+  WHERE (state = 'published'::public.entity_state);
+
+
+--
+-- Name: live_entities; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.live_entities AS
+ SELECT e.id AS entity_id,
+    e.club_id,
+    e.kind,
+    e.open_loop,
+    e.author_member_id,
+    e.content_thread_id,
+    e.parent_entity_id,
+    e.created_at AS entity_created_at,
+    pev.id AS entity_version_id,
+    pev.version_no,
+    pev.state,
+    pev.title,
+    pev.summary,
+    pev.body,
+    pev.effective_at,
+    pev.expires_at,
+    pev.content,
+    pev.created_at AS version_created_at,
+    pev.created_by_member_id
+   FROM (public.entities e
+     JOIN public.published_entity_versions pev ON (((pev.entity_id)::text = (e.id)::text)))
+  WHERE ((e.archived_at IS NULL) AND (e.deleted_at IS NULL) AND ((pev.expires_at IS NULL) OR (pev.expires_at > now())));
+
+
+--
+-- Name: live_events; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.live_events AS
+ SELECT le.entity_id,
+    le.club_id,
+    le.kind,
+    le.open_loop,
+    le.author_member_id,
+    le.content_thread_id,
+    le.parent_entity_id,
+    le.entity_created_at,
+    le.entity_version_id,
+    le.version_no,
+    le.state,
+    le.title,
+    le.summary,
+    le.body,
+    le.effective_at,
+    le.expires_at,
+    le.content,
+    le.version_created_at,
+    le.created_by_member_id,
+    evd.location,
+    evd.starts_at,
+    evd.ends_at,
+    evd.timezone,
+    evd.recurrence_rule,
+    evd.capacity
+   FROM (public.live_entities le
+     JOIN public.event_version_details evd ON (((evd.entity_version_id)::text = (le.entity_version_id)::text)))
+  WHERE (le.kind = 'event'::public.entity_kind);
+
+
+--
+-- Name: member_bearer_tokens; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.member_bearer_tokens (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    member_id public.short_id NOT NULL,
+    label text,
+    token_hash text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_used_at timestamp with time zone,
+    revoked_at timestamp with time zone,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    expires_at timestamp with time zone
+);
+
+
+--
+-- Name: member_notifications; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.member_notifications (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    club_id public.short_id,
+    recipient_member_id public.short_id NOT NULL,
+    seq bigint NOT NULL,
+    topic text NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    entity_id public.short_id,
+    match_id public.short_id,
+    acknowledged_state text,
+    acknowledged_at timestamp with time zone,
+    suppression_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT member_notifications_ack_state_check CHECK (((acknowledged_state IS NULL) OR (acknowledged_state = ANY (ARRAY['processed'::text, 'suppressed'::text])))),
+    CONSTRAINT member_notifications_suppression_check CHECK ((((acknowledged_state = 'suppressed'::text) AND (suppression_reason IS NOT NULL)) OR (acknowledged_state IS DISTINCT FROM 'suppressed'::text))),
+    CONSTRAINT member_notifications_topic_check CHECK ((length(btrim(topic)) > 0))
+);
+
+
+--
+-- Name: member_notifications_seq_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.member_notifications ALTER COLUMN seq ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.member_notifications_seq_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: member_private_contacts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.member_private_contacts (
+    member_id public.short_id NOT NULL,
+    email text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT member_private_contacts_email_check CHECK (((email IS NULL) OR (email ~~ '%@%'::text)))
+);
+
+
+--
+-- Name: member_profile_embeddings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.member_profile_embeddings (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    member_id public.short_id NOT NULL,
+    club_id public.short_id NOT NULL,
+    profile_version_id public.short_id NOT NULL,
+    model text NOT NULL,
+    dimensions integer NOT NULL,
+    source_version text NOT NULL,
+    chunk_index integer DEFAULT 0 NOT NULL,
+    source_text text NOT NULL,
+    source_hash text NOT NULL,
+    embedding public.vector(1536) NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT member_profile_embeddings_dimensions_check CHECK ((dimensions > 0))
+);
+
+
+--
+-- Name: members; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.members (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    handle text NOT NULL,
+    public_name text NOT NULL,
+    display_name text NOT NULL,
+    state public.member_state DEFAULT 'active'::public.member_state NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT members_display_name_check CHECK ((length(btrim(display_name)) > 0)),
+    CONSTRAINT members_public_name_check CHECK ((length(btrim(public_name)) > 0))
+);
+
+
+--
+-- Name: quota_policies; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.quota_policies (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    scope public.quota_scope NOT NULL,
+    club_id public.short_id,
+    action_name text NOT NULL,
+    max_per_day integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT quota_policies_action_check CHECK ((action_name = 'content.create'::text)),
+    CONSTRAINT quota_policies_max_check CHECK ((max_per_day > 0)),
+    CONSTRAINT quota_policies_scope_club_check CHECK ((((scope = 'global'::public.quota_scope) AND (club_id IS NULL)) OR ((scope = 'club'::public.quota_scope) AND (club_id IS NOT NULL))))
+);
+
+
+--
+-- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.schema_migrations (
+    filename text NOT NULL,
+    applied_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: signal_background_matches; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.signal_background_matches (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    club_id public.short_id NOT NULL,
+    match_kind text NOT NULL,
+    source_id text NOT NULL,
+    target_member_id public.short_id NOT NULL,
+    score double precision NOT NULL,
+    state text DEFAULT 'pending'::text NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    signal_id public.short_id,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    delivered_at timestamp with time zone,
+    expires_at timestamp with time zone,
+    CONSTRAINT signal_background_matches_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'delivered'::text, 'expired'::text])))
+);
+
+
+--
+-- Name: signal_recompute_queue; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.signal_recompute_queue (
+    id public.short_id DEFAULT public.new_id() NOT NULL,
+    queue_name text NOT NULL,
+    member_id public.short_id NOT NULL,
+    club_id public.short_id NOT NULL,
+    recompute_after timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    claimed_at timestamp with time zone
+);
+
+
+--
+-- Name: worker_state; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.worker_state (
+    worker_id text NOT NULL,
+    state_key text NOT NULL,
+    state_value text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: ai_embedding_jobs ai_embedding_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_embedding_jobs
+    ADD CONSTRAINT ai_embedding_jobs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ai_embedding_jobs ai_embedding_jobs_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_embedding_jobs
+    ADD CONSTRAINT ai_embedding_jobs_unique UNIQUE (subject_kind, subject_version_id, model, dimensions, source_version);
+
+
+--
+-- Name: ai_llm_usage_log ai_llm_usage_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_llm_usage_log
+    ADD CONSTRAINT ai_llm_usage_log_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: application_pow_challenges application_pow_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.application_pow_challenges
+    ADD CONSTRAINT application_pow_challenges_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: club_activity_cursors club_activity_cursors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_activity_cursors
+    ADD CONSTRAINT club_activity_cursors_pkey PRIMARY KEY (member_id, club_id);
+
+
+--
+-- Name: club_activity club_activity_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_activity
+    ADD CONSTRAINT club_activity_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: club_activity club_activity_seq_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_activity
+    ADD CONSTRAINT club_activity_seq_unique UNIQUE (seq);
+
+
+--
+-- Name: club_edges club_edges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_edges
+    ADD CONSTRAINT club_edges_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: club_membership_state_versions club_membership_state_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_membership_state_versions
+    ADD CONSTRAINT club_membership_state_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: club_membership_state_versions club_membership_state_versions_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_membership_state_versions
+    ADD CONSTRAINT club_membership_state_versions_version_unique UNIQUE (membership_id, version_no);
+
+
+--
+-- Name: club_memberships club_memberships_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_memberships
+    ADD CONSTRAINT club_memberships_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: club_subscriptions club_subscriptions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_subscriptions
+    ADD CONSTRAINT club_subscriptions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: club_versions club_versions_club_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_versions
+    ADD CONSTRAINT club_versions_club_version_unique UNIQUE (club_id, version_no);
+
+
+--
+-- Name: club_versions club_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_versions
+    ADD CONSTRAINT club_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: clubs clubs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clubs
+    ADD CONSTRAINT clubs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: clubs clubs_slug_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clubs
+    ADD CONSTRAINT clubs_slug_unique UNIQUE (slug);
+
+
+--
+-- Name: content_threads content_threads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_threads
+    ADD CONSTRAINT content_threads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dm_inbox_entries dm_inbox_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_inbox_entries
+    ADD CONSTRAINT dm_inbox_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dm_inbox_entries dm_inbox_entries_recipient_message_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_inbox_entries
+    ADD CONSTRAINT dm_inbox_entries_recipient_message_unique UNIQUE (recipient_member_id, message_id);
+
+
+--
+-- Name: dm_message_mentions dm_message_mentions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_message_mentions
+    ADD CONSTRAINT dm_message_mentions_pkey PRIMARY KEY (message_id, start_offset);
+
+
+--
+-- Name: dm_message_removals dm_message_removals_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_message_removals
+    ADD CONSTRAINT dm_message_removals_pkey PRIMARY KEY (message_id);
+
+
+--
+-- Name: dm_messages dm_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_messages
+    ADD CONSTRAINT dm_messages_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dm_thread_participants dm_thread_participants_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_thread_participants
+    ADD CONSTRAINT dm_thread_participants_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: dm_thread_participants dm_thread_participants_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_thread_participants
+    ADD CONSTRAINT dm_thread_participants_unique UNIQUE (thread_id, member_id);
+
+
+--
+-- Name: dm_threads dm_threads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_threads
+    ADD CONSTRAINT dm_threads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entities entities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entities
+    ADD CONSTRAINT entities_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entity_embeddings entity_embeddings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_embeddings
+    ADD CONSTRAINT entity_embeddings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: entity_embeddings entity_embeddings_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_embeddings
+    ADD CONSTRAINT entity_embeddings_unique UNIQUE (entity_id, model, dimensions, source_version, chunk_index);
+
+
+--
+-- Name: entity_version_mentions entity_version_mentions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_version_mentions
+    ADD CONSTRAINT entity_version_mentions_pkey PRIMARY KEY (entity_version_id, field, start_offset);
+
+
+--
+-- Name: entity_versions entity_versions_entity_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_versions
+    ADD CONSTRAINT entity_versions_entity_version_unique UNIQUE (entity_id, version_no);
+
+
+--
+-- Name: entity_versions entity_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_versions
+    ADD CONSTRAINT entity_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: event_rsvps event_rsvps_event_membership_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_rsvps
+    ADD CONSTRAINT event_rsvps_event_membership_version_unique UNIQUE (event_entity_id, membership_id, version_no);
+
+
+--
+-- Name: event_rsvps event_rsvps_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_rsvps
+    ADD CONSTRAINT event_rsvps_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: event_version_details event_version_details_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_version_details
+    ADD CONSTRAINT event_version_details_pkey PRIMARY KEY (entity_version_id);
+
+
+--
+-- Name: invitations invitations_code_hash_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invitations
+    ADD CONSTRAINT invitations_code_hash_unique UNIQUE (code_hash);
+
+
+--
+-- Name: invitations invitations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invitations
+    ADD CONSTRAINT invitations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: member_bearer_tokens member_bearer_tokens_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_bearer_tokens
+    ADD CONSTRAINT member_bearer_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: member_bearer_tokens member_bearer_tokens_token_hash_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_bearer_tokens
+    ADD CONSTRAINT member_bearer_tokens_token_hash_unique UNIQUE (token_hash);
+
+
+--
+-- Name: member_club_profile_versions member_club_profile_versions_member_club_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_club_profile_versions
+    ADD CONSTRAINT member_club_profile_versions_member_club_version_unique UNIQUE (member_id, club_id, version_no);
+
+
+--
+-- Name: member_club_profile_versions member_club_profile_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_club_profile_versions
+    ADD CONSTRAINT member_club_profile_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: member_global_role_versions member_global_role_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_global_role_versions
+    ADD CONSTRAINT member_global_role_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: member_global_role_versions member_global_role_versions_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_global_role_versions
+    ADD CONSTRAINT member_global_role_versions_version_unique UNIQUE (member_id, role, version_no);
+
+
+--
+-- Name: member_notifications member_notifications_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_notifications
+    ADD CONSTRAINT member_notifications_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: member_notifications member_notifications_seq_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_notifications
+    ADD CONSTRAINT member_notifications_seq_unique UNIQUE (seq);
+
+
+--
+-- Name: member_private_contacts member_private_contacts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_private_contacts
+    ADD CONSTRAINT member_private_contacts_pkey PRIMARY KEY (member_id);
+
+
+--
+-- Name: member_profile_embeddings member_profile_embeddings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_profile_embeddings
+    ADD CONSTRAINT member_profile_embeddings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: member_profile_embeddings member_profile_embeddings_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_profile_embeddings
+    ADD CONSTRAINT member_profile_embeddings_unique UNIQUE (member_id, club_id, model, dimensions, source_version, chunk_index);
+
+
+--
+-- Name: members members_handle_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.members
+    ADD CONSTRAINT members_handle_unique UNIQUE (handle);
+
+
+--
+-- Name: members members_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.members
+    ADD CONSTRAINT members_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: quota_policies quota_policies_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_policies
+    ADD CONSTRAINT quota_policies_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schema_migrations
+    ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (filename);
+
+
+--
+-- Name: signal_background_matches signal_background_matches_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_background_matches
+    ADD CONSTRAINT signal_background_matches_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: signal_background_matches signal_background_matches_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_background_matches
+    ADD CONSTRAINT signal_background_matches_unique UNIQUE (match_kind, source_id, target_member_id);
+
+
+--
+-- Name: signal_recompute_queue signal_recompute_queue_pending_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_recompute_queue
+    ADD CONSTRAINT signal_recompute_queue_pending_unique UNIQUE (queue_name, member_id, club_id);
+
+
+--
+-- Name: signal_recompute_queue signal_recompute_queue_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_recompute_queue
+    ADD CONSTRAINT signal_recompute_queue_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: worker_state worker_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.worker_state
+    ADD CONSTRAINT worker_state_pkey PRIMARY KEY (worker_id, state_key);
+
+
+--
+-- Name: ai_embedding_jobs_claimable_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ai_embedding_jobs_claimable_idx ON public.ai_embedding_jobs USING btree (next_attempt_at) WHERE (attempt_count < 5);
+
+
+--
+-- Name: ai_llm_usage_log_club_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ai_llm_usage_log_club_created_idx ON public.ai_llm_usage_log USING btree (requested_club_id, created_at DESC);
+
+
+--
+-- Name: ai_llm_usage_log_member_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX ai_llm_usage_log_member_created_idx ON public.ai_llm_usage_log USING btree (member_id, created_at DESC);
+
+
+--
+-- Name: application_pow_challenges_one_active_per_membership; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX application_pow_challenges_one_active_per_membership ON public.application_pow_challenges USING btree (membership_id) WHERE (solved_at IS NULL);
+
+
+--
+-- Name: club_activity_club_seq_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_activity_club_seq_idx ON public.club_activity USING btree (club_id, seq);
+
+
+--
+-- Name: club_edges_club_kind_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_edges_club_kind_idx ON public.club_edges USING btree (club_id, kind, created_at DESC);
+
+
+--
+-- Name: club_edges_from_member_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_edges_from_member_idx ON public.club_edges USING btree (from_member_id, kind, created_at DESC);
+
+
+--
+-- Name: club_edges_idempotent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX club_edges_idempotent_idx ON public.club_edges USING btree (created_by_member_id, client_key) WHERE (client_key IS NOT NULL);
+
+
+--
+-- Name: club_edges_to_entity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_edges_to_entity_idx ON public.club_edges USING btree (to_entity_id, kind, created_at DESC);
+
+
+--
+-- Name: club_edges_to_member_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_edges_to_member_idx ON public.club_edges USING btree (to_member_id, kind, created_at DESC);
+
+
+--
+-- Name: club_edges_unique_active_vouch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX club_edges_unique_active_vouch ON public.club_edges USING btree (club_id, from_member_id, to_member_id) WHERE ((kind = 'vouched_for'::public.edge_kind) AND (archived_at IS NULL));
+
+
+--
+-- Name: club_membership_state_versions_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_membership_state_versions_lookup_idx ON public.club_membership_state_versions USING btree (membership_id, version_no DESC, created_at DESC);
+
+
+--
+-- Name: club_memberships_application_email_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_memberships_application_email_lookup_idx ON public.club_memberships USING btree (club_id, application_email_normalized) WHERE (application_email_normalized IS NOT NULL);
+
+
+--
+-- Name: club_memberships_club_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_memberships_club_status_idx ON public.club_memberships USING btree (club_id, status);
+
+
+--
+-- Name: club_memberships_member_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_memberships_member_status_idx ON public.club_memberships USING btree (member_id, status);
+
+
+--
+-- Name: club_memberships_non_terminal_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX club_memberships_non_terminal_unique ON public.club_memberships USING btree (club_id, member_id) WHERE (status <> ALL (ARRAY['declined'::public.membership_state, 'withdrawn'::public.membership_state, 'expired'::public.membership_state, 'removed'::public.membership_state, 'banned'::public.membership_state]));
+
+
+--
+-- Name: club_memberships_sponsor_joined_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_memberships_sponsor_joined_idx ON public.club_memberships USING btree (sponsor_member_id, joined_at);
+
+
+--
+-- Name: club_subscriptions_membership_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_subscriptions_membership_status_idx ON public.club_subscriptions USING btree (membership_id, status);
+
+
+--
+-- Name: club_subscriptions_one_live_per_membership; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX club_subscriptions_one_live_per_membership ON public.club_subscriptions USING btree (membership_id) WHERE (status = ANY (ARRAY['active'::public.subscription_status, 'trialing'::public.subscription_status, 'past_due'::public.subscription_status]));
+
+
+--
+-- Name: club_subscriptions_payer_status_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_subscriptions_payer_status_idx ON public.club_subscriptions USING btree (payer_member_id, status);
+
+
+--
+-- Name: club_versions_club_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX club_versions_club_idx ON public.club_versions USING btree (club_id, version_no DESC, created_at DESC);
+
+
+--
+-- Name: content_threads_club_activity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX content_threads_club_activity_idx ON public.content_threads USING btree (club_id, last_activity_at DESC, id DESC) WHERE (archived_at IS NULL);
+
+
+--
+-- Name: content_threads_id_club_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX content_threads_id_club_idx ON public.content_threads USING btree (id, club_id);
+
+
+--
+-- Name: dm_inbox_entries_recipient_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_inbox_entries_recipient_created_idx ON public.dm_inbox_entries USING btree (recipient_member_id, created_at DESC);
+
+
+--
+-- Name: dm_inbox_entries_unread_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_inbox_entries_unread_idx ON public.dm_inbox_entries USING btree (recipient_member_id) WHERE (acknowledged = false);
+
+
+--
+-- Name: dm_inbox_entries_unread_poll_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_inbox_entries_unread_poll_idx ON public.dm_inbox_entries USING btree (recipient_member_id, created_at) WHERE (acknowledged = false);
+
+
+--
+-- Name: dm_inbox_entries_unread_thread_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_inbox_entries_unread_thread_idx ON public.dm_inbox_entries USING btree (recipient_member_id, thread_id) WHERE (acknowledged = false);
+
+
+--
+-- Name: dm_message_mentions_member_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_message_mentions_member_created_idx ON public.dm_message_mentions USING btree (mentioned_member_id, created_at DESC);
+
+
+--
+-- Name: dm_messages_idempotent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX dm_messages_idempotent_idx ON public.dm_messages USING btree (sender_member_id, client_key) WHERE (client_key IS NOT NULL);
+
+
+--
+-- Name: dm_messages_sender_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_messages_sender_idx ON public.dm_messages USING btree (sender_member_id, created_at DESC);
+
+
+--
+-- Name: dm_messages_thread_created_asc_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_messages_thread_created_asc_idx ON public.dm_messages USING btree (thread_id, created_at);
+
+
+--
+-- Name: dm_messages_thread_created_desc_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_messages_thread_created_desc_idx ON public.dm_messages USING btree (thread_id, created_at DESC, id DESC);
+
+
+--
+-- Name: dm_thread_participants_member_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_thread_participants_member_idx ON public.dm_thread_participants USING btree (member_id, thread_id);
+
+
+--
+-- Name: dm_threads_created_by_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX dm_threads_created_by_idx ON public.dm_threads USING btree (created_by_member_id, created_at DESC);
+
+
+--
+-- Name: dm_threads_direct_pair_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX dm_threads_direct_pair_unique_idx ON public.dm_threads USING btree (kind, member_a_id, member_b_id) WHERE ((kind = 'direct'::public.thread_kind) AND (archived_at IS NULL));
+
+
+--
+-- Name: entities_author_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entities_author_idx ON public.entities USING btree (author_member_id, created_at DESC);
+
+
+--
+-- Name: entities_club_kind_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entities_club_kind_idx ON public.entities USING btree (club_id, kind, created_at DESC);
+
+
+--
+-- Name: entities_idempotent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX entities_idempotent_idx ON public.entities USING btree (author_member_id, client_key) WHERE (client_key IS NOT NULL);
+
+
+--
+-- Name: entities_live_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entities_live_idx ON public.entities USING btree (club_id, kind) WHERE ((archived_at IS NULL) AND (deleted_at IS NULL));
+
+
+--
+-- Name: entities_parent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entities_parent_idx ON public.entities USING btree (parent_entity_id);
+
+
+--
+-- Name: entities_thread_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entities_thread_created_idx ON public.entities USING btree (content_thread_id, created_at, id) WHERE ((archived_at IS NULL) AND (deleted_at IS NULL));
+
+
+--
+-- Name: entity_embeddings_entity_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entity_embeddings_entity_idx ON public.entity_embeddings USING btree (entity_id);
+
+
+--
+-- Name: entity_embeddings_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entity_embeddings_version_idx ON public.entity_embeddings USING btree (entity_version_id);
+
+
+--
+-- Name: entity_version_mentions_member_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entity_version_mentions_member_created_idx ON public.entity_version_mentions USING btree (mentioned_member_id, created_at DESC);
+
+
+--
+-- Name: entity_versions_effective_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entity_versions_effective_idx ON public.entity_versions USING btree (effective_at DESC);
+
+
+--
+-- Name: entity_versions_entity_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entity_versions_entity_version_idx ON public.entity_versions USING btree (entity_id, version_no DESC);
+
+
+--
+-- Name: entity_versions_expires_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX entity_versions_expires_idx ON public.entity_versions USING btree (expires_at);
+
+
+--
+-- Name: event_rsvps_event_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX event_rsvps_event_idx ON public.event_rsvps USING btree (event_entity_id, response);
+
+
+--
+-- Name: event_rsvps_event_membership_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX event_rsvps_event_membership_version_idx ON public.event_rsvps USING btree (event_entity_id, membership_id, version_no DESC, created_at DESC);
+
+
+--
+-- Name: event_rsvps_idempotent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX event_rsvps_idempotent_idx ON public.event_rsvps USING btree (created_by_member_id, client_key) WHERE (client_key IS NOT NULL);
+
+
+--
+-- Name: event_rsvps_membership_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX event_rsvps_membership_idx ON public.event_rsvps USING btree (membership_id, created_at DESC);
+
+
+--
+-- Name: event_version_details_starts_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX event_version_details_starts_idx ON public.event_version_details USING btree (starts_at);
+
+
+--
+-- Name: invitations_candidate_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX invitations_candidate_lookup_idx ON public.invitations USING btree (club_id, candidate_email_normalized, created_at DESC);
+
+
+--
+-- Name: invitations_open_per_sponsor_candidate_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX invitations_open_per_sponsor_candidate_idx ON public.invitations USING btree (club_id, sponsor_member_id, candidate_email_normalized) WHERE ((revoked_at IS NULL) AND (used_at IS NULL) AND (expired_at IS NULL));
+
+
+--
+-- Name: member_bearer_tokens_active_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_bearer_tokens_active_idx ON public.member_bearer_tokens USING btree (id) WHERE (revoked_at IS NULL);
+
+
+--
+-- Name: member_bearer_tokens_member_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_bearer_tokens_member_created_idx ON public.member_bearer_tokens USING btree (member_id, created_at DESC);
+
+
+--
+-- Name: member_club_profile_versions_club_member_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_club_profile_versions_club_member_idx ON public.member_club_profile_versions USING btree (club_id, member_id, version_no DESC);
+
+
+--
+-- Name: member_club_profile_versions_member_club_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_club_profile_versions_member_club_idx ON public.member_club_profile_versions USING btree (member_id, club_id, version_no DESC);
+
+
+--
+-- Name: member_club_profile_versions_membership_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_club_profile_versions_membership_idx ON public.member_club_profile_versions USING btree (membership_id, version_no DESC);
+
+
+--
+-- Name: member_club_profile_versions_search_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_club_profile_versions_search_idx ON public.member_club_profile_versions USING gin (search_vector);
+
+
+--
+-- Name: member_global_role_versions_lookup_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_global_role_versions_lookup_idx ON public.member_global_role_versions USING btree (member_id, role, version_no DESC, created_at DESC);
+
+
+--
+-- Name: member_notifications_match_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX member_notifications_match_unique_idx ON public.member_notifications USING btree (match_id) WHERE (match_id IS NOT NULL);
+
+
+--
+-- Name: member_notifications_recipient_poll_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_notifications_recipient_poll_idx ON public.member_notifications USING btree (recipient_member_id, club_id, seq) WHERE (acknowledged_state IS NULL);
+
+
+--
+-- Name: member_profile_embeddings_club_member_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_profile_embeddings_club_member_idx ON public.member_profile_embeddings USING btree (club_id, member_id);
+
+
+--
+-- Name: member_profile_embeddings_member_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_profile_embeddings_member_idx ON public.member_profile_embeddings USING btree (member_id);
+
+
+--
+-- Name: member_profile_embeddings_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX member_profile_embeddings_version_idx ON public.member_profile_embeddings USING btree (profile_version_id);
+
+
+--
+-- Name: members_state_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX members_state_idx ON public.members USING btree (state);
+
+
+--
+-- Name: quota_policies_club_action_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX quota_policies_club_action_unique ON public.quota_policies USING btree (club_id, action_name) WHERE (scope = 'club'::public.quota_scope);
+
+
+--
+-- Name: quota_policies_global_action_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX quota_policies_global_action_unique ON public.quota_policies USING btree (action_name) WHERE (scope = 'global'::public.quota_scope);
+
+
+--
+-- Name: signal_background_matches_delivery_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX signal_background_matches_delivery_idx ON public.signal_background_matches USING btree (target_member_id, delivered_at) WHERE (state = 'delivered'::text);
+
+
+--
+-- Name: signal_background_matches_expires_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX signal_background_matches_expires_idx ON public.signal_background_matches USING btree (expires_at) WHERE ((expires_at IS NOT NULL) AND (state = 'pending'::text));
+
+
+--
+-- Name: signal_background_matches_kind_delivery_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX signal_background_matches_kind_delivery_idx ON public.signal_background_matches USING btree (target_member_id, match_kind, delivered_at) WHERE (state = 'delivered'::text);
+
+
+--
+-- Name: signal_background_matches_pending_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX signal_background_matches_pending_idx ON public.signal_background_matches USING btree (state, created_at) WHERE (state = 'pending'::text);
+
+
+--
+-- Name: signal_recompute_queue_claimable_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX signal_recompute_queue_claimable_idx ON public.signal_recompute_queue USING btree (queue_name, recompute_after) WHERE (claimed_at IS NULL);
+
+
+--
+-- Name: club_activity club_activity_notify; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER club_activity_notify AFTER INSERT ON public.club_activity FOR EACH ROW EXECUTE FUNCTION public.notify_club_activity();
+
+
+--
+-- Name: club_membership_state_versions club_membership_state_versions_notify; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER club_membership_state_versions_notify AFTER INSERT ON public.club_membership_state_versions FOR EACH ROW EXECUTE FUNCTION public.notify_club_membership_state_version();
+
+
+--
+-- Name: club_membership_state_versions club_membership_state_versions_sync; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER club_membership_state_versions_sync AFTER INSERT ON public.club_membership_state_versions FOR EACH ROW EXECUTE FUNCTION public.sync_club_membership_state();
+
+
+--
+-- Name: club_memberships club_memberships_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER club_memberships_guard BEFORE UPDATE ON public.club_memberships FOR EACH ROW EXECUTE FUNCTION public.lock_club_membership_mutation();
+
+
+--
+-- Name: club_memberships club_memberships_require_profile_version_trigger; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER club_memberships_require_profile_version_trigger AFTER INSERT ON public.club_memberships DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.club_memberships_require_profile_version();
+
+
+--
+-- Name: club_versions club_versions_normalize_admission_policy; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER club_versions_normalize_admission_policy BEFORE INSERT OR UPDATE OF admission_policy ON public.club_versions FOR EACH ROW EXECUTE FUNCTION public.normalize_admission_policy();
+
+
+--
+-- Name: club_versions club_versions_sync; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER club_versions_sync AFTER INSERT ON public.club_versions FOR EACH ROW EXECUTE FUNCTION public.sync_club_version_to_club();
+
+
+--
+-- Name: clubs clubs_normalize_admission_policy; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER clubs_normalize_admission_policy BEFORE INSERT OR UPDATE OF admission_policy ON public.clubs FOR EACH ROW EXECUTE FUNCTION public.normalize_admission_policy();
+
+
+--
+-- Name: clubs clubs_versioned_field_lock; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER clubs_versioned_field_lock BEFORE UPDATE ON public.clubs FOR EACH ROW EXECUTE FUNCTION public.lock_club_versioned_mutation();
+
+
+--
+-- Name: dm_inbox_entries dm_inbox_entries_notify; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER dm_inbox_entries_notify AFTER INSERT ON public.dm_inbox_entries FOR EACH ROW EXECUTE FUNCTION public.notify_dm_inbox();
+
+
+--
+-- Name: member_club_profile_versions member_club_profile_versions_check_membership_trigger; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER member_club_profile_versions_check_membership_trigger BEFORE INSERT ON public.member_club_profile_versions FOR EACH ROW EXECUTE FUNCTION public.member_club_profile_versions_check_membership();
+
+
+--
+-- Name: member_club_profile_versions member_club_profile_versions_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER member_club_profile_versions_immutable BEFORE DELETE OR UPDATE ON public.member_club_profile_versions FOR EACH ROW EXECUTE FUNCTION public.reject_row_mutation();
+
+
+--
+-- Name: member_club_profile_versions member_club_profile_versions_search_vector_insert; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER member_club_profile_versions_search_vector_insert BEFORE INSERT ON public.member_club_profile_versions FOR EACH ROW EXECUTE FUNCTION public.member_club_profile_versions_search_vector_trigger();
+
+
+--
+-- Name: member_notifications member_notifications_notify; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER member_notifications_notify AFTER INSERT ON public.member_notifications FOR EACH ROW EXECUTE FUNCTION public.notify_member_notification();
+
+
+--
+-- Name: ai_llm_usage_log ai_llm_usage_log_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_llm_usage_log
+    ADD CONSTRAINT ai_llm_usage_log_club_fkey FOREIGN KEY (requested_club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: ai_llm_usage_log ai_llm_usage_log_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_llm_usage_log
+    ADD CONSTRAINT ai_llm_usage_log_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: application_pow_challenges application_pow_challenges_membership_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.application_pow_challenges
+    ADD CONSTRAINT application_pow_challenges_membership_fkey FOREIGN KEY (membership_id) REFERENCES public.club_memberships(id) ON DELETE CASCADE;
+
+
+--
+-- Name: club_activity club_activity_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_activity
+    ADD CONSTRAINT club_activity_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: club_activity club_activity_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_activity
+    ADD CONSTRAINT club_activity_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_activity_cursors club_activity_cursors_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_activity_cursors
+    ADD CONSTRAINT club_activity_cursors_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: club_activity_cursors club_activity_cursors_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_activity_cursors
+    ADD CONSTRAINT club_activity_cursors_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_activity club_activity_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_activity
+    ADD CONSTRAINT club_activity_entity_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id);
+
+
+--
+-- Name: club_edges club_edges_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_edges
+    ADD CONSTRAINT club_edges_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: club_edges club_edges_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_edges
+    ADD CONSTRAINT club_edges_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_edges club_edges_from_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_edges
+    ADD CONSTRAINT club_edges_from_entity_fkey FOREIGN KEY (from_entity_id) REFERENCES public.entities(id);
+
+
+--
+-- Name: club_edges club_edges_from_entity_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_edges
+    ADD CONSTRAINT club_edges_from_entity_version_fkey FOREIGN KEY (from_entity_version_id) REFERENCES public.entity_versions(id);
+
+
+--
+-- Name: club_edges club_edges_from_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_edges
+    ADD CONSTRAINT club_edges_from_member_fkey FOREIGN KEY (from_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_edges club_edges_to_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_edges
+    ADD CONSTRAINT club_edges_to_entity_fkey FOREIGN KEY (to_entity_id) REFERENCES public.entities(id);
+
+
+--
+-- Name: club_edges club_edges_to_entity_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_edges
+    ADD CONSTRAINT club_edges_to_entity_version_fkey FOREIGN KEY (to_entity_version_id) REFERENCES public.entity_versions(id);
+
+
+--
+-- Name: club_edges club_edges_to_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_edges
+    ADD CONSTRAINT club_edges_to_member_fkey FOREIGN KEY (to_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_membership_state_versions club_membership_state_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_membership_state_versions
+    ADD CONSTRAINT club_membership_state_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_membership_state_versions club_membership_state_versions_membership_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_membership_state_versions
+    ADD CONSTRAINT club_membership_state_versions_membership_fkey FOREIGN KEY (membership_id) REFERENCES public.club_memberships(id);
+
+
+--
+-- Name: club_membership_state_versions club_membership_state_versions_supersedes_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_membership_state_versions
+    ADD CONSTRAINT club_membership_state_versions_supersedes_fkey FOREIGN KEY (supersedes_state_version_id) REFERENCES public.club_membership_state_versions(id);
+
+
+--
+-- Name: club_memberships club_memberships_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_memberships
+    ADD CONSTRAINT club_memberships_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: club_memberships club_memberships_comped_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_memberships
+    ADD CONSTRAINT club_memberships_comped_by_fkey FOREIGN KEY (comped_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_memberships club_memberships_invitation_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_memberships
+    ADD CONSTRAINT club_memberships_invitation_fkey FOREIGN KEY (invitation_id) REFERENCES public.invitations(id);
+
+
+--
+-- Name: club_memberships club_memberships_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_memberships
+    ADD CONSTRAINT club_memberships_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_memberships club_memberships_sponsor_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_memberships
+    ADD CONSTRAINT club_memberships_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_subscriptions club_subscriptions_membership_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_subscriptions
+    ADD CONSTRAINT club_subscriptions_membership_fkey FOREIGN KEY (membership_id) REFERENCES public.club_memberships(id);
+
+
+--
+-- Name: club_subscriptions club_subscriptions_payer_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_subscriptions
+    ADD CONSTRAINT club_subscriptions_payer_fkey FOREIGN KEY (payer_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_versions club_versions_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_versions
+    ADD CONSTRAINT club_versions_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: club_versions club_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_versions
+    ADD CONSTRAINT club_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_versions club_versions_owner_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_versions
+    ADD CONSTRAINT club_versions_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: club_versions club_versions_supersedes_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_versions
+    ADD CONSTRAINT club_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES public.club_versions(id);
+
+
+--
+-- Name: clubs clubs_owner_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.clubs
+    ADD CONSTRAINT clubs_owner_fkey FOREIGN KEY (owner_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: content_threads content_threads_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_threads
+    ADD CONSTRAINT content_threads_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: content_threads content_threads_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_threads
+    ADD CONSTRAINT content_threads_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: dm_inbox_entries dm_inbox_entries_message_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_inbox_entries
+    ADD CONSTRAINT dm_inbox_entries_message_fkey FOREIGN KEY (message_id) REFERENCES public.dm_messages(id);
+
+
+--
+-- Name: dm_inbox_entries dm_inbox_entries_recipient_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_inbox_entries
+    ADD CONSTRAINT dm_inbox_entries_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: dm_inbox_entries dm_inbox_entries_thread_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_inbox_entries
+    ADD CONSTRAINT dm_inbox_entries_thread_fkey FOREIGN KEY (thread_id) REFERENCES public.dm_threads(id);
+
+
+--
+-- Name: dm_message_mentions dm_message_mentions_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_message_mentions
+    ADD CONSTRAINT dm_message_mentions_member_fkey FOREIGN KEY (mentioned_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: dm_message_mentions dm_message_mentions_message_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_message_mentions
+    ADD CONSTRAINT dm_message_mentions_message_fkey FOREIGN KEY (message_id) REFERENCES public.dm_messages(id);
+
+
+--
+-- Name: dm_message_removals dm_message_removals_message_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_message_removals
+    ADD CONSTRAINT dm_message_removals_message_fkey FOREIGN KEY (message_id) REFERENCES public.dm_messages(id);
+
+
+--
+-- Name: dm_message_removals dm_message_removals_removed_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_message_removals
+    ADD CONSTRAINT dm_message_removals_removed_by_fkey FOREIGN KEY (removed_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: dm_messages dm_messages_reply_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_messages
+    ADD CONSTRAINT dm_messages_reply_fkey FOREIGN KEY (in_reply_to_message_id) REFERENCES public.dm_messages(id);
+
+
+--
+-- Name: dm_messages dm_messages_sender_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_messages
+    ADD CONSTRAINT dm_messages_sender_fkey FOREIGN KEY (sender_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: dm_messages dm_messages_thread_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_messages
+    ADD CONSTRAINT dm_messages_thread_fkey FOREIGN KEY (thread_id) REFERENCES public.dm_threads(id);
+
+
+--
+-- Name: dm_thread_participants dm_thread_participants_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_thread_participants
+    ADD CONSTRAINT dm_thread_participants_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: dm_thread_participants dm_thread_participants_thread_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_thread_participants
+    ADD CONSTRAINT dm_thread_participants_thread_fkey FOREIGN KEY (thread_id) REFERENCES public.dm_threads(id);
+
+
+--
+-- Name: dm_threads dm_threads_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_threads
+    ADD CONSTRAINT dm_threads_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: dm_threads dm_threads_member_a_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_threads
+    ADD CONSTRAINT dm_threads_member_a_fkey FOREIGN KEY (member_a_id) REFERENCES public.members(id);
+
+
+--
+-- Name: dm_threads dm_threads_member_b_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_threads
+    ADD CONSTRAINT dm_threads_member_b_fkey FOREIGN KEY (member_b_id) REFERENCES public.members(id);
+
+
+--
+-- Name: dm_threads dm_threads_subject_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dm_threads
+    ADD CONSTRAINT dm_threads_subject_entity_fkey FOREIGN KEY (subject_entity_id) REFERENCES public.entities(id);
+
+
+--
+-- Name: entities entities_author_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entities
+    ADD CONSTRAINT entities_author_fkey FOREIGN KEY (author_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: entities entities_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entities
+    ADD CONSTRAINT entities_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: entities entities_content_thread_same_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entities
+    ADD CONSTRAINT entities_content_thread_same_club_fkey FOREIGN KEY (content_thread_id, club_id) REFERENCES public.content_threads(id, club_id);
+
+
+--
+-- Name: entities entities_parent_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entities
+    ADD CONSTRAINT entities_parent_fkey FOREIGN KEY (parent_entity_id) REFERENCES public.entities(id);
+
+
+--
+-- Name: entity_embeddings entity_embeddings_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_embeddings
+    ADD CONSTRAINT entity_embeddings_entity_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id);
+
+
+--
+-- Name: entity_embeddings entity_embeddings_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_embeddings
+    ADD CONSTRAINT entity_embeddings_version_fkey FOREIGN KEY (entity_version_id) REFERENCES public.entity_versions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: entity_version_mentions entity_version_mentions_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_version_mentions
+    ADD CONSTRAINT entity_version_mentions_member_fkey FOREIGN KEY (mentioned_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: entity_version_mentions entity_version_mentions_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_version_mentions
+    ADD CONSTRAINT entity_version_mentions_version_fkey FOREIGN KEY (entity_version_id) REFERENCES public.entity_versions(id);
+
+
+--
+-- Name: entity_versions entity_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_versions
+    ADD CONSTRAINT entity_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: entity_versions entity_versions_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_versions
+    ADD CONSTRAINT entity_versions_entity_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id);
+
+
+--
+-- Name: entity_versions entity_versions_supersedes_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.entity_versions
+    ADD CONSTRAINT entity_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES public.entity_versions(id);
+
+
+--
+-- Name: event_rsvps event_rsvps_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_rsvps
+    ADD CONSTRAINT event_rsvps_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: event_rsvps event_rsvps_event_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_rsvps
+    ADD CONSTRAINT event_rsvps_event_fkey FOREIGN KEY (event_entity_id) REFERENCES public.entities(id);
+
+
+--
+-- Name: event_rsvps event_rsvps_membership_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_rsvps
+    ADD CONSTRAINT event_rsvps_membership_fkey FOREIGN KEY (membership_id) REFERENCES public.club_memberships(id);
+
+
+--
+-- Name: event_rsvps event_rsvps_supersedes_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_rsvps
+    ADD CONSTRAINT event_rsvps_supersedes_fkey FOREIGN KEY (supersedes_rsvp_id) REFERENCES public.event_rsvps(id);
+
+
+--
+-- Name: event_version_details event_version_details_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.event_version_details
+    ADD CONSTRAINT event_version_details_version_fkey FOREIGN KEY (entity_version_id) REFERENCES public.entity_versions(id);
+
+
+--
+-- Name: invitations invitations_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invitations
+    ADD CONSTRAINT invitations_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: invitations invitations_sponsor_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invitations
+    ADD CONSTRAINT invitations_sponsor_fkey FOREIGN KEY (sponsor_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: invitations invitations_used_membership_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.invitations
+    ADD CONSTRAINT invitations_used_membership_fkey FOREIGN KEY (used_membership_id) REFERENCES public.club_memberships(id);
+
+
+--
+-- Name: member_bearer_tokens member_bearer_tokens_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_bearer_tokens
+    ADD CONSTRAINT member_bearer_tokens_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: member_club_profile_versions member_club_profile_versions_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_club_profile_versions
+    ADD CONSTRAINT member_club_profile_versions_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: member_club_profile_versions member_club_profile_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_club_profile_versions
+    ADD CONSTRAINT member_club_profile_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: member_club_profile_versions member_club_profile_versions_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_club_profile_versions
+    ADD CONSTRAINT member_club_profile_versions_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: member_club_profile_versions member_club_profile_versions_membership_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_club_profile_versions
+    ADD CONSTRAINT member_club_profile_versions_membership_fkey FOREIGN KEY (membership_id) REFERENCES public.club_memberships(id);
+
+
+--
+-- Name: member_global_role_versions member_global_role_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_global_role_versions
+    ADD CONSTRAINT member_global_role_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: member_global_role_versions member_global_role_versions_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_global_role_versions
+    ADD CONSTRAINT member_global_role_versions_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: member_global_role_versions member_global_role_versions_supersedes_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_global_role_versions
+    ADD CONSTRAINT member_global_role_versions_supersedes_fkey FOREIGN KEY (supersedes_role_version_id) REFERENCES public.member_global_role_versions(id);
+
+
+--
+-- Name: member_notifications member_notifications_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_notifications
+    ADD CONSTRAINT member_notifications_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: member_notifications member_notifications_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_notifications
+    ADD CONSTRAINT member_notifications_entity_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id);
+
+
+--
+-- Name: member_notifications member_notifications_recipient_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_notifications
+    ADD CONSTRAINT member_notifications_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: member_private_contacts member_private_contacts_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_private_contacts
+    ADD CONSTRAINT member_private_contacts_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: member_profile_embeddings member_profile_embeddings_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_profile_embeddings
+    ADD CONSTRAINT member_profile_embeddings_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: member_profile_embeddings member_profile_embeddings_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_profile_embeddings
+    ADD CONSTRAINT member_profile_embeddings_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: member_profile_embeddings member_profile_embeddings_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.member_profile_embeddings
+    ADD CONSTRAINT member_profile_embeddings_version_fkey FOREIGN KEY (profile_version_id) REFERENCES public.member_club_profile_versions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: quota_policies quota_policies_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.quota_policies
+    ADD CONSTRAINT quota_policies_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: signal_background_matches signal_background_matches_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_background_matches
+    ADD CONSTRAINT signal_background_matches_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: signal_background_matches signal_background_matches_signal_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_background_matches
+    ADD CONSTRAINT signal_background_matches_signal_fkey FOREIGN KEY (signal_id) REFERENCES public.member_notifications(id);
+
+
+--
+-- Name: signal_background_matches signal_background_matches_target_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_background_matches
+    ADD CONSTRAINT signal_background_matches_target_fkey FOREIGN KEY (target_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: signal_recompute_queue signal_recompute_queue_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_recompute_queue
+    ADD CONSTRAINT signal_recompute_queue_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: signal_recompute_queue signal_recompute_queue_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.signal_recompute_queue
+    ADD CONSTRAINT signal_recompute_queue_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+
+
+--
+
+-- ============================================================
+-- Schema migration ledger
+-- ============================================================
+
+INSERT INTO public.schema_migrations (filename) VALUES
+  ('0001_init.sql'),
+  ('003_test_canary.sql'),
+  ('004_club_scoped_profiles.sql'),
+  ('005_unified_threaded_public_content.sql'),
+  ('006_mentions.sql'),
+  ('007_member_notifications_stream.sql'),
+  ('008_unified_club_join.sql');
