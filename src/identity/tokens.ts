@@ -91,7 +91,7 @@ export async function revokeBearerToken(pool: Pool, input: RevokeBearerTokenInpu
 }
 
 /**
- * Create a bearer token for a member (used during admission acceptance).
+ * Create a bearer token for a member from an internal issuance path.
  * Unlike createBearerToken, this doesn't enforce quotas — it's an internal operation.
  */
 export async function issueTokenForMember(

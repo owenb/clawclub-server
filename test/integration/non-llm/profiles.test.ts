@@ -42,7 +42,7 @@ describe('Profiles', () => {
 
   it('profile.list with another shared-club member ID returns their profile', async () => {
     const owner = await h.seedOwner('profiles-shared', 'ProfilesSharedClub');
-    const bob = await h.seedClubMember(owner.club.id, 'Bob Shared', 'bob-shared', { sponsorId: owner.id });
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Shared', 'bob-shared');
 
     const result = await h.apiOk(bob.token, 'profile.list', { memberId: owner.id });
     const profile = result.data as Record<string, unknown>;
@@ -144,7 +144,7 @@ describe('Members Search & List', () => {
 
   it('members.searchByFullText finds members by name in shared clubs', async () => {
     const owner = await h.seedOwner('search-club', 'SearchClub');
-    await h.seedClubMember(owner.club.id, 'Findable Person', 'findable-person', { sponsorId: owner.id });
+    await h.seedCompedMember(owner.club.id, 'Findable Person', 'findable-person');
 
     const result = await h.apiOk(owner.token, 'members.searchByFullText', { query: 'Findable', clubId: owner.club.id });
     const data = result.data as Record<string, unknown>;
@@ -157,7 +157,7 @@ describe('Members Search & List', () => {
 
   it('members.searchByFullText matches on global name', async () => {
     const owner = await h.seedOwner('search-global-name', 'SearchGlobalNameClub');
-    await h.seedClubMember(owner.club.id, 'Find By Public Name', 'find-by-public-name', { sponsorId: owner.id });
+    await h.seedCompedMember(owner.club.id, 'Find By Public Name', 'find-by-public-name');
 
     const result = await h.apiOk(owner.token, 'members.searchByFullText', {
       query: 'Find By Public Name',
@@ -179,8 +179,8 @@ describe('Members Search & List', () => {
 
   it('members.list returns club members', async () => {
     const owner = await h.seedOwner('list-club', 'ListClub');
-    const member1 = await h.seedClubMember(owner.club.id, 'List Member One', 'list-member-one', { sponsorId: owner.id });
-    const member2 = await h.seedClubMember(owner.club.id, 'List Member Two', 'list-member-two', { sponsorId: owner.id });
+    const member1 = await h.seedCompedMember(owner.club.id, 'List Member One', 'list-member-one');
+    const member2 = await h.seedCompedMember(owner.club.id, 'List Member Two', 'list-member-two');
 
     const result = await h.apiOk(owner.token, 'members.list', { clubId: owner.club.id });
     const data = result.data as Record<string, unknown>;
@@ -196,7 +196,7 @@ describe('Members Search & List', () => {
   it('members only see members from clubs they belong to', async () => {
     const clubX = await h.seedOwner('scope-club-x', 'ScopeClubX');
     const clubY = await h.seedOwner('scope-club-y', 'ScopeClubY');
-    const memberX = await h.seedClubMember(clubX.club.id, 'Only In X', 'only-in-x', { sponsorId: clubX.id });
+    const memberX = await h.seedCompedMember(clubX.club.id, 'Only In X', 'only-in-x');
 
     // memberX belongs only to clubX; should not see clubY owner via members.list on clubY
     const err = await h.apiErr(memberX.token, 'members.list', { clubId: clubY.club.id });

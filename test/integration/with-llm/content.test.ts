@@ -27,7 +27,7 @@ function findListedFirstEntity(
 describe('entities', () => {
   it('member creates a post and sees it in content.list', async () => {
     const owner = await h.seedOwner('entity-club-1', 'EntityClub1');
-    const author = await h.seedClubMember(owner.club.id, 'Alice Author', 'alice-entity-1', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Alice Author', 'alice-entity-1');
 
     const created = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -49,8 +49,8 @@ describe('entities', () => {
 
   it('another club member also sees the post in their content.list', async () => {
     const owner = await h.seedOwner('entity-club-2', 'EntityClub2');
-    const author = await h.seedClubMember(owner.club.id, 'Bob Author', 'bob-entity-2', { sponsorId: owner.id });
-    const viewer = await h.seedClubMember(owner.club.id, 'Carol Viewer', 'carol-entity-2', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Bob Author', 'bob-entity-2');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Carol Viewer', 'carol-entity-2');
 
     const created = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -67,12 +67,12 @@ describe('entities', () => {
 
   it('member not in the club cannot see the post', async () => {
     const owner = await h.seedOwner('entity-club-3', 'EntityClub3');
-    const author = await h.seedClubMember(owner.club.id, 'Dave Author', 'dave-entity-3', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Dave Author', 'dave-entity-3');
     const outsider = await h.seedMember('Eve Outsider', 'eve-entity-3');
 
     // Add outsider to a different club so they have at least one membership
     const otherOwner = await h.seedOwner('entity-other-club-3', 'OtherClub3');
-    await h.seedMembership(otherOwner.club.id, outsider.id, { sponsorId: otherOwner.id });
+    await h.seedCompedMembership(otherOwner.club.id, outsider.id);
 
     await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -88,7 +88,7 @@ describe('entities', () => {
 
   it('author can update the post via content.update and change is visible in list', async () => {
     const owner = await h.seedOwner('entity-club-4', 'EntityClub4');
-    const author = await h.seedClubMember(owner.club.id, 'Frank Author', 'frank-entity-4', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Frank Author', 'frank-entity-4');
 
     const created = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -119,7 +119,7 @@ describe('entities', () => {
 
   it('author archives the post and it disappears from list', async () => {
     const owner = await h.seedOwner('entity-club-5', 'EntityClub5');
-    const author = await h.seedClubMember(owner.club.id, 'Grace Author', 'grace-entity-5', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Grace Author', 'grace-entity-5');
 
     const created = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -139,7 +139,7 @@ describe('entities', () => {
 
   it('all entity kinds can be created: post, opportunity, service, ask', async () => {
     const owner = await h.seedOwner('entity-club-kinds', 'EntityClubKinds');
-    const author = await h.seedClubMember(owner.club.id, 'Hal Kinds', 'hal-entity-kinds', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Hal Kinds', 'hal-entity-kinds');
 
     const kindPayloads: Record<string, { title: string; body: string }> = {
       post: {
@@ -192,7 +192,7 @@ describe('entities', () => {
 describe('events', () => {
   it('member creates an event and sees it in events.list', async () => {
     const owner = await h.seedOwner('event-club-1', 'EventClub1');
-    const member = await h.seedClubMember(owner.club.id, 'Iris Events', 'iris-event-1', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Iris Events', 'iris-event-1');
 
     const created = await h.apiOk(member.token, 'content.create', {
       clubId: owner.club.id,
@@ -223,8 +223,8 @@ describe('events', () => {
 
   it('another member can RSVP and response is visible on the event', async () => {
     const owner = await h.seedOwner('event-club-2', 'EventClub2');
-    const organizer = await h.seedClubMember(owner.club.id, 'Jack Organizer', 'jack-event-2', { sponsorId: owner.id });
-    const attendee = await h.seedClubMember(owner.club.id, 'Kim Attendee', 'kim-event-2', { sponsorId: owner.id });
+    const organizer = await h.seedCompedMember(owner.club.id, 'Jack Organizer', 'jack-event-2');
+    const attendee = await h.seedCompedMember(owner.club.id, 'Kim Attendee', 'kim-event-2');
 
     const created = await h.apiOk(organizer.token, 'content.create', {
       clubId: owner.club.id,
@@ -254,8 +254,8 @@ describe('events', () => {
 
   it('event listing shows the event to all club members', async () => {
     const owner = await h.seedOwner('event-club-3', 'EventClub3');
-    const creator = await h.seedClubMember(owner.club.id, 'Leo Creator', 'leo-event-3', { sponsorId: owner.id });
-    const viewer = await h.seedClubMember(owner.club.id, 'Mia Viewer', 'mia-event-3', { sponsorId: owner.id });
+    const creator = await h.seedCompedMember(owner.club.id, 'Leo Creator', 'leo-event-3');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Mia Viewer', 'mia-event-3');
 
     const created = await h.apiOk(creator.token, 'content.create', {
       clubId: owner.club.id,
@@ -279,7 +279,7 @@ describe('events', () => {
 
   it('events have proper fields: title, summary, startsAt, endsAt, timezone, capacity', async () => {
     const owner = await h.seedOwner('event-club-4', 'EventClub4');
-    const member = await h.seedClubMember(owner.club.id, 'Ned Fields', 'ned-event-4', { sponsorId: owner.id });
+    const member = await h.seedCompedMember(owner.club.id, 'Ned Fields', 'ned-event-4');
 
     const created = await h.apiOk(member.token, 'content.create', {
       clubId: owner.club.id,

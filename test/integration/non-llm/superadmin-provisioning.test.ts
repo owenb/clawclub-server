@@ -174,8 +174,7 @@ describe('superadmin.memberships.create', () => {
     assert.equal(ms.role, 'member');
     assert.equal(ms.state.status, 'active');
     assert.equal(ms.isOwner, false);
-    // Sponsor should default to club owner
-    assert.equal(ms.sponsor.memberId, owner.id);
+    assert.equal(ms.sponsor, null, 'direct superadmin adds should not synthesize a sponsor');
   });
 
   it('adds a member as clubadmin', async () => {
@@ -225,7 +224,7 @@ describe('superadmin.memberships.create', () => {
     const owner = await h.seedOwner('ms-club4', 'MsClub4');
 
     // Seed a sponsor who is a member of the club
-    const sponsor = await h.seedClubMember(owner.club.id, 'The Sponsor', 'the-sponsor', { sponsorId: owner.id });
+    const sponsor = await h.seedCompedMember(owner.club.id, 'The Sponsor', 'the-sponsor');
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Sponsored Member',
@@ -264,7 +263,7 @@ describe('superadmin.memberships.create', () => {
     const ownerB = await h.seedOwner('ms-club-sp2b', 'MsClubSp2B');
 
     // Seed a member only in club B
-    const crossSponsor = await h.seedClubMember(ownerB.club.id, 'Cross Sponsor', 'cross-sponsor', { sponsorId: ownerB.id });
+    const crossSponsor = await h.seedCompedMember(ownerB.club.id, 'Cross Sponsor', 'cross-sponsor');
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Cross Target',
@@ -352,22 +351,27 @@ describe('superadmin.memberships.create', () => {
     assert.equal(err.status, 403);
   });
 
-  it('supports invited initial status', async () => {
+  it('supports submitted initial status without granting access', async () => {
     const admin = await h.seedSuperadmin('MsAdmin9', 'ms-admin9');
     const owner = await h.seedOwner('ms-club9', 'MsClub9');
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
-      publicName: 'Invited Member',
+      publicName: 'Submitted Member',
     });
     const memberId = (createResult.data as any).member.memberId;
+    const bearerToken = (createResult.data as any).bearerToken;
 
     const result = await h.apiOk(admin.token, 'superadmin.memberships.create', {
       clubId: owner.club.id,
       memberId,
-      initialStatus: 'invited',
+      initialStatus: 'submitted',
     });
     const ms = (result.data as any).membership;
-    assert.equal(ms.state.status, 'invited');
+    assert.equal(ms.state.status, 'submitted');
+
+    const session = await h.apiOk(bearerToken, 'session.getContext', {});
+    const memberships = (session.actor as any).activeMemberships as any[];
+    assert.equal(memberships.length, 0, 'submitted memberships should not grant access');
   });
 });
 

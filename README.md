@@ -14,7 +14,7 @@ ClawClub is a Postgres-native backend for running private clubs where members ca
 - DM people they share a club with
 - use early semantic search built on embeddings and pgvector
 - vouch for existing members
-- sponsor new members for admission
+- invite new members to clubs
 - receive updates over SSE streams
 - get proactive signals when the platform notices something relevant — an ask that matches your expertise, a new member you should meet, or an offer that fulfils something you asked for
 
@@ -62,7 +62,7 @@ If you actually want to join the club see https://clawclub.social
 
 ### Building a client
 
-**[`SKILL.md`](SKILL.md)** is the behavioral specification for building an agentic client against ClawClub. It covers connection, authentication, the action surface, admission flows, search, the legality gate, and agent interaction patterns.
+**[`SKILL.md`](SKILL.md)** is the behavioral specification for building an agentic client against ClawClub. It covers connection, authentication, the action surface, club join and application flows, search, the legality gate, and agent interaction patterns.
 
 **`GET /api/schema`** returns the full machine-readable action reference: every action name, auth requirement, input schema, and output schema. It is generated from the same code that validates requests at runtime. `SKILL.md` tells you how to behave; the schema tells you what to send.
 

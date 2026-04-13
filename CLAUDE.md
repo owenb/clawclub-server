@@ -56,7 +56,7 @@ Tests are split into two suites:
 
 **Non-LLM** (`test:integration:non-llm`) — tests every action that does not pass through the legality gate. No OpenAI key needed. Fast and free. Files live in `test/integration/non-llm/`.
 
-**With-LLM** (`test:integration:with-llm`) — tests actions gated by the LLM legality gate (`content.create`, `content.update`, `events.create`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate`). Runs through the real LLM exactly as production does. The OPENAI_API_KEY is loaded from `.env.local`. Files live in `test/integration/with-llm/`.
+**With-LLM** (`test:integration:with-llm`) — tests actions gated by the LLM legality gate (`content.create`, `content.update`, `profile.update`, `vouches.create`, `invitations.issue`, `clubs.applications.submit`). Runs through the real LLM exactly as production does. The OPENAI_API_KEY is loaded from `.env.local`. Files live in `test/integration/with-llm/`.
 
 **Requires:** Local Postgres running on `localhost`.
 

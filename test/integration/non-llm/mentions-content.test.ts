@@ -32,17 +32,15 @@ function buildMentionBody(handles: string[], repeats = 1): string {
 
 async function seedMentionTargets(
   clubId: string,
-  sponsorId: string,
   count: number,
   prefix: string,
 ): Promise<Array<{ id: string; handle: string }>> {
   const targets: Array<{ id: string; handle: string }> = [];
   for (let index = 0; index < count; index += 1) {
-    const member = await h.seedClubMember(
+    const member = await h.seedCompedMember(
       clubId,
       `Mention Target ${prefix} ${index + 1}`,
       `${prefix}-${index + 1}`,
-      { sponsorId },
     );
     targets.push({ id: member.id, handle: member.handle });
   }
@@ -52,8 +50,8 @@ async function seedMentionTargets(
 describe('content mentions', () => {
   it('hydrates mentions across thread reads, dedupes included members, and preserves authoredHandle across renames', async () => {
     const owner = await h.seedOwner('mention-thread-club', 'Mention Thread Club');
-    const author = await h.seedClubMember(owner.club.id, 'Mention Author', 'mention-author', { sponsorId: owner.id });
-    const kilian = await h.seedClubMember(owner.club.id, 'Kilian Mentioned', 'kilian-valdman-jl88rb', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Mention Author', 'mention-author');
+    const kilian = await h.seedCompedMember(owner.club.id, 'Kilian Mentioned', 'kilian-valdman-jl88rb');
 
     const rootResult = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -123,8 +121,8 @@ describe('content mentions', () => {
   it('carries forward unchanged mention fields across bans but rejects changed fields that keep stale mentions', async () => {
     const admin = await h.seedSuperadmin('Mention Admin', 'mention-admin');
     const owner = await h.seedOwner('mention-update-club', 'Mention Update Club');
-    const author = await h.seedClubMember(owner.club.id, 'Update Author', 'mention-update-author', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Mention Bob', 'mention-update-bob', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Update Author', 'mention-update-author');
+    const bob = await h.seedCompedMember(owner.club.id, 'Mention Bob', 'mention-update-bob');
 
     const created = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -183,8 +181,8 @@ describe('content mentions', () => {
     const isolated = await TestHarness.start({ qualityGate: failingGate });
     try {
       const owner = await isolated.seedOwner('mention-pending-club', 'Mention Pending Club');
-      const author = await isolated.seedClubMember(owner.club.id, 'Pending Author', 'mention-pending-author', { sponsorId: owner.id });
-      const pending = await isolated.seedClubMember(owner.club.id, 'Pending Mention', 'pending-mention-target', { sponsorId: owner.id });
+      const author = await isolated.seedCompedMember(owner.club.id, 'Pending Author', 'mention-pending-author');
+      const pending = await isolated.seedCompedMember(owner.club.id, 'Pending Mention', 'pending-mention-target');
 
       await isolated.sql(
         `update members
@@ -211,8 +209,8 @@ describe('content mentions', () => {
   it('clientKey replays bypass mention revalidation after the mentioned member is banned', async () => {
     const admin = await h.seedSuperadmin('Content Replay Admin', 'content-replay-admin');
     const owner = await h.seedOwner('content-replay-club', 'Content Replay Club');
-    const author = await h.seedClubMember(owner.club.id, 'Replay Author', 'content-replay-author', { sponsorId: owner.id });
-    const target = await h.seedClubMember(owner.club.id, 'Replay Target', 'content-replay-target', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Replay Author', 'content-replay-author');
+    const target = await h.seedCompedMember(owner.club.id, 'Replay Target', 'content-replay-target');
     const clientKey = 'content-mention-replay';
 
     const first = await h.apiOk(author.token, 'content.create', {
@@ -244,8 +242,8 @@ describe('content mentions', () => {
 
   it('enforces mention caps on create and update', async () => {
     const owner = await h.seedOwner('mention-cap-club', 'Mention Cap Club');
-    const author = await h.seedClubMember(owner.club.id, 'Cap Author', 'mention-cap-author', { sponsorId: owner.id });
-    const targets = await seedMentionTargets(owner.club.id, owner.id, 26, 'mention-cap-target');
+    const author = await h.seedCompedMember(owner.club.id, 'Cap Author', 'mention-cap-author');
+    const targets = await seedMentionTargets(owner.club.id, 26, 'mention-cap-target');
 
     const hundredMentionBody = buildMentionBody(targets.slice(0, 25).map((target) => target.handle), 4);
     const created = await h.apiOk(author.token, 'content.create', {
@@ -284,8 +282,8 @@ describe('content mentions', () => {
   it('suppresses mentions on removed content in member and admin reads', async () => {
     const admin = await h.seedSuperadmin('Content Remove Admin', 'content-remove-admin');
     const owner = await h.seedOwner('content-remove-club', 'Content Remove Club');
-    const author = await h.seedClubMember(owner.club.id, 'Remove Author', 'content-remove-author', { sponsorId: owner.id });
-    const target = await h.seedClubMember(owner.club.id, 'Remove Target', 'content-remove-target', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Remove Author', 'content-remove-author');
+    const target = await h.seedCompedMember(owner.club.id, 'Remove Target', 'content-remove-target');
 
     const root = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,

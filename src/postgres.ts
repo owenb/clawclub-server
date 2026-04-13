@@ -2,8 +2,8 @@
  * Postgres implementation of the Repository interface.
  *
  * Composes domain modules (identity, messaging, clubs) against a single
- * database pool. Operations that span modules (admission acceptance,
- * update streams, admin aggregation) are coordinated here.
+ * database pool. Operations that span modules (update streams,
+ * admin aggregation) are coordinated here.
  */
 
 import type { Pool } from 'pg';

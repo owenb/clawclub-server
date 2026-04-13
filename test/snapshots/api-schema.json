@@ -337,831 +337,6 @@
       "safety": "read_only"
     },
     {
-      "action": "admissions.crossClub.requestChallenge",
-      "auth": "member",
-      "authorizationNote": "Requires at least one active membership in any club. Must not already be a member of the target club. Capped at 3 pending cross-applications across all clubs.",
-      "businessErrors": [
-        {
-          "code": "no_active_membership",
-          "meaning": "Only active members of an existing club can use the cross-club apply path.",
-          "recovery": "Use the cold public admissions path, or authenticate as a member with an active membership."
-        },
-        {
-          "code": "membership_exists",
-          "meaning": "The actor already has a membership record in the target club.",
-          "recovery": "Stop retrying this path and contact the club admin instead."
-        },
-        {
-          "code": "admission_pending",
-          "meaning": "The actor already has a pending admission for the target club.",
-          "recovery": "Wait for the current admission to be resolved before retrying."
-        },
-        {
-          "code": "too_many_pending",
-          "meaning": "The actor has too many pending cross-club applications across the network.",
-          "recovery": "Wait for existing applications to resolve before applying to more clubs."
-        },
-        {
-          "code": "incomplete_profile",
-          "meaning": "The actor profile is missing the required name or email for cross-application.",
-          "recovery": "Update the profile first, then request a fresh challenge."
-        }
-      ],
-      "description": "Request a reduced-difficulty PoW challenge for an existing network member applying to a new club. The response carries the club's admission policy and an expiresAt timestamp; the challenge is valid for one hour from creation. Read the policy before drafting — the admission gate is a literal completeness check, the same one cold applicants face.",
-      "domain": "admissions",
-      "input": {
-        "properties": {
-          "clubSlug": {
-            "description": "Slug of the club to apply to",
-            "maxLength": 500,
-            "type": "string"
-          }
-        },
-        "required": [
-          "clubSlug"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "challengeId": {
-            "type": "string"
-          },
-          "club": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionPolicy": {
-                "description": "The club's admission policy. Treat this as the literal completeness checklist your application must satisfy: the gate only verifies that every explicit ask is answered, not fit or quality.",
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "ownerName": {
-                "type": "string"
-              },
-              "slug": {
-                "type": "string"
-              },
-              "summary": {
-                "nullable": true,
-                "type": "string"
-              }
-            },
-            "required": [
-              "slug",
-              "name",
-              "summary",
-              "ownerName",
-              "admissionPolicy"
-            ],
-            "type": "object"
-          },
-          "difficulty": {
-            "description": "Canonical difficulty: the number of trailing hex zeros required on sha256(challengeId + \":\" + nonce). Use this value when solving — do not assume a constant.",
-            "type": "number"
-          },
-          "expiresAt": {
-            "description": "ISO timestamp when this challenge expires. The countdown starts at challenge creation, not after the puzzle is solved; there is no separate post-solve resubmission window.",
-            "type": "string"
-          },
-          "maxAttempts": {
-            "description": "Total submissions allowed against this challenge before it is consumed.",
-            "type": "number"
-          }
-        },
-        "required": [
-          "challengeId",
-          "difficulty",
-          "expiresAt",
-          "maxAttempts",
-          "club"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating"
-    },
-    {
-      "action": "admissions.crossClub.submitApplication",
-      "auth": "member",
-      "businessErrors": [
-        {
-          "code": "challenge_not_found",
-          "meaning": "The challenge ID does not exist or is no longer available.",
-          "recovery": "Request a fresh challenge and try again."
-        },
-        {
-          "code": "challenge_not_yours",
-          "meaning": "The challenge was issued to a different authenticated member.",
-          "recovery": "Use the token that requested the challenge, or request a new one under the current account."
-        },
-        {
-          "code": "challenge_expired",
-          "meaning": "The challenge expired before submission.",
-          "recovery": "Request a fresh challenge."
-        },
-        {
-          "code": "invalid_proof",
-          "meaning": "The proof-of-work nonce did not satisfy the challenge difficulty.",
-          "recovery": "Re-solve the PoW for this challenge and resubmit."
-        },
-        {
-          "code": "challenge_consumed",
-          "meaning": "A concurrent request already consumed this challenge.",
-          "recovery": "Request a fresh challenge and try again."
-        },
-        {
-          "code": "incomplete_profile",
-          "meaning": "The actor profile is missing the required name or email for cross-application.",
-          "recovery": "Update the profile first, then request a fresh challenge."
-        },
-        {
-          "code": "gate_unavailable",
-          "meaning": "The admission gate is temporarily unavailable.",
-          "recovery": "Retry the same submission after a short delay. If the outage persists, surface it to the user."
-        }
-      ],
-      "description": "Submit a solved cross-apply PoW challenge with an application. Name and email are locked to your profile. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.",
-      "domain": "admissions",
-      "input": {
-        "properties": {
-          "application": {
-            "description": "Your application. The admission gate is a literal completeness check: it rejects when an explicit ask in the policy is left unanswered, but does not reject for vagueness, brevity, or quality on its own. If the policy is question-shaped, answer every question directly.",
-            "maxLength": 4000,
-            "type": "string"
-          },
-          "challengeId": {
-            "description": "Challenge ID from admissions.crossClub.requestChallenge",
-            "type": "string"
-          },
-          "nonce": {
-            "description": "Canonical PoW: a nonce such that sha256(challengeId + \":\" + nonce) ends in `difficulty` hex zeros. The server currently also accepts a leading-zero compatibility fallback, but clients should solve for trailing zeros.",
-            "maxLength": 500,
-            "type": "string"
-          },
-          "socials": {
-            "description": "Social media handles or URLs",
-            "maxLength": 500,
-            "type": "string"
-          }
-        },
-        "required": [
-          "challengeId",
-          "nonce",
-          "socials",
-          "application"
-        ],
-        "type": "object"
-      },
-      "notes": [
-        "Name and email are locked to the current profile. Do not send them again on submit.",
-        "A needs_revision status means the challenge remains valid and the same challengeId and nonce can be reused.",
-        "When status is accepted, the message field is the server's canonical response text."
-      ],
-      "output": {
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "properties": {
-              "message": {
-                "type": "string"
-              },
-              "status": {
-                "enum": [
-                  "accepted"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "status",
-              "message"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "attemptsRemaining": {
-                "description": "Remaining submissions against the same challenge. The challenge is not consumed by needs_revision and remains valid until expiry or attempt exhaustion; reuse the same challengeId and nonce unless the server explicitly returns invalid_proof.",
-                "type": "number"
-              },
-              "feedback": {
-                "description": "Revision brief from the admission gate. Treat as a literal list of gaps to fix — patch only the items it identifies, do not redraft the application from scratch. Receiving this means the PoW was accepted and the content needs revision.",
-                "type": "string"
-              },
-              "status": {
-                "enum": [
-                  "needs_revision"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "status",
-              "feedback",
-              "attemptsRemaining"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "message": {
-                "type": "string"
-              },
-              "status": {
-                "enum": [
-                  "attempts_exhausted"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "status",
-              "message"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "safety": "mutating"
-    },
-    {
-      "action": "admissions.getMine",
-      "auth": "member",
-      "description": "Read your own admission records, including your application text, status, club, and timestamps.",
-      "domain": "admissions",
-      "input": {
-        "properties": {
-          "clubId": {
-            "description": "Optional club filter",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "admissions": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "acceptedAt": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "admissionId": {
-                  "type": "string"
-                },
-                "applicationText": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "clubId": {
-                  "type": "string"
-                },
-                "clubName": {
-                  "type": "string"
-                },
-                "clubSlug": {
-                  "type": "string"
-                },
-                "status": {
-                  "enum": [
-                    "draft",
-                    "submitted",
-                    "interview_scheduled",
-                    "interview_completed",
-                    "accepted",
-                    "declined",
-                    "withdrawn"
-                  ],
-                  "type": "string"
-                },
-                "submittedAt": {
-                  "nullable": true,
-                  "type": "string"
-                }
-              },
-              "required": [
-                "admissionId",
-                "clubId",
-                "clubSlug",
-                "clubName",
-                "status",
-                "applicationText",
-                "submittedAt",
-                "acceptedAt"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "admissions"
-        ],
-        "type": "object"
-      },
-      "safety": "read_only"
-    },
-    {
-      "action": "admissions.public.requestChallenge",
-      "auth": "none",
-      "description": "Request a proof-of-work challenge bound to a specific club. The response carries the club's admission policy and an expiresAt timestamp; the challenge is valid for one hour from creation. Read the policy before drafting — the admission gate is a literal completeness check.",
-      "domain": "admissions",
-      "input": {
-        "properties": {
-          "clubSlug": {
-            "description": "Slug of the club to apply to",
-            "maxLength": 500,
-            "type": "string"
-          }
-        },
-        "required": [
-          "clubSlug"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "challengeId": {
-            "type": "string"
-          },
-          "club": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionPolicy": {
-                "description": "The club's admission policy. Treat this as the literal completeness checklist your application must satisfy: the gate only verifies that every explicit ask is answered, not fit or quality.",
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "ownerName": {
-                "type": "string"
-              },
-              "slug": {
-                "type": "string"
-              },
-              "summary": {
-                "nullable": true,
-                "type": "string"
-              }
-            },
-            "required": [
-              "slug",
-              "name",
-              "summary",
-              "ownerName",
-              "admissionPolicy"
-            ],
-            "type": "object"
-          },
-          "difficulty": {
-            "description": "Canonical difficulty: the number of trailing hex zeros required on sha256(challengeId + \":\" + nonce). Use this value when solving — do not assume a constant.",
-            "type": "number"
-          },
-          "expiresAt": {
-            "description": "ISO timestamp when this challenge expires. The countdown starts at challenge creation, not after the puzzle is solved; there is no separate post-solve resubmission window.",
-            "type": "string"
-          },
-          "maxAttempts": {
-            "description": "Total submissions allowed against this challenge before it is consumed.",
-            "type": "number"
-          }
-        },
-        "required": [
-          "challengeId",
-          "difficulty",
-          "expiresAt",
-          "maxAttempts",
-          "club"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating"
-    },
-    {
-      "action": "admissions.public.submitApplication",
-      "auth": "none",
-      "businessErrors": [
-        {
-          "code": "challenge_not_found",
-          "meaning": "The challenge ID does not exist or is no longer available.",
-          "recovery": "Request a fresh challenge and try again."
-        },
-        {
-          "code": "challenge_not_cold",
-          "meaning": "The challenge was issued for the authenticated cross-club path, not the cold public path.",
-          "recovery": "Use admissions.crossClub.submitApplication with the authenticated member token instead."
-        },
-        {
-          "code": "challenge_expired",
-          "meaning": "The challenge expired before submission.",
-          "recovery": "Request a fresh challenge."
-        },
-        {
-          "code": "invalid_proof",
-          "meaning": "The proof-of-work nonce did not satisfy the challenge difficulty.",
-          "recovery": "Re-solve the PoW for this challenge and resubmit."
-        },
-        {
-          "code": "challenge_consumed",
-          "meaning": "A concurrent request already consumed this challenge.",
-          "recovery": "Request a fresh challenge and try again."
-        },
-        {
-          "code": "gate_unavailable",
-          "meaning": "The admission gate is temporarily unavailable.",
-          "recovery": "Retry the same submission after a short delay. If the outage persists, surface it to the user."
-        }
-      ],
-      "description": "Submit a solved proof-of-work challenge with an application. On needs_revision the challenge is not consumed — patch only the items in feedback and resubmit against the same challengeId.",
-      "domain": "admissions",
-      "input": {
-        "properties": {
-          "application": {
-            "description": "Your application. The admission gate is a literal completeness check: it rejects when an explicit ask in the policy is left unanswered, but does not reject for vagueness, brevity, or quality on its own. If the policy is question-shaped, answer every question directly.",
-            "maxLength": 4000,
-            "type": "string"
-          },
-          "challengeId": {
-            "description": "Challenge ID from admissions.public.requestChallenge",
-            "maxLength": 500,
-            "type": "string"
-          },
-          "email": {
-            "description": "Email address (must contain @, max 500 chars). Server trims and lowercases.",
-            "maxLength": 500,
-            "type": "string"
-          },
-          "name": {
-            "description": "Full name (first and last name required, max 500 chars). Server trims whitespace.",
-            "maxLength": 500,
-            "type": "string"
-          },
-          "nonce": {
-            "description": "Canonical PoW: a nonce such that sha256(challengeId + \":\" + nonce) ends in `difficulty` hex zeros. The server currently also accepts a leading-zero compatibility fallback, but clients should solve for trailing zeros.",
-            "maxLength": 500,
-            "type": "string"
-          },
-          "socials": {
-            "description": "Social media handles or URLs",
-            "maxLength": 500,
-            "type": "string"
-          }
-        },
-        "required": [
-          "challengeId",
-          "nonce",
-          "name",
-          "email",
-          "socials",
-          "application"
-        ],
-        "type": "object"
-      },
-      "notes": [
-        "The club is bound to the challenge. Do not send clubSlug again on submit.",
-        "Use application for the free-text field; do not send reason.",
-        "A needs_revision status means the challenge remains valid and the same challengeId and nonce can be reused.",
-        "When status is accepted, the message field is the server's canonical response text."
-      ],
-      "output": {
-        "oneOf": [
-          {
-            "additionalProperties": false,
-            "properties": {
-              "message": {
-                "type": "string"
-              },
-              "status": {
-                "enum": [
-                  "accepted"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "status",
-              "message"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "attemptsRemaining": {
-                "description": "Remaining submissions against the same challenge. The challenge is not consumed by needs_revision and remains valid until expiry or attempt exhaustion; reuse the same challengeId and nonce unless the server explicitly returns invalid_proof.",
-                "type": "number"
-              },
-              "feedback": {
-                "description": "Revision brief from the admission gate. Treat as a literal list of gaps to fix — patch only the items it identifies, do not redraft the application from scratch. Receiving this means the PoW was accepted and the content needs revision.",
-                "type": "string"
-              },
-              "status": {
-                "enum": [
-                  "needs_revision"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "status",
-              "feedback",
-              "attemptsRemaining"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "message": {
-                "type": "string"
-              },
-              "status": {
-                "enum": [
-                  "attempts_exhausted"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "status",
-              "message"
-            ],
-            "type": "object"
-          }
-        ]
-      },
-      "safety": "mutating"
-    },
-    {
-      "action": "admissions.sponsorCandidate",
-      "auth": "member",
-      "authorizationNote": "Requires club membership.",
-      "businessErrors": [
-        {
-          "code": "illegal_content",
-          "meaning": "The submission was rejected for soliciting or facilitating clearly illegal activity.",
-          "recovery": "Relay the reason to the user, revise the sponsorship text, and resubmit."
-        },
-        {
-          "code": "gate_rejected",
-          "meaning": "The content gate returned a non-passing verdict after schema validation.",
-          "recovery": "Review the feedback, revise the sponsorship text, and resubmit."
-        },
-        {
-          "code": "gate_unavailable",
-          "meaning": "The content gate is temporarily unavailable.",
-          "recovery": "Retry after a short delay. If the problem persists, surface the outage to the user."
-        }
-      ],
-      "description": "Sponsor a candidate for admission to a club.",
-      "domain": "admissions",
-      "input": {
-        "properties": {
-          "clubId": {
-            "description": "Club to sponsor into",
-            "type": "string"
-          },
-          "email": {
-            "description": "Candidate email",
-            "maxLength": 500,
-            "type": "string"
-          },
-          "name": {
-            "description": "Candidate full name",
-            "maxLength": 500,
-            "type": "string"
-          },
-          "reason": {
-            "description": "Why this person should join",
-            "maxLength": 500,
-            "type": "string"
-          },
-          "socials": {
-            "description": "Social media handles or URLs",
-            "maxLength": 500,
-            "type": "string"
-          }
-        },
-        "required": [
-          "clubId",
-          "name",
-          "email",
-          "socials",
-          "reason"
-        ],
-        "type": "object"
-      },
-      "notes": [
-        "socials is a plain string, not a structured object."
-      ],
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "admission": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionDetails": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "admissionId": {
-                "type": "string"
-              },
-              "applicant": {
-                "additionalProperties": false,
-                "properties": {
-                  "email": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle",
-                  "email"
-                ],
-                "type": "object"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "createdAt": {
-                "type": "string"
-              },
-              "intake": {
-                "additionalProperties": false,
-                "properties": {
-                  "bookedAt": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "bookingUrl": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "completedAt": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "kind": {
-                    "enum": [
-                      "fit_check",
-                      "advice_call",
-                      "other"
-                    ],
-                    "type": "string"
-                  },
-                  "price": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "amount": {
-                        "nullable": true,
-                        "type": "number"
-                      },
-                      "currency": {
-                        "nullable": true,
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "amount",
-                      "currency"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "price",
-                  "bookingUrl",
-                  "bookedAt",
-                  "completedAt"
-                ],
-                "type": "object"
-              },
-              "membershipId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "metadata": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "origin": {
-                "enum": [
-                  "self_applied",
-                  "member_sponsored",
-                  "owner_nominated"
-                ],
-                "type": "string"
-              },
-              "sponsor": {
-                "additionalProperties": false,
-                "nullable": true,
-                "properties": {
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle"
-                ],
-                "type": "object"
-              },
-              "state": {
-                "additionalProperties": false,
-                "properties": {
-                  "createdAt": {
-                    "type": "string"
-                  },
-                  "createdByMemberId": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "notes": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "status": {
-                    "enum": [
-                      "draft",
-                      "submitted",
-                      "interview_scheduled",
-                      "interview_completed",
-                      "accepted",
-                      "declined",
-                      "withdrawn"
-                    ],
-                    "type": "string"
-                  },
-                  "versionNo": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "status",
-                  "notes",
-                  "versionNo",
-                  "createdAt",
-                  "createdByMemberId"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "admissionId",
-              "clubId",
-              "applicant",
-              "sponsor",
-              "membershipId",
-              "origin",
-              "intake",
-              "state",
-              "admissionDetails",
-              "metadata",
-              "createdAt"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "admission"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating"
-    },
-    {
       "action": "billing.getMembershipStatus",
       "auth": "member",
       "description": "Get billing/subscription status for a membership in a specific club. Returns product-local state only.",
@@ -1235,1035 +410,6 @@
       "safety": "read_only"
     },
     {
-      "action": "clubadmin.admissions.get",
-      "auth": "clubadmin",
-      "authorizationNote": "Requires club admin role.",
-      "description": "Get one admission in the specified club.",
-      "domain": "clubadmin",
-      "input": {
-        "properties": {
-          "admissionId": {
-            "description": "Admission to fetch",
-            "type": "string"
-          },
-          "clubId": {
-            "description": "Club the admission belongs to",
-            "type": "string"
-          }
-        },
-        "required": [
-          "clubId",
-          "admissionId"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "admission": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionDetails": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "admissionId": {
-                "type": "string"
-              },
-              "applicant": {
-                "additionalProperties": false,
-                "properties": {
-                  "email": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle",
-                  "email"
-                ],
-                "type": "object"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "createdAt": {
-                "type": "string"
-              },
-              "intake": {
-                "additionalProperties": false,
-                "properties": {
-                  "bookedAt": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "bookingUrl": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "completedAt": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "kind": {
-                    "enum": [
-                      "fit_check",
-                      "advice_call",
-                      "other"
-                    ],
-                    "type": "string"
-                  },
-                  "price": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "amount": {
-                        "nullable": true,
-                        "type": "number"
-                      },
-                      "currency": {
-                        "nullable": true,
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "amount",
-                      "currency"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "price",
-                  "bookingUrl",
-                  "bookedAt",
-                  "completedAt"
-                ],
-                "type": "object"
-              },
-              "membershipId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "metadata": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "origin": {
-                "enum": [
-                  "self_applied",
-                  "member_sponsored",
-                  "owner_nominated"
-                ],
-                "type": "string"
-              },
-              "sponsor": {
-                "additionalProperties": false,
-                "nullable": true,
-                "properties": {
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle"
-                ],
-                "type": "object"
-              },
-              "state": {
-                "additionalProperties": false,
-                "properties": {
-                  "createdAt": {
-                    "type": "string"
-                  },
-                  "createdByMemberId": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "notes": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "status": {
-                    "enum": [
-                      "draft",
-                      "submitted",
-                      "interview_scheduled",
-                      "interview_completed",
-                      "accepted",
-                      "declined",
-                      "withdrawn"
-                    ],
-                    "type": "string"
-                  },
-                  "versionNo": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "status",
-                  "notes",
-                  "versionNo",
-                  "createdAt",
-                  "createdByMemberId"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "admissionId",
-              "clubId",
-              "applicant",
-              "sponsor",
-              "membershipId",
-              "origin",
-              "intake",
-              "state",
-              "admissionDetails",
-              "metadata",
-              "createdAt"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "admission"
-        ],
-        "type": "object"
-      },
-      "safety": "read_only",
-      "scopeRules": [
-        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
-      ]
-    },
-    {
-      "action": "clubadmin.admissions.issueAccessToken",
-      "auth": "clubadmin",
-      "authorizationNote": "Requires club admin role.",
-      "description": "Issue access credentials for an accepted admission.",
-      "domain": "clubadmin",
-      "input": {
-        "properties": {
-          "admissionId": {
-            "description": "Admission to issue access for",
-            "type": "string"
-          },
-          "clubId": {
-            "description": "Club the admission belongs to",
-            "type": "string"
-          }
-        },
-        "required": [
-          "clubId",
-          "admissionId"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "admission": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionDetails": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "admissionId": {
-                "type": "string"
-              },
-              "applicant": {
-                "additionalProperties": false,
-                "properties": {
-                  "email": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle",
-                  "email"
-                ],
-                "type": "object"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "createdAt": {
-                "type": "string"
-              },
-              "intake": {
-                "additionalProperties": false,
-                "properties": {
-                  "bookedAt": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "bookingUrl": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "completedAt": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "kind": {
-                    "enum": [
-                      "fit_check",
-                      "advice_call",
-                      "other"
-                    ],
-                    "type": "string"
-                  },
-                  "price": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "amount": {
-                        "nullable": true,
-                        "type": "number"
-                      },
-                      "currency": {
-                        "nullable": true,
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "amount",
-                      "currency"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "price",
-                  "bookingUrl",
-                  "bookedAt",
-                  "completedAt"
-                ],
-                "type": "object"
-              },
-              "membershipId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "metadata": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "origin": {
-                "enum": [
-                  "self_applied",
-                  "member_sponsored",
-                  "owner_nominated"
-                ],
-                "type": "string"
-              },
-              "sponsor": {
-                "additionalProperties": false,
-                "nullable": true,
-                "properties": {
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle"
-                ],
-                "type": "object"
-              },
-              "state": {
-                "additionalProperties": false,
-                "properties": {
-                  "createdAt": {
-                    "type": "string"
-                  },
-                  "createdByMemberId": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "notes": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "status": {
-                    "enum": [
-                      "draft",
-                      "submitted",
-                      "interview_scheduled",
-                      "interview_completed",
-                      "accepted",
-                      "declined",
-                      "withdrawn"
-                    ],
-                    "type": "string"
-                  },
-                  "versionNo": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "status",
-                  "notes",
-                  "versionNo",
-                  "createdAt",
-                  "createdByMemberId"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "admissionId",
-              "clubId",
-              "applicant",
-              "sponsor",
-              "membershipId",
-              "origin",
-              "intake",
-              "state",
-              "admissionDetails",
-              "metadata",
-              "createdAt"
-            ],
-            "type": "object"
-          },
-          "bearerToken": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "admission",
-          "bearerToken"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating",
-      "scopeRules": [
-        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
-      ]
-    },
-    {
-      "action": "clubadmin.admissions.list",
-      "auth": "clubadmin",
-      "authorizationNote": "Requires club admin role.",
-      "description": "List admissions for the specified club.",
-      "domain": "clubadmin",
-      "input": {
-        "properties": {
-          "clubId": {
-            "description": "Club to list admissions for",
-            "type": "string"
-          },
-          "cursor": {
-            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
-            "nullable": true,
-            "type": "string"
-          },
-          "limit": {
-            "description": "Max results. Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          },
-          "statuses": {
-            "description": "Filter by admission statuses",
-            "items": {
-              "enum": [
-                "draft",
-                "submitted",
-                "interview_scheduled",
-                "interview_completed",
-                "accepted",
-                "declined",
-                "withdrawn"
-              ],
-              "type": "string"
-            },
-            "minItems": 1,
-            "type": "array"
-          }
-        },
-        "required": [
-          "clubId"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "hasMore": {
-            "type": "boolean"
-          },
-          "limit": {
-            "type": "number"
-          },
-          "nextCursor": {
-            "nullable": true,
-            "type": "string"
-          },
-          "results": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "admissionDetails": {
-                  "additionalProperties": {},
-                  "type": "object"
-                },
-                "admissionId": {
-                  "type": "string"
-                },
-                "applicant": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "email": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "handle": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "memberId": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "publicName": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "memberId",
-                    "publicName",
-                    "handle",
-                    "email"
-                  ],
-                  "type": "object"
-                },
-                "clubId": {
-                  "type": "string"
-                },
-                "createdAt": {
-                  "type": "string"
-                },
-                "intake": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "bookedAt": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "bookingUrl": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "completedAt": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "kind": {
-                      "enum": [
-                        "fit_check",
-                        "advice_call",
-                        "other"
-                      ],
-                      "type": "string"
-                    },
-                    "price": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "amount": {
-                          "nullable": true,
-                          "type": "number"
-                        },
-                        "currency": {
-                          "nullable": true,
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "amount",
-                        "currency"
-                      ],
-                      "type": "object"
-                    }
-                  },
-                  "required": [
-                    "kind",
-                    "price",
-                    "bookingUrl",
-                    "bookedAt",
-                    "completedAt"
-                  ],
-                  "type": "object"
-                },
-                "membershipId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "metadata": {
-                  "additionalProperties": {},
-                  "type": "object"
-                },
-                "origin": {
-                  "enum": [
-                    "self_applied",
-                    "member_sponsored",
-                    "owner_nominated"
-                  ],
-                  "type": "string"
-                },
-                "sponsor": {
-                  "additionalProperties": false,
-                  "nullable": true,
-                  "properties": {
-                    "handle": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "memberId": {
-                      "type": "string"
-                    },
-                    "publicName": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "memberId",
-                    "publicName",
-                    "handle"
-                  ],
-                  "type": "object"
-                },
-                "state": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "createdAt": {
-                      "type": "string"
-                    },
-                    "createdByMemberId": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "notes": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "status": {
-                      "enum": [
-                        "draft",
-                        "submitted",
-                        "interview_scheduled",
-                        "interview_completed",
-                        "accepted",
-                        "declined",
-                        "withdrawn"
-                      ],
-                      "type": "string"
-                    },
-                    "versionNo": {
-                      "type": "number"
-                    }
-                  },
-                  "required": [
-                    "status",
-                    "notes",
-                    "versionNo",
-                    "createdAt",
-                    "createdByMemberId"
-                  ],
-                  "type": "object"
-                }
-              },
-              "required": [
-                "admissionId",
-                "clubId",
-                "applicant",
-                "sponsor",
-                "membershipId",
-                "origin",
-                "intake",
-                "state",
-                "admissionDetails",
-                "metadata",
-                "createdAt"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "statuses": {
-            "items": {
-              "enum": [
-                "draft",
-                "submitted",
-                "interview_scheduled",
-                "interview_completed",
-                "accepted",
-                "declined",
-                "withdrawn"
-              ],
-              "type": "string"
-            },
-            "nullable": true,
-            "type": "array"
-          }
-        },
-        "required": [
-          "limit",
-          "statuses",
-          "results",
-          "hasMore",
-          "nextCursor"
-        ],
-        "type": "object"
-      },
-      "safety": "read_only",
-      "scopeRules": [
-        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
-      ]
-    },
-    {
-      "action": "clubadmin.admissions.setStatus",
-      "auth": "clubadmin",
-      "authorizationNote": "Requires club admin role.",
-      "description": "Transition an admission to a new status.",
-      "domain": "clubadmin",
-      "input": {
-        "properties": {
-          "admissionId": {
-            "description": "Admission to transition",
-            "type": "string"
-          },
-          "clubId": {
-            "description": "Club the admission belongs to",
-            "type": "string"
-          },
-          "intake": {
-            "description": "Intake details. All fields optional.",
-            "properties": {
-              "bookedAt": {
-                "description": "Optional, max 250 000 characters. Empty strings are treated as null.",
-                "maxLength": 250000,
-                "nullable": true,
-                "type": "string"
-              },
-              "bookingUrl": {
-                "description": "Optional, max 250 000 characters. Empty strings are treated as null.",
-                "maxLength": 250000,
-                "nullable": true,
-                "type": "string"
-              },
-              "completedAt": {
-                "description": "Optional, max 250 000 characters. Empty strings are treated as null.",
-                "maxLength": 250000,
-                "nullable": true,
-                "type": "string"
-              },
-              "kind": {
-                "enum": [
-                  "fit_check",
-                  "advice_call",
-                  "other"
-                ],
-                "type": "string"
-              },
-              "price": {
-                "properties": {
-                  "amount": {
-                    "description": "Non-negative amount or null.",
-                    "minimum": 0,
-                    "nullable": true,
-                    "type": "number"
-                  },
-                  "currency": {
-                    "description": "3-letter ISO currency code (e.g. \"USD\" or \"usd\"). Server uppercases. Null to clear.",
-                    "nullable": true,
-                    "type": "string"
-                  }
-                },
-                "type": "object"
-              }
-            },
-            "type": "object"
-          },
-          "metadata": {
-            "additionalProperties": {},
-            "description": "Metadata patch",
-            "type": "object"
-          },
-          "notes": {
-            "description": "Notes for the transition",
-            "maxLength": 250000,
-            "nullable": true,
-            "type": "string"
-          },
-          "status": {
-            "description": "Target status",
-            "enum": [
-              "draft",
-              "submitted",
-              "interview_scheduled",
-              "interview_completed",
-              "accepted",
-              "declined",
-              "withdrawn"
-            ],
-            "type": "string"
-          }
-        },
-        "required": [
-          "clubId",
-          "admissionId",
-          "status"
-        ],
-        "type": "object"
-      },
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "admission": {
-            "additionalProperties": false,
-            "properties": {
-              "admissionDetails": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "admissionId": {
-                "type": "string"
-              },
-              "applicant": {
-                "additionalProperties": false,
-                "properties": {
-                  "email": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle",
-                  "email"
-                ],
-                "type": "object"
-              },
-              "clubId": {
-                "type": "string"
-              },
-              "createdAt": {
-                "type": "string"
-              },
-              "intake": {
-                "additionalProperties": false,
-                "properties": {
-                  "bookedAt": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "bookingUrl": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "completedAt": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "kind": {
-                    "enum": [
-                      "fit_check",
-                      "advice_call",
-                      "other"
-                    ],
-                    "type": "string"
-                  },
-                  "price": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "amount": {
-                        "nullable": true,
-                        "type": "number"
-                      },
-                      "currency": {
-                        "nullable": true,
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "amount",
-                      "currency"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "price",
-                  "bookingUrl",
-                  "bookedAt",
-                  "completedAt"
-                ],
-                "type": "object"
-              },
-              "membershipId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "metadata": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "origin": {
-                "enum": [
-                  "self_applied",
-                  "member_sponsored",
-                  "owner_nominated"
-                ],
-                "type": "string"
-              },
-              "sponsor": {
-                "additionalProperties": false,
-                "nullable": true,
-                "properties": {
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "handle"
-                ],
-                "type": "object"
-              },
-              "state": {
-                "additionalProperties": false,
-                "properties": {
-                  "createdAt": {
-                    "type": "string"
-                  },
-                  "createdByMemberId": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "notes": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "status": {
-                    "enum": [
-                      "draft",
-                      "submitted",
-                      "interview_scheduled",
-                      "interview_completed",
-                      "accepted",
-                      "declined",
-                      "withdrawn"
-                    ],
-                    "type": "string"
-                  },
-                  "versionNo": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "status",
-                  "notes",
-                  "versionNo",
-                  "createdAt",
-                  "createdByMemberId"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "admissionId",
-              "clubId",
-              "applicant",
-              "sponsor",
-              "membershipId",
-              "origin",
-              "intake",
-              "state",
-              "admissionDetails",
-              "metadata",
-              "createdAt"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "admission"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating",
-      "scopeRules": [
-        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
-      ]
-    },
-    {
       "action": "clubadmin.clubs.getStatistics",
       "auth": "clubadmin",
       "authorizationNote": "Requires club admin role.",
@@ -2287,12 +433,6 @@
           "stats": {
             "additionalProperties": false,
             "properties": {
-              "admissionCounts": {
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "type": "object"
-              },
               "archivedAt": {
                 "nullable": true,
                 "type": "string"
@@ -2326,8 +466,7 @@
               "archivedAt",
               "memberCounts",
               "entityCount",
-              "messageCount",
-              "admissionCounts"
+              "messageCount"
             ],
             "type": "object"
           }
@@ -2784,11 +923,11 @@
             "type": "string"
           },
           "initialStatus": {
-            "default": "invited",
+            "default": "active",
             "description": "Initial status",
             "enum": [
-              "invited",
-              "pending_review",
+              "applying",
+              "submitted",
               "active",
               "payment_pending"
             ],
@@ -2810,14 +949,15 @@
             "type": "string"
           },
           "sponsorMemberId": {
-            "description": "Sponsoring member",
+            "description": "Optional sponsor member",
+            "maxLength": 250000,
+            "nullable": true,
             "type": "string"
           }
         },
         "required": [
           "clubId",
           "memberId",
-          "sponsorMemberId",
           "initialStatus"
         ],
         "type": "object"
@@ -2839,6 +979,7 @@
                 "type": "boolean"
               },
               "joinedAt": {
+                "nullable": true,
                 "type": "string"
               },
               "member": {
@@ -2914,17 +1055,19 @@
                   },
                   "status": {
                     "enum": [
-                      "invited",
-                      "pending_review",
-                      "active",
-                      "paused",
-                      "revoked",
-                      "rejected",
+                      "applying",
+                      "submitted",
+                      "interview_scheduled",
+                      "interview_completed",
                       "payment_pending",
+                      "active",
                       "renewal_pending",
                       "cancelled",
+                      "expired",
+                      "removed",
                       "banned",
-                      "expired"
+                      "declined",
+                      "withdrawn"
                     ],
                     "type": "string"
                   },
@@ -2968,6 +1111,292 @@
       ]
     },
     {
+      "action": "clubadmin.memberships.get",
+      "auth": "clubadmin",
+      "authorizationNote": "Requires club admin role.",
+      "description": "Get one membership/application in the specified club.",
+      "domain": "clubadmin",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Club the membership belongs to",
+            "type": "string"
+          },
+          "membershipId": {
+            "description": "Membership to fetch",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubId",
+          "membershipId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "membership": {
+            "additionalProperties": false,
+            "properties": {
+              "application": {
+                "additionalProperties": false,
+                "properties": {
+                  "applicationEmail": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicationName": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicationSocials": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "applicationText": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "appliedAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "generatedProfileDraft": {
+                    "additionalProperties": {},
+                    "nullable": true,
+                    "type": "object"
+                  },
+                  "proofKind": {
+                    "enum": [
+                      "pow",
+                      "invitation",
+                      "none"
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "submissionPath": {
+                    "enum": [
+                      "cold",
+                      "invitation",
+                      "cross_apply",
+                      "owner_nominated"
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "submittedAt": {
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "submissionPath",
+                  "proofKind",
+                  "appliedAt",
+                  "submittedAt",
+                  "applicationName",
+                  "applicationEmail",
+                  "applicationSocials",
+                  "applicationText",
+                  "generatedProfileDraft"
+                ],
+                "type": "object"
+              },
+              "club": {
+                "additionalProperties": false,
+                "properties": {
+                  "admissionPolicy": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "ownerName": {
+                    "type": "string"
+                  },
+                  "priceUsd": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "slug": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "clubId",
+                  "slug",
+                  "name",
+                  "summary",
+                  "admissionPolicy",
+                  "ownerName",
+                  "priceUsd"
+                ],
+                "type": "object"
+              },
+              "membership": {
+                "additionalProperties": false,
+                "properties": {
+                  "acceptedCovenantAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "type": "string"
+                  },
+                  "isOwner": {
+                    "type": "boolean"
+                  },
+                  "joinedAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "member": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "handle": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "publicName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "publicName",
+                      "handle"
+                    ],
+                    "type": "object"
+                  },
+                  "membershipId": {
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "role": {
+                    "enum": [
+                      "clubadmin",
+                      "member"
+                    ],
+                    "type": "string"
+                  },
+                  "sponsor": {
+                    "additionalProperties": false,
+                    "nullable": true,
+                    "properties": {
+                      "handle": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "publicName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "publicName",
+                      "handle"
+                    ],
+                    "type": "object"
+                  },
+                  "state": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "createdAt": {
+                        "type": "string"
+                      },
+                      "createdByMemberId": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "reason": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": [
+                          "applying",
+                          "submitted",
+                          "interview_scheduled",
+                          "interview_completed",
+                          "payment_pending",
+                          "active",
+                          "renewal_pending",
+                          "cancelled",
+                          "expired",
+                          "removed",
+                          "banned",
+                          "declined",
+                          "withdrawn"
+                        ],
+                        "type": "string"
+                      },
+                      "versionNo": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "reason",
+                      "versionNo",
+                      "createdAt",
+                      "createdByMemberId"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "membershipId",
+                  "clubId",
+                  "member",
+                  "sponsor",
+                  "role",
+                  "isOwner",
+                  "state",
+                  "joinedAt",
+                  "acceptedCovenantAt",
+                  "metadata"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "membership",
+              "club",
+              "application"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "membership"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
+    },
+    {
       "action": "clubadmin.memberships.list",
       "auth": "clubadmin",
       "authorizationNote": "Requires club admin role.",
@@ -2993,17 +1422,19 @@
           "status": {
             "description": "Filter by membership status",
             "enum": [
-              "invited",
-              "pending_review",
-              "active",
-              "paused",
-              "revoked",
-              "rejected",
+              "applying",
+              "submitted",
+              "interview_scheduled",
+              "interview_completed",
               "payment_pending",
+              "active",
               "renewal_pending",
               "cancelled",
+              "expired",
+              "removed",
               "banned",
-              "expired"
+              "declined",
+              "withdrawn"
             ],
             "type": "string"
           }
@@ -3041,6 +1472,7 @@
                   "type": "boolean"
                 },
                 "joinedAt": {
+                  "nullable": true,
                   "type": "string"
                 },
                 "member": {
@@ -3116,17 +1548,19 @@
                     },
                     "status": {
                       "enum": [
-                        "invited",
-                        "pending_review",
-                        "active",
-                        "paused",
-                        "revoked",
-                        "rejected",
+                        "applying",
+                        "submitted",
+                        "interview_scheduled",
+                        "interview_completed",
                         "payment_pending",
+                        "active",
                         "renewal_pending",
                         "cancelled",
+                        "expired",
+                        "removed",
                         "banned",
-                        "expired"
+                        "declined",
+                        "withdrawn"
                       ],
                       "type": "string"
                     },
@@ -3162,17 +1596,19 @@
           },
           "status": {
             "enum": [
-              "invited",
-              "pending_review",
-              "active",
-              "paused",
-              "revoked",
-              "rejected",
+              "applying",
+              "submitted",
+              "interview_scheduled",
+              "interview_completed",
               "payment_pending",
+              "active",
               "renewal_pending",
               "cancelled",
+              "expired",
+              "removed",
               "banned",
-              "expired"
+              "declined",
+              "withdrawn"
             ],
             "nullable": true,
             "type": "string"
@@ -3216,20 +1652,22 @@
             "type": "integer"
           },
           "statuses": {
-            "description": "Filter by statuses (default: invited, pending_review)",
+            "description": "Filter by statuses (default: submitted, interview_scheduled, interview_completed)",
             "items": {
               "enum": [
-                "invited",
-                "pending_review",
-                "active",
-                "paused",
-                "revoked",
-                "rejected",
+                "applying",
+                "submitted",
+                "interview_scheduled",
+                "interview_completed",
                 "payment_pending",
+                "active",
                 "renewal_pending",
                 "cancelled",
+                "expired",
+                "removed",
                 "banned",
-                "expired"
+                "declined",
+                "withdrawn"
               ],
               "type": "string"
             },
@@ -3270,6 +1708,7 @@
                   "type": "boolean"
                 },
                 "joinedAt": {
+                  "nullable": true,
                   "type": "string"
                 },
                 "member": {
@@ -3361,17 +1800,19 @@
                     },
                     "status": {
                       "enum": [
-                        "invited",
-                        "pending_review",
-                        "active",
-                        "paused",
-                        "revoked",
-                        "rejected",
+                        "applying",
+                        "submitted",
+                        "interview_scheduled",
+                        "interview_completed",
                         "payment_pending",
+                        "active",
                         "renewal_pending",
                         "cancelled",
+                        "expired",
+                        "removed",
                         "banned",
-                        "expired"
+                        "declined",
+                        "withdrawn"
                       ],
                       "type": "string"
                     },
@@ -3465,17 +1906,19 @@
           "statuses": {
             "items": {
               "enum": [
-                "invited",
-                "pending_review",
-                "active",
-                "paused",
-                "revoked",
-                "rejected",
+                "applying",
+                "submitted",
+                "interview_scheduled",
+                "interview_completed",
                 "payment_pending",
+                "active",
                 "renewal_pending",
                 "cancelled",
+                "expired",
+                "removed",
                 "banned",
-                "expired"
+                "declined",
+                "withdrawn"
               ],
               "type": "string"
             },
@@ -3521,17 +1964,19 @@
           "status": {
             "description": "Target status",
             "enum": [
-              "invited",
-              "pending_review",
-              "active",
-              "paused",
-              "revoked",
-              "rejected",
+              "applying",
+              "submitted",
+              "interview_scheduled",
+              "interview_completed",
               "payment_pending",
+              "active",
               "renewal_pending",
               "cancelled",
+              "expired",
+              "removed",
               "banned",
-              "expired"
+              "declined",
+              "withdrawn"
             ],
             "type": "string"
           }
@@ -3560,6 +2005,7 @@
                 "type": "boolean"
               },
               "joinedAt": {
+                "nullable": true,
                 "type": "string"
               },
               "member": {
@@ -3635,17 +2081,19 @@
                   },
                   "status": {
                     "enum": [
-                      "invited",
-                      "pending_review",
-                      "active",
-                      "paused",
-                      "revoked",
-                      "rejected",
+                      "applying",
+                      "submitted",
+                      "interview_scheduled",
+                      "interview_completed",
                       "payment_pending",
+                      "active",
                       "renewal_pending",
                       "cancelled",
+                      "expired",
+                      "removed",
                       "banned",
-                      "expired"
+                      "declined",
+                      "withdrawn"
                     ],
                     "type": "string"
                   },
@@ -3731,6 +2179,7 @@
                 "type": "boolean"
               },
               "joinedAt": {
+                "nullable": true,
                 "type": "string"
               },
               "member": {
@@ -3806,17 +2255,19 @@
                   },
                   "status": {
                     "enum": [
-                      "invited",
-                      "pending_review",
-                      "active",
-                      "paused",
-                      "revoked",
-                      "rejected",
+                      "applying",
+                      "submitted",
+                      "interview_scheduled",
+                      "interview_completed",
                       "payment_pending",
+                      "active",
                       "renewal_pending",
                       "cancelled",
+                      "expired",
+                      "removed",
                       "banned",
-                      "expired"
+                      "declined",
+                      "withdrawn"
                     ],
                     "type": "string"
                   },
@@ -3900,6 +2351,7 @@
                 "type": "boolean"
               },
               "joinedAt": {
+                "nullable": true,
                 "type": "string"
               },
               "member": {
@@ -3975,17 +2427,19 @@
                   },
                   "status": {
                     "enum": [
-                      "invited",
-                      "pending_review",
-                      "active",
-                      "paused",
-                      "revoked",
-                      "rejected",
+                      "applying",
+                      "submitted",
+                      "interview_scheduled",
+                      "interview_completed",
                       "payment_pending",
+                      "active",
                       "renewal_pending",
                       "cancelled",
+                      "expired",
+                      "removed",
                       "banned",
-                      "expired"
+                      "declined",
+                      "withdrawn"
                     ],
                     "type": "string"
                   },
@@ -4021,6 +2475,659 @@
         "required": [
           "membership",
           "changed"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "clubs.applications.get",
+      "auth": "member",
+      "description": "Read one membership/application owned by the calling member.",
+      "domain": "clubs",
+      "input": {
+        "properties": {
+          "membershipId": {
+            "description": "Membership to fetch",
+            "type": "string"
+          }
+        },
+        "required": [
+          "membershipId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "application": {
+            "additionalProperties": false,
+            "properties": {
+              "applicationEmail": {
+                "nullable": true,
+                "type": "string"
+              },
+              "applicationName": {
+                "nullable": true,
+                "type": "string"
+              },
+              "applicationSocials": {
+                "nullable": true,
+                "type": "string"
+              },
+              "applicationText": {
+                "nullable": true,
+                "type": "string"
+              },
+              "appliedAt": {
+                "type": "string"
+              },
+              "billing": {
+                "additionalProperties": false,
+                "properties": {
+                  "accessible": {
+                    "type": "boolean"
+                  },
+                  "membershipState": {
+                    "enum": [
+                      "applying",
+                      "submitted",
+                      "interview_scheduled",
+                      "interview_completed",
+                      "payment_pending",
+                      "active",
+                      "renewal_pending",
+                      "cancelled",
+                      "expired",
+                      "removed",
+                      "banned",
+                      "declined",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "required": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "required",
+                  "membershipState",
+                  "accessible"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "clubName": {
+                "type": "string"
+              },
+              "clubSlug": {
+                "type": "string"
+              },
+              "decidedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "membershipId": {
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "applying",
+                  "submitted",
+                  "interview_scheduled",
+                  "interview_completed",
+                  "payment_pending",
+                  "active",
+                  "renewal_pending",
+                  "cancelled",
+                  "expired",
+                  "removed",
+                  "banned",
+                  "declined",
+                  "withdrawn"
+                ],
+                "type": "string"
+              },
+              "submissionPath": {
+                "enum": [
+                  "cold",
+                  "invitation",
+                  "cross_apply",
+                  "owner_nominated"
+                ],
+                "type": "string"
+              },
+              "submittedAt": {
+                "nullable": true,
+                "type": "string"
+              }
+            },
+            "required": [
+              "membershipId",
+              "clubId",
+              "clubSlug",
+              "clubName",
+              "state",
+              "submissionPath",
+              "appliedAt",
+              "submittedAt",
+              "decidedAt",
+              "applicationName",
+              "applicationEmail",
+              "applicationSocials",
+              "applicationText",
+              "billing"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "application"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
+      "action": "clubs.applications.list",
+      "auth": "member",
+      "description": "List memberships/applications owned by the calling member.",
+      "domain": "clubs",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Optional club filter.",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "applying",
+                  "submitted",
+                  "interview_scheduled",
+                  "interview_completed",
+                  "payment_pending",
+                  "active",
+                  "renewal_pending",
+                  "cancelled",
+                  "expired",
+                  "removed",
+                  "banned",
+                  "declined",
+                  "withdrawn"
+                ],
+                "type": "string"
+              },
+              {
+                "items": {
+                  "enum": [
+                    "applying",
+                    "submitted",
+                    "interview_scheduled",
+                    "interview_completed",
+                    "payment_pending",
+                    "active",
+                    "renewal_pending",
+                    "cancelled",
+                    "expired",
+                    "removed",
+                    "banned",
+                    "declined",
+                    "withdrawn"
+                  ],
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              }
+            ],
+            "description": "Optional state filter; pass one status or an array of statuses."
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "applications": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "applicationEmail": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "applicationName": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "applicationSocials": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "applicationText": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "appliedAt": {
+                  "type": "string"
+                },
+                "billing": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "accessible": {
+                      "type": "boolean"
+                    },
+                    "membershipState": {
+                      "enum": [
+                        "applying",
+                        "submitted",
+                        "interview_scheduled",
+                        "interview_completed",
+                        "payment_pending",
+                        "active",
+                        "renewal_pending",
+                        "cancelled",
+                        "expired",
+                        "removed",
+                        "banned",
+                        "declined",
+                        "withdrawn"
+                      ],
+                      "type": "string"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "required",
+                    "membershipState",
+                    "accessible"
+                  ],
+                  "type": "object"
+                },
+                "clubId": {
+                  "type": "string"
+                },
+                "clubName": {
+                  "type": "string"
+                },
+                "clubSlug": {
+                  "type": "string"
+                },
+                "decidedAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "membershipId": {
+                  "type": "string"
+                },
+                "state": {
+                  "enum": [
+                    "applying",
+                    "submitted",
+                    "interview_scheduled",
+                    "interview_completed",
+                    "payment_pending",
+                    "active",
+                    "renewal_pending",
+                    "cancelled",
+                    "expired",
+                    "removed",
+                    "banned",
+                    "declined",
+                    "withdrawn"
+                  ],
+                  "type": "string"
+                },
+                "submissionPath": {
+                  "enum": [
+                    "cold",
+                    "invitation",
+                    "cross_apply",
+                    "owner_nominated"
+                  ],
+                  "type": "string"
+                },
+                "submittedAt": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "membershipId",
+                "clubId",
+                "clubSlug",
+                "clubName",
+                "state",
+                "submissionPath",
+                "appliedAt",
+                "submittedAt",
+                "decidedAt",
+                "applicationName",
+                "applicationEmail",
+                "applicationSocials",
+                "applicationText",
+                "billing"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "applications"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
+      "action": "clubs.applications.submit",
+      "auth": "member",
+      "businessErrors": [
+        {
+          "code": "missing_nonce",
+          "meaning": "This application still requires proof of work and no nonce was supplied.",
+          "recovery": "Solve the current challenge and retry with nonce set."
+        },
+        {
+          "code": "challenge_expired",
+          "meaning": "The active proof-of-work challenge expired.",
+          "recovery": "Re-call clubs.join to get a fresh challenge for the same membership, then retry submit."
+        },
+        {
+          "code": "invalid_proof",
+          "meaning": "The supplied nonce does not satisfy the challenge difficulty.",
+          "recovery": "Solve the proof again and retry submit with the same application text."
+        }
+      ],
+      "description": "Submit an in-progress club application for the calling member.",
+      "domain": "clubs",
+      "input": {
+        "properties": {
+          "application": {
+            "description": "Required, max 4000 characters. Server trims whitespace; whitespace-only strings are rejected.",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "membershipId": {
+            "description": "Membership to submit",
+            "type": "string"
+          },
+          "name": {
+            "description": "Applicant name",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "nonce": {
+            "description": "Required when the membership proof_kind is pow. Ignored otherwise.",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "socials": {
+            "description": "Social links or handles",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "required": [
+          "membershipId",
+          "name",
+          "socials",
+          "application"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "applicationSubmittedAt": {
+                "type": "string"
+              },
+              "membershipId": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "submitted"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "membershipId",
+              "applicationSubmittedAt"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "attemptsRemaining": {
+                "type": "number"
+              },
+              "feedback": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "needs_revision"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "feedback",
+              "attemptsRemaining"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "attempts_exhausted"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "message"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "clubs.billing.startCheckout",
+      "auth": "member",
+      "description": "Start billing checkout for a payment-pending membership owned by the calling member.",
+      "domain": "clubs",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Club whose pending membership should be checked out",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "checkoutUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkoutUrl"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "clubs.join",
+      "auth": "optional_member",
+      "businessErrors": [
+        {
+          "code": "email_required_for_first_join",
+          "meaning": "An authenticated member without a stored contact email must provide one before joining a new club.",
+          "recovery": "Retry clubs.join with the email field set."
+        },
+        {
+          "code": "invalid_invitation_code",
+          "meaning": "The invitation code was malformed, expired, revoked, mismatched, or otherwise unusable.",
+          "recovery": "Retry with a different invitation code or omit invitationCode and proceed through PoW."
+        }
+      ],
+      "description": "Create or resume a club application for the calling human. Missing Authorization joins anonymously; a valid bearer token reuses the existing member identity.",
+      "domain": "clubs",
+      "input": {
+        "properties": {
+          "clubSlug": {
+            "description": "Club slug to join",
+            "type": "string"
+          },
+          "email": {
+            "description": "Required for anonymous joins and for authenticated joins that do not yet have a stored contact email.",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "invitationCode": {
+            "description": "Optional invitation code (cc_inv_...).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubSlug"
+        ],
+        "type": "object"
+      },
+      "notes": [
+        "This action is safely retryable on the same clubSlug/email pair.",
+        "Missing Authorization header uses the anonymous branch. Present-but-invalid Authorization returns 401."
+      ],
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "club": {
+            "additionalProperties": false,
+            "properties": {
+              "admissionPolicy": {
+                "nullable": true,
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "ownerName": {
+                "type": "string"
+              },
+              "priceUsd": {
+                "nullable": true,
+                "type": "number"
+              },
+              "summary": {
+                "nullable": true,
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "summary",
+              "ownerName",
+              "admissionPolicy"
+            ],
+            "type": "object"
+          },
+          "clubId": {
+            "type": "string"
+          },
+          "memberToken": {
+            "nullable": true,
+            "type": "string"
+          },
+          "membershipId": {
+            "type": "string"
+          },
+          "proof": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "challengeId": {
+                    "type": "string"
+                  },
+                  "difficulty": {
+                    "type": "number"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "pow"
+                    ],
+                    "type": "string"
+                  },
+                  "maxAttempts": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "challengeId",
+                  "difficulty",
+                  "expiresAt",
+                  "maxAttempts"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "none"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "memberToken",
+          "clubId",
+          "membershipId",
+          "proof",
+          "club"
         ],
         "type": "object"
       },
@@ -9642,6 +8749,340 @@
       "safety": "mutating"
     },
     {
+      "action": "invitations.issue",
+      "auth": "member",
+      "businessErrors": [
+        {
+          "code": "invitation_quota_exceeded",
+          "meaning": "The sponsor already has the maximum number of open invitations for this club and rolling window.",
+          "recovery": "Revoke an unused invitation or wait for an existing one to close before issuing a new one."
+        }
+      ],
+      "description": "Issue a new invitation for a specific candidate email in a specific club.",
+      "domain": "invitations",
+      "input": {
+        "properties": {
+          "candidateEmail": {
+            "description": "ASCII email address. Server trims, lowercases, and validates @.",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "candidateName": {
+            "description": "Full candidate name",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "clubId": {
+            "description": "Club to invite the candidate into",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why this candidate should be invited",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubId",
+          "candidateName",
+          "candidateEmail",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "invitation": {
+            "additionalProperties": false,
+            "properties": {
+              "candidateEmail": {
+                "type": "string"
+              },
+              "candidateName": {
+                "type": "string"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "invitationId": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "sponsor": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "status": {
+                "enum": [
+                  "open",
+                  "used",
+                  "revoked",
+                  "expired"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "invitationId",
+              "clubId",
+              "candidateName",
+              "candidateEmail",
+              "sponsor",
+              "reason",
+              "status",
+              "expiresAt",
+              "createdAt"
+            ],
+            "type": "object"
+          },
+          "invitationCode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitation",
+          "invitationCode"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "invitations.listMine",
+      "auth": "member",
+      "description": "List invitations issued by the calling member.",
+      "domain": "invitations",
+      "input": {
+        "properties": {
+          "clubId": {
+            "description": "Optional club filter",
+            "type": "string"
+          },
+          "cursor": {
+            "description": "Reserved for future pagination; ignored in v1.",
+            "nullable": true,
+            "type": "string"
+          },
+          "status": {
+            "description": "Optional invitation status filter",
+            "enum": [
+              "open",
+              "used",
+              "revoked",
+              "expired"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "invitations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "candidateEmail": {
+                  "type": "string"
+                },
+                "candidateName": {
+                  "type": "string"
+                },
+                "clubId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "invitationId": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "sponsor": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "handle": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "handle"
+                  ],
+                  "type": "object"
+                },
+                "status": {
+                  "enum": [
+                    "open",
+                    "used",
+                    "revoked",
+                    "expired"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "invitationId",
+                "clubId",
+                "candidateName",
+                "candidateEmail",
+                "sponsor",
+                "reason",
+                "status",
+                "expiresAt",
+                "createdAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "invitations"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
+      "action": "invitations.revoke",
+      "auth": "member",
+      "description": "Revoke one invitation issued by the caller or administered by the caller.",
+      "domain": "invitations",
+      "input": {
+        "properties": {
+          "invitationId": {
+            "description": "Invitation to revoke",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invitationId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "invitation": {
+            "additionalProperties": false,
+            "properties": {
+              "candidateEmail": {
+                "type": "string"
+              },
+              "candidateName": {
+                "type": "string"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "invitationId": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "sponsor": {
+                "additionalProperties": false,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "status": {
+                "enum": [
+                  "open",
+                  "used",
+                  "revoked",
+                  "expired"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "invitationId",
+              "clubId",
+              "candidateName",
+              "candidateEmail",
+              "sponsor",
+              "reason",
+              "status",
+              "expiresAt",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "invitation"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "members.list",
       "auth": "member",
       "description": "List members across accessible clubs.",
@@ -11317,13 +10758,13 @@
                 "ref": {
                   "additionalProperties": false,
                   "properties": {
-                    "admissionId": {
-                      "type": "string"
-                    },
                     "entityId": {
                       "type": "string"
                     },
                     "matchId": {
+                      "type": "string"
+                    },
+                    "membershipId": {
                       "type": "string"
                     }
                   },
@@ -13443,8 +12884,8 @@
             "default": "active",
             "description": "Initial membership status",
             "enum": [
-              "invited",
-              "pending_review",
+              "applying",
+              "submitted",
               "active",
               "payment_pending"
             ],
@@ -13470,7 +12911,7 @@
             "type": "string"
           },
           "sponsorMemberId": {
-            "description": "Sponsoring member (defaults to club owner)",
+            "description": "Optional sponsoring member",
             "maxLength": 250000,
             "nullable": true,
             "type": "string"
@@ -13501,6 +12942,7 @@
                 "type": "boolean"
               },
               "joinedAt": {
+                "nullable": true,
                 "type": "string"
               },
               "member": {
@@ -13576,17 +13018,19 @@
                   },
                   "status": {
                     "enum": [
-                      "invited",
-                      "pending_review",
-                      "active",
-                      "paused",
-                      "revoked",
-                      "rejected",
+                      "applying",
+                      "submitted",
+                      "interview_scheduled",
+                      "interview_completed",
                       "payment_pending",
+                      "active",
                       "renewal_pending",
                       "cancelled",
+                      "expired",
+                      "removed",
                       "banned",
-                      "expired"
+                      "declined",
+                      "withdrawn"
                     ],
                     "type": "string"
                   },
@@ -13979,6 +13423,9 @@
               "activeMembers": {
                 "type": "number"
               },
+              "pendingApplications": {
+                "type": "number"
+              },
               "recentMembers": {
                 "items": {
                   "additionalProperties": false,
@@ -14007,9 +13454,6 @@
                 },
                 "type": "array"
               },
-              "totalAdmissions": {
-                "type": "number"
-              },
               "totalClubs": {
                 "type": "number"
               },
@@ -14029,7 +13473,7 @@
               "totalClubs",
               "totalEntities",
               "totalMessages",
-              "totalAdmissions",
+              "pendingApplications",
               "recentMembers"
             ],
             "type": "object"
@@ -14285,8 +13729,7 @@
       "headerFormat": "Authorization: Bearer cc_live_...",
       "type": "bearer",
       "unauthenticatedActions": [
-        "admissions.public.requestChallenge",
-        "admissions.public.submitApplication"
+        "clubs.join"
       ]
     },
     "endpoints": {
@@ -14477,13 +13920,13 @@
                         },
                         "ref": {
                           "properties": {
-                            "admissionId": {
-                              "type": "string"
-                            },
                             "entityId": {
                               "type": "string"
                             },
                             "matchId": {
+                              "type": "string"
+                            },
+                            "membershipId": {
                               "type": "string"
                             }
                           },
@@ -14989,13 +14432,13 @@
                   },
                   "ref": {
                     "properties": {
-                      "admissionId": {
-                        "type": "string"
-                      },
                       "entityId": {
                         "type": "string"
                       },
                       "matchId": {
+                        "type": "string"
+                      },
+                      "membershipId": {
                         "type": "string"
                       }
                     },
@@ -15133,6 +14576,6 @@
       }
     ]
   },
-  "version": "0.2.27",
-  "schemaHash": "de03d218ada69e12"
+  "version": "0.2.44",
+  "schemaHash": "5ec26e5d007ce0cc"
 }

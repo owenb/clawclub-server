@@ -100,7 +100,7 @@ describe('events', () => {
 
   it('events.rsvp and events.cancelRsvp update the public event view', async () => {
     const owner = await h.seedOwner('evt-rsvp-owner', 'EvtRsvpOwner');
-    const attendee = await h.seedClubMember(owner.club.id, 'Rsvp Attendee', 'evt-rsvp-attendee', { sponsorId: owner.id });
+    const attendee = await h.seedCompedMember(owner.club.id, 'Rsvp Attendee', 'evt-rsvp-attendee');
 
     const created = await createEvent(owner.token, owner.club.id, {
       title: 'RSVP Event',

@@ -23,9 +23,9 @@ function included(result: Record<string, unknown>): Record<string, Record<string
 describe('message mentions', () => {
   it('hydrates thread and inbox mentions, dedupes included members, and preserves authoredHandle across renames', async () => {
     const owner = await h.seedOwner('dm-mention-club', 'DM Mention Club');
-    const alice = await h.seedClubMember(owner.club.id, 'DM Alice', 'dm-mention-alice', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'DM Bob', 'dm-mention-bob', { sponsorId: owner.id });
-    const carol = await h.seedClubMember(owner.club.id, 'DM Carol', 'dm-mention-carol', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'DM Alice', 'dm-mention-alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'DM Bob', 'dm-mention-bob');
+    const carol = await h.seedCompedMember(owner.club.id, 'DM Carol', 'dm-mention-carol');
 
     const firstSend = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -77,9 +77,9 @@ describe('message mentions', () => {
 
   it('rejects mentions to pending shared-club members', async () => {
     const owner = await h.seedOwner('dm-pending-club', 'DM Pending Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Pending Alice', 'dm-pending-alice', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Pending Bob', 'dm-pending-bob', { sponsorId: owner.id });
-    const carol = await h.seedClubMember(owner.club.id, 'Pending Carol', 'dm-pending-carol', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'Pending Alice', 'dm-pending-alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'Pending Bob', 'dm-pending-bob');
+    const carol = await h.seedCompedMember(owner.club.id, 'Pending Carol', 'dm-pending-carol');
 
     await h.sql(
       `update members
@@ -100,8 +100,8 @@ describe('message mentions', () => {
   it('clientKey replays bypass mention revalidation after the mentioned member is banned', async () => {
     const admin = await h.seedSuperadmin('DM Replay Admin', 'dm-replay-admin');
     const owner = await h.seedOwner('dm-replay-club', 'DM Replay Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Replay Alice', 'dm-replay-alice', { sponsorId: owner.id });
-    const carol = await h.seedClubMember(owner.club.id, 'Replay Carol', 'dm-replay-carol', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'Replay Alice', 'dm-replay-alice');
+    const carol = await h.seedCompedMember(owner.club.id, 'Replay Carol', 'dm-replay-carol');
     const clientKey = 'dm-mention-replay';
 
     const first = await h.apiOk(owner.token, 'messages.send', {
@@ -131,9 +131,9 @@ describe('message mentions', () => {
   it('suppresses mentions on removed messages for both members and superadmins', async () => {
     const admin = await h.seedSuperadmin('DM Remove Admin', 'dm-remove-admin');
     const owner = await h.seedOwner('dm-remove-mention-club', 'DM Remove Mention Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Remove Alice', 'dm-remove-alice', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Remove Bob', 'dm-remove-bob', { sponsorId: owner.id });
-    const carol = await h.seedClubMember(owner.club.id, 'Remove Carol', 'dm-remove-carol', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'Remove Alice', 'dm-remove-alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'Remove Bob', 'dm-remove-bob');
+    const carol = await h.seedCompedMember(owner.club.id, 'Remove Carol', 'dm-remove-carol');
 
     const sendResult = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -166,11 +166,11 @@ describe('message mentions', () => {
   it('rejects third-party mentions outside the participants shared-club set', async () => {
     const ownerA = await h.seedOwner('dm-third-party-a', 'DM Third Party A');
     const ownerB = await h.seedOwner('dm-third-party-b', 'DM Third Party B');
-    const alice = await h.seedClubMember(ownerA.club.id, 'Third Alice', 'dm-third-alice', { sponsorId: ownerA.id });
-    const bob = await h.seedClubMember(ownerA.club.id, 'Third Bob', 'dm-third-bob', { sponsorId: ownerA.id });
-    const charlie = await h.seedClubMember(ownerB.club.id, 'Third Charlie', 'dm-third-charlie', { sponsorId: ownerB.id });
+    const alice = await h.seedCompedMember(ownerA.club.id, 'Third Alice', 'dm-third-alice');
+    const bob = await h.seedCompedMember(ownerA.club.id, 'Third Bob', 'dm-third-bob');
+    const charlie = await h.seedCompedMember(ownerB.club.id, 'Third Charlie', 'dm-third-charlie');
 
-    await h.seedMembership(ownerB.club.id, alice.id, { sponsorId: ownerB.id });
+    await h.seedCompedMembership(ownerB.club.id, alice.id);
 
     const err = await h.apiErr(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -183,8 +183,8 @@ describe('message mentions', () => {
 
   it('existing threads remain mentionable for the participants after shared clubs drop to zero', async () => {
     const owner = await h.seedOwner('dm-zero-shared-club', 'DM Zero Shared Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Zero Alice', 'dm-zero-alice', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Zero Bob', 'dm-zero-bob', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'Zero Alice', 'dm-zero-alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'Zero Bob', 'dm-zero-bob');
 
     await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -194,7 +194,7 @@ describe('message mentions', () => {
     await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
       membershipId: bob.membership.id,
-      status: 'paused',
+      status: 'removed',
       reason: 'zero shared clubs mention test',
     });
 

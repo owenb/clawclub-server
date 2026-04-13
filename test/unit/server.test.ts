@@ -75,12 +75,18 @@ test('createServer exposes contract headers on core routes and JSON responses', 
 
   const repository: Repository = {
     ...makeRepository(),
-    async createAdmissionChallenge() {
+    async joinClub() {
       return {
-        challengeId: 'challenge-1',
-        difficulty: 7,
-        expiresAt: '2026-03-15T13:00:00.000Z',
-        maxAttempts: 5,
+        memberToken: 'cc_live_member_abc',
+        clubId: 'club-1',
+        membershipId: 'membership-1',
+        proof: {
+          kind: 'pow' as const,
+          challengeId: 'challenge-1',
+          difficulty: 7,
+          expiresAt: '2026-03-15T13:00:00.000Z',
+          maxAttempts: 5,
+        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
@@ -116,8 +122,8 @@ test('createServer exposes contract headers on core routes and JSON responses', 
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        action: 'admissions.public.requestChallenge',
-        input: { clubSlug: 'test' },
+        action: 'clubs.join',
+        input: { clubSlug: 'test', email: 'jane@example.com' },
       }),
     });
     assert.equal(postOk.status, 200);
@@ -127,7 +133,7 @@ test('createServer exposes contract headers on core routes and JSON responses', 
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        action: 'admissions.public.requestChallenge',
+        action: 'clubs.join',
         input: {},
       }),
     });
@@ -138,17 +144,23 @@ test('createServer exposes contract headers on core routes and JSON responses', 
   }
 });
 
-test('createServer accepts unauthenticated cold application actions over POST /api', async () => {
+test('createServer accepts unauthenticated clubs.join over POST /api', async () => {
   const requestFetch = globalThis.fetch;
 
   const repository: Repository = {
     ...makeRepository(),
-    async createAdmissionChallenge() {
+    async joinClub() {
       return {
-        challengeId: 'challenge-1',
-        difficulty: 7,
-        expiresAt: '2026-03-15T13:00:00.000Z',
-        maxAttempts: 5,
+        memberToken: 'cc_live_member_abc',
+        clubId: 'club-1',
+        membershipId: 'membership-1',
+        proof: {
+          kind: 'pow' as const,
+          challengeId: 'challenge-1',
+          difficulty: 7,
+          expiresAt: '2026-03-15T13:00:00.000Z',
+          maxAttempts: 5,
+        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Tell us about yourself.' },
       };
     },
@@ -170,76 +182,40 @@ test('createServer accepts unauthenticated cold application actions over POST /a
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        action: 'admissions.public.requestChallenge',
-        input: { clubSlug: 'test' },
+        action: 'clubs.join',
+        input: { clubSlug: 'test', email: 'jane@example.com' },
       }),
     });
 
     const body = await response.json();
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.action, 'admissions.public.requestChallenge');
-    assert.equal(body.data.challengeId, 'challenge-1');
-    assert.equal(body.data.difficulty, 7);
-    assert.equal(body.data.maxAttempts, 5);
-    assert.equal(body.data.club.slug, 'test');
+    assert.equal(body.action, 'clubs.join');
+    assert.equal(body.data.membershipId, 'membership-1');
+    assert.equal(body.data.memberToken, 'cc_live_member_abc');
+    assert.equal(body.data.proof.challengeId, 'challenge-1');
+    assert.equal(body.data.proof.difficulty, 7);
+    assert.equal(body.data.proof.maxAttempts, 5);
+    assert.equal(body.data.club.name, 'Test');
     assert.equal('actor' in body, false);
   } finally {
     await shutdown();
   }
 });
 
-test('createServer returns accepted for admissions.public.submitApplication', async () => {
+test('createServer returns authenticated envelope for clubs.applications.submit', async () => {
   const requestFetch = globalThis.fetch;
 
   const repository: Repository = {
     ...makeRepository(),
-    async solveAdmissionChallenge() {
-      return { status: 'accepted', message: 'Submitted.' };
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_test' ? makeAuthResult() : null;
     },
-  };
-
-  const { server, shutdown } = createServer({
-    repository,
-    updatesNotifier: makeUpdatesNotifier(),
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        action: 'admissions.public.submitApplication',
-        input: {
-          challengeId: 'challenge-1', nonce: '12345',
-          name: 'Jane Doe', email: 'j@x.com',
-          socials: '@j', application: 'test',
-        },
-      }),
-    });
-
-    const body = await response.json();
-    assert.equal(response.status, 200);
-    assert.equal(body.ok, true);
-    assert.equal(body.data.status, 'accepted');
-  } finally {
-    await shutdown();
-  }
-});
-
-test('createServer includes top-level notices for admissions.public.submitApplication', async () => {
-  const requestFetch = globalThis.fetch;
-
-  const repository: Repository = {
-    ...makeRepository(),
-    async solveAdmissionChallenge() {
+    async submitClubApplication() {
       return {
-        result: { status: 'accepted', message: 'Submitted.' },
-        notices: [{ code: 'pow_compatibility_fallback', message: 'Use trailing zeros next time.' }],
+        status: 'submitted' as const,
+        membershipId: 'membership-1',
+        applicationSubmittedAt: '2026-03-15T13:00:00.000Z',
       };
     },
   };
@@ -256,13 +232,18 @@ test('createServer includes top-level notices for admissions.public.submitApplic
 
     const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer cc_live_test',
+      },
       body: JSON.stringify({
-        action: 'admissions.public.submitApplication',
+        action: 'clubs.applications.submit',
         input: {
-          challengeId: 'challenge-1', nonce: '12345',
-          name: 'Jane Doe', email: 'j@x.com',
-          socials: '@j', application: 'test',
+          membershipId: 'membership-1',
+          nonce: '12345',
+          name: 'Jane Doe',
+          socials: '@j',
+          application: 'test',
         },
       }),
     });
@@ -270,42 +251,101 @@ test('createServer includes top-level notices for admissions.public.submitApplic
     const body = await response.json();
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.data.status, 'accepted');
-    assert.deepEqual(body.notices, [{ code: 'pow_compatibility_fallback', message: 'Use trailing zeros next time.' }]);
+    assert.equal(body.action, 'clubs.applications.submit');
+    assert.equal(body.data.status, 'submitted');
+    assert.equal(body.actor.member.id, 'member-1');
   } finally {
     await shutdown();
   }
 });
 
-test('createServer rate limits cold application actions per IP and per action', async () => {
+test('createServer returns authenticated envelope for clubs.join when bearer token is valid', async () => {
   const requestFetch = globalThis.fetch;
-  let challengeCalls = 0;
-  let solveCalls = 0;
 
   const repository: Repository = {
     ...makeRepository(),
-    async createAdmissionChallenge() {
-      challengeCalls += 1;
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_test' ? makeAuthResult() : null;
+    },
+    async joinClub() {
       return {
-        challengeId: `challenge-${challengeCalls}`,
-        difficulty: 7,
-        expiresAt: '2026-03-15T13:00:00.000Z',
-        maxAttempts: 5,
+        memberToken: null,
+        clubId: 'club-1',
+        membershipId: 'membership-1',
+        proof: { kind: 'none' as const },
+        club: { name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Tell us about yourself.' },
+      };
+    },
+  };
+
+  const { server, shutdown } = createServer({
+    repository,
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer cc_live_test',
+      },
+      body: JSON.stringify({
+        action: 'clubs.join',
+        input: {
+          clubSlug: 'test',
+        },
+      }),
+    });
+
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.action, 'clubs.join');
+    assert.equal(body.data.memberToken, null);
+    assert.equal(body.data.membershipId, 'membership-1');
+    assert.equal(body.actor.member.id, 'member-1');
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer rate limits anonymous clubs.join per IP but not authenticated joins', async () => {
+  const requestFetch = globalThis.fetch;
+  let joinCalls = 0;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken(token) {
+      return token === 'cc_live_test' ? makeAuthResult() : null;
+    },
+    async joinClub() {
+      joinCalls += 1;
+      return {
+        memberToken: joinCalls === 1 ? 'cc_live_member_abc' : null,
+        clubId: 'club-1',
+        membershipId: `membership-${joinCalls}`,
+        proof: {
+          kind: 'pow' as const,
+          challengeId: `challenge-${joinCalls}`,
+          difficulty: 7,
+          expiresAt: '2026-03-15T13:00:00.000Z',
+          maxAttempts: 5,
+        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
-    async solveAdmissionChallenge() {
-      solveCalls += 1;
-      return { status: 'accepted' as const, message: 'Submitted.' };
-    },
   };
 
   const { server, shutdown } = createServer({
     repository,
     updatesNotifier: makeUpdatesNotifier(),
-    coldAdmissionRateLimits: {
-      'admissions.public.requestChallenge': { limit: 1, windowMs: 60_000 },
-      'admissions.public.submitApplication': { limit: 1, windowMs: 60_000 },
+    anonymousJoinRateLimits: {
+      'clubs.join': { limit: 1, windowMs: 60_000 },
     },
   });
 
@@ -314,48 +354,40 @@ test('createServer rate limits cold application actions per IP and per action', 
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const challengeInput = {
-      action: 'admissions.public.requestChallenge',
-      input: { clubSlug: 'test' },
+    const joinInput = {
+      action: 'clubs.join',
+      input: { clubSlug: 'test', email: 'jane@example.com' },
     };
 
-    const firstChallenge = await requestFetch(`http://127.0.0.1:${port}/api`, {
+    const firstJoin = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(challengeInput),
+      body: JSON.stringify(joinInput),
     });
-    assert.equal(firstChallenge.status, 200);
+    assert.equal(firstJoin.status, 200);
 
-    const secondChallenge = await requestFetch(`http://127.0.0.1:${port}/api`, {
+    const secondJoin = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(challengeInput),
+      body: JSON.stringify(joinInput),
     });
-    const secondChallengeBody = await secondChallenge.json();
-    assert.equal(secondChallenge.status, 429);
-    assert.equal(secondChallengeBody.ok, false);
-    assert.equal(secondChallengeBody.error.code, 'rate_limited');
+    const secondJoinBody = await secondJoin.json();
+    assert.equal(secondJoin.status, 429);
+    assert.equal(secondJoinBody.ok, false);
+    assert.equal(secondJoinBody.error.code, 'rate_limited');
 
-    const solveResponse = await requestFetch(`http://127.0.0.1:${port}/api`, {
+    const authenticatedJoin = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        action: 'admissions.public.submitApplication',
-        input: {
-          challengeId: 'challenge-1',
-          nonce: '123456',
-          name: 'Jane Doe',
-          email: 'jane@example.com',
-          socials: '@jane',
-          application: 'I want to join',
-        },
-      }),
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer cc_live_test',
+      },
+      body: JSON.stringify({ action: 'clubs.join', input: { clubSlug: 'test' } }),
     });
-    const solveBody = await solveResponse.json();
-    assert.equal(solveResponse.status, 200);
-    assert.equal(solveBody.ok, true);
-    assert.equal(challengeCalls, 1);
-    assert.equal(solveCalls, 1);
+    const authenticatedBody = await authenticatedJoin.json();
+    assert.equal(authenticatedJoin.status, 200);
+    assert.equal(authenticatedBody.ok, true);
+    assert.equal(joinCalls, 2);
   } finally {
     await shutdown();
   }
@@ -363,17 +395,23 @@ test('createServer rate limits cold application actions per IP and per action', 
 
 test('createServer enforces request body limits by byte size, not decoded string length', async () => {
   const requestFetch = globalThis.fetch;
-  let challengeCalls = 0;
+  let joinCalls = 0;
 
   const repository: Repository = {
     ...makeRepository(),
-    async createAdmissionChallenge() {
-      challengeCalls += 1;
+    async joinClub() {
+      joinCalls += 1;
       return {
-        challengeId: 'challenge-1',
-        difficulty: 7,
-        expiresAt: '2026-03-15T13:00:00.000Z',
-        maxAttempts: 5,
+        memberToken: 'cc_live_member_abc',
+        clubId: 'club-1',
+        membershipId: 'membership-1',
+        proof: {
+          kind: 'pow' as const,
+          challengeId: 'challenge-1',
+          difficulty: 7,
+          expiresAt: '2026-03-15T13:00:00.000Z',
+          maxAttempts: 5,
+        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
@@ -390,8 +428,8 @@ test('createServer enforces request body limits by byte size, not decoded string
     const port = typeof address === 'object' && address ? address.port : 0;
     const oversizedPayload = '😀'.repeat(300_000);
     const body = JSON.stringify({
-      action: 'admissions.public.requestChallenge',
-      input: { clubSlug: 'test', padding: oversizedPayload },
+      action: 'clubs.join',
+      input: { clubSlug: 'test', email: 'jane@example.com', padding: oversizedPayload },
     });
 
     assert.ok(body.length < DEFAULT_SERVER_LIMITS.maxBodyBytes);
@@ -407,7 +445,7 @@ test('createServer enforces request body limits by byte size, not decoded string
     assert.equal(response.status, 413);
     assert.equal(responseBody.ok, false);
     assert.equal(responseBody.error.code, 'payload_too_large');
-    assert.equal(challengeCalls, 0);
+    assert.equal(joinCalls, 0);
   } finally {
     await shutdown();
   }
@@ -552,12 +590,18 @@ test('createServer accepts missing, empty, and matching ClawClub-Schema-Seen hea
 
   const repository: Repository = {
     ...makeRepository(),
-    async createAdmissionChallenge() {
+    async joinClub() {
       return {
-        challengeId: 'challenge-1',
-        difficulty: 7,
-        expiresAt: '2026-03-15T13:00:00.000Z',
-        maxAttempts: 5,
+        memberToken: 'cc_live_member_abc',
+        clubId: 'club-1',
+        membershipId: 'membership-1',
+        proof: {
+          kind: 'pow' as const,
+          challengeId: 'challenge-1',
+          difficulty: 7,
+          expiresAt: '2026-03-15T13:00:00.000Z',
+          maxAttempts: 5,
+        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
@@ -584,8 +628,8 @@ test('createServer accepts missing, empty, and matching ClawClub-Schema-Seen hea
         method: 'POST',
         headers,
         body: JSON.stringify({
-          action: 'admissions.public.requestChallenge',
-          input: { clubSlug: 'test' },
+          action: 'clubs.join',
+          input: { clubSlug: 'test', email: 'jane@example.com' },
         }),
       });
       const body = await response.json();
@@ -601,17 +645,23 @@ test('createServer accepts missing, empty, and matching ClawClub-Schema-Seen hea
 
 test('createServer returns stale_client when ClawClub-Schema-Seen mismatches', async () => {
   const requestFetch = globalThis.fetch;
-  let challengeCalls = 0;
+  let joinCalls = 0;
 
   const repository: Repository = {
     ...makeRepository(),
-    async createAdmissionChallenge() {
-      challengeCalls += 1;
+    async joinClub() {
+      joinCalls += 1;
       return {
-        challengeId: 'challenge-1',
-        difficulty: 7,
-        expiresAt: '2026-03-15T13:00:00.000Z',
-        maxAttempts: 5,
+        memberToken: 'cc_live_member_abc',
+        clubId: 'club-1',
+        membershipId: 'membership-1',
+        proof: {
+          kind: 'pow' as const,
+          challengeId: 'challenge-1',
+          difficulty: 7,
+          expiresAt: '2026-03-15T13:00:00.000Z',
+          maxAttempts: 5,
+        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
@@ -631,8 +681,8 @@ test('createServer returns stale_client when ClawClub-Schema-Seen mismatches', a
         'clawclub-schema-seen': 'stale-schema-hash',
       },
       body: JSON.stringify({
-        action: 'admissions.public.requestChallenge',
-        input: { clubSlug: 'test' },
+        action: 'clubs.join',
+        input: { clubSlug: 'test', email: 'jane@example.com' },
       }),
     });
     const body = await response.json();
@@ -643,7 +693,7 @@ test('createServer returns stale_client when ClawClub-Schema-Seen mismatches', a
     assert.equal(body.error.code, 'stale_client');
     assert.match(body.error.message, /GET \/api\/schema/);
     assert.match(body.error.message, /GET \/skill/);
-    assert.equal(challengeCalls, 0, 'stale_client should short-circuit before dispatch');
+    assert.equal(joinCalls, 0, 'stale_client should short-circuit before dispatch');
   } finally {
     await shutdown();
   }
@@ -665,7 +715,7 @@ test('createServer checks stale_client before parsing JSON bodies', async () => 
         'content-type': 'application/json',
         'clawclub-schema-seen': 'stale-schema-hash',
       },
-      body: '{"action":"admissions.public.requestChallenge","input":',
+      body: '{"action":"clubs.join","input":',
     });
     const body = await response.json();
 
@@ -825,15 +875,24 @@ test('createServer rejects SSE stream when per-member connection cap is reached'
 
 test('createServer uses x-forwarded-for only when trustProxy is enabled', async () => {
   const requestFetch = globalThis.fetch;
-  let challengeCalls = 0;
+  let joinCalls = 0;
 
   const repository: Repository = {
     ...makeRepository(),
-    async createAdmissionChallenge() {
-      challengeCalls += 1;
+    async joinClub() {
+      joinCalls += 1;
       return {
-        challengeId: `challenge-${challengeCalls}`, difficulty: 7, expiresAt: '2026-03-15T13:00:00.000Z',
-        maxAttempts: 5, club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
+        memberToken: 'cc_live_member_abc',
+        clubId: 'club-1',
+        membershipId: `membership-${joinCalls}`,
+        proof: {
+          kind: 'pow' as const,
+          challengeId: `challenge-${joinCalls}`,
+          difficulty: 7,
+          expiresAt: '2026-03-15T13:00:00.000Z',
+          maxAttempts: 5,
+        },
+        club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
   };
@@ -841,7 +900,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
   const { server: serverNoProxy, shutdown: shutdownNoProxy } = createServer({
     repository,
     updatesNotifier: makeUpdatesNotifier(),
-    coldAdmissionRateLimits: { 'admissions.public.requestChallenge': { limit: 1, windowMs: 60_000 }, 'admissions.public.submitApplication': { limit: 1, windowMs: 60_000 } },
+    anonymousJoinRateLimits: { 'clubs.join': { limit: 1, windowMs: 60_000 } },
     trustProxy: false,
   });
 
@@ -850,7 +909,7 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     const address = serverNoProxy.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const body = JSON.stringify({ action: 'admissions.public.requestChallenge', input: { clubSlug: 'test' } });
+    const body = JSON.stringify({ action: 'clubs.join', input: { clubSlug: 'test', email: 'jane@example.com' } });
 
     await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',

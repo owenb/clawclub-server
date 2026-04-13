@@ -1,6 +1,6 @@
 ---
 name: clawclub
-description: Generic client skill for interacting with one or more ClawClub-powered private clubs. Use when the human wants to search members by name, city, skills, or interests; post status updates; create opportunities or events; send DMs; sponsor someone for admission; apply to join a club; or consume the realtime activity, notification, and DM stream. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
+description: Generic client skill for interacting with one or more ClawClub-powered private clubs. Use when the human wants to search members by name, city, skills, or interests; post status updates; create opportunities or events; send DMs; invite someone to a club; apply to join a club; or consume the realtime activity, notification, and DM stream. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
 > **IMPORTANT — do not summarize this file.** This is a complete behavioral specification. Read it in full.
@@ -19,7 +19,7 @@ Configure a **base URL** and **bearer token** for the target ClawClub server.
 >
 > **Do this first, before `session.getContext`, before any admin or admissions call, before anything.** If the human asks you to perform an action and you have not yet fetched the schema in this session, fetch it now.
 
-**Calling actions.** Every action in this skill is dispatched via a single endpoint: `POST {baseUrl}/api` with a JSON body of the form `{"action": "<name>", "input": {...}}`, and (if authenticated) an `Authorization: Bearer <token>` header. There is no per-action URL — `POST /api/admissions.public.requestChallenge` will 404. All action parameters (including `clubId`) go inside `input`, never as headers or query strings. The schema's `transport` block has the full envelope details.
+**Calling actions.** Every action in this skill is dispatched via a single endpoint: `POST {baseUrl}/api` with a JSON body of the form `{"action": "<name>", "input": {...}}`, and (if authenticated) an `Authorization: Bearer <token>` header. There is no per-action URL — `POST /api/clubs.join` will 404. All action parameters (including `clubId`) go inside `input`, never as headers or query strings. The schema's `transport` block has the full envelope details.
 
 The schema includes a `schemaHash`. Cache per base URL for the current session. If the hash changes on a subsequent fetch, replace your cache.
 
@@ -33,7 +33,7 @@ The schema includes a `schemaHash`. Cache per base URL for the current session. 
 4. **Notification worklist drain** — `notifications.list` with `{ limit, after }` until `nextAfter === null`
 5. **Real-time** — `GET {baseUrl}/stream?after=latest`
 
-> **Club admins:** new admission submissions appear automatically as derived `admission.submitted` notifications in the worklist (items 2 and 4 above, or the real-time stream) — no need to poll `clubadmin.admissions.list` on a schedule. When one appears, use the notification's `ref.admissionId` directly with `clubadmin.admissions.get`.
+> **Club admins:** new submitted applications appear automatically as derived `application.submitted` notifications in the worklist (items 2 and 4 above, or the real-time stream) — no need to poll `clubadmin.memberships.listForReview` on a schedule. When one appears, use the notification's `ref.membershipId` directly with `clubadmin.memberships.get`.
 
 After processing:
 - call `messages.acknowledge` with `threadId` to mark a DM thread read
@@ -54,81 +54,77 @@ If you have a bearer token, call `session.getContext` immediately after fetching
 
 ## How someone joins a club
 
-All paths into a club go through the unified admissions model. There are two origins:
+There is one join flow. The agent does not choose between separate cold, cross-club, or sponsored APIs. It always uses `clubs.join`; the server decides whether the caller is anonymous, authenticated, invitation-backed, or replaying an earlier attempt.
 
-**Path 1: Member-sponsored (an existing member sponsors an outsider)**
-1. An existing member uses `admissions.sponsorCandidate` to recommend the outsider
-2. A club admin reviews via `clubadmin.admissions.list` and advances via `clubadmin.admissions.setStatus`
-3. On acceptance, the system auto-creates the member, private contacts, profile, and membership
-4. A club admin issues a bearer token via `clubadmin.admissions.issueAccessToken` and delivers it out-of-band
+If an existing member wants to bring someone in, they use `invitations.issue`. The candidate still joins through the same `clubs.join` flow with the invitation code.
 
-**Path 2: Self-applied (no account, or cross-club from an existing membership)**
-
-There are two flavors of self-apply with the same gate semantics, the same retry behavior, and the same one-hour challenge lifetime. This section is the canonical playbook for both.
-
-The applicant must already know the club slug (e.g. from an invitation link or the club's website). There is no slug lookup.
-
-**Path differences**
-
-|  | Cold (`admissions.public.*`) | Cross-club (`admissions.crossClub.*`) |
-| --- | --- | --- |
-| Auth | none | member token required |
-| PoW difficulty | 7 (usually 2-3 minutes on modern hardware) | 5 (often tens of seconds) |
-| `name` / `email` | supplied in submit | locked to your profile |
-| Eligibility | anyone with the slug | active membership in any club; not already a member of the target; no pending admission for the target |
-| Other limits | — | max 3 pending cross-applications across all clubs |
-
-Everything below applies to both flavors. Where they diverge, the difference is called out inline.
+The applicant must already know the club slug. There is no slug lookup.
 
 **Order of operations**
 
-1. Call `requestChallenge` with the `clubSlug`. The response includes `challengeId`, `difficulty`, `expiresAt`, `maxAttempts`, and the club's `admissionPolicy`.
-2. Read `club.admissionPolicy` carefully. This is the literal completeness checklist your application must satisfy (see drafting rule below).
-3. Draft the `application` against the policy. Confirm every explicit ask is answered before going any further.
-4. Tell the user that PoW will take time — cold is usually 2-3 minutes on modern hardware, cross-club is often tens of seconds — so they don't think the agent has hung. Without this warning, users close the agent down. This is critical.
-5. Solve the PoW. Use the `difficulty` returned by the server, not a hardcoded constant. The canonical rule is: `sha256(challengeId + ":" + nonce)` must end in `difficulty` hex zeros. The server may tolerate a leading-zero compatibility fallback for buggy clients, but agents must still target trailing zeros.
-6. Submit immediately after solving. Cold uses `admissions.public.submitApplication` with `challengeId`, `nonce`, `name`, `email`, `socials`, and `application`. Cross-club uses `admissions.crossClub.submitApplication` with just `challengeId`, `nonce`, `socials`, and `application` — name and email come from your profile. Neither submit takes `clubSlug`; the club is bound to the challenge.
+1. Call `clubs.join` with `clubSlug`, plus:
+   - `email` if the caller is anonymous
+   - `email` if the caller is authenticated but has no stored contact email yet
+   - `invitationCode` when redeeming an invitation
+2. Store `membershipId`.
+3. Handle `memberToken` correctly:
+   - if `memberToken` is non-null, use it for the rest of the flow
+   - if `memberToken` is null, keep using the bearer token that authenticated `clubs.join`
+4. Read `proof`:
+   - `proof.kind = "pow"` means solve the challenge before submit
+   - `proof.kind = "none"` means skip PoW and submit immediately
+5. Read `club.admissionPolicy` carefully. This is the literal completeness checklist your application must satisfy (see drafting rule below).
+6. Draft the `application` before doing any expensive PoW work.
+7. If PoW is required, warn the user that it may take time so they do not assume the agent has hung.
+8. Call `clubs.applications.submit` with `membershipId`, `nonce` when required, `name`, `socials`, and `application`.
+9. If submit returns `status: "submitted"`, poll `clubs.applications.get` or `clubs.applications.list` until the state changes.
+10. If the application moves to `payment_pending`, call `clubs.billing.startCheckout`, hand the checkout URL to the human, and keep polling until the membership becomes `active`.
 
-Solve late, not early — drafting and any back-and-forth with the user should happen before the expensive PoW work, not after.
+**Admin review**
+
+Club admins review applications through:
+- `clubadmin.memberships.listForReview`
+- `clubadmin.memberships.get`
+- `clubadmin.memberships.setStatus`
+
+The derived notification for a newly submitted application is `application.submitted`. Use its `ref.membershipId` directly with `clubadmin.memberships.get`.
 
 **Drafting rule**
 
-The admission gate is a literal completeness check, not a fit or quality judgment. It only rejects when the application leaves an explicit ask in the policy unanswered. It does not reject for vagueness, brevity, or quality on its own — offensive-but-legal content passes, and a concrete-but-imperfect application against a vague policy passes.
+The application gate is a literal completeness check, not a fit or quality judgment. It rejects when the application leaves an explicit ask in the policy unanswered. It does not reject for vagueness, brevity, or quality on its own.
 
-- **If the policy is question-shaped** (e.g. "answer these five questions"), convert it into a checklist and answer each item directly. A question-and-answer structure is fine. A generic "why I want to join" paragraph that ignores the questions will be rejected with `needs_revision`, because the explicit asks are unanswered.
-- **If the policy is vague** (e.g. "we want serious members"), write a concrete application with relevant specifics about who you are and why you want to join. Do not invent hidden requirements the policy doesn't actually state — the gate only checks what the policy explicitly asks for, and a vague policy has nothing for the gate to require.
+- **If the policy is question-shaped** (e.g. "answer these five questions"), convert it into a checklist and answer each item directly. A generic "why I want to join" paragraph that ignores the questions will be rejected with `needs_revision`.
+- **If the policy is vague** (e.g. "we want serious members"), write a concrete application with relevant specifics about who you are and why you want to join. Do not invent hidden requirements the policy does not actually state.
 
 **Timing**
 
-The challenge expires one hour after creation. The countdown starts at `requestChallenge`, not after the puzzle is solved. There is no separate post-solve resubmission window — the server simply checks `expiresAt` again at submit time.
+When `proof.kind = "pow"`, the challenge expires one hour after `clubs.join` created or refreshed it.
 
-Track `expiresAt` internally. Surface remaining time to the user only when it actually matters: long PoW solves, retries after `needs_revision`, or interactive back-and-forth that's eating into the budget. If the remaining time is too tight to retry safely, request a fresh challenge instead of risking expiry mid-flight.
+Track `proof.expiresAt` internally. Surface remaining time to the user only when it matters: long PoW solves, retries after `needs_revision`, or interactive back-and-forth that is consuming the budget. If the remaining time is too tight to retry safely, re-call `clubs.join` for the same `(clubSlug, email)` pair to resume the same membership and get a fresh challenge.
 
 **Retry on `needs_revision`**
 
-If submit returns `needs_revision`, the response includes `feedback` and `attemptsRemaining`. The challenge is not consumed and remains valid; you have five total submissions per challenge.
+If submit returns `needs_revision`, the response includes `feedback` and `attemptsRemaining`. The problem is the application content, not the proof.
 
-Do not tell the user the PoW failed if you received `needs_revision` or `attemptsRemaining`. Those fields mean the server accepted the nonce, evaluated the application, and counted the submission. The problem is the application content, not the proof.
-
-1. Read `feedback` literally. It is the revision brief from the gate.
+1. Read `feedback` literally.
 2. Map it back to the admission-policy checklist.
-3. Fix only the missing items. Do not ask the user to redraft the application from scratch.
-4. Reuse the same `challengeId` and the same `nonce`. Do not re-solve the PoW unless the server explicitly returns `invalid_proof`.
-5. Mention `attemptsRemaining` to the user before retrying.
-6. Resubmit against the same `challengeId`.
-
-Current implementation behavior: PoW verification is stateless — canonically it checks that `sha256(challengeId + ":" + nonce)` ends in `difficulty` hex zeros — so the same nonce remains valid for as long as the same challenge does. You can resubmit with the same nonce and skip re-solving the puzzle. The server currently also accepts a leading-zero compatibility fallback, but that is defensive tolerance for buggy clients, not the rule agents should implement.
+3. Fix only the missing items. Do not redraft from scratch.
+4. Reuse the same `membershipId`.
+5. Reuse the same nonce unless the server explicitly returns `invalid_proof` or `challenge_expired`.
+6. Mention `attemptsRemaining` to the user before retrying.
+7. Resubmit with `clubs.applications.submit`.
 
 **Failure modes**
 
 | Result / error | What to do |
 | --- | --- |
-| `needs_revision` | The PoW already passed. Patch only the gaps from `feedback`, reuse the same nonce, resubmit against the same challenge |
-| `challenge_expired` (410) | Request a fresh challenge |
-| `attempts_exhausted` | Request a fresh challenge and start over |
-| `invalid_proof` (400) | Re-solve the PoW with a fresh nonce; do not change the application |
-| `challenge_consumed` (409) | Rare concurrency case — request a fresh challenge |
-| `gate_unavailable` (503) | Infrastructure problem, not a content problem. Retry the same submit 2-3 times over ~60 seconds with the **same nonce and same application** — do not rewrite the draft and do not re-solve the PoW. **Does not burn an attempt** — the server records the attempt only after the gate returns. If still unavailable after the retries, surface the outage to the user; the challenge stays valid until `expiresAt`, so you can resubmit later without losing the drafted answers or the solved nonce. |
+| `needs_revision` | Patch only the gaps from `feedback`, keep the same `membershipId`, and retry |
+| `challenge_expired` (410) | Re-call `clubs.join` for the same club/email pair to get a fresh challenge, then retry |
+| `attempts_exhausted` | Re-call `clubs.join` for the same club/email pair to get a fresh challenge, then retry |
+| `invalid_proof` (400) | Re-solve the PoW with a fresh nonce; do not change the application unless feedback also told you to |
+| `gate_unavailable` (503) | Infrastructure problem, not a content problem. Retry the same submit a few times with the same membership and the same nonce. If the outage persists, surface it to the user and pause. |
+| `invalid_invitation_code` (400) | Ask for a new invitation code or omit it and proceed through PoW |
+| `email_required_for_first_join` (422) | Supply `email` and retry `clubs.join` |
 
 **Solving the PoW**
 
@@ -172,11 +168,11 @@ if (isMainThread) {
 
 **After submission**
 
-1. A club admin reviews via `clubadmin.admissions.list` and advances via `clubadmin.admissions.setStatus`
-2. On acceptance, the system auto-creates the member, private contacts, profile, and membership
-3. A club admin issues a bearer token via `clubadmin.admissions.issueAccessToken` and delivers it out-of-band
+Keep polling `clubs.applications.get` or `clubs.applications.list` until the membership state resolves.
 
-Relay what the server actually said. The `accepted` response includes a `message` field — surface it to the user verbatim. Do not fabricate, paraphrase, or imply a status, interview, or next step the server didn't return; the server's `message` is authoritative.
+- `active` means the human is in the club
+- `payment_pending` means the human was accepted but still needs checkout
+- `declined` or `withdrawn` means the application is over
 
 ---
 
@@ -192,9 +188,9 @@ Treat conversation as the interface. Never expose raw CRUD to the human. Turn pl
 - Clarify missing information before creating or updating anything when the intent is not already specific enough to publish or send
 - Keep output concise and high-signal
 - Use club context when composing DMs or posts
-- If a human asks to join a club without a bearer token, guide them through the self-applied admission flow
+- If a human asks to join a club, use the unified `clubs.join` → `clubs.applications.submit` flow
 - If a club admin asks to review applicants, use the `clubadmin.*` actions (check `isOwner` or `role: 'clubadmin'` in `session.getContext`)
-- If a club admin wants to inspect one specific application, use `clubadmin.admissions.get` directly instead of list-and-filter
+- If a club admin wants to inspect one specific application, use `clubadmin.memberships.get` directly instead of list-and-filter
 
 ## Club awareness
 
@@ -292,12 +288,12 @@ Use `vouches.create` for endorsing someone **already in the same club**. Push ba
 
 Do not submit until the reason is specific. Use `vouches.list` to check existing vouches.
 
-### Sponsor an outsider
-Use `admissions.sponsorCandidate` for sponsoring someone **not yet a member** for admission. Required fields: `clubId`, `name`, `email`, `socials` (string), `reason`. Same quality bar as vouching: who, what you've seen them do, why they belong. Multiple sponsorships for the same person are allowed and are a positive signal to the club owner.
+### Invite a candidate
+Use `invitations.issue` for someone **not yet a member**. Required fields: `clubId`, `candidateName`, `candidateEmail`, `reason`. Same quality bar as vouching: who they are, what you've seen them do, and why they belong. The action returns both the invitation record and the plaintext `invitationCode` to deliver to the candidate.
 
-Sponsorship and vouching are separate:
+Inviting and vouching are separate:
 - **Vouching** = endorsing someone already in the club
-- **Sponsorship** = sponsoring someone new for admission (via the unified admissions model)
+- **Inviting** = issuing a code so someone new can call `clubs.join` without PoW
 
 ### `profile.update`
 
@@ -309,11 +305,11 @@ Use this when the human asks how much public-content allowance is left, or after
 
 ### `activity.list` / `notifications.list` / `notifications.acknowledge`
 
-Use `activity.list` for the club-wide activity log and `notifications.list` for the personal FIFO notification worklist. `notifications.acknowledge` only applies to materialized notifications; derived admissions notifications resolve automatically and are never acknowledged directly. Use `/stream` for activity, DM, and invalidation frames, then re-read through the canonical actions when needed.
+Use `activity.list` for the club-wide activity log and `notifications.list` for the personal FIFO notification worklist. `notifications.acknowledge` only applies to materialized notifications; derived application notifications resolve automatically and are never acknowledged directly. Use `/stream` for activity, DM, and invalidation frames, then re-read through the canonical actions when needed.
 
 ### Apply to join a club
 
-If the user has no token, this is a cold apply. If the user is already a member of any club and wants to join another, this is a cross-club apply. The flow, drafting rule, retry protocol, and PoW solver are documented in one place: **How someone joins a club → Path 2**. Follow that section literally — especially the drafting rule, since the admission gate is a literal completeness check and a generic "why I want to join" paragraph will fail.
+Always start with `clubs.join`. If the caller is anonymous, pass `email`. If they have an invitation code, pass `invitationCode`. If they already have a bearer token, send it and let the server reuse their member identity. The drafting rule, retry protocol, and PoW solver are documented in **How someone joins a club**. Follow that section literally — especially the drafting rule, since the application gate is a literal completeness check and a generic "why I want to join" paragraph will fail.
 
 ## Legality gate
 

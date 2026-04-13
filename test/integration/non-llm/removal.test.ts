@@ -61,7 +61,7 @@ async function createEvent(token: string, clubId: string, title: string): Promis
 describe('content.remove', () => {
   it('author removes own post and it disappears from content.list', async () => {
     const owner = await h.seedOwner('entity-remove-author', 'Entity Remove Author Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author Remove', 'author-remove-entity', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author Remove', 'author-remove-entity');
 
     const post = await createPost(author.token, owner.club.id, 'To be removed');
 
@@ -77,7 +77,7 @@ describe('content.remove', () => {
 
   it('author removes own post with optional reason', async () => {
     const owner = await h.seedOwner('entity-remove-reason', 'Entity Remove Reason Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author Reason', 'author-reason-remove', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author Reason', 'author-reason-remove');
 
     const post = await createPost(author.token, owner.club.id, 'Reason test');
     const result = await h.apiOk(author.token, 'content.remove', {
@@ -89,8 +89,8 @@ describe('content.remove', () => {
 
   it('non-author cannot remove a post', async () => {
     const owner = await h.seedOwner('entity-remove-forbidden', 'Entity Remove Forbidden Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author Forbid', 'author-forbid-remove', { sponsorId: owner.id });
-    const bystander = await h.seedClubMember(owner.club.id, 'Bystander', 'bystander-remove', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author Forbid', 'author-forbid-remove');
+    const bystander = await h.seedCompedMember(owner.club.id, 'Bystander', 'bystander-remove');
 
     const post = await createPost(author.token, owner.club.id, 'Protected');
     const err = await h.apiErr(bystander.token, 'content.remove', { entityId: post.entityId });
@@ -99,7 +99,7 @@ describe('content.remove', () => {
 
   it('double remove is idempotent', async () => {
     const owner = await h.seedOwner('entity-remove-idempotent', 'Entity Remove Idempotent Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author Idempotent', 'author-idempotent-remove', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author Idempotent', 'author-idempotent-remove');
 
     const post = await createPost(author.token, owner.club.id, 'Idempotent');
     const first = await h.apiOk(author.token, 'content.remove', { entityId: post.entityId });
@@ -109,7 +109,7 @@ describe('content.remove', () => {
 
   it('removed entities cannot be updated back to published', async () => {
     const owner = await h.seedOwner('entity-remove-update', 'Entity Remove Update Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author Update Blocked', 'author-update-blocked', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author Update Blocked', 'author-update-blocked');
 
     const post = await createPost(author.token, owner.club.id, 'Do not resurrect');
     await h.apiOk(author.token, 'content.remove', { entityId: post.entityId });
@@ -124,8 +124,8 @@ describe('content.remove', () => {
 
   it('removed entity is filtered from activity.list', async () => {
     const owner = await h.seedOwner('entity-remove-updates', 'Entity Remove Updates Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author Updates', 'author-updates-remove', { sponsorId: owner.id });
-    const viewer = await h.seedClubMember(owner.club.id, 'Viewer Updates', 'viewer-updates-remove', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author Updates', 'author-updates-remove');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Viewer Updates', 'viewer-updates-remove');
 
     const seedResult = getActivity(await h.apiOk(viewer.token, 'activity.list', { clubId: owner.club.id, after: 'latest' }));
     const seedAfter = seedResult.nextAfter as string;
@@ -154,8 +154,8 @@ describe('content.remove', () => {
 describe('messages.remove', () => {
   it('sender removes own message and the thread shows a placeholder', async () => {
     const owner = await h.seedOwner('msg-remove-sender', 'Msg Remove Sender Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Alice MsgRemove', 'alice-msg-remove', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Bob MsgRemove', 'bob-msg-remove', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice MsgRemove', 'alice-msg-remove');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob MsgRemove', 'bob-msg-remove');
 
     const sendResult = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -175,8 +175,8 @@ describe('messages.remove', () => {
 
   it('non-sender cannot remove a message', async () => {
     const owner = await h.seedOwner('msg-remove-forbidden', 'Msg Remove Forbidden Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Alice Forbidden', 'alice-forbidden-remove', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Bob Forbidden', 'bob-forbidden-remove', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Forbidden', 'alice-forbidden-remove');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Forbidden', 'bob-forbidden-remove');
 
     const sendResult = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -190,8 +190,8 @@ describe('messages.remove', () => {
 
   it('already-removed message does not leak to the non-sender', async () => {
     const owner = await h.seedOwner('msg-remove-leak', 'Msg Remove Leak Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Alice LeakRm', 'alice-leakrm', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Bob LeakRm', 'bob-leakrm', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice LeakRm', 'alice-leakrm');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob LeakRm', 'bob-leakrm');
 
     const sendResult = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -207,8 +207,8 @@ describe('messages.remove', () => {
 
   it('double remove is idempotent', async () => {
     const owner = await h.seedOwner('msg-remove-idempotent', 'Msg Remove Idempotent Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Alice Idempotent', 'alice-idempotent-remove', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Bob Idempotent', 'bob-idempotent-remove', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Idempotent', 'alice-idempotent-remove');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Idempotent', 'bob-idempotent-remove');
 
     const sendResult = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -223,8 +223,8 @@ describe('messages.remove', () => {
 
   it('removed message shows a placeholder to the recipient', async () => {
     const owner = await h.seedOwner('msg-remove-updates', 'Msg Remove Updates Club');
-    const alice = await h.seedClubMember(owner.club.id, 'Alice Updates', 'alice-updates-remove', { sponsorId: owner.id });
-    const bob = await h.seedClubMember(owner.club.id, 'Bob Updates', 'bob-updates-remove', { sponsorId: owner.id });
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Updates', 'alice-updates-remove');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Updates', 'bob-updates-remove');
 
     const sendResult = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -245,7 +245,7 @@ describe('messages.remove', () => {
 describe('clubadmin.content.remove', () => {
   it('club admin removes any entity with a required reason', async () => {
     const owner = await h.seedOwner('admin-entity-remove', 'Admin Entity Remove Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author AdminRemove', 'author-admin-remove', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author AdminRemove', 'author-admin-remove');
 
     const post = await createPost(author.token, owner.club.id, 'Admin removes this', 'Content');
 
@@ -282,7 +282,7 @@ describe('clubadmin.content.remove', () => {
 
   it('the same moderation path removes events too', async () => {
     const owner = await h.seedOwner('admin-event-remove', 'Admin Event Remove Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author AdminEventRemove', 'author-admin-event-remove', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author AdminEventRemove', 'author-admin-event-remove');
 
     const eventEntity = await createEvent(author.token, owner.club.id, 'Admin Removes Event');
     const result = await h.apiOk(owner.token, 'clubadmin.content.remove', {
@@ -297,8 +297,8 @@ describe('clubadmin.content.remove', () => {
 describe('moderation removal emits feed events', () => {
   it('clubadmin.content.remove emits entity.removed in club activity', async () => {
     const owner = await h.seedOwner('mod-audit-entity', 'Mod Audit Entity Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author ModAudit', 'author-mod-audit', { sponsorId: owner.id });
-    const viewer = await h.seedClubMember(owner.club.id, 'Viewer ModAudit', 'viewer-mod-audit', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author ModAudit', 'author-mod-audit');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Viewer ModAudit', 'viewer-mod-audit');
 
     const post = await createPost(author.token, owner.club.id, 'Mod will remove');
 
@@ -326,7 +326,7 @@ describe('moderation removal emits feed events', () => {
 describe('event removal via unified content actions', () => {
   it('author removes own event and it disappears from events.list', async () => {
     const owner = await h.seedOwner('event-remove-author', 'Event Remove Author Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author EventRemove', 'author-event-remove', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author EventRemove', 'author-event-remove');
 
     const eventEntity = await createEvent(author.token, owner.club.id, 'To Remove');
     const result = await h.apiOk(author.token, 'content.remove', { entityId: eventEntity.entityId });
@@ -339,8 +339,8 @@ describe('event removal via unified content actions', () => {
 
   it('non-author cannot remove an event', async () => {
     const owner = await h.seedOwner('event-rm-nonauth', 'Event Remove NonAuth Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author NARm', 'author-narm', { sponsorId: owner.id });
-    const other = await h.seedClubMember(owner.club.id, 'Other NARm', 'other-narm', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author NARm', 'author-narm');
+    const other = await h.seedCompedMember(owner.club.id, 'Other NARm', 'other-narm');
 
     const eventEntity = await createEvent(author.token, owner.club.id, 'Not Yours');
     const err = await h.apiErr(other.token, 'content.remove', { entityId: eventEntity.entityId });
@@ -349,8 +349,8 @@ describe('event removal via unified content actions', () => {
 
   it('removed events reject new RSVPs', async () => {
     const owner = await h.seedOwner('rsvp-removed-event', 'RSVP Removed Event Club');
-    const author = await h.seedClubMember(owner.club.id, 'Author RSVP', 'author-rsvp-removed', { sponsorId: owner.id });
-    const attendee = await h.seedClubMember(owner.club.id, 'Attendee RSVP', 'attendee-rsvp-removed', { sponsorId: owner.id });
+    const author = await h.seedCompedMember(owner.club.id, 'Author RSVP', 'author-rsvp-removed');
+    const attendee = await h.seedCompedMember(owner.club.id, 'Attendee RSVP', 'attendee-rsvp-removed');
 
     const eventEntity = await createEvent(author.token, owner.club.id, 'RSVP Test Event');
     await h.apiOk(author.token, 'content.remove', { entityId: eventEntity.entityId });
@@ -368,11 +368,11 @@ describe('multi-club entity.removed activity goes to the correct club', () => {
     const ownerA = await h.seedOwner('multi-rm-a', 'Multi Remove Club A');
     const ownerB = await h.seedOwner('multi-rm-b', 'Multi Remove Club B');
 
-    const author = await h.seedClubMember(ownerA.club.id, 'Author Multi', 'author-multi-rm', { sponsorId: ownerA.id });
-    await h.seedMembership(ownerB.club.id, author.id, { sponsorId: ownerB.id });
+    const author = await h.seedCompedMember(ownerA.club.id, 'Author Multi', 'author-multi-rm');
+    await h.seedCompedMembership(ownerB.club.id, author.id);
 
-    const viewerB = await h.seedClubMember(ownerB.club.id, 'Viewer B Multi', 'viewer-b-multi-rm', { sponsorId: ownerB.id });
-    const viewerA = await h.seedClubMember(ownerA.club.id, 'Viewer A Multi', 'viewer-a-multi-rm', { sponsorId: ownerA.id });
+    const viewerB = await h.seedCompedMember(ownerB.club.id, 'Viewer B Multi', 'viewer-b-multi-rm');
+    const viewerA = await h.seedCompedMember(ownerA.club.id, 'Viewer A Multi', 'viewer-a-multi-rm');
 
     const post = await createPost(author.token, ownerB.club.id, 'In Club B');
 

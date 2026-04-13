@@ -15,7 +15,7 @@
  *   - Missing repository capabilities consistently return 501 'not_available'
  *     (previously mixed 500 'not_supported' and 501 'not_implemented').
  *
- * Rate limiting for cold admissions is handled in server.ts before dispatch,
+ * Rate limiting for anonymous clubs.join traffic is handled in server.ts before dispatch,
  * since it requires IP-level context that doesn't belong in the action layer.
  */
 

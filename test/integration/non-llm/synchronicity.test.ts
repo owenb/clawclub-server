@@ -61,7 +61,7 @@ describe('synchronicity worker', () => {
   describe('entity-triggered matching', () => {
     it('ask publication creates ask_to_member matches and delivers signals', async () => {
       const owner = await h.seedOwner('sw-ask1', 'SW Ask1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice SW1', 'alice-sw1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice SW1', 'alice-sw1');
 
       // Alice has a profile embedding close to the ask
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
@@ -99,7 +99,7 @@ describe('synchronicity worker', () => {
       const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
 
       // Another member publishes a service with similar embedding
-      const bob = await h.seedClubMember(owner.club.id, 'Bob SW1', 'bob-sw1', { sponsorId: owner.id });
+      const bob = await h.seedCompedMember(owner.club.id, 'Bob SW1', 'bob-sw1');
       const serviceId = await seedEntityWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, serviceId, bob.id);
 
@@ -138,7 +138,7 @@ describe('synchronicity worker', () => {
 
     it('gift publication creates offer_to_ask matches', async () => {
       const owner = await h.seedOwner('sw-gift1', 'SW Gift1');
-      const giver = await h.seedClubMember(owner.club.id, 'Gift Giver', 'gift-giver-sw1', { sponsorId: owner.id });
+      const giver = await h.seedCompedMember(owner.club.id, 'Gift Giver', 'gift-giver-sw1');
 
       await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
 
@@ -159,7 +159,7 @@ describe('synchronicity worker', () => {
 
     it('closed gifts do not create matches at trigger time', async () => {
       const owner = await h.seedOwner('sw-gift-closed', 'SW Gift Closed');
-      const giver = await h.seedClubMember(owner.club.id, 'Closed Gift Giver', 'closed-gift-giver', { sponsorId: owner.id });
+      const giver = await h.seedCompedMember(owner.club.id, 'Closed Gift Giver', 'closed-gift-giver');
 
       await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
       const giftId = await seedEntityWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
@@ -178,7 +178,7 @@ describe('synchronicity worker', () => {
 
     it('pending gift matches expire instead of delivering after the gift is closed', async () => {
       const owner = await h.seedOwner('sw-gift-delivery-close', 'SW Gift Delivery Close');
-      const giver = await h.seedClubMember(owner.club.id, 'Delivery Giver', 'delivery-giver', { sponsorId: owner.id });
+      const giver = await h.seedCompedMember(owner.club.id, 'Delivery Giver', 'delivery-giver');
 
       await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
       const giftId = await seedEntityWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
@@ -209,7 +209,7 @@ describe('synchronicity worker', () => {
 
     it('reopening a gift clears historical matches so the same recipient can be matched again', async () => {
       const owner = await h.seedOwner('sw-gift-reopen', 'SW Gift Reopen');
-      const giver = await h.seedClubMember(owner.club.id, 'Reopen Giver', 'reopen-giver', { sponsorId: owner.id });
+      const giver = await h.seedCompedMember(owner.club.id, 'Reopen Giver', 'reopen-giver');
 
       await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
       const giftId = await seedEntityWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
@@ -238,7 +238,7 @@ describe('synchronicity worker', () => {
 
     it('post publication does not create matches', async () => {
       const owner = await h.seedOwner('sw-post1', 'SW Post1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Post1', 'alice-post1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Post1', 'alice-post1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const postId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'post', makeVector([0.95, 0.05, 0]));
@@ -255,7 +255,7 @@ describe('synchronicity worker', () => {
   describe('introduction matching', () => {
     it('profile update enqueues recompute and produces intro matches', async () => {
       const owner = await h.seedOwner('sw-intro1', 'SW Intro1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Intro1', 'alice-intro1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Intro1', 'alice-intro1');
 
       // Both have embeddings close to each other
       await seedProfileEmbedding(h, owner.id, makeVector([1, 0, 0]));
@@ -279,7 +279,7 @@ describe('synchronicity worker', () => {
 
     it('duplicate intro matches are prevented', async () => {
       const owner = await h.seedOwner('sw-dedup1', 'SW Dedup1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Dedup1', 'alice-dedup1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Dedup1', 'alice-dedup1');
 
       await seedProfileEmbedding(h, owner.id, makeVector([1, 0, 0]));
       await seedProfileEmbedding(h, alice.id, makeVector([0.95, 0.05, 0]));
@@ -304,7 +304,7 @@ describe('synchronicity worker', () => {
 
     it('warm-up delay prevents immediate recompute for new members', async () => {
       const owner = await h.seedOwner('sw-warmup1', 'SW Warmup1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Warmup1', 'alice-warmup1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Warmup1', 'alice-warmup1');
 
       await seedProfileEmbedding(h, owner.id, makeVector([1, 0, 0]));
       await seedProfileEmbedding(h, alice.id, makeVector([0.95, 0.05, 0]));
@@ -329,7 +329,7 @@ describe('synchronicity worker', () => {
 
     it('DM thread existence invalidates pending intro matches at delivery', async () => {
       const owner = await h.seedOwner('sw-dmthread1', 'SW DmThread1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice DmThread1', 'alice-dmthread1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice DmThread1', 'alice-dmthread1');
 
       await seedProfileEmbedding(h, owner.id, makeVector([1, 0, 0]));
       await seedProfileEmbedding(h, alice.id, makeVector([0.95, 0.05, 0]));
@@ -391,7 +391,7 @@ describe('synchronicity worker', () => {
       // Seed several members with embeddings
       const members = [];
       for (let i = 0; i < 5; i++) {
-        const m = await h.seedClubMember(owner.club.id, `Throttle${i}`, `throttle-${i}`, { sponsorId: owner.id });
+        const m = await h.seedCompedMember(owner.club.id, `Throttle${i}`, `throttle-${i}`);
         // Each member slightly different vector
         await seedProfileEmbedding(h, m.id, makeVector([0.9 - i * 0.1, 0.1 + i * 0.1, 0]));
         members.push(m);
@@ -413,7 +413,7 @@ describe('synchronicity worker', () => {
 
     it('entity-removed invalidates pending matches at delivery', async () => {
       const owner = await h.seedOwner('sw-invalid1', 'SW Invalid1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Invalid1', 'alice-invalid1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Invalid1', 'alice-invalid1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       // Publish an ask and create activity
@@ -443,7 +443,7 @@ describe('synchronicity worker', () => {
   describe('end-to-end pipeline', () => {
     it('full ask pipeline: publish → match → deliver → notification appears in notifications.list', async () => {
       const owner = await h.seedOwner('sw-e2e1', 'SW E2E1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice E2E1', 'alice-e2e1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice E2E1', 'alice-e2e1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const initial = getNotifications(await h.apiOk(alice.token, 'notifications.list', { limit: 50 }));
@@ -470,7 +470,7 @@ describe('synchronicity worker', () => {
   describe('crash-retry idempotency', () => {
     it('duplicate signal insert is prevented by unique match_id index', async () => {
       const owner = await h.seedOwner('sw-idem1', 'SW Idem1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Idem1', 'alice-idem1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Idem1', 'alice-idem1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
@@ -514,7 +514,7 @@ describe('synchronicity worker', () => {
   describe('offer_to_ask payload', () => {
     it('offer_to_ask notification includes yourAskEntityId', async () => {
       const owner = await h.seedOwner('sw-offpay1', 'SW OffPay1');
-      const bob = await h.seedClubMember(owner.club.id, 'Bob OffPay1', 'bob-offpay1', { sponsorId: owner.id });
+      const bob = await h.seedCompedMember(owner.club.id, 'Bob OffPay1', 'bob-offpay1');
 
       // Owner has an ask
       const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
@@ -571,7 +571,7 @@ describe('synchronicity worker', () => {
   describe('backstop sweep', () => {
     it('enqueues all accessible members for intro recompute', async () => {
       const owner = await h.seedOwner('sw-backstop1', 'SW Backstop1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Backstop1', 'alice-backstop1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Backstop1', 'alice-backstop1');
 
       const pools = workerPools();
 
@@ -623,7 +623,7 @@ describe('synchronicity worker', () => {
 
     it('stale pending match does not deliver after TTL', async () => {
       const owner = await h.seedOwner('sw-ttl1', 'SW TTL1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice TTL1', 'alice-ttl1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice TTL1', 'alice-ttl1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
@@ -661,7 +661,7 @@ describe('synchronicity worker', () => {
 
     it('edited ask invalidates old pending match', async () => {
       const owner = await h.seedOwner('sw-drift1', 'SW Drift1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Drift1', 'alice-drift1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Drift1', 'alice-drift1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
@@ -696,7 +696,7 @@ describe('synchronicity worker', () => {
 
     it('edited offer invalidates old pending offer_to_ask match', async () => {
       const owner = await h.seedOwner('sw-drift2', 'SW Drift2');
-      const bob = await h.seedClubMember(owner.club.id, 'Bob Drift2', 'bob-drift2', { sponsorId: owner.id });
+      const bob = await h.seedCompedMember(owner.club.id, 'Bob Drift2', 'bob-drift2');
 
       // Owner has an ask, Bob publishes a matching service
       const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
@@ -728,7 +728,7 @@ describe('synchronicity worker', () => {
 
     it('removed entity never appears in a signal payload', async () => {
       const owner = await h.seedOwner('sw-removed1', 'SW Removed1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Removed1', 'alice-removed1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Removed1', 'alice-removed1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
@@ -756,7 +756,7 @@ describe('synchronicity worker', () => {
 
     it('no duplicate intro after profile re-embedding', async () => {
       const owner = await h.seedOwner('sw-reembed1', 'SW Reembed1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Reembed1', 'alice-reembed1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Reembed1', 'alice-reembed1');
 
       await seedProfileEmbedding(h, owner.id, makeVector([1, 0, 0]));
       await seedProfileEmbedding(h, alice.id, makeVector([0.95, 0.05, 0]));
@@ -791,7 +791,7 @@ describe('synchronicity worker', () => {
 
     it('edited matched ask invalidates pending offer_to_ask match', async () => {
       const owner = await h.seedOwner('sw-askdrift1', 'SW AskDrift1');
-      const bob = await h.seedClubMember(owner.club.id, 'Bob AskDrift1', 'bob-askdrift1', { sponsorId: owner.id });
+      const bob = await h.seedCompedMember(owner.club.id, 'Bob AskDrift1', 'bob-askdrift1');
 
       // Owner has an ask, Bob publishes a matching service
       const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
@@ -827,7 +827,7 @@ describe('synchronicity worker', () => {
 
     it('delayed profile embedding does not create intro messages', async () => {
       const owner = await h.seedOwner('sw-delayed1', 'SW Delayed1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Delayed1', 'alice-delayed1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Delayed1', 'alice-delayed1');
 
       const pools = workerPools();
 
@@ -895,7 +895,7 @@ describe('synchronicity worker', () => {
 
     it('freshness guard: very old match does not deliver after outage', async () => {
       const owner = await h.seedOwner('sw-fresh1', 'SW Fresh1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice Fresh1', 'alice-fresh1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Fresh1', 'alice-fresh1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
@@ -922,7 +922,7 @@ describe('synchronicity worker', () => {
 
     it('removed entity content does not surface through delivered signal', async () => {
       const owner = await h.seedOwner('sw-removesig1', 'SW RemoveSig1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice RemoveSig1', 'alice-removesig1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice RemoveSig1', 'alice-removesig1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
@@ -951,7 +951,7 @@ describe('synchronicity worker', () => {
 
     it('pending ask_to_member expires when recipient profile changes', async () => {
       const owner = await h.seedOwner('sw-profask1', 'SW ProfAsk1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice ProfAsk1', 'alice-profask1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice ProfAsk1', 'alice-profask1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
@@ -980,7 +980,7 @@ describe('synchronicity worker', () => {
 
     it('pending introduction expires when either member profile changes', async () => {
       const owner = await h.seedOwner('sw-profintro1', 'SW ProfIntro1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice ProfIntro1', 'alice-profintro1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice ProfIntro1', 'alice-profintro1');
 
       await seedProfileEmbedding(h, owner.id, makeVector([1, 0, 0]));
       await seedProfileEmbedding(h, alice.id, makeVector([0.95, 0.05, 0]));
@@ -1012,7 +1012,7 @@ describe('synchronicity worker', () => {
 
     it('recipient loses access before ask_to_member delivery => no signal', async () => {
       const owner = await h.seedOwner('sw-noaccess1', 'SW NoAccess1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice NoAccess1', 'alice-noaccess1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice NoAccess1', 'alice-noaccess1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
@@ -1030,7 +1030,7 @@ describe('synchronicity worker', () => {
       const membershipId = membershipRows[0]!.id;
       await h.sql(
         `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-         values ($1, 'revoked', 'test', 99, $2)`,
+         values ($1, 'removed', 'test', 99, $2)`,
         [membershipId, owner.id],
       );
       await h.sql(
@@ -1053,9 +1053,9 @@ describe('synchronicity worker', () => {
     it('recipient loses access before offer_to_ask delivery => no signal', async () => {
       const owner = await h.seedOwner('sw-noaccess2', 'SW NoAccess2');
       // Alice is a regular member (not clubadmin) who posts an ask
-      const alice = await h.seedClubMember(owner.club.id, 'Alice NoAccess2', 'alice-noaccess2', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice NoAccess2', 'alice-noaccess2');
       // Bob publishes a matching service
-      const bob = await h.seedClubMember(owner.club.id, 'Bob NoAccess2', 'bob-noaccess2', { sponsorId: owner.id });
+      const bob = await h.seedCompedMember(owner.club.id, 'Bob NoAccess2', 'bob-noaccess2');
 
       const askId = await seedEntityWithEmbedding(h, owner.club.id, alice.id, 'ask', makeVector([1, 0, 0]));
       const serviceId = await seedEntityWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
@@ -1072,7 +1072,7 @@ describe('synchronicity worker', () => {
       );
       await h.sql(
         `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-         values ($1, 'revoked', 'test', 99, $2)`,
+         values ($1, 'removed', 'test', 99, $2)`,
         [membershipRows[0]!.id, owner.id],
       );
       await h.sql(
@@ -1094,7 +1094,7 @@ describe('synchronicity worker', () => {
 
     it('stale profile embedding: profile advances without new embedding => no ask_to_member match', async () => {
       const owner = await h.seedOwner('sw-staleprof1', 'SW StaleProf1');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice StaleProf1', 'alice-staleprof1', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice StaleProf1', 'alice-staleprof1');
 
       // Alice has v1 profile embedding
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
@@ -1132,7 +1132,7 @@ describe('synchronicity worker', () => {
 
     it('stale profile embedding: profile advances without new embedding => no intro match', async () => {
       const owner = await h.seedOwner('sw-staleprof2', 'SW StaleProf2');
-      const alice = await h.seedClubMember(owner.club.id, 'Alice StaleProf2', 'alice-staleprof2', { sponsorId: owner.id });
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice StaleProf2', 'alice-staleprof2');
 
       // Owner has current embedding
       await seedProfileEmbedding(h, owner.id, makeVector([1, 0, 0]));
@@ -1173,7 +1173,7 @@ describe('synchronicity worker', () => {
 
     it('removed matched ask hides delivered offer_to_ask notification from notifications.list', async () => {
       const owner = await h.seedOwner('sw-askremove1', 'SW AskRemove1');
-      const bob = await h.seedClubMember(owner.club.id, 'Bob AskRemove1', 'bob-askremove1', { sponsorId: owner.id });
+      const bob = await h.seedCompedMember(owner.club.id, 'Bob AskRemove1', 'bob-askremove1');
 
       // Owner posts an ask, Bob posts a matching service
       const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
