@@ -6,10 +6,17 @@
  *   - Authenticated: includes actor context (member, roles, memberships, scope)
  *   - Unauthenticated: bare action + data (cold admissions only)
  *
- * Plus the error envelope and polling/SSE response shapes.
+ * Plus the error envelope and SSE response shapes.
  */
 import { z } from 'zod';
-import { membershipSummary, pendingUpdate, memberUpdates } from './responses.ts';
+import {
+  membershipSummary,
+  notificationItem,
+  activityEvent,
+  directMessageThreadSummary,
+  directMessageEntry,
+  includedBundle,
+} from './responses.ts';
 
 // ── Actor envelope ───────────────────────────────────────
 
@@ -19,7 +26,8 @@ export const requestScope = z.object({
 });
 
 export const sharedContext = z.object({
-  pendingUpdates: z.array(pendingUpdate),
+  notifications: z.array(notificationItem),
+  notificationsTruncated: z.boolean(),
 });
 
 export const actorEnvelope = z.object({
@@ -69,20 +77,7 @@ export const errorEnvelope = z.object({
   }),
 });
 
-// ── Polling response (`updates.list` via POST /api) ──────
-
-export const pollingResponse = z.object({
-  ok: z.literal(true),
-  member: z.object({
-    id: z.string(),
-    handle: z.string().nullable(),
-    publicName: z.string(),
-  }),
-  requestScope,
-  updates: memberUpdates,
-});
-
-// ── SSE events (GET /updates/stream) ─────────────────────
+// ── SSE events (GET /stream) ─────────────────────────────
 
 export const sseReadyEvent = z.object({
   member: z.object({
@@ -91,8 +86,17 @@ export const sseReadyEvent = z.object({
     publicName: z.string(),
   }),
   requestScope,
-  nextAfter: z.string().nullable(),
-  latestCursor: z.string().nullable(),
+  notifications: z.array(notificationItem),
+  notificationsTruncated: z.boolean(),
+  activityCursor: z.string().nullable(),
 });
 
-// sseUpdateEvent is just a PendingUpdate — already defined in responses.ts
+export const sseActivityEvent = activityEvent;
+
+export const sseMessageEvent = z.object({
+  thread: directMessageThreadSummary,
+  messages: z.array(directMessageEntry),
+  included: includedBundle,
+});
+
+export const sseNotificationsDirtyEvent = z.object({});

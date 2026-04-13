@@ -30,7 +30,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 describe('stream scope refresh', () => {
-  it('stops delivering updates from a club after membership is paused', async () => {
+  it('stops delivering activity from a club after membership is paused', async () => {
     const owner = await h.seedOwner('scope-remove', 'Scope Remove Club');
     const member = await h.seedClubMember(owner.club.id, 'Alice Scope', 'alice-scope-remove', { sponsorId: owner.id });
 
@@ -57,12 +57,12 @@ describe('stream scope refresh', () => {
       // Give the stream time to process
       await sleep(500);
 
-      // The stream should NOT have delivered an update for this activity
-      const updateEvents = stream.events.filter((e) => e.event === 'update');
-      const removedClubUpdate = updateEvents.find(
+      // The stream should NOT have delivered an activity frame for this row
+      const activityEvents = stream.events.filter((e) => e.event === 'activity');
+      const removedClubUpdate = activityEvents.find(
         (e) => (e.data as Record<string, unknown>).topic === 'test.after_removal',
       );
-      assert.equal(removedClubUpdate, undefined, 'stream should not deliver updates from a club the member was removed from');
+      assert.equal(removedClubUpdate, undefined, 'stream should not deliver activity from a club the member was removed from');
     } finally {
       stream.close();
     }
@@ -93,14 +93,17 @@ describe('stream scope refresh', () => {
       // run the scope refresh, pick up club B, and read with fresh scope.
       await insertActivity(ownerA.club.id, ownerA.id, 'test.wakeup_trigger');
 
-      // Wait for both updates to arrive (club A trigger + club B activity)
+      // Wait for the full scope-change burst:
+      // notifications_dirty + club A wakeup activity + club B activity.
       const eventCountBefore = stream.events.length;
-      await stream.waitForEvents(eventCountBefore + 1, 5000);
+      await stream.waitForEvents(eventCountBefore + 3, 5000);
 
       const newUpdate = stream.events.find(
-        (e) => e.event === 'update' && (e.data as Record<string, unknown>).topic === 'test.new_club_activity',
+        (e) => e.event === 'activity' && (e.data as Record<string, unknown>).topic === 'test.new_club_activity',
       );
       assert.ok(newUpdate, 'stream should deliver activity from a newly-joined club');
+      const notificationsDirty = stream.events.find((e) => e.event === 'notifications_dirty');
+      assert.ok(notificationsDirty, 'scope change should invalidate the seeded notification snapshot');
     } finally {
       stream.close();
     }

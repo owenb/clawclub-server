@@ -107,10 +107,10 @@ describe('background_matches', () => {
       score: 0.2,
     });
 
-    // Create a signal to link
+    // Create a materialized notification to link
     const signalRows = await h.sqlClubs<{ id: string }>(
-      `insert into signal_deliveries (club_id, recipient_member_id, topic, payload)
-       values ($1, $2, 'signal.test', '{}'::jsonb) returning id`,
+      `insert into member_notifications (club_id, recipient_member_id, topic, payload)
+       values ($1, $2, 'synchronicity.ask_to_member', '{}'::jsonb) returning id`,
       [owner.club.id, owner.id],
     );
 

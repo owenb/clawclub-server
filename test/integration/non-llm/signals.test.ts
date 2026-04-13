@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
-import { getUpdates } from '../helpers.ts';
+import { getActivity, getNotifications } from '../helpers.ts';
 
 let h: TestHarness;
 
@@ -13,230 +13,158 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-describe('member signals', () => {
-  it('signal appears in updates.list with source=signal', async () => {
-    const owen = await h.seedOwner('sigclub', 'SignalClub');
+describe('activity and notifications surfaces', () => {
+  it('notifications.list paginates FIFO materialized notifications', async () => {
+    const owner = await h.seedOwner('notifclub', 'NotificationClub');
 
-    // Seed the cursor by doing an initial poll
-    const initial = await h.apiOk(owen.token, 'updates.list', { limit: 50 });
-    const cursor = getUpdates(initial).nextAfter;
-    assert.ok(cursor, 'expected a cursor from initial poll');
-
-    // Insert a signal directly via SQL
-    await h.sqlClubs(
-      `insert into signal_deliveries (club_id, recipient_member_id, topic, payload)
-       values ($1, $2, 'signal.test', $3::jsonb)`,
-      [owen.club.id, owen.id, JSON.stringify({ kind: 'test', message: 'hello' })],
+    const inserted = await h.sqlClubs<{ id: string; created_at: string }>(
+      `insert into member_notifications (club_id, recipient_member_id, topic, payload, created_at)
+       values
+         ($1, $2, 'synchronicity.ask_to_member', '{"kind":"synchronicity.ask_to_member","message":"first"}'::jsonb, '2026-03-12T00:00:00Z'),
+         ($1, $2, 'synchronicity.offer_to_ask', '{"kind":"synchronicity.offer_to_ask","message":"second"}'::jsonb, '2026-03-12T00:01:00Z')
+       returning id, created_at::text`,
+      [owner.club.id, owner.id],
     );
+    assert.equal(inserted.length, 2);
 
-    // Poll again with the cursor
-    const result = await h.apiOk(owen.token, 'updates.list', { after: cursor, limit: 50 });
-    const updatesData = getUpdates(result);
-    const signalItems = updatesData.items.filter((u) => u.source === 'signal');
+    const firstPage = getNotifications(await h.apiOk(owner.token, 'notifications.list', { limit: 1 }));
+    assert.equal(firstPage.items.length, 1);
+    assert.equal(firstPage.items[0]?.kind, 'synchronicity.ask_to_member');
+    assert.ok(typeof firstPage.items[0]?.cursor === 'string');
+    assert.equal(
+      firstPage.items[0]?.notificationId,
+      `synchronicity.ask_to_member:${inserted[0]!.id}`,
+    );
+    assert.ok(firstPage.nextAfter, 'first page should expose a nextAfter cursor');
 
-    assert.equal(signalItems.length, 1, 'expected exactly one signal');
-    assert.equal(signalItems[0].topic, 'signal.test');
-    assert.equal(signalItems[0].createdByMemberId, null, 'signals have no sender');
-    assert.equal(signalItems[0].clubId, owen.club.id);
-
-    const payload = signalItems[0].payload as Record<string, unknown>;
-    assert.equal(payload.kind, 'test');
-    assert.equal(payload.message, 'hello');
-
-    // The updateId should have signal: prefix
-    assert.ok((signalItems[0].updateId as string).startsWith('signal:'));
+    const secondPage = getNotifications(await h.apiOk(owner.token, 'notifications.list', {
+      limit: 1,
+      after: firstPage.nextAfter,
+    }));
+    assert.equal(secondPage.items.length, 1);
+    assert.equal(secondPage.items[0]?.kind, 'synchronicity.offer_to_ask');
+    assert.equal(
+      secondPage.items[0]?.notificationId,
+      `synchronicity.offer_to_ask:${inserted[1]!.id}`,
+    );
+    assert.equal(secondPage.nextAfter, null);
   });
 
-  it('acknowledged signals do not reappear', async () => {
-    const owen = await h.seedOwner('sigackclub', 'SignalAckClub');
+  it('notifications.acknowledge marks materialized notifications processed and hides them', async () => {
+    const owner = await h.seedOwner('notifackclub', 'NotificationAckClub');
 
-    // Seed cursor
-    const cursor = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 })).nextAfter;
-
-    // Insert a signal
-    await h.sqlClubs(
-      `insert into signal_deliveries (club_id, recipient_member_id, topic, payload)
-       values ($1, $2, 'signal.ack_test', '{}'::jsonb)`,
-      [owen.club.id, owen.id],
+    const rows = await h.sqlClubs<{ id: string }>(
+      `insert into member_notifications (club_id, recipient_member_id, topic, payload)
+       values ($1, $2, 'synchronicity.ask_to_member', '{"kind":"synchronicity.ask_to_member"}'::jsonb)
+       returning id`,
+      [owner.club.id, owner.id],
     );
+    const notificationId = `synchronicity.ask_to_member:${rows[0]!.id}`;
 
-    // Poll to get the signal
-    const poll1 = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: cursor, limit: 50 }));
-    const signalItems = poll1.items.filter((u) => u.source === 'signal');
-    assert.equal(signalItems.length, 1);
-    const signalId = signalItems[0].updateId as string;
-
-    // Acknowledge it as processed
-    await h.apiOk(owen.token, 'updates.acknowledge', {
-      updateIds: [signalId],
+    const ack = await h.apiOk(owner.token, 'notifications.acknowledge', {
+      notificationIds: [notificationId],
       state: 'processed',
     });
+    const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
+    assert.equal(receipts.length, 1);
+    assert.equal(receipts[0]?.notificationId, notificationId);
+    assert.equal(receipts[0]?.state, 'processed');
 
-    // Verify durable state in DB
     const dbRows = await h.sqlClubs<{ acknowledged_state: string; suppression_reason: string | null }>(
-      `select acknowledged_state, suppression_reason from signal_deliveries where id = $1`,
-      [signalId.replace('signal:', '')],
+      `select acknowledged_state, suppression_reason from member_notifications where id = $1`,
+      [rows[0]!.id],
     );
-    assert.equal(dbRows.length, 1);
-    assert.equal(dbRows[0].acknowledged_state, 'processed');
-    assert.equal(dbRows[0].suppression_reason, null);
+    assert.equal(dbRows[0]?.acknowledged_state, 'processed');
+    assert.equal(dbRows[0]?.suppression_reason, null);
 
-    // Poll again — signal should not reappear
-    const poll2 = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: cursor, limit: 50 }));
-    const reappeared = poll2.items.filter((u) => u.source === 'signal');
-    assert.equal(reappeared.length, 0, 'acknowledged signal should not reappear');
+    const after = getNotifications(await h.apiOk(owner.token, 'notifications.list', {}));
+    assert.equal(after.items.some((item) => item.notificationId === notificationId), false);
   });
 
-  it('suppressed acknowledgement persists state and reason', async () => {
-    const owen = await h.seedOwner('sigsupclub', 'SignalSupClub');
+  it('notifications.acknowledge persists suppressed state and reason', async () => {
+    const owner = await h.seedOwner('notifsupclub', 'NotificationSupClub');
 
-    const cursor = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 })).nextAfter;
-
-    await h.sqlClubs(
-      `insert into signal_deliveries (club_id, recipient_member_id, topic, payload)
-       values ($1, $2, 'signal.suppress_test', '{}'::jsonb)`,
-      [owen.club.id, owen.id],
+    const rows = await h.sqlClubs<{ id: string }>(
+      `insert into member_notifications (club_id, recipient_member_id, topic, payload)
+       values ($1, $2, 'synchronicity.member_to_member', '{"kind":"synchronicity.member_to_member"}'::jsonb)
+       returning id`,
+      [owner.club.id, owner.id],
     );
+    const notificationId = `synchronicity.member_to_member:${rows[0]!.id}`;
 
-    const poll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: cursor, limit: 50 }));
-    const signalId = poll.items.filter((u) => u.source === 'signal')[0].updateId as string;
-
-    await h.apiOk(owen.token, 'updates.acknowledge', {
-      updateIds: [signalId],
+    await h.apiOk(owner.token, 'notifications.acknowledge', {
+      notificationIds: [notificationId],
       state: 'suppressed',
       suppressionReason: 'not relevant',
     });
 
     const dbRows = await h.sqlClubs<{ acknowledged_state: string; suppression_reason: string | null }>(
-      `select acknowledged_state, suppression_reason from signal_deliveries where id = $1`,
-      [signalId.replace('signal:', '')],
+      `select acknowledged_state, suppression_reason from member_notifications where id = $1`,
+      [rows[0]!.id],
     );
-    assert.equal(dbRows[0].acknowledged_state, 'suppressed');
-    assert.equal(dbRows[0].suppression_reason, 'not relevant');
+    assert.equal(dbRows[0]?.acknowledged_state, 'suppressed');
+    assert.equal(dbRows[0]?.suppression_reason, 'not relevant');
   });
 
-  it('activity acknowledgements are rejected because activity is cursor-driven', async () => {
-    const owen = await h.seedOwner('sigactivityclub', 'SignalActivityClub');
+  it('notifications.acknowledge rejects derived admission notifications', async () => {
+    const owner = await h.seedOwner('notifderivedclub', 'NotificationDerivedClub');
 
-    const cursor = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 })).nextAfter;
-    assert.ok(cursor, 'expected a cursor from initial poll');
-
-    const activityRows = await h.sqlClubs<{ seq: string }>(
-      `insert into club_activity (club_id, topic, payload, created_by_member_id)
-       values ($1, 'entity.version.published', '{}'::jsonb, $2)
-       returning seq::text as seq`,
-      [owen.club.id, owen.id],
-    );
-    const activityUpdateId = `activity:${activityRows[0]!.seq}`;
-
-    const poll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: cursor, limit: 50 }));
-    const activity = poll.items.find((item) => item.updateId === activityUpdateId);
-    assert.ok(activity, 'expected the activity update to be visible');
-
-    const ack = await h.apiErr(owen.token, 'updates.acknowledge', {
-      updateIds: [activityUpdateId],
+    const err = await h.apiErr(owner.token, 'notifications.acknowledge', {
+      notificationIds: ['admission.submitted:admission-1'],
       state: 'processed',
     });
-    assert.equal(ack.code, 'not_found');
+    assert.equal(err.status, 422);
+    assert.equal(err.code, 'invalid_input');
   });
 
-  it('activity cursor does not regress after returning activity items', async () => {
-    const owen = await h.seedOwner('sigactivitycursorclub', 'SignalActivityCursorClub');
+  it('activity.list after=latest skips backlog and returns only later activity', async () => {
+    const owner = await h.seedOwner('activityclub', 'ActivityClub');
 
-    const initial = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 }));
-    const seedCursor = initial.nextAfter;
-    assert.ok(seedCursor, 'expected a cursor from initial poll');
-
-    const firstRows = await h.sqlClubs<{ seq: string }>(
-      `insert into club_activity (club_id, topic, payload, created_by_member_id)
-       values ($1, 'entity.version.published', '{}'::jsonb, $2)
-       returning seq::text as seq`,
-      [owen.club.id, owen.id],
-    );
-    const firstUpdateId = `activity:${firstRows[0]!.seq}`;
-
-    const firstPoll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: seedCursor, limit: 50 }));
-    const firstActivities = firstPoll.items.filter((u) => u.source === 'activity');
-    assert.deepEqual(firstActivities.map((u) => u.updateId), [firstUpdateId]);
-
-    const secondRows = await h.sqlClubs<{ seq: string }>(
-      `insert into club_activity (club_id, topic, payload, created_by_member_id)
-       values ($1, 'entity.version.published', '{}'::jsonb, $2)
-       returning seq::text as seq`,
-      [owen.club.id, owen.id],
-    );
-    const secondUpdateId = `activity:${secondRows[0]!.seq}`;
-
-    const secondPoll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: firstPoll.nextAfter, limit: 50 }));
-    const secondActivities = secondPoll.items.filter((u) => u.source === 'activity');
-    assert.deepEqual(
-      secondActivities.map((u) => u.updateId),
-      [secondUpdateId],
-      'older activity items should not replay after the cursor advances',
-    );
-
-    const thirdPoll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: secondPoll.nextAfter, limit: 50 }));
-    const thirdActivities = thirdPoll.items.filter((u) => u.source === 'activity');
-    assert.equal(thirdActivities.length, 0, 'activity cursor should remain advanced after follow-up polls');
-  });
-
-  it('signal cursor tracks independently from activity cursor', async () => {
-    const owen = await h.seedOwner('sigcurclub', 'SignalCurClub');
-
-    const cursor = getUpdates(await h.apiOk(owen.token, 'updates.list', { limit: 50 })).nextAfter;
-
-    // Insert a signal
-    await h.sqlClubs(
-      `insert into signal_deliveries (club_id, recipient_member_id, topic, payload)
-       values ($1, $2, 'signal.cursor_test', '{}'::jsonb)`,
-      [owen.club.id, owen.id],
-    );
-
-    // Insert activity directly (avoids needing LLM quality gate)
     await h.sqlClubs(
       `insert into club_activity (club_id, topic, payload, created_by_member_id)
        values ($1, 'entity.version.published', '{}'::jsonb, $2)`,
-      [owen.club.id, owen.id],
+      [owner.club.id, owner.id],
     );
 
-    // Poll — both should appear
-    const poll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: cursor, limit: 50 }));
-    const signals = poll.items.filter((u) => u.source === 'signal');
-    const activities = poll.items.filter((u) => u.source === 'activity');
+    const latest = getActivity(await h.apiOk(owner.token, 'activity.list', { after: 'latest' }));
+    assert.equal(latest.items.length, 0);
+    assert.ok(latest.nextAfter, 'after=latest should seed a cursor');
 
-    assert.equal(signals.length, 1, 'expected one signal');
-    assert.ok(activities.length >= 1, 'expected at least one activity item');
+    await h.sqlClubs(
+      `insert into club_activity (club_id, topic, payload, created_by_member_id)
+       values ($1, 'entity.version.published', '{"title":"after latest"}'::jsonb, $2)`,
+      [owner.club.id, owner.id],
+    );
 
-    // Poll again with advanced cursor — activity consumed, signal still pending
-    // (unacknowledged signals reappear until acknowledged — at-least-once delivery)
-    const poll2 = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: poll.nextAfter, limit: 50 }));
-    const activities2 = poll2.items.filter((u) => u.source === 'activity');
-    assert.equal(activities2.length, 0, 'activity should not reappear after cursor advanced');
-
-    // Acknowledge the signal, then verify it stops appearing
-    const signalId = signals[0].updateId as string;
-    await h.apiOk(owen.token, 'updates.acknowledge', { updateIds: [signalId], state: 'processed' });
-
-    const poll3 = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: poll.nextAfter, limit: 50 }));
-    const signals3 = poll3.items.filter((u) => u.source === 'signal');
-    assert.equal(signals3.length, 0, 'acknowledged signal should not reappear');
+    const poll = getActivity(await h.apiOk(owner.token, 'activity.list', { after: latest.nextAfter }));
+    assert.equal(poll.items.length, 1);
+    assert.equal(poll.items[0]?.topic, 'entity.version.published');
+    assert.equal((poll.items[0]?.payload as Record<string, unknown>).title, 'after latest');
   });
 
-  it('old-format cursor is backward compatible', async () => {
-    const owen = await h.seedOwner('sigoldclub', 'SignalOldClub');
+  it('activity.list enforces audience filtering by role', async () => {
+    const owner = await h.seedOwner('activityaudienceclub', 'ActivityAudienceClub');
+    const member = await h.seedClubMember(owner.club.id, 'Regular Member', 'activity-audience-member', { sponsorId: owner.id });
 
-    // Insert a signal
     await h.sqlClubs(
-      `insert into signal_deliveries (club_id, recipient_member_id, topic, payload)
-       values ($1, $2, 'signal.compat_test', '{}'::jsonb)`,
-      [owen.club.id, owen.id],
+      `insert into club_activity (club_id, topic, payload, audience, created_by_member_id)
+       values
+         ($1, 'test.members', '{}'::jsonb, 'members', $2),
+         ($1, 'test.clubadmins', '{}'::jsonb, 'clubadmins', $2),
+         ($1, 'test.owners', '{}'::jsonb, 'owners', $2)`,
+      [owner.club.id, owner.id],
     );
 
-    // Craft an old-format cursor (only s and t, no a) — signal position defaults to 0
-    const oldCursor = Buffer.from(JSON.stringify({ s: 0, t: new Date(0).toISOString() })).toString('base64url');
+    const ownerView = getActivity(await h.apiOk(owner.token, 'activity.list', { clubId: owner.club.id }));
+    const ownerTopics = ownerView.items.map((item) => item.topic);
+    assert.ok(ownerTopics.includes('test.members'));
+    assert.ok(ownerTopics.includes('test.clubadmins'));
+    assert.ok(ownerTopics.includes('test.owners'));
 
-    const poll = getUpdates(await h.apiOk(owen.token, 'updates.list', { after: oldCursor, limit: 50 }));
-    const signals = poll.items.filter((u) => u.source === 'signal');
-    assert.ok(signals.length >= 1, 'old cursor format should return unacknowledged signals');
+    const memberView = getActivity(await h.apiOk(member.token, 'activity.list', { clubId: owner.club.id }));
+    const memberTopics = memberView.items.map((item) => item.topic);
+    assert.ok(memberTopics.includes('test.members'));
+    assert.equal(memberTopics.includes('test.clubadmins'), false);
+    assert.equal(memberTopics.includes('test.owners'), false);
   });
 });

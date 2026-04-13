@@ -160,7 +160,7 @@ export type MessagingRepository = {
   acknowledgeInbox(input: {
     memberId: string;
     threadId: string;
-  }): Promise<void>;
+  }): Promise<{ threadId: string; acknowledgedCount: number } | null>;
 
   hasExistingThread(memberA: string, memberB: string): Promise<boolean>;
 };
@@ -650,12 +650,26 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
     },
 
     async acknowledgeInbox({ memberId, threadId }) {
-      await pool.query(
+      const participant = await pool.query<{ thread_id: string }>(
+        `select tp.thread_id
+         from dm_thread_participants tp
+         where tp.member_id = $1
+           and tp.thread_id = $2
+           and tp.left_at is null
+         limit 1`,
+        [memberId, threadId],
+      );
+      if (!participant.rows[0]) {
+        return null;
+      }
+
+      const result = await pool.query<{ id: string }>(
         `update dm_inbox_entries
          set acknowledged = true
          where recipient_member_id = $1 and thread_id = $2 and acknowledged = false`,
         [memberId, threadId],
       );
+      return { threadId, acknowledgedCount: result.rowCount ?? 0 };
     },
 
     async hasExistingThread(memberA, memberB) {

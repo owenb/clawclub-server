@@ -293,29 +293,50 @@ export type RequestScope = {
   activeClubIds: string[];
 };
 
-export type PendingUpdate = {
-  updateId: string;
-  streamSeq: number;
-  source: 'activity' | 'inbox' | 'signal';
-  recipientMemberId: string;
-  clubId: string | null;
-  entityId: string | null;
-  entityVersionId: string | null;
-  dmMessageId: string | null;
+export type ActivityEvent = {
+  activityId: string;
+  seq: number;
+  clubId: string;
   topic: string;
   payload: Record<string, unknown>;
+  entityId: string | null;
+  entityVersionId: string | null;
+  audience: 'members' | 'clubadmins' | 'owners';
+  createdAt: string;
+  createdByMemberId: string | null;
+};
+
+export type NotificationItem = {
+  notificationId: string;
+  cursor: string;
+  kind: string;
+  clubId: string | null;
+  ref: {
+    admissionId?: string;
+    matchId?: string;
+    entityId?: string;
+  };
+  payload: Record<string, unknown>;
+  createdAt: string;
+  acknowledgeable: boolean;
+  acknowledgedState: UpdateReceiptState | null;
+};
+
+export type NotificationReceipt = {
+  notificationId: string;
+  recipientMemberId: string;
+  entityId: string | null;
+  clubId: string | null;
+  state: UpdateReceiptState;
+  suppressionReason: string | null;
+  versionNo: number;
   createdAt: string;
   createdByMemberId: string | null;
 };
 
 export type SharedResponseContext = {
-  pendingUpdates: PendingUpdate[];
-};
-
-export type MemberUpdates = {
-  items: PendingUpdate[];
-  nextAfter: string | null;
-  polledAt: string;
+  notifications: NotificationItem[];
+  notificationsTruncated: boolean;
 };
 
 export type AuthResult = {
@@ -325,26 +346,6 @@ export type AuthResult = {
 };
 
 export type UpdateReceiptState = 'processed' | 'suppressed';
-
-export type UpdateReceipt = {
-  receiptId: string;
-  updateId: string;
-  recipientMemberId: string;
-  clubId: string | null;
-  state: UpdateReceiptState;
-  suppressionReason: string | null;
-  versionNo: number;
-  supersedesReceiptId: string | null;
-  createdAt: string;
-  createdByMemberId: string | null;
-};
-
-export type AcknowledgeUpdatesInput = {
-  actorMemberId: string;
-  updateIds: string[];
-  state: UpdateReceiptState;
-  suppressionReason?: string | null;
-};
 
 export type MemberSearchResult = {
   memberId: string;
@@ -702,21 +703,6 @@ export type DirectMessageInboxSummary = DirectMessageThreadSummary & {
   };
 };
 
-export type DirectMessageUpdateReceipt = {
-  updateId: string;
-  recipientMemberId: string;
-  topic: string;
-  createdAt: string;
-  receipt: {
-    receiptId: string;
-    state: UpdateReceiptState;
-    suppressionReason: string | null;
-    versionNo: number;
-    createdAt: string;
-    createdByMemberId: string | null;
-  } | null;
-};
-
 export type DirectMessageEntry = {
   messageId: string;
   threadId: string;
@@ -727,7 +713,17 @@ export type DirectMessageEntry = {
   payload: Record<string, unknown>;
   createdAt: string;
   inReplyToMessageId: string | null;
-  updateReceipts: DirectMessageUpdateReceipt[];
+};
+
+export type MessageFramePayload = {
+  thread: DirectMessageThreadSummary;
+  messages: DirectMessageEntry[];
+  included: IncludedBundle;
+};
+
+export type MessageFramePage = {
+  frames: MessageFramePayload[];
+  nextAfter: string | null;
 };
 
 export type SendDirectMessageInput = {
@@ -914,6 +910,11 @@ export type Repository = {
     statuses?: AdmissionStatus[];
     cursor?: { versionCreatedAt: string; id: string } | null;
   }): Promise<Paginated<AdmissionSummary>>;
+  getAdmission?(input: {
+    actorMemberId: string;
+    admissionId: string;
+    accessibleClubIds: string[];
+  }): Promise<AdmissionSummary | null>;
   getAdmissionsForMember(input: {
     memberId: string;
     clubId?: string;
@@ -983,14 +984,27 @@ export type Repository = {
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
-  listMemberUpdates?(input: {
+  listClubActivity(input: {
     actorMemberId: string;
     clubIds: string[];
+    adminClubIds: string[];
+    ownerClubIds: string[];
     limit: number;
-    after?: string | null;
-  }): Promise<MemberUpdates>;
-  getLatestCursor?(input: { actorMemberId: string; clubIds: string[] }): Promise<string | null>;
-  acknowledgeUpdates?(input: AcknowledgeUpdatesInput): Promise<UpdateReceipt[]>;
+    afterSeq?: number | null;
+  }): Promise<{ items: ActivityEvent[]; nextAfterSeq: number | null }>;
+  listNotifications(input: {
+    actorMemberId: string;
+    accessibleClubIds: string[];
+    adminClubIds: string[];
+    limit: number;
+    after: string | null;
+  }): Promise<{ items: NotificationItem[]; nextAfter: string | null }>;
+  acknowledgeNotifications(input: {
+    actorMemberId: string;
+    notificationIds: string[];
+    state: UpdateReceiptState;
+    suppressionReason?: string | null;
+  }): Promise<NotificationReceipt[]>;
   sendDirectMessage(input: SendDirectMessageInput): Promise<WithIncluded<{ message: DirectMessageSummary }> | null>;
   listDirectMessageThreads(input: { actorMemberId: string; limit: number }): Promise<DirectMessageThreadSummary[]>;
   listDirectMessageInbox(input: {
@@ -1005,6 +1019,15 @@ export type Repository = {
     limit: number;
     cursor?: { createdAt: string; messageId: string } | null;
   }): Promise<WithIncluded<{ thread: DirectMessageThreadSummary; messages: DirectMessageEntry[]; hasMore: boolean; nextCursor: string | null }> | null>;
+  listInboxSince(input: {
+    actorMemberId: string;
+    after: string | null;
+    limit: number;
+  }): Promise<MessageFramePage>;
+  acknowledgeDirectMessageInbox(input: {
+    actorMemberId: string;
+    threadId: string;
+  }): Promise<{ threadId: string; acknowledgedCount: number } | null>;
 
   createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
   listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<Paginated<MembershipVouchSummary>>;

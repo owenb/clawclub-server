@@ -386,6 +386,60 @@ const clubadminAdmissionsList: ActionDefinition = {
   },
 };
 
+// ── clubadmin.admissions.get ─────────────────────────────
+
+const clubadminAdmissionsGet: ActionDefinition = {
+  action: 'clubadmin.admissions.get',
+  domain: 'clubadmin',
+  description: 'Get one admission in the specified club.',
+  auth: 'clubadmin',
+  safety: 'read_only',
+  authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club the admission belongs to'),
+      admissionId: wireRequiredString.describe('Admission to fetch'),
+    }),
+    output: z.object({ admission: admissionSummary }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      admissionId: parseRequiredString,
+    }),
+  },
+
+  requiredCapability: 'getAdmission',
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, admissionId } = input as { clubId: string; admissionId: string };
+    ctx.requireClubAdmin(clubId);
+    ctx.requireCapability('getAdmission');
+
+    const admission = await ctx.repository.getAdmission?.({
+      actorMemberId: ctx.actor.member.id,
+      admissionId,
+      accessibleClubIds: [clubId],
+    });
+
+    if (admission === undefined) {
+      throw new AppError(501, 'not_implemented', 'clubadmin.admissions.get is not implemented');
+    }
+
+    if (!admission || admission.clubId !== clubId) {
+      throw new AppError(404, 'not_found', 'Admission not found in the specified club');
+    }
+
+    return {
+      data: { admission },
+      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
+    };
+  },
+};
+
 // ── clubadmin.admissions.setStatus ────────────────────
 
 type AdmissionsTransitionInput = {
@@ -628,7 +682,7 @@ const clubadminEntitiesRemove: ActionDefinition = {
 registerActions([
   clubadminMembershipsList, clubadminMembershipsReview,
   clubadminMembershipsCreate, clubadminMembershipsTransition,
-  clubadminAdmissionsList, clubadminAdmissionsTransition, clubadminAdmissionsIssueAccess,
+  clubadminAdmissionsList, clubadminAdmissionsGet, clubadminAdmissionsTransition, clubadminAdmissionsIssueAccess,
   clubadminClubsStats,
   clubadminEntitiesRemove,
 ]);

@@ -268,6 +268,91 @@ describe('journey 3: admissions.list shows unified view', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+describe('clubadmin.admissions.get', () => {
+  it('returns a single admission in scope', async () => {
+    const owner = await h.seedOwner('admission-get-club', 'Admission Get Club');
+    const admissionId = await seedOutsiderAdmission(owner.club.id, {
+      name: 'Gettable Applicant',
+      email: 'gettable@example.com',
+    });
+
+    const body = await h.apiOk(owner.token, 'clubadmin.admissions.get', {
+      clubId: owner.club.id,
+      admissionId,
+    });
+
+    const result = admission(body);
+    assert.equal(result.admissionId, admissionId);
+    assert.equal(result.clubId, owner.club.id);
+    assert.equal((result.state as Record<string, unknown>).status, 'submitted');
+    assert.equal((result.applicant as Record<string, unknown>).memberId, null);
+    assert.equal((result.applicant as Record<string, unknown>).email, 'gettable@example.com');
+  });
+
+  it('rejects regular members', async () => {
+    const owner = await h.seedOwner('admission-get-forbid', 'Admission Get Forbid');
+    const member = await h.seedClubMember(owner.club.id, 'Regular Member', 'regular-member', {
+      sponsorId: owner.id,
+    });
+    const admissionId = await seedOutsiderAdmission(owner.club.id, {
+      name: 'Forbidden Applicant',
+      email: 'forbidden@example.com',
+    });
+
+    const err = await h.apiErr(member.token, 'clubadmin.admissions.get', {
+      clubId: owner.club.id,
+      admissionId,
+    });
+
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('allows superadmin via existing clubadmin bypass', async () => {
+    const owner = await h.seedOwner('admission-get-super', 'Admission Get Super');
+    const admin = await h.seedSuperadmin('Admissions Superadmin', 'admissions-superadmin');
+    const admissionId = await seedOutsiderAdmission(owner.club.id, {
+      name: 'Super Applicant',
+      email: 'super@example.com',
+    });
+
+    const body = await h.apiOk(admin.token, 'clubadmin.admissions.get', {
+      clubId: owner.club.id,
+      admissionId,
+    });
+
+    assert.equal(admission(body).admissionId, admissionId);
+  });
+
+  it('matches the AdmissionSummary shape returned by admissions.list', async () => {
+    const owner = await h.seedOwner('admission-get-shape', 'Admission Get Shape');
+    const sponsor = await h.seedClubMember(owner.club.id, 'Shape Sponsor', 'shape-sponsor', {
+      sponsorId: owner.id,
+    });
+    const admissionId = await seedSponsoredAdmission(owner.club.id, sponsor.id, {
+      name: 'Shape Applicant',
+      email: 'shape@example.com',
+      socials: '@shape',
+      reason: 'Needs exact projection',
+    });
+
+    const listBody = await h.apiOk(owner.token, 'clubadmin.admissions.list', {
+      clubId: owner.club.id,
+      limit: 20,
+    });
+    const listed = admissionList(listBody).find((a) => a.admissionId === admissionId);
+    assert.ok(listed, 'admission should appear in admissions.list');
+
+    const getBody = await h.apiOk(owner.token, 'clubadmin.admissions.get', {
+      clubId: owner.club.id,
+      admissionId,
+    });
+
+    assert.deepEqual(admission(getBody), listed);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 describe('journey 4: non-owner cannot use owner admission actions', () => {
   it('regular member cannot call admissions.list', async () => {
     const owner = await h.seedOwner('auth-adm-club', 'Auth Admission Club');

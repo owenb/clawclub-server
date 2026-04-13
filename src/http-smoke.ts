@@ -20,22 +20,22 @@ type SessionDescribeResponse = {
   data: Record<string, never>;
 };
 
-async function assertUpdatesStreamReady(baseUrl: string, bearerToken: string): Promise<void> {
+async function assertStreamReady(baseUrl: string, bearerToken: string): Promise<void> {
   const abortController = new AbortController();
 
   try {
-    const response = await fetch(`${baseUrl}/updates/stream`, {
+    const response = await fetch(`${baseUrl}/stream`, {
       headers: {
         authorization: `Bearer ${bearerToken}`,
       },
       signal: abortController.signal,
     });
 
-    assert.equal(response.status, 200, 'GET /updates/stream should return 200');
+    assert.equal(response.status, 200, 'GET /stream should return 200');
     assert.equal(response.headers.get('content-type'), 'text/event-stream; charset=utf-8');
 
     const reader = response.body?.getReader();
-    assert.ok(reader, 'GET /updates/stream should expose a readable body');
+    assert.ok(reader, 'GET /stream should expose a readable body');
 
     const decoder = new TextDecoder();
     let transcript = '';
@@ -51,7 +51,7 @@ async function assertUpdatesStreamReady(baseUrl: string, bearerToken: string): P
       }
     }
 
-    assert.match(transcript, /event: ready/, 'GET /updates/stream should emit a ready event');
+    assert.match(transcript, /event: ready/, 'GET /stream should emit a ready event');
     await reader.cancel().catch(() => {});
   } finally {
     abortController.abort();
@@ -175,7 +175,7 @@ export async function runHttpSmoke(): Promise<{
   const identityUrl = requireEnv('DATABASE_URL');
   const setupPool = new Pool({ connectionString: identityUrl });
   const memberHandle = readSmokeHandle();
-  const actions = ['GET /api/schema', 'GET /updates/stream', 'session.getContext', 'session.getContext (stale_client)', 'members.searchByFullText', 'profile.list', 'messages.getInbox', 'content.list', 'events.list'];
+  const actions = ['GET /api/schema', 'GET /stream', 'session.getContext', 'session.getContext (stale_client)', 'members.searchByFullText', 'profile.list', 'messages.getInbox', 'content.list', 'events.list'];
   let tokenId: string | null = null;
   let shutdown: (() => Promise<void>) | null = null;
 
@@ -213,7 +213,7 @@ export async function runHttpSmoke(): Promise<{
 
     const clubId = session.actor.activeMemberships[0]!.clubId;
 
-    await assertUpdatesStreamReady(baseUrl, token.bearerToken);
+    await assertStreamReady(baseUrl, token.bearerToken);
 
     const memberQuery = session.actor.member.handle ?? session.actor.member.publicName.split(/\s+/)[0] ?? memberHandle;
 

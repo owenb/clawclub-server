@@ -1,5 +1,5 @@
 /**
- * Action contracts: messages.send, messages.getInbox, messages.getThread, messages.remove
+ * Action contracts: messages.send, messages.getInbox, messages.getThread, messages.acknowledge, messages.remove
  *
  * DMs are not club-scoped. Clubs are only an eligibility check:
  * two members may DM if they currently share at least one club.
@@ -233,6 +233,47 @@ const messagesGetThread: ActionDefinition = {
   },
 };
 
+// ── messages.acknowledge ────────────────────────────────
+
+const messagesAcknowledge: ActionDefinition = {
+  action: 'messages.acknowledge',
+  domain: 'messages',
+  description: 'Mark unread inbox entries for one DM thread as acknowledged.',
+  auth: 'member',
+  safety: 'mutating',
+  scopeRules: [
+    'DM acknowledgement is thread-scoped. Pass threadId only; do not send clubId.',
+  ],
+
+  wire: {
+    input: z.object({
+      threadId: wireRequiredString.describe('Thread to mark as read'),
+    }),
+    output: z.object({
+      threadId: z.string(),
+      acknowledgedCount: z.number(),
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      threadId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { threadId } = input as { threadId: string };
+    const result = await ctx.repository.acknowledgeDirectMessageInbox({
+      actorMemberId: ctx.actor.member.id,
+      threadId,
+    });
+    if (!result) {
+      throw new AppError(404, 'not_found', 'Thread not found inside the actor scope');
+    }
+    return { data: result };
+  },
+};
+
 // ── messages.remove ─────────────────────────────────────
 
 type RemoveInput = {
@@ -284,4 +325,4 @@ const messagesRemove: ActionDefinition = {
   },
 };
 
-registerActions([messagesSend, messagesGetInbox, messagesGetThread, messagesRemove]);
+registerActions([messagesSend, messagesGetInbox, messagesGetThread, messagesAcknowledge, messagesRemove]);

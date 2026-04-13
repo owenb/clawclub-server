@@ -365,21 +365,6 @@ export const directMessageThreadSummary = z.object({
   messageCount: z.number(),
 });
 
-export const directMessageUpdateReceipt = z.object({
-  updateId: z.string(),
-  recipientMemberId: z.string(),
-  topic: z.string(),
-  createdAt: z.string(),
-  receipt: z.object({
-    receiptId: z.string(),
-    state: updateReceiptState,
-    suppressionReason: z.string().nullable(),
-    versionNo: z.number(),
-    createdAt: z.string(),
-    createdByMemberId: z.string().nullable(),
-  }).nullable(),
-});
-
 export const directMessageEntry = z.object({
   messageId: z.string(),
   threadId: z.string(),
@@ -390,7 +375,6 @@ export const directMessageEntry = z.object({
   payload: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
   inReplyToMessageId: z.string().nullable(),
-  updateReceipts: z.array(directMessageUpdateReceipt),
 });
 
 export const directMessageInboxSummary = directMessageThreadSummary.extend({
@@ -430,40 +414,47 @@ export const quotaAllowance = z.object({
   remaining: z.number(),
 });
 
-// ── Updates ──────────────────────────────────────────────
+// ── Activity / Notifications ─────────────────────────────
 
-export const pendingUpdate = z.object({
-  updateId: z.string(),
-  streamSeq: z.number(),
-  source: z.enum(['activity', 'inbox', 'signal']),
-  recipientMemberId: z.string(),
-  clubId: z.string().nullable(),
-  entityId: z.string().nullable(),
-  entityVersionId: z.string().nullable(),
-  dmMessageId: z.string().nullable(),
+export const activityEvent = z.object({
+  activityId: z.string(),
+  seq: z.number(),
+  clubId: z.string(),
   topic: z.string(),
   payload: z.record(z.string(), z.unknown()),
+  entityId: z.string().nullable(),
+  entityVersionId: z.string().nullable(),
+  audience: z.enum(['members', 'clubadmins', 'owners']),
   createdAt: z.string(),
   createdByMemberId: z.string().nullable(),
 });
 
-export const updateReceipt = z.object({
-  receiptId: z.string(),
-  updateId: z.string(),
+export const notificationItem = z.object({
+  notificationId: z.string(),
+  cursor: z.string(),
+  kind: z.string(),
+  clubId: z.string().nullable(),
+  ref: z.object({
+    admissionId: z.string().optional(),
+    matchId: z.string().optional(),
+    entityId: z.string().optional(),
+  }),
+  payload: z.record(z.string(), z.unknown()),
+  createdAt: z.string(),
+  acknowledgeable: z.boolean(),
+  acknowledgedState: updateReceiptState.nullable(),
+});
+
+export const notificationReceipt = z.object({
+  notificationId: z.string(),
   recipientMemberId: z.string(),
+  entityId: z.string().nullable(),
   clubId: z.string().nullable(),
   state: updateReceiptState,
   suppressionReason: z.string().nullable(),
   versionNo: z.number(),
-  supersedesReceiptId: z.string().nullable(),
   createdAt: z.string(),
   createdByMemberId: z.string().nullable(),
-});
-
-export const memberUpdates = z.object({
-  items: z.array(pendingUpdate),
-  nextAfter: z.string().nullable(),
-  polledAt: z.string(),
 });
 
 // ── Clubs ────────────────────────────────────────────────

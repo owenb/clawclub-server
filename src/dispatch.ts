@@ -40,6 +40,7 @@ import {
   type RepositoryCapability,
 } from './schemas/registry.ts';
 import { runQualityGate as defaultRunQualityGate, QUALITY_GATE_PROVIDER, type QualityGateResult } from './quality-gate.ts';
+import { NOTIFICATIONS_PAGE_SIZE } from './notifications-core.ts';
 
 export type QualityGateFn = (action: string, payload: Record<string, unknown>) => Promise<QualityGateResult>;
 import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
@@ -53,8 +54,9 @@ import './schemas/entities.ts';
 import './schemas/events.ts';
 import './schemas/profile.ts';
 import './schemas/messages.ts';
+import './schemas/activity.ts';
+import './schemas/notifications.ts';
 import './schemas/platform.ts';
-import './schemas/updates.ts';
 import './schemas/superadmin.ts';
 import './schemas/billing-sync.ts';
 import './schemas/billing.ts';
@@ -209,12 +211,13 @@ function assembleAuthenticatedResponse(
   // Apply nextMember if handler provided it (profile.update)
   const member = result.nextMember ?? actor.member;
 
-  // Apply acknowledgedUpdateIds if handler provided them (updates.acknowledge)
+  // Apply acknowledgedNotificationIds if handler provided them.
   let finalSharedContext = sharedContext;
-  if (result.acknowledgedUpdateIds && result.acknowledgedUpdateIds.length > 0) {
-    const ackSet = new Set(result.acknowledgedUpdateIds);
+  if (result.acknowledgedNotificationIds && result.acknowledgedNotificationIds.length > 0) {
+    const ackSet = new Set(result.acknowledgedNotificationIds);
     finalSharedContext = {
-      pendingUpdates: sharedContext.pendingUpdates.filter(u => !ackSet.has(u.updateId)),
+      notifications: sharedContext.notifications.filter((item) => !ackSet.has(item.notificationId)),
+      notificationsTruncated: sharedContext.notificationsTruncated,
     };
   }
 
@@ -355,11 +358,16 @@ async function dispatchAuthenticated(
   }
 
   const actor = auth.actor;
-  const sharedContext = auth.sharedContext ?? { pendingUpdates: [] };
+  const sharedContext = auth.sharedContext ?? { notifications: [], notificationsTruncated: false };
   const defaultRequestScope: RequestScope = {
     requestedClubId: auth.requestScope.requestedClubId,
     activeClubIds: auth.requestScope.activeClubIds,
   };
+  const accessibleClubIds = actor.memberships.map((membership) => membership.clubId);
+  const adminClubIds = actor.memberships
+    .filter((membership) => membership.role === 'clubadmin')
+    .map((membership) => membership.clubId);
+  let notificationsMemo: Promise<{ items: import('./contract.ts').NotificationItem[]; nextAfter: string | null }> | null = null;
 
   // Parse
   const parsedInput = parseActionInput(def, payload);
@@ -413,11 +421,41 @@ async function dispatchAuthenticated(
     requireClubOwner: createRequireClubOwner(actor),
     requireSuperadmin: createRequireSuperadmin(actor),
     resolveScopedClubs: createResolveScopedClubs(actor),
+    getNotifications: () => {
+      if (typeof repository.listNotifications !== 'function') {
+        return Promise.resolve({ items: [], nextAfter: null });
+      }
+      if (!notificationsMemo) {
+        notificationsMemo = repository.listNotifications({
+          actorMemberId: actor.member.id,
+          accessibleClubIds,
+          adminClubIds,
+          limit: NOTIFICATIONS_PAGE_SIZE,
+          after: null,
+        });
+      }
+      return notificationsMemo;
+    },
     requireCapability: (capability) => checkCapability(repository, capability, actionName),
   };
 
   const result = await def.handle(parsedInput, ctx);
 
+  let nextSharedContext: SharedResponseContext;
+  try {
+    const notifications = await ctx.getNotifications();
+    nextSharedContext = {
+      notifications: notifications.items,
+      notificationsTruncated: notifications.nextAfter !== null,
+    };
+  } catch (error) {
+    console.error('Failed to populate shared notifications:', error);
+    nextSharedContext = {
+      notifications: [],
+      notificationsTruncated: false,
+    };
+  }
+
   // Assemble authenticated envelope
-  return assembleAuthenticatedResponse(actionName, result, actor, defaultRequestScope, sharedContext, notices);
+  return assembleAuthenticatedResponse(actionName, result, actor, defaultRequestScope, nextSharedContext, notices);
 }

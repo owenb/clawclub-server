@@ -410,7 +410,18 @@ export async function listClubActivity(pool: Pool, input: {
   adminClubIds?: string[];
   /** Club IDs where the actor is the owner. Used for audience filtering. */
   ownerClubIds?: string[];
-}): Promise<{ items: Array<Record<string, unknown>>; nextAfterSeq: number | null }> {
+}): Promise<{ items: Array<{
+  activityId: string;
+  seq: number;
+  clubId: string;
+  entityId: string | null;
+  entityVersionId: string | null;
+  topic: string;
+  payload: Record<string, unknown>;
+  createdByMemberId: string | null;
+  createdAt: string;
+  audience: 'members' | 'clubadmins' | 'owners';
+}>; nextAfterSeq: number | null }> {
   if (input.clubIds.length === 0) return { items: [], nextAfterSeq: null };
 
   const adminClubIds = input.adminClubIds ?? [];
@@ -427,11 +438,11 @@ export async function listClubActivity(pool: Pool, input: {
   }
 
   const result = await pool.query<{
-    seq: string; club_id: string; entity_id: string | null; entity_version_id: string | null;
+    id: string; seq: string; club_id: string; entity_id: string | null; entity_version_id: string | null;
     topic: string; payload: Record<string, unknown>; created_by_member_id: string | null;
     created_at: string; audience: string;
   }>(
-    `select seq::text as seq, club_id, entity_id, entity_version_id, topic, payload,
+    `select id, seq::text as seq, club_id, entity_id, entity_version_id, topic, payload,
             created_by_member_id, created_at::text as created_at, audience
      from club_activity ca
      where ca.club_id = any($1::text[]) and ca.seq > $2
@@ -453,6 +464,7 @@ export async function listClubActivity(pool: Pool, input: {
   );
 
   const items = result.rows.map((row) => ({
+    activityId: row.id,
     seq: parseActivitySeq(row.seq),
     clubId: row.club_id,
     entityId: row.entity_id,
@@ -461,6 +473,7 @@ export async function listClubActivity(pool: Pool, input: {
     payload: row.payload,
     createdByMemberId: row.created_by_member_id,
     createdAt: row.created_at,
+    audience: row.audience as 'members' | 'clubadmins' | 'owners',
   }));
 
   const lastSeq = items.length > 0 ? items[items.length - 1].seq : input.afterSeq;
@@ -568,7 +581,18 @@ export type ClubsRepository = {
 
   logLlmUsage(input: LogLlmUsageInput): Promise<void>;
 
-  listClubActivity(input: { memberId: string; clubIds: string[]; limit: number; afterSeq?: number | null; adminClubIds?: string[]; ownerClubIds?: string[] }): Promise<{ items: Array<Record<string, unknown>>; nextAfterSeq: number | null }>;
+  listClubActivity(input: { memberId: string; clubIds: string[]; limit: number; afterSeq?: number | null; adminClubIds?: string[]; ownerClubIds?: string[] }): Promise<{ items: Array<{
+    activityId: string;
+    seq: number;
+    clubId: string;
+    entityId: string | null;
+    entityVersionId: string | null;
+    topic: string;
+    payload: Record<string, unknown>;
+    createdByMemberId: string | null;
+    createdAt: string;
+    audience: 'members' | 'clubadmins' | 'owners';
+  }>; nextAfterSeq: number | null }>;
 
   findEntitiesViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; entityId: string } | null }): Promise<PaginatedEntitySearch>;
 

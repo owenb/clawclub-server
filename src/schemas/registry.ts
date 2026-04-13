@@ -37,6 +37,7 @@ export type RepositoryCapability =
   | 'assignClubOwner'
   | 'updateClub'
   | 'listAdmissions'
+  | 'getAdmission'
   | 'transitionAdmission'
   | 'createAdmissionChallenge'
   | 'solveAdmissionChallenge'
@@ -45,9 +46,6 @@ export type RepositoryCapability =
   | 'removeEntity'
   | 'removeEvent'
   | 'removeMessage'
-  | 'listMemberUpdates'
-  | 'getLatestCursor'
-  | 'acknowledgeUpdates'
   | 'issueAdmissionAccess'
   | 'adminCreateMember'
   | 'adminCreateMembership'
@@ -88,6 +86,10 @@ export type HandlerContext = {
   requireClubOwner: (clubId: string) => void;
   requireSuperadmin: () => void;
   resolveScopedClubs: (clubId?: string) => MembershipSummary[];
+  getNotifications: () => Promise<{
+    items: import('../contract.ts').NotificationItem[];
+    nextAfter: string | null;
+  }>;
 
   /** Check that a repository capability exists at runtime. Throws 501 if missing. */
   requireCapability: (capability: RepositoryCapability) => void;
@@ -125,11 +127,8 @@ export type ActionResult = {
    */
   nextMember?: { id: string; handle: string | null; publicName: string };
 
-  /**
-   * Update IDs to remove from sharedContext.pendingUpdates (updates.acknowledge only).
-   * Transport layer filters these out of the pending updates array.
-   */
-  acknowledgedUpdateIds?: string[];
+  /** Notification IDs to remove from sharedContext.notifications on the same response. */
+  acknowledgedNotificationIds?: string[];
 };
 
 // ── Action definition ────────────────────────────────────

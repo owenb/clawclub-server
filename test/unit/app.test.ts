@@ -25,13 +25,15 @@ import {
   type RsvpEventInput,
   type UpdateEntityInput,
   type MemberSearchResult,
-  type PendingUpdate,
+  type NotificationItem,
+  type NotificationReceipt,
+  type DirectMessageEntry,
   type Repository,
-  type UpdateReceipt,
 } from '../../src/contract.ts';
 import { buildDispatcher } from '../../src/dispatch.ts';
 import { registerActions } from '../../src/schemas/registry.ts';
 import { passthroughGate } from './fixtures.ts';
+import { encodeNotificationCursor } from '../../src/notifications-core.ts';
 
 const EMPTY_INCLUDED: IncludedBundle = { membersById: {} };
 let testActionCounter = 0;
@@ -91,38 +93,38 @@ function makeAuthResult(): AuthResult {
       activeClubIds: actor.memberships.map((membership) => membership.clubId),
     },
     sharedContext: {
-      pendingUpdates: [makePendingUpdate()],
+      notifications: [makeNotificationItem()],
+      notificationsTruncated: false,
     },
   };
 }
 
-function makePendingUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdate {
+function makeNotificationItem(overrides: Partial<NotificationItem> = {}): NotificationItem {
+  const createdAt = overrides.createdAt ?? '2026-03-12T00:00:00Z';
+  const notificationId = overrides.notificationId ?? 'synchronicity.ask_to_member:notification-1';
   return {
-    updateId: 'update-1',
-    streamSeq: 1,
-    recipientMemberId: 'member-1',
+    notificationId,
+    cursor: overrides.cursor ?? encodeNotificationCursor(createdAt, notificationId),
+    kind: 'synchronicity.ask_to_member',
     clubId: 'club-1',
-    entityId: 'entity-1',
-    entityVersionId: 'entity-version-1',
-    dmMessageId: null,
-    topic: 'entity.version.published',
+    ref: { matchId: 'match-1', entityId: 'entity-1' },
     payload: { hello: 'world' },
-    createdAt: '2026-03-12T00:00:00Z',
-    createdByMemberId: 'member-2',
+    createdAt,
+    acknowledgeable: true,
+    acknowledgedState: null,
     ...overrides,
   };
 }
 
-function makeUpdateReceipt(overrides: Partial<UpdateReceipt> = {}): UpdateReceipt {
+function makeNotificationReceipt(overrides: Partial<NotificationReceipt> = {}): NotificationReceipt {
   return {
-    receiptId: 'receipt-1',
-    updateId: 'update-1',
+    notificationId: 'synchronicity.ask_to_member:notification-1',
     recipientMemberId: 'member-1',
+    entityId: 'entity-1',
     clubId: 'club-1',
     state: 'processed',
     suppressionReason: null,
     versionNo: 1,
-    supersedesReceiptId: null,
     createdAt: '2026-03-12T00:02:00Z',
     createdByMemberId: 'member-1',
     ...overrides,
@@ -288,8 +290,8 @@ function makeDirectMessageInbox(overrides: Partial<DirectMessageInboxSummary> = 
 }
 
 function makeDirectMessageTranscriptEntry(
-  overrides: Partial<DirectMessageTranscriptEntry> = {},
-): DirectMessageTranscriptEntry {
+  overrides: Partial<DirectMessageEntry> = {},
+): DirectMessageEntry {
   return {
     messageId: 'message-1',
     threadId: 'thread-1',
@@ -300,7 +302,6 @@ function makeDirectMessageTranscriptEntry(
     payload: {},
     createdAt: '2026-03-12T00:03:00Z',
     inReplyToMessageId: null,
-    updateReceipts: [],
     ...overrides,
   };
 }
@@ -674,7 +675,16 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
 }
 
 test('session.getContext returns the canonical actor session envelope once', async () => {
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
+  const repository: Repository = {
+    ...makeRepository(),
+    async listNotifications() {
+      return {
+        items: [makeNotificationItem()],
+        nextAfter: null,
+      };
+    },
+  };
+  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'session.getContext',
@@ -689,8 +699,8 @@ test('session.getContext returns the canonical actor session envelope once', asy
     ['club-1', 'club-2'],
   );
   assert.deepEqual(result.data, {});
-  assert.equal(result.actor.sharedContext.pendingUpdates.length, 1);
-  assert.equal(result.actor.sharedContext.pendingUpdates[0]?.updateId, 'update-1');
+  assert.equal(result.actor.sharedContext.notifications.length, 1);
+  assert.equal(result.actor.sharedContext.notifications[0]?.notificationId, 'synchronicity.ask_to_member:notification-1');
 });
 
 test('superadmin.clubs.list requires superadmin and returns archived flag filter', async () => {
@@ -2300,7 +2310,7 @@ test('superadmin.clubs.create rejects non-superadmins', async () => {
         return {
           actor,
           requestScope: { requestedClubId: null, activeClubIds: actor.memberships.map((membership) => membership.clubId) },
-          sharedContext: { pendingUpdates: [makePendingUpdate()] },
+          sharedContext: { notifications: [makeNotificationItem()], notificationsTruncated: false },
         };
       },
     },
@@ -2910,22 +2920,6 @@ test('messages.getThread scopes thread access server-side and returns DM entries
             messageId: 'message-1',
             createdAt: '2026-03-12T00:01:00Z',
             messageText: 'Earlier',
-            updateReceipts: [
-              {
-                updateId: 'update-1',
-                recipientMemberId: 'member-1',
-                topic: 'dm.message.created',
-                createdAt: '2026-03-12T00:01:00Z',
-                receipt: {
-                  receiptId: 'receipt-1',
-                  state: 'processed',
-                  suppressionReason: null,
-                  versionNo: 1,
-                  createdAt: '2026-03-12T00:01:20Z',
-                  createdByMemberId: 'member-1',
-                },
-              },
-            ],
           }),
           makeDirectMessageTranscriptEntry({
             messageId: 'message-2',
@@ -2933,15 +2927,6 @@ test('messages.getThread scopes thread access server-side and returns DM entries
             senderMemberId: 'member-1',
             messageText: 'Later',
             inReplyToMessageId: 'message-1',
-            updateReceipts: [
-              {
-                updateId: 'update-2',
-                recipientMemberId: 'member-2',
-                topic: 'dm.message.created',
-                createdAt: '2026-03-12T00:02:00Z',
-                receipt: null,
-              },
-            ],
           }),
         ],
         hasMore: false,
@@ -2970,8 +2955,8 @@ test('messages.getThread scopes thread access server-side and returns DM entries
   assert.equal(result.data.thread.threadId, 'thread-1');
   assert.equal(result.data.messages.length, 2);
   assert.equal(result.data.messages[1]?.inReplyToMessageId, 'message-1');
-  assert.equal(result.data.messages[0]?.updateReceipts[0]?.receipt?.state, 'processed');
-  assert.equal(result.data.messages[1]?.updateReceipts[0]?.recipientMemberId, 'member-2');
+  assert.equal(result.data.messages[0]?.messageText, 'Earlier');
+  assert.equal(result.data.messages[1]?.messageText, 'Later');
 });
 
 test('accessTokens.list returns the actor token inventory', async () => {
@@ -3180,23 +3165,28 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
   assert.equal(result.data.token.revokedAt, '2026-03-12T01:00:00Z');
 });
 
-test('updates.list returns the pending update feed with cursor semantics', async () => {
-  let capturedInput: Record<string, unknown> | null = null;
+test('notifications.list returns the paginated notification worklist', async () => {
+  const capturedInputs: Record<string, unknown>[] = [];
 
   const repository: Repository = {
     ...makeRepository(),
-    async listMemberUpdates(input) {
-      capturedInput = input as Record<string, unknown>;
+    async listNotifications(input) {
+      capturedInputs.push(input as Record<string, unknown>);
+      if (input.after === null) {
+        return {
+          items: [],
+          nextAfter: null,
+        };
+      }
       return {
         items: [
-          makePendingUpdate({
-            updateId: 'update-9',
-            streamSeq: 9,
+          makeNotificationItem({
+            notificationId: 'synchronicity.ask_to_member:notification-9',
+            createdAt: '2026-03-12T00:09:00Z',
             clubId: 'club-2',
           }),
         ],
         nextAfter: 'cursor-next',
-        polledAt: '2026-03-12T00:05:00Z',
       };
     },
   };
@@ -3204,29 +3194,32 @@ test('updates.list returns the pending update feed with cursor semantics', async
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'updates.list',
+    action: 'notifications.list',
     payload: { after: 'test-cursor', limit: 3 },
   });
 
-  assert.equal(capturedInput?.actorMemberId, 'member-1');
-  assert.equal(capturedInput?.after, 'test-cursor');
-  assert.equal(capturedInput?.limit, 3);
-  assert.ok(Array.isArray(capturedInput?.clubIds));
-  assert.equal(result.action, 'updates.list');
-  assert.equal(result.data.updates.items[0]?.updateId, 'update-9');
-  assert.equal(result.data.updates.nextAfter, 'cursor-next');
+  assert.equal(capturedInputs.length, 2);
+  assert.equal(capturedInputs[0]?.actorMemberId, 'member-1');
+  assert.equal(capturedInputs[0]?.after, 'test-cursor');
+  assert.equal(capturedInputs[0]?.limit, 3);
+  assert.ok(Array.isArray(capturedInputs[0]?.accessibleClubIds));
+  assert.ok(Array.isArray(capturedInputs[0]?.adminClubIds));
+  assert.equal(capturedInputs[1]?.after, null, 'shared-context piggyback should still read the default head');
+  assert.equal(result.action, 'notifications.list');
+  assert.equal(result.data.items[0]?.notificationId, 'synchronicity.ask_to_member:notification-9');
+  assert.equal(result.data.nextAfter, 'cursor-next');
 });
 
-test('updates.acknowledge appends receipts and removes items from shared context', async () => {
+test('notifications.acknowledge appends receipts and removes items from shared context', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async acknowledgeUpdates(input) {
+    async acknowledgeNotifications(input) {
       capturedInput = input as Record<string, unknown>;
       return [
-        makeUpdateReceipt({
-          updateId: 'update-1',
+        makeNotificationReceipt({
+          notificationId: 'synchronicity.ask_to_member:notification-1',
           state: 'suppressed',
           suppressionReason: 'already handled elsewhere',
         }),
@@ -3237,9 +3230,9 @@ test('updates.acknowledge appends receipts and removes items from shared context
   const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'updates.acknowledge',
+    action: 'notifications.acknowledge',
     payload: {
-      updateIds: ['update-1'],
+      notificationIds: ['synchronicity.ask_to_member:notification-1'],
       state: 'suppressed',
       suppressionReason: 'already handled elsewhere',
     },
@@ -3247,20 +3240,20 @@ test('updates.acknowledge appends receipts and removes items from shared context
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    updateIds: ['update-1'],
+    notificationIds: ['synchronicity.ask_to_member:notification-1'],
     state: 'suppressed',
     suppressionReason: 'already handled elsewhere',
   });
-  assert.equal(result.action, 'updates.acknowledge');
-  assert.deepEqual(result.actor.sharedContext.pendingUpdates, []);
-  assert.equal(result.data.receipts[0]?.updateId, 'update-1');
+  assert.equal(result.action, 'notifications.acknowledge');
+  assert.deepEqual(result.actor.sharedContext.notifications, []);
+  assert.equal(result.data.receipts[0]?.notificationId, 'synchronicity.ask_to_member:notification-1');
   assert.equal(result.data.receipts[0]?.state, 'suppressed');
 });
 
-test('updates.acknowledge returns 404 when an update is outside actor scope', async () => {
+test('notifications.acknowledge rejects derived notification IDs', async () => {
   const repository: Repository = {
     ...makeRepository(),
-    async acknowledgeUpdates() {
+    async acknowledgeNotifications() {
       return [];
     },
   };
@@ -3271,15 +3264,15 @@ test('updates.acknowledge returns 404 when an update is outside actor scope', as
     () =>
       dispatcher.dispatch({
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        action: 'updates.acknowledge',
+        action: 'notifications.acknowledge',
         payload: {
-          updateIds: ['update-404'],
+          notificationIds: ['admission.submitted:admission-404'],
         },
       }),
     (error: unknown) => {
       assert.ok(error instanceof AppError);
-      assert.equal(error.statusCode, 404);
-      assert.equal(error.code, 'not_found');
+      assert.equal(error.statusCode, 422);
+      assert.equal(error.code, 'invalid_input');
       return true;
     },
   );

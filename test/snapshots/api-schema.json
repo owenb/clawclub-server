@@ -229,6 +229,114 @@
       "safety": "mutating"
     },
     {
+      "action": "activity.list",
+      "auth": "member",
+      "description": "List club activity events for the current scope.",
+      "domain": "activity",
+      "input": {
+        "properties": {
+          "after": {
+            "description": "Opaque activity cursor from a previous response, or \"latest\" to seed from the current tip.",
+            "nullable": true,
+            "type": "string"
+          },
+          "clubId": {
+            "description": "Optional club scope. Omit to read across all accessible clubs.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results. Clamped to 1–20 by the server.",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "notes": [
+        "Use after=\"latest\" to skip backlog and start from the current activity tip."
+      ],
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "activityId": {
+                  "type": "string"
+                },
+                "audience": {
+                  "enum": [
+                    "members",
+                    "clubadmins",
+                    "owners"
+                  ],
+                  "type": "string"
+                },
+                "clubId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "createdByMemberId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "entityId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "entityVersionId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "payload": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "seq": {
+                  "type": "number"
+                },
+                "topic": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "activityId",
+                "seq",
+                "clubId",
+                "topic",
+                "payload",
+                "entityId",
+                "entityVersionId",
+                "audience",
+                "createdAt",
+                "createdByMemberId"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "nextAfter": {
+            "nullable": true,
+            "type": "string"
+          },
+          "polledAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "nextAfter",
+          "polledAt"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
       "action": "admissions.crossClub.requestChallenge",
       "auth": "member",
       "authorizationNote": "Requires at least one active membership in any club. Must not already be a member of the target club. Capped at 3 pending cross-applications across all clubs.",
@@ -1125,6 +1233,230 @@
         "type": "object"
       },
       "safety": "read_only"
+    },
+    {
+      "action": "clubadmin.admissions.get",
+      "auth": "clubadmin",
+      "authorizationNote": "Requires club admin role.",
+      "description": "Get one admission in the specified club.",
+      "domain": "clubadmin",
+      "input": {
+        "properties": {
+          "admissionId": {
+            "description": "Admission to fetch",
+            "type": "string"
+          },
+          "clubId": {
+            "description": "Club the admission belongs to",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clubId",
+          "admissionId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "admission": {
+            "additionalProperties": false,
+            "properties": {
+              "admissionDetails": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "admissionId": {
+                "type": "string"
+              },
+              "applicant": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle",
+                  "email"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "intake": {
+                "additionalProperties": false,
+                "properties": {
+                  "bookedAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "bookingUrl": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "completedAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "kind": {
+                    "enum": [
+                      "fit_check",
+                      "advice_call",
+                      "other"
+                    ],
+                    "type": "string"
+                  },
+                  "price": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "amount": {
+                        "nullable": true,
+                        "type": "number"
+                      },
+                      "currency": {
+                        "nullable": true,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "amount",
+                      "currency"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "price",
+                  "bookingUrl",
+                  "bookedAt",
+                  "completedAt"
+                ],
+                "type": "object"
+              },
+              "membershipId": {
+                "nullable": true,
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "origin": {
+                "enum": [
+                  "self_applied",
+                  "member_sponsored",
+                  "owner_nominated"
+                ],
+                "type": "string"
+              },
+              "sponsor": {
+                "additionalProperties": false,
+                "nullable": true,
+                "properties": {
+                  "handle": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "handle"
+                ],
+                "type": "object"
+              },
+              "state": {
+                "additionalProperties": false,
+                "properties": {
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "createdByMemberId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "notes": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "draft",
+                      "submitted",
+                      "interview_scheduled",
+                      "interview_completed",
+                      "accepted",
+                      "declined",
+                      "withdrawn"
+                    ],
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "status",
+                  "notes",
+                  "versionNo",
+                  "createdAt",
+                  "createdByMemberId"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "admissionId",
+              "clubId",
+              "applicant",
+              "sponsor",
+              "membershipId",
+              "origin",
+              "intake",
+              "state",
+              "admissionDetails",
+              "metadata",
+              "createdAt"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "admission"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only",
+      "scopeRules": [
+        "clubadmin actions require an explicit clubId. The server does not infer it from session context."
+      ]
     },
     {
       "action": "clubadmin.admissions.issueAccessToken",
@@ -10012,6 +10344,44 @@
       "safety": "mutating"
     },
     {
+      "action": "messages.acknowledge",
+      "auth": "member",
+      "description": "Mark unread inbox entries for one DM thread as acknowledged.",
+      "domain": "messages",
+      "input": {
+        "properties": {
+          "threadId": {
+            "description": "Thread to mark as read",
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledgedCount": {
+            "type": "number"
+          },
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId",
+          "acknowledgedCount"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating",
+      "scopeRules": [
+        "DM acknowledgement is thread-scoped. Pass threadId only; do not send clubId."
+      ]
+    },
+    {
       "action": "messages.getInbox",
       "auth": "member",
       "description": "List DM inbox with unread counts. Returns all threads regardless of club context.",
@@ -10382,73 +10752,6 @@
                 },
                 "threadId": {
                   "type": "string"
-                },
-                "updateReceipts": {
-                  "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "createdAt": {
-                        "type": "string"
-                      },
-                      "receipt": {
-                        "additionalProperties": false,
-                        "nullable": true,
-                        "properties": {
-                          "createdAt": {
-                            "type": "string"
-                          },
-                          "createdByMemberId": {
-                            "nullable": true,
-                            "type": "string"
-                          },
-                          "receiptId": {
-                            "type": "string"
-                          },
-                          "state": {
-                            "enum": [
-                              "processed",
-                              "suppressed"
-                            ],
-                            "type": "string"
-                          },
-                          "suppressionReason": {
-                            "nullable": true,
-                            "type": "string"
-                          },
-                          "versionNo": {
-                            "type": "number"
-                          }
-                        },
-                        "required": [
-                          "receiptId",
-                          "state",
-                          "suppressionReason",
-                          "versionNo",
-                          "createdAt",
-                          "createdByMemberId"
-                        ],
-                        "type": "object"
-                      },
-                      "recipientMemberId": {
-                        "type": "string"
-                      },
-                      "topic": {
-                        "type": "string"
-                      },
-                      "updateId": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "updateId",
-                      "recipientMemberId",
-                      "topic",
-                      "createdAt",
-                      "receipt"
-                    ],
-                    "type": "object"
-                  },
-                  "type": "array"
                 }
               },
               "required": [
@@ -10460,8 +10763,7 @@
                 "mentions",
                 "payload",
                 "createdAt",
-                "inReplyToMessageId",
-                "updateReceipts"
+                "inReplyToMessageId"
               ],
               "type": "object"
             },
@@ -10844,6 +11146,221 @@
         "DMs are not club-scoped. Do not send clubId when calling messages.send.",
         "A shared club is only required to start a new thread; existing threads remain replyable even if shared clubs later drop to zero."
       ]
+    },
+    {
+      "action": "notifications.acknowledge",
+      "auth": "member",
+      "businessErrors": [
+        {
+          "code": "invalid_input",
+          "meaning": "One or more notification IDs do not refer to materialized synchronicity notifications.",
+          "recovery": "Retry with only notification IDs from acknowledgeable synchronicity items."
+        }
+      ],
+      "description": "Acknowledge one or more materialized notifications.",
+      "domain": "notifications",
+      "input": {
+        "properties": {
+          "notificationIds": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "processed",
+              "suppressed"
+            ],
+            "type": "string"
+          },
+          "suppressionReason": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "notificationIds"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "receipts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "createdByMemberId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "entityId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "notificationId": {
+                  "type": "string"
+                },
+                "recipientMemberId": {
+                  "type": "string"
+                },
+                "state": {
+                  "enum": [
+                    "processed",
+                    "suppressed"
+                  ],
+                  "type": "string"
+                },
+                "suppressionReason": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "versionNo": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "notificationId",
+                "recipientMemberId",
+                "entityId",
+                "clubId",
+                "state",
+                "suppressionReason",
+                "versionNo",
+                "createdAt",
+                "createdByMemberId"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "receipts"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
+      "action": "notifications.list",
+      "auth": "member",
+      "description": "List the current member notification worklist in FIFO order.",
+      "domain": "notifications",
+      "input": {
+        "properties": {
+          "after": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results. Clamped to 1–20 by the server.",
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "notes": [
+        "Pagination is oldest-first FIFO by createdAt then notificationId."
+      ],
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "acknowledgeable": {
+                  "type": "boolean"
+                },
+                "acknowledgedState": {
+                  "enum": [
+                    "processed",
+                    "suppressed"
+                  ],
+                  "nullable": true,
+                  "type": "string"
+                },
+                "clubId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "cursor": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "notificationId": {
+                  "type": "string"
+                },
+                "payload": {
+                  "additionalProperties": {},
+                  "type": "object"
+                },
+                "ref": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "admissionId": {
+                      "type": "string"
+                    },
+                    "entityId": {
+                      "type": "string"
+                    },
+                    "matchId": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "notificationId",
+                "cursor",
+                "kind",
+                "clubId",
+                "ref",
+                "payload",
+                "createdAt",
+                "acknowledgeable",
+                "acknowledgedState"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "nextAfter": {
+            "nullable": true,
+            "type": "string"
+          },
+          "polledAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "nextAfter",
+          "polledAt"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
     },
     {
       "action": "profile.list",
@@ -13235,73 +13752,6 @@
                 },
                 "threadId": {
                   "type": "string"
-                },
-                "updateReceipts": {
-                  "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "createdAt": {
-                        "type": "string"
-                      },
-                      "receipt": {
-                        "additionalProperties": false,
-                        "nullable": true,
-                        "properties": {
-                          "createdAt": {
-                            "type": "string"
-                          },
-                          "createdByMemberId": {
-                            "nullable": true,
-                            "type": "string"
-                          },
-                          "receiptId": {
-                            "type": "string"
-                          },
-                          "state": {
-                            "enum": [
-                              "processed",
-                              "suppressed"
-                            ],
-                            "type": "string"
-                          },
-                          "suppressionReason": {
-                            "nullable": true,
-                            "type": "string"
-                          },
-                          "versionNo": {
-                            "type": "number"
-                          }
-                        },
-                        "required": [
-                          "receiptId",
-                          "state",
-                          "suppressionReason",
-                          "versionNo",
-                          "createdAt",
-                          "createdByMemberId"
-                        ],
-                        "type": "object"
-                      },
-                      "recipientMemberId": {
-                        "type": "string"
-                      },
-                      "topic": {
-                        "type": "string"
-                      },
-                      "updateId": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "updateId",
-                      "recipientMemberId",
-                      "topic",
-                      "createdAt",
-                      "receipt"
-                    ],
-                    "type": "object"
-                  },
-                  "type": "array"
                 }
               },
               "required": [
@@ -13313,8 +13763,7 @@
                 "mentions",
                 "payload",
                 "createdAt",
-                "inReplyToMessageId",
-                "updateReceipts"
+                "inReplyToMessageId"
               ],
               "type": "object"
             },
@@ -13594,238 +14043,6 @@
       "safety": "read_only"
     },
     {
-      "action": "updates.acknowledge",
-      "auth": "member",
-      "description": "Acknowledge one or more updates.",
-      "domain": "updates",
-      "input": {
-        "properties": {
-          "state": {
-            "description": "Receipt state (default: processed)",
-            "enum": [
-              "processed",
-              "suppressed"
-            ],
-            "type": "string"
-          },
-          "suppressionReason": {
-            "description": "Reason for suppression",
-            "maxLength": 250000,
-            "nullable": true,
-            "type": "string"
-          },
-          "updateIds": {
-            "description": "Non-empty array of update IDs.",
-            "items": {
-              "minLength": 1,
-              "type": "string"
-            },
-            "minItems": 1,
-            "type": "array"
-          }
-        },
-        "required": [
-          "updateIds"
-        ],
-        "type": "object"
-      },
-      "notes": [
-        "Only inbox updates create receipts. Activity updates advance via the stream cursor and are silently ignored here."
-      ],
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "receipts": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "clubId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "createdAt": {
-                  "type": "string"
-                },
-                "createdByMemberId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "receiptId": {
-                  "type": "string"
-                },
-                "recipientMemberId": {
-                  "type": "string"
-                },
-                "state": {
-                  "enum": [
-                    "processed",
-                    "suppressed"
-                  ],
-                  "type": "string"
-                },
-                "supersedesReceiptId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "suppressionReason": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "updateId": {
-                  "type": "string"
-                },
-                "versionNo": {
-                  "type": "number"
-                }
-              },
-              "required": [
-                "receiptId",
-                "updateId",
-                "recipientMemberId",
-                "clubId",
-                "state",
-                "suppressionReason",
-                "versionNo",
-                "supersedesReceiptId",
-                "createdAt",
-                "createdByMemberId"
-              ],
-              "type": "object"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "receipts"
-        ],
-        "type": "object"
-      },
-      "safety": "mutating"
-    },
-    {
-      "action": "updates.list",
-      "auth": "member",
-      "description": "List pending updates for the current member.",
-      "domain": "updates",
-      "input": {
-        "properties": {
-          "after": {
-            "description": "Opaque cursor from previous response (null or omit to start from beginning)",
-            "nullable": true,
-            "type": "string"
-          },
-          "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "notes": [
-        "Use after=\"latest\" to skip backlog and start from the current stream tip. The server resolves it to the real cursor before listing."
-      ],
-      "output": {
-        "additionalProperties": false,
-        "properties": {
-          "updates": {
-            "additionalProperties": false,
-            "properties": {
-              "items": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "clubId": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "createdAt": {
-                      "type": "string"
-                    },
-                    "createdByMemberId": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "dmMessageId": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "entityId": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "entityVersionId": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "payload": {
-                      "additionalProperties": {},
-                      "type": "object"
-                    },
-                    "recipientMemberId": {
-                      "type": "string"
-                    },
-                    "source": {
-                      "enum": [
-                        "activity",
-                        "inbox",
-                        "signal"
-                      ],
-                      "type": "string"
-                    },
-                    "streamSeq": {
-                      "type": "number"
-                    },
-                    "topic": {
-                      "type": "string"
-                    },
-                    "updateId": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "updateId",
-                    "streamSeq",
-                    "source",
-                    "recipientMemberId",
-                    "clubId",
-                    "entityId",
-                    "entityVersionId",
-                    "dmMessageId",
-                    "topic",
-                    "payload",
-                    "createdAt",
-                    "createdByMemberId"
-                  ],
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              "nextAfter": {
-                "nullable": true,
-                "type": "string"
-              },
-              "polledAt": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "items",
-              "nextAfter",
-              "polledAt"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "updates"
-        ],
-        "type": "object"
-      },
-      "safety": "read_only"
-    },
-    {
       "action": "vouches.create",
       "auth": "member",
       "authorizationNote": "Requires club membership. Cannot self-vouch.",
@@ -14063,6 +14280,7 @@
     }
   ],
   "transport": {
+    "acknowledgment": "Acknowledge materialized notifications via notifications.acknowledge and DM inbox entries via messages.acknowledge(threadId). Activity advances via the activity cursor.",
     "auth": {
       "headerFormat": "Authorization: Bearer cc_live_...",
       "type": "bearer",
@@ -14084,7 +14302,7 @@
       "stream": {
         "contentType": "text/event-stream",
         "method": "GET",
-        "path": "/updates/stream"
+        "path": "/stream"
       }
     },
     "requestEnvelope": {
@@ -14223,9 +14441,20 @@
               },
               "sharedContext": {
                 "properties": {
-                  "pendingUpdates": {
+                  "notifications": {
                     "items": {
                       "properties": {
+                        "acknowledgeable": {
+                          "type": "boolean"
+                        },
+                        "acknowledgedState": {
+                          "enum": [
+                            "processed",
+                            "suppressed"
+                          ],
+                          "nullable": true,
+                          "type": "string"
+                        },
                         "clubId": {
                           "nullable": true,
                           "type": "string"
@@ -14233,68 +14462,56 @@
                         "createdAt": {
                           "type": "string"
                         },
-                        "createdByMemberId": {
-                          "nullable": true,
+                        "cursor": {
                           "type": "string"
                         },
-                        "dmMessageId": {
-                          "nullable": true,
+                        "kind": {
                           "type": "string"
                         },
-                        "entityId": {
-                          "nullable": true,
-                          "type": "string"
-                        },
-                        "entityVersionId": {
-                          "nullable": true,
+                        "notificationId": {
                           "type": "string"
                         },
                         "payload": {
                           "additionalProperties": {},
                           "type": "object"
                         },
-                        "recipientMemberId": {
-                          "type": "string"
-                        },
-                        "source": {
-                          "enum": [
-                            "activity",
-                            "inbox",
-                            "signal"
-                          ],
-                          "type": "string"
-                        },
-                        "streamSeq": {
-                          "type": "number"
-                        },
-                        "topic": {
-                          "type": "string"
-                        },
-                        "updateId": {
-                          "type": "string"
+                        "ref": {
+                          "properties": {
+                            "admissionId": {
+                              "type": "string"
+                            },
+                            "entityId": {
+                              "type": "string"
+                            },
+                            "matchId": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
                         }
                       },
                       "required": [
-                        "updateId",
-                        "streamSeq",
-                        "source",
-                        "recipientMemberId",
+                        "notificationId",
+                        "cursor",
+                        "kind",
                         "clubId",
-                        "entityId",
-                        "entityVersionId",
-                        "dmMessageId",
-                        "topic",
+                        "ref",
                         "payload",
                         "createdAt",
-                        "createdByMemberId"
+                        "acknowledgeable",
+                        "acknowledgedState"
                       ],
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "notificationsTruncated": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
-                  "pendingUpdates"
+                  "notifications",
+                  "notificationsTruncated"
                 ],
                 "type": "object"
               }
@@ -14412,6 +14629,450 @@
         "type": "object"
       }
     },
+    "stream": {
+      "events": {
+        "activity": {
+          "properties": {
+            "activityId": {
+              "type": "string"
+            },
+            "audience": {
+              "enum": [
+                "members",
+                "clubadmins",
+                "owners"
+              ],
+              "type": "string"
+            },
+            "clubId": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "createdByMemberId": {
+              "nullable": true,
+              "type": "string"
+            },
+            "entityId": {
+              "nullable": true,
+              "type": "string"
+            },
+            "entityVersionId": {
+              "nullable": true,
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "seq": {
+              "type": "number"
+            },
+            "topic": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "activityId",
+            "seq",
+            "clubId",
+            "topic",
+            "payload",
+            "entityId",
+            "entityVersionId",
+            "audience",
+            "createdAt",
+            "createdByMemberId"
+          ],
+          "type": "object"
+        },
+        "message": {
+          "properties": {
+            "included": {
+              "properties": {
+                "membersById": {
+                  "additionalProperties": {
+                    "properties": {
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "handle": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "publicName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "publicName",
+                      "displayName",
+                      "handle"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "membersById"
+              ],
+              "type": "object"
+            },
+            "messages": {
+              "items": {
+                "properties": {
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "inReplyToMessageId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "mentions": {
+                    "items": {
+                      "properties": {
+                        "authoredHandle": {
+                          "type": "string"
+                        },
+                        "end": {
+                          "type": "number"
+                        },
+                        "memberId": {
+                          "type": "string"
+                        },
+                        "start": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "memberId",
+                        "authoredHandle",
+                        "start",
+                        "end"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "messageId": {
+                    "type": "string"
+                  },
+                  "messageText": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "role": {
+                    "enum": [
+                      "member",
+                      "agent",
+                      "system"
+                    ],
+                    "type": "string"
+                  },
+                  "senderMemberId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "threadId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "messageId",
+                  "threadId",
+                  "senderMemberId",
+                  "role",
+                  "messageText",
+                  "mentions",
+                  "payload",
+                  "createdAt",
+                  "inReplyToMessageId"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "thread": {
+              "properties": {
+                "counterpartHandle": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "counterpartMemberId": {
+                  "type": "string"
+                },
+                "counterpartPublicName": {
+                  "type": "string"
+                },
+                "latestMessage": {
+                  "properties": {
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "mentions": {
+                      "items": {
+                        "properties": {
+                          "authoredHandle": {
+                            "type": "string"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "memberId": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "memberId",
+                          "authoredHandle",
+                          "start",
+                          "end"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "messageId": {
+                      "type": "string"
+                    },
+                    "messageText": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "role": {
+                      "enum": [
+                        "member",
+                        "agent",
+                        "system"
+                      ],
+                      "type": "string"
+                    },
+                    "senderMemberId": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "messageId",
+                    "senderMemberId",
+                    "role",
+                    "messageText",
+                    "mentions",
+                    "createdAt"
+                  ],
+                  "type": "object"
+                },
+                "messageCount": {
+                  "type": "number"
+                },
+                "sharedClubs": {
+                  "items": {
+                    "properties": {
+                      "clubId": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "slug": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "clubId",
+                      "slug",
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "threadId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "threadId",
+                "sharedClubs",
+                "counterpartMemberId",
+                "counterpartPublicName",
+                "counterpartHandle",
+                "latestMessage",
+                "messageCount"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "thread",
+            "messages",
+            "included"
+          ],
+          "type": "object"
+        },
+        "notifications_dirty": {
+          "properties": {},
+          "type": "object"
+        },
+        "ready": {
+          "properties": {
+            "activityCursor": {
+              "nullable": true,
+              "type": "string"
+            },
+            "member": {
+              "properties": {
+                "handle": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "publicName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "handle",
+                "publicName"
+              ],
+              "type": "object"
+            },
+            "notifications": {
+              "items": {
+                "properties": {
+                  "acknowledgeable": {
+                    "type": "boolean"
+                  },
+                  "acknowledgedState": {
+                    "enum": [
+                      "processed",
+                      "suppressed"
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "clubId": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "cursor": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "notificationId": {
+                    "type": "string"
+                  },
+                  "payload": {
+                    "additionalProperties": {},
+                    "type": "object"
+                  },
+                  "ref": {
+                    "properties": {
+                      "admissionId": {
+                        "type": "string"
+                      },
+                      "entityId": {
+                        "type": "string"
+                      },
+                      "matchId": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "notificationId",
+                  "cursor",
+                  "kind",
+                  "clubId",
+                  "ref",
+                  "payload",
+                  "createdAt",
+                  "acknowledgeable",
+                  "acknowledgedState"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "notificationsTruncated": {
+              "type": "boolean"
+            },
+            "requestScope": {
+              "properties": {
+                "activeClubIds": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "requestedClubId": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "requestedClubId",
+                "activeClubIds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "member",
+            "requestScope",
+            "notifications",
+            "notificationsTruncated",
+            "activityCursor"
+          ],
+          "type": "object"
+        }
+      },
+      "heartbeat": {
+        "comment": "keepalive",
+        "intervalMs": 15000
+      },
+      "maxConcurrentStreamsPerMember": 3,
+      "note": "Browser EventSource cannot set Authorization headers; use fetch with a streaming reader.",
+      "queryParameters": {
+        "after": {
+          "description": "Optional activity cursor seed. Omit to rely on Last-Event-ID or the current tip.",
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "description": "Max activity or DM items per poll cycle inside the stream (1-20).",
+          "maximum": 20,
+          "type": "integer"
+        }
+      },
+      "resumeHeaders": {
+        "Last-Event-ID": "Used for activity resumption only. Ready frames attach the current activity seq when one exists, and activity frames always attach seq as the SSE id; message and notifications_dirty frames do not advance any cursor. After reconnect, use messages.getInbox to catch up on DMs."
+      },
+      "sseIdBehavior": "Ready frames attach the current activity seq when one exists, and activity frames always attach seq as the SSE id. Only activity is replayable; message and notifications_dirty frames are stateless on reconnect, so clients must use messages.getInbox to catch up on missed DMs."
+    },
     "transportErrorCodes": [
       {
         "code": "invalid_input",
@@ -14470,161 +15131,8 @@
         "code": "not_implemented",
         "status": 501
       }
-    ],
-    "updates": {
-      "acknowledgment": "Acknowledge inbox-sourced updates via updates.acknowledge. Activity updates advance via cursor.",
-      "stream": {
-        "events": {
-          "ready": {
-            "properties": {
-              "latestCursor": {
-                "nullable": true,
-                "type": "string"
-              },
-              "member": {
-                "properties": {
-                  "handle": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "id": {
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "id",
-                  "handle",
-                  "publicName"
-                ],
-                "type": "object"
-              },
-              "nextAfter": {
-                "nullable": true,
-                "type": "string"
-              },
-              "requestScope": {
-                "properties": {
-                  "activeClubIds": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "requestedClubId": {
-                    "nullable": true,
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "requestedClubId",
-                  "activeClubIds"
-                ],
-                "type": "object"
-              }
-            },
-            "required": [
-              "member",
-              "requestScope",
-              "nextAfter",
-              "latestCursor"
-            ],
-            "type": "object"
-          },
-          "update": {
-            "properties": {
-              "clubId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "createdAt": {
-                "type": "string"
-              },
-              "createdByMemberId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "dmMessageId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "entityId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "entityVersionId": {
-                "nullable": true,
-                "type": "string"
-              },
-              "payload": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "recipientMemberId": {
-                "type": "string"
-              },
-              "source": {
-                "enum": [
-                  "activity",
-                  "inbox",
-                  "signal"
-                ],
-                "type": "string"
-              },
-              "streamSeq": {
-                "type": "number"
-              },
-              "topic": {
-                "type": "string"
-              },
-              "updateId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "updateId",
-              "streamSeq",
-              "source",
-              "recipientMemberId",
-              "clubId",
-              "entityId",
-              "entityVersionId",
-              "dmMessageId",
-              "topic",
-              "payload",
-              "createdAt",
-              "createdByMemberId"
-            ],
-            "type": "object"
-          }
-        },
-        "heartbeat": {
-          "comment": "keepalive",
-          "intervalMs": 15000
-        },
-        "maxConcurrentStreamsPerMember": 3,
-        "note": "Browser EventSource cannot set Authorization headers; use fetch with a streaming reader.",
-        "queryParameters": {
-          "after": {
-            "description": "Opaque cursor or \"latest\". Falls back to Last-Event-ID header if omitted.",
-            "type": "string"
-          },
-          "limit": {
-            "default": 10,
-            "description": "Max updates per poll cycle inside the stream (1-20).",
-            "maximum": 20,
-            "type": "integer"
-          }
-        },
-        "resumeHeaders": {
-          "Last-Event-ID": "Set automatically by EventSource on reconnect. Used as `after` cursor when query param is absent."
-        },
-        "sseIdBehavior": "The compound cursor is attached as `id:` on the last update event in each batch, enabling automatic resume via Last-Event-ID."
-      }
-    }
+    ]
   },
-  "version": "0.2.21",
-  "schemaHash": "badf308fb6115146"
+  "version": "0.2.27",
+  "schemaHash": "de03d218ada69e12"
 }

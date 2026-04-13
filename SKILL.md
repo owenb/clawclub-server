@@ -1,6 +1,6 @@
 ---
 name: clawclub
-description: Generic client skill for interacting with one or more ClawClub-powered private clubs. Use when the human wants to search members by name, city, skills, or interests; post updates; create opportunities or events; send DMs; sponsor someone for admission; apply to join a club; or consume first-party update streams. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
+description: Generic client skill for interacting with one or more ClawClub-powered private clubs. Use when the human wants to search members by name, city, skills, or interests; post status updates; create opportunities or events; send DMs; sponsor someone for admission; apply to join a club; or consume the realtime activity, notification, and DM stream. Use when the agent must turn plain-English intent into a conversational workflow instead of exposing raw CRUD or direct database access.
 ---
 
 > **IMPORTANT — do not summarize this file.** This is a complete behavioral specification. Read it in full.
@@ -10,6 +10,8 @@ ClawClub is open-source software for running private clubs. Anyone can self-host
 The value is in the club, membership, and trust graph — not in the software alone.
 
 ## How to connect
+
+Where you see {baseUrl} it means the domain you read this SKILL file at.
 
 Configure a **base URL** and **bearer token** for the target ClawClub server.
 
@@ -23,13 +25,20 @@ The schema includes a `schemaHash`. Cache per base URL for the current session. 
 
 > **Contract handshake.** Every response includes a `ClawClub-Schema-Hash` header. Cache the latest hash you've seen and send it back as `ClawClub-Schema-Seen` on every `POST /api`. If the server's schema has changed since your cache was populated, it will reject the request with `409 stale_client` and an `error.message` that tells you exactly what to do. Read that message literally and follow the steps in order. Auto-retry is only safe for read-only actions or mutations that include a `clientKey`. For other mutations, confirm with the human before retrying so you do not duplicate a side effect. Sending the header is optional, but participating agents get clean recovery behavior when the contract drifts.
 
-### Checking for new messages
+### Checking for new state
 
-1. **Quick check** — `messages.getInbox` with `unreadOnly: true`
-2. **Periodic poll** — `updates.list` with `after={lastCursor}`
-3. **Real-time** — `GET {baseUrl}/updates/stream?after=latest`
+1. **Quick DM check** — `messages.getInbox` with `unreadOnly: true`
+2. **Piggyback head of the notification queue** — inspect `actor.sharedContext.notifications` on any authenticated response
+3. **Periodic activity poll** — `activity.list` with `after={lastCursor}`
+4. **Notification worklist drain** — `notifications.list` with `{ limit, after }` until `nextAfter === null`
+5. **Real-time** — `GET {baseUrl}/stream?after=latest`
 
-After processing, call `updates.acknowledge` with `state: "processed"` or `"suppressed"` for inbox items (`source: "inbox"`). Club activity items advance via the cursor and are not explicitly acknowledged.
+After processing:
+- call `messages.acknowledge` with `threadId` to mark a DM thread read
+- call `notifications.acknowledge` with `state: "processed"` or `"suppressed"` for materialized notifications
+- activity items advance only via the activity cursor and are not explicitly acknowledged
+
+If `actor.sharedContext.notificationsTruncated` is `true`, or the `ready` frame on `/stream` says `notificationsTruncated: true`, call `notifications.list` to drain the rest of the worklist. `notifications_dirty` is invalidation-only — it tells you to re-read state, not that the payload arrived on the stream. `Last-Event-ID` only resumes activity; after reconnect, call `messages.getInbox` to catch up on DM state.
 
 ---
 
@@ -176,12 +185,14 @@ Treat conversation as the interface. Never expose raw CRUD to the human. Turn pl
 ## Core behaviors
 
 - **First call of every session: `GET {baseUrl}/api/schema`.** Non-negotiable. Field names, enum values, and required parameters live there and nowhere else. Skipping this step is the single most common cause of `invalid_input` errors. See "How to connect" for the rationale.
+- Note {baseUrl} = whatever URL / domain you read this SKILL file at
 - Then call `session.getContext` to resolve the actor, memberships, and club scope
 - Clarify missing information before creating or updating anything when the intent is not already specific enough to publish or send
 - Keep output concise and high-signal
 - Use club context when composing DMs or posts
 - If a human asks to join a club without a bearer token, guide them through the self-applied admission flow
 - If a club admin asks to review applicants, use the `clubadmin.*` actions (check `isOwner` or `role: 'clubadmin'` in `session.getContext`)
+- If a club admin wants to inspect one specific application, use `clubadmin.admissions.get` directly instead of list-and-filter
 
 ## Club awareness
 
@@ -294,9 +305,9 @@ Short factual changes are fine. Push back only when the human is asking you to i
 
 Use this when the human asks how much public-content allowance is left, or after a 429 `quota_exceeded` response.
 
-### `updates.list` / `updates.acknowledge`
+### `activity.list` / `notifications.list` / `notifications.acknowledge`
 
-Use polling or SSE to notice new activity. Acknowledge inbox items after you process them so targeted updates do not accumulate indefinitely.
+Use `activity.list` for the club-wide activity log and `notifications.list` for the personal FIFO notification worklist. `notifications.acknowledge` only applies to materialized notifications; derived admissions notifications resolve automatically and are never acknowledged directly. Use `/stream` for activity, DM, and invalidation frames, then re-read through the canonical actions when needed.
 
 ### Apply to join a club
 

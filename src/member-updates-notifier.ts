@@ -1,5 +1,15 @@
 import { Client } from 'pg';
 
+export type StreamWakeupCause = {
+  kind: string;
+  clubId: string | null;
+  recipientMemberId: string | null;
+};
+
+export type WaitResult =
+  | { outcome: 'notified'; cause?: StreamWakeupCause }
+  | { outcome: 'timed_out' };
+
 export type MemberUpdateNotifier = {
   waitForUpdate(input: {
     recipientMemberId: string;
@@ -7,7 +17,7 @@ export type MemberUpdateNotifier = {
     afterStreamSeq: number | null;
     timeoutMs: number;
     signal?: AbortSignal;
-  }): Promise<'notified' | 'timed_out'>;
+  }): Promise<WaitResult>;
   close(): Promise<void>;
 };
 
@@ -15,14 +25,14 @@ type Waiter = {
   recipientMemberId: string;
   clubIds: string[];
   afterStreamSeq: number | null;
-  resolve: () => void;
+  resolve: (cause?: StreamWakeupCause) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
   signal?: AbortSignal;
   onAbort?: () => void;
 };
 
-async function sleep(timeoutMs: number, signal?: AbortSignal): Promise<'timed_out'> {
+async function sleep(timeoutMs: number, signal?: AbortSignal): Promise<WaitResult> {
   if (signal?.aborted) {
     throw new Error('Update wait aborted');
   }
@@ -45,12 +55,11 @@ async function sleep(timeoutMs: number, signal?: AbortSignal): Promise<'timed_ou
 
     signal?.addEventListener('abort', onAbort, { once: true });
   });
-  return 'timed_out';
+  return { outcome: 'timed_out' };
 }
 
 /**
- * Create a notifier that listens on the unified `updates` channel.
- * All three notification sources (activity, signals, inbox) fire on the same channel.
+ * Create a notifier that listens on the unified `stream` channel.
  */
 export function createPostgresMemberUpdateNotifier(
   connectionString: string,
@@ -61,13 +70,13 @@ export function createPostgresMemberUpdateNotifier(
 
   const ready = (async () => {
     await client.connect();
-    await client.query('listen updates');
+    await client.query('listen stream');
   })().catch((error) => {
     failed = true;
     throw error;
   });
 
-  function finishWaiter(waiter: Waiter, error?: Error) {
+  function finishWaiter(waiter: Waiter, cause?: StreamWakeupCause, error?: Error) {
     if (!waiters.has(waiter)) {
       return;
     }
@@ -83,37 +92,48 @@ export function createPostgresMemberUpdateNotifier(
       return;
     }
 
-    waiter.resolve();
+    waiter.resolve(cause);
   }
 
   function handleNotification(message: { channel: string; payload?: string }) {
-    if (message.channel !== 'updates') return;
+    if (message.channel !== 'stream') return;
 
+    let kind: string | null = null;
     let clubId: string | null = null;
     let recipientMemberId: string | null = null;
 
     try {
       const payload = message.payload ? JSON.parse(message.payload) as Record<string, unknown> : {};
+      kind = typeof payload.kind === 'string' ? payload.kind : null;
       clubId = typeof payload.clubId === 'string' ? payload.clubId : null;
       recipientMemberId = typeof payload.recipientMemberId === 'string' ? payload.recipientMemberId : null;
     } catch {
+      kind = null;
       clubId = null;
       recipientMemberId = null;
     }
 
+    const cause = kind === null && clubId === null && recipientMemberId === null
+      ? undefined
+      : {
+        kind: kind ?? '',
+        clubId,
+        recipientMemberId,
+      };
+
     for (const waiter of [...waiters]) {
       // Match by recipient or by club
       if (recipientMemberId !== null && waiter.recipientMemberId === recipientMemberId) {
-        finishWaiter(waiter);
+        finishWaiter(waiter, cause);
         continue;
       }
       if (clubId !== null && waiter.clubIds.includes(clubId)) {
-        finishWaiter(waiter);
+        finishWaiter(waiter, cause);
         continue;
       }
       // If payload has no identifiers, wake everyone (defensive)
       if (clubId === null && recipientMemberId === null) {
-        finishWaiter(waiter);
+        finishWaiter(waiter, cause);
       }
     }
   }
@@ -121,7 +141,7 @@ export function createPostgresMemberUpdateNotifier(
   function handleError(error: unknown) {
     failed = true;
     for (const waiter of [...waiters]) {
-      finishWaiter(waiter, error instanceof Error ? error : new Error('updates notifier failed'));
+      finishWaiter(waiter, undefined, error instanceof Error ? error : new Error('updates notifier failed'));
     }
   }
 
@@ -140,12 +160,12 @@ export function createPostgresMemberUpdateNotifier(
         return sleep(timeoutMs, signal);
       }
 
-      return new Promise<'notified' | 'timed_out'>((resolve, reject) => {
+      return new Promise<WaitResult>((resolve, reject) => {
         const waiter: Waiter = {
           recipientMemberId,
           clubIds,
           afterStreamSeq,
-          resolve: () => resolve('notified'),
+          resolve: (cause) => resolve({ outcome: 'notified', cause }),
           reject,
           signal,
           timeout: setTimeout(() => {
@@ -157,12 +177,12 @@ export function createPostgresMemberUpdateNotifier(
             if (waiter.onAbort) {
               waiter.signal?.removeEventListener('abort', waiter.onAbort);
             }
-            resolve('timed_out');
+            resolve({ outcome: 'timed_out' });
           }, timeoutMs),
         };
 
         if (signal) {
-          waiter.onAbort = () => finishWaiter(waiter, new Error('Update wait aborted'));
+          waiter.onAbort = () => finishWaiter(waiter, undefined, new Error('Update wait aborted'));
           signal.addEventListener('abort', waiter.onAbort, { once: true });
         }
 
@@ -178,7 +198,7 @@ export function createPostgresMemberUpdateNotifier(
 
     async close() {
       for (const waiter of [...waiters]) {
-        finishWaiter(waiter, new Error('updates notifier closed'));
+        finishWaiter(waiter, undefined, new Error('updates notifier closed'));
       }
 
       try {

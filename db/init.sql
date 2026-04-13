@@ -1119,11 +1119,11 @@ CREATE TABLE club_activity_cursors (
     CONSTRAINT club_activity_cursors_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id)
 );
 
--- ── Signal deliveries ────────────────────────────────────────────────
+-- ── Member notifications ─────────────────────────────────────────────
 
-CREATE TABLE signal_deliveries (
+CREATE TABLE member_notifications (
     id                      short_id DEFAULT new_id() NOT NULL,
-    club_id                 short_id NOT NULL,
+    club_id                 short_id,
     recipient_member_id     short_id NOT NULL,
     seq                     bigint GENERATED ALWAYS AS IDENTITY,
     topic                   text NOT NULL,
@@ -1135,25 +1135,25 @@ CREATE TABLE signal_deliveries (
     suppression_reason      text,
     created_at              timestamptz NOT NULL DEFAULT now(),
 
-    CONSTRAINT signal_deliveries_pkey PRIMARY KEY (id),
-    CONSTRAINT signal_deliveries_seq_unique UNIQUE (seq),
-    CONSTRAINT signal_deliveries_topic_check CHECK (length(btrim(topic)) > 0),
-    CONSTRAINT signal_deliveries_ack_state_check CHECK (
+    CONSTRAINT member_notifications_pkey PRIMARY KEY (id),
+    CONSTRAINT member_notifications_seq_unique UNIQUE (seq),
+    CONSTRAINT member_notifications_topic_check CHECK (length(btrim(topic)) > 0),
+    CONSTRAINT member_notifications_ack_state_check CHECK (
         acknowledged_state IS NULL OR acknowledged_state IN ('processed', 'suppressed')
     ),
-    CONSTRAINT signal_deliveries_suppression_check CHECK (
+    CONSTRAINT member_notifications_suppression_check CHECK (
         (acknowledged_state = 'suppressed' AND suppression_reason IS NOT NULL)
         OR (acknowledged_state IS DISTINCT FROM 'suppressed')
     ),
-    CONSTRAINT signal_deliveries_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
-    CONSTRAINT signal_deliveries_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES members(id),
-    CONSTRAINT signal_deliveries_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id)
+    CONSTRAINT member_notifications_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
+    CONSTRAINT member_notifications_recipient_fkey FOREIGN KEY (recipient_member_id) REFERENCES members(id),
+    CONSTRAINT member_notifications_entity_fkey FOREIGN KEY (entity_id) REFERENCES entities(id)
 );
 
-CREATE INDEX signal_deliveries_recipient_poll_idx
-    ON signal_deliveries (recipient_member_id, club_id, seq) WHERE acknowledged_state IS NULL;
-CREATE UNIQUE INDEX signal_deliveries_match_unique_idx
-    ON signal_deliveries (match_id) WHERE match_id IS NOT NULL;
+CREATE INDEX member_notifications_recipient_poll_idx
+    ON member_notifications (recipient_member_id, club_id, seq) WHERE acknowledged_state IS NULL;
+CREATE UNIQUE INDEX member_notifications_match_unique_idx
+    ON member_notifications (match_id) WHERE match_id IS NOT NULL;
 
 
 -- ============================================================
@@ -1329,7 +1329,7 @@ CREATE TABLE signal_background_matches (
     CONSTRAINT signal_background_matches_unique UNIQUE (match_kind, source_id, target_member_id),
     CONSTRAINT signal_background_matches_club_fkey FOREIGN KEY (club_id) REFERENCES clubs(id),
     CONSTRAINT signal_background_matches_target_fkey FOREIGN KEY (target_member_id) REFERENCES members(id),
-    CONSTRAINT signal_background_matches_signal_fkey FOREIGN KEY (signal_id) REFERENCES signal_deliveries(id)
+    CONSTRAINT signal_background_matches_signal_fkey FOREIGN KEY (signal_id) REFERENCES member_notifications(id)
 );
 
 CREATE INDEX signal_background_matches_pending_idx
@@ -1374,15 +1374,19 @@ CREATE TABLE worker_state (
 
 -- Single unified channel for all real-time notifications.
 -- The notifier dispatches by payload shape:
---   { clubId } → wake waiters watching that club
---   { recipientMemberId } → wake waiters for that member
---   { clubId, recipientMemberId } → wake both
+--   { clubId, kind: 'activity' } → wake activity waiters for that club
+--   { clubId, recipientMemberId, kind: 'notification' } → wake notification waiters
+--   { recipientMemberId, kind: 'message' } → wake DM waiters
+--   { clubId, kind: 'admission_version' } → wake derived-admission invalidation
 
 CREATE FUNCTION notify_club_activity() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
-    PERFORM pg_notify('updates', json_build_object('clubId', NEW.club_id)::text);
+    PERFORM pg_notify('stream', json_build_object(
+        'clubId', NEW.club_id,
+        'kind', 'activity'
+    )::text);
     RETURN NEW;
 END;
 $$;
@@ -1391,27 +1395,31 @@ CREATE TRIGGER club_activity_notify
     AFTER INSERT ON club_activity
     FOR EACH ROW EXECUTE FUNCTION notify_club_activity();
 
-CREATE FUNCTION notify_signal_delivery() RETURNS trigger
+CREATE FUNCTION notify_member_notification() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
-    PERFORM pg_notify('updates', json_build_object(
+    PERFORM pg_notify('stream', json_build_object(
         'clubId', NEW.club_id,
-        'recipientMemberId', NEW.recipient_member_id
+        'recipientMemberId', NEW.recipient_member_id,
+        'kind', 'notification'
     )::text);
     RETURN NEW;
 END;
 $$;
 
-CREATE TRIGGER signal_deliveries_notify
-    AFTER INSERT ON signal_deliveries
-    FOR EACH ROW EXECUTE FUNCTION notify_signal_delivery();
+CREATE TRIGGER member_notifications_notify
+    AFTER INSERT ON member_notifications
+    FOR EACH ROW EXECUTE FUNCTION notify_member_notification();
 
 CREATE FUNCTION notify_dm_inbox() RETURNS trigger
     LANGUAGE plpgsql
 AS $$
 BEGIN
-    PERFORM pg_notify('updates', json_build_object('recipientMemberId', NEW.recipient_member_id)::text);
+    PERFORM pg_notify('stream', json_build_object(
+        'recipientMemberId', NEW.recipient_member_id,
+        'kind', 'message'
+    )::text);
     RETURN NEW;
 END;
 $$;
@@ -1419,6 +1427,28 @@ $$;
 CREATE TRIGGER dm_inbox_entries_notify
     AFTER INSERT ON dm_inbox_entries
     FOR EACH ROW EXECUTE FUNCTION notify_dm_inbox();
+
+CREATE FUNCTION notify_admission_version() RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_club_id short_id;
+BEGIN
+    SELECT club_id INTO v_club_id
+    FROM admissions
+    WHERE id = NEW.admission_id;
+
+    PERFORM pg_notify('stream', json_build_object(
+        'clubId', v_club_id,
+        'kind', 'admission_version'
+    )::text);
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER admission_versions_notify
+    AFTER INSERT ON admission_versions
+    FOR EACH ROW EXECUTE FUNCTION notify_admission_version();
 
 
 -- ============================================================

@@ -36,7 +36,7 @@ This section should be updated continuously from the active bug list.
   - admissions
   - membership state transitions
   - messaging
-  - updates / SSE replay
+  - activity / notifications / stream replay
   - token issuance / revocation
   - admin or operational scripts used in deployment
 
@@ -55,8 +55,9 @@ This section should be updated continuously from the active bug list.
   - server starts
   - bearer-token auth works
   - `session.getContext` works
-  - `updates.list` works
-  - `GET /updates/stream` emits a ready event
+  - `activity.list` works
+  - `notifications.list` works
+  - `GET /stream` emits a ready event
   - representative read actions work
 - [ ] Confirm the test database and local dev database stories are clear and separate.
   Scratch test databases use the `clawclub_test_*` prefix; `clawclub_dev` is the long-lived local manual-testing database. These should not be easy to confuse in docs or scripts.
@@ -142,9 +143,9 @@ This section should be updated continuously from the active bug list.
 - [ ] If owner review matters at launch, replace row-by-row aggregation with pre-aggregated CTEs or equivalent.
 - [ ] Define what query latency is acceptable for that screen or action.
 
-### Update-log growth
+### Notification-log growth
 
-- [ ] Decide the first retention policy for `member_updates`.
+- [ ] Decide the first retention policy for `member_notifications`.
 - [ ] Decide whether launch needs cleanup only, or cleanup plus archive.
 - [ ] Write down when partitioning becomes necessary so this does not become vague future debt.
 
@@ -187,7 +188,7 @@ Run this only after the sections above are in acceptable shape.
 - [ ] Verify admissions work.
 - [ ] Verify membership transitions work.
 - [ ] Verify direct messages work between shared-club members.
-- [ ] Verify updates polling and streaming work.
+- [ ] Verify `activity.list`, `notifications.list`, and `/stream` work.
 - [ ] Verify a representative admin action works.
 
 ### Secret and environment checks

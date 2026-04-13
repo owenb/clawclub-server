@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, DEFAULT_SERVER_LIMITS } from '../../src/server.ts';
 import type { Repository } from '../../src/contract.ts';
-import { makeAuthResult, makePendingUpdate, makeRepository, makeUpdatesNotifier } from './fixtures.ts';
+import { makeActivityEvent, makeAuthResult, makeNotificationItem, makeRepository, makeUpdatesNotifier } from './fixtures.ts';
 
 async function listenOnRandomPort(server: ReturnType<typeof createServer>['server']): Promise<number> {
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -413,9 +413,9 @@ test('createServer enforces request body limits by byte size, not decoded string
   }
 });
 
-test('createServer streams updates over SSE and emits heartbeats', async () => {
+test('createServer streams ready, activity, and keepalive frames over SSE', async () => {
   const requestFetch = globalThis.fetch;
-  let listCallCount = 0;
+  let activityListCallCount = 0;
   const requestAbort = new AbortController();
 
   const repository: Repository = {
@@ -423,30 +423,36 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
     async authenticateBearerToken(token) {
       return token === 'cc_live_test' ? makeAuthResult() : null;
     },
-    async listMemberUpdates(input) {
-      listCallCount += 1;
+    async listClubActivity(input) {
+      activityListCallCount += 1;
 
-      if ((input.after ?? null) !== null) {
+      if ((input.afterSeq ?? null) === null) {
         return {
           items: [],
-          nextAfter: input.after ?? null,
-          polledAt: '2026-03-14T11:05:02Z',
+          nextAfterSeq: 1,
         };
       }
 
-      if (listCallCount === 1) {
+      if (activityListCallCount === 2) {
         return {
-          items: [],
-          nextAfter: null,
-          polledAt: '2026-03-14T11:05:00Z',
+          items: [makeActivityEvent({ activityId: 'activity-2', seq: 2 })],
+          nextAfterSeq: 2,
         };
       }
 
       return {
-        items: [makePendingUpdate({ updateId: 'update-2', streamSeq: 2 })],
-        nextAfter: 'cursor-2',
-        polledAt: '2026-03-14T11:05:01Z',
+        items: [],
+        nextAfterSeq: input.afterSeq ?? 2,
       };
+    },
+    async listNotifications() {
+      return {
+        items: [makeNotificationItem({ notificationId: 'synchronicity.ask_to_member:notification-2' })],
+        nextAfter: 'cursor-next',
+      };
+    },
+    async listInboxSince() {
+      return { frames: [], nextAfter: null };
     },
   };
 
@@ -471,7 +477,7 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
           signal?.addEventListener('abort', onAbort, { once: true });
         });
 
-        return 'timed_out' as const;
+        return { outcome: 'timed_out' } as const;
       }
 
       await new Promise<void>((_resolve, reject) => {
@@ -488,7 +494,7 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
         signal?.addEventListener('abort', onAbort, { once: true });
       });
 
-      return 'timed_out' as const;
+      return { outcome: 'timed_out' } as const;
     },
     async close() {},
   };
@@ -498,7 +504,7 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
   try {
     const port = await listenOnRandomPort(server);
 
-    const response = await requestFetch(`http://127.0.0.1:${port}/updates/stream`, {
+    const response = await requestFetch(`http://127.0.0.1:${port}/stream`, {
       headers: {
         authorization: 'Bearer cc_live_test',
       },
@@ -521,15 +527,17 @@ test('createServer streams updates over SSE and emits heartbeats', async () => {
       }
 
       transcript += decoder.decode(chunk.value, { stream: true });
-      if (/event: ready/.test(transcript) && /: keepalive/.test(transcript) && /"updateId":"update-2"/.test(transcript)) {
+      if (/event: ready/.test(transcript) && /: keepalive/.test(transcript) && /event: activity/.test(transcript)) {
         break;
       }
     }
 
     assert.match(transcript, /event: ready/);
+    assert.match(transcript, /"notificationsTruncated":true/);
+    assert.match(transcript, /"activityCursor":"[A-Za-z0-9_-]+={0,2}"/);
+    assert.match(transcript, /event: activity/);
+    assert.match(transcript, /"activityId":"activity-2"/);
     assert.match(transcript, /: keepalive/);
-    assert.match(transcript, /event: update/);
-    assert.match(transcript, /"updateId":"update-2"/);
 
     requestAbort.abort();
     await reader.cancel().catch(() => {});
@@ -679,17 +687,19 @@ test('createServer does not gate recovery endpoints on ClawClub-Schema-Seen', as
     async authenticateBearerToken(token) {
       return token === 'cc_live_test' ? makeAuthResult() : null;
     },
-    async listMemberUpdates() {
-      return {
-        items: [],
-        nextAfter: null,
-        polledAt: '2026-03-14T11:05:00Z',
-      };
+    async listClubActivity() {
+      return { items: [], nextAfterSeq: 0 };
+    },
+    async listNotifications() {
+      return { items: [], nextAfter: null };
+    },
+    async listInboxSince() {
+      return { frames: [], nextAfter: null };
     },
   };
   const updatesNotifier = {
     async waitForUpdate({ signal }: { signal?: AbortSignal }) {
-      return new Promise<'timed_out'>((_, reject) => {
+      return new Promise<{ outcome: 'timed_out' }>((_, reject) => {
         const onAbort = () => {
           signal?.removeEventListener('abort', onAbort);
           reject(new Error('aborted'));
@@ -726,7 +736,7 @@ test('createServer does not gate recovery endpoints on ClawClub-Schema-Seen', as
     assert.equal(skillResponse.status, 200);
     assertContractHeaders(skillResponse);
 
-    const streamResponse = await requestFetch(`http://127.0.0.1:${port}/updates/stream`, {
+    const streamResponse = await requestFetch(`http://127.0.0.1:${port}/stream`, {
       headers: {
         authorization: 'Bearer cc_live_test',
         'clawclub-schema-seen': 'stale-schema-hash',
@@ -748,22 +758,26 @@ test('createServer does not gate recovery endpoints on ClawClub-Schema-Seen', as
 test('createServer rejects SSE stream when per-member connection cap is reached', async () => {
   const requestFetch = globalThis.fetch;
   const abortControllers: AbortController[] = [];
-  let waitBlocked = false;
 
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
       return token === 'cc_live_test' ? makeAuthResult() : null;
     },
-    async listMemberUpdates() {
-      return { items: [], nextAfter: null, polledAt: '2026-03-14T11:05:00Z' };
+    async listClubActivity() {
+      return { items: [], nextAfterSeq: 0 };
+    },
+    async listNotifications() {
+      return { items: [], nextAfter: null };
+    },
+    async listInboxSince() {
+      return { frames: [], nextAfter: null };
     },
   };
 
   const updatesNotifier = {
     async waitForUpdate({ signal }: { signal?: AbortSignal }) {
-      waitBlocked = true;
-      return new Promise<'timed_out' | 'notified'>((resolve, reject) => {
+      return new Promise<{ outcome: 'timed_out' } | { outcome: 'notified'; cause?: { kind?: string | null } }>((resolve, reject) => {
         const onAbort = () => { reject(new Error('aborted')); };
         if (signal?.aborted) { onAbort(); return; }
         signal?.addEventListener('abort', onAbort, { once: true });
@@ -785,7 +799,7 @@ test('createServer rejects SSE stream when per-member connection cap is reached'
     for (let i = 0; i < 3; i++) {
       const abort = new AbortController();
       abortControllers.push(abort);
-      const res = await requestFetch(`http://127.0.0.1:${port}/updates/stream`, {
+      const res = await requestFetch(`http://127.0.0.1:${port}/stream`, {
         headers: { authorization: 'Bearer cc_live_test' },
         signal: abort.signal,
       });
@@ -793,7 +807,7 @@ test('createServer rejects SSE stream when per-member connection cap is reached'
     }
 
     const extraAbort = new AbortController();
-    const extraResponse = await requestFetch(`http://127.0.0.1:${port}/updates/stream`, {
+    const extraResponse = await requestFetch(`http://127.0.0.1:${port}/stream`, {
       headers: { authorization: 'Bearer cc_live_test' },
       signal: extraAbort.signal,
     });

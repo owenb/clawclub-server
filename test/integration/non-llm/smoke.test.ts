@@ -64,7 +64,7 @@ describe('smoke', () => {
       }>;
     };
     assert.ok(data.version, 'schema should have a version');
-    assert.equal(data.actions.length, 72, 'schema should have all 72 actions');
+    assert.equal(data.actions.length, 75, 'schema should have all 75 actions');
 
     for (const a of data.actions) {
       assert.ok(a.input, `${a.action} should have input schema`);
@@ -194,12 +194,13 @@ describe('smoke', () => {
     assert.ok(envelopes.unauthenticatedSuccess);
     assert.ok(envelopes.error);
 
-    // Updates
-    const updates = transport.updates as Record<string, unknown>;
-    const stream = updates.stream as Record<string, unknown>;
+    // Stream
+    const stream = transport.stream as Record<string, unknown>;
     const events = stream.events as Record<string, unknown>;
     assert.ok(events.ready, 'should have stream ready event schema');
-    assert.ok(events.update, 'should have stream update event schema');
+    assert.ok(events.activity, 'should have stream activity event schema');
+    assert.ok(events.message, 'should have stream message event schema');
+    assert.ok(events.notifications_dirty, 'should have stream notifications_dirty event schema');
 
     // Stream contract
     const streamQp = stream.queryParameters as Record<string, unknown>;
@@ -209,6 +210,7 @@ describe('smoke', () => {
     assert.ok(stream.sseIdBehavior, 'stream should document SSE id behavior');
     assert.ok(stream.heartbeat, 'stream should document heartbeat');
     assert.ok(typeof stream.maxConcurrentStreamsPerMember === 'number', 'stream should document max concurrent streams');
+    assert.ok(transport.acknowledgment, 'transport should document acknowledgment semantics');
 
     // Transport error codes
     const errorCodes = transport.transportErrorCodes as Array<Record<string, unknown>>;

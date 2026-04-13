@@ -7,7 +7,18 @@
  */
 
 import type { Pool } from 'pg';
-import { AppError, type Repository, type EntitySummary, type MembershipVouchSummary, type AdmissionStatus, type PendingUpdate } from './contract.ts';
+import {
+  AppError,
+  type Repository,
+  type EntitySummary,
+  type MembershipVouchSummary,
+  type AdmissionStatus,
+  type IncludedBundle,
+  type IncludedMember,
+  type MessageFramePayload,
+  type NotificationItem,
+  type NotificationReceipt,
+} from './contract.ts';
 import { withTransaction } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
 import { generateAdmissionClubProfile, normalizeClubProfileFields } from './identity/profiles.ts';
@@ -16,75 +27,21 @@ import { createClubsRepository, batchListVouches, type ClubsRepository } from '.
 import * as admissionsModule from './clubs/admissions.ts';
 import {
   emptyIncludedBundle,
+  loadIncludedMembers,
   loadEntityVersionMentions,
   loadDmMentions,
   preflightContentCreateMentions,
   preflightContentUpdateMentions,
 } from './mentions.ts';
-import { encodeCursor as paginationEncodeCursor } from './schemas/fields.ts';
-
-// ── Cursor helpers ──────────────────────────────────────────
-
-/**
- * Compound cursor: independent positions for activity, signals, and inbox.
- * Encoded as base64url JSON: { a: activitySeq, s: signalSeq, t: inboxTimestamp }
- *
- * Backward compatible: old-format cursors { s: N, t: T } are read as
- * { a: N, s: 0, t: T }, defaulting signal position to 0 so the first
- * poll returns all unacknowledged signals.
- *
- * Also accepts buggy cursors previously emitted as { a: "123", s: 0, t: T }.
- */
-type UpdateCursor = { a: number; s: number; t: string };
-
-function encodeCursor(cursor: UpdateCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString('base64url');
-}
-
-function parseCursorSeq(value: unknown): number | null {
-  if (typeof value === 'number') {
-    return Number.isSafeInteger(value) && value >= 0 ? value : null;
-  }
-  if (typeof value === 'string' && /^[0-9]+$/.test(value)) {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isSafeInteger(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function decodeCursor(raw: string): UpdateCursor | null {
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString());
-    if (typeof parsed === 'object' && parsed !== null) {
-      const hasActivityKey = Object.prototype.hasOwnProperty.call(parsed, 'a');
-      // New compound format: { a, s, t }
-      if (hasActivityKey) {
-        const activitySeq = parseCursorSeq(parsed.a);
-        if (activitySeq === null) return null;
-        return {
-          a: activitySeq,
-          s: parseCursorSeq(parsed.s) ?? 0,
-          t: typeof parsed.t === 'string' ? parsed.t : new Date(0).toISOString(),
-        };
-      }
-      // Old format: { s: activitySeq, t: inboxTimestamp }
-      const activitySeq = parseCursorSeq(parsed.s);
-      if (activitySeq !== null) {
-        return {
-          a: activitySeq,
-          s: 0,
-          t: typeof parsed.t === 'string' ? parsed.t : new Date(0).toISOString(),
-        };
-      }
-    }
-  } catch {
-    // Fall through
-  }
-  // Legacy: try parsing as plain number (very old cursor format)
-  const n = parseCursorSeq(raw);
-  if (n !== null) return { a: n, s: 0, t: new Date(0).toISOString() };
-  return null;
-}
+import {
+  encodeCursor as paginationEncodeCursor,
+  decodeCursor as paginationDecodeCursor,
+} from './schemas/fields.ts';
+import {
+  NOTIFICATIONS_PAGE_SIZE,
+  encodeNotificationCursor,
+  decodeNotificationCursor,
+} from './notifications-core.ts';
 
 // ── Enrichment helpers ──────────────────────────────────────
 
@@ -156,6 +113,451 @@ async function readAdmissionEnriched(
     admissionDetails: (r.admission_details as Record<string, unknown>) ?? {},
     metadata: (r.metadata as Record<string, unknown>) ?? {},
     createdAt: r.created_at as string,
+  };
+}
+
+function mergeIncludedById(...bundles: IncludedBundle[]): IncludedBundle {
+  const membersById: Record<string, IncludedMember> = {};
+  for (const bundle of bundles) {
+    Object.assign(membersById, bundle.membersById);
+  }
+  return { membersById };
+}
+
+function buildNotificationId(kind: string, primaryRef: string): string {
+  return `${kind}:${primaryRef}`;
+}
+
+function splitNotificationId(notificationId: string): { kind: string; primaryRef: string } | null {
+  const separator = notificationId.lastIndexOf(':');
+  if (separator <= 0 || separator === notificationId.length - 1) {
+    return null;
+  }
+  return {
+    kind: notificationId.slice(0, separator),
+    primaryRef: notificationId.slice(separator + 1),
+  };
+}
+
+function encodeInboxCursor(createdAt: string, inboxEntryId: string): string {
+  return paginationEncodeCursor([createdAt, inboxEntryId]);
+}
+
+function decodeInboxCursor(cursor: string): { createdAt: string; inboxEntryId: string } {
+  const [createdAt, inboxEntryId] = paginationDecodeCursor(cursor, 2);
+  return { createdAt, inboxEntryId };
+}
+
+function sortNotificationItems(a: NotificationItem, b: NotificationItem): number {
+  if (a.createdAt !== b.createdAt) {
+    return a.createdAt.localeCompare(b.createdAt);
+  }
+  return a.notificationId.localeCompare(b.notificationId);
+}
+
+async function listMaterializedNotifications(pool: Pool, input: {
+  actorMemberId: string;
+  accessibleClubIds: string[];
+  limit: number;
+  after: string | null;
+}): Promise<NotificationItem[]> {
+  const limit = Math.max(1, Math.min(input.limit, NOTIFICATIONS_PAGE_SIZE)) + 1;
+  const afterCursor = input.after ? decodeNotificationCursor(input.after) : null;
+  const afterNotification = afterCursor ? splitNotificationId(afterCursor.notificationId) : null;
+
+  const result = await pool.query<{
+    id: string;
+    club_id: string | null;
+    topic: string;
+    payload: Record<string, unknown>;
+    entity_id: string | null;
+    match_id: string | null;
+    acknowledged_state: 'processed' | 'suppressed' | null;
+    created_at: string;
+  }>(
+    `select mn.id,
+            mn.club_id,
+            mn.topic,
+            mn.payload,
+            mn.entity_id,
+            mn.match_id,
+            mn.acknowledged_state,
+            mn.created_at::text as created_at
+     from member_notifications mn
+     where mn.recipient_member_id = $1
+       and (mn.club_id is null or mn.club_id = any($2::text[]))
+       and mn.acknowledged_state is null
+       and (
+         $3::timestamptz is null
+         or mn.created_at > $3
+         or (
+           mn.created_at = $3
+           and (
+             mn.topic > $4
+             or (mn.topic = $4 and mn.id > $5)
+           )
+         )
+       )
+       and (
+         mn.entity_id is null
+         or exists (
+           select 1 from current_entity_versions cev
+           where cev.entity_id = mn.entity_id and cev.state = 'published'
+         )
+       )
+       and (
+         mn.topic <> 'synchronicity.offer_to_ask'
+         or mn.payload->>'yourAskEntityId' is null
+         or exists (
+           select 1 from current_entity_versions cev
+           where cev.entity_id = mn.payload->>'yourAskEntityId' and cev.state = 'published'
+         )
+       )
+     order by mn.created_at asc, mn.topic asc, mn.id asc
+     limit $6`,
+    [
+      input.actorMemberId,
+      input.accessibleClubIds,
+      afterCursor?.createdAt ?? null,
+      afterNotification?.kind ?? null,
+      afterNotification?.primaryRef ?? null,
+      limit,
+    ],
+  );
+
+  return result.rows.map((row) => {
+    const notificationId = buildNotificationId(row.topic, row.id);
+    return {
+      notificationId,
+      cursor: encodeNotificationCursor(row.created_at, notificationId),
+      kind: row.topic,
+      clubId: row.club_id,
+      ref: {
+        ...(row.match_id ? { matchId: row.match_id } : {}),
+        ...(row.entity_id ? { entityId: row.entity_id } : {}),
+      },
+      payload: row.payload,
+      createdAt: row.created_at,
+      acknowledgeable: true,
+      acknowledgedState: row.acknowledged_state,
+    };
+  });
+}
+
+async function listDerivedAdmissionNotifications(pool: Pool, input: {
+  adminClubIds: string[];
+  limit: number;
+  after: string | null;
+}): Promise<NotificationItem[]> {
+  if (input.adminClubIds.length === 0) {
+    return [];
+  }
+
+  const limit = Math.max(1, Math.min(input.limit, NOTIFICATIONS_PAGE_SIZE)) + 1;
+  const afterCursor = input.after ? decodeNotificationCursor(input.after) : null;
+
+  const result = await pool.query<{
+    admission_id: string;
+    club_id: string;
+    created_at: string;
+  }>(
+    `select ca.id as admission_id,
+            ca.club_id,
+            ca.version_created_at::text as created_at
+     from current_admissions ca
+     where ca.status = 'submitted'
+       and ca.club_id = any($1::text[])
+       and (
+         $2::timestamptz is null
+         or ca.version_created_at > $2
+         or (ca.version_created_at = $2 and ('admission.submitted:' || ca.id) > $3)
+       )
+     order by ca.version_created_at asc, ca.id asc
+     limit $4`,
+    [
+      input.adminClubIds,
+      afterCursor?.createdAt ?? null,
+      afterCursor?.notificationId ?? null,
+      limit,
+    ],
+  );
+
+  return result.rows.map((row) => {
+    const notificationId = buildNotificationId('admission.submitted', row.admission_id);
+    return {
+      notificationId,
+      cursor: encodeNotificationCursor(row.created_at, notificationId),
+      kind: 'admission.submitted',
+      clubId: row.club_id,
+      ref: { admissionId: row.admission_id },
+      payload: { admissionId: row.admission_id },
+      createdAt: row.created_at,
+      acknowledgeable: false,
+      acknowledgedState: null,
+    };
+  });
+}
+
+async function listInboxFramesSince(pool: Pool, input: {
+  actorMemberId: string;
+  after: string | null;
+  limit: number;
+}): Promise<{ frames: MessageFramePayload[]; nextAfter: string | null }> {
+  const limit = Math.max(1, input.limit);
+  const afterCursor = input.after ? decodeInboxCursor(input.after) : null;
+
+  if (afterCursor === null) {
+    const seed = await pool.query<{
+      inbox_entry_id: string;
+      created_at: string;
+    }>(
+      `select ie.id as inbox_entry_id,
+              ie.created_at::text as created_at
+       from dm_inbox_entries ie
+       where ie.recipient_member_id = $1
+         and ie.acknowledged = false
+         and not exists (
+           select 1 from dm_message_removals rmv where rmv.message_id = ie.message_id
+         )
+         and exists (
+           select 1
+           from dm_thread_participants self
+           where self.thread_id = ie.thread_id
+             and self.member_id = $1
+             and self.left_at is null
+         )
+         and exists (
+           select 1
+           from dm_thread_participants other
+           where other.thread_id = ie.thread_id
+             and other.member_id <> $1
+             and other.left_at is null
+         )
+       order by ie.created_at desc, ie.id desc
+       limit 1`,
+      [input.actorMemberId],
+    );
+
+    const head = seed.rows[0];
+    if (!head) {
+      const nowResult = await pool.query<{ created_at: string }>(
+        `select clock_timestamp()::text as created_at`,
+      );
+      return {
+        frames: [],
+        nextAfter: encodeInboxCursor(nowResult.rows[0]?.created_at ?? new Date().toISOString(), ''),
+      };
+    }
+
+    return {
+      frames: [],
+      nextAfter: encodeInboxCursor(head.created_at, head.inbox_entry_id),
+    };
+  }
+
+  const inboxRows = await pool.query<{
+    inbox_entry_id: string;
+    thread_id: string;
+    message_id: string;
+    created_at: string;
+  }>(
+    `select ie.id as inbox_entry_id,
+            ie.thread_id,
+            ie.message_id,
+            ie.created_at::text as created_at
+     from dm_inbox_entries ie
+     where ie.recipient_member_id = $1
+       and ie.acknowledged = false
+       and not exists (
+         select 1 from dm_message_removals rmv where rmv.message_id = ie.message_id
+       )
+       and exists (
+         select 1
+         from dm_thread_participants self
+         where self.thread_id = ie.thread_id
+           and self.member_id = $1
+           and self.left_at is null
+       )
+       and exists (
+         select 1
+         from dm_thread_participants other
+         where other.thread_id = ie.thread_id
+           and other.member_id <> $1
+           and other.left_at is null
+       )
+       and (
+         ie.created_at > $2::timestamptz
+         or (ie.created_at = $2::timestamptz and ie.id > $3)
+       )
+     order by ie.created_at asc, ie.id asc
+     limit $4`,
+    [input.actorMemberId, afterCursor.createdAt, afterCursor.inboxEntryId, limit],
+  );
+
+  if (inboxRows.rows.length === 0) {
+    return { frames: [], nextAfter: input.after };
+  }
+
+  const messageIds = inboxRows.rows.map((row) => row.message_id);
+  const threadIds = [...new Set(inboxRows.rows.map((row) => row.thread_id))];
+
+  const messageResult = await pool.query<{
+    message_id: string;
+    thread_id: string;
+    sender_member_id: string | null;
+    role: 'member' | 'agent' | 'system';
+    message_text: string | null;
+    payload: Record<string, unknown> | null;
+    created_at: string;
+    in_reply_to_message_id: string | null;
+  }>(
+    `select m.id as message_id,
+            m.thread_id,
+            m.sender_member_id,
+            m.role::text as role,
+            m.message_text,
+            m.payload,
+            m.created_at::text as created_at,
+            m.in_reply_to_message_id
+     from dm_messages m
+     where m.id = any($1::text[])`,
+    [messageIds],
+  );
+
+  const messageMentions = await loadDmMentions(pool, messageIds);
+  const messagesById = new Map(messageResult.rows.map((row) => {
+    const message = {
+      messageId: row.message_id,
+      threadId: row.thread_id,
+      senderMemberId: row.sender_member_id,
+      role: row.role,
+      messageText: row.message_text,
+      mentions: messageMentions.mentionsByMessageId.get(row.message_id) ?? [],
+      payload: row.payload ?? {},
+      createdAt: row.created_at,
+      inReplyToMessageId: row.in_reply_to_message_id,
+    };
+    return [row.message_id, message];
+  }));
+
+  const threadResult = await pool.query<{
+    thread_id: string;
+    counterpart_member_id: string;
+    counterpart_public_name: string;
+    counterpart_handle: string | null;
+    latest_message_id: string;
+    latest_sender_member_id: string | null;
+    latest_role: 'member' | 'agent' | 'system';
+    latest_message_text: string | null;
+    latest_created_at: string;
+    latest_is_removed: boolean;
+    message_count: number;
+  }>(
+    `with counterparts as (
+       select tp.thread_id,
+              other.member_id as counterpart_member_id
+       from dm_thread_participants tp
+       join dm_thread_participants other
+         on other.thread_id = tp.thread_id
+        and other.member_id <> $1
+       where tp.member_id = $1
+         and tp.left_at is null
+         and other.left_at is null
+         and tp.thread_id = any($2::text[])
+     ),
+     latest_msg as (
+       select distinct on (c.thread_id)
+              c.thread_id,
+              c.counterpart_member_id,
+              m.id as latest_message_id,
+              m.sender_member_id as latest_sender_member_id,
+              m.role::text as latest_role,
+              case when rmv.message_id is not null then '[Message removed]' else m.message_text end as latest_message_text,
+              m.created_at::text as latest_created_at,
+              (rmv.message_id is not null) as latest_is_removed,
+              (select count(*)::int from dm_messages mm where mm.thread_id = c.thread_id) as message_count
+       from counterparts c
+       join dm_messages m on m.thread_id = c.thread_id
+       left join dm_message_removals rmv on rmv.message_id = m.id
+       order by c.thread_id, m.created_at desc, m.id desc
+     )
+     select lm.thread_id,
+            lm.counterpart_member_id,
+            mbr.public_name as counterpart_public_name,
+            mbr.handle as counterpart_handle,
+            lm.latest_message_id,
+            lm.latest_sender_member_id,
+            lm.latest_role,
+            lm.latest_message_text,
+            lm.latest_created_at,
+            lm.latest_is_removed,
+            lm.message_count
+     from latest_msg lm
+     join members mbr on mbr.id = lm.counterpart_member_id`,
+    [input.actorMemberId, threadIds],
+  );
+
+  const latestVisibleMessageIds = threadResult.rows
+    .filter((row) => !row.latest_is_removed)
+    .map((row) => row.latest_message_id);
+  const latestThreadMentions = await loadDmMentions(pool, latestVisibleMessageIds);
+  const sharedClubsMap = await batchResolveSharedClubs(
+    pool,
+    input.actorMemberId,
+    [...new Set(threadResult.rows.map((row) => row.counterpart_member_id))],
+  );
+
+  const threadsById = new Map(threadResult.rows.map((row) => {
+    const thread = {
+      threadId: row.thread_id,
+      sharedClubs: sharedClubsMap.get(row.counterpart_member_id) ?? [],
+      counterpartMemberId: row.counterpart_member_id,
+      counterpartPublicName: row.counterpart_public_name,
+      counterpartHandle: row.counterpart_handle,
+      latestMessage: {
+        messageId: row.latest_message_id,
+        senderMemberId: row.latest_sender_member_id,
+        role: row.latest_role,
+        messageText: row.latest_message_text,
+        mentions: row.latest_is_removed ? [] : (latestThreadMentions.mentionsByMessageId.get(row.latest_message_id) ?? []),
+        createdAt: row.latest_created_at,
+      },
+      messageCount: Number(row.message_count),
+    };
+    return [row.thread_id, thread];
+  }));
+
+  const frames = inboxRows.rows.flatMap((row) => {
+    const thread = threadsById.get(row.thread_id);
+    const message = messagesById.get(row.message_id);
+    if (!thread) {
+      throw new Error(`Missing DM thread summary for inbox row ${row.inbox_entry_id}`);
+    }
+    if (!message) {
+      throw new Error(`Missing DM message ${row.message_id} for inbox row ${row.inbox_entry_id}`);
+    }
+
+    const included: IncludedBundle = {
+      membersById: message.mentions.reduce<Record<string, IncludedMember>>((acc, mention) => {
+        const member = messageMentions.included.membersById[mention.memberId];
+        if (member) {
+          acc[mention.memberId] = member;
+        }
+        return acc;
+      }, {}),
+    };
+
+    return [{
+      thread,
+      messages: [message],
+      included,
+    }];
+  });
+
+  const lastInboxRow = inboxRows.rows[inboxRows.rows.length - 1];
+  return {
+    frames,
+    nextAfter: lastInboxRow ? encodeInboxCursor(lastInboxRow.created_at, lastInboxRow.inbox_entry_id) : input.after,
   };
 }
 
@@ -533,6 +935,12 @@ export function createRepository(pool: Pool): Repository {
         : null;
 
       return { results: rows, hasMore, nextCursor };
+    },
+
+    async getAdmission(input) {
+      const admission = await readAdmissionEnriched(pool, input.admissionId);
+      if (!admission) return null;
+      return input.accessibleClubIds.includes(admission.clubId) ? admission : null;
     },
 
     getAdmissionsForMember: (input) => admissionsModule.getAdmissionsForMember(pool, input),
@@ -990,14 +1398,18 @@ export function createRepository(pool: Pool): Repository {
           latestMessage: result.thread.latestMessage,
           messageCount: result.thread.messageCount,
         },
-        messages: result.messages.map((msg) => ({
-          ...msg,
-          updateReceipts: [],
-        })),
+        messages: result.messages,
         hasMore: result.hasMore,
         nextCursor: result.nextCursor,
         included: result.included,
       };
+    },
+
+    async acknowledgeDirectMessageInbox(input) {
+      return messaging.acknowledgeInbox({
+        memberId: input.actorMemberId,
+        threadId: input.threadId,
+      });
     },
 
     // ── Removals ───────────────────────────────────────────
@@ -1017,345 +1429,121 @@ export function createRepository(pool: Pool): Repository {
       };
     },
 
-    // ── Updates ─────────────────────────────────────────────
-    async listMemberUpdates(input) {
-      // Resolve actor's roles for audience filtering
-      const actor = await identity.readActor(input.actorMemberId);
-      const adminClubIds = actor?.memberships.filter((m) => m.role === 'clubadmin').map((m) => m.clubId) ?? [];
-      const ownerClubIds = actor?.memberships.filter((m) => m.isOwner).map((m) => m.clubId) ?? [];
-
-      const cursor = input.after ? decodeCursor(input.after) : null;
-
-      // Budget: distribute limit across sources so total never exceeds input.limit
-      // AND no source is starved under sustained load from another.
-      // Each source gets a guaranteed share; any underflow redistributes to later sources.
-      const activityShare = Math.ceil(input.limit / 3);
-      let remaining = input.limit;
-
-      // ── Source 1: Club activity ──
-      const activity = await clubs.listClubActivity({
+    // ── Activity / Notifications / Stream ──────────────────
+    async listClubActivity(input) {
+      const result = await clubs.listClubActivity({
         memberId: input.actorMemberId,
         clubIds: input.clubIds,
-        limit: activityShare,
-        afterSeq: cursor?.a ?? null,
-        adminClubIds,
-        ownerClubIds,
+        adminClubIds: input.adminClubIds,
+        ownerClubIds: input.ownerClubIds,
+        limit: input.limit,
+        afterSeq: input.afterSeq,
       });
-      remaining -= activity.items.length;
-
-      // ── Source 2: Member signals ──
-      const afterSignalSeq = cursor?.s ?? null;
-      let signalSeq: number;
-      let signalItems: PendingUpdate[] = [];
-      // Signals get half the remaining budget (after activity consumed its share).
-      const signalShare = Math.ceil(remaining / 2);
-
-      if (afterSignalSeq == null) {
-        // First poll: seed signal cursor from max(seq)
-        const seedResult = await pool.query<{ max_seq: string }>(
-          `select coalesce(max(seq), 0)::text as max_seq from signal_deliveries
-           where recipient_member_id = $1 and club_id = any($2::text[])`,
-          [input.actorMemberId, input.clubIds],
-        );
-        signalSeq = parseInt(seedResult.rows[0]?.max_seq ?? '0', 10);
-      } else if (signalShare > 0) {
-        const signalResult = await pool.query<{
-          id: string; club_id: string; recipient_member_id: string; seq: string;
-          topic: string; payload: Record<string, unknown>; entity_id: string | null;
-          match_id: string | null; created_at: string;
-        }>(
-          `select id, club_id, recipient_member_id, seq::text as seq, topic, payload,
-                  entity_id, match_id, created_at::text as created_at
-           from signal_deliveries ms
-           where recipient_member_id = $1
-             and club_id = any($2::text[])
-             and acknowledged_state is null
-             and seq > $3
-             and (
-               ms.entity_id is null
-               or exists (
-                 select 1 from current_entity_versions cev
-                 where cev.entity_id = ms.entity_id and cev.state = 'published'
-               )
-             )
-             and (
-               ms.topic <> 'signal.offer_match'
-               or ms.payload->>'yourAskEntityId' is null
-               or exists (
-                 select 1 from current_entity_versions cev
-                 where cev.entity_id = ms.payload->>'yourAskEntityId' and cev.state = 'published'
-               )
-             )
-           order by seq asc limit $4`,
-          [input.actorMemberId, input.clubIds, afterSignalSeq, signalShare],
-        );
-
-        signalItems = signalResult.rows.map(s => ({
-          updateId: `signal:${s.id}`,
-          streamSeq: parseInt(s.seq, 10),
-          source: 'signal' as const,
-          recipientMemberId: s.recipient_member_id,
-          clubId: s.club_id,
-          entityId: s.entity_id,
-          entityVersionId: null,
-          dmMessageId: null,
-          topic: s.topic,
-          payload: s.payload,
-          createdAt: s.created_at,
-          createdByMemberId: null,
-        }));
-
-        signalSeq = signalResult.rows.length > 0
-          ? parseInt(signalResult.rows[signalResult.rows.length - 1].seq, 10)
-          : afterSignalSeq;
-      } else {
-        // No budget left for signals — keep cursor unchanged
-        signalSeq = afterSignalSeq;
-      }
-      remaining -= signalItems.length;
-
-      // ── Source 3: Inbox (DMs) ──
-      // Order ASC (oldest first) so repeated polls drain the backlog in order.
-      // Cursor.t advances to the last item's created_at, not wall-clock time.
-      // Inbox gets whatever budget remains after activity and signals.
-      const cursorTimestamp = cursor?.t ?? null;
-      const inboxBudget = Math.max(0, remaining);
-      const inboxResult = inboxBudget > 0
-        ? await pool.query<{
-            id: string; recipient_member_id: string; thread_id: string;
-            message_id: string; created_at: string;
-          }>(
-            `select ie.id, ie.recipient_member_id, ie.thread_id, ie.message_id,
-                    ie.created_at::text as created_at
-             from dm_inbox_entries ie
-             where ie.recipient_member_id = $1 and ie.acknowledged = false
-               and ($3::timestamptz is null or ie.created_at > $3)
-               and not exists (
-                 select 1 from dm_message_removals rmv where rmv.message_id = ie.message_id
-               )
-             order by ie.created_at asc limit $2`,
-            [input.actorMemberId, inboxBudget, cursorTimestamp],
-          )
-        : { rows: [] as Array<{ id: string; recipient_member_id: string; thread_id: string; message_id: string; created_at: string }> };
-
-      // Advance inbox cursor to the last (most recent) item returned, not wall-clock.
-      // If no items, keep the existing cursor timestamp unchanged.
-      const nextInboxTimestamp = inboxResult.rows.length > 0
-        ? inboxResult.rows[inboxResult.rows.length - 1].created_at
-        : cursorTimestamp;
-
-      // Get sender info for DM updates in one query
-      const inboxMessageIds = inboxResult.rows.map((ie) => ie.message_id);
-      const dmDetails = new Map<string, {
-        sender_member_id: string | null; message_text: string | null;
-        thread_id: string; sender_public_name: string | null; sender_handle: string | null;
-      }>();
-      if (inboxMessageIds.length > 0) {
-        const dmResult = await pool.query<{
-          message_id: string; sender_member_id: string | null; message_text: string | null;
-          thread_id: string; sender_public_name: string | null; sender_handle: string | null;
-        }>(
-          `select m.id as message_id, m.sender_member_id, m.message_text, m.thread_id,
-                  mbr.public_name as sender_public_name, mbr.handle as sender_handle
-           from dm_messages m
-           left join members mbr on mbr.id = m.sender_member_id
-           where m.id = any($1::text[])`,
-          [inboxMessageIds],
-        );
-        for (const r of dmResult.rows) {
-          dmDetails.set(r.message_id, r);
-        }
-      }
-
-      // ── Map sources to PendingUpdate shape ──
-
-      const activityItems = activity.items.map((item) => ({
-        updateId: `activity:${item.seq}`,
-        streamSeq: Number(item.seq),
-        source: 'activity' as const,
-        recipientMemberId: input.actorMemberId,
-        clubId: item.clubId as string,
-        entityId: (item.entityId as string) ?? null,
-        entityVersionId: (item.entityVersionId as string) ?? null,
-        dmMessageId: null,
-        topic: item.topic as string,
-        payload: (item.payload as Record<string, unknown>) ?? {},
-        createdAt: item.createdAt as string,
-        createdByMemberId: (item.createdByMemberId as string) ?? null,
-      }));
-
-      // Resolve shared clubs for DM senders in batch
-      const dmSenderIds = [...new Set(
-        inboxResult.rows.map(ie => dmDetails.get(ie.message_id)?.sender_member_id).filter((id): id is string => !!id),
-      )];
-      const dmSharedClubsMap = await batchResolveSharedClubs(pool, input.actorMemberId, dmSenderIds);
-
-      const inboxItems = inboxResult.rows.map((ie, idx) => {
-        const dm = dmDetails.get(ie.message_id);
-        const tsMs = Date.parse(ie.created_at) || Date.now();
-        const senderSharedClubs = dm?.sender_member_id ? (dmSharedClubsMap.get(dm.sender_member_id) ?? []) : [];
-        return {
-          updateId: `inbox:${ie.id}`,
-          streamSeq: tsMs + idx,
-          source: 'inbox' as const,
-          recipientMemberId: ie.recipient_member_id,
-          clubId: null,
-          entityId: null,
-          entityVersionId: null,
-          dmMessageId: ie.message_id,
-          topic: 'dm.message.created',
-          payload: {
-            kind: 'dm',
-            threadId: dm?.thread_id ?? ie.thread_id,
-            messageId: ie.message_id,
-            senderMemberId: dm?.sender_member_id ?? null,
-            senderPublicName: dm?.sender_public_name ?? 'Unknown',
-            senderHandle: dm?.sender_handle ?? null,
-            recipientMemberId: ie.recipient_member_id,
-            messageText: dm?.message_text ?? null,
-            sharedClubs: senderSharedClubs,
-          },
-          createdAt: ie.created_at,
-          createdByMemberId: dm?.sender_member_id ?? null,
-        };
-      });
-
-      // Merge all three sources
-      const allItems = [...activityItems, ...signalItems, ...inboxItems];
-      const polledAt = new Date().toISOString();
-
-      // Build cursor: always produce a cursor even when activity has no clubs.
-      // Activity seq: from activity result, or keep existing cursor value, or 0.
-      const nextActivitySeq = activity.nextAfterSeq ?? cursor?.a ?? 0;
-
       return {
-        items: allItems,
-        nextAfter: encodeCursor({ a: nextActivitySeq, s: signalSeq, t: nextInboxTimestamp ?? polledAt }),
-        polledAt,
+        items: result.items,
+        nextAfterSeq: result.nextAfterSeq,
       };
     },
 
-    async getLatestCursor(input) {
-      const activity = await clubs.listClubActivity({
-        memberId: input.actorMemberId,
-        clubIds: input.clubIds,
-        limit: 0,
-        afterSeq: null,
-      });
-      // Seed signal cursor from max(seq)
-      const signalSeed = await pool.query<{ max_seq: string }>(
-        `select coalesce(max(seq), 0)::text as max_seq from signal_deliveries
-         where recipient_member_id = $1 and club_id = any($2::text[])`,
-        [input.actorMemberId, input.clubIds],
-      );
-      const signalSeq = parseInt(signalSeed.rows[0]?.max_seq ?? '0', 10);
+    async listNotifications(input) {
+      const limit = Math.max(1, Math.min(input.limit, NOTIFICATIONS_PAGE_SIZE));
+      const [materialized, derived] = await Promise.all([
+        listMaterializedNotifications(pool, {
+          actorMemberId: input.actorMemberId,
+          accessibleClubIds: input.accessibleClubIds,
+          limit,
+          after: input.after,
+        }),
+        listDerivedAdmissionNotifications(pool, {
+          adminClubIds: input.adminClubIds,
+          limit,
+          after: input.after,
+        }),
+      ]);
 
-      return encodeCursor({ a: activity.nextAfterSeq ?? 0, s: signalSeq, t: new Date().toISOString() });
+      const merged = [...materialized, ...derived].sort(sortNotificationItems);
+      const page = merged.slice(0, limit);
+      const nextAfter = merged.length > limit
+        ? page[page.length - 1]?.cursor ?? null
+        : null;
+
+      return {
+        items: page,
+        nextAfter,
+      };
     },
 
-    async acknowledgeUpdates(input) {
+    async acknowledgeNotifications(input) {
       return withTransaction(pool, async (client) => {
-        const nowIso = new Date().toISOString();
+        const materializedIds = input.notificationIds
+          .map((notificationId) => {
+            const parsed = splitNotificationId(notificationId);
+            if (!parsed) return null;
+            const { kind, primaryRef: rowId } = parsed;
+            if (!kind.startsWith('synchronicity.') || rowId.length === 0) return null;
+            return rowId;
+          })
+          .filter((rowId): rowId is string => rowId !== null);
 
-        const inboxIds = input.updateIds
-          .filter((id) => id.startsWith('inbox:'))
-          .map((id) => id.replace('inbox:', ''));
-
-        const inboxReceipts = new Map<string, {
-          receiptId: string;
-          updateId: string;
-          recipientMemberId: string;
-          clubId: string | null;
-          state: typeof input.state;
-          suppressionReason: string | null;
-          versionNo: number;
-          supersedesReceiptId: null;
-          createdAt: string;
-          createdByMemberId: string | null;
-        }>();
-
-        if (inboxIds.length > 0) {
-          const result = await client.query<{ id: string }>(
-            `update dm_inbox_entries
-             set acknowledged = true
-             where id = any($1::text[]) and recipient_member_id = $2
-             returning id`,
-            [inboxIds, input.actorMemberId],
-          );
-
-          for (const row of result.rows) {
-            const updateId = `inbox:${row.id}`;
-            inboxReceipts.set(updateId, {
-              receiptId: updateId,
-              updateId,
-              recipientMemberId: input.actorMemberId,
-              clubId: null,
-              state: input.state,
-              suppressionReason: input.suppressionReason ?? null,
-              versionNo: 1,
-              supersedesReceiptId: null,
-              createdAt: nowIso,
-              createdByMemberId: input.actorMemberId,
-            });
-          }
+        if (materializedIds.length === 0) {
+          return [];
         }
 
-        const signalIds = input.updateIds
-          .filter((id) => id.startsWith('signal:'))
-          .map((id) => id.replace('signal:', ''));
+        const result = await client.query<{
+          id: string;
+          recipient_member_id: string;
+          club_id: string | null;
+          topic: string;
+          entity_id: string | null;
+          acknowledged_at: string;
+          acknowledged_state: 'processed' | 'suppressed';
+          suppression_reason: string | null;
+        }>(
+          `update member_notifications
+           set acknowledged_state = $3,
+               acknowledged_at = now(),
+               suppression_reason = case when $3 = 'suppressed' then $4 else null end
+           where id = any($1::text[])
+             and recipient_member_id = $2
+             and acknowledged_state is null
+           returning id,
+                     recipient_member_id,
+                     club_id,
+                     topic,
+                     entity_id,
+                     acknowledged_at::text as acknowledged_at,
+                     acknowledged_state,
+                     suppression_reason`,
+          [materializedIds, input.actorMemberId, input.state, input.suppressionReason ?? null],
+        );
 
-        const signalReceipts = new Map<string, {
-          receiptId: string;
-          updateId: string;
-          recipientMemberId: string;
-          clubId: string | null;
-          state: typeof input.state;
-          suppressionReason: string | null;
-          versionNo: number;
-          supersedesReceiptId: null;
-          createdAt: string;
-          createdByMemberId: string | null;
-        }>();
-
-        if (signalIds.length > 0) {
-          const result = await client.query<{
-            id: string; club_id: string; acknowledged_at: string;
-            acknowledged_state: string; suppression_reason: string | null;
-          }>(
-            `update signal_deliveries
-             set acknowledged_state = coalesce(acknowledged_state, $3),
-                 acknowledged_at = coalesce(acknowledged_at, now()),
-                 suppression_reason = case when acknowledged_state is null then $4 else suppression_reason end
-             where id = any($1::text[])
-               and recipient_member_id = $2
-             returning id, club_id, acknowledged_at::text as acknowledged_at,
-                      acknowledged_state, suppression_reason`,
-            [signalIds, input.actorMemberId, input.state, input.suppressionReason ?? null],
-          );
-
-          for (const row of result.rows) {
-            const updateId = `signal:${row.id}`;
-            signalReceipts.set(updateId, {
-              receiptId: updateId,
-              updateId,
-              recipientMemberId: input.actorMemberId,
-              clubId: row.club_id,
-              state: row.acknowledged_state as typeof input.state,
-              suppressionReason: row.suppression_reason,
-              versionNo: 1,
-              supersedesReceiptId: null,
-              createdAt: row.acknowledged_at,
-              createdByMemberId: input.actorMemberId,
-            });
-          }
+        const receiptsById = new Map<string, NotificationReceipt>();
+        for (const row of result.rows) {
+          const notificationId = buildNotificationId(row.topic, row.id);
+          receiptsById.set(notificationId, {
+            notificationId,
+            recipientMemberId: row.recipient_member_id,
+            entityId: row.entity_id,
+            clubId: row.club_id,
+            state: row.acknowledged_state,
+            suppressionReason: row.suppression_reason,
+            versionNo: 1,
+            createdAt: row.acknowledged_at,
+            createdByMemberId: input.actorMemberId,
+          });
         }
 
-        return input.updateIds
-          .map((updateId) => (
-            inboxReceipts.get(updateId)
-            ?? signalReceipts.get(updateId)
-          ))
-          .filter((receipt): receipt is NonNullable<typeof receipt> => receipt !== undefined);
+        return input.notificationIds
+          .map((notificationId) => receiptsById.get(notificationId))
+          .filter((receipt): receipt is NotificationReceipt => receipt !== undefined);
+      });
+    },
+
+    async listInboxSince(input) {
+      return listInboxFramesSince(pool, {
+        actorMemberId: input.actorMemberId,
+        after: input.after,
+        limit: input.limit,
       });
     },
 
@@ -1745,7 +1933,6 @@ export function createRepository(pool: Pool): Repository {
           mentions: r.is_removed ? [] : (mentionBundle.mentionsByMessageId.get(r.message_id) ?? []),
           payload: r.payload ?? {},
           createdAt: r.created_at, inReplyToMessageId: r.in_reply_to_message_id,
-          updateReceipts: [],
         })).reverse(),
         included: mentionBundle.included,
       };

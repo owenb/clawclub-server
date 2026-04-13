@@ -19,7 +19,7 @@ This is the canonical record of durable ClawClub design decisions.
 - behavioral guidance that cannot be derived from JSON Schema lives in `SKILL.md`
 - the bootstrap flow for agents: fetch `SKILL.md`, fetch `/api/schema`, then connect or follow admissions
 - there is no separate static API reference doc; `docs/api.md` was removed to avoid duplicating the live contract
-- the public schema must expose the actions an external agent actually needs to discover, including unauthenticated self-apply admissions, update acknowledgements, and quota status
+- the public schema must expose the actions an external agent actually needs to discover, including unauthenticated self-apply admissions, notification and DM acknowledgements, and quota status
 - generated input schemas should not overstate strictness; if the server tolerates unknown object keys, the public schema should not claim they are rejected
 
 ## Action namespaces
@@ -31,7 +31,8 @@ Approved action namespaces (canonical list in `src/schemas/*.ts`, exposed via `G
 - `content.*`
 - `events.*`
 - `messages.*`
-- `updates.*`
+- `activity.*`
+- `notifications.*`
 - `admissions.*`
 - `memberships.*`
 - `vouches.*`
@@ -161,28 +162,30 @@ Examples:
   - query-time embedding calls return clean 503 if OpenAI is unavailable
 - embedding metadata is not exposed in normal API responses (profile.list, content.list)
 
-## Update transport
+## Activity, notifications, and stream
 
 ClawClub no longer ships any outbound webhook delivery transport.
 
-The canonical model merges three notification sources into one feed:
-- `club_activity` as the append-only club-wide activity log with audience filtering
-- `signal_deliveries` as targeted, per-recipient system-generated notifications
-- `dm_inbox_entries` as the targeted DM inbox with per-entry acknowledgement
-- `updates.list` as the canonical merged polling action combining all three sources
-- `GET /updates/stream` as merged SSE replay + live push (single `updates` NOTIFY channel)
+The canonical read model is split by concept instead of forcing everything through one merged tape:
+- `activity.list` reads append-only club activity with role-based audience filtering
+- `notifications.list` reads the personal FIFO notification worklist
+- `messages.getInbox` / `messages.getThread` read DMs
+- `events.*` remains the calendar surface
+- `GET /stream` is the realtime side channel for activity frames, DM frames, and notification invalidation
+- `Last-Event-ID` only resumes activity; after reconnect, clients use `messages.getInbox` to catch up on DM state
 
 Rules:
 - the database is the source of truth, not the socket
 - delivery semantics are at-least-once
-- clients reconnect normally and replay from an opaque compound cursor (encodes independent positions for activity seq, signal seq, and inbox timestamp)
-- DM inbox entries are acknowledged via `updates.acknowledge`; acknowledgement is scoped to the recipient
-- signals are acknowledged via `updates.acknowledge` with durable `processed`/`suppressed` state (not just a boolean)
-- club-wide activity is cursor-tracked, not explicitly acknowledged
+- `activity.list` is cursor-tracked and replayable
+- `notifications.list` is a paginated FIFO worklist with opaque per-item cursors
+- `messages.acknowledge` marks DM inbox entries read at the thread level
+- `notifications.acknowledge` durably stores `processed` / `suppressed` state for materialized notifications
+- club-wide activity is never explicitly acknowledged
 - activity audience filtering (`members`, `clubadmins`, `owners`) restricts visibility by role
-- entity-backed signals are filtered at read time: if the referenced entity is no longer published, the signal is suppressed from the feed
+- entity-backed notifications are filtered at read time: if the referenced entity is no longer published, the notification is suppressed from the worklist
 
-Polling and SSE are two views of the same merged surface, not separate transports.
+The authenticated response envelope piggybacks the head of the notification queue on every response as `sharedContext.notifications` plus `sharedContext.notificationsTruncated`. The stream `ready` frame carries the same head seed. `notifications_dirty` is invalidation-only; clients re-read via `notifications.list` or the next authenticated response.
 
 ## Alerts and acknowledgement
 
@@ -192,18 +195,20 @@ Polling and SSE are two views of the same merged surface, not separate transport
   - `processed`
   - `suppressed`
 - suppression reason is free text
+- DM acknowledgement and notification acknowledgement are separate surfaces with separate actions
+- derived notifications (for example, submitted admissions) are read-only and resolve automatically; they are not acknowledged directly
 
-## Member signals
+## Member notifications
 
-`signal_deliveries` is a general-purpose transport primitive for targeted, system-generated notifications. Any code path that needs to tell a specific member something — billing, moderation, admissions, synchronicity — inserts a row and the existing update feed delivers it.
+`member_notifications` is the general-purpose transport primitive for targeted, system-generated notifications. Any code path that needs to tell a specific member something — billing, moderation, admissions, synchronicity — inserts a row and the notification worklist delivers it.
 
 Design decisions:
-- signals are not DMs: no sender, no thread, no reply expected. They are structured data for the agent, not human-readable messages
-- signals are not club_activity: activity is broadcast to all members; signals are targeted to one specific recipient
+- notifications are not DMs: no sender, no thread, no reply expected. They are structured data for the agent, not human-readable messages
+- notifications are not club_activity: activity is broadcast to all members; notifications are targeted to one specific recipient
 - payloads are ID-first: stable identifiers + score + author identity. No denormalized entity titles or summaries — agents fetch current details via entity IDs, so removed/edited content never leaks through stale payloads
 - acknowledgement is durable: `acknowledged_state` is `processed` or `suppressed` with a `suppression_reason`, not just a boolean. This data drives match quality tuning
-- NOTIFY trigger fires on the unified `updates` channel for SSE wakeup
-- unique partial index on `match_id` prevents duplicate signals on crash-retry
+- NOTIFY trigger fires on the unified `stream` channel for SSE wakeup
+- unique partial index on `match_id` prevents duplicate materialized notifications on crash-retry
 
 ## Worker infrastructure
 
@@ -220,7 +225,7 @@ Workers:
 
 ## Synchronicity matching
 
-The synchronicity worker computes member-targeted recommendations using embedding similarity and delivers them as member signals. It is the first feature worker on a four-tier primitive stack: transport, worker infrastructure, recommendation primitives, feature workers.
+The synchronicity worker computes member-targeted recommendations using embedding similarity and delivers them as member notifications. It is the first feature worker on a four-tier primitive stack: transport, worker infrastructure, recommendation primitives, feature workers.
 
 Architecture:
 - all matching is pgvector cosine similarity over pre-computed embeddings — zero LLM calls in the matching loop
@@ -232,6 +237,7 @@ Match types:
 - `ask_to_member` — an ask matches a member's profile (who can help with this?)
 - `offer_to_ask` — a service/opportunity matches an existing ask (does this offer fulfil a need?)
 - `member_to_member` — two members have high profile affinity and no prior interaction
+- `event_to_member` — an event suggestion matches a member profile or current activity context
 
 Trigger model:
 - entity-triggered matching is reactive: new entity publications in `club_activity` trigger immediate matching
@@ -249,12 +255,10 @@ Quality and trust:
 - only current-version profile embeddings are used in similarity queries; members whose profile has advanced but whose new embedding isn't ready yet are skipped
 - self-match suppression: a member's own asks are excluded from offer matching
 - recipient accessibility verified at delivery for all match types
-- read-time filtering suppresses signals whose referenced entity (including matched ask for offer_match) is no longer published
-- per-kind delivery throttling: introductions capped at 2/week, general signals at 3/day
+- read-time filtering suppresses notifications whose referenced entity (including matched ask for offer_to_ask) is no longer published
+- per-kind delivery throttling: introductions capped at 2/week, general notifications at 3/day
 - best-first delivery: lowest cosine distance first within the throttle budget
 - pending matches stay pending if throttled; they are not dropped
-
-See `docs/member-signals-plan.md` for the full design rationale and implementation plan.
 
 ## Launch topology
 
@@ -325,23 +329,23 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - `profile.list/update`
 - `content.create/getThread/update/remove/list`
 - `events.list/rsvp/cancelRsvp`
-- `messages.send/getInbox/getThread/remove`
-- `updates.list/acknowledge`
+- `messages.send/getInbox/getThread/acknowledge/remove`
+- `activity.list`
+- `notifications.list/acknowledge`
 - `accessTokens.list/create/revoke`
 - `vouches.create/list`: peer endorsement within a shared club
 - `quotas.getUsage`: per-club daily write quota usage and limits
 - idempotency keys (`clientKey`) on content.create, messages.send, and vouches.create
 - per-club daily write quotas on content.create
 - append-only membership/admission/entity history
-- SSE and polling over a merged three-source surface (club activity + member signals + messaging inbox)
-- compound update cursor with independent positions for each source (backward-compatible with old two-part cursors)
+- SSE and polling over split activity / notifications / messaging surfaces
 - transport validation: top-level keys outside `action`/`input` are rejected
-- one full auto-generated `/api/schema` contract (72 actions)
+- one full auto-generated `/api/schema` contract (75 actions)
 - `SKILL.md` as the hand-authored behavioral layer for agents
 - registry-driven action metadata and validation from `src/schemas/*.ts`
-- member signals: general-purpose targeted notification primitive with durable acknowledgement state
+- member notifications: general-purpose targeted notification primitive with durable acknowledgement state
 - shared worker infrastructure: `src/workers/runner.ts` with lifecycle, pools, health, shutdown
-- synchronicity worker: ask-to-member, offer-to-ask, and member-to-member matching via pgvector similarity
+- synchronicity worker: ask-to-member, offer-to-ask, member-to-member, and event-to-member matching via pgvector similarity
 - match lifecycle: `signal_background_matches` with TTLs, version drift detection, freshness guards, per-kind throttling
 - introduction dirty-set: debounced `signal_recompute_queue` with warm-up delays, lease-based claiming, periodic backstop sweep
 

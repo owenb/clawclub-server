@@ -19,12 +19,20 @@ export function makeVector(values: number[]): string {
   return `[${full.join(',')}]`;
 }
 
-export function getUpdates(result: Record<string, unknown>): {
+export function getActivity(result: Record<string, unknown>): {
   items: Array<Record<string, unknown>>;
   nextAfter: string | null;
 } {
   const data = result.data as Record<string, unknown>;
-  return data.updates as { items: Array<Record<string, unknown>>; nextAfter: string | null };
+  return data as { items: Array<Record<string, unknown>>; nextAfter: string | null };
+}
+
+export function getNotifications(result: Record<string, unknown>): {
+  items: Array<Record<string, unknown>>;
+  nextAfter: string | null;
+} {
+  const data = result.data as Record<string, unknown>;
+  return data as { items: Array<Record<string, unknown>>; nextAfter: string | null };
 }
 
 const LOOPABLE_KINDS = new Set(['ask', 'gift', 'service', 'opportunity']);

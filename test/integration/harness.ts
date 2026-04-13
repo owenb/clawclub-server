@@ -27,8 +27,10 @@ import {
   unauthenticatedSuccessEnvelope,
   errorEnvelope,
   sseReadyEvent,
+  sseActivityEvent,
+  sseMessageEvent,
+  sseNotificationsDirtyEvent,
 } from '../../src/schemas/transport.ts';
-import { pendingUpdate } from '../../src/schemas/responses.ts';
 
 // Trigger schema registration by importing the dispatch module
 import '../../src/dispatch.ts';
@@ -498,25 +500,26 @@ export class TestHarness {
 
   // ── GET endpoints ──
 
-  async getUpdates(
+  async getActivity(
     token: string,
-    params: { limit?: number; after?: number | 'latest' } = {},
+    params: { clubId?: string; limit?: number; after?: string | 'latest' | number } = {},
   ): Promise<{ status: number; body: Record<string, unknown> }> {
     const input: Record<string, unknown> = {};
+    if (params.clubId !== undefined) input.clubId = params.clubId;
     if (params.limit !== undefined) input.limit = params.limit;
     if (params.after !== undefined) input.after = String(params.after);
 
-    const { status, body } = await this.api(token, 'updates.list', input);
+    return this.api(token, 'activity.list', input);
+  }
 
-    // Unwrap: callers expect { status, body: { ok, updates: { items, nextAfter } } }
-    // The action envelope is { ok, member, requestScope, data: { updates: { items, nextAfter } } }.
-    // Re-shape so body.updates = body.data.updates (the inner updates payload).
-    if (body.ok === true && body.data) {
-      const data = body.data as Record<string, unknown>;
-      const reshaped: Record<string, unknown> = { ok: true, updates: data.updates };
-      return { status, body: reshaped };
-    }
-    return { status, body };
+  async getNotifications(
+    token: string,
+    params: { limit?: number; after?: string | null } = {},
+  ): Promise<{ status: number; body: Record<string, unknown> }> {
+    const input: Record<string, unknown> = {};
+    if (params.limit !== undefined) input.limit = params.limit;
+    if (params.after !== undefined) input.after = params.after;
+    return this.api(token, 'notifications.list', input);
   }
 
   async getSchema(): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -547,7 +550,7 @@ export class TestHarness {
    */
   connectStream(
     token: string,
-    params: { after?: number | 'latest'; limit?: number; lastEventId?: string } = {},
+    params: { after?: string | number | 'latest'; limit?: number; lastEventId?: string } = {},
   ): {
     events: Array<{ event: string; data: Record<string, unknown>; id?: string }>;
     close: () => void;
@@ -557,7 +560,7 @@ export class TestHarness {
     const qs = new URLSearchParams();
     if (params.after !== undefined) qs.set('after', String(params.after));
     if (params.limit !== undefined) qs.set('limit', String(params.limit));
-    const path = `/updates/stream${qs.toString() ? `?${qs}` : ''}`;
+    const path = `/stream${qs.toString() ? `?${qs}` : ''}`;
 
     const events: Array<{ event: string; data: Record<string, unknown>; id?: string }> = [];
     const sseValidationErrors: string[] = [];
@@ -601,10 +604,20 @@ export class TestHarness {
                   if (!result.success) {
                     sseValidationErrors.push(`[contract] SSE ready event validation failed: ${result.error.message}`);
                   }
-                } else if (event === 'update') {
-                  const result = strictify(pendingUpdate).safeParse(parsed);
+                } else if (event === 'activity') {
+                  const result = strictify(sseActivityEvent).safeParse(parsed);
                   if (!result.success) {
-                    sseValidationErrors.push(`[contract] SSE update event validation failed: ${result.error.message}`);
+                    sseValidationErrors.push(`[contract] SSE activity event validation failed: ${result.error.message}`);
+                  }
+                } else if (event === 'message') {
+                  const result = strictify(sseMessageEvent).safeParse(parsed);
+                  if (!result.success) {
+                    sseValidationErrors.push(`[contract] SSE message event validation failed: ${result.error.message}`);
+                  }
+                } else if (event === 'notifications_dirty') {
+                  const result = strictify(sseNotificationsDirtyEvent).safeParse(parsed);
+                  if (!result.success) {
+                    sseValidationErrors.push(`[contract] SSE notifications_dirty event validation failed: ${result.error.message}`);
                   }
                 }
                 events.push({ event, data: parsed, id });

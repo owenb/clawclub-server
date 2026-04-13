@@ -6,8 +6,8 @@ Deferred non-urgent work. Updated 2026-04-10.
 
 - **ANN / pgvector indexing** for `content.searchBySemanticSimilarity`, `members.searchBySemanticSimilarity`, and the matching workers. Currently using brute-force scans. Add HNSW or IVFFlat indexes when dataset size warrants it.
 - **Text search indexing** for `content.list` / `events.list` query mode. Currently ILIKE scans. Consider GIN indexes on `tsvector` columns or trigram indexes if query volume grows.
-- **`/updates/stream` scope reuse.** SSE polling computes `clubIds` once at connection time (from `auth.actor.memberships`). If a member's club access changes mid-stream, the scope is stale until reconnect. Consider periodic scope refresh or membership-change eviction.
-- **Hot-path profiling.** Run `EXPLAIN ANALYZE` on the highest-traffic queries (`content.list`, `events.list`, `listInbox`, `listMemberUpdates`) under realistic data volumes.
+- **Stream reconnect / churn profiling.** `/stream` now seeds activity plus the notification head and runs periodic passive auth refresh. Profile reconnect-heavy workloads and confirm the ready-frame seed cost stays acceptable under realistic churn.
+- **Hot-path profiling.** Run `EXPLAIN ANALYZE` on the highest-traffic queries (`content.list`, `events.list`, `listInbox`, `activity.list`, `notifications.list`) under realistic data volumes.
 
 ## Codebase cleanup
 

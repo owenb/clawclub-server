@@ -5,6 +5,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
+import { getActivity } from '../helpers.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
 
 let h: TestHarness;
@@ -121,24 +122,28 @@ describe('content.remove', () => {
     assert.equal(err.code, 'not_found');
   });
 
-  it('removed entity is filtered from the updates feed', async () => {
+  it('removed entity is filtered from activity.list', async () => {
     const owner = await h.seedOwner('entity-remove-updates', 'Entity Remove Updates Club');
     const author = await h.seedClubMember(owner.club.id, 'Author Updates', 'author-updates-remove', { sponsorId: owner.id });
     const viewer = await h.seedClubMember(owner.club.id, 'Viewer Updates', 'viewer-updates-remove', { sponsorId: owner.id });
 
-    const seedResult = await h.apiOk(viewer.token, 'updates.list', {});
-    const seedAfter = ((seedResult.data as Record<string, unknown>).updates as Record<string, unknown>).nextAfter as string;
+    const seedResult = getActivity(await h.apiOk(viewer.token, 'activity.list', { clubId: owner.club.id, after: 'latest' }));
+    const seedAfter = seedResult.nextAfter as string;
 
     const post = await createPost(author.token, owner.club.id, 'Will remove', 'Content');
 
-    const beforeUpdates = await h.apiOk(viewer.token, 'updates.list', { after: seedAfter });
-    const beforeItems = ((beforeUpdates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
+    const beforeItems = getActivity(await h.apiOk(viewer.token, 'activity.list', {
+      clubId: owner.club.id,
+      after: seedAfter,
+    })).items;
     assert.ok(beforeItems.some((u) => u.entityId === post.entityId && u.topic === 'entity.version.published'));
 
     await h.apiOk(author.token, 'content.remove', { entityId: post.entityId });
 
-    const afterUpdates = await h.apiOk(viewer.token, 'updates.list', { after: seedAfter });
-    const afterItems = ((afterUpdates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
+    const afterItems = getActivity(await h.apiOk(viewer.token, 'activity.list', {
+      clubId: owner.club.id,
+      after: seedAfter,
+    })).items;
     assert.ok(
       !afterItems.some((u) => u.entityId === post.entityId && u.topic === 'entity.version.published'),
       'published update should be hidden after removal',
@@ -216,7 +221,7 @@ describe('messages.remove', () => {
     assert.equal(removal(first).messageId, removal(second).messageId);
   });
 
-  it('removed message disappears from updates feed', async () => {
+  it('removed message shows a placeholder to the recipient', async () => {
     const owner = await h.seedOwner('msg-remove-updates', 'Msg Remove Updates Club');
     const alice = await h.seedClubMember(owner.club.id, 'Alice Updates', 'alice-updates-remove', { sponsorId: owner.id });
     const bob = await h.seedClubMember(owner.club.id, 'Bob Updates', 'bob-updates-remove', { sponsorId: owner.id });
@@ -227,15 +232,13 @@ describe('messages.remove', () => {
     });
     const msg = (sendResult.data as Record<string, unknown>).message as Record<string, unknown>;
 
-    const beforeUpdates = await h.apiOk(bob.token, 'updates.list', {});
-    const beforeItems = ((beforeUpdates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
-    assert.ok(beforeItems.find((u) => u.topic === 'dm.message.created'));
-
     await h.apiOk(alice.token, 'messages.remove', { messageId: msg.messageId as string });
 
-    const afterUpdates = await h.apiOk(bob.token, 'updates.list', {});
-    const afterItems = ((afterUpdates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
-    assert.ok(!afterItems.find((u) => u.topic === 'dm.message.created'));
+    const thread = await h.apiOk(bob.token, 'messages.getThread', { threadId: msg.threadId });
+    const messages = (thread.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    const removed = messages.find((message) => message.messageId === msg.messageId);
+    assert.ok(removed);
+    assert.equal(removed.messageText, '[Message removed]');
   });
 });
 
@@ -299,8 +302,11 @@ describe('moderation removal emits feed events', () => {
 
     const post = await createPost(author.token, owner.club.id, 'Mod will remove');
 
-    const seedResult = await h.apiOk(viewer.token, 'updates.list', {});
-    const seedAfter = ((seedResult.data as Record<string, unknown>).updates as Record<string, unknown>).nextAfter as string;
+    const seedResult = getActivity(await h.apiOk(viewer.token, 'activity.list', {
+      clubId: owner.club.id,
+      after: 'latest',
+    }));
+    const seedAfter = seedResult.nextAfter as string;
 
     await h.apiOk(owner.token, 'clubadmin.content.remove', {
       clubId: owner.club.id,
@@ -308,8 +314,10 @@ describe('moderation removal emits feed events', () => {
       reason: 'Policy violation',
     });
 
-    const updates = await h.apiOk(viewer.token, 'updates.list', { after: seedAfter });
-    const items = ((updates.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
+    const items = getActivity(await h.apiOk(viewer.token, 'activity.list', {
+      clubId: owner.club.id,
+      after: seedAfter,
+    })).items;
     const removedUpdate = items.find((u) => u.topic === 'entity.removed' && u.entityId === post.entityId);
     assert.ok(removedUpdate);
   });
@@ -368,19 +376,29 @@ describe('multi-club entity.removed activity goes to the correct club', () => {
 
     const post = await createPost(author.token, ownerB.club.id, 'In Club B');
 
-    const seedB = await h.apiOk(viewerB.token, 'updates.list', {});
-    const cursorB = ((seedB.data as Record<string, unknown>).updates as Record<string, unknown>).nextAfter as string;
-    const seedA = await h.apiOk(viewerA.token, 'updates.list', {});
-    const cursorA = ((seedA.data as Record<string, unknown>).updates as Record<string, unknown>).nextAfter as string;
+    const seedB = getActivity(await h.apiOk(viewerB.token, 'activity.list', {
+      clubId: ownerB.club.id,
+      after: 'latest',
+    }));
+    const cursorB = seedB.nextAfter as string;
+    const seedA = getActivity(await h.apiOk(viewerA.token, 'activity.list', {
+      clubId: ownerA.club.id,
+      after: 'latest',
+    }));
+    const cursorA = seedA.nextAfter as string;
 
     await h.apiOk(author.token, 'content.remove', { entityId: post.entityId });
 
-    const updatesB = await h.apiOk(viewerB.token, 'updates.list', { after: cursorB });
-    const itemsB = ((updatesB.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
+    const itemsB = getActivity(await h.apiOk(viewerB.token, 'activity.list', {
+      clubId: ownerB.club.id,
+      after: cursorB,
+    })).items;
     assert.ok(itemsB.find((u) => u.topic === 'entity.removed' && u.entityId === post.entityId));
 
-    const updatesA = await h.apiOk(viewerA.token, 'updates.list', { after: cursorA });
-    const itemsA = ((updatesA.data as Record<string, unknown>).updates as Record<string, unknown>).items as Array<Record<string, unknown>>;
+    const itemsA = getActivity(await h.apiOk(viewerA.token, 'activity.list', {
+      clubId: ownerA.club.id,
+      after: cursorA,
+    })).items;
     assert.ok(!itemsA.find((u) => u.topic === 'entity.removed' && u.entityId === post.entityId));
   });
 });

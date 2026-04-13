@@ -1,12 +1,14 @@
 import type {
   ActorContext,
   AuthResult,
+  ActivityEvent,
   MembershipSummary,
-  PendingUpdate,
+  NotificationItem,
   Repository,
 } from '../../src/contract.ts';
 import type { MemberUpdateNotifier } from '../../src/member-updates-notifier.ts';
 import type { QualityGateFn } from '../../src/dispatch.ts';
+import { encodeNotificationCursor } from '../../src/notifications-core.ts';
 
 /** Passthrough gate for mocked unit tests — always returns 'passed'. */
 export const passthroughGate: QualityGateFn = async () => ({
@@ -61,7 +63,8 @@ export function makeAuthResult(overrides: {
       activeClubIds,
     },
     sharedContext: {
-      pendingUpdates: [],
+      notifications: [],
+      notificationsTruncated: false,
     },
   };
 }
@@ -75,20 +78,35 @@ export function makeAdminAuthResult(): AuthResult {
   });
 }
 
-export function makePendingUpdate(overrides: Partial<PendingUpdate> = {}): PendingUpdate {
+export function makeActivityEvent(overrides: Partial<ActivityEvent> = {}): ActivityEvent {
   return {
-    updateId: 'update-1',
-    streamSeq: 1,
-    source: 'inbox',
-    recipientMemberId: 'member-1',
+    activityId: 'activity-1',
+    seq: 1,
     clubId: 'club-1',
-    entityId: null,
-    entityVersionId: null,
-    dmMessageId: 'message-1',
-    topic: 'dm.message.created',
-    payload: { kind: 'dm', threadId: 'thread-1' },
+    topic: 'entity.version.published',
+    payload: {},
+    entityId: 'entity-1',
+    entityVersionId: 'entity-version-1',
+    audience: 'members',
     createdAt: '2026-03-14T11:00:00Z',
     createdByMemberId: 'member-2',
+    ...overrides,
+  };
+}
+
+export function makeNotificationItem(overrides: Partial<NotificationItem> = {}): NotificationItem {
+  const createdAt = overrides.createdAt ?? '2026-03-14T11:00:00Z';
+  const notificationId = overrides.notificationId ?? 'synchronicity.ask_to_member:notification-1';
+  return {
+    notificationId,
+    cursor: overrides.cursor ?? encodeNotificationCursor(createdAt, notificationId),
+    kind: 'synchronicity.ask_to_member',
+    clubId: 'club-1',
+    ref: { matchId: 'match-1', entityId: 'entity-1' },
+    payload: { kind: 'synchronicity.ask_to_member', matchId: 'match-1' },
+    createdAt,
+    acknowledgeable: true,
+    acknowledgedState: null,
     ...overrides,
   };
 }
@@ -131,6 +149,9 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async listBearerTokens() { return []; },
     async createBearerToken() { throw new Error('not used'); },
     async revokeBearerToken() { return null; },
+    async listClubActivity() { return { items: [], nextAfterSeq: 0 }; },
+    async listNotifications() { return { items: [], nextAfter: null }; },
+    async acknowledgeNotifications() { return []; },
     async createVouch() { return null; },
     async listVouches() { return { results: [], hasMore: false, nextCursor: null }; },
     async createAdmissionSponsorship() { throw new Error('not used'); },
@@ -142,13 +163,15 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async listDirectMessageThreads() { return []; },
     async listDirectMessageInbox() { return { results: [], hasMore: false, nextCursor: null }; },
     async readDirectMessageThread() { return null; },
+    async listInboxSince() { return { frames: [], nextAfter: null }; },
+    async acknowledgeDirectMessageInbox() { return { threadId: 'thread-1', acknowledgedCount: 0 }; },
     ...overrides,
   };
 }
 
 export function makeUpdatesNotifier(): MemberUpdateNotifier {
   return {
-    async waitForUpdate() { return 'timed_out'; },
+    async waitForUpdate() { return { outcome: 'timed_out' } as const; },
     async close() {},
   };
 }

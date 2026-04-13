@@ -132,7 +132,7 @@ export async function validateBearerTokenPassive(pool: Pool, bearerToken: string
   return {
     actor,
     requestScope: { requestedClubId: null, activeClubIds },
-    sharedContext: { pendingUpdates: [] },
+    sharedContext: { notifications: [], notificationsTruncated: false },
   };
 }
 
@@ -165,6 +165,6 @@ export async function authenticateBearerToken(pool: Pool, bearerToken: string): 
   return {
     actor,
     requestScope: { requestedClubId: null, activeClubIds },
-    sharedContext: { pendingUpdates: [] },
+    sharedContext: { notifications: [], notificationsTruncated: false },
   };
 }

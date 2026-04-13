@@ -748,7 +748,7 @@ async function deliverOneMatch(
     // ── Insert signal + transition match atomically ──
     // ON CONFLICT DO NOTHING on match_id: idempotent on crash-retry.
     const signalResult = await client.query<{ id: string }>(
-      `insert into signal_deliveries (club_id, recipient_member_id, topic, payload, entity_id, match_id)
+      `insert into member_notifications (club_id, recipient_member_id, topic, payload, entity_id, match_id)
        values ($1, $2, $3, $4::jsonb, $5, $6)
        on conflict ((match_id)) where match_id is not null do nothing
        returning id`,
@@ -766,7 +766,7 @@ async function deliverOneMatch(
     let signalId = signalResult.rows[0]?.id;
     if (!signalId) {
       const existing = await client.query<{ id: string }>(
-        `select id from signal_deliveries where match_id = $1`,
+        `select id from member_notifications where match_id = $1`,
         [match.id],
       );
       signalId = existing.rows[0]?.id;
@@ -793,11 +793,11 @@ async function deliverOneMatch(
 
 function topicForMatchKind(kind: string): string {
   switch (kind) {
-    case 'ask_to_member': return 'signal.ask_match';
-    case 'offer_to_ask': return 'signal.offer_match';
-    case 'member_to_member': return 'signal.introduction';
-    case 'event_to_member': return 'signal.event_suggestion';
-    default: return `signal.${kind}`;
+    case 'ask_to_member': return 'synchronicity.ask_to_member';
+    case 'offer_to_ask': return 'synchronicity.offer_to_ask';
+    case 'member_to_member': return 'synchronicity.member_to_member';
+    case 'event_to_member': return 'synchronicity.event_to_member';
+    default: return `synchronicity.${kind}`;
   }
 }
 
@@ -863,7 +863,7 @@ async function buildSignalPayload(
     const entity = await loadEntityInfo(pools.db, match.sourceId);
     const author = entity ? await loadMemberInfo(pools.db, entity.authorMemberId) : null;
     return {
-      kind: 'ask_match',
+      kind: 'synchronicity.ask_to_member',
       askEntityId: match.sourceId,
       askAuthor: author ? { memberId: author.memberId, publicName: author.publicName, handle: author.handle } : null,
       matchScore: match.score,
@@ -876,7 +876,7 @@ async function buildSignalPayload(
     const matchedAskEntityId = match.payload.matchedAskEntityId as string | undefined;
 
     return {
-      kind: 'offer_match',
+      kind: 'synchronicity.offer_to_ask',
       offerEntityId: match.sourceId,
       offerAuthor: offerAuthor ? { memberId: offerAuthor.memberId, publicName: offerAuthor.publicName, handle: offerAuthor.handle } : null,
       yourAskEntityId: matchedAskEntityId ?? null,
@@ -887,13 +887,17 @@ async function buildSignalPayload(
   if (match.matchKind === 'member_to_member') {
     const other = await loadMemberInfo(pools.db, match.sourceId);
     return {
-      kind: 'introduction',
+      kind: 'synchronicity.member_to_member',
       otherMember: other ? { memberId: other.memberId, publicName: other.publicName, handle: other.handle } : null,
       matchScore: match.score,
     };
   }
 
-  return { kind: match.matchKind, sourceId: match.sourceId, matchScore: match.score };
+  return {
+    kind: `synchronicity.${match.matchKind}`,
+    sourceId: match.sourceId,
+    matchScore: match.score,
+  };
 }
 
 async function isEntityPublished(queryable: Pool | PoolClient, entityId: string): Promise<boolean> {

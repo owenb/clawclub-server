@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
-import { makeVector, seedEntityWithEmbedding, seedProfileEmbedding } from '../helpers.ts';
+import { getNotifications, makeVector, seedEntityWithEmbedding, seedProfileEmbedding } from '../helpers.ts';
 import {
   processEntityTriggers,
   processProfileTriggers,
@@ -38,10 +38,10 @@ async function publishActivity(clubId: string, entityId: string, authorMemberId:
   );
 }
 
-/** Get all signals for a member. */
+/** Get all materialized notifications for a member. */
 async function getSignals(memberId: string): Promise<Array<Record<string, unknown>>> {
   return h.sqlClubs(
-    `select * from signal_deliveries where recipient_member_id = $1 order by seq asc`,
+    `select * from member_notifications where recipient_member_id = $1 order by seq asc`,
     [memberId],
   );
 }
@@ -84,11 +84,11 @@ describe('synchronicity worker', () => {
 
       // Verify signal was created for Alice
       const signals = await getSignals(alice.id);
-      const askSignals = signals.filter(s => s.topic === 'signal.ask_match');
-      assert.ok(askSignals.length >= 1, 'Alice should receive an ask_match signal');
+      const askSignals = signals.filter(s => s.topic === 'synchronicity.ask_to_member');
+      assert.ok(askSignals.length >= 1, 'Alice should receive an ask_to_member notification');
 
       const payload = askSignals[0].payload as Record<string, unknown>;
-      assert.equal(payload.kind, 'ask_match');
+      assert.equal(payload.kind, 'synchronicity.ask_to_member');
       assert.equal(payload.askEntityId, askId);
     });
 
@@ -132,8 +132,8 @@ describe('synchronicity worker', () => {
       // Deliver
       await deliverMatches(pools);
       const signals = await getSignals(owner.id);
-      const offerSignals = signals.filter(s => s.topic === 'signal.offer_match');
-      assert.ok(offerSignals.length >= 1, 'owner should receive an offer_match signal');
+      const offerSignals = signals.filter(s => s.topic === 'synchronicity.offer_to_ask');
+      assert.ok(offerSignals.length >= 1, 'owner should receive an offer_to_ask notification');
     });
 
     it('gift publication creates offer_to_ask matches', async () => {
@@ -153,8 +153,8 @@ describe('synchronicity worker', () => {
 
       await deliverMatches(pools);
       const signals = await getSignals(owner.id);
-      const offerSignals = signals.filter(s => s.topic === 'signal.offer_match');
-      assert.ok(offerSignals.length >= 1, 'gift should deliver an offer_match signal');
+      const offerSignals = signals.filter(s => s.topic === 'synchronicity.offer_to_ask');
+      assert.ok(offerSignals.length >= 1, 'gift should deliver an offer_to_ask notification');
     });
 
     it('closed gifts do not create matches at trigger time', async () => {
@@ -203,8 +203,8 @@ describe('synchronicity worker', () => {
         'closing the source gift must expire the pending match before delivery');
 
       const signals = await getSignals(owner.id);
-      assert.equal(signals.filter(s => s.topic === 'signal.offer_match').length, 0,
-        'no offer_match signal should be delivered for a closed gift');
+      assert.equal(signals.filter(s => s.topic === 'synchronicity.offer_to_ask').length, 0,
+        'no offer_to_ask notification should be delivered for a closed gift');
     });
 
     it('reopening a gift clears historical matches so the same recipient can be matched again', async () => {
@@ -221,7 +221,7 @@ describe('synchronicity worker', () => {
       await deliverMatches(pools);
 
       const firstSignals = await getSignals(owner.id);
-      assert.equal(firstSignals.filter(s => s.topic === 'signal.offer_match').length, 1);
+      assert.equal(firstSignals.filter(s => s.topic === 'synchronicity.offer_to_ask').length, 1);
 
       await h.apiOk(giver.token, 'content.closeLoop', { entityId: giftId });
       await h.apiOk(giver.token, 'content.reopenLoop', { entityId: giftId });
@@ -232,7 +232,7 @@ describe('synchronicity worker', () => {
 
       await deliverMatches(pools);
       const secondSignals = await getSignals(owner.id);
-      assert.equal(secondSignals.filter(s => s.topic === 'signal.offer_match').length, 2,
+      assert.equal(secondSignals.filter(s => s.topic === 'synchronicity.offer_to_ask').length, 2,
         'the same recipient should be matchable again after reopen');
     });
 
@@ -441,14 +441,13 @@ describe('synchronicity worker', () => {
   });
 
   describe('end-to-end pipeline', () => {
-    it('full ask pipeline: publish → match → deliver → signal appears in updates', async () => {
+    it('full ask pipeline: publish → match → deliver → notification appears in notifications.list', async () => {
       const owner = await h.seedOwner('sw-e2e1', 'SW E2E1');
       const alice = await h.seedClubMember(owner.club.id, 'Alice E2E1', 'alice-e2e1', { sponsorId: owner.id });
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
-      // Seed cursor for Alice's updates
-      const initial = await h.apiOk(alice.token, 'updates.list', { limit: 50 });
-      const cursor = ((initial.data as Record<string, unknown>).updates as { nextAfter: string }).nextAfter;
+      const initial = getNotifications(await h.apiOk(alice.token, 'notifications.list', { limit: 50 }));
+      const cursor = initial.nextAfter;
 
       // Publish ask with embedding
       const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
@@ -459,12 +458,10 @@ describe('synchronicity worker', () => {
       await processEntityTriggers(pools);
       await deliverMatches(pools);
 
-      // Alice polls updates — should see the signal
-      const poll = await h.apiOk(alice.token, 'updates.list', { after: cursor, limit: 50 });
-      const items = ((poll.data as Record<string, unknown>).updates as { items: Array<Record<string, unknown>> }).items;
-      const signalItems = items.filter(u => u.source === 'signal' && u.topic === 'signal.ask_match');
+      const poll = getNotifications(await h.apiOk(alice.token, 'notifications.list', { after: cursor, limit: 50 }));
+      const signalItems = poll.items.filter((u) => u.kind === 'synchronicity.ask_to_member');
 
-      assert.ok(signalItems.length >= 1, 'Alice should see ask_match signal in her update feed');
+      assert.ok(signalItems.length >= 1, 'Alice should see ask_to_member in notifications.list');
       const payload = signalItems[0].payload as Record<string, unknown>;
       assert.equal(payload.askEntityId, askId);
     });
@@ -487,7 +484,7 @@ describe('synchronicity worker', () => {
       await deliverMatches(pools);
 
       const signals1 = await getSignals(alice.id);
-      const askSignals1 = signals1.filter(s => s.topic === 'signal.ask_match');
+      const askSignals1 = signals1.filter(s => s.topic === 'synchronicity.ask_to_member');
       assert.equal(askSignals1.length, 1, 'should have exactly one signal');
 
       // Simulate crash-retry: manually insert a second signal with the same match_id
@@ -499,8 +496,8 @@ describe('synchronicity worker', () => {
 
       // The unique index should prevent this
       const dupResult = await h.sqlClubs<{ id: string }>(
-        `insert into signal_deliveries (club_id, recipient_member_id, topic, payload, match_id)
-         values ($1, $2, 'signal.ask_match', '{}'::jsonb, $3)
+        `insert into member_notifications (club_id, recipient_member_id, topic, payload, match_id)
+         values ($1, $2, 'synchronicity.ask_to_member', '{}'::jsonb, $3)
          on conflict ((match_id)) where match_id is not null do nothing
          returning id`,
         [owner.club.id, alice.id, matchRows[0].id],
@@ -509,13 +506,13 @@ describe('synchronicity worker', () => {
 
       // Still only one signal
       const signals2 = await getSignals(alice.id);
-      const askSignals2 = signals2.filter(s => s.topic === 'signal.ask_match');
+      const askSignals2 = signals2.filter(s => s.topic === 'synchronicity.ask_to_member');
       assert.equal(askSignals2.length, 1, 'should still have exactly one signal');
     });
   });
 
-  describe('offer_match payload', () => {
-    it('offer_match signal includes yourAskEntityId', async () => {
+  describe('offer_to_ask payload', () => {
+    it('offer_to_ask notification includes yourAskEntityId', async () => {
       const owner = await h.seedOwner('sw-offpay1', 'SW OffPay1');
       const bob = await h.seedClubMember(owner.club.id, 'Bob OffPay1', 'bob-offpay1', { sponsorId: owner.id });
 
@@ -533,11 +530,11 @@ describe('synchronicity worker', () => {
       await deliverMatches(pools);
 
       const signals = await getSignals(owner.id);
-      const offerSignals = signals.filter(s => s.topic === 'signal.offer_match');
-      assert.ok(offerSignals.length >= 1, 'owner should receive offer_match signal');
+      const offerSignals = signals.filter(s => s.topic === 'synchronicity.offer_to_ask');
+      assert.ok(offerSignals.length >= 1, 'owner should receive offer_to_ask notification');
 
       const payload = offerSignals[0].payload as Record<string, unknown>;
-      assert.equal(payload.kind, 'offer_match');
+      assert.equal(payload.kind, 'synchronicity.offer_to_ask');
       assert.equal(payload.offerEntityId, serviceId);
       assert.equal(payload.yourAskEntityId, askId, 'should include the matched ask entity ID');
     });
@@ -658,7 +655,7 @@ describe('synchronicity worker', () => {
       assert.equal(matchAfter?.state, 'expired', 'TTL-expired match must not be delivered');
 
       const signals = await getSignals(alice.id);
-      const askSignals = signals.filter(s => s.topic === 'signal.ask_match' && (s.payload as Record<string, unknown>).askEntityId === askId);
+      const askSignals = signals.filter(s => s.topic === 'synchronicity.ask_to_member' && (s.payload as Record<string, unknown>).askEntityId === askId);
       assert.equal(askSignals.length, 0, 'no signal should exist for TTL-expired match');
     });
 
@@ -931,9 +928,8 @@ describe('synchronicity worker', () => {
       const pools = workerPools();
       await processEntityTriggers(pools); // seed cursor
 
-      // Seed Alice's update cursor
-      const initial = await h.apiOk(alice.token, 'updates.list', { limit: 50 });
-      const cursor = ((initial.data as Record<string, unknown>).updates as { nextAfter: string }).nextAfter;
+      const initial = getNotifications(await h.apiOk(alice.token, 'notifications.list', { limit: 50 }));
+      const cursor = initial.nextAfter;
 
       // Create and deliver an ask signal
       const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
@@ -947,14 +943,10 @@ describe('synchronicity worker', () => {
         [askId],
       );
 
-      // Poll — the signal for the removed entity should be filtered out
-      const poll = await h.apiOk(alice.token, 'updates.list', { after: cursor, limit: 50 });
-      const items = ((poll.data as Record<string, unknown>).updates as { items: Array<Record<string, unknown>> }).items;
-      const entitySignals = items.filter(
-        u => u.source === 'signal' && u.entityId === askId,
-      );
+      const poll = getNotifications(await h.apiOk(alice.token, 'notifications.list', { after: cursor, limit: 50 }));
+      const entitySignals = poll.items.filter((u) => u.ref.entityId === askId);
       assert.equal(entitySignals.length, 0,
-        'signal for removed entity must not appear in updates.list');
+        'notification for removed entity must not appear in notifications.list');
     });
 
     it('pending ask_to_member expires when recipient profile changes', async () => {
@@ -1054,8 +1046,8 @@ describe('synchronicity worker', () => {
         'ask_to_member match must expire when recipient loses access');
 
       const signals = await getSignals(alice.id);
-      assert.equal(signals.filter(s => s.topic === 'signal.ask_match').length, 0,
-        'no signal should be delivered to inaccessible recipient');
+      assert.equal(signals.filter(s => s.topic === 'synchronicity.ask_to_member').length, 0,
+        'no notification should be delivered to inaccessible recipient');
     });
 
     it('recipient loses access before offer_to_ask delivery => no signal', async () => {
@@ -1096,8 +1088,8 @@ describe('synchronicity worker', () => {
         'offer_to_ask match must expire when recipient loses access');
 
       const signals = await getSignals(alice.id);
-      assert.equal(signals.filter(s => s.topic === 'signal.offer_match').length, 0,
-        'no signal should be delivered to inaccessible recipient');
+      assert.equal(signals.filter(s => s.topic === 'synchronicity.offer_to_ask').length, 0,
+        'no notification should be delivered to inaccessible recipient');
     });
 
     it('stale profile embedding: profile advances without new embedding => no ask_to_member match', async () => {
@@ -1179,7 +1171,7 @@ describe('synchronicity worker', () => {
         'intro must not match against member with stale profile embedding');
     });
 
-    it('removed matched ask hides delivered offer_match signal from updates', async () => {
+    it('removed matched ask hides delivered offer_to_ask notification from notifications.list', async () => {
       const owner = await h.seedOwner('sw-askremove1', 'SW AskRemove1');
       const bob = await h.seedClubMember(owner.club.id, 'Bob AskRemove1', 'bob-askremove1', { sponsorId: owner.id });
 
@@ -1190,9 +1182,8 @@ describe('synchronicity worker', () => {
       const pools = workerPools();
       await processEntityTriggers(pools); // seed cursor
 
-      // Seed owner's update cursor
-      const initial = await h.apiOk(owner.token, 'updates.list', { limit: 50 });
-      const cursor = ((initial.data as Record<string, unknown>).updates as { nextAfter: string }).nextAfter;
+      const initial = getNotifications(await h.apiOk(owner.token, 'notifications.list', { limit: 50 }));
+      const cursor = initial.nextAfter;
 
       await publishActivity(owner.club.id, serviceId, bob.id);
       await processEntityTriggers(pools);
@@ -1201,8 +1192,8 @@ describe('synchronicity worker', () => {
       // Verify signal was delivered
       const signalsBefore = await getSignals(owner.id);
       assert.ok(
-        signalsBefore.some(s => s.topic === 'signal.offer_match'),
-        'offer_match signal should be delivered',
+        signalsBefore.some(s => s.topic === 'synchronicity.offer_to_ask'),
+        'offer_to_ask notification should be delivered',
       );
 
       // Now remove the matched ASK (not the offer)
@@ -1211,12 +1202,10 @@ describe('synchronicity worker', () => {
         [askId],
       );
 
-      // Poll updates — the offer_match signal should be hidden
-      const poll = await h.apiOk(owner.token, 'updates.list', { after: cursor, limit: 50 });
-      const items = ((poll.data as Record<string, unknown>).updates as { items: Array<Record<string, unknown>> }).items;
-      const offerSignals = items.filter(u => u.source === 'signal' && u.topic === 'signal.offer_match');
+      const poll = getNotifications(await h.apiOk(owner.token, 'notifications.list', { after: cursor, limit: 50 }));
+      const offerSignals = poll.items.filter((u) => u.kind === 'synchronicity.offer_to_ask');
       assert.equal(offerSignals.length, 0,
-        'offer_match signal must not appear when matched ask is removed');
+        'offer_to_ask notification must not appear when matched ask is removed');
     });
   });
 });

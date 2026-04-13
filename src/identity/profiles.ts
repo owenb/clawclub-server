@@ -482,14 +482,68 @@ function extractUrls(text: string): string[] {
   return [...new Set(matches.map((url) => url.replace(/[),.;!?]+$/, '')))].slice(0, 10);
 }
 
+const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+
+function scrubPrivateContactText(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const scrubbed = value
+    .replace(/mailto:/gi, '')
+    .replace(EMAIL_PATTERN, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\[\s*\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.;!?])/g, '$1')
+    .trim();
+  return scrubbed.length > 0 ? scrubbed : null;
+}
+
+function scrubPrivateContactValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    return scrubPrivateContactText(value);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => scrubPrivateContactValue(entry))
+      .filter((entry) => entry !== null && entry !== '');
+  }
+  if (value && typeof value === 'object') {
+    const next: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      const scrubbed = scrubPrivateContactValue(child);
+      if (scrubbed !== null && scrubbed !== '') {
+        next[key] = scrubbed;
+      }
+    }
+    return next;
+  }
+  return value;
+}
+
+function sanitizeAdmissionClubProfile(fields: Partial<ClubProfileFields>): ClubProfileFields {
+  const websiteUrl = scrubPrivateContactText(fields.websiteUrl ?? null);
+  const links = Array.isArray(fields.links)
+    ? scrubPrivateContactValue(fields.links)
+    : [];
+  return normalizeClubProfileFields({
+    tagline: scrubPrivateContactText(fields.tagline ?? null),
+    summary: scrubPrivateContactText(fields.summary ?? null),
+    whatIDo: scrubPrivateContactText(fields.whatIDo ?? null),
+    knownFor: scrubPrivateContactText(fields.knownFor ?? null),
+    servicesSummary: scrubPrivateContactText(fields.servicesSummary ?? null),
+    websiteUrl: websiteUrl && /^https?:\/\//i.test(websiteUrl) ? websiteUrl : null,
+    links: Array.isArray(links) ? links : [],
+    profile: scrubPrivateContactValue(fields.profile ?? {}) as Record<string, unknown>,
+  });
+}
+
 function fallbackAdmissionClubProfile(input: {
   application: string;
   socials: string;
 }): ClubProfileFields {
   const application = input.application.trim();
   const urls = [
-    ...extractUrls(input.socials),
     ...extractUrls(input.application),
+    ...extractUrls(input.socials),
   ];
   const websiteUrl = urls[0] ?? null;
   const links = urls
@@ -497,11 +551,23 @@ function fallbackAdmissionClubProfile(input: {
     .filter((url) => url !== websiteUrl)
     .map((url) => ({ url }));
 
-  return normalizeClubProfileFields({
+  return sanitizeAdmissionClubProfile({
     summary: application.length > 0 ? application : null,
     websiteUrl,
     links,
     profile: {},
+  });
+}
+
+function mergeAdmissionProfileFallback(
+  generated: ClubProfileFields,
+  fallback: ClubProfileFields,
+): ClubProfileFields {
+  return normalizeClubProfileFields({
+    ...generated,
+    summary: generated.summary ?? fallback.summary,
+    websiteUrl: generated.websiteUrl ?? fallback.websiteUrl,
+    links: generated.links.length > 0 ? generated.links : fallback.links,
   });
 }
 
@@ -526,6 +592,7 @@ export async function generateAdmissionClubProfile(input: {
     application: input.application,
     socials: input.socials,
   };
+  const fallbackProfile = fallbackAdmissionClubProfile(input);
 
   try {
     const result = await generateObject({
@@ -537,10 +604,13 @@ Only use the submitted application text and socials as source material.
 Do not invent facts, credentials, achievements, pricing, experience, or contact details.
 Do not include email addresses or private contact information.
 If the application does not justify a field, leave it null.
-Only output the club-scoped fields defined by the schema.`,
+      Only output the club-scoped fields defined by the schema.`,
       prompt: JSON.stringify(promptPayload),
     });
-    return normalizeClubProfileFields(result.object);
+    return mergeAdmissionProfileFallback(
+      sanitizeAdmissionClubProfile(result.object),
+      fallbackProfile,
+    );
   } catch (error) {
     console.error('Admission profile generation failed:', error);
     throw new AppError(503, 'profile_generation_unavailable', 'Profile generation service is temporarily unavailable');

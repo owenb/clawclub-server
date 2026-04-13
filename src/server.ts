@@ -6,8 +6,10 @@ import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { AppError, type Repository } from './contract.ts';
 import { buildDispatcher, type QualityGateFn } from './dispatch.ts';
+import { decodeCursor, encodeCursor } from './schemas/fields.ts';
 import { getAction, generateRequestTemplate, GENERIC_REQUEST_TEMPLATE } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
+import { NOTIFICATIONS_PAGE_SIZE } from './notifications-core.ts';
 import { createRepository } from './postgres.ts';
 import { getSchemaPayload } from './schema-endpoint.ts';
 
@@ -43,6 +45,8 @@ const SKILL_MD: string = [
   '---',
   '',
 ].join('\n') + SKILL_MD_BODY;
+
+const NOTIFICATION_WAKEUP_KINDS = new Set(['notification', 'admission_version']);
 
 type ColdAdmissionAction = 'admissions.public.requestChallenge' | 'admissions.public.submitApplication';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
@@ -169,7 +173,7 @@ function getBearerToken(request: http.IncomingMessage): string | null {
   return match ? match[1].trim() : null;
 }
 
-function normalizeUpdatesLimit(value: string | null): number {
+function normalizeStreamLimit(value: string | null): number {
   if (value === null || value.trim().length === 0) {
     return 10;
   }
@@ -182,7 +186,7 @@ function normalizeUpdatesLimit(value: string | null): number {
   return Math.min(Math.max(parsed, 1), 20);
 }
 
-function normalizeUpdatesAfter(value: string | null): string | 'latest' | null {
+function normalizeStreamAfter(value: string | null): string | 'latest' | null {
   if (value === null || value.trim().length === 0) {
     return null;
   }
@@ -192,12 +196,37 @@ function normalizeUpdatesAfter(value: string | null): string | 'latest' | null {
     return 'latest';
   }
 
-  // Validate that it looks like a base64url-encoded cursor
-  if (!/^[A-Za-z0-9_-]+={0,2}$/.test(trimmed)) {
+  if (!/^[A-Za-z0-9_-]+={0,2}$/.test(trimmed) && !/^[0-9]+$/.test(trimmed)) {
     throw new AppError(400, 'invalid_input', 'after must be a valid cursor string or "latest"');
   }
 
   return trimmed;
+}
+
+function encodeActivityCursor(seq: number | null): string | null {
+  if (seq === null) {
+    return null;
+  }
+  return encodeCursor([String(seq)]);
+}
+
+function parseActivityResumeSeq(value: string | null): number | null {
+  if (value === null || value === 'latest') {
+    return null;
+  }
+
+  if (/^[0-9]+$/.test(value)) {
+    const seq = Number.parseInt(value, 10);
+    return Number.isSafeInteger(seq) && seq >= 0 ? seq : null;
+  }
+
+  try {
+    const [rawSeq] = decodeCursor(value, 1);
+    const seq = Number.parseInt(rawSeq, 10);
+    return Number.isSafeInteger(seq) && seq >= 0 ? seq : null;
+  } catch {
+    return null;
+  }
 }
 
 function writeCompressed(
@@ -330,7 +359,7 @@ function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
         signal?.addEventListener('abort', onAbort, { once: true });
       });
 
-      return 'timed_out';
+      return { outcome: 'timed_out' } as const;
     },
     async close() {},
   };
@@ -398,7 +427,7 @@ export function createServer(options: {
       return;
     }
 
-    if (request.method === 'GET' && url.pathname === '/updates/stream') {
+    if (request.method === 'GET' && url.pathname === '/stream') {
       const abortController = new AbortController();
       const abortStream = () => abortController.abort();
       request.on('close', abortStream);
@@ -415,10 +444,6 @@ export function createServer(options: {
         const auth = await repository.authenticateBearerToken(bearerToken);
         if (!auth) {
           throw new AppError(401, 'unauthorized', 'Unknown bearer token');
-        }
-
-        if (!repository.listMemberUpdates) {
-          throw new Error('Repository does not implement listMemberUpdates');
         }
 
         const memberId = auth.actor.member.id;
@@ -439,22 +464,56 @@ export function createServer(options: {
         };
         request.on('close', decrementStreams);
 
-        let clubIds = auth.actor.memberships.map(m => m.clubId);
+        const sortClubIds = (clubIds: string[]) => [...clubIds].sort();
+        const computeScopedClubIds = (memberships: typeof auth.actor.memberships) => ({
+          clubIds: sortClubIds(memberships.map((membership) => membership.clubId)),
+          adminClubIds: sortClubIds(memberships
+            .filter((membership) => membership.role === 'clubadmin')
+            .map((membership) => membership.clubId)),
+          ownerClubIds: sortClubIds(memberships
+            .filter((membership) => membership.isOwner)
+            .map((membership) => membership.clubId)),
+        });
+        const sameScope = (a: string[], b: string[]) => (
+          a.length === b.length && a.every((value, index) => value === b[index])
+        );
+
+        let { clubIds, adminClubIds, ownerClubIds } = computeScopedClubIds(auth.actor.memberships);
         const limit = Math.min(
-          normalizeUpdatesLimit(url.searchParams.get('limit')),
+          normalizeStreamLimit(url.searchParams.get('limit')),
           DEFAULT_SERVER_LIMITS.updatesStreamLimit,
         );
         const lastEventId = request.headers['last-event-id'];
-        const afterRaw = normalizeUpdatesAfter(
-          url.searchParams.get('after')
-          ?? (typeof lastEventId === 'string' ? lastEventId : null),
-        );
+        const explicitAfter = normalizeStreamAfter(url.searchParams.get('after'));
+        const afterSeed = explicitAfter ?? (typeof lastEventId === 'string' ? lastEventId.trim() : null);
+        const initialAfterSeq = parseActivityResumeSeq(afterSeed);
+        if (explicitAfter !== null && explicitAfter !== 'latest' && initialAfterSeq === null) {
+          throw new AppError(400, 'invalid_input', 'after must be a valid activity cursor or "latest"');
+        }
 
-        const latestCursor = repository.getLatestCursor
-          ? await repository.getLatestCursor({ actorMemberId: memberId, clubIds })
-          : null;
+        const activitySeed = await repository.listClubActivity({
+          actorMemberId: memberId,
+          clubIds,
+          adminClubIds,
+          ownerClubIds,
+          limit,
+          afterSeq: initialAfterSeq,
+        });
+        let activitySeq = activitySeed.nextAfterSeq;
+        const inboxSeed = await repository.listInboxSince({
+          actorMemberId: memberId,
+          after: null,
+          limit,
+        });
+        let inboxCursor = inboxSeed.nextAfter;
 
-        const after = afterRaw === 'latest' ? latestCursor : afterRaw;
+        const notificationSeed = await repository.listNotifications({
+          actorMemberId: memberId,
+          accessibleClubIds: clubIds,
+          adminClubIds,
+          limit: NOTIFICATIONS_PAGE_SIZE,
+          after: null,
+        });
 
         response.writeHead(200, {
           'content-type': 'text/event-stream; charset=utf-8',
@@ -472,54 +531,101 @@ export function createServer(options: {
         writeSseEvent(response, 'ready', {
           member: auth.actor.member,
           requestScope: auth.requestScope,
-          nextAfter: after,
-          latestCursor,
-        });
+          notifications: notificationSeed.items,
+          notificationsTruncated: notificationSeed.nextAfter !== null,
+          activityCursor: encodeActivityCursor(activitySeq),
+        }, activitySeq ?? undefined);
 
-        let cursor: string | null = after ?? null;
         let lastScopeRefresh = Date.now();
 
-        while (!abortController.signal.aborted) {
-          // Periodically re-validate token and refresh club scope
-          if (repository.validateBearerTokenPassive && Date.now() - lastScopeRefresh >= streamScopeRefreshMs) {
-            const refreshed = await repository.validateBearerTokenPassive(bearerToken);
-            lastScopeRefresh = Date.now();
-            if (!refreshed) {
-              // Token revoked or expired — close the stream
-              response.end();
-              return;
-            }
-            clubIds = refreshed.actor.memberships.map(m => m.clubId);
+        const refreshScopeIfDue = async (): Promise<{ ok: boolean; scopeChanged: boolean }> => {
+          if (!repository.validateBearerTokenPassive) {
+            return { ok: true, scopeChanged: false };
+          }
+          if (Date.now() - lastScopeRefresh < streamScopeRefreshMs) {
+            return { ok: true, scopeChanged: false };
           }
 
-          const updates = await repository.listMemberUpdates({
+          const refreshed = await repository.validateBearerTokenPassive(bearerToken);
+          lastScopeRefresh = Date.now();
+          if (!refreshed) {
+            response.end();
+            return { ok: false, scopeChanged: false };
+          }
+
+          const nextScope = computeScopedClubIds(refreshed.actor.memberships);
+          const scopeChanged = !sameScope(clubIds, nextScope.clubIds)
+            || !sameScope(adminClubIds, nextScope.adminClubIds)
+            || !sameScope(ownerClubIds, nextScope.ownerClubIds);
+
+          ({ clubIds, adminClubIds, ownerClubIds } = nextScope);
+          return { ok: true, scopeChanged };
+        };
+
+        while (!abortController.signal.aborted) {
+          const refreshResult = await refreshScopeIfDue();
+          if (!refreshResult.ok || abortController.signal.aborted || response.writableEnded) {
+            return;
+          }
+          if (refreshResult.scopeChanged) {
+            writeSseEvent(response, 'notifications_dirty', {});
+          }
+
+          const activity = await repository.listClubActivity({
             actorMemberId: auth.actor.member.id,
             clubIds,
+            adminClubIds,
+            ownerClubIds,
             limit,
-            after: cursor,
+            afterSeq: activitySeq,
           });
 
-          if (updates.items.length > 0) {
-            for (let idx = 0; idx < updates.items.length; idx++) {
-              const item = updates.items[idx]!;
-              const isLast = idx === updates.items.length - 1;
-              // Attach the compound cursor as id on the last event so Last-Event-ID works on reconnect
-              writeSseEvent(response, 'update', item, isLast ? updates.nextAfter ?? undefined : undefined);
+          let deliveredFrames = false;
+
+          if (activity.items.length > 0) {
+            for (const item of activity.items) {
+              writeSseEvent(response, 'activity', item, item.seq);
             }
-            cursor = updates.nextAfter;
+            activitySeq = activity.nextAfterSeq;
+            deliveredFrames = true;
+          }
+
+          const messageFrames = await repository.listInboxSince({
+            actorMemberId: auth.actor.member.id,
+            after: inboxCursor,
+            limit,
+          });
+          inboxCursor = messageFrames.nextAfter;
+
+          if (messageFrames.frames.length > 0) {
+            for (const frame of messageFrames.frames) {
+              writeSseEvent(response, 'message', frame);
+            }
+            deliveredFrames = true;
+          }
+
+          if (deliveredFrames) {
             continue;
           }
 
-          const outcome = await updatesNotifier.waitForUpdate({
+          const result = await updatesNotifier.waitForUpdate({
             recipientMemberId: auth.actor.member.id,
             clubIds,
-            afterStreamSeq: null,
+            afterStreamSeq: activitySeq ?? null,
             timeoutMs: DEFAULT_SERVER_LIMITS.updatesStreamHeartbeatMs,
             signal: abortController.signal,
           });
 
-          if (outcome === 'timed_out' && !abortController.signal.aborted) {
+          if (result.outcome === 'timed_out' && !abortController.signal.aborted) {
             writeSseComment(response, 'keepalive');
+            continue;
+          }
+
+          const causeKind = result.outcome === 'notified'
+            ? (result.cause?.kind ?? null)
+            : null;
+          if (causeKind && NOTIFICATION_WAKEUP_KINDS.has(causeKind)) {
+            writeSseEvent(response, 'notifications_dirty', {});
           }
         }
       } catch (error) {
@@ -602,7 +708,7 @@ export function createServer(options: {
         ok: false,
         error: {
           code: 'not_found',
-          message: 'Only GET /, GET /skill (or /skill.md), GET /updates/stream, GET /api/schema, and POST /api are supported',
+          message: 'Only GET /, GET /skill (or /skill.md), GET /stream, GET /api/schema, and POST /api are supported',
         },
       });
       return;
