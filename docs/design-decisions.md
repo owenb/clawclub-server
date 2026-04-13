@@ -58,6 +58,20 @@ Terminology boundary:
 - expired first entities may still appear in thread summaries even when omitted from the paginated entity body
 - event discovery remains separate: `events.list` is a flat upcoming-events surface ordered by event start time, not by thread activity
 
+## Mentions
+
+Public content (`title`, `summary`, `body`) and direct messages (`messageText`) support inline `@handle` mentions. The model is split between write-time persistence and read-time hydration, and the split is deliberate.
+
+At write time the server parses the text with the same boundary rules everywhere — `@` must follow start-of-string, whitespace, or one of `(`, `[`, `{`, `"`, `'`, `` ` ``, and the handle itself must match the standard lowercase-and-hyphen format. URLs and email addresses are skipped (`https://github.com/@alice` and `alice@example.com` never become mentions). Each parsed candidate is resolved against `members.state = 'active'` AND the relevant scope: for public content that scope is `accessible_club_memberships` for the target club; for DMs it is the active thread participants plus the bilateral set of clubs both participants currently see. If any handle in the text fails to resolve, the write is rejected with `invalid_mentions` and the literal offending handles are echoed back. Caps apply at write time: 25 unique mentioned members and 100 spans per content version or DM message. Resolved mentions are persisted as rows keyed on the exact `entity_versions.id` (or `dm_messages.id`) — never on the entity or thread — so updates that create a new version get a fresh mention set, and unchanged-field carry-forward on `content.update` is by design.
+
+For `content.create` and `content.update` the resolver runs in a `preGate` hook ahead of the LLM quality gate, so a typoed handle never burns an LLM call. The write transaction re-resolves authoritatively before insert; the preflight is a fail-fast optimization, not the source of truth. `messages.send` does not have a quality gate today, so its mention validation runs inside the same transaction as the message insert, after the `clientKey` replay short-circuit.
+
+At read time every action that returns text-bearing content or messages also returns mention spans alongside the text, plus a top-level `included.membersById` bundle that hydrates each referenced member's *current* identity. This means a mention written six months ago to `@alice-old` will still resolve to the same `memberId`, but the bundle exposes Alice's current `publicName`, `displayName`, and `handle`. Spans carry both `memberId` (the stable identity for any follow-up action input) and `authoredHandle` (the literal token at write time, preserved as historical author intent — it may diverge from the current handle if the member has since renamed). Offsets are 0-based UTF-16 code units that include the leading `@`, so `text.slice(start, end)` always yields the original `@handle` substring. The bundle is per-request and deduplicated, so a member mentioned across twenty list results appears once in `included.membersById`.
+
+Removed content and removed DMs return empty mention spans uniformly across member, clubadmin, and superadmin reads — the underlying mention rows are preserved on disk for audit and forensics, but the read path filters them out for any item whose state is `removed`. Member-state filtering is intentionally strict and uniform: `members.state = 'active'` applies to every mention target including DM thread participants. A banned member cannot be mentioned by any new content or message, even by their own counterpart in an existing DM thread.
+
+The `included` envelope is a generic normalization container, not mentions-specific. V1 only populates `included.membersById`; future surfaces that need to hydrate cross-referenced entities (clubs, events, etc.) should extend the same bundle rather than inventing parallel normalization fields.
+
 ## Security and permissions
 
 - bearer token identifies the actor — no usernames or passwords
