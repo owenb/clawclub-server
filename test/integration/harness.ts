@@ -11,14 +11,14 @@
  *   await h.stop();
  */
 
-import { Pool } from 'pg';
+import { Pool, type PoolClient } from 'pg';
 import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { execSync } from 'node:child_process';
 import { createServer } from '../../src/server.ts';
 import { createRepository } from '../../src/postgres.ts';
 import { createPostgresMemberUpdateNotifier } from '../../src/member-updates-notifier.ts';
-import { buildBearerToken } from '../../src/token.ts';
+import { buildBearerToken, buildInvitationCode } from '../../src/token.ts';
 import { z } from 'zod';
 import { getAction } from '../../src/schemas/registry.ts';
 import type { QualityGateFn } from '../../src/dispatch.ts';
@@ -94,6 +94,63 @@ export type SeededMembership = {
   memberId: string;
   role: string;
   status: string;
+};
+
+export type SeededInvitation = {
+  id: string;
+  clubId: string;
+  sponsorMemberId: string;
+  candidateName: string;
+  candidateEmail: string;
+  invitationCode: string;
+  expiresAt: string;
+  usedAt: string | null;
+  usedMembershipId: string | null;
+  revokedAt: string | null;
+};
+
+type SeedClubMembershipStatus =
+  | 'active'
+  | 'renewal_pending'
+  | 'cancelled'
+  | 'payment_pending'
+  | 'expired'
+  | 'removed'
+  | 'banned'
+  | 'declined'
+  | 'withdrawn';
+
+type SeedPendingMembershipStatus =
+  | 'applying'
+  | 'submitted'
+  | 'interview_scheduled'
+  | 'interview_completed';
+
+type SeedClubMembershipOptions = {
+  role?: 'member' | 'clubadmin';
+  status?: SeedClubMembershipStatus;
+  access?: 'comped' | 'paid' | 'none';
+  approvedPriceAmount?: number | null;
+  approvedPriceCurrency?: string | null;
+  metadata?: Record<string, unknown>;
+  reason?: string | null;
+};
+
+type SeedPendingMembershipOptions = {
+  status: SeedPendingMembershipStatus;
+  submissionPath: 'cold' | 'invitation' | 'cross_apply' | 'owner_nominated';
+  proofKind: 'pow' | 'invitation' | 'none';
+  applicationEmail: string;
+  applicationName: string;
+  applicationSocials?: string | null;
+  applicationText?: string | null;
+  appliedAt?: string | null;
+  applicationSubmittedAt?: string | null;
+  generatedProfileDraft?: Record<string, unknown> | null;
+  sponsorMemberId?: string | null;
+  invitationId?: string | null;
+  metadata?: Record<string, unknown>;
+  reason?: string | null;
 };
 
 export class TestHarness {
@@ -212,6 +269,91 @@ export class TestHarness {
     return result.rows;
   }
 
+  private async withSuperTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+    const client = await this.pools.super.connect();
+    try {
+      await client.query('BEGIN');
+      const value = await fn(client);
+      await client.query('COMMIT');
+      return value;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async readExistingCurrentMembership(
+    client: PoolClient,
+    clubId: string,
+    memberId: string,
+  ): Promise<SeededMembership | null> {
+    const result = await client.query<{
+      membership_id: string;
+      role: string;
+      status: string;
+    }>(
+      `select cm.id as membership_id, cm.role::text as role, cm.status::text as status
+       from current_club_memberships cm
+       where cm.club_id = $1 and cm.member_id = $2
+         and cm.status not in ('declined', 'withdrawn', 'expired', 'removed', 'banned')
+       limit 1`,
+      [clubId, memberId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.membership_id,
+      clubId,
+      memberId,
+      role: row.role,
+      status: row.status,
+    };
+  }
+
+  private async insertMembershipStateVersion(
+    client: PoolClient,
+    membershipId: string,
+    status: string,
+    createdByMemberId: string,
+    reason: string,
+  ): Promise<void> {
+    await client.query(
+      `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
+       select $1::short_id, $2::membership_state, $3, coalesce(max(version_no), 0) + 1, $4::short_id
+       from club_membership_state_versions
+       where membership_id = $1::short_id`,
+      [membershipId, status, reason, createdByMemberId],
+    );
+  }
+
+  private async ensureMembershipProfileVersion(
+    client: PoolClient,
+    membershipId: string,
+    clubId: string,
+    memberId: string,
+    createdByMemberId: string,
+  ): Promise<void> {
+    await client.query(
+      `insert into member_club_profile_versions (
+         membership_id,
+         member_id,
+         club_id,
+         version_no,
+         created_by_member_id,
+         generation_source
+       )
+       select $1::short_id, $2::short_id, $3::short_id, 1, $4::short_id, 'membership_seed'
+       where not exists (
+         select 1
+         from member_club_profile_versions
+         where membership_id = $1::short_id
+       )`,
+      [membershipId, memberId, clubId, createdByMemberId],
+    );
+  }
+
   // Convenience aliases used in tests that interact with specific domain tables
   sqlClubs = this.sql.bind(this);
   sqlMessaging = this.sql.bind(this);
@@ -254,38 +396,33 @@ export class TestHarness {
     );
     const clubId = rows[0]!.id;
 
-    // Owner membership + state + version 1
-    const membershipRows = await this.sql<{ id: string }>(
-      `with inserted_membership as (
-         insert into club_memberships (club_id, member_id, role)
-         values ($1::short_id, $2::short_id, 'clubadmin')
-         on conflict (club_id, member_id) do nothing
-         returning id
-       ), target_membership as (
-         select id from inserted_membership
-         union all
-         select id from club_memberships where club_id = $1 and member_id = $2
-         limit 1
-       ), inserted_profile as (
-         insert into member_club_profile_versions (
-           membership_id, member_id, club_id, version_no, created_by_member_id, generation_source
+    await this.withSuperTransaction(async (client) => {
+      const existing = await this.readExistingCurrentMembership(client, clubId, ownerMemberId);
+      if (existing) {
+        return;
+      }
+
+      const insertedMembership = await client.query<{ id: string }>(
+        `insert into club_memberships (
+           club_id,
+           member_id,
+           role,
+           status,
+           joined_at,
+           metadata
          )
-         select tm.id, $2::short_id, $1::short_id, 1, $2::short_id, 'membership_seed'
-         from target_membership tm
-         where not exists (
-           select 1 from current_member_club_profiles where member_id = $2::short_id and club_id = $1::short_id
-         )
-       ), inserted_state as (
-         insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-         select tm.id, 'active', 'seed', coalesce(max(csv.version_no), 0) + 1, $2::short_id
-         from target_membership tm
-         left join club_membership_state_versions csv on csv.membership_id = tm.id
-         group by tm.id
-       )
-       select id from target_membership`,
-      [clubId, ownerMemberId],
-    );
-    const membershipId = membershipRows[0]!.id;
+         values ($1::short_id, $2::short_id, 'clubadmin', 'active', now(), '{}'::jsonb)
+         returning id`,
+        [clubId, ownerMemberId],
+      );
+      const membershipId = insertedMembership.rows[0]?.id;
+      if (!membershipId) {
+        throw new Error('seedClub failed to create owner membership');
+      }
+
+      await this.ensureMembershipProfileVersion(client, membershipId, clubId, ownerMemberId, ownerMemberId);
+      await this.insertMembershipStateVersion(client, membershipId, 'active', ownerMemberId, 'seed owner membership');
+    });
 
     // Club version (needed by current_club_versions view)
     await this.sql(
@@ -297,56 +434,371 @@ export class TestHarness {
     return { id: clubId, slug, name, ownerMemberId };
   }
 
-  async seedMembership(
+  async seedClubMembership(
     clubId: string,
     memberId: string,
-    options: { role?: string; status?: string; sponsorId?: string } = {},
+    options: SeedClubMembershipOptions = {},
   ): Promise<SeededMembership> {
     const role = options.role ?? 'member';
     const status = options.status ?? 'active';
-    const sponsorId = options.sponsorId ?? null;
+    const accessGrantingStatuses = new Set<SeedClubMembershipStatus>(['active', 'renewal_pending', 'cancelled']);
+    const joinedStatuses = new Set<SeedClubMembershipStatus>(['active', 'renewal_pending', 'cancelled', 'expired', 'removed', 'banned']);
+    const access = role === 'clubadmin' ? 'none' : options.access ?? 'none';
 
-    const rows = await this.sql<{ id: string }>(
-      `with inserted_membership as (
-         insert into club_memberships (club_id, member_id, role, sponsor_member_id)
-         values ($1::short_id, $2::short_id, $3::membership_role, $4::short_id)
-         on conflict (club_id, member_id) do nothing
-         returning id
-       ), target_membership as (
-         select id from inserted_membership
-         union all
-         select id from club_memberships where club_id = $1 and member_id = $2
-         limit 1
-       ), inserted_profile as (
-         insert into member_club_profile_versions (
-           membership_id, member_id, club_id, version_no, created_by_member_id, generation_source
-         )
-         select tm.id, $2::short_id, $1::short_id, 1, $2::short_id, 'membership_seed'
-         from target_membership tm
-         where not exists (
-           select 1 from current_member_club_profiles where member_id = $2::short_id and club_id = $1::short_id
-         )
-       ), inserted_state as (
-         insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
-         select tm.id, $5::membership_state, 'seed', coalesce(max(csv.version_no), 0) + 1, $2::short_id
-         from target_membership tm
-         left join club_membership_state_versions csv on csv.membership_id = tm.id
-         group by tm.id
-       )
-       select id from target_membership`,
-      [clubId, memberId, role, sponsorId, status],
-    );
-    const membershipId = rows[0]!.id;
-
-    // Comp non-owners with active status so they get access
-    if (role !== 'clubadmin' && status === 'active') {
-      await this.sql(
-        `UPDATE club_memberships SET is_comped = true, comped_at = now() WHERE id = $1`,
-        [membershipId],
+    if (role === 'clubadmin' && status !== 'active') {
+      throw new Error(`seedClubMembership does not support clubadmin status ${status}`);
+    }
+    if (accessGrantingStatuses.has(status) && role !== 'clubadmin' && !options.access) {
+      throw new Error(
+        `seedClubMembership status ${status} requires explicit access semantics (use access='comped' or access='paid')`,
       );
     }
+    if (!accessGrantingStatuses.has(status) && access !== 'none') {
+      throw new Error(`seedClubMembership status ${status} cannot use access=${access}`);
+    }
 
-    return { id: membershipId, clubId, memberId, role, status };
+    return this.withSuperTransaction(async (client) => {
+      const existing = await this.readExistingCurrentMembership(client, clubId, memberId);
+      if (existing) {
+        if (existing.role !== role || existing.status !== status) {
+          throw new Error(
+            `seedClubMembership found existing current membership ${existing.id} in state ${existing.status}/${existing.role}; refusing to reuse for requested ${status}/${role}`,
+          );
+        }
+        if (role === 'clubadmin' || accessGrantingStatuses.has(status)) {
+          await this.ensureMembershipProfileVersion(client, existing.id, clubId, memberId, memberId);
+        }
+        if (role !== 'clubadmin' && access === 'comped') {
+          await client.query(
+            `update club_memberships
+             set is_comped = true,
+                 comped_at = coalesce(comped_at, now())
+             where id = $1`,
+            [existing.id],
+          );
+        }
+        if (role !== 'clubadmin' && access === 'paid') {
+          await client.query(
+            `insert into club_subscriptions (
+               membership_id,
+               payer_member_id,
+               status,
+               amount,
+               currency,
+               current_period_end
+             )
+             select $1::short_id, $2::short_id, 'active', $3, $4, now() + interval '30 days'
+             where not exists (
+               select 1
+               from club_subscriptions
+               where membership_id = $1::short_id
+             )`,
+            [
+              existing.id,
+              memberId,
+              options.approvedPriceAmount ?? 29,
+              options.approvedPriceCurrency ?? 'USD',
+            ],
+          );
+        }
+        return existing;
+      }
+
+      const insertedMembership = await client.query<{ id: string }>(
+        `insert into club_memberships (
+           club_id,
+           member_id,
+           role,
+           status,
+           joined_at,
+           approved_price_amount,
+           approved_price_currency,
+           metadata
+         )
+         values (
+           $1::short_id,
+           $2::short_id,
+           $3::membership_role,
+           $4::membership_state,
+           $5::timestamptz,
+           $6,
+           $7,
+           $8::jsonb
+         )
+         returning id`,
+        [
+          clubId,
+          memberId,
+          role,
+          status,
+          joinedStatuses.has(status) || role === 'clubadmin' ? new Date().toISOString() : null,
+          options.approvedPriceAmount ?? null,
+          options.approvedPriceCurrency ?? null,
+          JSON.stringify(options.metadata ?? {}),
+        ],
+      );
+      const membershipId = insertedMembership.rows[0]?.id;
+      if (!membershipId) {
+        throw new Error('seedClubMembership failed to create membership');
+      }
+
+      if (role === 'clubadmin' || accessGrantingStatuses.has(status)) {
+        await this.ensureMembershipProfileVersion(client, membershipId, clubId, memberId, memberId);
+      }
+
+      await this.insertMembershipStateVersion(client, membershipId, status, memberId, options.reason ?? 'seed membership');
+
+      if (role !== 'clubadmin' && access === 'comped') {
+        await client.query(
+          `update club_memberships
+           set is_comped = true,
+               comped_at = now()
+           where id = $1`,
+          [membershipId],
+        );
+      }
+
+      if (role !== 'clubadmin' && access === 'paid') {
+        await client.query(
+          `insert into club_subscriptions (
+             membership_id,
+             payer_member_id,
+             status,
+             amount,
+             currency,
+             current_period_end
+           )
+           values ($1::short_id, $2::short_id, 'active', $3, $4, now() + interval '30 days')`,
+          [
+            membershipId,
+            memberId,
+            options.approvedPriceAmount ?? 29,
+            options.approvedPriceCurrency ?? 'USD',
+          ],
+        );
+      }
+
+      return { id: membershipId, clubId, memberId, role, status };
+    });
+  }
+
+  async seedCompedMembership(
+    clubId: string,
+    memberId: string,
+    options: Omit<SeedClubMembershipOptions, 'access'> = {},
+  ): Promise<SeededMembership> {
+    return this.seedClubMembership(clubId, memberId, {
+      ...options,
+      access: 'comped',
+    });
+  }
+
+  async seedPaidMembership(
+    clubId: string,
+    memberId: string,
+    options: Omit<SeedClubMembershipOptions, 'access'> = {},
+  ): Promise<SeededMembership> {
+    return this.seedClubMembership(clubId, memberId, {
+      ...options,
+      access: 'paid',
+    });
+  }
+
+  async seedPendingMembership(
+    clubId: string,
+    memberId: string,
+    options: SeedPendingMembershipOptions,
+  ): Promise<SeededMembership> {
+    if (options.submissionPath === 'cold' && options.proofKind !== 'pow') {
+      throw new Error('seedPendingMembership cold applications must use proofKind=pow');
+    }
+    if (options.submissionPath === 'cross_apply' && options.proofKind !== 'pow') {
+      throw new Error('seedPendingMembership cross-apply applications must use proofKind=pow');
+    }
+    if (options.submissionPath === 'owner_nominated' && options.proofKind !== 'none') {
+      throw new Error('seedPendingMembership owner-nominated applications must use proofKind=none');
+    }
+    if (options.submissionPath === 'invitation') {
+      if (!options.sponsorMemberId) {
+        throw new Error('seedPendingMembership requires sponsorMemberId for invitation-backed memberships');
+      }
+      if (!options.invitationId) {
+        throw new Error('seedPendingMembership requires invitationId for invitation-backed memberships');
+      }
+      if (options.proofKind !== 'invitation') {
+        throw new Error('seedPendingMembership invitation-backed memberships must use proofKind=invitation');
+      }
+    } else if (options.sponsorMemberId || options.invitationId) {
+      throw new Error(`seedPendingMembership forbids sponsorMemberId/invitationId for submissionPath=${options.submissionPath}`);
+    }
+
+    return this.withSuperTransaction(async (client) => {
+      const existing = await this.readExistingCurrentMembership(client, clubId, memberId);
+      if (existing) {
+        throw new Error(
+          `seedPendingMembership found existing current membership ${existing.id} in state ${existing.status}; delete or transition it before seeding a new pending membership`,
+        );
+      }
+
+      const appliedAt = options.appliedAt ?? new Date().toISOString();
+      const applicationSubmittedAt = options.applicationSubmittedAt
+        ?? (options.status === 'applying' ? null : appliedAt);
+
+      const insertedMembership = await client.query<{ id: string }>(
+        `insert into club_memberships (
+           club_id,
+           member_id,
+           sponsor_member_id,
+           role,
+           status,
+           application_name,
+           application_email,
+           application_socials,
+           application_text,
+           applied_at,
+           application_submitted_at,
+           submission_path,
+           proof_kind,
+           invitation_id,
+           generated_profile_draft,
+           metadata
+         )
+         values (
+           $1::short_id,
+           $2::short_id,
+           $3::short_id,
+           'member',
+           $4::membership_state,
+           $5,
+           $6,
+           $7,
+           $8,
+           $9::timestamptz,
+           $10::timestamptz,
+           $11,
+           $12,
+           $13::short_id,
+           $14::jsonb,
+           $15::jsonb
+         )
+         returning id`,
+        [
+          clubId,
+          memberId,
+          options.sponsorMemberId ?? null,
+          options.status,
+          options.applicationName,
+          options.applicationEmail,
+          options.applicationSocials ?? null,
+          options.applicationText ?? null,
+          appliedAt,
+          applicationSubmittedAt,
+          options.submissionPath,
+          options.proofKind,
+          options.invitationId ?? null,
+          JSON.stringify(options.generatedProfileDraft ?? null),
+          JSON.stringify(options.metadata ?? {}),
+        ],
+      );
+      const membershipId = insertedMembership.rows[0]?.id;
+      if (!membershipId) {
+        throw new Error('seedPendingMembership failed to create membership');
+      }
+
+      await this.insertMembershipStateVersion(client, membershipId, options.status, memberId, options.reason ?? 'seed pending membership');
+
+      return { id: membershipId, clubId, memberId, role: 'member', status: options.status };
+    });
+  }
+
+  async seedInvitation(
+    clubId: string,
+    sponsorMemberId: string,
+    candidateEmail: string,
+    options: {
+      candidateName?: string;
+      reason?: string;
+      expiresAt?: string;
+      expiredAt?: string | null;
+      usedAt?: string | null;
+      usedMembershipId?: string | null;
+      revokedAt?: string | null;
+      metadata?: Record<string, unknown>;
+    } = {},
+  ): Promise<SeededInvitation> {
+    const invitation = buildInvitationCode();
+    const candidateName = options.candidateName ?? 'Invited Candidate';
+    const reason = options.reason ?? 'Seed invitation';
+    const expiresAt = options.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const rows = await this.sql<{
+      id: string;
+      expires_at: string;
+      used_at: string | null;
+      used_membership_id: string | null;
+      revoked_at: string | null;
+    }>(
+      `insert into invitations (
+         id,
+         club_id,
+         sponsor_member_id,
+         candidate_name,
+         candidate_email,
+         reason,
+         code_hash,
+         expires_at,
+         expired_at,
+         used_at,
+         used_membership_id,
+         revoked_at,
+         metadata
+       )
+       values (
+         $1::short_id,
+         $2::short_id,
+         $3::short_id,
+         $4,
+         $5,
+         $6,
+         $7,
+         $8::timestamptz,
+         $9::timestamptz,
+         $10::timestamptz,
+         $11::short_id,
+         $12::timestamptz,
+         $13::jsonb
+       )
+       returning id, expires_at::text, used_at::text, used_membership_id, revoked_at::text`,
+      [
+        invitation.tokenId,
+        clubId,
+        sponsorMemberId,
+        candidateName,
+        candidateEmail,
+        reason,
+        invitation.tokenHash,
+        expiresAt,
+        options.expiredAt ?? null,
+        options.usedAt ?? null,
+        options.usedMembershipId ?? null,
+        options.revokedAt ?? null,
+        JSON.stringify(options.metadata ?? {}),
+      ],
+    );
+
+    const row = rows[0]!;
+    return {
+      id: row.id,
+      clubId,
+      sponsorMemberId,
+      candidateName,
+      candidateEmail,
+      invitationCode: invitation.invitationCode,
+      expiresAt: row.expires_at,
+      usedAt: row.used_at,
+      usedMembershipId: row.used_membership_id,
+      revokedAt: row.revoked_at,
+    };
   }
 
   async createToken(memberId: string, label = 'test'): Promise<string> {
@@ -483,19 +935,38 @@ export class TestHarness {
     return { ...member, club };
   }
 
-  // ── Convenience: seed a regular member with club access ──
+  // ── Convenience: seed named members in specific access states ──
 
-  async seedClubMember(
+  async seedCompedMember(
     clubId: string,
     publicName: string,
     handle: string,
-    options: { status?: string; sponsorId?: string } = {},
+    options: Omit<SeedClubMembershipOptions, 'role' | 'access'> = {},
   ): Promise<SeededMember & { membership: SeededMembership }> {
     const member = await this.seedMember(publicName, handle);
-    const membership = await this.seedMembership(clubId, member.id, {
-      status: options.status ?? 'active',
-      sponsorId: options.sponsorId,
-    });
+    const membership = await this.seedCompedMembership(clubId, member.id, options);
+    return { ...member, membership };
+  }
+
+  async seedPaidMember(
+    clubId: string,
+    publicName: string,
+    handle: string,
+    options: Omit<SeedClubMembershipOptions, 'role' | 'access'> = {},
+  ): Promise<SeededMember & { membership: SeededMembership }> {
+    const member = await this.seedMember(publicName, handle);
+    const membership = await this.seedPaidMembership(clubId, member.id, options);
+    return { ...member, membership };
+  }
+
+  async seedPendingMember(
+    clubId: string,
+    publicName: string,
+    handle: string,
+    options: SeedPendingMembershipOptions,
+  ): Promise<SeededMember & { membership: SeededMembership }> {
+    const member = await this.seedMember(publicName, handle);
+    const membership = await this.seedPendingMembership(clubId, member.id, options);
     return { ...member, membership };
   }
 
