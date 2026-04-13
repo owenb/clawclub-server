@@ -92,6 +92,13 @@ DROP FUNCTION IF EXISTS public.sync_club_membership_state();
 DROP TRIGGER IF EXISTS admission_versions_notify ON public.admission_versions;
 DROP FUNCTION IF EXISTS public.notify_admission_version();
 
+-- The deferred profile-version constraint trigger must be dropped before any
+-- INSERT INTO club_memberships below, otherwise those inserts would queue
+-- AFTER INSERT trigger events that forbid any later ALTER TABLE on the same
+-- relation (Postgres: "cannot ALTER TABLE because it has pending trigger events").
+-- It is recreated with the retargeted function at the end of this migration.
+DROP TRIGGER IF EXISTS club_memberships_require_profile_version_trigger ON public.club_memberships;
+
 ALTER TABLE public.club_memberships
     DROP CONSTRAINT club_memberships_club_member_unique,
     DROP CONSTRAINT club_memberships_sponsor_check;
@@ -744,6 +751,12 @@ BEGIN
     RETURN NULL;
 END;
 $$;
+
+CREATE CONSTRAINT TRIGGER club_memberships_require_profile_version_trigger
+    AFTER INSERT ON public.club_memberships
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW
+    EXECUTE FUNCTION public.club_memberships_require_profile_version();
 
 CREATE OR REPLACE FUNCTION public.lock_club_membership_mutation() RETURNS trigger
     LANGUAGE plpgsql
