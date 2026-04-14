@@ -109,7 +109,8 @@ describe('smoke', () => {
     assert.ok(messagesSendErrorCodes.has('invalid_mentions'), 'messages.send should document invalid_mentions');
 
     const clubsJoin = data.actions.find((a) => a.action === 'clubs.join');
-    assert.ok(clubsJoin?.notes?.some((note) => /safely retryable/i.test(note)), 'clubs.join should document retry semantics');
+    assert.ok(clubsJoin?.notes?.some((note) => /not idempotent/i.test(note)), 'clubs.join should document anonymous retry semantics');
+    assert.ok(clubsJoin?.notes?.some((note) => /save the returned memberToken immediately/i.test(note)), 'clubs.join should warn anonymous callers to persist memberToken');
     assert.ok(clubsJoin?.notes?.some((note) => /Present-but-invalid Authorization returns 401/i.test(note)), 'clubs.join should document optional-member auth semantics');
 
     const eventsList = data.actions.find((a) => a.action === 'events.list') as Record<string, unknown> | undefined;

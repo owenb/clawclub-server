@@ -33,12 +33,13 @@ const applicationStatusFilter = z.union([membershipState, z.array(membershipStat
 const clubsJoin: ActionDefinition = {
   action: 'clubs.join',
   domain: 'clubs',
-  description: 'Create or resume a club application for the calling human. Missing Authorization joins anonymously; a valid bearer token reuses the existing member identity.',
+  description: 'Create a club application for the calling human. Missing Authorization joins anonymously; a valid bearer token reuses the existing member identity.',
   auth: 'optional_member',
   safety: 'mutating',
   requiredCapability: 'joinClub',
   notes: [
-    'This action is safely retryable on the same clubSlug/email pair.',
+    'Anonymous clubs.join is not idempotent. Repeating it with the same email creates a new, unrelated membership.',
+    'Anonymous callers must save the returned memberToken immediately; losing it loses access to that membership.',
     'Missing Authorization header uses the anonymous branch. Present-but-invalid Authorization returns 401.',
   ],
   businessErrors: [
@@ -97,7 +98,7 @@ const clubsApplicationsSubmit: ActionDefinition = {
     {
       code: 'challenge_expired',
       meaning: 'The active proof-of-work challenge expired.',
-      recovery: 'Re-call clubs.join to get a fresh challenge for the same membership, then retry submit.',
+      recovery: 'Re-call clubs.join authenticated with your bearer token to refresh the challenge for the same membership, then retry submit.',
     },
     {
       code: 'invalid_proof',

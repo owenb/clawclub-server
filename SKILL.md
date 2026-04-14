@@ -56,7 +56,7 @@ If you have a bearer token, call `session.getContext` immediately after fetching
 
 ## How someone joins a club
 
-There is one join flow. The agent does not choose between separate cold, cross-club, or sponsored APIs. It always uses `clubs.join`; the server decides whether the caller is anonymous, authenticated, invitation-backed, or replaying an earlier attempt.
+There is one join flow. The agent does not choose between separate cold, cross-club, or sponsored APIs. It always uses `clubs.join`; the server decides whether the caller is anonymous, authenticated, or invitation-backed.
 
 If an existing member wants to bring someone in, they use `invitations.issue`. The candidate still joins through the same `clubs.join` flow with the invitation code.
 
@@ -82,6 +82,8 @@ The applicant must already know the club slug. There is no slug lookup.
 9. If submit returns `status: "submitted"`, poll `clubs.applications.get` or `clubs.applications.list` until the state changes.
 10. If the application moves to `payment_pending`, call `clubs.billing.startCheckout`, hand the checkout URL to the human, and keep polling until the membership becomes `active`.
 
+Anonymous `clubs.join` is not idempotent. Save `memberToken` immediately. Losing it means losing access to that membership; re-calling anonymously creates a new one.
+
 **Admin review**
 
 Club admins review applications through:
@@ -102,7 +104,7 @@ The application gate is a literal completeness check, not a fit or quality judgm
 
 When `proof.kind = "pow"`, the challenge expires one hour after `clubs.join` created or refreshed it.
 
-Track `proof.expiresAt` internally. Surface remaining time to the user only when it matters: long PoW solves, retries after `needs_revision`, or interactive back-and-forth that is consuming the budget. If the remaining time is too tight to retry safely, re-call `clubs.join` for the same `(clubSlug, email)` pair to resume the same membership and get a fresh challenge.
+Track `proof.expiresAt` internally. Surface remaining time to the user only when it matters: long PoW solves, retries after `needs_revision`, or interactive back-and-forth that is consuming the budget. If the remaining time is too tight to retry safely, re-call `clubs.join` authenticated with your bearer token (no email needed — the server reads your stored email). The authenticated path automatically refreshes an expired or exhausted PoW challenge for the same membership.
 
 **Retry on `needs_revision`**
 
@@ -121,8 +123,8 @@ If submit returns `needs_revision`, the response includes `feedback` and `attemp
 | Result / error | What to do |
 | --- | --- |
 | `needs_revision` | Patch only the gaps from `feedback`, keep the same `membershipId`, and retry |
-| `challenge_expired` (410) | Re-call `clubs.join` for the same club/email pair to get a fresh challenge, then retry |
-| `attempts_exhausted` | Re-call `clubs.join` for the same club/email pair to get a fresh challenge, then retry |
+| `challenge_expired` (410) | Re-call `clubs.join` authenticated with your bearer token to refresh the challenge for the same membership, then retry |
+| `attempts_exhausted` | Re-call `clubs.join` authenticated with your bearer token to refresh the challenge for the same membership, then retry |
 | `invalid_proof` (400) | Re-solve the PoW with a fresh nonce; do not change the application unless feedback also told you to |
 | `gate_unavailable` (503) | Infrastructure problem, not a content problem. Retry the same submit a few times with the same membership and the same nonce. If the outage persists, surface it to the user and pause. |
 | `invalid_invitation_code` (400) | Ask for a new invitation code or omit it and proceed through PoW |

@@ -65,7 +65,7 @@ describe('clubadmin.memberships.create payment_pending stays non-accessible', ()
 });
 
 describe('clubs.join creates applying memberships without access', () => {
-  it('anonymous join returns a retryable applying membership and PoW challenge', async () => {
+  it('anonymous join returns an applying membership and PoW challenge', async () => {
     const owner = await h.seedOwner('join-applying-club', 'Join Applying Club');
 
     const joinBody = await h.apiOk(null, 'clubs.join', {
@@ -90,7 +90,7 @@ describe('clubs.join creates applying memberships without access', () => {
       email: 'joiner@example.com',
     });
 
-    assert.equal((retryBody.data as Record<string, unknown>).membershipId, membershipId);
+    assert.notEqual((retryBody.data as Record<string, unknown>).membershipId, membershipId);
   });
 });
 

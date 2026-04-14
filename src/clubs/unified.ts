@@ -125,22 +125,6 @@ export function validateApplicationPow(challengeId: string, nonce: string, diffi
   return hash.endsWith('0'.repeat(difficulty));
 }
 
-function isAccessibleState(status: MembershipState): boolean {
-  return status === 'active' || status === 'renewal_pending' || status === 'cancelled';
-}
-
-function isAnonymousReplayState(status: MembershipState): boolean {
-  return status === 'applying'
-    || status === 'submitted'
-    || status === 'interview_scheduled'
-    || status === 'interview_completed'
-    || status === 'payment_pending';
-}
-
-function isNonTerminalStatus(status: MembershipState): boolean {
-  return !['declined', 'withdrawn', 'expired', 'removed', 'banned'].includes(status);
-}
-
 function decideApplicationTimestamp(status: MembershipState, stateCreatedAt: string): string | null {
   return ['applying', 'submitted', 'interview_scheduled', 'interview_completed'].includes(status)
     ? null
@@ -463,26 +447,6 @@ async function validateInvitationForJoin(client: DbClient, input: {
   return invitation;
 }
 
-async function findReplayMembershipByEmail(client: DbClient, clubId: string, normalizedEmail: string): Promise<{ membership_id: string; member_id: string; status: MembershipState; proof_kind: 'pow' | 'invitation' | 'none' | null; invitation_id: string | null } | null> {
-  const result = await client.query<{
-    membership_id: string;
-    member_id: string;
-    status: MembershipState;
-    proof_kind: 'pow' | 'invitation' | 'none' | null;
-    invitation_id: string | null;
-  }>(
-    `select id as membership_id, member_id, status, proof_kind, invitation_id
-     from current_club_memberships
-     where club_id = $1
-       and application_email_normalized = $2
-       and status in ('applying', 'submitted', 'interview_scheduled', 'interview_completed', 'payment_pending')
-     order by applied_at desc nulls last, id desc
-     limit 1`,
-    [clubId, normalizedEmail],
-  );
-  return result.rows[0] ?? null;
-}
-
 async function assertPendingApplicationCap(client: DbClient, memberId: string): Promise<void> {
   const result = await client.query<{ count: string }>(
     `select count(*)::text as count
@@ -570,10 +534,25 @@ async function readCurrentOpenMembershipByMember(client: DbClient, clubId: strin
   return result.rows[0] ?? null;
 }
 
-async function summarizeProofForMembership(client: DbClient, membershipId: string, proofKind: 'pow' | 'invitation' | 'none' | null, crossApply: boolean): Promise<JoinClubResult['proof']> {
+async function hasActiveMembershipForPowDiscount(client: DbClient, memberId: string): Promise<boolean> {
+  const result = await client.query<{ ok: boolean }>(
+    `select exists(
+       select 1
+       from current_club_memberships
+       where member_id = $1
+         and status = 'active'
+         and left_at is null
+     ) as ok`,
+    [memberId],
+  );
+  return result.rows[0]?.ok === true;
+}
+
+async function summarizeProofForMembership(client: DbClient, membershipId: string, proofKind: 'pow' | 'invitation' | 'none' | null, memberId: string): Promise<JoinClubResult['proof']> {
   if (proofKind === 'invitation' || proofKind === 'none') {
     return { kind: 'none' };
   }
+  const crossApply = await hasActiveMembershipForPowDiscount(client, memberId);
   return ensurePowChallenge(client, membershipId, crossApply ? getCrossApplicationDifficulty() : getColdApplicationDifficulty());
 }
 
@@ -620,7 +599,7 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
           memberToken: null,
           clubId: club.club_id,
           membershipId: existing.membership_id,
-          proof: await summarizeProofForMembership(client, existing.membership_id, existing.proof_kind, true),
+          proof: await summarizeProofForMembership(client, existing.membership_id, existing.proof_kind, input.actorMemberId),
           club: {
             name: club.name,
             summary: club.summary,
@@ -669,7 +648,7 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
         membershipId,
         proof: invitation
           ? { kind: 'none' }
-          : await summarizeProofForMembership(client, membershipId, 'pow', true),
+          : await summarizeProofForMembership(client, membershipId, 'pow', input.actorMemberId),
         club: {
           name: club.name,
           summary: club.summary,
@@ -701,37 +680,6 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
     }
 
     await client.query(`select pg_advisory_xact_lock(hashtext('application_join:' || $1 || ':' || $2))`, [club.club_id, normalizedEmail]);
-
-    const replay = await findReplayMembershipByEmail(client, club.club_id, normalizedEmail);
-    if (replay) {
-      if (input.invitationCode) {
-        await validateInvitationForJoin(client, {
-          invitationCode: input.invitationCode,
-          clubId: club.club_id,
-          normalizedEmail,
-          replayMembershipId: replay.membership_id,
-        });
-      }
-      const memberToken = await issueBearerToken(client, replay.member_id, 'clubs.join replay', {
-        flow: 'application_replay',
-        membershipId: replay.membership_id,
-      });
-      return {
-        memberToken,
-        clubId: club.club_id,
-        membershipId: replay.membership_id,
-        proof: await summarizeProofForMembership(client, replay.membership_id, replay.proof_kind, false),
-        club: {
-          name: club.name,
-          summary: club.summary,
-          ownerName: club.owner_name,
-          admissionPolicy: club.admission_policy,
-          priceUsd: club.membership_price_currency === 'USD' && club.membership_price_amount !== null
-            ? Number(club.membership_price_amount)
-            : null,
-        },
-      };
-    }
 
     if (input.invitationCode) {
       invitation = await validateInvitationForJoin(client, {
@@ -775,7 +723,7 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
       membershipId,
       proof: invitation
         ? { kind: 'none' }
-        : await summarizeProofForMembership(client, membershipId, 'pow', false),
+        : await summarizeProofForMembership(client, membershipId, 'pow', memberId),
       club: {
         name: club.name,
         summary: club.summary,
@@ -892,7 +840,7 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
       await client.query(`update application_pow_challenges set solved_at = now() where id = $1`, [challengeRow.challenge_id]);
       return {
         status: 'attempts_exhausted',
-        message: 'You have used all attempts. Re-call clubs.join to request a new challenge.',
+        message: 'You have used all attempts. Re-call clubs.join authenticated with your bearer token to request a new challenge.',
       };
     }
     return {
@@ -1013,7 +961,7 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
         await client.query(`update application_pow_challenges set solved_at = now() where id = $1`, [challengeRow.challenge_id]);
         return {
           status: 'attempts_exhausted',
-          message: 'You have used all attempts. Re-call clubs.join to request a new challenge.',
+          message: 'You have used all attempts. Re-call clubs.join authenticated with your bearer token to request a new challenge.',
         } satisfies SubmitClubApplicationResult;
       }
 
@@ -1026,11 +974,13 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
           [challengeRow.challenge_id, nextAttemptNo],
         );
       } else {
+        const exhausted = nextAttemptNo >= MAX_APPLICATION_ATTEMPTS;
         await client.query(
           `update application_pow_challenges
-           set attempts = $2
+           set attempts = $2,
+               solved_at = case when $3::boolean then now() else solved_at end
            where id = $1`,
-          [challengeRow.challenge_id, nextAttemptNo],
+          [challengeRow.challenge_id, nextAttemptNo, exhausted],
         );
       }
     }
@@ -1039,7 +989,7 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
       if (membershipRow.proof_kind === 'pow' && nextAttemptNo >= MAX_APPLICATION_ATTEMPTS) {
         return {
           status: 'attempts_exhausted',
-          message: 'You have used all attempts. Re-call clubs.join to request a new challenge.',
+          message: 'You have used all attempts. Re-call clubs.join authenticated with your bearer token to request a new challenge.',
         };
       }
       return {

@@ -25,7 +25,7 @@ describe('anonymous clubs.join', () => {
     assert.equal(err.code, 'email_required_for_first_join');
   });
 
-  it('is replayable by clubSlug + email and mints a fresh token on retry', async () => {
+  it('creates a fresh anonymous membership on each retry for the same clubSlug + email pair', async () => {
     const owner = await h.seedOwner('join-replay-club', 'Join Replay Club');
 
     const first = await h.apiOk(null, 'clubs.join', {
@@ -40,10 +40,15 @@ describe('anonymous clubs.join', () => {
     const firstData = first.data as Record<string, unknown>;
     const secondData = second.data as Record<string, unknown>;
     assert.equal(firstData.clubId, owner.club.id);
-    assert.equal(firstData.membershipId, secondData.membershipId);
     assert.equal((firstData.proof as Record<string, unknown>).kind, 'pow');
     assert.equal((secondData.proof as Record<string, unknown>).kind, 'pow');
+    assert.notEqual(firstData.membershipId, secondData.membershipId);
     assert.notEqual(firstData.memberToken, secondData.memberToken);
+
+    const firstApplication = await h.apiOk(firstData.memberToken as string, 'clubs.applications.get', {
+      membershipId: firstData.membershipId as string,
+    });
+    assert.equal((firstApplication.data as Record<string, any>).application.state, 'applying');
   });
 });
 
@@ -81,7 +86,7 @@ describe('invitation lifecycle', () => {
     assert.ok(revokedInvitations.some((item) => item.invitationId === invitation.invitationId));
   });
 
-  it('anonymous invitation redemption skips PoW and replays against the used invitation', async () => {
+  it('anonymous invitation redemption skips PoW once and rejects retries with the used invitation', async () => {
     const owner = await h.seedOwner('invite-redeem-club', 'Invite Redeem Club');
 
     const issued = await h.apiOk(owner.token, 'invitations.issue', {
@@ -98,18 +103,15 @@ describe('invitation lifecycle', () => {
       email: 'invited@example.com',
       invitationCode,
     });
-    const secondJoin = await h.apiOk(null, 'clubs.join', {
+    const secondJoin = await h.apiErr(null, 'clubs.join', {
       clubSlug: owner.club.slug,
       email: 'invited@example.com',
       invitationCode,
-    });
+    }, 'invalid_invitation_code');
 
     const firstData = firstJoin.data as Record<string, unknown>;
-    const secondData = secondJoin.data as Record<string, unknown>;
     assert.equal((firstData.proof as Record<string, unknown>).kind, 'none');
-    assert.equal((secondData.proof as Record<string, unknown>).kind, 'none');
-    assert.equal(firstData.membershipId, secondData.membershipId);
-    assert.notEqual(firstData.memberToken, secondData.memberToken);
+    assert.equal(secondJoin.status, 400);
 
     const application = await h.apiOk(firstData.memberToken as string, 'clubs.applications.get', {
       membershipId: firstData.membershipId as string,
