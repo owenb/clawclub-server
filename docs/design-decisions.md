@@ -35,7 +35,6 @@ Approved action namespaces (canonical list in `src/schemas/*.ts`, exposed via `G
 - `notifications.*`
 - `clubs.*`
 - `invitations.*`
-- `memberships.*`
 - `vouches.*`
 - `accessTokens.*`
 - `quotas.*`
@@ -136,7 +135,7 @@ Examples:
 - vouching is peer-to-peer endorsement between existing members in the same club, created via `vouches.create` and stored as `vouched_for` edges in `club_edges`
 - one active vouch per (actor, target) pair per club, enforced by partial unique index
 - self-vouching prevented by DB CHECK constraint
-- vouches surface in `vouches.list` (any member) and `memberships.review` (owners)
+- vouches surface in `vouches.list` (any member) and `clubadmin.memberships.listForReview` (clubadmins)
 - membership applications are states on `club_memberships`, not a separate admissions entity
 - there is one public join action: `clubs.join`
   - anonymous callers provide `clubSlug` + `email`
@@ -144,8 +143,12 @@ Examples:
   - invitation-backed callers provide `invitationCode` and skip PoW
 - `clubs.join` may return a PoW challenge or `proof.kind = "none"`; the submit step is always `clubs.applications.submit`
 - invitations are the sponsor primitive
-  - an existing member issues an invitation with `invitations.issue`
-  - the candidate still joins through `clubs.join`
+  - an existing member issues an invitation with `invitations.issue`; the plaintext code is returned exactly once
+  - the candidate still joins through `clubs.join` by presenting the code
+  - invitation-backed joins skip PoW (`proof.kind = "none"`) but still run the application-completeness gate on `clubs.applications.submit`
+  - the sponsor-candidate link is persisted immutably on the resulting `club_memberships` row (`sponsor_member_id` + `invitation_id`) as an FK-enforced chain; who is responsible for whom is queryable and cannot be rewritten after insert
+  - the open-invitation cap per sponsor per club is deliberately tight (quality over volume) and is a tuning constant, not a long-term commitment to any specific number
+  - if a sponsor's membership transitions to removed/banned/expired, their still-open invitations auto-revoke via the same membership-state transition helper
 - acceptance is a membership-state transition via `clubadmin.memberships.setStatus`
 - payment-required clubs transition accepted applicants to `payment_pending`; access begins only when billing moves the membership to `active`
 - DMs require at least one shared club

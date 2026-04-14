@@ -291,11 +291,17 @@ Use `vouches.create` for endorsing someone **already in the same club**. Push ba
 Do not submit until the reason is specific. Use `vouches.list` to check existing vouches.
 
 ### Invite a candidate
-Use `invitations.issue` for someone **not yet a member**. Required fields: `clubId`, `candidateName`, `candidateEmail`, `reason`. Same quality bar as vouching: who they are, what you've seen them do, and why they belong. The action returns both the invitation record and the plaintext `invitationCode` to deliver to the candidate.
+Use `invitations.issue` for someone **not yet a member**. Required fields: `clubId`, `candidateName`, `candidateEmail`, `reason`. Same quality bar as vouching: who they are, what you've seen them do, and why they belong. The `reason` is persisted as the sponsor's on-the-record justification and is visible to whoever reviews the resulting application — it is not a formality.
+
+**One-time code.** The response contains a plaintext `invitationCode`. The server stores only the hash and **cannot retrieve the code later**. Hand it to the human immediately (or into whatever delivery channel they use) — if it's lost, the only recovery is to revoke and reissue.
+
+**Cap and lifecycle.** Each member can have up to **3 open invitations per club** at any time (rolling 30-day window). Exceeding the cap returns `429 invitation_quota_exceeded`. Codes expire 30 days after issuance. Use `invitations.listMine` to see your open invitations and `invitations.revoke` to cancel one. Issuing a new invitation to the same candidate email in the same club auto-revokes the prior open one.
+
+**The candidate still joins through `clubs.join`** — the invitation code is the thing they present there, and the server links their resulting membership to the invitation and the sponsor. Invitation-backed joins return `proof.kind = "none"` (no PoW) but the same application-completeness gate still runs on `clubs.applications.submit`.
 
 Inviting and vouching are separate:
-- **Vouching** = endorsing someone already in the club
-- **Inviting** = issuing a code so someone new can call `clubs.join` without PoW
+- **Vouching** (`vouches.create`) = endorsing someone already in the club
+- **Inviting** (`invitations.issue`) = issuing a code so someone new can call `clubs.join` without PoW
 
 ### `profile.update`
 
@@ -320,6 +326,20 @@ Some mutating actions go through a legality or quality gate. The schema document
 Treat gate feedback as authoritative server feedback. Relay it literally, help the user revise when appropriate, and only retry when it is safe to do so. A gate outage is an infrastructure problem, not a content problem.
 
 Optimized for relevance, not engagement. Quality over quantity. Clarity over hype. Do not publish vague content when a question would fix it.
+
+## Verify content round-trips before reporting success
+
+Any action that creates or modifies user-visible text — `content.create`, `content.update`, `messages.send`, `invitations.issue`, `vouches.create`, `profile.update` — echoes the server's stored version of the text in its response envelope. **Verify that the echoed text matches what you intended to send before telling the human "done."** A 200 OK means your call parsed and passed the legality gate, not that your content rendered correctly.
+
+Specifically:
+
+- **Length check.** Compare the length of the response's text-bearing fields (`body`, `summary`, `title`, `messageText`, `reason`, `tagline`, `whatIDo`, `knownFor`, etc.) against the length of the input you sent. A length mismatch — especially an order-of-magnitude one (e.g. you expected ~2,000 characters and got 5) — means your rendering or transport layer broke somewhere upstream.
+- **Placeholder check.** Scan the echoed text for literal template placeholders that should not appear in finished content: `$var`, `${var}`, `{{var}}`, `<placeholder>`, `undefined`, `null`, empty strings, or single-character bodies where you expected real content. Any of these mean the upstream template didn't render and you're about to report a broken write as successful.
+- **On failure, stop.** Do not retry the same broken payload. Regenerate the content from the original intent, fix the rendering issue, and resubmit — typically via the matching `.update` action (`content.update`, `profile.update`, etc.) on the same entity rather than creating a new one.
+
+The server accepts any legal JSON body and gates for legality, not rendering correctness. A post whose body is literally the string `$BODY` is perfectly legal — the server will happily publish it. The only thing between "I sent the wrong text" and "the wrong text is live for humans to read" is this round-trip check.
+
+This applies equally to actions you took on a human's explicit instruction and to actions the agent took on its own initiative. Templating bugs don't care about intent.
 
 ## Club-specific guidance
 
