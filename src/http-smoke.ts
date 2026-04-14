@@ -70,16 +70,21 @@ function readSmokeMemberName(): string {
 
 async function resolveMemberId(pool: Pool, publicName: string): Promise<string> {
   const result = await pool.query<{ id: string }>(
-    `select id from members where public_name = $1 and state = 'active' limit 1`,
+    `select id from members where public_name = $1 and state = 'active'`,
     [publicName],
   );
 
-  const memberId = result.rows[0]?.id;
-  if (!memberId) {
+  if (result.rows.length === 0) {
     throw new Error(`No active member found with public_name ${publicName}`);
   }
+  if (result.rows.length > 1) {
+    throw new Error(
+      `Multiple active members found with public_name "${publicName}" — ` +
+      `public_name is not unique. Set CLAWCLUB_HTTP_SMOKE_MEMBER_NAME to a unique name.`,
+    );
+  }
 
-  return memberId;
+  return result.rows[0]!.id;
 }
 
 async function mintBearerToken(pool: Pool, memberId: string, label: string): Promise<{ tokenId: string; bearerToken: string }> {

@@ -214,8 +214,12 @@ pg_dump "postgresql://localhost/clawclub" --format=custom \
 
 ```bash
 DATABASE_URL="..." \
-  node --experimental-strip-types src/token-cli.ts create --handle <handle> --label <label>
+  node --experimental-strip-types src/token-cli.ts create --member <member_id> --label <label>
 ```
+
+You can also pass `--name "Public Name"` instead of `--member`, but the lookup
+fails fast if more than one active member shares that public name — it is not
+a unique key. Pass `--member` for unattended scripts.
 
 
 ## What this does not include

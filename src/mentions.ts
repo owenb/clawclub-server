@@ -59,10 +59,11 @@ const MAX_UNIQUE_MENTIONED_MEMBERS = 25;
 const MAX_MENTION_SPANS = 100;
 
 // `[Display Name|memberId]` where memberId is a 12-char short_id from the
-// Crockford alphabet (no 0, 1, i, l, o). Labels disallow `[`, `]`, and `|`.
-// We require a non-empty label with no outer whitespace — `[ Alice |id]` is
-// rejected so the persisted `authored_label` always matches the span text.
-const MENTION_RE = /\[([^\[\]|]+)\|([23456789abcdefghjkmnpqrstuvwxyz]{12})\]/g;
+// Crockford alphabet (no 0, 1, i, l, o). Labels disallow `[`, `]`, `|`, and
+// CR/LF — a mention span must live on a single line so its offsets stay
+// meaningful. We also require a non-empty label with no outer whitespace,
+// so the persisted `authored_label` always matches the span text exactly.
+const MENTION_RE = /\[([^\[\]|\r\n]+)\|([23456789abcdefghjkmnpqrstuvwxyz]{12})\]/g;
 
 export function emptyIncludedBundle(): IncludedBundle {
   return { membersById: {} };
@@ -160,7 +161,7 @@ function assertMentionLimits(
 function buildUnknownMentionsError(unknownIds: string[]): AppError {
   return new AppError(
     400,
-    'invalid_input',
+    'invalid_mentions',
     `Unknown member ids in mentions: ${unknownIds.join(', ')}`,
   );
 }

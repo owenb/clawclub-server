@@ -101,17 +101,23 @@ async function resolveMemberId(pool: Pool, flags: Flags): Promise<string> {
   }
 
   const result = await pool.query<{ id: string }>(
-    `select id from members where public_name = $1 and state = 'active' limit 1`,
+    `select id from members where public_name = $1 and state = 'active'`,
     [flags.name],
   );
 
-  const memberId = result.rows[0]?.id;
-  if (!memberId) {
+  if (result.rows.length === 0) {
     console.error(`No active member found with public_name: ${flags.name}`);
     process.exit(1);
   }
+  if (result.rows.length > 1) {
+    console.error(
+      `Multiple active members found with public_name "${flags.name}". ` +
+      `public_name is not unique — pass --member <id> instead.`,
+    );
+    process.exit(1);
+  }
 
-  return memberId;
+  return result.rows[0]!.id;
 }
 
 function parseDurationMs(duration: string): number {

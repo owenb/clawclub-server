@@ -68,7 +68,7 @@ describe('message mentions', () => {
       messageText: `Trying to ping ${mentionSpan('Ghost', bogusId)} before activation.`,
     });
     assert.equal(err.status, 400);
-    assert.equal(err.code, 'invalid_input');
+    assert.equal(err.code, 'invalid_mentions');
     assert.match(err.message, new RegExp(bogusId));
   });
 

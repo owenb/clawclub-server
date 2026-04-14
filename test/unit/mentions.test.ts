@@ -52,6 +52,20 @@ test('extractMentionCandidates rejects ids with wrong format', () => {
   assert.equal(mentions[0]!.memberId, BOB_ID);
 });
 
+test('extractMentionCandidates rejects labels containing newlines', () => {
+  // Mention labels must stay on a single line so offsets remain meaningful.
+  const lf = `Hello [Alice\nSmith|${ALICE_ID}] and [Bob|${BOB_ID}]`;
+  const cr = `Hello [Alice\rSmith|${ALICE_ID}] and [Bob|${BOB_ID}]`;
+  const crlf = `Hello [Alice\r\nSmith|${ALICE_ID}] and [Bob|${BOB_ID}]`;
+
+  for (const text of [lf, cr, crlf]) {
+    const mentions = extractMentionCandidates(text);
+    // Only Bob — Alice's label spans a line break.
+    assert.equal(mentions.length, 1, `multiline label rejected: ${JSON.stringify(text)}`);
+    assert.equal(mentions[0]!.memberId, BOB_ID);
+  }
+});
+
 test('extractContentMentionCandidates extracts per field independently', () => {
   const extracted = extractContentMentionCandidates({
     title: `Thanks [Alice|${ALICE_ID}]`,
