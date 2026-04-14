@@ -23,6 +23,58 @@ This ordering ensures the migration is tested against a production-like database
 
 `db/init.sql` must always reflect the target schema. It is the source of truth for fresh installs, test harnesses, and self-hosted deployments.
 
+### Migration tests MUST use representative pre-migration data
+
+**An empty-DB migration test is not a migration test.** It only exercises schema changes. Any migration with `UPDATE`, `INSERT`, or conditional rewrite logic MUST be tested against synthetic pre-migration data that covers every shape the rewrite touches. `reset-dev.sh` rebuilds from the target `init.sql` after step 4 above, which means it runs the migration against an empty DB and exercises none of the data-rewrite code paths.
+
+This has bitten us. The unified-join migration (`008_unified_club_join.sql`) silently passed its empty-DB test and was declared "ship-ready" — then hand-crafted pre-migration data found two blockers that would have failed the maintenance-window deploy. See the pitfalls below.
+
+To test a data-rewrite migration properly:
+
+1. `git show <pre-migration-commit>:db/init.sql > /tmp/init_pre.sql` — get the pre-migration schema
+2. Create a fresh scratch DB, provision the app role, apply `/tmp/init_pre.sql`
+3. Record the intermediate migrations as already applied in `public.schema_migrations` (their effects are in the pre-migration `init.sql`, so `migrate.sh` should skip them)
+4. INSERT synthetic rows covering every shape the rewrite handles: legacy enum values, orphaned rows, sponsored-vs-cold variants, edge-case JSON, etc.
+5. Run `scripts/migrate.sh` against the scratch DB — this is the real deploy path
+6. Query the result and verify each rewrite matches what the migration claims to produce
+
+### Migration pitfalls that only surface with real data
+
+These have all bitten us. They all pass empty-DB tests and fail in production:
+
+**Pending constraint trigger events block `ALTER TABLE`.** Postgres forbids `ALTER TABLE` on a relation that has pending `DEFERRABLE INITIALLY DEFERRED` constraint trigger events. If your migration does `INSERT INTO X` followed later by `ALTER TABLE X`, and X has a deferred constraint trigger (e.g. the `CREATE CONSTRAINT TRIGGER ... AFTER INSERT ... DEFERRABLE INITIALLY DEFERRED` pattern), the `ALTER TABLE` fails mid-migration with `cannot ALTER TABLE "X" because it has pending trigger events`. It does not matter whether the triggers would succeed at commit time — the rule is structural. Fix: drop the deferred trigger near the top of the migration (next to the other `DROP TRIGGER` statements), and recreate it after the last `ALTER TABLE` once the new function definition is in place.
+
+**`FOR EACH ROW` triggers don't fire on empty tables.** A `BEFORE DELETE OR UPDATE ... FOR EACH ROW EXECUTE FUNCTION` trigger only runs on actual rows. If your migration's `UPDATE` matches zero rows, the trigger silently does nothing and the migration appears to pass. In production with real rows, the trigger fires on each matching row and can reject the update outright (e.g. `reject_row_mutation()` on `member_club_profile_versions`). Fix: drop the trigger before the `UPDATE`, recreate it immediately after. Treat this as a one-time controlled exception, not a relaxation of the invariant.
+
+**`CHECK` constraint ordering in enum renames.** If you are rewriting an existing column value to a new enum member (e.g. `admission_generated` → `application_generated`), drop the old `CHECK` constraint **before** the `UPDATE`. Otherwise the `UPDATE` tries to write a value not in the old allowed list and violates the constraint before you get to replace it. Correct order: `DROP CONSTRAINT` → `DROP TRIGGER` (if immutability blocks the update) → `UPDATE` → `CREATE TRIGGER` (restore) → `ADD CONSTRAINT` (new list).
+
+### Pre-cutover prod queries
+
+Before pushing a data-rewrite migration to production, query the prod DB for the shapes the migration assumes. Do this even if the migration tests green against synthetic data — prod might have a shape your synthetic test missed. These three queries are the template for the unified-join migration; adapt them per migration:
+
+```sql
+-- 1. Any legacy enum values still live that the migration will rewrite?
+SELECT status, count(*) FROM <table> GROUP BY status ORDER BY 2 DESC;
+
+-- 2. Any rows the migration will materialize (orphaned, unlinked, etc.)?
+SELECT <classifier>, count(*) FROM <source> a
+LEFT JOIN <target> t ON t.fk = a.id
+WHERE t.id IS NULL
+GROUP BY <classifier>;
+
+-- 3. Any rows with unexpected JSON shapes or column values?
+SELECT count(*) FROM <table>
+WHERE jsonb_typeof(<json_col> -> '<field>') NOT IN ('<expected>', 'null');
+```
+
+If prod has a shape your synthetic test did not cover, add that shape to the test and re-verify before deploying. Running these three queries takes thirty seconds and prevents broken migrations from reaching production — which is the worst possible place to discover an edge case.
+
+### Never edit a shipped migration
+
+Once a migration file has been deployed to production, it is immutable. If you need to change its effects, write a new migration that corrects the state. Editing shipped migrations creates silent drift between what ran in prod and what the repo claims ran, and it breaks anyone who reset their dev DB and expected the old behavior.
+
+Migrations that are still local (in your working tree or on a branch that has not been merged or deployed) are fair game to edit — that is exactly the case where the synthetic-data test catches bugs before they ship.
+
 ## Local development
 
 - **TypeScript check:** `npx tsc --noEmit`
