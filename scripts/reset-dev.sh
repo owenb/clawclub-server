@@ -31,26 +31,26 @@ psql -h localhost -d "$DB_NAME" -v ON_ERROR_STOP=1 \
 
 echo "=== Creating tokens ==="
 ACTIVE_MEMBERS=(
-  owen-barnes
-  alice-hound
-  bob-whiskers
-  charlie-paws
-  diana-feathers
-  eddie-scales
-  fiona-hooves
-  george-wings
-  hannah-fins
-  ivan-tusks
-  julia-stripes
-  kevin-spots
+  "Owen Barnes"
+  "Alice Hound"
+  "Bob Whiskers"
+  "Charlie Paws"
+  "Diana Feathers"
+  "Eddie Scales"
+  "Fiona Hooves"
+  "George Wings"
+  "Hannah Fins"
+  "Ivan Tusks"
+  "Julia Stripes"
+  "Kevin Spots"
 )
 
-for handle in "${ACTIVE_MEMBERS[@]}"; do
+for name in "${ACTIVE_MEMBERS[@]}"; do
   tok=$(DATABASE_URL="postgresql://localhost/$DB_NAME" \
     node --experimental-strip-types "$ROOT_DIR/src/token-cli.ts" create \
-    --handle "$handle" --label localdev 2>&1 \
+    --name "$name" --label localdev 2>&1 \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['bearerToken'])")
-  echo "$handle: $tok"
+  echo "$name: $tok"
 done
 
 echo ""

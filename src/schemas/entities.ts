@@ -41,7 +41,7 @@ const CONTENT_CREATE_ERRORS = [
   },
   {
     code: 'invalid_mentions',
-    meaning: 'One or more @handle mentions could not be resolved in the target club.',
+    meaning: 'One or more [Name|memberId] mentions referenced unknown member ids.',
     recovery: 'Correct or remove the listed mentions, then resubmit the content.',
   },
   {
@@ -64,7 +64,7 @@ const CONTENT_CREATE_ERRORS = [
 const CONTENT_UPDATE_ERRORS = [
   {
     code: 'invalid_mentions',
-    meaning: 'One or more @handle mentions could not be resolved in the target club.',
+    meaning: 'One or more [Name|memberId] mentions referenced unknown member ids.',
     recovery: 'Correct or remove the listed mentions, then resubmit the update.',
   },
   {

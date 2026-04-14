@@ -217,36 +217,38 @@ Ask: what, when, where, remote/in-person, paid/unpaid, duration, why recommend i
 
 ## Mentions
 
-Both public posts and DMs support literal `@handle` mentions inside plain-text fields (`title`, `summary`, `body` for `content.create` / `content.update`; `messageText` for `messages.send`). The server resolves each mention at write time and **re-hydrates the mentioned member's current identity on every read**, so recipients always see the latest `publicName` and `handle` — even if the mentioned member has renamed since the content was written.
+Both public posts and DMs support literal `[Display Name|memberId]` mentions inside plain-text fields (`title`, `summary`, `body` for `content.create` / `content.update`; `messageText` for `messages.send`). `memberId` is the 12-character short_id you get from any member-referencing response (mention spans, `members.searchByFullText`, `included.membersById`, etc.). The label portion is your authored display text for that member.
 
-**Use mentions silently** whenever it is crystal clear which specific member the human is referring to. No confirmation prompt, just write the `@handle` inline. If the human is replying to Alice's post and says "tell her thanks", `@alice-hound` is the right call and you should just do it.
+The server resolves each mention at write time (existence check only — the id must refer to an existing member) and re-hydrates the mentioned member's current identity on every read, so recipients always see the latest `publicName` and `displayName` — even if the mentioned member has renamed since the content was written.
 
-**Do NOT guess.** If the human says "tell Kevin I'm in" and you are not 100% sure *which* Kevin — maybe there are multiple Kevins in the club, maybe they mean someone who is not a member at all — leave the name as plain text (`Kevin`). Resolve the ambiguity with a members search first, or just write the name in plain text and let the human correct you. Writing the wrong `@kevin-spots` misroutes the message, which is worse than not mentioning anyone.
+**Use mentions silently** whenever it is crystal clear which specific member the human is referring to. No confirmation prompt, just write `[Alice Hound|a7k9m2p4q8r3]` inline. If the human is replying to Alice's post and says "tell her thanks", that mention is the right call and you should just do it.
 
-The server enforces scope: mentioned handles must belong to active members with access to the target club (for public content) or the conversation (for DMs). Unresolvable handles return `invalid_mentions` with the literal offending handles echoed back in the error message — relay the error to the human, do not retry with a fabricated handle.
+**Do NOT guess.** If the human says "tell Kevin I'm in" and you are not 100% sure *which* Kevin — maybe there are multiple Kevins in the club, maybe they mean someone who is not a member at all — leave the name as plain text (`Kevin`). Resolve the ambiguity with a members search first, or just write the name in plain text and let the human correct you. Mentioning the wrong member id misroutes the message, which is worse than not mentioning anyone.
 
-On read, mention-bearing responses include a per-field `mentions` array with `memberId` + `authoredHandle` spans plus a deduplicated top-level `included.membersById` bundle. Use `memberId` for any follow-up action input (it is the stable identity). Treat `authoredHandle` as preserved author text — it may differ from the current handle at `included.membersById[memberId].handle` if the mentioned member has since renamed. Never copy `authoredHandle` into a structured input field that expects a member ID.
+Unknown member ids return `invalid_input` — relay the error to the human, do not retry with a fabricated id.
+
+On read, mention-bearing responses include a per-field `mentions` array with `{ memberId, authoredLabel, start, end }` spans plus a deduplicated top-level `included.membersById` bundle with each member's current `publicName` and `displayName`. Use `memberId` for any follow-up action input (it is the stable identity). Treat `authoredLabel` as preserved author text — it may differ from the current `displayName` at `included.membersById[memberId]` if the mentioned member has since renamed.
 
 ```json
 {
   "entity": {
     "version": {
-      "body": "Thanks @alice-hound for the intro.",
+      "body": "Thanks [Alice Hound|a7k9m2p4q8r3] for the intro.",
       "mentions": {
         "title": [], "summary": [],
-        "body": [{ "memberId": "mem_8kg5", "authoredHandle": "alice-hound", "start": 7, "end": 19 }]
+        "body": [{ "memberId": "a7k9m2p4q8r3", "authoredLabel": "Alice Hound", "start": 7, "end": 32 }]
       }
     }
   },
   "included": {
     "membersById": {
-      "mem_8kg5": { "memberId": "mem_8kg5", "publicName": "Alice Hound", "displayName": "Alice Hound", "handle": "alice-hound" }
+      "a7k9m2p4q8r3": { "memberId": "a7k9m2p4q8r3", "publicName": "Alice Hound", "displayName": "Alice Hound" }
     }
   }
 }
 ```
 
-Mentions inside URLs like `https://github.com/@alice` and inside email addresses like `alice@example.com` are never parsed as mentions — boundary rules skip them automatically.
+The bracket syntax is distinct from markdown links `[text](url)` — the pipe separator `|` and the fixed 12-character id format make them unambiguous.
 
 ## When To Clarify First
 

@@ -20,11 +20,10 @@ describe('superadmin.members.createWithAccessToken', () => {
     const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'New Person',
     });
-    const data = result.data as { member: { memberId: string; publicName: string; handle: string }; bearerToken: string };
+    const data = result.data as { member: { memberId: string; publicName: string }; bearerToken: string };
 
     assert.ok(data.member.memberId, 'should return memberId');
     assert.equal(data.member.publicName, 'New Person');
-    assert.ok(data.member.handle, 'should have auto-generated handle');
     assert.ok(data.bearerToken.startsWith('cc_live_'), 'should return cc_live_ token');
   });
 
@@ -54,16 +53,6 @@ describe('superadmin.members.createWithAccessToken', () => {
     assert.equal(actor.activeMemberships.length, 0);
   });
 
-  it('accepts optional handle', async () => {
-    const admin = await h.seedSuperadmin('Provisioner4', 'provisioner4');
-    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
-      publicName: 'Handle Person',
-      handle: 'custom-handle-xyz',
-    });
-    const data = result.data as { member: { handle: string } };
-    assert.equal(data.member.handle, 'custom-handle-xyz');
-  });
-
   it('accepts optional email', async () => {
     const admin = await h.seedSuperadmin('Provisioner5', 'provisioner5');
     const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
@@ -79,39 +68,6 @@ describe('superadmin.members.createWithAccessToken', () => {
     );
     assert.equal(rows.length, 1);
     assert.equal(rows[0]!.email, 'test@example.com');
-  });
-
-  it('rejects duplicate handle', async () => {
-    const admin = await h.seedSuperadmin('Provisioner6', 'provisioner6');
-    await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
-      publicName: 'First',
-      handle: 'unique-dup-handle',
-    });
-    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
-      publicName: 'Second',
-      handle: 'unique-dup-handle',
-    });
-    assert.equal(err.status, 409);
-    assert.equal(err.code, 'handle_conflict');
-  });
-
-  it('rejects invalid handle format', async () => {
-    const admin = await h.seedSuperadmin('Provisioner-hv', 'provisioner-hv');
-    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
-      publicName: 'Bad Handle',
-      handle: 'Bad Handle',
-    });
-    assert.equal(err.code, 'invalid_input');
-    assert.match(err.message, /handle/i);
-  });
-
-  it('rejects handle with uppercase', async () => {
-    const admin = await h.seedSuperadmin('Provisioner-hv2', 'provisioner-hv2');
-    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
-      publicName: 'Upper',
-      handle: 'UpperCase',
-    });
-    assert.equal(err.code, 'invalid_input');
   });
 
   it('rejects invalid email', async () => {

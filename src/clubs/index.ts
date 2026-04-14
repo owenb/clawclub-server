@@ -30,7 +30,7 @@ export { appendClubActivity } from './entities.ts';
 
 export async function createVouch(pool: Pool, input: {
   actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null;
-}): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null> {
+}): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null> {
   // Membership verification happens in the composition layer (postgres.ts).
   // The DB has a CHECK constraint preventing self-vouches.
 
@@ -39,11 +39,11 @@ export async function createVouch(pool: Pool, input: {
     const existing = await pool.query<{
       id: string; from_member_id: string; to_member_id: string; club_id: string;
       reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
-      from_public_name: string | null; from_handle: string | null;
+      from_public_name: string | null;
     }>(
       `select e.id, e.from_member_id, e.to_member_id, e.club_id, e.reason, e.metadata,
               e.created_at::text as created_at, e.created_by_member_id,
-              m.public_name as from_public_name, m.handle as from_handle
+              m.public_name as from_public_name
        from club_edges e
        join members m on m.id = e.from_member_id
        where e.created_by_member_id = $1 and e.client_key = $2`,
@@ -59,7 +59,6 @@ export async function createVouch(pool: Pool, input: {
         edgeId: orig.id,
         fromMemberId: orig.from_member_id,
         fromPublicName: orig.from_public_name ?? 'Unknown',
-        fromHandle: orig.from_handle,
         reason: orig.reason,
         metadata: orig.metadata,
         createdAt: orig.created_at,
@@ -70,14 +69,13 @@ export async function createVouch(pool: Pool, input: {
 
   try {
     const result = await pool.query<{
-      id: string; from_member_id: string; from_public_name: string; from_handle: string | null;
+      id: string; from_member_id: string; from_public_name: string;
       reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
     }>(
       `insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, client_key)
        values ($1::text, 'vouched_for', $2::text, $3::text, $4, $2::text, $5)
        returning id, from_member_id,
          (select public_name from members where id = from_member_id) as from_public_name,
-         (select handle from members where id = from_member_id) as from_handle,
          reason, metadata, created_at::text as created_at, created_by_member_id`,
       [input.clubId, input.actorMemberId, input.targetMemberId, input.reason, input.clientKey ?? null],
     );
@@ -88,7 +86,6 @@ export async function createVouch(pool: Pool, input: {
       edgeId: row.id,
       fromMemberId: row.from_member_id,
       fromPublicName: row.from_public_name ?? 'Unknown',
-      fromHandle: row.from_handle,
       reason: row.reason,
       metadata: row.metadata,
       createdAt: row.created_at,
@@ -104,7 +101,7 @@ export async function createVouch(pool: Pool, input: {
   }
 }
 
-type VouchEntry = { edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null };
+type VouchEntry = { edgeId: string; fromMemberId: string; fromPublicName: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null };
 export type PaginatedVouches = { results: VouchEntry[]; hasMore: boolean; nextCursor: string | null };
 
 export async function listVouches(pool: Pool, input: {
@@ -116,10 +113,10 @@ export async function listVouches(pool: Pool, input: {
   const cursorEdgeId = input.cursor?.edgeId ?? null;
 
   const result = await pool.query<{
-    id: string; from_member_id: string; from_public_name: string; from_handle: string | null;
+    id: string; from_member_id: string; from_public_name: string;
     reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
   }>(
-    `select e.id, e.from_member_id, m.public_name as from_public_name, m.handle as from_handle,
+    `select e.id, e.from_member_id, m.public_name as from_public_name,
             e.reason, e.metadata,
             e.created_at::text as created_at, e.created_by_member_id
      from club_edges e
@@ -137,7 +134,6 @@ export async function listVouches(pool: Pool, input: {
     edgeId: row.id,
     fromMemberId: row.from_member_id,
     fromPublicName: row.from_public_name,
-    fromHandle: row.from_handle,
     reason: row.reason,
     metadata: row.metadata,
     createdAt: row.created_at,
@@ -163,13 +159,13 @@ export async function batchListVouches(pool: Pool, input: {
 
   const result = await pool.query<{
     id: string; to_member_id: string; from_member_id: string;
-    from_public_name: string; from_handle: string | null;
+    from_public_name: string;
     reason: string; metadata: Record<string, unknown>;
     created_at: string; created_by_member_id: string | null;
     _rn: number;
   }>(
     `select e.id, e.to_member_id, e.from_member_id,
-            m.public_name as from_public_name, m.handle as from_handle,
+            m.public_name as from_public_name,
             e.reason, e.metadata,
             e.created_at::text as created_at, e.created_by_member_id,
             row_number() over (partition by e.to_member_id order by e.created_at desc, e.id desc)::int as _rn
@@ -190,7 +186,6 @@ export async function batchListVouches(pool: Pool, input: {
       edgeId: row.id,
       fromMemberId: row.from_member_id,
       fromPublicName: row.from_public_name,
-      fromHandle: row.from_handle,
       reason: row.reason,
       metadata: row.metadata,
       createdAt: row.created_at,
@@ -562,7 +557,7 @@ export type ClubsRepository = {
   listEntities(input: ListEntitiesInput): Promise<import('./entities.ts').PaginatedThreads>;
   readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: import('../contract.ts').ContentThreadSummary; entities: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null }> | null>;
 
-  createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
+  createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
   listVouches(input: { clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<PaginatedVouches>;
 
   enforceQuota(memberId: string, clubId: string, action: string, actorInfo: QuotaActorInfo): Promise<void>;

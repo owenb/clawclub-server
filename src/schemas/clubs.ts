@@ -110,7 +110,7 @@ const clubsApplicationsSubmit: ActionDefinition = {
       membershipId: wireRequiredString.describe('Membership to submit'),
       nonce: wireBoundedString.optional().describe('Required when the membership proof_kind is pow. Ignored otherwise.'),
       name: wireBoundedString.describe('Applicant name'),
-      socials: wireBoundedString.describe('Social links or handles'),
+      socials: wireBoundedString.describe('Social links or profile URLs'),
       application: wireApplicationText,
     }),
     output: clubsApplicationsSubmitResult,

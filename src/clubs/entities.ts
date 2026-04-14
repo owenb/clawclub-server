@@ -44,7 +44,6 @@ type ContentEntityRow = {
   open_loop: boolean | null;
   author_member_id: string;
   author_public_name: string;
-  author_handle: string | null;
   author_display_name: string;
   entity_version_id: string;
   version_no: number;
@@ -138,7 +137,6 @@ const CONTENT_ENTITY_SELECT = `
   e.open_loop,
   e.author_member_id,
   m.public_name as author_public_name,
-  m.handle as author_handle,
   m.display_name as author_display_name,
   cev.id as entity_version_id,
   cev.version_no,
@@ -255,7 +253,6 @@ function mapContentEntityRow(row: ContentEntityRow): ContentEntity {
     author: {
       memberId: row.author_member_id,
       publicName: row.author_public_name,
-      handle: row.author_handle,
       displayName: row.author_display_name,
     },
     version: {
@@ -294,7 +291,6 @@ function mapContentEntityRow(row: ContentEntityRow): ContentEntity {
           membershipId: attendee.membershipId,
           memberId: attendee.memberId,
           publicName: attendee.publicName,
-          handle: attendee.handle,
           response: attendee.response,
           note: attendee.note,
           createdAt: attendee.createdAt,
@@ -416,7 +412,6 @@ async function readContentRowsByIds(
               cer.membership_id,
               cer.created_by_member_id as member_id,
               am.public_name,
-              am.handle,
               cer.response::text as response,
               cer.note,
               cer.created_at::text as created_at
@@ -431,7 +426,6 @@ async function readContentRowsByIds(
                 'membershipId', membership_id,
                 'memberId', member_id,
                 'publicName', public_name,
-                'handle', handle,
                 'response', response,
                 'note', note,
                 'createdAt', created_at
@@ -634,7 +628,7 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
 
     const targetClubId = existingThreadTarget?.clubId ?? input.clubId!;
     const resolvedMentions = hasPotentialMentionChar(input.title, input.summary, input.body)
-      ? await resolvePublicContentMentions(client, extractContentMentionCandidates(input), targetClubId)
+      ? await resolvePublicContentMentions(client, extractContentMentionCandidates(input))
       : emptyContentMentions();
 
     const target = existingThreadTarget
@@ -784,7 +778,6 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
           summary: changedMentionFields.includes('summary') ? nextCommon.summary : null,
           body: changedMentionFields.includes('body') ? nextCommon.body : null,
         }),
-        current.club_id,
       )
       : emptyContentMentions();
 

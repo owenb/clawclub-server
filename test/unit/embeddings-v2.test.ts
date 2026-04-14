@@ -8,7 +8,6 @@ import { EMBEDDING_PROFILES } from '../../src/ai.ts';
 test('buildProfileSourceText produces deterministic output', () => {
   const input = {
     publicName: 'Alice',
-    handle: 'alice',
     displayName: 'Alice Smith',
     tagline: 'Builder',
     summary: 'Builds things',
@@ -23,8 +22,8 @@ test('buildProfileSourceText produces deterministic output', () => {
   const b = buildProfileSourceText(input);
   assert.equal(a, b, 'Same input must produce same output');
   assert.ok(a.includes('Name: Alice Smith'));
-  assert.ok(a.includes('Handle: alice'));
   assert.ok(a.includes('Tagline: Builder'));
+  assert.ok(!a.includes('Handle'), 'Handle section must not appear (v2 source)');
 });
 
 test('buildEntitySourceText produces deterministic output', () => {
@@ -85,7 +84,7 @@ test('EMBEDDING_PROFILES has expected structure', () => {
   assert.ok(EMBEDDING_PROFILES.entity);
   assert.equal(EMBEDDING_PROFILES.member_profile.model, 'text-embedding-3-small');
   assert.equal(EMBEDDING_PROFILES.member_profile.dimensions, 1536);
-  assert.equal(EMBEDDING_PROFILES.member_profile.sourceVersion, 'v1');
+  assert.equal(EMBEDDING_PROFILES.member_profile.sourceVersion, 'v2');
   assert.equal(EMBEDDING_PROFILES.entity.model, 'text-embedding-3-small');
   assert.equal(EMBEDDING_PROFILES.entity.dimensions, 1536);
   assert.equal(EMBEDDING_PROFILES.entity.sourceVersion, 'v1');

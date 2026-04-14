@@ -143,7 +143,7 @@ export type ActionResult = {
    * Replace actor.member in the response (profile.update only).
    * Full replacement, not a partial merge.
    */
-  nextMember?: { id: string; handle: string | null; publicName: string };
+  nextMember?: { id: string; publicName: string };
 
   /** Notification IDs to remove from sharedContext.notifications on the same response. */
   acknowledgedNotificationIds?: string[];

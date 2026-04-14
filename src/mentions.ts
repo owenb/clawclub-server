@@ -1,7 +1,6 @@
 import type { Pool } from 'pg';
 import type { DbClient } from './db.ts';
 import { AppError, type IncludedBundle, type IncludedMember, type MentionSpan } from './contract.ts';
-import { HANDLE_REGEX } from './identity/handles.ts';
 
 export type ContentMentionField = 'title' | 'summary' | 'body';
 
@@ -12,7 +11,8 @@ export type ContentMentionsByField = {
 };
 
 type ExtractedMention = {
-  authoredHandle: string;
+  authoredLabel: string;
+  memberId: string;
   start: number;
   end: number;
 };
@@ -29,7 +29,7 @@ type ContentMentionRow = {
   start_offset: number;
   end_offset: number;
   mentioned_member_id: string;
-  authored_handle: string;
+  authored_label: string;
 };
 
 type DmMentionRow = {
@@ -37,14 +37,13 @@ type DmMentionRow = {
   start_offset: number;
   end_offset: number;
   mentioned_member_id: string;
-  authored_handle: string;
+  authored_label: string;
 };
 
 type IncludedMemberRow = {
   member_id: string;
   public_name: string;
   display_name: string;
-  handle: string | null;
 };
 
 type ContentUpdatePreflightRow = {
@@ -58,30 +57,12 @@ type ContentUpdatePreflightRow = {
 
 const MAX_UNIQUE_MENTIONED_MEMBERS = 25;
 const MAX_MENTION_SPANS = 100;
-const URL_PREFIX_RE = /(?:https?:\/\/|mailto:)[^\s]+/g;
 
-function isAllowedMentionBoundary(char: string | undefined): boolean {
-  return char === undefined
-    || /\s/.test(char)
-    || char === '('
-    || char === '['
-    || char === '{'
-    || char === '"'
-    || char === '\''
-    || char === '`';
-}
-
-function isHandleTokenChar(char: string | undefined): boolean {
-  return char !== undefined && /[a-z0-9-]/.test(char);
-}
-
-function maskUrls(text: string): string {
-  return text.replace(URL_PREFIX_RE, (match) => ' '.repeat(match.length));
-}
-
-function formatInvalidHandles(handles: string[]): string {
-  return handles.map((handle) => `@${handle}`).join(', ');
-}
+// `[Display Name|memberId]` where memberId is a 12-char short_id from the
+// Crockford alphabet (no 0, 1, i, l, o). Labels disallow `[`, `]`, and `|`.
+// We require a non-empty label with no outer whitespace — `[ Alice |id]` is
+// rejected so the persisted `authored_label` always matches the span text.
+const MENTION_RE = /\[([^\[\]|]+)\|([23456789abcdefghjkmnpqrstuvwxyz]{12})\]/g;
 
 export function emptyIncludedBundle(): IncludedBundle {
   return { membersById: {} };
@@ -106,31 +87,32 @@ export function emptyContentMentions(): ContentMentionsByField {
 }
 
 export function hasPotentialMentionChar(...texts: Array<string | null | undefined>): boolean {
-  return texts.some((text) => typeof text === 'string' && text.includes('@'));
+  return texts.some((text) => typeof text === 'string' && text.includes('['));
 }
 
 export function extractMentionCandidates(text: string | null | undefined): ExtractedMention[] {
-  if (!text || !text.includes('@')) return [];
+  if (!text || !text.includes('[')) return [];
 
-  const masked = maskUrls(text);
   const mentions: ExtractedMention[] = [];
 
-  for (let index = 0; index < masked.length; index += 1) {
-    if (masked[index] !== '@') continue;
-    if (!isAllowedMentionBoundary(masked[index - 1])) continue;
+  // Reset lastIndex so repeated calls on the same regex don't drift.
+  MENTION_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = MENTION_RE.exec(text)) !== null) {
+    const label = match[1]!;
+    const memberId = match[2]!;
+    const start = match.index;
+    const end = start + match[0].length;
 
-    let cursor = index + 1;
-    while (isHandleTokenChar(masked[cursor])) {
-      cursor += 1;
-    }
-
-    const authoredHandle = masked.slice(index + 1, cursor);
-    if (!HANDLE_REGEX.test(authoredHandle)) continue;
+    // Reject labels with outer whitespace or empty-after-trim so the persisted
+    // `authored_label` is always exactly what appears between `[` and `|`.
+    if (label.trim().length === 0 || label !== label.trim()) continue;
 
     mentions.push({
-      authoredHandle,
-      start: index,
-      end: index + 1 + authoredHandle.length,
+      authoredLabel: label,
+      memberId,
+      start,
+      end,
     });
   }
 
@@ -149,7 +131,12 @@ export function extractContentMentionCandidates(input: {
   };
 }
 
-function assertMentionLimits(uniqueMembers: number, spanCount: number, context: 'content' | 'message', changedFieldSpanCount?: number): void {
+function assertMentionLimits(
+  uniqueMembers: number,
+  spanCount: number,
+  context: 'content' | 'message',
+  changedFieldSpanCount?: number,
+): void {
   if (context === 'content') {
     if ((uniqueMembers > MAX_UNIQUE_MENTIONED_MEMBERS || spanCount > MAX_MENTION_SPANS) && (changedFieldSpanCount ?? spanCount) > 0) {
       throw new AppError(
@@ -170,34 +157,29 @@ function assertMentionLimits(uniqueMembers: number, spanCount: number, context: 
   }
 }
 
-function buildInvalidMentionsError(scope: 'club' | 'conversation', handles: string[]): AppError {
+function buildUnknownMentionsError(unknownIds: string[]): AppError {
   return new AppError(
     400,
-    'invalid_mentions',
-    scope === 'club'
-      ? `These mentions do not resolve in this club: ${formatInvalidHandles(handles)}`
-      : `These mentions do not resolve in this conversation: ${formatInvalidHandles(handles)}`,
+    'invalid_input',
+    `Unknown member ids in mentions: ${unknownIds.join(', ')}`,
   );
 }
 
-function uniqueHandlesInOrder(mentions: ExtractedMention[]): string[] {
+function uniqueMemberIdsInOrder(mentions: ExtractedMention[]): string[] {
   const seen = new Set<string>();
-  const handles: string[] = [];
+  const ids: string[] = [];
   for (const mention of mentions) {
-    if (seen.has(mention.authoredHandle)) continue;
-    seen.add(mention.authoredHandle);
-    handles.push(mention.authoredHandle);
+    if (seen.has(mention.memberId)) continue;
+    seen.add(mention.memberId);
+    ids.push(mention.memberId);
   }
-  return handles;
+  return ids;
 }
 
-function mapResolvedMentions(
-  mentions: ExtractedMention[],
-  memberIdByHandle: Map<string, string>,
-): MentionSpan[] {
+function toMentionSpans(mentions: ExtractedMention[]): MentionSpan[] {
   return mentions.map((mention) => ({
-    memberId: memberIdByHandle.get(mention.authoredHandle)!,
-    authoredHandle: mention.authoredHandle,
+    memberId: mention.memberId,
+    authoredLabel: mention.authoredLabel,
     start: mention.start,
     end: mention.end,
   }));
@@ -207,7 +189,7 @@ export async function loadIncludedMembers(client: DbClient, memberIds: string[])
   if (memberIds.length === 0) return emptyIncludedBundle();
 
   const result = await client.query<IncludedMemberRow>(
-    `select id as member_id, public_name, display_name, handle
+    `select id as member_id, public_name, display_name
      from members
      where id = any($1::text[])`,
     [memberIds],
@@ -219,48 +201,42 @@ export async function loadIncludedMembers(client: DbClient, memberIds: string[])
       memberId: row.member_id,
       publicName: row.public_name,
       displayName: row.display_name,
-      handle: row.handle,
     };
   }
 
   return { membersById };
 }
 
-async function resolvePublicHandles(client: DbClient, handles: string[], clubId: string): Promise<Map<string, string>> {
-  if (handles.length === 0) return new Map();
+async function assertMentionIdsExist(client: DbClient, memberIds: string[]): Promise<void> {
+  if (memberIds.length === 0) return;
 
-  const result = await client.query<{ member_id: string; handle: string }>(
-    `select m.id as member_id, m.handle
-     from members m
-     join accessible_club_memberships acm on acm.member_id = m.id
-     where m.handle = any($1::text[])
-       and m.state = 'active'
-       and acm.club_id = $2`,
-    [handles, clubId],
+  const result = await client.query<{ id: string }>(
+    `select id from members where id = any($1::text[])`,
+    [memberIds],
   );
 
-  return new Map(result.rows.map((row) => [row.handle, row.member_id]));
+  const known = new Set(result.rows.map((row) => row.id));
+  const unknown = memberIds.filter((id) => !known.has(id));
+  if (unknown.length > 0) {
+    throw buildUnknownMentionsError(unknown);
+  }
 }
 
 export async function resolvePublicContentMentions(
   client: DbClient,
   extracted: ExtractedContentMentions,
-  clubId: string,
 ): Promise<ContentMentionsByField> {
-  const handles = uniqueHandlesInOrder([...extracted.title, ...extracted.summary, ...extracted.body]);
-  const memberIdByHandle = await resolvePublicHandles(client, handles, clubId);
-  const invalid = handles.filter((handle) => !memberIdByHandle.has(handle));
-  if (invalid.length > 0) {
-    throw buildInvalidMentionsError('club', invalid);
-  }
+  const allMentions = [...extracted.title, ...extracted.summary, ...extracted.body];
+  const ids = uniqueMemberIdsInOrder(allMentions);
+  await assertMentionIdsExist(client, ids);
 
   const mentions = {
-    title: mapResolvedMentions(extracted.title, memberIdByHandle),
-    summary: mapResolvedMentions(extracted.summary, memberIdByHandle),
-    body: mapResolvedMentions(extracted.body, memberIdByHandle),
+    title: toMentionSpans(extracted.title),
+    summary: toMentionSpans(extracted.summary),
+    body: toMentionSpans(extracted.body),
   } satisfies ContentMentionsByField;
 
-  const uniqueMembers = new Set([...mentions.title, ...mentions.summary, ...mentions.body].map((mention) => mention.memberId)).size;
+  const uniqueMembers = ids.length;
   const spanCount = mentions.title.length + mentions.summary.length + mentions.body.length;
   assertMentionLimits(uniqueMembers, spanCount, 'content');
   return mentions;
@@ -269,41 +245,15 @@ export async function resolvePublicContentMentions(
 export async function resolveDirectMessageMentions(
   client: DbClient,
   messageText: string,
-  participantIds: string[],
-  sharedClubIds: string[],
 ): Promise<MentionSpan[]> {
   const extracted = extractMentionCandidates(messageText);
-  const handles = uniqueHandlesInOrder(extracted);
-  if (handles.length === 0) return [];
+  if (extracted.length === 0) return [];
 
-  // Active thread participants bypass the shared-club requirement, but not the
-  // active-member requirement. Third-party mentions must satisfy both.
-  const result = await client.query<{ member_id: string; handle: string }>(
-    `select m.id as member_id, m.handle
-     from members m
-     where m.handle = any($1::text[])
-       and m.state = 'active'
-       and (
-         m.id = any($2::text[])
-         or exists (
-           select 1
-           from accessible_club_memberships acm
-           where acm.member_id = m.id
-             and acm.club_id = any($3::text[])
-         )
-       )`,
-    [handles, participantIds, sharedClubIds],
-  );
+  const ids = uniqueMemberIdsInOrder(extracted);
+  await assertMentionIdsExist(client, ids);
 
-  const memberIdByHandle = new Map(result.rows.map((row) => [row.handle, row.member_id]));
-  const invalid = handles.filter((handle) => !memberIdByHandle.has(handle));
-  if (invalid.length > 0) {
-    throw buildInvalidMentionsError('conversation', invalid);
-  }
-
-  const mentions = mapResolvedMentions(extracted, memberIdByHandle);
-  const uniqueMembers = new Set(mentions.map((mention) => mention.memberId)).size;
-  assertMentionLimits(uniqueMembers, mentions.length, 'message');
+  const mentions = toMentionSpans(extracted);
+  assertMentionLimits(ids.length, mentions.length, 'message');
   return mentions;
 }
 
@@ -325,13 +275,13 @@ export async function insertEntityVersionMentions(
 
   for (const row of rows) {
     values.push(`($${index}, $${index + 1}, $${index + 2}, $${index + 3}, $${index + 4}, $${index + 5})`);
-    params.push(entityVersionId, row.field, row.start, row.end, row.memberId, row.authoredHandle);
+    params.push(entityVersionId, row.field, row.start, row.end, row.memberId, row.authoredLabel);
     index += 6;
   }
 
   await client.query(
     `insert into entity_version_mentions (
-       entity_version_id, field, start_offset, end_offset, mentioned_member_id, authored_handle
+       entity_version_id, field, start_offset, end_offset, mentioned_member_id, authored_label
      ) values ${values.join(', ')}`,
     params,
   );
@@ -350,13 +300,13 @@ export async function insertDmMessageMentions(
 
   for (const mention of mentions) {
     values.push(`($${index}, $${index + 1}, $${index + 2}, $${index + 3}, $${index + 4})`);
-    params.push(messageId, mention.start, mention.end, mention.memberId, mention.authoredHandle);
+    params.push(messageId, mention.start, mention.end, mention.memberId, mention.authoredLabel);
     index += 5;
   }
 
   await client.query(
     `insert into dm_message_mentions (
-       message_id, start_offset, end_offset, mentioned_member_id, authored_handle
+       message_id, start_offset, end_offset, mentioned_member_id, authored_label
      ) values ${values.join(', ')}`,
     params,
   );
@@ -372,7 +322,7 @@ export async function loadEntityVersionMentions(
   }
 
   const result = await client.query<ContentMentionRow>(
-    `select entity_version_id, field, start_offset, end_offset, mentioned_member_id, authored_handle
+    `select entity_version_id, field, start_offset, end_offset, mentioned_member_id, authored_label
      from entity_version_mentions
      where entity_version_id = any($1::text[])
      order by entity_version_id, field, start_offset`,
@@ -387,7 +337,7 @@ export async function loadEntityVersionMentions(
     }
     mentionsByVersionId.get(row.entity_version_id)![row.field].push({
       memberId: row.mentioned_member_id,
-      authoredHandle: row.authored_handle,
+      authoredLabel: row.authored_label,
       start: row.start_offset,
       end: row.end_offset,
     });
@@ -417,7 +367,7 @@ export async function copyEntityVersionMentions(
 
   await client.query(
     `insert into entity_version_mentions (
-       entity_version_id, field, start_offset, end_offset, mentioned_member_id, authored_handle
+       entity_version_id, field, start_offset, end_offset, mentioned_member_id, authored_label
      )
      select
        $2,
@@ -425,7 +375,7 @@ export async function copyEntityVersionMentions(
        start_offset,
        end_offset,
        mentioned_member_id,
-       authored_handle
+       authored_label
      from entity_version_mentions
      where entity_version_id = $1
        and field = any($3::text[])`,
@@ -443,7 +393,7 @@ export async function loadDmMentions(
   }
 
   const result = await client.query<DmMentionRow>(
-    `select message_id, start_offset, end_offset, mentioned_member_id, authored_handle
+    `select message_id, start_offset, end_offset, mentioned_member_id, authored_label
      from dm_message_mentions
      where message_id = any($1::text[])
      order by message_id, start_offset`,
@@ -458,7 +408,7 @@ export async function loadDmMentions(
     }
     mentionsByMessageId.get(row.message_id)!.push({
       memberId: row.mentioned_member_id,
-      authoredHandle: row.authored_handle,
+      authoredLabel: row.authored_label,
       start: row.start_offset,
       end: row.end_offset,
     });
@@ -534,7 +484,7 @@ export async function preflightContentCreateMentions(
 
   const extracted = extractContentMentionCandidates(input);
   if (extracted.title.length === 0 && extracted.summary.length === 0 && extracted.body.length === 0) return;
-  await resolvePublicContentMentions(pool, extracted, clubId);
+  await resolvePublicContentMentions(pool, extracted);
 }
 
 export async function preflightContentUpdateMentions(
@@ -593,7 +543,7 @@ export async function preflightContentUpdateMentions(
   if (extracted.title.length === 0 && extracted.summary.length === 0 && extracted.body.length === 0) return;
 
   const existingMentions = await loadEntityVersionMentionsForVersion(pool, current.version_id);
-  const changedMentions = await resolvePublicContentMentions(pool, extracted, current.club_id);
+  const changedMentions = await resolvePublicContentMentions(pool, extracted);
   const mergedMentions: ContentMentionsByField = {
     title: changedFields.includes('title') ? changedMentions.title : existingMentions.title,
     summary: changedFields.includes('summary') ? changedMentions.summary : existingMentions.summary,

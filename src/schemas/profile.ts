@@ -109,7 +109,7 @@ const profileUpdate: ActionDefinition = {
   authorizationNote: 'Updates own profile only.',
   businessErrors: [...PROFILE_UPDATE_ERRORS],
   notes: [
-    'Use members.updateIdentity for global identity fields like handle and displayName. profile.update only changes club-scoped profile fields.',
+    'Use members.updateIdentity for global identity fields like displayName. profile.update only changes club-scoped profile fields.',
   ],
 
   wire: {
@@ -160,7 +160,6 @@ const profileUpdate: ActionDefinition = {
       data: updatedProfile,
       nextMember: {
         id: updatedProfile.memberId,
-        handle: updatedProfile.handle,
         publicName: updatedProfile.publicName,
       },
     };

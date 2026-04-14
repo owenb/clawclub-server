@@ -21,7 +21,6 @@ import {
 export const memberRef = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  handle: z.string().nullable(),
 });
 
 export const sharedClubRef = z.object({
@@ -32,7 +31,7 @@ export const sharedClubRef = z.object({
 
 export const mentionSpan = z.object({
   memberId: z.string(),
-  authoredHandle: z.string(),
+  authoredLabel: z.string(),
   start: z.number(),
   end: z.number(),
 });
@@ -41,7 +40,6 @@ export const includedMember = z.object({
   memberId: z.string(),
   publicName: z.string(),
   displayName: z.string(),
-  handle: z.string().nullable(),
 });
 
 export const includedBundle = z.object({
@@ -204,7 +202,6 @@ export const memberSearchResult = z.object({
   memberId: z.string(),
   publicName: z.string(),
   displayName: z.string(),
-  handle: z.string().nullable(),
   tagline: z.string().nullable(),
   summary: z.string().nullable(),
   whatIDo: z.string().nullable(),
@@ -218,7 +215,6 @@ export const clubMemberSummary = z.object({
   memberId: z.string(),
   publicName: z.string(),
   displayName: z.string(),
-  handle: z.string().nullable(),
   tagline: z.string().nullable(),
   summary: z.string().nullable(),
   whatIDo: z.string().nullable(),
@@ -251,14 +247,12 @@ export const clubProfile = z.object({
 export const memberIdentity = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  handle: z.string().nullable(),
   displayName: z.string(),
 });
 
 export const memberProfileEnvelope = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  handle: z.string().nullable(),
   displayName: z.string(),
   profiles: z.array(clubProfile),
 });
@@ -268,7 +262,6 @@ export const memberProfileEnvelope = z.object({
 export const contentAuthorRef = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  handle: z.string().nullable(),
   displayName: z.string(),
 });
 
@@ -276,7 +269,6 @@ export const eventRsvpAttendee = z.object({
   membershipId: z.string(),
   memberId: z.string(),
   publicName: z.string(),
-  handle: z.string().nullable(),
   response: eventRsvpState,
   note: z.string().nullable(),
   createdAt: z.string(),
@@ -304,7 +296,9 @@ export const contentEntity = z.object({
       summary: z.array(mentionSpan),
       body: z.array(mentionSpan),
     }),
-  }),
+  }).describe(
+    'Body is always present on non-removed content. Title and summary may be null. For a short display label, prefer title, then summary, then a truncated excerpt of body.',
+  ),
   event: z.object({
     location: z.string().nullable(),
     startsAt: z.string().nullable(),
@@ -372,7 +366,6 @@ export const directMessageThreadSummary = z.object({
   sharedClubs: z.array(sharedClubRef),
   counterpartMemberId: z.string(),
   counterpartPublicName: z.string(),
-  counterpartHandle: z.string().nullable(),
   latestMessage: z.object({
     messageId: z.string(),
     senderMemberId: z.string().nullable(),
@@ -488,8 +481,7 @@ export const clubSummary = z.object({
   owner: z.object({
     memberId: z.string(),
     publicName: z.string(),
-    handle: z.string().nullable(),
-    email: z.string().nullable(),
+      email: z.string().nullable(),
   }),
   version: z.object({
     versionNo: z.number(),
@@ -519,15 +511,13 @@ export const adminOverview = z.object({
   recentMembers: z.array(z.object({
     memberId: z.string(),
     publicName: z.string(),
-    handle: z.string().nullable(),
-    createdAt: z.string(),
+      createdAt: z.string(),
   })),
 });
 
 export const adminMemberSummary = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  handle: z.string().nullable(),
   state: z.string(),
   createdAt: z.string(),
   membershipCount: z.number(),
@@ -537,7 +527,6 @@ export const adminMemberSummary = z.object({
 export const adminMemberDetail = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  handle: z.string().nullable(),
   displayName: z.string(),
   state: z.string(),
   createdAt: z.string(),

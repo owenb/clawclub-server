@@ -34,7 +34,6 @@ type ProfileVersionRow = {
   club_id: string;
   public_name: string;
   display_name: string;
-  handle: string | null;
   tagline: string | null;
   summary: string | null;
   what_i_do: string | null;
@@ -90,7 +89,7 @@ async function claimJobs(
 async function loadProfileVersion(pool: Pool, versionId: string): Promise<ProfileVersionRow | null> {
   const result = await pool.query<ProfileVersionRow>(
     `select mcpv.id, mcpv.member_id, mcpv.club_id, m.public_name,
-            m.display_name, m.handle,
+            m.display_name,
             mcpv.tagline, mcpv.summary, mcpv.what_i_do, mcpv.known_for,
             mcpv.services_summary, mcpv.website_url, mcpv.links,
             exists (
@@ -172,7 +171,7 @@ function buildSourceText(job: EmbeddingJob, row: ProfileVersionRow | EntityVersi
   if (job.subject_kind === 'member_club_profile_version') {
     const p = row as ProfileVersionRow;
     return buildProfileSourceText({
-      publicName: p.public_name, handle: p.handle, displayName: p.display_name,
+      publicName: p.public_name, displayName: p.display_name,
       tagline: p.tagline, summary: p.summary, whatIDo: p.what_i_do,
       knownFor: p.known_for, servicesSummary: p.services_summary,
       websiteUrl: p.website_url, links: p.links,

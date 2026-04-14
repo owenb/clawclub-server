@@ -34,7 +34,6 @@ export type ThreadSummary = {
   threadId: string;
   counterpartMemberId: string;
   counterpartPublicName: string;
-  counterpartHandle: string | null;
   latestMessage: {
     messageId: string;
     senderMemberId: string | null;
@@ -214,13 +213,8 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
 
         const memberA = senderMemberId < recipientMemberId ? senderMemberId : recipientMemberId;
         const memberB = senderMemberId < recipientMemberId ? recipientMemberId : senderMemberId;
-        const participantIds = [senderMemberId, recipientMemberId];
-        const wantsMentions = hasPotentialMentionChar(messageText);
-        const sharedClubIds = wantsMentions
-          ? await resolveSharedClubIds(client, senderMemberId, recipientMemberId)
-          : [];
-        const mentions = wantsMentions
-          ? await resolveDirectMessageMentions(client, messageText, participantIds, sharedClubIds)
+        const mentions = hasPotentialMentionChar(messageText)
+          ? await resolveDirectMessageMentions(client, messageText)
           : [];
 
         // Find or create thread
@@ -299,7 +293,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
     async listThreads({ memberId, limit }) {
       const result = await pool.query<{
         thread_id: string; counterpart_member_id: string;
-        counterpart_public_name: string; counterpart_handle: string | null;
+        counterpart_public_name: string;
         latest_message_id: string; latest_sender_member_id: string | null;
         latest_role: string; latest_message_text: string | null;
         latest_created_at: string; message_count: number; latest_is_removed: boolean;
@@ -333,7 +327,6 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
          )
          select r.thread_id, r.counterpart_member_id,
                 mbr.public_name as counterpart_public_name,
-                mbr.handle as counterpart_handle,
                 r.latest_message_id, r.latest_sender_member_id,
                 r.latest_role, r.latest_message_text, r.latest_created_at, r.message_count, r.latest_is_removed
          from ranked r
@@ -353,7 +346,6 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         threadId: row.thread_id,
         counterpartMemberId: row.counterpart_member_id,
         counterpartPublicName: row.counterpart_public_name,
-        counterpartHandle: row.counterpart_handle,
         latestMessage: withMessageMentions({
           messageId: row.latest_message_id,
           senderMemberId: row.latest_sender_member_id,
@@ -372,7 +364,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
 
       const result = await pool.query<{
         thread_id: string; counterpart_member_id: string;
-        counterpart_public_name: string; counterpart_handle: string | null;
+        counterpart_public_name: string;
         latest_message_id: string; latest_sender_member_id: string | null;
         latest_role: string; latest_message_text: string | null;
         latest_created_at: string; message_count: number; latest_is_removed: boolean;
@@ -418,7 +410,6 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
          )
          select lm.thread_id, lm.counterpart_member_id,
                 mbr.public_name as counterpart_public_name,
-                mbr.handle as counterpart_handle,
                 lm.latest_message_id, lm.latest_sender_member_id,
                 lm.latest_role, lm.latest_message_text, lm.latest_created_at,
                 lm.message_count, lm.latest_is_removed,
@@ -449,7 +440,6 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         threadId: row.thread_id,
         counterpartMemberId: row.counterpart_member_id,
         counterpartPublicName: row.counterpart_public_name,
-        counterpartHandle: row.counterpart_handle,
         latestMessage: withMessageMentions({
           messageId: row.latest_message_id,
           senderMemberId: row.latest_sender_member_id,
@@ -477,11 +467,9 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       const participantCheck = await pool.query<{
         counterpart_member_id: string;
         counterpart_public_name: string;
-        counterpart_handle: string | null;
       }>(
         `select tp2.member_id as counterpart_member_id,
-                mbr.public_name as counterpart_public_name,
-                mbr.handle as counterpart_handle
+                mbr.public_name as counterpart_public_name
          from dm_thread_participants tp1
          join dm_thread_participants tp2
            on tp2.thread_id = tp1.thread_id and tp2.member_id <> $1
@@ -494,7 +482,6 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
 
       const counterpartMemberId = participantCheck.rows[0].counterpart_member_id;
       const counterpartPublicName = participantCheck.rows[0].counterpart_public_name;
-      const counterpartHandle = participantCheck.rows[0].counterpart_handle;
 
       // Thread summary
       const threadResult = await pool.query<{
@@ -527,7 +514,6 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         threadId,
         counterpartMemberId,
         counterpartPublicName,
-        counterpartHandle,
         latestMessage: withMessageMentions({
           messageId: threadRow.latest_message_id,
           senderMemberId: threadRow.latest_sender_member_id,

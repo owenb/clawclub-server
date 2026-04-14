@@ -865,7 +865,7 @@ async function buildSignalPayload(
     return {
       kind: 'synchronicity.ask_to_member',
       askEntityId: match.sourceId,
-      askAuthor: author ? { memberId: author.memberId, publicName: author.publicName, handle: author.handle } : null,
+      askAuthor: author ? { memberId: author.memberId, publicName: author.publicName } : null,
       matchScore: match.score,
     };
   }
@@ -878,7 +878,7 @@ async function buildSignalPayload(
     return {
       kind: 'synchronicity.offer_to_ask',
       offerEntityId: match.sourceId,
-      offerAuthor: offerAuthor ? { memberId: offerAuthor.memberId, publicName: offerAuthor.publicName, handle: offerAuthor.handle } : null,
+      offerAuthor: offerAuthor ? { memberId: offerAuthor.memberId, publicName: offerAuthor.publicName } : null,
       yourAskEntityId: matchedAskEntityId ?? null,
       matchScore: match.score,
     };
@@ -888,7 +888,7 @@ async function buildSignalPayload(
     const other = await loadMemberInfo(pools.db, match.sourceId);
     return {
       kind: 'synchronicity.member_to_member',
-      otherMember: other ? { memberId: other.memberId, publicName: other.publicName, handle: other.handle } : null,
+      otherMember: other ? { memberId: other.memberId, publicName: other.publicName } : null,
       matchScore: match.score,
     };
   }
@@ -939,16 +939,15 @@ async function loadEntityInfo(pool: Pool, entityId: string): Promise<{
 }
 
 async function loadMemberInfo(pool: Pool, memberId: string): Promise<{
-  memberId: string; publicName: string; handle: string | null;
+  memberId: string; publicName: string;
 } | null> {
-  const result = await pool.query<{ public_name: string; handle: string | null }>(
-    `select public_name, handle from members where id = $1`,
+  const result = await pool.query<{ public_name: string }>(
+    `select public_name from members where id = $1`,
     [memberId],
   );
   return result.rows[0] ? {
     memberId,
     publicName: result.rows[0].public_name,
-    handle: result.rows[0].handle,
   } : null;
 }
 

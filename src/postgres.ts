@@ -43,10 +43,10 @@ import {
 
 // ── Enrichment helpers ──────────────────────────────────────
 
-function mapVouchToSummary(v: { edgeId: string; fromMemberId: string; fromPublicName: string; fromHandle: string | null; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null }): MembershipVouchSummary {
+function mapVouchToSummary(v: { edgeId: string; fromMemberId: string; fromPublicName: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null }): MembershipVouchSummary {
   return {
     edgeId: v.edgeId,
-    fromMember: { memberId: v.fromMemberId, publicName: v.fromPublicName, handle: v.fromHandle },
+    fromMember: { memberId: v.fromMemberId, publicName: v.fromPublicName },
     reason: v.reason,
     metadata: v.metadata,
     createdAt: v.createdAt,
@@ -422,7 +422,6 @@ async function listInboxFramesSince(pool: Pool, input: {
      select lm.thread_id,
             lm.counterpart_member_id,
             mbr.public_name as counterpart_public_name,
-            mbr.handle as counterpart_handle,
             lm.latest_message_id,
             lm.latest_sender_member_id,
             lm.latest_role,
@@ -451,7 +450,6 @@ async function listInboxFramesSince(pool: Pool, input: {
       sharedClubs: sharedClubsMap.get(row.counterpart_member_id) ?? [],
       counterpartMemberId: row.counterpart_member_id,
       counterpartPublicName: row.counterpart_public_name,
-      counterpartHandle: row.counterpart_handle,
       latestMessage: {
         messageId: row.latest_message_id,
         senderMemberId: row.latest_sender_member_id,
@@ -814,7 +812,6 @@ export function createRepository(pool: Pool): Repository {
         sharedClubs: sharedClubsMap.get(t.counterpartMemberId) ?? [],
         counterpartMemberId: t.counterpartMemberId,
         counterpartPublicName: t.counterpartPublicName,
-        counterpartHandle: t.counterpartHandle,
         latestMessage: t.latestMessage,
         messageCount: t.messageCount,
       }));
@@ -837,7 +834,6 @@ export function createRepository(pool: Pool): Repository {
           sharedClubs: sharedClubsMap.get(e.counterpartMemberId) ?? [],
           counterpartMemberId: e.counterpartMemberId,
           counterpartPublicName: e.counterpartPublicName,
-          counterpartHandle: e.counterpartHandle,
           latestMessage: e.latestMessage,
           messageCount: e.messageCount,
           unread: {
@@ -870,7 +866,6 @@ export function createRepository(pool: Pool): Repository {
           sharedClubs,
           counterpartMemberId: result.thread.counterpartMemberId,
           counterpartPublicName: result.thread.counterpartPublicName,
-          counterpartHandle: result.thread.counterpartHandle,
           latestMessage: result.thread.latestMessage,
           messageCount: result.thread.messageCount,
         },
@@ -1055,9 +1050,9 @@ export function createRepository(pool: Pool): Repository {
       ]);
 
       const recentMembers = await pool.query<{
-        member_id: string; public_name: string; handle: string | null; created_at: string;
+        member_id: string; public_name: string; created_at: string;
       }>(
-        `select id as member_id, public_name, handle, created_at::text as created_at
+        `select id as member_id, public_name, created_at::text as created_at
          from members
          order by created_at desc limit 5`,
       );
@@ -1072,7 +1067,6 @@ export function createRepository(pool: Pool): Repository {
         recentMembers: recentMembers.rows.map((r) => ({
           memberId: r.member_id,
           publicName: r.public_name,
-          handle: r.handle,
           createdAt: r.created_at,
         })),
       };
@@ -1081,10 +1075,10 @@ export function createRepository(pool: Pool): Repository {
     async adminListMembers({ limit, cursor }) {
       const fetchLimit = limit + 1;
       const result = await pool.query<{
-        member_id: string; public_name: string; handle: string | null;
+        member_id: string; public_name: string;
         state: string; created_at: string; membership_count: number; token_count: number;
       }>(
-        `select m.id as member_id, m.public_name, m.handle, m.state::text as state,
+        `select m.id as member_id, m.public_name, m.state::text as state,
                 m.created_at::text as created_at,
                 (select count(*)::int from club_memberships cm where cm.member_id = m.id) as membership_count,
                 (select count(*)::int from member_bearer_tokens t where t.member_id = m.id and t.revoked_at is null) as token_count
@@ -1096,7 +1090,7 @@ export function createRepository(pool: Pool): Repository {
       );
 
       const rows = result.rows.map((r) => ({
-        memberId: r.member_id, publicName: r.public_name, handle: r.handle,
+        memberId: r.member_id, publicName: r.public_name,
         state: r.state, createdAt: r.created_at,
         membershipCount: r.membership_count, tokenCount: r.token_count,
       }));
@@ -1109,10 +1103,10 @@ export function createRepository(pool: Pool): Repository {
 
     async adminGetMember({ memberId }) {
       const memberResult = await pool.query<{
-        member_id: string; public_name: string; handle: string | null; display_name: string;
+        member_id: string; public_name: string; display_name: string;
         state: string; created_at: string;
       }>(
-        `select id as member_id, public_name, handle, display_name, state::text as state, created_at::text as created_at
+        `select id as member_id, public_name, display_name, state::text as state, created_at::text as created_at
          from members where id = $1 limit 1`,
         [memberId],
       );
@@ -1178,7 +1172,7 @@ export function createRepository(pool: Pool): Repository {
       );
 
       return {
-        memberId: m.member_id, publicName: m.public_name, handle: m.handle,
+        memberId: m.member_id, publicName: m.public_name,
         displayName: m.display_name,
         state: m.state, createdAt: m.created_at,
         memberships: membershipsResult.rows.map((r) => ({
@@ -1253,12 +1247,12 @@ export function createRepository(pool: Pool): Repository {
       const fetchLimit = limit + 1;
       const result = await pool.query<{
         entity_id: string; content_thread_id: string; club_id: string; club_name: string; kind: string;
-        author_member_id: string; author_public_name: string; author_handle: string | null;
+        author_member_id: string; author_public_name: string;
         entity_version_id: string; title: string | null; state: string; created_at: string;
       }>(
         `select e.id as entity_id, e.content_thread_id, e.club_id, c.name as club_name,
                 e.kind::text as kind, e.author_member_id,
-                m.public_name as author_public_name, m.handle as author_handle,
+                m.public_name as author_public_name,
                 cev.id as entity_version_id,
                 cev.title, cev.state::text as state, e.created_at::text as created_at
          from entities e
@@ -1283,7 +1277,7 @@ export function createRepository(pool: Pool): Repository {
       const rows = pageRows.map((r) => {
         return {
           entityId: r.entity_id, contentThreadId: r.content_thread_id, clubId: r.club_id, clubName: r.club_name,
-          kind: r.kind as any, author: { memberId: r.author_member_id, publicName: r.author_public_name, handle: r.author_handle },
+          kind: r.kind as any, author: { memberId: r.author_member_id, publicName: r.author_public_name },
           title: r.state === 'removed' ? '[redacted]' : r.title,
           titleMentions: r.state === 'removed'
             ? []
@@ -1301,7 +1295,7 @@ export function createRepository(pool: Pool): Repository {
       const fetchLimit = limit + 1;
       const result = await pool.query<{
         thread_id: string; message_count: number; latest_message_at: string;
-        participants: Array<{ memberId: string; publicName: string; handle: string | null }>;
+        participants: Array<{ memberId: string; publicName: string }>;
         created_at: string;
       }>(
         `select t.id as thread_id,
@@ -1309,7 +1303,7 @@ export function createRepository(pool: Pool): Repository {
                 (select max(m.created_at)::text from dm_messages m where m.thread_id = t.id) as latest_message_at,
                 t.created_at::text as created_at,
                 (select coalesce(json_agg(json_build_object(
-                  'memberId', mbr.id, 'publicName', mbr.public_name, 'handle', mbr.handle
+                  'memberId', mbr.id, 'publicName', mbr.public_name
                 )), '[]'::json)
                 from dm_thread_participants tp
                 join members mbr on mbr.id = tp.member_id
@@ -1347,12 +1341,12 @@ export function createRepository(pool: Pool): Repository {
     async adminReadThread({ threadId, limit }) {
       const thread = await pool.query<{
         thread_id: string;
-        participants: Array<{ memberId: string; publicName: string; handle: string | null }>;
+        participants: Array<{ memberId: string; publicName: string }>;
         message_count: number;
       }>(
         `select t.id as thread_id,
                 (select coalesce(json_agg(json_build_object(
-                  'memberId', mbr.id, 'publicName', mbr.public_name, 'handle', mbr.handle
+                  'memberId', mbr.id, 'publicName', mbr.public_name
                 )), '[]'::json)
                 from dm_thread_participants tp
                 join members mbr on mbr.id = tp.member_id

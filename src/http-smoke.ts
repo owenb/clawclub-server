@@ -10,7 +10,6 @@ type SessionDescribeResponse = {
   actor: {
     member: {
       id: string;
-      handle: string | null;
       publicName: string;
     };
     activeMemberships: Array<{
@@ -64,20 +63,20 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function readSmokeHandle(): string {
-  const configuredHandle = process.env.CLAWCLUB_HTTP_SMOKE_HANDLE?.trim();
-  return configuredHandle && configuredHandle.length > 0 ? configuredHandle : 'owen-barnes';
+function readSmokeMemberName(): string {
+  const configured = process.env.CLAWCLUB_HTTP_SMOKE_MEMBER_NAME?.trim();
+  return configured && configured.length > 0 ? configured : 'Owen Barnes';
 }
 
-async function resolveMemberId(pool: Pool, handle: string): Promise<string> {
-  const result = await pool.query<{ id: string | null }>(
-    `select resolve_active_member_id_by_handle($1) as id`,
-    [handle],
+async function resolveMemberId(pool: Pool, publicName: string): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    `select id from members where public_name = $1 and state = 'active' limit 1`,
+    [publicName],
   );
 
   const memberId = result.rows[0]?.id;
   if (!memberId) {
-    throw new Error(`No active member found for handle ${handle}`);
+    throw new Error(`No active member found with public_name ${publicName}`);
   }
 
   return memberId;
@@ -174,13 +173,13 @@ export async function runHttpSmoke(): Promise<{
 }> {
   const identityUrl = requireEnv('DATABASE_URL');
   const setupPool = new Pool({ connectionString: identityUrl });
-  const memberHandle = readSmokeHandle();
+  const memberName = readSmokeMemberName();
   const actions = ['GET /api/schema', 'GET /stream', 'session.getContext', 'session.getContext (stale_client)', 'members.searchByFullText', 'profile.list', 'messages.getInbox', 'content.list', 'events.list'];
   let tokenId: string | null = null;
   let shutdown: (() => Promise<void>) | null = null;
 
   try {
-    const memberId = await resolveMemberId(setupPool, memberHandle);
+    const memberId = await resolveMemberId(setupPool, memberName);
     const token = await mintBearerToken(setupPool, memberId, 'http-smoke');
     tokenId = token.tokenId;
 
@@ -215,7 +214,7 @@ export async function runHttpSmoke(): Promise<{
 
     await assertStreamReady(baseUrl, token.bearerToken);
 
-    const memberQuery = session.actor.member.handle ?? session.actor.member.publicName.split(/\s+/)[0] ?? memberHandle;
+    const memberQuery = session.actor.member.publicName.split(/\s+/)[0] ?? memberName;
 
     const members = await postAction(baseUrl, token.bearerToken, 'members.searchByFullText', {
       query: memberQuery,

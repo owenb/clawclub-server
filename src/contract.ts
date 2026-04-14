@@ -45,7 +45,6 @@ export type MembershipVouchSummary = {
   fromMember: {
     memberId: string;
     publicName: string;
-    handle: string | null;
   };
   reason: string;
   metadata: Record<string, unknown>;
@@ -59,12 +58,10 @@ export type MembershipAdminSummary = {
   member: {
     memberId: string;
     publicName: string;
-    handle: string | null;
   };
   sponsor: {
     memberId: string;
     publicName: string;
-    handle: string | null;
   } | null;
   role: 'clubadmin' | 'member';
   isOwner: boolean;
@@ -224,7 +221,6 @@ export type InvitationSummary = {
   sponsor: {
     memberId: string;
     publicName: string;
-    handle: string | null;
   };
   reason: string;
   status: InvitationStatus;
@@ -242,7 +238,6 @@ export type ClubSummary = {
   owner: {
     memberId: string;
     publicName: string;
-    handle: string | null;
     email: string | null;
   };
   version: {
@@ -283,7 +278,6 @@ export type UpdateClubInput = {
 
 export type MemberActor = {
   id: string;
-  handle: string | null;
   publicName: string;
 };
 
@@ -296,7 +290,6 @@ export type ActorContext = {
 export type MaybeMemberActorContext = {
   member: {
     id: string;
-    handle: string | null;
     publicName: string;
   } | null;
   memberships: MembershipSummary[];
@@ -366,7 +359,6 @@ export type MemberSearchResult = {
   memberId: string;
   publicName: string;
   displayName: string;
-  handle: string | null;
   tagline: string | null;
   summary: string | null;
   whatIDo: string | null;
@@ -380,7 +372,6 @@ export type ClubMemberSummary = {
   memberId: string;
   publicName: string;
   displayName: string;
-  handle: string | null;
   tagline: string | null;
   summary: string | null;
   whatIDo: string | null;
@@ -422,20 +413,17 @@ export type ClubProfileFields = {
 export type MemberIdentity = {
   memberId: string;
   publicName: string;
-  handle: string | null;
   displayName: string;
 };
 
 export type MemberProfileEnvelope = {
   memberId: string;
   publicName: string;
-  handle: string | null;
   displayName: string;
   profiles: ClubProfile[];
 };
 
 export type UpdateMemberIdentityInput = {
-  handle?: string | null;
   displayName?: string;
 };
 
@@ -469,7 +457,6 @@ export type EventRsvpAttendee = {
   membershipId: string;
   memberId: string;
   publicName: string;
-  handle: string | null;
   response: EventRsvpState;
   note: string | null;
   createdAt: string;
@@ -490,7 +477,6 @@ export type ContentEntity = {
   author: {
     memberId: string;
     publicName: string;
-    handle: string | null;
     displayName: string;
   };
   version: {
@@ -625,7 +611,7 @@ export type SharedClubRef = {
 
 export type MentionSpan = {
   memberId: string;
-  authoredHandle: string;
+  authoredLabel: string;
   start: number;
   end: number;
 };
@@ -634,7 +620,6 @@ export type IncludedMember = {
   memberId: string;
   publicName: string;
   displayName: string;
-  handle: string | null;
 };
 
 export type IncludedBundle = {
@@ -697,7 +682,6 @@ export type DirectMessageThreadSummary = {
   sharedClubs: SharedClubRef[];
   counterpartMemberId: string;
   counterpartPublicName: string;
-  counterpartHandle: string | null;
   latestMessage: {
     messageId: string;
     senderMemberId: string | null;
@@ -795,7 +779,6 @@ export type AdminOverview = {
   recentMembers: Array<{
     memberId: string;
     publicName: string;
-    handle: string | null;
     createdAt: string;
   }>;
 };
@@ -803,7 +786,6 @@ export type AdminOverview = {
 export type AdminMemberSummary = {
   memberId: string;
   publicName: string;
-  handle: string | null;
   state: string;
   createdAt: string;
   membershipCount: number;
@@ -813,7 +795,6 @@ export type AdminMemberSummary = {
 export type AdminMemberDetail = {
   memberId: string;
   publicName: string;
-  handle: string | null;
   displayName: string;
   state: string;
   createdAt: string;
@@ -849,7 +830,6 @@ export type AdminContentSummary = {
   author: {
     memberId: string;
     publicName: string;
-    handle: string | null;
   };
   title: string | null;
   titleMentions: MentionSpan[];
@@ -863,7 +843,6 @@ export type AdminThreadSummary = {
   participants: Array<{
     memberId: string;
     publicName: string;
-    handle: string | null;
   }>;
   messageCount: number;
   latestMessageAt: string;
@@ -1038,7 +1017,7 @@ export type Repository = {
 
   removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 
-  adminCreateMember?(input: { actorMemberId: string; publicName: string; handle?: string | null; email?: string | null }): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }>;
+  adminCreateMember?(input: { actorMemberId: string; publicName: string; email?: string | null }): Promise<{ memberId: string; publicName: string; bearerToken: string }>;
   adminCreateMembership?(input: {
     actorMemberId: string;
     clubId: string;

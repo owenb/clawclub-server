@@ -527,21 +527,6 @@ $$;
 
 
 --
--- Name: resolve_active_member_id_by_handle(text); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.resolve_active_member_id_by_handle(target_handle text) RETURNS public.short_id
-    LANGUAGE sql STABLE
-    AS $$
-    SELECT m.id
-    FROM members m
-    WHERE m.handle = target_handle
-      AND m.state = 'active'
-    LIMIT 1;
-$$;
-
-
---
 -- Name: sync_club_membership_state(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1284,7 +1269,7 @@ CREATE TABLE public.dm_message_mentions (
     start_offset integer NOT NULL,
     end_offset integer NOT NULL,
     mentioned_member_id public.short_id NOT NULL,
-    authored_handle text NOT NULL,
+    authored_label text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT dm_message_mentions_offset_check CHECK (((start_offset >= 0) AND (end_offset > start_offset)))
 );
@@ -1405,7 +1390,7 @@ CREATE TABLE public.entity_version_mentions (
     start_offset integer NOT NULL,
     end_offset integer NOT NULL,
     mentioned_member_id public.short_id NOT NULL,
-    authored_handle text NOT NULL,
+    authored_label text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT entity_version_mentions_field_check CHECK ((field = ANY (ARRAY['title'::text, 'summary'::text, 'body'::text]))),
     CONSTRAINT entity_version_mentions_offset_check CHECK (((start_offset >= 0) AND (end_offset > start_offset)))
@@ -1618,7 +1603,6 @@ CREATE TABLE public.member_profile_embeddings (
 
 CREATE TABLE public.members (
     id public.short_id DEFAULT public.new_id() NOT NULL,
-    handle text NOT NULL,
     public_name text NOT NULL,
     display_name text NOT NULL,
     state public.member_state DEFAULT 'active'::public.member_state NOT NULL,
@@ -2079,14 +2063,6 @@ ALTER TABLE ONLY public.member_profile_embeddings
 
 ALTER TABLE ONLY public.member_profile_embeddings
     ADD CONSTRAINT member_profile_embeddings_unique UNIQUE (member_id, club_id, model, dimensions, source_version, chunk_index);
-
-
---
--- Name: members members_handle_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.members
-    ADD CONSTRAINT members_handle_unique UNIQUE (handle);
 
 
 --
@@ -3484,6 +3460,22 @@ ALTER TABLE ONLY public.signal_recompute_queue
 --
 
 -- ============================================================
+-- Seed data applied by shipped migrations
+-- ============================================================
+
+-- pg_dump sets search_path to '' at the top of this file. Restore it so
+-- unqualified type references in default-value functions (e.g. new_id() →
+-- short_id) resolve correctly during INSERT.
+SET search_path TO public;
+
+-- From 009_global_content_quota_default.sql
+INSERT INTO public.quota_policies (scope, club_id, action_name, max_per_day)
+SELECT 'global', NULL, 'content.create', 50
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.quota_policies WHERE scope = 'global' AND action_name = 'content.create'
+);
+
+-- ============================================================
 -- Schema migration ledger
 -- ============================================================
 
@@ -3494,4 +3486,7 @@ INSERT INTO public.schema_migrations (filename) VALUES
   ('005_unified_threaded_public_content.sql'),
   ('006_mentions.sql'),
   ('007_member_notifications_stream.sql'),
-  ('008_unified_club_join.sql');
+  ('008_unified_club_join.sql'),
+  ('009_global_content_quota_default.sql'),
+  ('010_rename_application_generated_profile_source.sql'),
+  ('011_delete_handles.sql');

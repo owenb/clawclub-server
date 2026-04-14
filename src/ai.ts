@@ -8,7 +8,8 @@ export const EMBEDDING_PROFILES = {
   member_profile: {
     model: 'text-embedding-3-small' as const,
     dimensions: 1536 as const,
-    sourceVersion: 'v1' as const,
+    // v2: handle field removed from profile embedding source (011_delete_handles)
+    sourceVersion: 'v2' as const,
   },
   entity: {
     model: 'text-embedding-3-small' as const,

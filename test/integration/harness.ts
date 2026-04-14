@@ -76,7 +76,6 @@ function createDbName(): string {
 
 export type SeededMember = {
   id: string;
-  handle: string;
   publicName: string;
   token: string;
 };
@@ -360,24 +359,21 @@ export class TestHarness {
 
   // ── Seeding helpers ──
 
-  async seedMember(publicName: string, handle: string): Promise<SeededMember> {
+  async seedMember(publicName: string, _legacyHandle?: string): Promise<SeededMember> {
     const rows = await this.sql<{ id: string }>(
-      `INSERT INTO members (public_name, display_name, handle, state)
-       VALUES ($1, $1, $2, 'active')
-       ON CONFLICT (handle) DO UPDATE
-         SET public_name = excluded.public_name,
-             display_name = excluded.display_name
+      `INSERT INTO members (public_name, display_name, state)
+       VALUES ($1, $1, 'active')
        RETURNING id`,
-      [publicName, handle],
+      [publicName],
     );
     const id = rows[0]!.id;
 
     const token = await this.createToken(id);
-    return { id, handle, publicName, token };
+    return { id, publicName, token };
   }
 
-  async seedSuperadmin(publicName: string, handle: string): Promise<SeededMember> {
-    const member = await this.seedMember(publicName, handle);
+  async seedSuperadmin(publicName: string, legacyHandle?: string): Promise<SeededMember> {
+    const member = await this.seedMember(publicName, legacyHandle);
     await this.sql(
       `INSERT INTO member_global_role_versions (member_id, role, version_no, created_by_member_id)
        VALUES ($1, 'superadmin', 1, $1) ON CONFLICT DO NOTHING`,

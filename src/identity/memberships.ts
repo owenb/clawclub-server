@@ -25,10 +25,8 @@ type MembershipAdminRow = {
   club_id: string;
   member_id: string;
   public_name: string;
-  handle: string | null;
   sponsor_member_id: string | null;
   sponsor_public_name: string | null;
-  sponsor_handle: string | null;
   role: MembershipSummary['role'];
   is_owner: boolean;
   status: MembershipState;
@@ -45,9 +43,9 @@ function mapMembershipRow(row: MembershipAdminRow): MembershipAdminSummary {
   return {
     membershipId: row.membership_id,
     clubId: row.club_id,
-    member: { memberId: row.member_id, publicName: row.public_name, handle: row.handle },
+    member: { memberId: row.member_id, publicName: row.public_name },
     sponsor: row.sponsor_member_id
-      ? { memberId: row.sponsor_member_id, publicName: row.sponsor_public_name ?? 'Unknown sponsor', handle: row.sponsor_handle }
+      ? { memberId: row.sponsor_member_id, publicName: row.sponsor_public_name ?? 'Unknown sponsor' }
       : null,
     role: row.role,
     isOwner: row.is_owner,
@@ -66,10 +64,9 @@ function mapMembershipRow(row: MembershipAdminRow): MembershipAdminSummary {
 
 const MEMBERSHIP_SELECT = `
   cnm.id as membership_id, cnm.club_id, cnm.member_id,
-  m.public_name, m.handle,
+  m.public_name,
   cnm.sponsor_member_id,
   sponsor.public_name as sponsor_public_name,
-  sponsor.handle as sponsor_handle,
   cnm.role,
   (n.owner_member_id = cnm.member_id) as is_owner,
   cnm.status, cnm.state_reason, cnm.state_version_no,
@@ -322,7 +319,7 @@ export async function listMembers(pool: Pool, input: {
 
   const result = await pool.query<{
     member_id: string; public_name: string; display_name: string;
-    handle: string | null; tagline: string | null; summary: string | null;
+    tagline: string | null; summary: string | null;
     what_i_do: string | null; known_for: string | null;
     services_summary: string | null; website_url: string | null;
     memberships: MembershipSummary[] | null;
@@ -331,7 +328,7 @@ export async function listMembers(pool: Pool, input: {
     `select
        m.id as member_id, m.public_name,
        m.display_name,
-       m.handle, cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
+       cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
        cmp.services_summary, cmp.website_url,
        jsonb_agg(distinct jsonb_build_object(
          'membershipId', anm.id, 'clubId', anm.club_id, 'slug', n.slug,
@@ -346,7 +343,7 @@ export async function listMembers(pool: Pool, input: {
      join current_member_club_profiles cmp
        on cmp.member_id = m.id and cmp.club_id = anm.club_id
      where anm.club_id = $1
-     group by m.id, m.public_name, m.display_name, m.handle, cmp.tagline,
+     group by m.id, m.public_name, m.display_name, cmp.tagline,
               cmp.summary, cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
      having ($3::timestamptz is null
        or max(anm.joined_at) < $3
@@ -360,7 +357,6 @@ export async function listMembers(pool: Pool, input: {
     memberId: row.member_id,
     publicName: row.public_name,
     displayName: row.display_name,
-    handle: row.handle,
     tagline: row.tagline,
     summary: row.summary,
     whatIDo: row.what_i_do,
@@ -564,36 +560,17 @@ export { hasLiveAccess };
 export async function createMemberDirect(pool: Pool, input: {
   actorMemberId: string;
   publicName: string;
-  handle?: string | null;
   email?: string | null;
-}): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }> {
+}): Promise<{ memberId: string; publicName: string; bearerToken: string }> {
   const { buildBearerToken } = await import('../token.ts');
 
   return withTransaction(pool, async (client) => {
-    // Generate handle if not provided
-    const baseHandle = (input.handle ?? input.publicName)
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 30) || 'member';
-    const suffix = Math.random().toString(36).slice(2, 8);
-    const handle = input.handle ?? `${baseHandle}-${suffix}`;
-
-    let memberResult;
-    try {
-      memberResult = await client.query<{ id: string; handle: string }>(
-        `insert into members (public_name, display_name, handle, state)
-         values ($1, $2, $3, 'active')
-         returning id, handle`,
-        [input.publicName, input.publicName, handle],
-      );
-    } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error && error.code === '23505' &&
-          'constraint' in error && typeof error.constraint === 'string' && error.constraint.includes('handle')) {
-        throw new AppError(409, 'handle_conflict', 'A member with that handle already exists');
-      }
-      throw error;
-    }
+    const memberResult = await client.query<{ id: string }>(
+      `insert into members (public_name, display_name, state)
+       values ($1, $2, 'active')
+       returning id`,
+      [input.publicName, input.publicName],
+    );
     const row = memberResult.rows[0];
     if (!row) throw new AppError(500, 'member_creation_failed', 'Failed to create member');
 
@@ -618,7 +595,6 @@ export async function createMemberDirect(pool: Pool, input: {
     return {
       memberId,
       publicName: input.publicName,
-      handle: row.handle,
       bearerToken: token.bearerToken,
     };
   });

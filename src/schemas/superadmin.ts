@@ -20,7 +20,6 @@ import {
   wireSlug, parseSlug,
   entityKind,
   membershipRole, membershipCreateInitialStatus,
-  wireHandle, parseHandle,
 } from './fields.ts';
 import {
   adminOverview, adminMemberSummary, adminMemberDetail,
@@ -733,7 +732,6 @@ const superadminTokensRevoke: ActionDefinition = {
 
 type SuperadminMembersCreateInput = {
   publicName: string;
-  handle?: string | null;
   email?: string | null;
 };
 
@@ -749,7 +747,6 @@ const superadminMembersCreate: ActionDefinition = {
   wire: {
     input: z.object({
       publicName: wireRequiredString.describe('Display name for the new member'),
-      handle: wireHandle.describe('Optional handle (auto-generated if omitted). Lowercase alphanumeric with hyphens.'),
       email: wireOptionalString.describe('Optional private contact email'),
     }),
     output: z.object({
@@ -761,7 +758,6 @@ const superadminMembersCreate: ActionDefinition = {
   parse: {
     input: z.object({
       publicName: parseRequiredString,
-      handle: parseHandle.default(null),
       email: parseTrimmedNullableString.default(null).refine(
         val => val === null || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val),
         'email must be a valid email address',
@@ -772,12 +768,11 @@ const superadminMembersCreate: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     ctx.requireCapability('adminCreateMember');
-    const { publicName, handle, email } = input as SuperadminMembersCreateInput;
+    const { publicName, email } = input as SuperadminMembersCreateInput;
 
     const result = await ctx.repository.adminCreateMember!({
       actorMemberId: ctx.actor.member.id,
       publicName,
-      handle,
       email,
     });
 
@@ -786,7 +781,6 @@ const superadminMembersCreate: ActionDefinition = {
         member: {
           memberId: result.memberId,
           publicName: result.publicName,
-          handle: result.handle,
         },
         bearerToken: result.bearerToken,
       },

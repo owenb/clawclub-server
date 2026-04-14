@@ -1522,40 +1522,6 @@ describe('platform authorization', () => {
   });
 });
 
-// ── superadmin.members.createWithAccessToken handle validation ───────────────
-
-describe('superadmin.members.createWithAccessToken handle validation', () => {
-  it('rejects invalid explicit handles', async () => {
-    const admin = await h.seedSuperadmin('Handle Admin', 'handle-admin');
-    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
-      publicName: 'Bad Handle User',
-      handle: 'Bad Handle!!!',
-    });
-    assert.equal(err.status, 400);
-    assert.equal(err.code, 'invalid_input');
-    assert.match(err.message, /handle/i);
-  });
-
-  it('accepts valid explicit handles', async () => {
-    const admin = await h.seedSuperadmin('Handle Admin OK', 'handle-admin-ok');
-    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
-      publicName: 'Good Handle User',
-      handle: 'good-handle-42',
-    });
-    const member = (result.data as Record<string, unknown>).member as Record<string, unknown>;
-    assert.equal(member.handle, 'good-handle-42');
-  });
-
-  it('auto-generates handle when omitted', async () => {
-    const admin = await h.seedSuperadmin('Handle Admin Auto', 'handle-admin-auto');
-    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
-      publicName: 'Auto Handle User',
-    });
-    const member = (result.data as Record<string, unknown>).member as Record<string, unknown>;
-    assert.ok(typeof member.handle === 'string' && member.handle.length > 0, 'should auto-generate a handle');
-  });
-});
-
 // ── Billing sync date validation ────────────────────────────────────────────
 
 describe('billing sync date validation', () => {

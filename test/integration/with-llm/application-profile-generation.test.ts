@@ -278,8 +278,8 @@ describe('application profile generation (LLM)', () => {
 
     const oldClubProfile = await getCurrentClubProfile(member.id, ownerA.club.id);
     const newClubProfile = await getCurrentClubProfile(member.id, ownerB.club.id);
-    const memberRow = await h.sql<{ display_name: string; handle: string }>(
-      `select display_name, handle from members where id = $1`,
+    const memberRow = await h.sql<{ display_name: string }>(
+      `select display_name from members where id = $1`,
       [member.id],
     );
 
@@ -287,7 +287,6 @@ describe('application profile generation (LLM)', () => {
     assert.equal(newClubProfile.generation_source, 'application_generated');
     assert.notEqual(newClubProfile.summary, oldClubProfile.summary);
     assert.equal(memberRow[0]?.display_name, 'Ada MultiClub');
-    assert.equal(memberRow[0]?.handle, 'ada-multiclub');
   });
 
   it('stores the generated draft on the membership before acceptance and materializes it on first active transition', async () => {

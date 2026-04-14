@@ -221,24 +221,6 @@ export const parseOptionalRecord = z.record(z.string(), z.unknown()).optional().
 export const wireRequiredRecord = z.record(z.string(), z.unknown());
 
 /**
- * Wire: handle format (lowercase alphanumeric with single hyphens).
- * Server trims whitespace and normalizes empty string to null.
- * After normalization, non-null values must match /^[a-z0-9]+(-[a-z0-9]+)*$/.
- */
-export const wireHandle = z.string().nullable().optional()
-  .describe('Lowercase alphanumeric with hyphens. Omit to leave unchanged, null or empty to clear. Server trims and validates format.');
-
-/** Parse: validates handle format */
-export const parseHandle = safeString.pipe(z.string().trim())
-  .transform(s => s === '' ? null : s)
-  .nullable()
-  .optional()
-  .refine(
-    val => val === undefined || val === null || HANDLE_REGEX.test(val),
-    'handle must use lowercase letters, numbers, and single hyphens',
-  );
-
-/**
  * Wire: full name (at least two words).
  * Server trims whitespace and normalizes internal whitespace.
  */

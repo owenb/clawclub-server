@@ -264,7 +264,6 @@ function makeDirectMessageThread(overrides: Partial<DirectMessageThreadSummary> 
     sharedClubs: [{ clubId: 'club-1', slug: 'alpha', name: 'Alpha' }],
     counterpartMemberId: 'member-2',
     counterpartPublicName: 'Member Two',
-    counterpartHandle: 'member-two',
     latestMessage: {
       messageId: 'message-1',
       senderMemberId: 'member-2',
@@ -1611,8 +1610,7 @@ test('profile.update normalizes nullable strings for club-scoped fields', async 
     links: [{ label: 'GitHub', url: 'https://github.com/example' }],
     profile: { homeBase: 'Berlin' },
   });
-  assert.equal(result.actor.member.handle, 'member-one');
-  assert.equal(result.data.handle, 'member-one');
+  assert.equal(result.actor.member.publicName, 'Member One');
   assert.equal(result.data.profiles[0]?.club.clubId, 'club-2');
   assert.equal(result.data.profiles[0]?.tagline, null);
 });
@@ -2527,27 +2525,6 @@ test('profile.list returns 404 when the target member is outside shared scope', 
       assert.ok(error instanceof AppError);
       assert.equal(error.statusCode, 404);
       assert.equal(error.code, 'not_found');
-      return true;
-    },
-  );
-});
-
-test('profile.update rejects invalid handles', async () => {
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
-
-  await assert.rejects(
-    () =>
-      dispatcher.dispatch({
-        bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-        action: 'profile.update',
-        payload: {
-          handle: 'Bad Handle',
-        },
-      }),
-    (error: unknown) => {
-      assert.ok(error instanceof AppError);
-      assert.equal(error.statusCode, 400);
-      assert.equal(error.code, 'invalid_input');
       return true;
     },
   );

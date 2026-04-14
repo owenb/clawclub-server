@@ -151,7 +151,6 @@ const membersList: ActionDefinition = {
 // ── members.updateIdentity ──────────────────────────────
 
 type MembersUpdateIdentityInput = {
-  handle?: string | null;
   displayName?: string;
 };
 
@@ -163,12 +162,11 @@ const membersUpdateIdentity: ActionDefinition = {
   safety: 'mutating',
   authorizationNote: 'Updates own global identity only.',
   notes: [
-    'Use this action for global identity fields like handle and displayName. Club-scoped profile fields belong on profile.update.',
+    'Use this action for global identity fields like displayName. Club-scoped profile fields belong on profile.update.',
   ],
 
   wire: {
     input: z.object({
-      handle: wireOptionalString.describe('Global handle'),
       displayName: wireOptionalString.describe('Global display name'),
     }),
     output: memberIdentity,
@@ -176,14 +174,13 @@ const membersUpdateIdentity: ActionDefinition = {
 
   parse: {
     input: z.object({
-      handle: parseTrimmedNullableString.optional(),
       displayName: z.string().trim().min(1).optional(),
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const patch = input as MembersUpdateIdentityInput;
-    if (patch.handle === undefined && patch.displayName === undefined) {
+    if (patch.displayName === undefined) {
       throw new AppError(400, 'invalid_input', 'At least one identity field must be provided');
     }
 
@@ -196,7 +193,6 @@ const membersUpdateIdentity: ActionDefinition = {
       data: identity,
       nextMember: {
         id: identity.memberId,
-        handle: identity.handle,
         publicName: identity.publicName,
       },
     };

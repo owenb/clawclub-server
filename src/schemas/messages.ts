@@ -37,7 +37,7 @@ const MESSAGES_SEND_ERRORS = [
   },
   {
     code: 'invalid_mentions',
-    meaning: 'One or more @handle mentions could not be resolved in the current DM scope.',
+    meaning: 'One or more [Name|memberId] mentions referenced unknown member ids.',
     recovery: 'Correct or remove the listed mentions, then resend the message.',
   },
 ] as const;

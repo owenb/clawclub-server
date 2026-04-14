@@ -18,7 +18,6 @@ export const passthroughGate: QualityGateFn = async () => ({
 
 export function makeActor(overrides: {
   memberId?: string;
-  handle?: string;
   publicName?: string;
   globalRoles?: ActorContext['globalRoles'];
   memberships?: MembershipSummary[];
@@ -26,7 +25,6 @@ export function makeActor(overrides: {
   return {
     member: {
       id: overrides.memberId ?? 'member-1',
-      handle: overrides.handle ?? 'member-one',
       publicName: overrides.publicName ?? 'Member One',
     },
     globalRoles: overrides.globalRoles ?? [],

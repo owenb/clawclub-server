@@ -33,7 +33,6 @@ export const sharedContext = z.object({
 export const actorEnvelope = z.object({
   member: z.object({
     id: z.string(),
-    handle: z.string().nullable(),
     publicName: z.string(),
   }),
   globalRoles: z.array(z.string()),
@@ -82,7 +81,6 @@ export const errorEnvelope = z.object({
 export const sseReadyEvent = z.object({
   member: z.object({
     id: z.string(),
-    handle: z.string().nullable(),
     publicName: z.string(),
   }),
   requestScope,

@@ -43,9 +43,7 @@ type MembershipApplicationRow = {
   member_id: string;
   sponsor_member_id: string | null;
   sponsor_public_name: string | null;
-  sponsor_handle: string | null;
   member_public_name: string;
-  member_handle: string | null;
   role: 'clubadmin' | 'member';
   status: MembershipState;
   state_reason: string | null;
@@ -79,7 +77,6 @@ type InvitationRow = {
   club_id: string;
   sponsor_member_id: string;
   sponsor_public_name: string;
-  sponsor_handle: string | null;
   candidate_name: string;
   candidate_email: string;
   candidate_email_normalized: string;
@@ -190,7 +187,6 @@ function mapInvitationSummary(row: InvitationRow): InvitationSummary {
     sponsor: {
       memberId: row.sponsor_member_id,
       publicName: row.sponsor_public_name,
-      handle: row.sponsor_handle,
     },
     reason: row.reason,
     status: computeInvitationStatus(row),
@@ -262,12 +258,11 @@ async function createAnonymousMember(client: DbClient, input: {
   nameHint?: string | null;
 }): Promise<string> {
   const publicName = buildPlaceholderName(input.email, input.nameHint);
-  const handle = `applicant-${generateTokenId()}`;
   const result = await client.query<{ member_id: string }>(
-    `insert into members (public_name, display_name, handle, state)
-     values ($1, $1, $2, 'active')
+    `insert into members (public_name, display_name, state)
+     values ($1, $1, 'active')
      returning id as member_id`,
-    [publicName, handle],
+    [publicName],
   );
   const memberId = result.rows[0]?.member_id;
   if (!memberId) {
@@ -287,9 +282,7 @@ async function readMembershipApplicationRow(client: DbClient, membershipId: stri
         cm.member_id,
         cm.sponsor_member_id,
         sponsor.public_name as sponsor_public_name,
-        sponsor.handle as sponsor_handle,
         member_row.public_name as member_public_name,
-        member_row.handle as member_handle,
         cm.role::text as role,
         cm.status,
         cm.state_reason,
@@ -406,7 +399,6 @@ async function readInvitationForValidation(client: DbClient, invitationId: strin
         i.club_id,
         i.sponsor_member_id,
         sponsor.public_name as sponsor_public_name,
-        sponsor.handle as sponsor_handle,
         i.candidate_name,
         i.candidate_email,
         i.candidate_email_normalized,
@@ -1138,13 +1130,11 @@ export async function getMembershipApplication(pool: Pool, actorMemberId: string
       member: {
         memberId: row.member_id,
         publicName: row.member_public_name,
-        handle: row.member_handle,
       },
       sponsor: row.sponsor_member_id
         ? {
             memberId: row.sponsor_member_id,
             publicName: row.sponsor_public_name ?? 'Unknown sponsor',
-            handle: row.sponsor_handle,
           }
         : null,
       role: row.role,
@@ -1207,8 +1197,8 @@ export async function issueInvitation(pool: Pool, input: {
     }
 
     const normalizedEmail = normalizeEmail(input.candidateEmail);
-    const sponsor = await client.query<{ public_name: string; handle: string | null }>(
-      `select public_name, handle from members where id = $1`,
+    const sponsor = await client.query<{ public_name: string }>(
+      `select public_name from members where id = $1`,
       [input.actorMemberId],
     );
     await client.query(
@@ -1263,7 +1253,6 @@ export async function issueInvitation(pool: Pool, input: {
          club_id,
          sponsor_member_id,
          $8::text as sponsor_public_name,
-         $9::text as sponsor_handle,
          candidate_name,
          candidate_email,
          candidate_email_normalized,
@@ -1284,7 +1273,6 @@ export async function issueInvitation(pool: Pool, input: {
         input.reason,
         code.tokenHash,
         sponsor.rows[0]?.public_name ?? 'Unknown sponsor',
-        sponsor.rows[0]?.handle ?? null,
       ],
     );
     const row = result.rows[0];
@@ -1309,7 +1297,6 @@ export async function listIssuedInvitations(pool: Pool, input: {
         i.club_id,
         i.sponsor_member_id,
         sponsor.public_name as sponsor_public_name,
-        sponsor.handle as sponsor_handle,
         i.candidate_name,
         i.candidate_email,
         i.candidate_email_normalized,
@@ -1363,7 +1350,6 @@ export async function revokeInvitation(pool: Pool, input: {
          club_id,
          sponsor_member_id,
          $2::text as sponsor_public_name,
-         $3::text as sponsor_handle,
          candidate_name,
          candidate_email,
          candidate_email_normalized,
@@ -1375,7 +1361,7 @@ export async function revokeInvitation(pool: Pool, input: {
          used_membership_id,
          revoked_at::text as revoked_at,
          created_at::text as created_at`,
-      [input.invitationId, invitation.sponsor_public_name, invitation.sponsor_handle],
+      [input.invitationId, invitation.sponsor_public_name],
     );
     return updated.rows[0] ? mapInvitationSummary(updated.rows[0]) : mapInvitationSummary(invitation);
   });

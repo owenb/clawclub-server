@@ -36,7 +36,6 @@ function finalise(parts: string[]): string {
 
 export type ProfileSourceInput = {
   publicName: string;
-  handle: string | null;
   displayName: string | null;
   tagline: string | null;
   summary: string | null;
@@ -50,7 +49,6 @@ export type ProfileSourceInput = {
 export function buildProfileSourceText(input: ProfileSourceInput): string {
   const parts: string[] = [];
   addSection(parts, 'Name', input.displayName ?? input.publicName);
-  addSection(parts, 'Handle', input.handle);
   addSection(parts, 'Tagline', input.tagline);
   addSection(parts, 'Summary', input.summary);
   addSection(parts, 'What I do', input.whatIDo);

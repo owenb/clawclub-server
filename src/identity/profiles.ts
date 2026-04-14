@@ -35,7 +35,6 @@ const clubProfileFieldsSchema = z.object({
 type MemberIdentityRow = {
   member_id: string;
   public_name: string;
-  handle: string | null;
   display_name: string;
 };
 
@@ -85,7 +84,6 @@ type MemberSearchRow = {
   member_id: string;
   public_name: string;
   display_name: string;
-  handle: string | null;
   tagline: string | null;
   summary: string | null;
   what_i_do: string | null;
@@ -105,7 +103,6 @@ function mapIdentityRow(row: MemberIdentityRow): MemberIdentity {
   return {
     memberId: row.member_id,
     publicName: row.public_name,
-    handle: row.handle,
     displayName: row.display_name,
   };
 }
@@ -181,7 +178,7 @@ async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): 
 
 async function readMemberIdentity(client: DbClient, memberId: string): Promise<MemberIdentityRow | null> {
   const result = await client.query<MemberIdentityRow>(
-    `select id as member_id, public_name, handle, display_name
+    `select id as member_id, public_name, display_name
      from members
      where id = $1 and state = 'active'
      limit 1`,
@@ -428,9 +425,6 @@ export async function updateMemberIdentity(
   patch: UpdateMemberIdentityInput,
 ): Promise<MemberIdentity> {
   return withTransaction(pool, async (client) => {
-    if (patch.handle !== undefined) {
-      await client.query(`update members set handle = $2 where id = $1`, [actor.member.id, patch.handle]);
-    }
     if (patch.displayName !== undefined) {
       await client.query(`update members set display_name = $2 where id = $1`, [actor.member.id, patch.displayName]);
     }
@@ -622,7 +616,6 @@ function mapSearchRow(row: MemberSearchRow): MemberSearchResult {
     memberId: row.member_id,
     publicName: row.public_name,
     displayName: row.display_name,
-    handle: row.handle,
     tagline: row.tagline,
     summary: row.summary,
     whatIDo: row.what_i_do,
@@ -653,7 +646,6 @@ export async function fullTextSearchMembers(pool: Pool, input: {
        m.id as member_id,
        m.public_name,
        m.display_name,
-       m.handle,
        cmp.tagline,
        cmp.summary,
        cmp.what_i_do,
@@ -727,7 +719,6 @@ export async function findMembersViaEmbedding(pool: Pool, input: {
        m.id as member_id,
        m.public_name,
        m.display_name,
-       m.handle,
        cmp.tagline,
        cmp.summary,
        cmp.what_i_do,
@@ -753,7 +744,7 @@ export async function findMembersViaEmbedding(pool: Pool, input: {
          or ((empa.embedding <=> $3::vector) = $5 and m.id < $6)
        )
      group by
-       m.id, m.public_name, m.display_name, m.handle,
+       m.id, m.public_name, m.display_name,
        c.id, c.slug, c.name,
        cmp.tagline, cmp.summary, cmp.what_i_do,
        cmp.known_for, cmp.services_summary, cmp.website_url

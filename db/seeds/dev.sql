@@ -8,35 +8,34 @@ begin;
 -- Members (12 active + 1 suspended)
 -- ============================================================
 
-insert into members (public_name, display_name, handle, state, created_at) values
-  ('Owen Barnes',     'Owen Barnes',     'owen-barnes',     'active',    now() - interval '60 days'),
-  ('Alice Hound',     'Alice Hound',     'alice-hound',     'active',    now() - interval '50 days'),
-  ('Bob Whiskers',    'Bob Whiskers',    'bob-whiskers',    'active',    now() - interval '50 days'),
-  ('Charlie Paws',    'Charlie Paws',    'charlie-paws',    'active',    now() - interval '50 days'),
-  ('Diana Feathers',  'Diana Feathers',  'diana-feathers',  'active',    now() - interval '40 days'),
-  ('Eddie Scales',    'Eddie Scales',    'eddie-scales',    'active',    now() - interval '40 days'),
-  ('Fiona Hooves',    'Fiona Hooves',    'fiona-hooves',    'active',    now() - interval '30 days'),
-  ('George Wings',    'George Wings',    'george-wings',    'active',    now() - interval '30 days'),
-  ('Hannah Fins',     'Hannah Fins',     'hannah-fins',     'active',    now() - interval '20 days'),
-  ('Ivan Tusks',      'Ivan Tusks',      'ivan-tusks',      'active',    now() - interval '20 days'),
-  ('Julia Stripes',   'Julia Stripes',   'julia-stripes',   'active',    now() - interval '20 days'),
-  ('Kevin Spots',     'Kevin Spots',     'kevin-spots',     'active',    now() - interval '5 days'),
-  ('Sam Shadow',      'Sam Shadow',      'sam-shadow',      'suspended', now() - interval '45 days')
-on conflict (handle) do nothing;
+insert into members (public_name, display_name, state, created_at) values
+  ('Owen Barnes',     'Owen Barnes',     'active',    now() - interval '60 days'),
+  ('Alice Hound',     'Alice Hound',     'active',    now() - interval '50 days'),
+  ('Bob Whiskers',    'Bob Whiskers',    'active',    now() - interval '50 days'),
+  ('Charlie Paws',    'Charlie Paws',    'active',    now() - interval '50 days'),
+  ('Diana Feathers',  'Diana Feathers',  'active',    now() - interval '40 days'),
+  ('Eddie Scales',    'Eddie Scales',    'active',    now() - interval '40 days'),
+  ('Fiona Hooves',    'Fiona Hooves',    'active',    now() - interval '30 days'),
+  ('George Wings',    'George Wings',    'active',    now() - interval '30 days'),
+  ('Hannah Fins',     'Hannah Fins',     'active',    now() - interval '20 days'),
+  ('Ivan Tusks',      'Ivan Tusks',      'active',    now() - interval '20 days'),
+  ('Julia Stripes',   'Julia Stripes',   'active',    now() - interval '20 days'),
+  ('Kevin Spots',     'Kevin Spots',     'active',    now() - interval '5 days'),
+  ('Sam Shadow',      'Sam Shadow',      'suspended', now() - interval '45 days');
 
-select id as owen_id    from members where handle = 'owen-barnes' \gset
-select id as alice_id   from members where handle = 'alice-hound' \gset
-select id as bob_id     from members where handle = 'bob-whiskers' \gset
-select id as charlie_id from members where handle = 'charlie-paws' \gset
-select id as diana_id   from members where handle = 'diana-feathers' \gset
-select id as eddie_id   from members where handle = 'eddie-scales' \gset
-select id as fiona_id   from members where handle = 'fiona-hooves' \gset
-select id as george_id  from members where handle = 'george-wings' \gset
-select id as hannah_id  from members where handle = 'hannah-fins' \gset
-select id as ivan_id    from members where handle = 'ivan-tusks' \gset
-select id as julia_id   from members where handle = 'julia-stripes' \gset
-select id as kevin_id   from members where handle = 'kevin-spots' \gset
-select id as sam_id     from members where handle = 'sam-shadow' \gset
+select id as owen_id    from members where public_name = 'Owen Barnes' \gset
+select id as alice_id   from members where public_name = 'Alice Hound' \gset
+select id as bob_id     from members where public_name = 'Bob Whiskers' \gset
+select id as charlie_id from members where public_name = 'Charlie Paws' \gset
+select id as diana_id   from members where public_name = 'Diana Feathers' \gset
+select id as eddie_id   from members where public_name = 'Eddie Scales' \gset
+select id as fiona_id   from members where public_name = 'Fiona Hooves' \gset
+select id as george_id  from members where public_name = 'George Wings' \gset
+select id as hannah_id  from members where public_name = 'Hannah Fins' \gset
+select id as ivan_id    from members where public_name = 'Ivan Tusks' \gset
+select id as julia_id   from members where public_name = 'Julia Stripes' \gset
+select id as kevin_id   from members where public_name = 'Kevin Spots' \gset
+select id as sam_id     from members where public_name = 'Sam Shadow' \gset
 
 -- ============================================================
 -- Seed profile source rows (replicated into each active membership below)
@@ -1098,7 +1097,7 @@ insert into club_activity (club_id, topic, audience, payload, entity_id, created
   (:'dogclub_id', 'entity.version.published', 'members',    '{"kind":"opportunity","title":"Dog Walking Business Partnership"}'::jsonb, :'dog_opp1', :'owen_id',  now() - interval '10 days'),
   (:'dogclub_id', 'entity.version.published', 'members',    '{"kind":"event","title":"DogClub Monthly Meetup - April"}'::jsonb,     :'dog_evt1',  :'owen_id',    now() - interval '8 days'),
   (:'dogclub_id', 'entity.version.published', 'members',    '{"kind":"post","title":"Best Dog-Friendly Hiking Trails"}'::jsonb,     :'dog_post2', :'charlie_id', now() - interval '7 days'),
-  (:'dogclub_id', 'membership.activated',     'clubadmins', '{"handle":"kevin-spots","publicName":"Kevin Spots"}'::jsonb,            null,         :'owen_id',    now() - interval '5 days'),
+  (:'dogclub_id', 'membership.activated',     'clubadmins', '{"publicName":"Kevin Spots"}'::jsonb,                                    null,         :'owen_id',    now() - interval '5 days'),
   (:'dogclub_id', 'application.submitted',    'clubadmins', jsonb_build_object('membershipId', :'hannah_dog_mid', 'applicantName', 'Hannah Fins', 'origin', 'invitation'), null, :'charlie_id', now() - interval '3 days'),
   (:'dogclub_id', 'entity.version.published', 'members',    '{"kind":"post","title":"Training Tips for Stubborn Breeds"}'::jsonb,    :'dog_post3', :'ivan_id',    now() - interval '2 days'),
   -- CatClub

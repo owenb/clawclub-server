@@ -20,7 +20,6 @@ type ClubRow = {
   archived_at: string | null;
   owner_member_id: string;
   owner_public_name: string;
-  owner_handle: string | null;
   owner_email: string | null;
   version_no: number;
   version_created_at: string;
@@ -38,7 +37,6 @@ function mapRow(row: ClubRow): ClubSummary {
     owner: {
       memberId: row.owner_member_id,
       publicName: row.owner_public_name,
-      handle: row.owner_handle,
       email: row.owner_email,
     },
     version: {
@@ -54,7 +52,7 @@ const SELECT_CLUB = `
     n.id as club_id, n.slug, n.name, n.summary, n.admission_policy,
     n.archived_at::text as archived_at,
     cv.owner_member_id, m.public_name as owner_public_name,
-    m.handle as owner_handle, mpc.email as owner_email,
+    mpc.email as owner_email,
     cv.version_no, cv.created_at::text as version_created_at,
     cv.created_by_member_id as version_created_by_member_id
   from clubs n

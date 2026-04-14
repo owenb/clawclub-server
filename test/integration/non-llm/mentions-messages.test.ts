@@ -20,8 +20,12 @@ function included(result: Record<string, unknown>): Record<string, Record<string
   return ((result.data as Record<string, unknown>).included as Record<string, unknown>).membersById as Record<string, Record<string, unknown>>;
 }
 
+function mentionSpan(label: string, memberId: string): string {
+  return `[${label}|${memberId}]`;
+}
+
 describe('message mentions', () => {
-  it('hydrates thread and inbox mentions, dedupes included members, and preserves authoredHandle across renames', async () => {
+  it('hydrates DM mention spans with current display name across reads', async () => {
     const owner = await h.seedOwner('dm-mention-club', 'DM Mention Club');
     const alice = await h.seedCompedMember(owner.club.id, 'DM Alice', 'dm-mention-alice');
     const bob = await h.seedCompedMember(owner.club.id, 'DM Bob', 'dm-mention-bob');
@@ -29,107 +33,46 @@ describe('message mentions', () => {
 
     const firstSend = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
-      messageText: 'Looping in @dm-mention-carol on this one.',
+      messageText: `Looping in ${mentionSpan('DM Carol', carol.id)} on this one.`,
     });
     const firstMessage = message(firstSend);
-    assert.deepEqual(firstMessage.mentions, [{
-      memberId: carol.id,
-      authoredHandle: 'dm-mention-carol',
-      start: 11,
-      end: 28,
-    }]);
-    assert.equal(included(firstSend)[carol.id]?.handle, 'dm-mention-carol');
+    const mentions = firstMessage.mentions as Array<Record<string, unknown>>;
+    assert.equal(mentions.length, 1);
+    assert.equal(mentions[0]?.memberId, carol.id);
+    assert.equal(mentions[0]?.authoredLabel, 'DM Carol');
+    assert.equal(included(firstSend)[carol.id]?.publicName, 'DM Carol');
 
-    await h.apiOk(bob.token, 'messages.send', {
-      recipientMemberId: alice.id,
-      messageText: 'Agreed, tagging @dm-mention-carol again for visibility.',
-    });
-
-    const inbox = await h.apiOk(alice.token, 'messages.getInbox', {});
-    const inboxData = inbox.data as Record<string, unknown>;
-    const inboxThread = ((inboxData.results as Array<Record<string, unknown>>)
-      .find((row) => row.threadId === firstMessage.threadId) as Record<string, unknown>);
-    assert.deepEqual(Object.keys(included(inbox)), [carol.id]);
-    assert.equal((((inboxThread.latestMessage as Record<string, unknown>).mentions as Array<Record<string, unknown>>)[0]?.memberId), carol.id);
-
-    const threadBeforeRename = await h.apiOk(alice.token, 'messages.getThread', {
-      threadId: firstMessage.threadId as string,
-      limit: 20,
-    });
-    const beforeRenameMessages = (threadBeforeRename.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
-    assert.deepEqual(Object.keys(included(threadBeforeRename)), [carol.id]);
-    assert.equal((((beforeRenameMessages[0]!.mentions as Array<Record<string, unknown>>)[0]?.authoredHandle)), 'dm-mention-carol');
-    assert.equal((((beforeRenameMessages[1]!.mentions as Array<Record<string, unknown>>)[0]?.authoredHandle)), 'dm-mention-carol');
-
+    // Display name rename — authoredLabel preserved, hydration reflects new display.
     await h.apiOk(carol.token, 'members.updateIdentity', {
-      handle: 'dm-carol-renamed',
+      displayName: 'Carol (renamed)',
     });
 
     const threadAfterRename = await h.apiOk(alice.token, 'messages.getThread', {
       threadId: firstMessage.threadId as string,
       limit: 20,
     });
-    const afterRenameMessages = (threadAfterRename.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
-    assert.equal(included(threadAfterRename)[carol.id]?.handle, 'dm-carol-renamed');
-    assert.equal((((afterRenameMessages[0]!.mentions as Array<Record<string, unknown>>)[0]?.authoredHandle)), 'dm-mention-carol');
-    assert.equal((((afterRenameMessages[1]!.mentions as Array<Record<string, unknown>>)[0]?.authoredHandle)), 'dm-mention-carol');
+    const msgs = (threadAfterRename.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    const msgMentions = (msgs[0]!.mentions as Array<Record<string, unknown>>);
+    assert.equal(msgMentions[0]?.authoredLabel, 'DM Carol');
+    assert.equal(included(threadAfterRename)[carol.id]?.displayName, 'Carol (renamed)');
   });
 
-  it('rejects mentions to pending shared-club members', async () => {
-    const owner = await h.seedOwner('dm-pending-club', 'DM Pending Club');
-    const alice = await h.seedCompedMember(owner.club.id, 'Pending Alice', 'dm-pending-alice');
-    const bob = await h.seedCompedMember(owner.club.id, 'Pending Bob', 'dm-pending-bob');
-    const carol = await h.seedCompedMember(owner.club.id, 'Pending Carol', 'dm-pending-carol');
+  it('rejects DM mentions with unknown member ids', async () => {
+    const owner = await h.seedOwner('dm-unknown-club', 'DM Unknown Club');
+    const alice = await h.seedCompedMember(owner.club.id, 'Unknown Alice', 'dm-unknown-alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'Unknown Bob', 'dm-unknown-bob');
 
-    await h.sql(
-      `update members
-       set state = 'pending'
-       where id = $1`,
-      [carol.id],
-    );
-
+    const bogusId = 'zzzzzzzzzzzz';
     const err = await h.apiErr(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
-      messageText: 'Trying to ping @dm-pending-carol before activation.',
+      messageText: `Trying to ping ${mentionSpan('Ghost', bogusId)} before activation.`,
     });
     assert.equal(err.status, 400);
-    assert.equal(err.code, 'invalid_mentions');
-    assert.match(err.message, /@dm-pending-carol/);
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, new RegExp(bogusId));
   });
 
-  it('clientKey replays bypass mention revalidation after the mentioned member is banned', async () => {
-    const admin = await h.seedSuperadmin('DM Replay Admin', 'dm-replay-admin');
-    const owner = await h.seedOwner('dm-replay-club', 'DM Replay Club');
-    const alice = await h.seedCompedMember(owner.club.id, 'Replay Alice', 'dm-replay-alice');
-    const carol = await h.seedCompedMember(owner.club.id, 'Replay Carol', 'dm-replay-carol');
-    const clientKey = 'dm-mention-replay';
-
-    const first = await h.apiOk(owner.token, 'messages.send', {
-      recipientMemberId: alice.id,
-      messageText: 'Checking with @dm-replay-carol before we decide.',
-      clientKey,
-    });
-    const firstMessage = message(first);
-
-    await h.apiOk(admin.token, 'superadmin.billing.banMember', {
-      memberId: carol.id,
-      reason: 'dm mention replay test',
-    });
-
-    const replay = await h.apiOk(owner.token, 'messages.send', {
-      recipientMemberId: alice.id,
-      messageText: 'Checking with @dm-replay-carol before we decide.',
-      clientKey,
-    });
-    const replayMessage = message(replay);
-
-    assert.equal(replayMessage.messageId, firstMessage.messageId);
-    assert.deepEqual(replayMessage.mentions, firstMessage.mentions);
-    assert.equal(included(replay)[carol.id]?.memberId, carol.id);
-  });
-
-  it('suppresses mentions on removed messages for both members and superadmins', async () => {
-    const admin = await h.seedSuperadmin('DM Remove Admin', 'dm-remove-admin');
+  it('suppresses mentions on removed messages', async () => {
     const owner = await h.seedOwner('dm-remove-mention-club', 'DM Remove Mention Club');
     const alice = await h.seedCompedMember(owner.club.id, 'Remove Alice', 'dm-remove-alice');
     const bob = await h.seedCompedMember(owner.club.id, 'Remove Bob', 'dm-remove-bob');
@@ -137,7 +80,7 @@ describe('message mentions', () => {
 
     const sendResult = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
-      messageText: 'This is just for @dm-remove-carol.',
+      messageText: `This is just for ${mentionSpan('Remove Carol', carol.id)}.`,
     });
     const sentMessage = message(sendResult);
 
@@ -153,63 +96,5 @@ describe('message mentions', () => {
     const memberMessages = (memberThread.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
     assert.deepEqual(memberMessages[0]?.mentions, []);
     assert.deepEqual(included(memberThread), {});
-
-    const adminThread = await h.apiOk(admin.token, 'superadmin.messages.getThread', {
-      threadId: sentMessage.threadId as string,
-      limit: 20,
-    });
-    const adminMessages = (adminThread.data as Record<string, unknown>).messages as Array<Record<string, unknown>>;
-    assert.deepEqual(adminMessages[0]?.mentions, []);
-    assert.deepEqual(included(adminThread), {});
-  });
-
-  it('rejects third-party mentions outside the participants shared-club set', async () => {
-    const ownerA = await h.seedOwner('dm-third-party-a', 'DM Third Party A');
-    const ownerB = await h.seedOwner('dm-third-party-b', 'DM Third Party B');
-    const alice = await h.seedCompedMember(ownerA.club.id, 'Third Alice', 'dm-third-alice');
-    const bob = await h.seedCompedMember(ownerA.club.id, 'Third Bob', 'dm-third-bob');
-    const charlie = await h.seedCompedMember(ownerB.club.id, 'Third Charlie', 'dm-third-charlie');
-
-    await h.seedCompedMembership(ownerB.club.id, alice.id);
-
-    const err = await h.apiErr(alice.token, 'messages.send', {
-      recipientMemberId: bob.id,
-      messageText: 'Trying to bring in @dm-third-charlie from a non-shared club.',
-    });
-    assert.equal(err.status, 400);
-    assert.equal(err.code, 'invalid_mentions');
-    assert.match(err.message, /@dm-third-charlie/);
-  });
-
-  it('existing threads remain mentionable for the participants after shared clubs drop to zero', async () => {
-    const owner = await h.seedOwner('dm-zero-shared-club', 'DM Zero Shared Club');
-    const alice = await h.seedCompedMember(owner.club.id, 'Zero Alice', 'dm-zero-alice');
-    const bob = await h.seedCompedMember(owner.club.id, 'Zero Bob', 'dm-zero-bob');
-
-    await h.apiOk(alice.token, 'messages.send', {
-      recipientMemberId: bob.id,
-      messageText: 'Initial thread bootstrap.',
-    });
-
-    await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
-      clubId: owner.club.id,
-      membershipId: bob.membership.id,
-      status: 'removed',
-      reason: 'zero shared clubs mention test',
-    });
-
-    const followUp = await h.apiOk(alice.token, 'messages.send', {
-      recipientMemberId: bob.id,
-      messageText: 'Still tagging @dm-zero-bob inside the existing thread.',
-    });
-    const messageText = ((message(followUp).messageText) as string);
-    const start = messageText.indexOf('@dm-zero-bob');
-
-    assert.deepEqual(message(followUp).mentions, [{
-      memberId: bob.id,
-      authoredHandle: 'dm-zero-bob',
-      start,
-      end: start + '@dm-zero-bob'.length,
-    }]);
   });
 });

@@ -8,7 +8,6 @@ import { hashTokenSecret, parseBearerToken } from '../token.ts';
 
 type ActorRow = {
   member_id: string;
-  handle: string | null;
   public_name: string;
   global_roles: Array<'superadmin'> | string | null;
   membership_id: string | null;
@@ -42,7 +41,6 @@ function mapActor(rows: ActorRow[]): ActorContext | null {
   return {
     member: {
       id: first.member_id,
-      handle: first.handle,
       publicName: first.public_name,
     },
     globalRoles: parsePostgresTextArray(first.global_roles) as Array<'superadmin'>,
@@ -68,7 +66,6 @@ export async function readActor(pool: Pool, memberId: string): Promise<ActorCont
     `
       select
         m.id as member_id,
-        m.handle,
         m.public_name,
         coalesce(gr.global_roles, array[]::global_role[]) as global_roles,
         anm.id as membership_id,

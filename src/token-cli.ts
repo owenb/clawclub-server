@@ -3,7 +3,7 @@ import { buildBearerToken } from './token.ts';
 
 type Flags = {
   memberId?: string;
-  handle?: string;
+  name?: string;
   label?: string;
   tokenId?: string;
   expiresIn?: string;
@@ -13,11 +13,11 @@ type Flags = {
 function usage(): never {
   console.error(`usage:
   node --experimental-strip-types src/token-cli.ts create --member <member_id> [--label <label>] [--expires-in <duration>] [--metadata '{"key":"value"}']
-  node --experimental-strip-types src/token-cli.ts create --handle <handle> [--label <label>] [--expires-in <duration>] [--metadata '{"key":"value"}']
+  node --experimental-strip-types src/token-cli.ts create --name <public_name> [--label <label>] [--expires-in <duration>] [--metadata '{"key":"value"}']
   node --experimental-strip-types src/token-cli.ts list --member <member_id>
-  node --experimental-strip-types src/token-cli.ts list --handle <handle>
+  node --experimental-strip-types src/token-cli.ts list --name <public_name>
   node --experimental-strip-types src/token-cli.ts revoke --member <member_id> --token <token_id>
-  node --experimental-strip-types src/token-cli.ts revoke --handle <handle> --token <token_id>`);
+  node --experimental-strip-types src/token-cli.ts revoke --name <public_name> --token <token_id>`);
   process.exit(1);
 }
 
@@ -42,8 +42,8 @@ function parseFlags(argv: string[]): { command: string; flags: Flags } {
         flags.memberId = next;
         index += 1;
         break;
-      case '--handle':
-        flags.handle = next;
+      case '--name':
+        flags.name = next;
         index += 1;
         break;
       case '--label':
@@ -96,18 +96,18 @@ async function resolveMemberId(pool: Pool, flags: Flags): Promise<string> {
     return flags.memberId;
   }
 
-  if (!flags.handle) {
+  if (!flags.name) {
     usage();
   }
 
   const result = await pool.query<{ id: string }>(
-    `select resolve_active_member_id_by_handle($1) as id`,
-    [flags.handle],
+    `select id from members where public_name = $1 and state = 'active' limit 1`,
+    [flags.name],
   );
 
   const memberId = result.rows[0]?.id;
   if (!memberId) {
-    console.error(`No active member found for handle: ${flags.handle}`);
+    console.error(`No active member found with public_name: ${flags.name}`);
     process.exit(1);
   }
 

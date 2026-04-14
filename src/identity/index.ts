@@ -59,7 +59,7 @@ export type IdentityRepository = {
   demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
 
   // Superadmin member/membership creation
-  createMemberDirect(input: { actorMemberId: string; publicName: string; handle?: string | null; email?: string | null }): Promise<{ memberId: string; publicName: string; handle: string; bearerToken: string }>;
+  createMemberDirect(input: { actorMemberId: string; publicName: string; email?: string | null }): Promise<{ memberId: string; publicName: string; bearerToken: string }>;
   createMembershipAsSuperadmin(input: {
     actorMemberId: string;
     clubId: string;
