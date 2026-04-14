@@ -24,13 +24,40 @@ This plan fixes that from first principles.
 
 ### Surfaces added since this plan was first drafted
 
-The system-notifications rewrite (migration 007) and the mentions work (migration 006) have shipped and are live in production. Their surfaces are absorbed into this rename's scope:
+The following redesigns have shipped and are live in production. Their surfaces are absorbed (or excluded) from this rename's scope:
+
+**System notifications rewrite (migration 007) and mentions (migration 006)**
 
 - `signal_deliveries` has already been renamed to `member_notifications`. This plan does **not** touch the table name again — it only renames the `entity_id` column and its foreign key (`member_notifications_entity_fkey` → `member_notifications_content_fkey`).
 - New table `entity_version_mentions` is pulled in and renames to `content_version_mentions`. Its own `entity_version_id` column follows the general `entity_version_id → content_version_id` rule.
 - New read surfaces `activity.*` and `notifications.*` ship with response types (`ActivityEvent`, `NotificationItem`, `NotificationReceipt`) that carry `entityId` / `entityVersionId` wire fields. Those fields are pulled into the rename map below.
 - The `updates.*` namespace, the `PendingUpdate` type, the `memberUpdates` polling response, and `sharedContext.pendingUpdates` have all been deleted by the system-notifications rewrite. They are no longer rename targets — they do not exist. The envelope now carries `sharedContext.notifications: NotificationItem[]`, and the rename cascades through the `NotificationItem` definition in `src/schemas/responses.ts`.
 - New code files `src/mentions.ts`, `src/schemas/activity.ts`, and `src/schemas/notifications.ts` are in scope for internal column and type references. `src/notifications-core.ts` exists but carries no entity-named fields and needs no edits.
+
+**Unified club join (migration 008, plans/unified-club-join-redesign.md)**
+
+The admissions-era surfaces have been deleted entirely and replaced by application-state on `club_memberships`. This redesign is **orthogonal to the entity → content rename**: a grep of `src/clubs/unified.ts`, `src/schemas/clubs.ts`, `src/schemas/invitations.ts`, `src/identity/memberships.ts`, and `src/quality-gate.ts` finds zero new entity references. Nothing new is pulled into scope. The relevant consequences for this plan are:
+
+- `admissions.*` namespace, `admissions`/`admission_versions`/`admission_challenges`/`admission_attempts` tables, `current_admissions` view, and the `source_admission_id` columns are all gone. They are not rename targets.
+- `clubadmin.admissions.get` has been renamed to `clubadmin.memberships.get`. Any earlier draft of this plan that referenced `clubadmin.admissions.get` is stale — it does not exist.
+- `NotificationItem.ref.admissionId` has been replaced by `NotificationItem.ref.membershipId`. The `ref.entityId` field is still present and still renames to `ref.contentId`.
+- The derived pending-application notification now reads from `club_memberships` + `club_membership_state_versions` instead of `current_admissions`. No entity naming in this path. No rename-plan impact.
+- New tables `invitations` and `application_pow_challenges` have no entity references. Not in scope.
+- New actions (`clubs.join`, `clubs.applications.submit`, `clubs.applications.get`, `clubs.applications.list`, `invitations.issue`, `invitations.revoke`, `invitations.list`, `clubadmin.memberships.get`) are content-clean from day one.
+
+**Migration 009 (global content quota default)** is a quota-policy adjustment with no entity-naming impact. Not in scope.
+
+**Migration 010 (rename `admission_generated` → `application_generated`)** is a profile-generation-source value rewrite with no entity-naming impact. Not in scope.
+
+**Updated CLAUDE.md migration-testing rules**
+
+CLAUDE.md now requires migrations with `UPDATE`/`INSERT`/rewrite logic to be tested against representative pre-migration synthetic data, not empty databases. It also documents three recurring migration pitfalls: pending constraint trigger events blocking `ALTER TABLE`, `FOR EACH ROW` triggers not firing on empty tables, and `CHECK` constraint ordering in enum value rewrites. The rename migration for this plan is a pure schema rename — no value rewrites inside `entity_kind`/`entity_state`, no data backfill, no row-level rewrite — so an empty-DB test is sufficient to exercise every code path it contains, and none of the three pitfalls apply:
+
+- No DEFERRABLE INITIALLY DEFERRED triggers exist on `entities`, `entity_versions`, `entity_embeddings`, or `entity_version_mentions`. The one deferred trigger in the schema (`club_memberships_require_profile_version_trigger`) is on `club_memberships` and is not touched by this migration.
+- No `FOR EACH ROW` triggers that the rename migration's path depends on for correctness.
+- The enum renames (`entity_kind → content_kind`, `entity_state → content_state`) are type renames, not value rewrites, so the CHECK-constraint-ordering rule does not apply. Existing values inside the enum (`post`, `ask`, `gift`, `service`, `opportunity`, `event`, `complaint`, `draft`, `published`, `removed`) are preserved verbatim.
+
+The implementer must still follow the `reset-dev.sh` → `scripts/migrate.sh` → manual-verify → update-init.sql path per CLAUDE.md, and `db/init.sql` is now maintained as `pg_dump` output (≈3500 lines) — regenerated from the migrated database, not hand-edited.
 
 ## Problem Statement
 
@@ -49,13 +76,14 @@ The product language, action namespace, and mental model are all content-centric
 
 ### 2. The word `content` is overloaded in one genuinely confusing place
 
-Today, one response can contain all of these at once:
+Today, one request/response cycle can contain all of these at once:
 
 - `content.create`
+- top-level input `content: {...}`
 - `ContentEntity`
 - `version.content`
 
-That is the real naming collision. If we want `content` to be the primary noun, `version.content` cannot survive.
+That is the real naming collision. If we want `content` to be the primary noun, both the generic input field and the generic version field must stop using `content`.
 
 ## Goals
 
@@ -98,16 +126,21 @@ That means:
 
 The one exception is historical migration context inside old migration files and archived planning docs.
 
-### Rename the generic version field to `payload`
+### Rename the generic payload field to `payload`
 
-If `content` becomes the canonical noun, `version.content` must become `version.payload`.
+If `content` becomes the canonical noun, the generic structured field cannot still be called `content` on either input or output.
+
+That means:
+
+- top-level `content.create` / `content.update` input field `content` becomes `payload`
+- `version.content` becomes `version.payload`
 
 This is a required part of the rename, not an optional polish pass.
 
 Without this change we end up with a broken shape:
 
-- `content.create` returns `Content`
-- `Content.version.content`
+- `content.create({ content: {...} })`
+- `{ content: Content { version: { content: {...} } } }`
 
 That is exactly the collision we should eliminate now.
 
@@ -116,7 +149,7 @@ That is exactly the collision we should eliminate now.
 These decisions are part of the plan and should not be casually reopened during implementation.
 
 1. The active public-content model uses `content`, not `entity`.
-2. The generic structured version field is renamed from `content` to `payload`.
+2. The generic structured payload field is renamed from `content` to `payload` on both input and output.
 3. `parent_entity_id` is removed entirely in a new migration.
 4. There will be no compatibility aliases such as dual `entityId`/`id` fields, compatibility SQL views, or duplicate repository methods.
 5. The rename is comprehensive across API, code, schema, tests, and docs.
@@ -150,7 +183,9 @@ These decisions are part of the plan and should not be casually reopened during 
 - primary id in public wire format: `id`
 - public thread reference: `threadId`
 - public thread subject field: `firstContent`
+- public thread body array: `contents`
 - public count field: `contentCount`
+- generic top-level input payload: `payload`
 - generic version payload: `payload`
 
 ### Why the table is `contents`
@@ -234,7 +269,8 @@ The implementer must grep `db/init.sql` for `entity_id` / `entity_version_id` be
 | `contentThreadId` | `threadId` |
 | `firstEntity` | `firstContent` |
 | `entityCount` | `contentCount` |
-| `entities` | `content` |
+| `entities` | `contents` |
+| top-level `content` input field | top-level `payload` input field |
 | `version.content` | `version.payload` |
 | `eventEntityId` | `eventId` |
 | `activityEvent.entityId` | `activityEvent.contentId` |
@@ -307,7 +343,7 @@ type ContentThread = {
   id: string;
   clubId: string;
   firstContent: Content;
-  content: Content[];
+  contents: Content[];
   contentCount: number;
   lastActivityAt: string;
   hasMore: boolean;
@@ -318,9 +354,9 @@ type ContentThread = {
 Existing visibility behavior remains:
 
 - removed first content is still surfaced as redacted
-- expired first content may still appear in `firstContent` while being absent from `content`
+- expired first content may still appear in `firstContent` while being absent from `contents`
 
-Clients must not assume `firstContent === content[0]`.
+Clients must not assume `firstContent === contents[0]`.
 
 ### Action contract adjustments
 
@@ -339,7 +375,9 @@ The goal is to make the wire format read naturally.
 
 Input cleanup:
 
+- `content.create` takes `payload`, not `content`
 - `content.update` takes `id`, not `entityId`
+- `content.update` takes `payload`, not `content`
 - `content.remove` takes `id`, not `entityId`
 - `content.getThread` takes either `threadId` or `contentId`
 - `events.rsvp` and `events.cancelRsvp` take `eventId`
@@ -439,11 +477,13 @@ Update:
 Specific work:
 
 - rename `ContentEntity` → `Content`
+- rename top-level input `content` → `payload`
 - rename `version.content` → `version.payload`
 - rename all `entityId` wire fields to `id` or `contentId` depending on context
 - rename `contentThreadId` → `threadId`
 - rename `firstEntity` → `firstContent`
 - rename `entityCount` → `contentCount`
+- rename the thread body field `entities` → `contents`
 - simplify `content.getThread` output to `{ thread: ContentThread }`
 
 ### Domain modules
@@ -492,6 +532,7 @@ Must update:
 Docs should explicitly say:
 
 - public threaded content uses `content` across API, code, and schema
+- `payload` is the generic structured input field for `content.create` and `content.update`
 - `payload` is the generic structured version field
 - `events.*` survives only for event-specific read/interaction surfaces
 
@@ -508,13 +549,14 @@ Must update:
 
 Add explicit regression tests for:
 
-- `content.getThread` response uses `thread.id`, `thread.firstContent`, `thread.contentCount`, and `thread.content`
+- `content.create` and `content.update` accept `payload`, not `content`
+- `content.getThread` response uses `thread.id`, `thread.firstContent`, `thread.contentCount`, and `thread.contents`
 - `events.rsvp` and `events.cancelRsvp` return `{ event: Content }`
 - semantic search returns `ContentSearchResult[]`
 - `activity.list` response items expose `contentId` and `contentVersionId`, not `entityId` / `entityVersionId`
 - `notifications.list` items use `ref.contentId` when present
 - `notifications.acknowledge` receipts use `contentId`
-- no active API response exposes `entityId`, `entityVersionId`, `contentThreadId`, `firstEntity`, `entityCount`, or `version.content` — including `ActivityEvent`, `NotificationItem`, and `NotificationReceipt`
+- no active API surface exposes `entityId`, `entityVersionId`, `contentThreadId`, `firstEntity`, `entityCount`, top-level input `content`, or `version.content` — including `ActivityEvent`, `NotificationItem`, and `NotificationReceipt`
 
 ## Implementation Order
 
@@ -541,6 +583,7 @@ The biggest implementation risk is stopping halfway:
 
 - renaming the API but not the DB
 - renaming tables but not docs
+- renaming output but not input
 - renaming types but keeping `version.content`
 
 That would leave the codebase more confusing than it is today.

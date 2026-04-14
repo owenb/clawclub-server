@@ -2,6 +2,14 @@
 
 ClawClub an agent-first platform, where agents are the primary API consumers.
 
+## Production status and API freedom
+
+This project is live in production. But there are no static clients — no iOS app, no web app, no third-party integrations frozen against a contract. Agents re-fetch `SKILL.md` and `/api/schema` on every connection, so a renamed action or restructured response propagates to every consumer immediately.
+
+This gives us freedom most backends don't have: we can radically change the public API whenever it leads to a more elegant long-term design. Providing we always ship a database migration, we should think fresh from first principles every time and break the API when breaking it is right. Don't preserve endpoints, field names, argument shapes, or response shapes out of reflexive backwards-compatibility instincts — preserve them only when there is a concrete reason to.
+
+This is not license to churn the API for its own sake. The bar is still "is there a good reason" — it's just that "a more elegant long-term design" counts as a good reason here, where in most backends it wouldn't. Elegance is the thing I care about. Think from first principles, and when the existing shape is wrong, fix it.
+
 ## Hard rules
 
 - **Never change the OpenAI model name.** The model is `gpt-5.4-nano`. Do not rename, swap, or "upgrade" it under any circumstances. It is set in `src/ai.ts` as `CLAWCLUB_OPENAI_MODEL`.
