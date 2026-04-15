@@ -8,11 +8,11 @@ import { TestHarness } from '../harness.ts';
 import { activeMemberships } from '../helpers.ts';
 
 let h: TestHarness;
-let admin: { id: string; handle: string; publicName: string; token: string };
+let admin: { id: string; publicName: string; token: string };
 
 before(async () => {
   h = await TestHarness.start();
-  admin = await h.seedSuperadmin('Billing Admin', 'billing-admin');
+  admin = await h.seedSuperadmin('Billing Admin');
 }, { timeout: 60_000 });
 
 after(async () => {
@@ -33,7 +33,7 @@ describe('paid club acceptance creates payment_pending membership', () => {
     });
 
     // Create a new member and pending paid-club membership
-    const member = await h.seedMember('Pay Member', 'pay-member');
+    const member = await h.seedMember('Pay Member');
     const createBody = await h.apiOk(owner.token, 'clubadmin.memberships.create', {
       clubId: owner.club.id,
       memberId: member.id,
@@ -58,7 +58,7 @@ describe('paid club acceptance creates payment_pending membership', () => {
 describe('superadmin.billing.activateMembership creates access', () => {
   it('transitions payment_pending to active with subscription', async () => {
     const owner = await h.seedOwner('activate-club', 'Activate Club');
-    const member = await h.seedMember('Activate Al', 'activate-al');
+    const member = await h.seedMember('Activate Al');
 
     // Set paid price
     await h.apiOk(admin.token, 'superadmin.billing.setClubPrice', {
@@ -118,7 +118,7 @@ describe('superadmin.billing.activateMembership creates access', () => {
 describe('superadmin.billing.cancelAtPeriodEnd preserves access', () => {
   it('cancelled member retains access until period end', async () => {
     const owner = await h.seedOwner('cancel-club', 'Cancel Club');
-    const member = await h.seedMember('Cancel Cathy', 'cancel-cathy');
+    const member = await h.seedMember('Cancel Cathy');
 
     // Set price and create paid membership
     await h.apiOk(admin.token, 'superadmin.billing.setClubPrice', {
@@ -167,7 +167,7 @@ describe('superadmin.billing.cancelAtPeriodEnd preserves access', () => {
 describe('superadmin.billing.expireMembership removes access', () => {
   it('expired member loses access', async () => {
     const owner = await h.seedOwner('expire-sync-club', 'ExpireSync Club');
-    const member = await h.seedCompedMember(owner.club.id, 'Expire Eric', 'expire-eric');
+    const member = await h.seedCompedMember(owner.club.id, 'Expire Eric');
 
     // Confirm access
     let session = await h.apiOk(member.token, 'session.getContext', {});
@@ -255,7 +255,7 @@ describe('paid club guards', () => {
 
   it('superadmin.clubs.assignOwner is blocked for paid clubs', async () => {
     const owner = await h.seedOwner('guard-transfer-club', 'GuardTransfer Club');
-    const newOwner = await h.seedMember('New Owner', 'new-owner-guard');
+    const newOwner = await h.seedMember('New Owner');
 
     // Make it paid
     await h.apiOk(admin.token, 'superadmin.billing.setClubPrice', {
@@ -299,7 +299,7 @@ describe('paid club guards', () => {
 describe('billing.getMembershipStatus returns membership billing info', () => {
   it('returns comped status for free club member', async () => {
     const owner = await h.seedOwner('status-free-club', 'StatusFree Club');
-    const member = await h.seedCompedMember(owner.club.id, 'Status Sam', 'status-sam');
+    const member = await h.seedCompedMember(owner.club.id, 'Status Sam');
 
     const body = await h.apiOk(member.token, 'billing.getMembershipStatus', {
       clubId: owner.club.id,
@@ -314,7 +314,7 @@ describe('billing.getMembershipStatus returns membership billing info', () => {
 
   it('returns null for non-member', async () => {
     const owner = await h.seedOwner('status-nomember-club', 'StatusNoMember Club');
-    const outsider = await h.seedMember('Outsider Ollie', 'outsider-ollie');
+    const outsider = await h.seedMember('Outsider Ollie');
 
     // Outsider needs at least one accessible club to authenticate
     const otherOwner = await h.seedOwner('outsider-home', 'Outsider Home');
@@ -339,7 +339,7 @@ describe('parseIsoDatetime rejects non-ISO date formats', () => {
       amount: 2900,
       currency: 'usd',
     });
-    const member = await h.seedMember('Iso Member', 'iso-member');
+    const member = await h.seedMember('Iso Member');
     const membership = await h.seedClubMembership(owner.club.id, member.id, { status: 'payment_pending' });
     const msId = membership.id;
 

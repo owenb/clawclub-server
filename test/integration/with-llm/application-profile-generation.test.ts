@@ -248,7 +248,7 @@ describe('application profile generation (LLM)', () => {
       ].join('\n'),
     );
 
-    const member = await h.seedCompedMember(ownerA.club.id, 'Ada MultiClub', 'ada-multiclub');
+    const member = await h.seedCompedMember(ownerA.club.id, 'Ada MultiClub');
 
     await h.sql(
       `insert into member_club_profile_versions (

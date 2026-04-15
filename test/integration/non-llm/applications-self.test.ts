@@ -14,8 +14,8 @@ after(async () => {
 
 describe('clubs.applications.list', () => {
   it('returns only the actor’s own applications across clubs', async () => {
-    const applicant = await h.seedMember('Applicant One', 'applicant-one');
-    const otherApplicant = await h.seedMember('Applicant Two', 'applicant-two');
+    const applicant = await h.seedMember('Applicant One');
+    const otherApplicant = await h.seedMember('Applicant Two');
     const ownerA = await h.seedOwner('applications-self-a', 'Applications Self A');
     const ownerB = await h.seedOwner('applications-self-b', 'Applications Self B');
 
@@ -69,7 +69,7 @@ describe('clubs.applications.list', () => {
   });
 
   it('supports club and state filters', async () => {
-    const applicant = await h.seedMember('Applicant Filter', 'applicant-filter');
+    const applicant = await h.seedMember('Applicant Filter');
     const ownerA = await h.seedOwner('applications-filter-a', 'Applications Filter A');
     const ownerB = await h.seedOwner('applications-filter-b', 'Applications Filter B');
 
@@ -107,8 +107,8 @@ describe('clubs.applications.list', () => {
 
 describe('clubs.applications.get', () => {
   it('returns one owned application and hides unrelated memberships', async () => {
-    const applicant = await h.seedMember('Application Reader', 'application-reader');
-    const otherApplicant = await h.seedMember('Application Other', 'application-other');
+    const applicant = await h.seedMember('Application Reader');
+    const otherApplicant = await h.seedMember('Application Other');
     const owner = await h.seedOwner('applications-get-club', 'Applications Get Club');
 
     const ownApplication = await h.seedPendingMembership(owner.club.id, applicant.id, {

@@ -53,7 +53,6 @@ function makeActor(): ActorContext {
   return {
     member: {
       id: 'member-1',
-      handle: 'member-one',
       publicName: 'Member One',
     },
     globalRoles: ['superadmin'],
@@ -318,7 +317,6 @@ function makeClub(overrides: Partial<ClubSummary> = {}): ClubSummary {
     owner: {
       memberId: 'member-1',
       publicName: 'Member One',
-      handle: 'member-one',
       email: 'one@example.com',
     },
     version: {
@@ -337,12 +335,10 @@ function makeMembershipAdmin(overrides: Partial<MembershipAdminSummary> = {}): M
     member: {
       memberId: 'member-9',
       publicName: 'Member Nine',
-      handle: 'member-nine',
     },
     sponsor: {
       memberId: 'member-1',
       publicName: 'Member One',
-      handle: 'member-one',
     },
     role: 'member',
     state: {
@@ -378,7 +374,6 @@ function makeMembershipReview(overrides: Partial<MembershipReviewSummary> = {}):
         fromMember: {
           memberId: 'member-2',
           publicName: 'Member Two',
-          handle: 'member-two',
         },
         reason: 'I trust their presence and follow-through.',
         metadata: { strength: 'warm' },
@@ -477,7 +472,6 @@ function makeClubMember(overrides: Partial<ClubMemberSummary> = {}): ClubMemberS
     memberId: 'member-1',
     publicName: 'Member One',
     displayName: 'Member One',
-    handle: 'member-one',
     tagline: 'Building warm things',
     summary: 'Short summary',
     whatIDo: 'Engineering and facilitation',
@@ -518,7 +512,6 @@ function makeProfile(memberId = 'member-1', clubIds = ['club-1']): MemberProfile
   return {
     memberId,
     publicName: memberId === 'member-1' ? 'Member One' : 'Member Two',
-    handle: memberId === 'member-1' ? 'member-one' : 'member-two',
     displayName: memberId === 'member-1' ? 'Member One' : 'Member Two',
     profiles: clubIds.map((clubId) => ({
       ...makeClubProfile(clubId),
@@ -540,7 +533,6 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
     author: {
       memberId: 'member-1',
       publicName: 'Member One',
-      handle: 'member-one',
       displayName: 'Member One',
       ...(overrides.author ?? {}),
     },
@@ -573,7 +565,6 @@ function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
     author: {
       memberId: 'member-1',
       publicName: 'Member One',
-      handle: 'member-one',
       displayName: 'Member One',
       ...(overrides.author ?? {}),
     },
@@ -642,7 +633,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     },
     async assignClubOwner() {
       return makeClub({
-        owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
+        owner: { memberId: 'member-9', publicName: 'Member Nine' },
         version: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
       });
     },
@@ -687,7 +678,6 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
           sponsor: {
             memberId: 'member-1',
             publicName: 'Member One',
-            handle: 'member-one',
           },
           reason: 'Strong collaborator',
           status: 'open',
@@ -706,7 +696,6 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
         sponsor: {
           memberId: 'member-1',
           publicName: 'Member One',
-          handle: 'member-one',
         },
         reason: 'Strong collaborator',
         status: 'open',
@@ -723,7 +712,6 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
         sponsor: {
           memberId: 'member-1',
           publicName: 'Member One',
-          handle: 'member-one',
         },
         reason: 'Strong collaborator',
         status: 'revoked',
@@ -855,7 +843,7 @@ test('superadmin.clubs.create derives superadmin ownership assignment server-sid
         clubId: 'club-9',
         slug: 'gamma',
         name: 'Gamma',
-        owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
+        owner: { memberId: 'member-9', publicName: 'Member Nine' },
       });
     },
   };
@@ -892,7 +880,7 @@ test('superadmin.clubs.assignOwner appends a new owner version via the superadmi
       capturedInput = input as Record<string, unknown>;
       return makeClub({
         clubId: 'club-2',
-        owner: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
+        owner: { memberId: 'member-9', publicName: 'Member Nine' },
         version: { versionNo: 2, createdAt: '2026-03-12T01:00:00Z', createdByMemberId: 'member-1' },
       });
     },
@@ -1001,7 +989,7 @@ test('memberships.create direct-adds an active member inside owner scope', async
       return makeMembershipAdmin({
         membershipId: 'membership-10',
         clubId: 'club-2',
-        member: { memberId: 'member-9', publicName: 'Member Nine', handle: 'member-nine' },
+        member: { memberId: 'member-9', publicName: 'Member Nine' },
         sponsor: null,
         state: { ...makeMembershipAdmin().state, status: 'active', reason: 'Direct add' },
       });
@@ -1328,7 +1316,6 @@ test('members.list returns active members with scoped membership context', async
           memberId: 'member-2',
           publicName: 'Member Two',
           displayName: 'Member Two',
-          handle: 'member-two',
           memberships: [makeActor().memberships[1]!],
         }),
       ], hasMore: false, nextCursor: null };
@@ -2251,7 +2238,6 @@ test('events.rsvp uses the actor membership in the event club', async () => {
                 membershipId: 'membership-2',
                 memberId: 'member-1',
                 publicName: 'Member One',
-                handle: 'member-one',
                 response: 'yes',
                 note: 'I am in',
                 createdAt: '2026-03-12T00:00:00Z',

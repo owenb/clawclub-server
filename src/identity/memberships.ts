@@ -555,7 +555,7 @@ export { hasLiveAccess };
 
 /**
  * Create a member record directly (superadmin bypass, no application flow).
- * Returns the new member ID, handle, and a bearer token.
+ * Returns the new member ID and a bearer token.
  */
 export async function createMemberDirect(pool: Pool, input: {
   actorMemberId: string;

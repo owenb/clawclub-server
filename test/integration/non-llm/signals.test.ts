@@ -144,7 +144,7 @@ describe('activity and notifications surfaces', () => {
 
   it('activity.list enforces audience filtering by role', async () => {
     const owner = await h.seedOwner('activityaudienceclub', 'ActivityAudienceClub');
-    const member = await h.seedCompedMember(owner.club.id, 'Regular Member', 'activity-audience-member');
+    const member = await h.seedCompedMember(owner.club.id, 'Regular Member');
 
     await h.sqlClubs(
       `insert into club_activity (club_id, topic, payload, audience, created_by_member_id)

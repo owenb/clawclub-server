@@ -271,7 +271,6 @@ export async function runHttpSmoke(): Promise<{
     ], 'profile.update should persist typed links');
 
     const inbox = await postAction(baseUrl, token.bearerToken, 'messages.getInbox', {
-      clubId,
       limit: 5,
     }, {
       'clawclub-schema-seen': schemaHash,

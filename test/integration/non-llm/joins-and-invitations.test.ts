@@ -55,7 +55,7 @@ describe('anonymous clubs.join', () => {
 describe('invitation lifecycle', () => {
   it('issue -> listMine -> revoke updates invitation status cleanly', async () => {
     const owner = await h.seedOwner('invite-revoke-club', 'Invite Revoke Club');
-    const sponsor = await h.seedCompedMember(owner.club.id, 'Invite Sponsor', 'invite-sponsor');
+    const sponsor = await h.seedCompedMember(owner.club.id, 'Invite Sponsor');
 
     const issued = await h.apiOk(sponsor.token, 'invitations.issue', {
       clubId: owner.club.id,
@@ -154,7 +154,7 @@ describe('invitation lifecycle', () => {
 
   it('sponsor losing club access auto-revokes open invitations', async () => {
     const owner = await h.seedOwner('invite-autorevoke-club', 'Invite Auto Revoke Club');
-    const sponsor = await h.seedCompedMember(owner.club.id, 'Auto Sponsor', 'auto-sponsor');
+    const sponsor = await h.seedCompedMember(owner.club.id, 'Auto Sponsor');
 
     const issued = await h.apiOk(sponsor.token, 'invitations.issue', {
       clubId: owner.club.id,

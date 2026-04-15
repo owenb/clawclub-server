@@ -382,7 +382,6 @@ async function listInboxFramesSince(pool: Pool, input: {
     thread_id: string;
     counterpart_member_id: string;
     counterpart_public_name: string;
-    counterpart_handle: string | null;
     latest_message_id: string;
     latest_sender_member_id: string | null;
     latest_role: 'member' | 'agent' | 'system';

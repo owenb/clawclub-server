@@ -8,7 +8,7 @@
  * Where both are identical the field is exported once without a prefix.
  */
 import { z } from 'zod';
-import { HANDLE_REGEX } from '../identity/handles.ts';
+import { SLUG_REGEX } from '../identity/slugs.ts';
 
 // ── Enums ────────────────────────────────────────────────
 
@@ -311,7 +311,7 @@ export const wireEventFieldsCreate = z.object({
   timezone: wireOptionalString.describe('IANA timezone (optional)'),
   recurrenceRule: wireOptionalString.describe('Recurrence rule (optional)'),
   capacity: wireOptionalPositiveInt.describe('Optional attendee cap'),
-}).optional();
+}).strict().optional();
 
 /** Parse: normalized event fields for content.create(kind='event') */
 export const parseEventFieldsCreate = z.object({
@@ -321,7 +321,7 @@ export const parseEventFieldsCreate = z.object({
   timezone: parseTrimmedNullableString.default(null),
   recurrenceRule: parseTrimmedNullableString.default(null),
   capacity: parseOptionalPositiveInt.default(null),
-}).optional();
+}).strict().optional();
 
 /** Wire: patch event fields for content.update */
 export const wireEventFieldsPatch = z.object({
@@ -331,7 +331,7 @@ export const wireEventFieldsPatch = z.object({
   timezone: wirePatchString.describe('Omit to leave unchanged, null to clear'),
   recurrenceRule: wirePatchString.describe('Omit to leave unchanged, null to clear'),
   capacity: wireOptionalPositiveInt.describe('Optional attendee cap. Null to clear.'),
-}).optional();
+}).strict().optional();
 
 /** Parse: normalized patch event fields for content.update */
 export const parseEventFieldsPatch = z.object({
@@ -341,7 +341,7 @@ export const parseEventFieldsPatch = z.object({
   timezone: parsePatchString,
   recurrenceRule: parsePatchString,
   capacity: parseOptionalPositiveInt,
-}).optional();
+}).strict().optional();
 
 /**
  * Wire: optional non-negative money amount
@@ -374,7 +374,7 @@ export const wireOptionalBoolean = z.boolean().optional()
   .describe('Optional boolean flag.');
 
 /**
- * Wire: slug format (same as handle).
+ * Wire: slug format.
  * Server trims and validates format after trimming.
  */
 export const wireSlug = z.string()
@@ -383,7 +383,7 @@ export const wireSlug = z.string()
 /** Parse: validates slug format */
 export const parseSlug = safeString.pipe(z.string().trim())
   .refine(
-    s => HANDLE_REGEX.test(s),
+    s => SLUG_REGEX.test(s),
     'slug must use lowercase letters, numbers, and single hyphens',
   );
 

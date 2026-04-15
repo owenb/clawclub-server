@@ -38,7 +38,6 @@ test('superadmin.platform.getOverview returns platform stats for superadmin', as
         recentMembers: [{
           memberId: 'member-1',
           publicName: 'Alice',
-          handle: 'alice',
           createdAt: '2026-03-14T10:00:00Z',
         }],
       };
@@ -104,7 +103,6 @@ test('superadmin.members.list returns paginated member list', async () => {
       return { results: [{
         memberId: 'member-1',
         publicName: 'Alice',
-        handle: 'alice',
         state: 'active',
         createdAt: '2026-03-14T10:00:00Z',
         membershipCount: 2,
@@ -147,7 +145,6 @@ test('superadmin.members.get returns full member detail', async () => {
       return {
         memberId: 'member-1',
         publicName: 'Alice',
-        handle: 'alice',
         state: 'active',
         createdAt: '2026-03-14T10:00:00Z',
         memberships: [{
@@ -359,7 +356,7 @@ test('superadmin.clubs.list returns clubs array', async () => {
         summary: 'First club',
         admissionPolicy: null,
         archivedAt: null,
-        owner: { memberId: 'member-1', publicName: 'Alice', handle: 'alice', email: null },
+        owner: { memberId: 'member-1', publicName: 'Alice', email: null },
         version: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'member-1' },
       }];
     },
@@ -402,7 +399,7 @@ test('superadmin.clubs.create returns new club', async () => {
         summary,
         admissionPolicy: null,
         archivedAt: null,
-        owner: { memberId: ownerMemberId, publicName: 'Owner', handle: 'owner', email: null },
+        owner: { memberId: ownerMemberId, publicName: 'Owner', email: null },
         version: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'admin-1' },
       };
     },
@@ -484,7 +481,7 @@ test('superadmin.clubs.archive returns archived club', async () => {
         summary: 'Gone',
         admissionPolicy: null,
         archivedAt: '2026-03-14T12:00:00Z',
-        owner: { memberId: 'member-1', publicName: 'Alice', handle: 'alice', email: null },
+        owner: { memberId: 'member-1', publicName: 'Alice', email: null },
         version: { versionNo: 1, createdAt: '2026-03-14T10:00:00Z', createdByMemberId: 'member-1' },
       };
     },
@@ -554,7 +551,7 @@ test('superadmin.clubs.assignOwner returns updated club', async () => {
         summary: 'Now yours',
         admissionPolicy: null,
         archivedAt: null,
-        owner: { memberId: ownerMemberId, publicName: 'New Owner', handle: 'new-owner', email: null },
+        owner: { memberId: ownerMemberId, publicName: 'New Owner', email: null },
         version: { versionNo: 2, createdAt: '2026-03-14T12:00:00Z', createdByMemberId: 'admin-1' },
       };
     },
@@ -678,8 +675,8 @@ test('admin.messages.threads returns thread list', async () => {
         messageCount: 5,
         latestMessageAt: '2026-03-14T12:00:00Z',
         participants: [
-          { memberId: 'member-1', publicName: 'Alice', handle: 'alice' },
-          { memberId: 'member-2', publicName: 'Bob', handle: 'bob' },
+          { memberId: 'member-1', publicName: 'Alice' },
+          { memberId: 'member-2', publicName: 'Bob' },
         ],
       }], hasMore: false, nextCursor: null };
     },
@@ -722,7 +719,7 @@ test('admin.messages.getThread returns thread with messages', async () => {
           messageCount: 1,
           latestMessageAt: '2026-03-14T12:00:00Z',
           participants: [
-            { memberId: 'member-1', publicName: 'Alice', handle: 'alice' },
+            { memberId: 'member-1', publicName: 'Alice' },
           ],
         },
         messages: [{

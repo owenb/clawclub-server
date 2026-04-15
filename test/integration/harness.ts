@@ -359,7 +359,7 @@ export class TestHarness {
 
   // ── Seeding helpers ──
 
-  async seedMember(publicName: string, _legacyHandle?: string): Promise<SeededMember> {
+  async seedMember(publicName: string): Promise<SeededMember> {
     const rows = await this.sql<{ id: string }>(
       `INSERT INTO members (public_name, display_name, state)
        VALUES ($1, $1, 'active')
@@ -372,8 +372,8 @@ export class TestHarness {
     return { id, publicName, token };
   }
 
-  async seedSuperadmin(publicName: string, legacyHandle?: string): Promise<SeededMember> {
-    const member = await this.seedMember(publicName, legacyHandle);
+  async seedSuperadmin(publicName: string): Promise<SeededMember> {
+    const member = await this.seedMember(publicName);
     await this.sql(
       `INSERT INTO member_global_role_versions (member_id, role, version_no, created_by_member_id)
        VALUES ($1, 'superadmin', 1, $1) ON CONFLICT DO NOTHING`,
@@ -922,11 +922,10 @@ export class TestHarness {
   async seedOwner(
     clubSlug: string,
     clubName?: string,
-    opts: { handle?: string; publicName?: string } = {},
+    opts: { publicName?: string } = {},
   ): Promise<SeededMember & { club: SeededClub }> {
-    const handle = opts.handle ?? `owner-${clubSlug}`;
     const publicName = opts.publicName ?? `Owner of ${clubName ?? clubSlug}`;
-    const member = await this.seedMember(publicName, handle);
+    const member = await this.seedMember(publicName);
     const club = await this.seedClub(clubSlug, clubName ?? clubSlug, member.id);
     return { ...member, club };
   }
@@ -936,10 +935,9 @@ export class TestHarness {
   async seedCompedMember(
     clubId: string,
     publicName: string,
-    handle: string,
     options: Omit<SeedClubMembershipOptions, 'role' | 'access'> = {},
   ): Promise<SeededMember & { membership: SeededMembership }> {
-    const member = await this.seedMember(publicName, handle);
+    const member = await this.seedMember(publicName);
     const membership = await this.seedCompedMembership(clubId, member.id, options);
     return { ...member, membership };
   }
@@ -947,10 +945,9 @@ export class TestHarness {
   async seedPaidMember(
     clubId: string,
     publicName: string,
-    handle: string,
     options: Omit<SeedClubMembershipOptions, 'role' | 'access'> = {},
   ): Promise<SeededMember & { membership: SeededMembership }> {
-    const member = await this.seedMember(publicName, handle);
+    const member = await this.seedMember(publicName);
     const membership = await this.seedPaidMembership(clubId, member.id, options);
     return { ...member, membership };
   }
@@ -958,10 +955,9 @@ export class TestHarness {
   async seedPendingMember(
     clubId: string,
     publicName: string,
-    handle: string,
     options: SeedPendingMembershipOptions,
   ): Promise<SeededMember & { membership: SeededMembership }> {
-    const member = await this.seedMember(publicName, handle);
+    const member = await this.seedMember(publicName);
     const membership = await this.seedPendingMembership(clubId, member.id, options);
     return { ...member, membership };
   }

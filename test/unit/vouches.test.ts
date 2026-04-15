@@ -8,7 +8,7 @@ import { makeAuthResult, makeRepository } from './fixtures.ts';
 
 const sampleVouch: MembershipVouchSummary = {
   edgeId: 'edge-1',
-  fromMember: { memberId: 'member-1', publicName: 'Member One', handle: 'member-one' },
+  fromMember: { memberId: 'member-1', publicName: 'Member One' },
   reason: 'Built the event system and it has not gone down once',
   metadata: {},
   createdAt: '2026-04-02T00:00:00Z',

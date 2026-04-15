@@ -6,22 +6,21 @@ set -euo pipefail
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
 
-insert into members (public_name, handle)
-values
-  ('Pressure Owner', 'pressure-owner'),
-  ('Pressure Sponsor', 'pressure-sponsor'),
-  ('Pressure Member', 'pressure-member'),
-  ('Pressure Lapsed', 'pressure-lapsed')
-returning id, handle;
+insert into members (public_name, display_name, state)
+values ('Pressure Owner', 'Pressure Owner', 'active')
+returning id as owner_id \gset
 
-select id from members where handle = 'pressure-owner' \gset
-\set owner_id :id
-select id from members where handle = 'pressure-sponsor' \gset
-\set sponsor_id :id
-select id from members where handle = 'pressure-member' \gset
-\set member_id :id
-select id from members where handle = 'pressure-lapsed' \gset
-\set lapsed_id :id
+insert into members (public_name, display_name, state)
+values ('Pressure Sponsor', 'Pressure Sponsor', 'active')
+returning id as sponsor_id \gset
+
+insert into members (public_name, display_name, state)
+values ('Pressure Member', 'Pressure Member', 'active')
+returning id as member_id \gset
+
+insert into members (public_name, display_name, state)
+values ('Pressure Lapsed', 'Pressure Lapsed', 'active')
+returning id as lapsed_id \gset
 
 insert into clubs (slug, name, owner_member_id, summary)
 values ('pressure-club', 'Pressure Club', :'owner_id', 'Schema pressure test')

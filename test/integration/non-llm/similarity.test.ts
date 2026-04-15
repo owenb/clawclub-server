@@ -24,8 +24,8 @@ describe('embedding similarity', () => {
   describe('findMembersMatchingEntity', () => {
     it('returns members ranked by cosine distance', async () => {
       const owner = await h.seedOwner('simclub1', 'SimClub1');
-      const alice = await h.seedCompedMember(owner.club.id, 'Alice Sim', 'alice-sim');
-      const bob = await h.seedCompedMember(owner.club.id, 'Bob Sim', 'bob-sim');
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Sim');
+      const bob = await h.seedCompedMember(owner.club.id, 'Bob Sim');
 
       // Entity vector: [1, 0, 0, ...]
       const entityId = await seedEntityWithEmbedding(
@@ -70,7 +70,7 @@ describe('embedding similarity', () => {
     it('scopes to the specified club only', async () => {
       const owner1 = await h.seedOwner('simclub3a', 'SimClub3A');
       const owner2 = await h.seedOwner('simclub3b', 'SimClub3B');
-      const alice = await h.seedCompedMember(owner1.club.id, 'Alice Club3', 'alice-club3');
+      const alice = await h.seedCompedMember(owner1.club.id, 'Alice Club3');
 
       // Alice is only in club 3a, not 3b
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
@@ -92,8 +92,8 @@ describe('embedding similarity', () => {
   describe('findSimilarMembers', () => {
     it('returns similar members ranked by distance', async () => {
       const owner = await h.seedOwner('simclub4', 'SimClub4');
-      const alice = await h.seedCompedMember(owner.club.id, 'Alice Sim4', 'alice-sim4');
-      const bob = await h.seedCompedMember(owner.club.id, 'Bob Sim4', 'bob-sim4');
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Sim4');
+      const bob = await h.seedCompedMember(owner.club.id, 'Bob Sim4');
 
       // Owner profile: [1, 0, 0]
       await seedProfileEmbedding(h, owner.id, makeVector([1, 0, 0]));
@@ -203,7 +203,7 @@ describe('embedding similarity', () => {
   describe('findExistingThreadPairs', () => {
     it('detects existing DM threads', async () => {
       const owner = await h.seedOwner('simclub8', 'SimClub8');
-      const alice = await h.seedCompedMember(owner.club.id, 'Alice Sim8', 'alice-sim8');
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Sim8');
 
       // Send a DM to create a thread
       await h.apiOk(owner.token, 'messages.send', {
@@ -220,7 +220,7 @@ describe('embedding similarity', () => {
 
     it('returns empty for pairs without threads', async () => {
       const owner = await h.seedOwner('simclub9', 'SimClub9');
-      const alice = await h.seedCompedMember(owner.club.id, 'Alice Sim9', 'alice-sim9');
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Sim9');
 
       const [a, b] = canonicalPair(owner.id, alice.id);
       const pairs = await findExistingThreadPairs(h.pools.super, [a], [b]);
@@ -240,7 +240,7 @@ describe('embedding similarity', () => {
   describe('stale entity embeddings', () => {
     it('edited source entity with stale v1 embedding produces no match', async () => {
       const owner = await h.seedOwner('stale-src', 'StaleSourceClub');
-      const alice = await h.seedCompedMember(owner.club.id, 'Alice Stale', 'alice-stale');
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Stale');
 
       // Alice has a profile embedding
       await seedProfileEmbedding(h, alice.id, makeVector([0.9, 0.1, 0]));
@@ -315,7 +315,7 @@ describe('embedding similarity', () => {
 
     it('fresh current-version embeddings still produce matches', async () => {
       const owner = await h.seedOwner('fresh-emb', 'FreshEmbClub');
-      const alice = await h.seedCompedMember(owner.club.id, 'Alice Fresh', 'alice-fresh');
+      const alice = await h.seedCompedMember(owner.club.id, 'Alice Fresh');
       await seedProfileEmbedding(h, alice.id, makeVector([0.9, 0.1, 0]));
 
       // Entity with current-version embedding (normal case)

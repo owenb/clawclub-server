@@ -120,7 +120,7 @@ describe('legality gate: passes legal content regardless of quality', () => {
 
   it('passes a vague vouch reason (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-vouch-1', 'QG Vouch Club 1');
-    const member = await h.seedCompedMember(owner.club.id, 'Vouch Target', 'qg-vouch-target-1');
+    const member = await h.seedCompedMember(owner.club.id, 'Vouch Target');
 
     const result = await h.apiOk(owner.token, 'vouches.create', {
       clubId: owner.club.id,
@@ -133,7 +133,7 @@ describe('legality gate: passes legal content regardless of quality', () => {
 
   it('passes a generic sponsorship reason (low quality but legal)', async () => {
     const owner = await h.seedOwner('qg-sponsor-1', 'QG Sponsor Club 1');
-    const member = await h.seedCompedMember(owner.club.id, 'Sponsor Member', 'qg-sponsor-member-1');
+    const member = await h.seedCompedMember(owner.club.id, 'Sponsor Member');
 
     const result = await h.apiOk(member.token, 'invitations.issue', {
       clubId: owner.club.id,

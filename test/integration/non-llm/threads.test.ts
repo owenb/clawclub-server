@@ -53,7 +53,7 @@ async function createGift(token: string, clubId: string, title: string, body: st
 describe('content.getThread', () => {
   it('reads by entityId or threadId and paginates newest-first windows in chronological order', async () => {
     const owner = await h.seedOwner('thread-read-page', 'Thread Read Page Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Thread Author', 'thread-author');
+    const author = await h.seedCompedMember(owner.club.id, 'Thread Author');
 
     const root = await createPost(author.token, {
       clubId: owner.club.id,
@@ -95,7 +95,7 @@ describe('content.getThread', () => {
 
   it('keeps removed entities redacted inline but hides threads whose entire history is removed', async () => {
     const owner = await h.seedOwner('thread-redact', 'Thread Redact Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Thread Remover', 'thread-remover');
+    const author = await h.seedCompedMember(owner.club.id, 'Thread Remover');
 
     const root = await createPost(author.token, {
       clubId: owner.club.id,
@@ -133,8 +133,8 @@ describe('content.getThread', () => {
 
   it('supports includeClosed for direct reads of closed thread subjects', async () => {
     const owner = await h.seedOwner('thread-closed-read', 'Thread Closed Read Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Closed Author', 'closed-author');
-    const viewer = await h.seedCompedMember(owner.club.id, 'Closed Viewer', 'closed-viewer');
+    const author = await h.seedCompedMember(owner.club.id, 'Closed Author');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Closed Viewer');
 
     const gift = await createGift(author.token, owner.club.id, 'Closed loop', 'No longer available');
     await h.apiOk(author.token, 'content.closeLoop', { entityId: gift.entityId });
@@ -159,7 +159,7 @@ describe('content.getThread', () => {
 
   it('returns an expired firstEntity in the summary while omitting it from entities and counts only visible rows', async () => {
     const owner = await h.seedOwner('thread-expired-summary', 'Thread Expired Summary Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Expired Author', 'expired-author');
+    const author = await h.seedCompedMember(owner.club.id, 'Expired Author');
 
     const expiredRoot = await createPost(author.token, {
       clubId: owner.club.id,
@@ -197,8 +197,8 @@ describe('content.getThread', () => {
 describe('content.create thread quota scoping', () => {
   it('returns not_found when threadId points to an inaccessible club', async () => {
     const owner = await h.seedOwner('thread-scope-owner', 'Thread Scope Owner Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Thread Scope Author', 'thread-scope-author');
-    const outsider = await h.seedMember('Thread Outsider', 'thread-outsider');
+    const author = await h.seedCompedMember(owner.club.id, 'Thread Scope Author');
+    const outsider = await h.seedMember('Thread Outsider');
     const otherOwner = await h.seedOwner('thread-scope-other', 'Thread Scope Other Club');
 
     await h.seedCompedMembership(otherOwner.club.id, outsider.id);

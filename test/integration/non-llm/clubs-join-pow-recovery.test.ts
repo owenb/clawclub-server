@@ -102,12 +102,11 @@ async function expectCrossApplyDifficultyToStayColdForOnlyMembershipInState(inpu
   targetSlug: string;
   targetName: string;
   publicName: string;
-  handle: string;
   email: string;
 }): Promise<void> {
   const sourceOwner = await h.seedOwner(input.sourceSlug, input.sourceName);
   const targetOwner = await h.seedOwner(input.targetSlug, input.targetName);
-  const member = await h.seedMember(input.publicName, input.handle);
+  const member = await h.seedMember(input.publicName);
   await h.seedClubMembership(sourceOwner.club.id, member.id, {
     status: input.state,
     access: input.access ?? 'comped',
@@ -217,7 +216,7 @@ describe('clubs.join proof-of-work challenge behavior', () => {
   it('gives cross-apply difficulty only to members with an active membership elsewhere', async () => {
     const sourceOwner = await h.seedOwner('pow-cross-source', 'PoW Cross Source');
     const targetOwner = await h.seedOwner('pow-cross-target', 'PoW Cross Target');
-    const member = await h.seedCompedMember(sourceOwner.club.id, 'Cross Apply Casey', 'cross-apply-casey');
+    const member = await h.seedCompedMember(sourceOwner.club.id, 'Cross Apply Casey');
 
     const joinBody = await h.apiOk(member.token, 'clubs.join', {
       clubSlug: targetOwner.club.slug,
@@ -238,7 +237,6 @@ describe('clubs.join proof-of-work challenge behavior', () => {
       targetSlug: 'pow-renewal-target',
       targetName: 'PoW Renewal Target',
       publicName: 'Renewal Pending Riley',
-      handle: 'renewal-pending-riley',
       email: 'renewal.pending@example.com',
     });
   });
@@ -251,7 +249,6 @@ describe('clubs.join proof-of-work challenge behavior', () => {
       targetSlug: 'pow-cancelled-target',
       targetName: 'PoW Cancelled Target',
       publicName: 'Cancelled Casey',
-      handle: 'cancelled-casey',
       email: 'cancelled.casey@example.com',
     });
   });
@@ -265,7 +262,6 @@ describe('clubs.join proof-of-work challenge behavior', () => {
       targetSlug: 'pow-banned-target',
       targetName: 'PoW Banned Target',
       publicName: 'Banned Bailey',
-      handle: 'banned-bailey',
       email: 'banned.bailey@example.com',
     });
   });

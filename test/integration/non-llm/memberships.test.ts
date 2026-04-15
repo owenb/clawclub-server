@@ -16,7 +16,7 @@ after(async () => {
 describe('clubadmin.memberships.create direct-adds active members', () => {
   it('active direct-add gives immediate club access', async () => {
     const owner = await h.seedOwner('direct-active-club', 'Direct Active Club');
-    const member = await h.seedMember('Alice Active', 'alice-active');
+    const member = await h.seedMember('Alice Active');
 
     const createBody = await h.apiOk(owner.token, 'clubadmin.memberships.create', {
       clubId: owner.club.id,
@@ -43,7 +43,7 @@ describe('clubadmin.memberships.create direct-adds active members', () => {
 describe('clubadmin.memberships.create payment_pending stays non-accessible', () => {
   it('payment_pending direct-add does not grant access', async () => {
     const owner = await h.seedOwner('direct-payment-pending', 'Direct Payment Pending');
-    const member = await h.seedMember('Pam Pending', 'pam-pending');
+    const member = await h.seedMember('Pam Pending');
 
     const createBody = await h.apiOk(owner.token, 'clubadmin.memberships.create', {
       clubId: owner.club.id,
@@ -97,14 +97,14 @@ describe('clubs.join creates applying memberships without access', () => {
 describe('clubadmin.memberships.listForReview defaults to reviewable application states', () => {
   it('includes submitted and interview stages, excludes applying', async () => {
     const owner = await h.seedOwner('review-default-club', 'Review Default Club');
-    const applying = await h.seedPendingMember(owner.club.id, 'Applying Annie', 'applying-annie', {
+    const applying = await h.seedPendingMember(owner.club.id, 'Applying Annie', {
       status: 'applying',
       submissionPath: 'cold',
       proofKind: 'pow',
       applicationEmail: 'applying@example.com',
       applicationName: 'Applying Annie',
     });
-    const submitted = await h.seedPendingMember(owner.club.id, 'Submitted Sam', 'submitted-sam', {
+    const submitted = await h.seedPendingMember(owner.club.id, 'Submitted Sam', {
       status: 'submitted',
       submissionPath: 'cold',
       proofKind: 'pow',
@@ -113,7 +113,7 @@ describe('clubadmin.memberships.listForReview defaults to reviewable application
       applicationText: 'I want to help.',
       applicationSocials: '@submitted',
     });
-    const interviewed = await h.seedPendingMember(owner.club.id, 'Interview Ira', 'interview-ira', {
+    const interviewed = await h.seedPendingMember(owner.club.id, 'Interview Ira', {
       status: 'interview_scheduled',
       submissionPath: 'cross_apply',
       proofKind: 'pow',
@@ -139,7 +139,7 @@ describe('clubadmin.memberships.listForReview defaults to reviewable application
 describe('clubadmin.memberships.get returns the unified application summary', () => {
   it('surfaces submitted application details for review', async () => {
     const owner = await h.seedOwner('membership-get-club', 'Membership Get Club');
-    const applicant = await h.seedPendingMember(owner.club.id, 'Get Gail', 'get-gail', {
+    const applicant = await h.seedPendingMember(owner.club.id, 'Get Gail', {
       status: 'submitted',
       submissionPath: 'invitation',
       proofKind: 'invitation',
@@ -173,7 +173,7 @@ describe('clubadmin.memberships.get returns the unified application summary', ()
 describe('submitted applications can be accepted into active memberships', () => {
   it('owner transitions submitted application to active and access appears', async () => {
     const owner = await h.seedOwner('accept-submitted-club', 'Accept Submitted Club');
-    const applicant = await h.seedPendingMember(owner.club.id, 'Accept Ava', 'accept-ava', {
+    const applicant = await h.seedPendingMember(owner.club.id, 'Accept Ava', {
       status: 'submitted',
       submissionPath: 'cold',
       proofKind: 'pow',
@@ -219,7 +219,7 @@ describe('submitted applications can be accepted into active memberships', () =>
 describe('review vouches stay attached to the correct application', () => {
   it('listForReview batches vouch loading by applicant and keeps newest-first order', async () => {
     const owner = await h.seedOwner('vouch-review-club', 'Vouch Review Club');
-    const applicantA = await h.seedPendingMember(owner.club.id, 'Alice Applicant', 'alice-applicant', {
+    const applicantA = await h.seedPendingMember(owner.club.id, 'Alice Applicant', {
       status: 'submitted',
       submissionPath: 'cold',
       proofKind: 'pow',
@@ -228,7 +228,7 @@ describe('review vouches stay attached to the correct application', () => {
       applicationText: 'Application A',
       applicationSocials: '@alice',
     });
-    const applicantB = await h.seedPendingMember(owner.club.id, 'Bob Applicant', 'bob-applicant', {
+    const applicantB = await h.seedPendingMember(owner.club.id, 'Bob Applicant', {
       status: 'submitted',
       submissionPath: 'cold',
       proofKind: 'pow',
@@ -237,8 +237,8 @@ describe('review vouches stay attached to the correct application', () => {
       applicationText: 'Application B',
       applicationSocials: '@bob',
     });
-    const voucher1 = await h.seedCompedMember(owner.club.id, 'Voucher One', 'voucher-one');
-    const voucher2 = await h.seedCompedMember(owner.club.id, 'Voucher Two', 'voucher-two');
+    const voucher1 = await h.seedCompedMember(owner.club.id, 'Voucher One');
+    const voucher2 = await h.seedCompedMember(owner.club.id, 'Voucher Two');
 
     await h.sql(
       `insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, created_at)
@@ -271,8 +271,8 @@ describe('review vouches stay attached to the correct application', () => {
 describe('membership state transitions update access correctly', () => {
   it('banned and expired states revoke access', async () => {
     const owner = await h.seedOwner('ban-expire-club', 'Ban Expire Club');
-    const banned = await h.seedCompedMember(owner.club.id, 'Banned Bob', 'banned-bob');
-    const expired = await h.seedCompedMember(owner.club.id, 'Expired Eve', 'expired-eve');
+    const banned = await h.seedCompedMember(owner.club.id, 'Banned Bob');
+    const expired = await h.seedCompedMember(owner.club.id, 'Expired Eve');
 
     await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
@@ -295,8 +295,8 @@ describe('membership state transitions update access correctly', () => {
 
   it('comped members and renewal_pending members keep the right access semantics', async () => {
     const owner = await h.seedOwner('comp-renewal-club', 'Comp Renewal Club');
-    const comped = await h.seedCompedMember(owner.club.id, 'Comped Carl', 'comped-carl');
-    const renewing = await h.seedPaidMember(owner.club.id, 'Renewing Rita', 'renewing-rita');
+    const comped = await h.seedCompedMember(owner.club.id, 'Comped Carl');
+    const renewing = await h.seedPaidMember(owner.club.id, 'Renewing Rita');
 
     const compedSubs = await h.sql<{ count: string }>(
       `select count(*)::text as count
@@ -325,7 +325,7 @@ describe('membership state transitions update access correctly', () => {
 describe('clubadmin membership actions stay scoped to admins and superadmins', () => {
   it('regular members cannot use clubadmin.memberships.list', async () => {
     const owner = await h.seedOwner('membership-scope-club', 'Membership Scope Club');
-    const regular = await h.seedCompedMember(owner.club.id, 'Regular Riley', 'regular-riley');
+    const regular = await h.seedCompedMember(owner.club.id, 'Regular Riley');
 
     const err = await h.apiErr(regular.token, 'clubadmin.memberships.list', {
       clubId: owner.club.id,
@@ -336,10 +336,10 @@ describe('clubadmin membership actions stay scoped to admins and superadmins', (
   });
 
   it('superadmin can direct-add and transition memberships in unrelated clubs', async () => {
-    const admin = await h.seedSuperadmin('SA Memberships', 'sa-memberships');
+    const admin = await h.seedSuperadmin('SA Memberships');
     const owner = await h.seedOwner('sa-membership-club', 'SA Membership Club');
-    const directMember = await h.seedMember('Direct Dana', 'direct-dana');
-    const applicant = await h.seedPendingMember(owner.club.id, 'Pending Pat', 'pending-pat', {
+    const directMember = await h.seedMember('Direct Dana');
+    const applicant = await h.seedPendingMember(owner.club.id, 'Pending Pat', {
       status: 'submitted',
       submissionPath: 'cold',
       proofKind: 'pow',

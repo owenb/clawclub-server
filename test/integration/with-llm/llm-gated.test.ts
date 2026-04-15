@@ -46,7 +46,7 @@ describe('profile.update (LLM-gated)', () => {
 
   it('updated profile is visible to shared-club members', async () => {
     const owner = await h.seedOwner('llm-profiles-visibility', 'LLM ProfilesVisibilityClub');
-    const dave = await h.seedCompedMember(owner.club.id, 'Dave Viewer', 'llm-dave-viewer');
+    const dave = await h.seedCompedMember(owner.club.id, 'Dave Viewer');
 
     await h.apiOk(owner.token, 'profile.update', {
       clubId: owner.club.id,
@@ -67,7 +67,7 @@ describe('profile.update (LLM-gated)', () => {
 describe('Vouching (LLM-gated)', () => {
   it('vouches.create — member vouches for another shared-club member', async () => {
     const owner = await h.seedOwner('llm-vouch-club', 'LLM VouchClub');
-    const voter = await h.seedCompedMember(owner.club.id, 'Vouch Voter', 'llm-vouch-voter');
+    const voter = await h.seedCompedMember(owner.club.id, 'Vouch Voter');
 
     const result = await h.apiOk(voter.token, 'vouches.create', {
       clubId: owner.club.id,
@@ -83,7 +83,7 @@ describe('Vouching (LLM-gated)', () => {
 
   it('vouches.list — vouch is visible', async () => {
     const owner = await h.seedOwner('llm-vouch-list-club', 'LLM VouchListClub');
-    const voter = await h.seedCompedMember(owner.club.id, 'Vouch Lister', 'llm-vouch-lister');
+    const voter = await h.seedCompedMember(owner.club.id, 'Vouch Lister');
 
     await h.apiOk(voter.token, 'vouches.create', {
       clubId: owner.club.id,
@@ -123,7 +123,7 @@ describe('Vouching (LLM-gated)', () => {
 
   it('duplicate vouch is rejected', async () => {
     const owner = await h.seedOwner('llm-vouch-dup-club', 'LLM VouchDupClub');
-    const voter = await h.seedCompedMember(owner.club.id, 'Dup Voter', 'llm-dup-voter');
+    const voter = await h.seedCompedMember(owner.club.id, 'Dup Voter');
 
     await h.apiOk(voter.token, 'vouches.create', {
       clubId: owner.club.id,
@@ -161,8 +161,8 @@ describe('Vouching (LLM-gated)', () => {
 describe('entity update fan-out (LLM-gated)', () => {
   it('club members get entity updates after content is created', async () => {
     const owner = await h.seedOwner('llm-upd-club-2', 'LLM UpdClub2');
-    const author = await h.seedCompedMember(owner.club.id, 'Alice ContentAuthor', 'llm-alice-upd-2');
-    const viewer = await h.seedCompedMember(owner.club.id, 'Bob ContentViewer', 'llm-bob-upd-2');
+    const author = await h.seedCompedMember(owner.club.id, 'Alice ContentAuthor');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Bob ContentViewer');
 
     const seedResult = await h.apiOk(viewer.token, 'activity.list', { clubId: owner.club.id, after: 'latest' });
     const seedAfter = (seedResult.data as Record<string, unknown>).nextAfter as string;
@@ -190,7 +190,7 @@ describe('entity update fan-out (LLM-gated)', () => {
 
 describe('superadmin.content (LLM-gated)', () => {
   it('admin.content.list — lists content across clubs', async () => {
-    const admin = await h.seedSuperadmin('Admin Content', 'llm-admin-content-list');
+    const admin = await h.seedSuperadmin('Admin Content');
     const ownerCtx = await h.seedOwner('llm-content-list-club', 'LLM Content List Club');
 
     await h.apiOk(ownerCtx.token, 'content.create', {
@@ -212,7 +212,7 @@ describe('superadmin.content (LLM-gated)', () => {
   });
 
   it('admin.content.archive — archives content', async () => {
-    const admin = await h.seedSuperadmin('Admin Archiver Content', 'llm-admin-content-archive');
+    const admin = await h.seedSuperadmin('Admin Archiver Content');
     const ownerCtx = await h.seedOwner('llm-content-archive-club', 'LLM Content Archive Club');
 
     const createResult = await h.apiOk(ownerCtx.token, 'content.create', {
@@ -237,7 +237,7 @@ describe('superadmin.content (LLM-gated)', () => {
 describe('invitations.issue (LLM-gated)', () => {
   it('member issues an invitation for a candidate', async () => {
     const owner = await h.seedOwner('llm-sponsor-club', 'LLM Sponsor Club');
-    const sponsor = await h.seedCompedMember(owner.club.id, 'Sponsor Member', 'llm-sponsor-member');
+    const sponsor = await h.seedCompedMember(owner.club.id, 'Sponsor Member');
 
     const result = await h.apiOk(sponsor.token, 'invitations.issue', {
       clubId: owner.club.id,

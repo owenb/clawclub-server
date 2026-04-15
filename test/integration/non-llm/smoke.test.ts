@@ -147,7 +147,7 @@ describe('smoke', () => {
   });
 
   it('rejects top-level parameters outside input (superadmin.members.list)', async () => {
-    const admin = await h.seedSuperadmin('Transport Admin', 'transport-admin');
+    const admin = await h.seedSuperadmin('Transport Admin');
     const { status, body } = await rawPost(h.port, admin.token, { action: 'superadmin.members.list', limit: 10 });
     assert.equal(status, 400);
     assert.match((body.error as any).message, /top-level/i);

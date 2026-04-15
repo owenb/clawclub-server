@@ -45,7 +45,6 @@ export function makeActor(overrides: {
 
 export function makeAuthResult(overrides: {
   memberId?: string;
-  handle?: string;
   publicName?: string;
   globalRoles?: ActorContext['globalRoles'];
   memberships?: MembershipSummary[];
@@ -70,7 +69,6 @@ export function makeAuthResult(overrides: {
 export function makeAdminAuthResult(): AuthResult {
   return makeAuthResult({
     memberId: 'admin-1',
-    handle: 'admin',
     publicName: 'Admin User',
     globalRoles: ['superadmin'],
   });

@@ -34,7 +34,7 @@ function listedFirstEntityIds(result: Record<string, unknown>): string[] {
 describe('gifts and open loops', () => {
   it('creates gifts with openLoop=true and posts with openLoop=null', async () => {
     const owner = await h.seedOwner('gift-create', 'Gift Create Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Gift Author', 'gift-author');
+    const author = await h.seedCompedMember(owner.club.id, 'Gift Author');
 
     const giftResult = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -99,8 +99,8 @@ describe('gifts and open loops', () => {
 
   it('closeLoop is idempotent, hidden by default, private with includeClosed, and reopen makes the loop visible again', async () => {
     const owner = await h.seedOwner('gift-close', 'Gift Close Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Loop Author', 'loop-author');
-    const viewer = await h.seedCompedMember(owner.club.id, 'Loop Viewer', 'loop-viewer');
+    const author = await h.seedCompedMember(owner.club.id, 'Loop Author');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Loop Viewer');
 
     const giftResult = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -164,8 +164,8 @@ describe('gifts and open loops', () => {
 
   it('closeLoop returns 404 for posts, removed gifts, and another member’s gift', async () => {
     const owner = await h.seedOwner('gift-errors', 'Gift Errors Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Gift Owner', 'gift-owner');
-    const viewer = await h.seedCompedMember(owner.club.id, 'Gift Viewer', 'gift-viewer');
+    const author = await h.seedCompedMember(owner.club.id, 'Gift Owner');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Gift Viewer');
 
     const postResult = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -210,8 +210,8 @@ describe('gifts and open loops', () => {
 
   it('closed loops are excluded from embedding search results', async () => {
     const owner = await h.seedOwner('gift-search', 'Gift Search Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Search Author', 'search-author');
-    const viewer = await h.seedCompedMember(owner.club.id, 'Search Viewer', 'search-viewer');
+    const author = await h.seedCompedMember(owner.club.id, 'Search Author');
+    const viewer = await h.seedCompedMember(owner.club.id, 'Search Viewer');
 
     const giftResult = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,

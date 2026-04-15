@@ -70,7 +70,6 @@ type ContentEntityRow = {
     membershipId: string;
     memberId: string;
     publicName: string;
-    handle: string | null;
     response: 'yes' | 'maybe' | 'no' | 'waitlist';
     note: string | null;
     createdAt: string;

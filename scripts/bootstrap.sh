@@ -38,10 +38,10 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
 
 -- Create the superadmin member
-insert into members (public_name, display_name, handle, state)
-values ('Superadmin', 'Superadmin', 'superadmin', 'active');
+insert into members (public_name, display_name, state)
+values ('Superadmin', 'Superadmin', 'active');
 
-select id as member_id from members where handle = 'superadmin' \gset
+select id as member_id from members where public_name = 'Superadmin' \gset
 
 -- Grant superadmin role
 insert into member_global_role_versions (member_id, role, status, version_no, created_by_member_id)
@@ -57,7 +57,7 @@ echo ""
 echo "Minting bearer token..."
 
 cd "$ROOT_DIR"
-DATABASE_URL="$DATABASE_URL" node --experimental-strip-types src/token-cli.ts create --handle superadmin --label bootstrap
+DATABASE_URL="$DATABASE_URL" node --experimental-strip-types src/token-cli.ts create --name Superadmin --label bootstrap
 
 echo ""
 echo "Bootstrap complete. Save the bearerToken above — it is the only way to authenticate."

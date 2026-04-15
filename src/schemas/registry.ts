@@ -216,6 +216,13 @@ export type ActionDefinition = {
 
 const registry = new Map<string, ActionDefinition>();
 
+function strictActionInputSchema(schema: z.ZodType): z.ZodType {
+  if (!(schema instanceof z.ZodObject)) {
+    throw new Error(`Action input schema root must be ZodObject, got ${schema.constructor.name}`);
+  }
+  return schema.strict();
+}
+
 /**
  * Register action definitions from a domain module.
  * Called by each domain schema file during module initialization.
@@ -228,7 +235,17 @@ export function registerActions(actions: ActionDefinition[]): void {
     if (action.auth === 'none' && action.preGate) {
       throw new Error(`Cold action ${action.action} must not define preGate`);
     }
-    registry.set(action.action, action);
+    registry.set(action.action, {
+      ...action,
+      wire: {
+        ...action.wire,
+        input: strictActionInputSchema(action.wire.input),
+      },
+      parse: {
+        ...action.parse,
+        input: strictActionInputSchema(action.parse.input),
+      },
+    });
   }
 }
 

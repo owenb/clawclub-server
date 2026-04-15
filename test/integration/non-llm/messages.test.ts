@@ -17,8 +17,8 @@ after(async () => {
 describe('messages', () => {
   it('two shared-club members can exchange a DM via messages.send', async () => {
     const owner = await h.seedOwner('msg-club-1', 'MsgClub1');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Sender', 'alice-msg-1');
-    const bob = await h.seedCompedMember(owner.club.id, 'Bob Recipient', 'bob-msg-1');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Sender');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Recipient');
 
     const result = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -34,8 +34,8 @@ describe('messages', () => {
 
   it('sender sees the thread in messages.getInbox', async () => {
     const owner = await h.seedOwner('msg-club-2', 'MsgClub2');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Inbox', 'alice-msg-2');
-    const bob = await h.seedCompedMember(owner.club.id, 'Bob Inbox', 'bob-msg-2');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Inbox');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Inbox');
 
     const sent = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -53,8 +53,8 @@ describe('messages', () => {
 
   it('recipient sees the thread in messages.getInbox', async () => {
     const owner = await h.seedOwner('msg-club-3', 'MsgClub3');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Recv', 'alice-msg-3');
-    const bob = await h.seedCompedMember(owner.club.id, 'Bob Recv', 'bob-msg-3');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Recv');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Recv');
 
     const sent = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -77,8 +77,8 @@ describe('messages', () => {
 
   it('messages.getThread returns the thread and message list', async () => {
     const owner = await h.seedOwner('msg-club-4', 'MsgClub4');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Read', 'alice-msg-4');
-    const bob = await h.seedCompedMember(owner.club.id, 'Bob Read', 'bob-msg-4');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Read');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Read');
 
     const sent = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -108,8 +108,8 @@ describe('messages', () => {
 
   it('messages.getInbox returns the thread summary', async () => {
     const owner = await h.seedOwner('msg-club-5', 'MsgClub5');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice List', 'alice-msg-5');
-    const bob = await h.seedCompedMember(owner.club.id, 'Bob List', 'bob-msg-5');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice List');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob List');
 
     const sent = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -131,9 +131,9 @@ describe('messages', () => {
 
   it('a third member not in the conversation cannot read the thread', async () => {
     const owner = await h.seedOwner('msg-club-6', 'MsgClub6');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Private', 'alice-msg-6');
-    const bob = await h.seedCompedMember(owner.club.id, 'Bob Private', 'bob-msg-6');
-    const carol = await h.seedCompedMember(owner.club.id, 'Carol Outsider', 'carol-msg-6');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Private');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Private');
+    const carol = await h.seedCompedMember(owner.club.id, 'Carol Outsider');
 
     const sent = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -149,7 +149,7 @@ describe('messages', () => {
 
   it('member can DM the club owner and owner can reply', async () => {
     const owner = await h.seedOwner('msg-club-7', 'MsgClub7');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice ToOwner', 'alice-msg-7');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice ToOwner');
 
     // Member messages the owner
     const sent = await h.apiOk(alice.token, 'messages.send', {
@@ -187,8 +187,8 @@ describe('messages', () => {
 
   it('multi-message conversation maintains thread correctly', async () => {
     const owner = await h.seedOwner('msg-club-8', 'MsgClub8');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Multi', 'alice-msg-8');
-    const bob = await h.seedCompedMember(owner.club.id, 'Bob Multi', 'bob-msg-8');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Multi');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Multi');
 
     // Alice sends first message
     const r1 = await h.apiOk(alice.token, 'messages.send', {
@@ -233,7 +233,7 @@ describe('messages', () => {
   it('members sharing multiple clubs can DM without providing clubId', async () => {
     const owner = await h.seedOwner('msg-multi-1', 'MsgMulti1');
     const club2 = await h.seedClub('msg-multi-2', 'MsgMulti2', owner.id);
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Multi', 'alice-multi-club');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Multi');
     await h.seedCompedMembership(club2.id, alice.id);
 
     const result = await h.apiOk(owner.token, 'messages.send', {
@@ -255,7 +255,7 @@ describe('messages', () => {
 
   it('send response has sharedClubs not clubId', async () => {
     const owner = await h.seedOwner('msg-shape-1', 'MsgShape1');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Shape', 'alice-shape-1');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Shape');
 
     const result = await h.apiOk(owner.token, 'messages.send', {
       recipientMemberId: alice.id,
@@ -273,7 +273,7 @@ describe('messages', () => {
 
   it('messages.getThread returns sharedClubs on thread', async () => {
     const owner = await h.seedOwner('msg-read-sc', 'MsgReadSC');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice ReadSC', 'alice-read-sc');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice ReadSC');
 
     const sent = await h.apiOk(owner.token, 'messages.send', { recipientMemberId: alice.id, messageText: 'SC test' });
     const threadId = ((sent.data as Record<string, unknown>).message as Record<string, unknown>).threadId as string;
@@ -288,7 +288,7 @@ describe('messages', () => {
 
   it('messages.getInbox returns sharedClubs on threads', async () => {
     const owner = await h.seedOwner('msg-list-sc', 'MsgListSC');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice ListSC', 'alice-list-sc');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice ListSC');
 
     await h.apiOk(owner.token, 'messages.send', { recipientMemberId: alice.id, messageText: 'list SC test' });
 
@@ -301,7 +301,7 @@ describe('messages', () => {
 
   it('messages.getInbox returns sharedClubs on threads (unreadOnly)', async () => {
     const owner = await h.seedOwner('msg-inbox-sc', 'MsgInboxSC');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice InboxSC', 'alice-inbox-sc');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice InboxSC');
 
     await h.apiOk(alice.token, 'messages.send', { recipientMemberId: owner.id, messageText: 'inbox SC test' });
 
@@ -325,7 +325,7 @@ describe('messages', () => {
 
   it('stream message frame carries sharedClubs on the thread', async () => {
     const owner = await h.seedOwner('msg-upd-sc', 'MsgUpdSC');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice UpdSC', 'alice-upd-sc');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice UpdSC');
 
     const stream = h.connectStream(owner.token, { after: 'latest' });
     try {
@@ -350,7 +350,7 @@ describe('messages', () => {
 
   it('existing thread remains replyable after shared clubs drop to zero', async () => {
     const owner = await h.seedOwner('msg-diverge', 'MsgDiverge');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Diverge', 'alice-diverge');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Diverge');
 
     // Start a DM while they share a club
     const sent = await h.apiOk(owner.token, 'messages.send', {
@@ -394,7 +394,7 @@ describe('messages', () => {
 
   it('messages.acknowledge marks a thread read and is idempotent', async () => {
     const owner = await h.seedOwner('msg-ack-null', 'MsgAckNull');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Ack', 'alice-ack-null');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Ack');
 
     await h.apiOk(alice.token, 'messages.send', { recipientMemberId: owner.id, messageText: 'Ack test' });
 
@@ -427,7 +427,7 @@ describe('messages', () => {
 
   it('replying auto-acknowledges the sender side of the DM thread', async () => {
     const owner = await h.seedOwner('msg-auto-ack', 'MsgAutoAck');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice AutoAck', 'alice-auto-ack');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice AutoAck');
 
     const first = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: owner.id,
@@ -470,8 +470,8 @@ describe('messages', () => {
 
   it('reply auto-ack is isolated to the replied thread', async () => {
     const owner = await h.seedOwner('msg-auto-ack-iso', 'MsgAutoAckIso');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice IsoAck', 'alice-auto-ack-iso');
-    const bob = await h.seedCompedMember(owner.club.id, 'Bob IsoAck', 'bob-auto-ack-iso');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice IsoAck');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob IsoAck');
 
     const aliceThread = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: owner.id,
@@ -512,7 +512,7 @@ describe('messages', () => {
 
   it('duplicate clientKey sends return the original message without creating another row', async () => {
     const owner = await h.seedOwner('msg-client-key', 'MsgClientKey');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice ClientKey', 'alice-client-key');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice ClientKey');
     const clientKey = 'retry-key-1';
 
     const first = await h.apiOk(owner.token, 'messages.send', {
@@ -542,7 +542,7 @@ describe('messages', () => {
 
   it('clientKey replay does not auto-ack unread replies that arrived later', async () => {
     const owner = await h.seedOwner('msg-client-key-ack', 'MsgClientKeyAck');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice ClientKeyAck', 'alice-client-key-ack');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice ClientKeyAck');
     const clientKey = 'retry-key-ack-1';
 
     await h.apiOk(owner.token, 'messages.send', {
@@ -579,7 +579,7 @@ describe('messages', () => {
 
   it('clientKey with different messageText returns 409 client_key_conflict', async () => {
     const owner = await h.seedOwner('msg-ck-conflict', 'MsgCKConflict');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice CKConflict', 'alice-ck-conflict');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice CKConflict');
     const clientKey = 'conflict-key-1';
 
     await h.apiOk(owner.token, 'messages.send', {
@@ -599,7 +599,7 @@ describe('messages', () => {
 
   it('oversized messageText returns 400', async () => {
     const owner = await h.seedOwner('msg-long', 'MsgLong');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Long', 'alice-long');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Long');
     const err = await h.apiErr(owner.token, 'messages.send', {
       recipientMemberId: alice.id,
       messageText: 'x'.repeat(500_001),
@@ -631,7 +631,7 @@ describe('messages read-state and stream', () => {
 
   it('after=latest skips DM backlog and only receives future message frames', async () => {
     const owner = await h.seedOwner('sse-club-2', 'SSEClub2');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice Tail', 'alice-sse-2');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Tail');
 
     await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: owner.id,
@@ -659,7 +659,7 @@ describe('messages read-state and stream', () => {
 
   it('message frame matches a single-message projection of messages.getThread', async () => {
     const owner = await h.seedOwner('sse-club-3', 'SSEClub3');
-    const alice = await h.seedCompedMember(owner.club.id, 'Alice RT', 'alice-sse-3');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice RT');
 
     const stream = h.connectStream(owner.token, { after: 'latest' });
     try {

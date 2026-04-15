@@ -27,9 +27,9 @@ function mentionSpan(label: string, memberId: string): string {
 describe('message mentions', () => {
   it('hydrates DM mention spans with current display name across reads', async () => {
     const owner = await h.seedOwner('dm-mention-club', 'DM Mention Club');
-    const alice = await h.seedCompedMember(owner.club.id, 'DM Alice', 'dm-mention-alice');
-    const bob = await h.seedCompedMember(owner.club.id, 'DM Bob', 'dm-mention-bob');
-    const carol = await h.seedCompedMember(owner.club.id, 'DM Carol', 'dm-mention-carol');
+    const alice = await h.seedCompedMember(owner.club.id, 'DM Alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'DM Bob');
+    const carol = await h.seedCompedMember(owner.club.id, 'DM Carol');
 
     const firstSend = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
@@ -59,8 +59,8 @@ describe('message mentions', () => {
 
   it('rejects DM mentions with unknown member ids', async () => {
     const owner = await h.seedOwner('dm-unknown-club', 'DM Unknown Club');
-    const alice = await h.seedCompedMember(owner.club.id, 'Unknown Alice', 'dm-unknown-alice');
-    const bob = await h.seedCompedMember(owner.club.id, 'Unknown Bob', 'dm-unknown-bob');
+    const alice = await h.seedCompedMember(owner.club.id, 'Unknown Alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'Unknown Bob');
 
     const bogusId = 'zzzzzzzzzzzz';
     const err = await h.apiErr(alice.token, 'messages.send', {
@@ -74,9 +74,9 @@ describe('message mentions', () => {
 
   it('suppresses mentions on removed messages', async () => {
     const owner = await h.seedOwner('dm-remove-mention-club', 'DM Remove Mention Club');
-    const alice = await h.seedCompedMember(owner.club.id, 'Remove Alice', 'dm-remove-alice');
-    const bob = await h.seedCompedMember(owner.club.id, 'Remove Bob', 'dm-remove-bob');
-    const carol = await h.seedCompedMember(owner.club.id, 'Remove Carol', 'dm-remove-carol');
+    const alice = await h.seedCompedMember(owner.club.id, 'Remove Alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'Remove Bob');
+    const carol = await h.seedCompedMember(owner.club.id, 'Remove Carol');
 
     const sendResult = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,

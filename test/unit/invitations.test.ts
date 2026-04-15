@@ -12,7 +12,6 @@ const sampleInvitation: InvitationSummary = {
   sponsor: {
     memberId: 'member-1',
     publicName: 'Member One',
-    handle: 'member-one',
   },
   reason: 'Excellent engineer, built production systems at scale',
   status: 'open',

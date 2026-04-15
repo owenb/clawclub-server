@@ -32,7 +32,7 @@ function sleep(ms: number): Promise<void> {
 describe('stream scope refresh', () => {
   it('stops delivering activity from a club after membership is removed', async () => {
     const owner = await h.seedOwner('scope-remove', 'Scope Remove Club');
-    const member = await h.seedCompedMember(owner.club.id, 'Alice Scope', 'alice-scope-remove');
+    const member = await h.seedCompedMember(owner.club.id, 'Alice Scope');
 
     // Open stream and wait for ready
     const stream = h.connectStream(member.token, { after: 'latest' });
@@ -71,7 +71,7 @@ describe('stream scope refresh', () => {
   it('starts delivering updates from a newly-joined club without reconnect', async () => {
     const ownerA = await h.seedOwner('scope-expand-a', 'Scope Expand A');
     const ownerB = await h.seedOwner('scope-expand-b', 'Scope Expand B');
-    const member = await h.seedCompedMember(ownerA.club.id, 'Bob Expand', 'bob-expand');
+    const member = await h.seedCompedMember(ownerA.club.id, 'Bob Expand');
 
     // Open stream — member is only in club A
     const stream = h.connectStream(member.token, { after: 'latest' });
@@ -111,7 +111,7 @@ describe('stream scope refresh', () => {
 
   it('server closes the stream when the token is revoked', async () => {
     const owner = await h.seedOwner('scope-revoke', 'Scope Revoke Club');
-    const member = await h.seedCompedMember(owner.club.id, 'Charlie Revoke', 'charlie-revoke');
+    const member = await h.seedCompedMember(owner.club.id, 'Charlie Revoke');
 
     const stream = h.connectStream(member.token, { after: 'latest' });
     try {
@@ -144,7 +144,7 @@ describe('stream scope refresh', () => {
 
   it('activeStreams decrements when server closes a revoked stream (same member can reopen)', async () => {
     const owner = await h.seedOwner('scope-count', 'Scope Count Club');
-    const member = await h.seedCompedMember(owner.club.id, 'Dana Count', 'dana-count');
+    const member = await h.seedCompedMember(owner.club.id, 'Dana Count');
 
     // Open a stream for this member
     const stream1 = h.connectStream(member.token, { after: 'latest' });

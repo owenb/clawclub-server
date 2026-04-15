@@ -165,7 +165,7 @@ function buildSchema(): unknown {
   const actions: SchemaAction[] = [];
 
   for (const [, def] of registry) {
-    const inputSchema = relaxInputSchema(z.toJSONSchema(def.wire.input, { target: 'openapi-3.0' }));
+    const inputSchema = z.toJSONSchema(def.wire.input, { target: 'openapi-3.0' });
 
     const entry: SchemaAction = {
       action: def.action,

@@ -32,8 +32,8 @@ function mentionSpan(label: string, memberId: string): string {
 describe('content mentions', () => {
   it('hydrates [Name|id] mentions with current display name across reads', async () => {
     const owner = await h.seedOwner('mention-thread-club', 'Mention Thread Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Mention Author', 'mention-author');
-    const kilian = await h.seedCompedMember(owner.club.id, 'Kilian Valdman', 'kilian-valdman');
+    const author = await h.seedCompedMember(owner.club.id, 'Mention Author');
+    const kilian = await h.seedCompedMember(owner.club.id, 'Kilian Valdman');
 
     const rootResult = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -67,7 +67,7 @@ describe('content mentions', () => {
 
   it('rejects mentions with unknown member ids', async () => {
     const owner = await h.seedOwner('mention-unknown-club', 'Mention Unknown Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Unknown Author', 'mention-unknown-author');
+    const author = await h.seedCompedMember(owner.club.id, 'Unknown Author');
 
     const bogusId = 'zzzzzzzzzzzz'; // valid short_id format, does not exist
     const err = await h.apiErr(author.token, 'content.create', {
@@ -83,9 +83,9 @@ describe('content mentions', () => {
   it('allows mentioning members regardless of club scope or state (id existence only)', async () => {
     // Round 6/7: scope validation removed. Mentions resolve on id alone.
     const owner = await h.seedOwner('mention-scope-club', 'Mention Scope Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Scope Author', 'mention-scope-author');
+    const author = await h.seedCompedMember(owner.club.id, 'Scope Author');
     // target is not a member of this club
-    const outsider = await h.seedMember('Outsider', 'outsider');
+    const outsider = await h.seedMember('Outsider');
 
     const result = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -98,12 +98,12 @@ describe('content mentions', () => {
 
   it('enforces mention caps on create', async () => {
     const owner = await h.seedOwner('mention-cap-club', 'Mention Cap Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Cap Author', 'mention-cap-author');
+    const author = await h.seedCompedMember(owner.club.id, 'Cap Author');
 
     // 26 unique targets → over the 25 unique member cap.
     const targets: Array<{ id: string }> = [];
     for (let i = 0; i < 26; i += 1) {
-      const m = await h.seedCompedMember(owner.club.id, `Target ${i}`, `mention-cap-${i}`);
+      const m = await h.seedCompedMember(owner.club.id, `Target ${i}`);
       targets.push({ id: m.id });
     }
 
@@ -120,8 +120,8 @@ describe('content mentions', () => {
 
   it('suppresses mentions on removed content', async () => {
     const owner = await h.seedOwner('content-remove-club', 'Content Remove Club');
-    const author = await h.seedCompedMember(owner.club.id, 'Remove Author', 'content-remove-author');
-    const target = await h.seedCompedMember(owner.club.id, 'Remove Target', 'content-remove-target');
+    const author = await h.seedCompedMember(owner.club.id, 'Remove Author');
+    const target = await h.seedCompedMember(owner.club.id, 'Remove Target');
 
     const root = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,

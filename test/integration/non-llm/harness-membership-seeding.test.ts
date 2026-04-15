@@ -6,7 +6,7 @@ test('seedClubMembership creates an access-granting member without manual subscr
   const h = await TestHarness.start();
   try {
     const owner = await h.seedOwner('harness-seed-active', 'Harness Seed Active');
-    const member = await h.seedCompedMember(owner.club.id, 'Access Member', 'harness-access-member');
+    const member = await h.seedCompedMember(owner.club.id, 'Access Member');
 
     const body = await h.apiOk(member.token, 'members.list', {
       clubId: owner.club.id,
@@ -32,7 +32,7 @@ test('seedPendingMembership keeps pre-acceptance members out of access views and
   const h = await TestHarness.start();
   try {
     const owner = await h.seedOwner('harness-seed-pending', 'Harness Seed Pending');
-    const pending = await h.seedPendingMember(owner.club.id, 'Pending Member', 'harness-pending-member', {
+    const pending = await h.seedPendingMember(owner.club.id, 'Pending Member', {
       status: 'applying',
       submissionPath: 'cold',
       proofKind: 'pow',

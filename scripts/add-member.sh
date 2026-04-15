@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 3 ]]; then
-  echo "usage: $0 <handle> <public-name> <club-slug>" >&2
+if [[ $# -lt 2 ]]; then
+  echo "usage: $0 <public-name> <club-slug>" >&2
   echo "" >&2
   echo "Requires CLAWCLUB_OWNER_TOKEN in the environment." >&2
   echo "example:" >&2
-  echo "  CLAWCLUB_OWNER_TOKEN=cc_live_... $0 jane-doe 'Jane Doe' your-club" >&2
+  echo "  CLAWCLUB_OWNER_TOKEN=cc_live_... $0 'Jane Doe' your-club" >&2
   exit 1
 fi
 
@@ -15,9 +15,8 @@ if [[ -z "${CLAWCLUB_OWNER_TOKEN:-}" ]]; then
   exit 1
 fi
 
-handle="$1"
-public_name="$2"
-club_slug="$3"
+public_name="$1"
+club_slug="$2"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
@@ -34,19 +33,16 @@ if ! curl -sS -f -o /dev/null \
   exit 1
 fi
 
-echo "Creating member '$handle' ($public_name)..."
+echo "Creating member '$public_name'..."
 
-psql "$database_url" -v ON_ERROR_STOP=1 -v handle="$handle" -v public_name="$public_name" <<'SQL'
-insert into members (public_name, handle)
-values (:'public_name', :'handle')
-on conflict (handle) do update
-set public_name = excluded.public_name;
+member_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v public_name="$public_name" <<'SQL'
+insert into members (public_name, display_name, state)
+values (:'public_name', :'public_name', 'active')
+returning id;
 SQL
-
-member_id="$(psql "$database_url" -X -A -t -q -v ON_ERROR_STOP=1 -v handle="$handle" \
-  -c "select id from members where handle = :'handle'")"
+)"
 if [[ -z "$member_id" ]]; then
-  echo "Failed to resolve member id for handle '$handle'" >&2
+  echo "Failed to create member '$public_name'" >&2
   exit 1
 fi
 
@@ -95,7 +91,7 @@ echo ""
 echo "Minting bearer token..."
 
 cd "$repo_dir"
-token_output=$(DATABASE_URL="$database_url" node --experimental-strip-types src/token-cli.ts create --handle "$handle" --label invite)
+token_output=$(DATABASE_URL="$database_url" node --experimental-strip-types src/token-cli.ts create --member "$member_id" --label invite)
 
 echo "$token_output"
 
