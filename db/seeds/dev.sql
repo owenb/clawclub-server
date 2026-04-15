@@ -52,7 +52,6 @@ create temp table seed_member_profiles (
   services_summary text,
   website_url text,
   links jsonb not null default '[]'::jsonb,
-  profile jsonb not null default '{}'::jsonb,
   created_by_member_id short_id not null,
   created_at timestamptz not null
 ) on commit drop;
@@ -376,7 +375,6 @@ insert into member_club_profile_versions (
   services_summary,
   website_url,
   links,
-  profile,
   created_by_member_id,
   generation_source,
   created_at
@@ -393,7 +391,6 @@ select
   smp.services_summary,
   smp.website_url,
   smp.links,
-  smp.profile,
   smp.created_by_member_id,
   'migration_backfill',
   smp.created_at

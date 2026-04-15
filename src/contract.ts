@@ -389,14 +389,18 @@ export type ClubProfile = {
   knownFor: string | null;
   servicesSummary: string | null;
   websiteUrl: string | null;
-  links: unknown[];
-  profile: Record<string, unknown>;
+  links: ClubProfileLink[];
   version: {
     id: string;
     versionNo: number;
     createdAt: string;
     createdByMemberId: string | null;
   };
+};
+
+export type ClubProfileLink = {
+  url: string;
+  label: string | null;
 };
 
 export type ClubProfileFields = {
@@ -406,8 +410,7 @@ export type ClubProfileFields = {
   knownFor: string | null;
   servicesSummary: string | null;
   websiteUrl: string | null;
-  links: unknown[];
-  profile: Record<string, unknown>;
+  links: ClubProfileLink[];
 };
 
 export type MemberIdentity = {
@@ -435,8 +438,7 @@ export type UpdateClubProfileInput = {
   knownFor?: string | null;
   servicesSummary?: string | null;
   websiteUrl?: string | null;
-  links?: unknown;
-  profile?: unknown;
+  links?: ClubProfileLink[];
 };
 
 export type EntityKind = 'post' | 'opportunity' | 'service' | 'ask' | 'gift' | 'event';
@@ -488,7 +490,6 @@ export type ContentEntity = {
     effectiveAt: string;
     expiresAt: string | null;
     createdAt: string;
-    content: Record<string, unknown>;
     mentions: {
       title: MentionSpan[];
       summary: MentionSpan[];
@@ -536,7 +537,6 @@ export type CreateEntityInput = {
   summary: string | null;
   body: string | null;
   expiresAt: string | null;
-  content: Record<string, unknown>;
   clientKey?: string | null;
   event?: EventFields | null;
 };
@@ -742,7 +742,6 @@ export type UpdateEntityInput = {
     summary?: string | null;
     body?: string | null;
     expiresAt?: string | null;
-    content?: Record<string, unknown>;
     event?: Partial<EventFields> | null;
   };
 };

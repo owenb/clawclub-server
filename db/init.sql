@@ -1026,7 +1026,6 @@ CREATE TABLE public.entity_versions (
     body text,
     effective_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone,
-    content jsonb DEFAULT '{}'::jsonb NOT NULL,
     reason text,
     supersedes_version_id public.short_id,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1050,7 +1049,6 @@ CREATE VIEW public.current_entity_versions AS
     body,
     effective_at,
     expires_at,
-    content,
     reason,
     supersedes_version_id,
     created_at,
@@ -1127,7 +1125,6 @@ CREATE VIEW public.current_event_versions AS
     cev.body,
     cev.effective_at,
     cev.expires_at,
-    cev.content,
     cev.reason,
     cev.supersedes_version_id,
     cev.created_at,
@@ -1159,7 +1156,6 @@ CREATE TABLE public.member_club_profile_versions (
     services_summary text,
     website_url text,
     links jsonb DEFAULT '[]'::jsonb NOT NULL,
-    profile jsonb DEFAULT '{}'::jsonb NOT NULL,
     search_vector tsvector,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by_member_id public.short_id,
@@ -1186,7 +1182,6 @@ CREATE VIEW public.current_member_club_profiles AS
     services_summary,
     website_url,
     links,
-    profile,
     search_vector,
     created_at,
     created_by_member_id,
@@ -1348,7 +1343,6 @@ CREATE TABLE public.entities (
     author_member_id public.short_id NOT NULL,
     open_loop boolean,
     content_thread_id public.short_id NOT NULL,
-    parent_entity_id public.short_id,
     client_key text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     archived_at timestamp with time zone,
@@ -1434,7 +1428,6 @@ CREATE VIEW public.published_entity_versions AS
     body,
     effective_at,
     expires_at,
-    content,
     reason,
     supersedes_version_id,
     created_at,
@@ -1454,7 +1447,6 @@ CREATE VIEW public.live_entities AS
     e.open_loop,
     e.author_member_id,
     e.content_thread_id,
-    e.parent_entity_id,
     e.created_at AS entity_created_at,
     pev.id AS entity_version_id,
     pev.version_no,
@@ -1464,7 +1456,6 @@ CREATE VIEW public.live_entities AS
     pev.body,
     pev.effective_at,
     pev.expires_at,
-    pev.content,
     pev.created_at AS version_created_at,
     pev.created_by_member_id
    FROM (public.entities e
@@ -1483,7 +1474,6 @@ CREATE VIEW public.live_events AS
     le.open_loop,
     le.author_member_id,
     le.content_thread_id,
-    le.parent_entity_id,
     le.entity_created_at,
     le.entity_version_id,
     le.version_no,
@@ -1493,7 +1483,6 @@ CREATE VIEW public.live_events AS
     le.body,
     le.effective_at,
     le.expires_at,
-    le.content,
     le.version_created_at,
     le.created_by_member_id,
     evd.location,
@@ -2401,14 +2390,6 @@ CREATE UNIQUE INDEX entities_idempotent_idx ON public.entities USING btree (auth
 
 CREATE INDEX entities_live_idx ON public.entities USING btree (club_id, kind) WHERE ((archived_at IS NULL) AND (deleted_at IS NULL));
 
-
---
--- Name: entities_parent_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entities_parent_idx ON public.entities USING btree (parent_entity_id);
-
-
 --
 -- Name: entities_thread_created_idx; Type: INDEX; Schema: public; Owner: -
 --
@@ -3160,15 +3141,6 @@ ALTER TABLE ONLY public.entities
 ALTER TABLE ONLY public.entities
     ADD CONSTRAINT entities_content_thread_same_club_fkey FOREIGN KEY (content_thread_id, club_id) REFERENCES public.content_threads(id, club_id);
 
-
---
--- Name: entities entities_parent_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entities
-    ADD CONSTRAINT entities_parent_fkey FOREIGN KEY (parent_entity_id) REFERENCES public.entities(id);
-
-
 --
 -- Name: entity_embeddings entity_embeddings_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
@@ -3489,4 +3461,5 @@ INSERT INTO public.schema_migrations (filename) VALUES
   ('008_unified_club_join.sql'),
   ('009_global_content_quota_default.sql'),
   ('010_rename_application_generated_profile_source.sql'),
-  ('011_delete_handles.sql');
+  ('011_delete_handles.sql'),
+  ('012_kill_untyped_json_surface.sql');

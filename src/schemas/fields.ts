@@ -217,9 +217,6 @@ export const wireOptionalRecord = z.record(z.string(), z.unknown()).optional()
 /** Parse: optional JSON object, defaults to {} */
 export const parseOptionalRecord = z.record(z.string(), z.unknown()).optional().default({});
 
-/** Wire: required JSON object */
-export const wireRequiredRecord = z.record(z.string(), z.unknown());
-
 /**
  * Wire: full name (at least two words).
  * Server trims whitespace and normalizes internal whitespace.
@@ -385,11 +382,3 @@ export const wireUpdateIds = z.array(z.string().min(1)).min(1)
 /** Parse: deduplicates */
 export const parseUpdateIds = z.array(safeString.pipe(z.string().trim().min(1))).min(1)
   .transform(ids => [...new Set(ids)]);
-
-/** Wire: links array for profile */
-export const wireLinks = z.array(z.unknown()).optional()
-  .describe('Array of link objects.');
-
-/** Wire: profile freeform object */
-export const wireProfileObject = z.record(z.string(), z.unknown()).optional()
-  .describe('Freeform profile metadata.');

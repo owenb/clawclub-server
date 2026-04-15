@@ -210,31 +210,6 @@ describe('content.create clientKey', () => {
     assert.equal(err.code, 'client_key_conflict');
   });
 
-  it('same key + reordered content JSON keys is accepted as replay', async () => {
-    const owner = await h.seedOwner('ck-content-json', 'CKContentJSON');
-
-    const first = await h.apiOk(owner.token, 'content.create', {
-      clubId: owner.club.id,
-      kind: 'post',
-      title: 'JSON order post',
-      body: 'Body',
-      content: { alpha: 1, beta: 2 },
-      clientKey: 'content-json-order-1',
-    });
-    const firstEntity = (first.data as Record<string, unknown>).entity as Record<string, unknown>;
-
-    const second = await h.apiOk(owner.token, 'content.create', {
-      clubId: owner.club.id,
-      kind: 'post',
-      title: 'JSON order post',
-      body: 'Body',
-      content: { beta: 2, alpha: 1 },
-      clientKey: 'content-json-order-1',
-    });
-    const secondEntity = (second.data as Record<string, unknown>).entity as Record<string, unknown>;
-
-    assert.equal(secondEntity.entityId, firstEntity.entityId, 'reordered JSON keys should be treated as same payload');
-  });
 });
 
 describe('content.create(kind=event) clientKey', () => {

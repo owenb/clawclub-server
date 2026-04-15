@@ -38,7 +38,6 @@ export async function seedPublishedEntity(
     title?: string | null;
     summary?: string | null;
     body?: string | null;
-    content?: Record<string, unknown>;
     openLoop?: boolean | null;
     event?: {
       location?: string | null;
@@ -76,7 +75,7 @@ export async function seedPublishedEntity(
      ),
      ver as (
        insert into entity_versions (
-         entity_id, version_no, state, title, summary, body, content, created_by_member_id
+         entity_id, version_no, state, title, summary, body, created_by_member_id
        )
        select
          ent.id,
@@ -85,7 +84,6 @@ export async function seedPublishedEntity(
          $5,
          $6,
          $7,
-         $8::jsonb,
          $3
        from ent
        returning id
@@ -104,7 +102,6 @@ export async function seedPublishedEntity(
       input.title ?? 'seeded entity',
       input.summary ?? null,
       input.body ?? null,
-      JSON.stringify(input.content ?? {}),
     ],
   );
 

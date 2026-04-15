@@ -37,7 +37,7 @@ function findTrailingNonce(challengeId: string, difficulty: number): string {
 async function getCurrentClubProfile(memberId: string, clubId: string): Promise<Record<string, unknown>> {
   const rows = await h.sql<Record<string, unknown>>(
     `select id, member_id, club_id, summary, tagline, what_i_do, known_for, services_summary,
-            website_url, links, profile, generation_source, version_no
+            website_url, links, generation_source, version_no
      from current_member_club_profiles
      where member_id = $1 and club_id = $2`,
     [memberId, clubId],

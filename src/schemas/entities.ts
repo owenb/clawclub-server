@@ -8,7 +8,6 @@ import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   wirePatchString, parsePatchString,
-  wireOptionalRecord, parseOptionalRecord,
   wireEntityKinds, parseEntityKinds,
   entityKind,
   wireCursor, parseCursor, decodeCursor,
@@ -97,13 +96,11 @@ function validateCreatePayload(input: {
   title: string | null;
   summary: string | null;
   body: string | null;
-  content: Record<string, unknown>;
   event?: EventInput | null;
 }): void {
   const hasTitle = typeof input.title === 'string' && input.title.trim().length > 0;
   const hasSummary = typeof input.summary === 'string' && input.summary.trim().length > 0;
   const hasBody = typeof input.body === 'string' && input.body.trim().length > 0;
-  const hasContent = Object.keys(input.content ?? {}).length > 0;
 
   if (input.kind === 'event') {
     if (!input.event) {
@@ -126,8 +123,8 @@ function validateCreatePayload(input: {
     throw new AppError(400, 'invalid_input', 'event fields are only valid when kind=event');
   }
 
-  if (!hasTitle && !hasSummary && !hasBody && !hasContent) {
-    throw new AppError(400, 'invalid_input', 'At least one of title, summary, body, or content must be provided');
+  if (!hasTitle && !hasSummary && !hasBody) {
+    throw new AppError(400, 'invalid_input', 'At least one of title, summary, or body must be provided');
   }
 }
 
@@ -152,7 +149,6 @@ type CreateInput = {
   summary: string | null;
   body: string | null;
   expiresAt: string | null;
-  content: Record<string, unknown>;
   clientKey: string | null;
   event?: EventInput | null;
 };
@@ -178,7 +174,6 @@ const entitiesCreate: ActionDefinition = {
       summary: wireOptionalString.describe('Summary'),
       body: wireOptionalString.describe('Body text'),
       expiresAt: wireOptionalString.describe('ISO 8601 expiration timestamp'),
-      content: wireOptionalRecord.describe('Structured metadata'),
       clientKey: wireOptionalString.describe('Idempotency key scoped per member.'),
       event: wireEventFieldsCreate.describe('Required when kind=event.'),
     }),
@@ -194,7 +189,6 @@ const entitiesCreate: ActionDefinition = {
       summary: parseTrimmedNullableString.default(null),
       body: parseTrimmedNullableString.default(null),
       expiresAt: parseTrimmedNullableString.default(null),
-      content: parseOptionalRecord,
       clientKey: parseTrimmedNullableString.default(null),
       event: parseEventFieldsCreate,
     }),
@@ -238,7 +232,6 @@ const entitiesCreate: ActionDefinition = {
       summary: parsed.summary,
       body: parsed.body,
       expiresAt: parsed.expiresAt,
-      content: parsed.content,
       clientKey: parsed.clientKey,
       ...(parsed.threadId ? { threadId: parsed.threadId } : { clubId: parsed.clubId }),
       ...(parsed.event ? { event: parsed.event } : {}),
@@ -259,7 +252,6 @@ type UpdateInput = {
   summary?: string | null;
   body?: string | null;
   expiresAt?: string | null;
-  content?: Record<string, unknown>;
   event?: Partial<EventInput> | null;
 };
 
@@ -279,7 +271,6 @@ const entitiesUpdate: ActionDefinition = {
       summary: wirePatchString.describe('New summary'),
       body: wirePatchString.describe('New body text'),
       expiresAt: wirePatchString.describe('New expiration timestamp'),
-      content: z.record(z.string(), z.unknown()).optional().describe('New structured metadata'),
       event: wireEventFieldsPatch.describe('Event patch fields (only valid for event entities)'),
     }),
     output: z.object({ entity: contentEntity, included: includedBundle }),
@@ -292,7 +283,6 @@ const entitiesUpdate: ActionDefinition = {
       summary: parsePatchString,
       body: parsePatchString,
       expiresAt: parsePatchString,
-      content: z.record(z.string(), z.unknown()).optional(),
       event: parseEventFieldsPatch,
     }).refine(input => {
       const { entityId: _entityId, ...patch } = input;
@@ -336,7 +326,6 @@ const entitiesUpdate: ActionDefinition = {
         summary?: string | null;
         body?: string | null;
         expiresAt?: string | null;
-        content?: Record<string, unknown>;
         event?: Partial<EventInput> | null;
       },
     });

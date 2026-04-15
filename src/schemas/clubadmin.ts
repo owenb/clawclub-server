@@ -223,7 +223,6 @@ const clubadminMembershipsCreate: ActionDefinition = {
           servicesSummary: null,
           websiteUrl: null,
           links: [],
-          profile: {},
         };
     const membership = await ctx.repository.createMembership({
       actorMemberId: ctx.actor.member.id,

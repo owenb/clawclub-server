@@ -6,10 +6,19 @@ import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wirePatchString, parsePatchString,
-  wireLinks, wireProfileObject,
 } from './fields.ts';
 import { memberProfileEnvelope } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
+
+const wireProfileLink = z.object({
+  url: z.string().url().max(500),
+  label: z.string().max(100).nullable(),
+});
+
+const parseProfileLink = z.object({
+  url: z.string().trim().url().max(500),
+  label: z.string().trim().max(100).transform((value) => value === '' ? null : value).nullable(),
+});
 
 const PROFILE_UPDATE_ERRORS = [
   {
@@ -87,8 +96,7 @@ type ProfileUpdateInput = {
   knownFor?: string | null;
   servicesSummary?: string | null;
   websiteUrl?: string | null;
-  links?: unknown[];
-  profile?: Record<string, unknown>;
+  links?: Array<{ url: string; label: string | null }>;
 };
 
 function validateProfileUpdateInput(patch: ProfileUpdateInput): void {
@@ -121,8 +129,7 @@ const profileUpdate: ActionDefinition = {
       knownFor: wirePatchString.describe('Known for'),
       servicesSummary: wirePatchString.describe('Services summary'),
       websiteUrl: wirePatchString.describe('Website URL'),
-      links: wireLinks,
-      profile: wireProfileObject,
+      links: z.array(wireProfileLink).max(20).optional(),
     }),
     output: memberProfileEnvelope,
   },
@@ -136,8 +143,7 @@ const profileUpdate: ActionDefinition = {
       knownFor: parsePatchString,
       servicesSummary: parsePatchString,
       websiteUrl: parsePatchString,
-      links: z.array(z.unknown()).optional(),
-      profile: z.record(z.string(), z.unknown()).optional(),
+      links: z.array(parseProfileLink).max(20).optional(),
     }),
   },
 

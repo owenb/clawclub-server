@@ -11,6 +11,7 @@ import {
   type ActorContext,
   type ClubProfile,
   type ClubProfileFields,
+  type ClubProfileLink,
   type MemberIdentity,
   type MemberProfileEnvelope,
   type MemberSearchResult,
@@ -28,8 +29,10 @@ const clubProfileFieldsSchema = z.object({
   knownFor: z.string().trim().min(1).nullable(),
   servicesSummary: z.string().trim().min(1).nullable(),
   websiteUrl: z.string().trim().min(1).nullable(),
-  links: z.array(z.unknown()),
-  profile: z.record(z.string(), z.unknown()),
+  links: z.array(z.object({
+    url: z.string().trim().url().max(500),
+    label: z.string().trim().max(100).transform((value) => value === '' ? null : value).nullable(),
+  })).max(20),
 });
 
 type MemberIdentityRow = {
@@ -48,8 +51,7 @@ type ClubProfileRow = {
   known_for: string | null;
   services_summary: string | null;
   website_url: string | null;
-  links: unknown[] | null;
-  profile: Record<string, unknown> | null;
+  links: ClubProfileLink[] | null;
   version_id: string;
   version_no: number;
   version_created_at: string;
@@ -65,8 +67,7 @@ type CurrentClubProfileRow = {
   known_for: string | null;
   services_summary: string | null;
   website_url: string | null;
-  links: unknown[] | null;
-  profile: Record<string, unknown> | null;
+  links: ClubProfileLink[] | null;
 };
 
 type SeedSourceRow = {
@@ -76,8 +77,7 @@ type SeedSourceRow = {
   known_for: string | null;
   services_summary: string | null;
   website_url: string | null;
-  links: unknown[] | null;
-  profile: Record<string, unknown> | null;
+  links: ClubProfileLink[] | null;
 };
 
 type MemberSearchRow = {
@@ -116,7 +116,6 @@ export function emptyClubProfileFields(): ClubProfileFields {
     servicesSummary: null,
     websiteUrl: null,
     links: [],
-    profile: {},
   };
 }
 
@@ -131,7 +130,6 @@ export function normalizeClubProfileFields(input: Partial<ClubProfileFields> | n
     servicesSummary: input.servicesSummary ?? base.servicesSummary,
     websiteUrl: input.websiteUrl ?? base.websiteUrl,
     links: input.links ?? base.links,
-    profile: input.profile ?? base.profile,
   });
 }
 
@@ -149,7 +147,6 @@ function mapClubProfileRow(row: ClubProfileRow): ClubProfile {
     servicesSummary: row.services_summary,
     websiteUrl: row.website_url,
     links: row.links ?? [],
-    profile: row.profile ?? {},
     version: {
       id: row.version_id,
       versionNo: Number(row.version_no),
@@ -245,7 +242,6 @@ async function readClubProfiles(client: DbClient, memberId: string, clubIds: str
        cmp.services_summary,
        cmp.website_url,
        cmp.links,
-       cmp.profile,
        cmp.id as version_id,
        cmp.version_no,
        cmp.created_at::text as version_created_at,
@@ -301,7 +297,7 @@ async function readMembership(client: DbClient, memberId: string, clubId: string
 async function readCurrentClubProfile(client: DbClient, memberId: string, clubId: string): Promise<CurrentClubProfileRow | null> {
   const result = await client.query<CurrentClubProfileRow>(
     `select membership_id, version_no, tagline, summary, what_i_do, known_for,
-            services_summary, website_url, links, profile
+            services_summary, website_url, links
      from current_member_club_profiles
      where member_id = $1 and club_id = $2
      limit 1`,
@@ -321,8 +317,7 @@ function mergeClubProfilePatch(
     knownFor: patch.knownFor !== undefined ? patch.knownFor : current.known_for,
     servicesSummary: patch.servicesSummary !== undefined ? patch.servicesSummary : current.services_summary,
     websiteUrl: patch.websiteUrl !== undefined ? patch.websiteUrl : current.website_url,
-    links: patch.links !== undefined ? patch.links as unknown[] : current.links ?? [],
-    profile: patch.profile !== undefined ? patch.profile as Record<string, unknown> : current.profile ?? {},
+    links: patch.links !== undefined ? patch.links : current.links ?? [],
   });
 }
 
@@ -339,7 +334,7 @@ async function insertClubProfileVersion(client: DbClient, input: {
     `insert into member_club_profile_versions (
        membership_id, member_id, club_id, version_no,
        tagline, summary, what_i_do, known_for, services_summary,
-       website_url, links, profile, created_by_member_id, generation_source
+       website_url, links, created_by_member_id, generation_source
      )
      values (
        $1::short_id,
@@ -353,7 +348,7 @@ async function insertClubProfileVersion(client: DbClient, input: {
            where member_id = $2::short_id and club_id = $3::short_id
          )
        ),
-       $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb, $13::short_id, $14
+       $5, $6, $7, $8, $9, $10, $11::jsonb, $12::short_id, $13
      )
      returning id`,
     [
@@ -368,7 +363,6 @@ async function insertClubProfileVersion(client: DbClient, input: {
       input.fields.servicesSummary,
       input.fields.websiteUrl,
       JSON.stringify(input.fields.links),
-      JSON.stringify(input.fields.profile),
       input.createdByMemberId,
       input.generationSource,
     ],
@@ -397,7 +391,7 @@ export async function buildMembershipSeedProfile(client: DbClient, input: {
   clubId: string;
 }): Promise<ClubProfileFields> {
   const result = await client.query<SeedSourceRow>(
-    `select tagline, summary, what_i_do, known_for, services_summary, website_url, links, profile
+    `select tagline, summary, what_i_do, known_for, services_summary, website_url, links
      from current_member_club_profiles
      where member_id = $1
        and club_id <> $2
@@ -415,7 +409,6 @@ export async function buildMembershipSeedProfile(client: DbClient, input: {
     servicesSummary: row.services_summary,
     websiteUrl: row.website_url,
     links: row.links ?? [],
-    profile: row.profile ?? {},
   });
 }
 
@@ -491,33 +484,22 @@ function scrubPrivateContactText(value: string | null | undefined): string | nul
   return scrubbed.length > 0 ? scrubbed : null;
 }
 
-function scrubPrivateContactValue(value: unknown): unknown {
-  if (typeof value === 'string') {
-    return scrubPrivateContactText(value);
-  }
-  if (Array.isArray(value)) {
-    return value
-      .map((entry) => scrubPrivateContactValue(entry))
-      .filter((entry) => entry !== null && entry !== '');
-  }
-  if (value && typeof value === 'object') {
-    const next: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-      const scrubbed = scrubPrivateContactValue(child);
-      if (scrubbed !== null && scrubbed !== '') {
-        next[key] = scrubbed;
-      }
-    }
-    return next;
-  }
-  return value;
+function sanitizeClubApplicationLinks(links: ClubProfileLink[] | null | undefined): ClubProfileLink[] {
+  if (!Array.isArray(links)) return [];
+
+  return links.flatMap((link) => {
+    const url = scrubPrivateContactText(link.url);
+    if (!url || !/^https?:\/\//i.test(url)) return [];
+
+    return [{
+      url,
+      label: scrubPrivateContactText(link.label),
+    }];
+  });
 }
 
 function sanitizeClubApplicationProfile(fields: Partial<ClubProfileFields>): ClubProfileFields {
   const websiteUrl = scrubPrivateContactText(fields.websiteUrl ?? null);
-  const links = Array.isArray(fields.links)
-    ? scrubPrivateContactValue(fields.links)
-    : [];
   return normalizeClubProfileFields({
     tagline: scrubPrivateContactText(fields.tagline ?? null),
     summary: scrubPrivateContactText(fields.summary ?? null),
@@ -525,8 +507,7 @@ function sanitizeClubApplicationProfile(fields: Partial<ClubProfileFields>): Clu
     knownFor: scrubPrivateContactText(fields.knownFor ?? null),
     servicesSummary: scrubPrivateContactText(fields.servicesSummary ?? null),
     websiteUrl: websiteUrl && /^https?:\/\//i.test(websiteUrl) ? websiteUrl : null,
-    links: Array.isArray(links) ? links : [],
-    profile: scrubPrivateContactValue(fields.profile ?? {}) as Record<string, unknown>,
+    links: sanitizeClubApplicationLinks(fields.links),
   });
 }
 
@@ -543,13 +524,12 @@ function fallbackClubApplicationProfile(input: {
   const links = urls
     .slice(0, 5)
     .filter((url) => url !== websiteUrl)
-    .map((url) => ({ url }));
+    .map((url) => ({ url, label: null }));
 
   return sanitizeClubApplicationProfile({
     summary: application.length > 0 ? application : null,
     websiteUrl,
     links,
-    profile: {},
   });
 }
 

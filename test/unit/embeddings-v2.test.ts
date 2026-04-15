@@ -32,7 +32,6 @@ test('buildEntitySourceText produces deterministic output', () => {
     title: 'Hello World',
     summary: 'A greeting',
     body: 'Extended greeting content',
-    content: { tags: ['intro'] },
   };
 
   const a = buildEntitySourceText(input);
@@ -52,7 +51,6 @@ test('buildEventSourceText includes temporal fields', () => {
     endsAt: '2026-04-10T20:00:00Z',
     timezone: 'Europe/London',
     recurrenceRule: null,
-    content: {},
   };
 
   const text = buildEventSourceText(input);

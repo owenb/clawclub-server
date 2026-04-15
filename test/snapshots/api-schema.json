@@ -697,10 +697,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "content": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
                   "createdAt": {
                     "type": "string"
                   },
@@ -832,7 +828,6 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
                   "mentions"
                 ],
                 "type": "object"
@@ -3242,10 +3237,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "content": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
                   "createdAt": {
                     "type": "string"
                   },
@@ -3377,7 +3368,6 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
                   "mentions"
                 ],
                 "type": "object"
@@ -3493,11 +3483,6 @@
           "clubId": {
             "description": "Required when starting a new thread. Ignored when threadId is provided.",
             "type": "string"
-          },
-          "content": {
-            "additionalProperties": {},
-            "description": "Structured metadata",
-            "type": "object"
           },
           "event": {
             "description": "Required when kind=event.",
@@ -3773,10 +3758,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "content": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
                   "createdAt": {
                     "type": "string"
                   },
@@ -3908,7 +3889,6 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
                   "mentions"
                 ],
                 "type": "object"
@@ -4191,10 +4171,6 @@
                       "nullable": true,
                       "type": "string"
                     },
-                    "content": {
-                      "additionalProperties": {},
-                      "type": "object"
-                    },
                     "createdAt": {
                       "type": "string"
                     },
@@ -4326,7 +4302,6 @@
                     "effectiveAt",
                     "expiresAt",
                     "createdAt",
-                    "content",
                     "mentions"
                   ],
                   "type": "object"
@@ -4578,10 +4553,6 @@
                         "nullable": true,
                         "type": "string"
                       },
-                      "content": {
-                        "additionalProperties": {},
-                        "type": "object"
-                      },
                       "createdAt": {
                         "type": "string"
                       },
@@ -4713,7 +4684,6 @@
                       "effectiveAt",
                       "expiresAt",
                       "createdAt",
-                      "content",
                       "mentions"
                     ],
                     "type": "object"
@@ -5144,10 +5114,6 @@
                           "nullable": true,
                           "type": "string"
                         },
-                        "content": {
-                          "additionalProperties": {},
-                          "type": "object"
-                        },
                         "createdAt": {
                           "type": "string"
                         },
@@ -5279,7 +5245,6 @@
                         "effectiveAt",
                         "expiresAt",
                         "createdAt",
-                        "content",
                         "mentions"
                       ],
                       "type": "object"
@@ -5557,10 +5522,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "content": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
                   "createdAt": {
                     "type": "string"
                   },
@@ -5692,7 +5653,6 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
                   "mentions"
                 ],
                 "type": "object"
@@ -5959,10 +5919,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "content": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
                   "createdAt": {
                     "type": "string"
                   },
@@ -6094,7 +6050,6 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
                   "mentions"
                 ],
                 "type": "object"
@@ -6502,10 +6457,6 @@
                       "nullable": true,
                       "type": "string"
                     },
-                    "content": {
-                      "additionalProperties": {},
-                      "type": "object"
-                    },
                     "createdAt": {
                       "type": "string"
                     },
@@ -6637,7 +6588,6 @@
                     "effectiveAt",
                     "expiresAt",
                     "createdAt",
-                    "content",
                     "mentions"
                   ],
                   "type": "object"
@@ -6709,11 +6659,6 @@
             "maxLength": 250000,
             "nullable": true,
             "type": "string"
-          },
-          "content": {
-            "additionalProperties": {},
-            "description": "New structured metadata",
-            "type": "object"
           },
           "entityId": {
             "description": "Entity to update",
@@ -6974,10 +6919,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "content": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
                   "createdAt": {
                     "type": "string"
                   },
@@ -7109,7 +7050,6 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
                   "mentions"
                 ],
                 "type": "object"
@@ -7375,10 +7315,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "content": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
                   "createdAt": {
                     "type": "string"
                   },
@@ -7510,7 +7446,6 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
                   "mentions"
                 ],
                 "type": "object"
@@ -7899,10 +7834,6 @@
                       "nullable": true,
                       "type": "string"
                     },
-                    "content": {
-                      "additionalProperties": {},
-                      "type": "object"
-                    },
                     "createdAt": {
                       "type": "string"
                     },
@@ -8034,7 +7965,6 @@
                     "effectiveAt",
                     "expiresAt",
                     "createdAt",
-                    "content",
                     "mentions"
                   ],
                   "type": "object"
@@ -8292,10 +8222,6 @@
                     "nullable": true,
                     "type": "string"
                   },
-                  "content": {
-                    "additionalProperties": {},
-                    "type": "object"
-                  },
                   "createdAt": {
                     "type": "string"
                   },
@@ -8427,7 +8353,6 @@
                   "effectiveAt",
                   "expiresAt",
                   "createdAt",
-                  "content",
                   "mentions"
                 ],
                 "type": "object"
@@ -10533,12 +10458,24 @@
                   "type": "string"
                 },
                 "links": {
-                  "items": {},
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "label": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url",
+                      "label"
+                    ],
+                    "type": "object"
+                  },
                   "type": "array"
-                },
-                "profile": {
-                  "additionalProperties": {},
-                  "type": "object"
                 },
                 "servicesSummary": {
                   "nullable": true,
@@ -10595,7 +10532,6 @@
                 "servicesSummary",
                 "websiteUrl",
                 "links",
-                "profile",
                 "version"
               ],
               "type": "object"
@@ -10652,14 +10588,27 @@
             "type": "string"
           },
           "links": {
-            "description": "Array of link objects.",
-            "items": {},
+            "items": {
+              "properties": {
+                "label": {
+                  "maxLength": 100,
+                  "nullable": true,
+                  "type": "string"
+                },
+                "url": {
+                  "format": "uri",
+                  "maxLength": 500,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url",
+                "label"
+              ],
+              "type": "object"
+            },
+            "maxItems": 20,
             "type": "array"
-          },
-          "profile": {
-            "additionalProperties": {},
-            "description": "Freeform profile metadata.",
-            "type": "object"
           },
           "servicesSummary": {
             "description": "Services summary",
@@ -10738,12 +10687,24 @@
                   "type": "string"
                 },
                 "links": {
-                  "items": {},
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "label": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "url",
+                      "label"
+                    ],
+                    "type": "object"
+                  },
                   "type": "array"
-                },
-                "profile": {
-                  "additionalProperties": {},
-                  "type": "object"
                 },
                 "servicesSummary": {
                   "nullable": true,
@@ -10800,7 +10761,6 @@
                 "servicesSummary",
                 "websiteUrl",
                 "links",
-                "profile",
                 "version"
               ],
               "type": "object"
@@ -12400,12 +12360,24 @@
                       "type": "string"
                     },
                     "links": {
-                      "items": {},
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "label": {
+                            "nullable": true,
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "url",
+                          "label"
+                        ],
+                        "type": "object"
+                      },
                       "type": "array"
-                    },
-                    "profile": {
-                      "additionalProperties": {},
-                      "type": "object"
                     },
                     "servicesSummary": {
                       "nullable": true,
@@ -12462,7 +12434,6 @@
                     "servicesSummary",
                     "websiteUrl",
                     "links",
-                    "profile",
                     "version"
                   ],
                   "type": "object"
@@ -14223,5 +14194,5 @@
     ]
   },
   "version": "0.2.58",
-  "schemaHash": "de5a62feb0d01aef"
+  "schemaHash": "486ab773c593b9b4"
 }

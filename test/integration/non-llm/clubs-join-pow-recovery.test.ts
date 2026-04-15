@@ -146,7 +146,6 @@ before(async () => {
           servicesSummary: null,
           websiteUrl: null,
           links: [],
-          profile: {},
         })
       : dequeueGateResponse();
     return makeOpenAiResponse(text);

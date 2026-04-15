@@ -54,7 +54,6 @@ type ContentEntityRow = {
   effective_at: string;
   expires_at: string | null;
   version_created_at: string;
-  content: Record<string, unknown> | null;
   entity_created_at: string;
   location: string | null;
   starts_at: string | null;
@@ -98,7 +97,6 @@ type CurrentEntityForUpdateRow = {
   summary: string | null;
   body: string | null;
   expires_at: string | null;
-  content: Record<string, unknown> | null;
   location: string | null;
   starts_at: string | null;
   ends_at: string | null;
@@ -116,7 +114,6 @@ type ExistingClientKeyRow = {
   summary: string | null;
   body: string | null;
   expires_at: string | null;
-  content: Record<string, unknown> | null;
   location: string | null;
   starts_at: string | null;
   ends_at: string | null;
@@ -147,7 +144,6 @@ const CONTENT_ENTITY_SELECT = `
   cev.effective_at::text as effective_at,
   cev.expires_at::text as expires_at,
   cev.created_at::text as version_created_at,
-  cev.content,
   e.created_at::text as entity_created_at,
   evd.location,
   evd.starts_at::text as starts_at,
@@ -156,19 +152,6 @@ const CONTENT_ENTITY_SELECT = `
   evd.recurrence_rule,
   evd.capacity
 `;
-
-function canonicalJson(val: unknown): string {
-  if (val === null || val === undefined) return 'null';
-  if (typeof val !== 'object') return JSON.stringify(val);
-  if (Array.isArray(val)) return '[' + val.map(canonicalJson).join(',') + ']';
-  const obj = val as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return '{' + keys.map(key => JSON.stringify(key) + ':' + canonicalJson(obj[key])).join(',') + '}';
-}
-
-export function jsonEqual(a: unknown, b: unknown): boolean {
-  return canonicalJson(a) === canonicalJson(b);
-}
 
 export function timestampsEqual(a: string | null | undefined, b: string | null | undefined): boolean {
   const left = a ?? null;
@@ -264,7 +247,6 @@ function mapContentEntityRow(row: ContentEntityRow): ContentEntity {
       effectiveAt: row.effective_at,
       expiresAt: isRemoved ? null : row.expires_at,
       createdAt: row.version_created_at,
-      content: isRemoved ? {} : (row.content ?? {}),
       mentions: emptyContentMentions(),
     },
     event: isRemoved || row.kind !== 'event'
@@ -551,7 +533,6 @@ async function readExistingClientKeyRow(client: DbClient, memberId: string, clie
        cev.summary,
        cev.body,
        cev.expires_at::text as expires_at,
-       cev.content,
        evd.location,
        evd.starts_at::text as starts_at,
        evd.ends_at::text as ends_at,
@@ -608,7 +589,6 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
           existing.summary === (input.summary ?? null) &&
           existing.body === (input.body ?? null) &&
           timestampsEqual(existing.expires_at, input.expiresAt) &&
-          jsonEqual(existing.content ?? {}, input.content ?? {}) &&
           eventFieldsEqual(existing, canonicalizeEventFields(input.event ?? null));
 
         if (!sameThread || !samePayload) {
@@ -654,8 +634,8 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
 
     const versionResult = await client.query<{ id: string }>(
       `insert into entity_versions (
-         entity_id, version_no, state, title, summary, body, expires_at, content, created_by_member_id
-       ) values ($1, 1, 'published', $2, $3, $4, $5, $6::jsonb, $7)
+         entity_id, version_no, state, title, summary, body, expires_at, created_by_member_id
+       ) values ($1, 1, 'published', $2, $3, $4, $5, $6)
        returning id`,
       [
         entity.id,
@@ -663,7 +643,6 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
         input.summary,
         input.body,
         input.expiresAt,
-        JSON.stringify(input.content ?? {}),
         input.authorMemberId,
       ],
     );
@@ -721,7 +700,6 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
          cev.summary,
          cev.body,
          cev.expires_at::text as expires_at,
-         cev.content,
          evd.location,
          evd.starts_at::text as starts_at,
          evd.ends_at::text as ends_at,
@@ -751,7 +729,6 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
       summary: input.patch.summary !== undefined ? input.patch.summary : current.summary,
       body: input.patch.body !== undefined ? input.patch.body : current.body,
       expiresAt: input.patch.expiresAt !== undefined ? input.patch.expiresAt : current.expires_at,
-      content: input.patch.content !== undefined ? input.patch.content : (current.content ?? {}),
     };
 
     const changedMentionFields: ContentMentionField[] = [];
@@ -791,8 +768,8 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
 
     const versionResult = await client.query<{ id: string }>(
       `insert into entity_versions (
-         entity_id, version_no, state, title, summary, body, expires_at, content, supersedes_version_id, created_by_member_id
-       ) values ($1, $2, 'published', $3, $4, $5, $6, $7::jsonb, $8, $9)
+         entity_id, version_no, state, title, summary, body, expires_at, supersedes_version_id, created_by_member_id
+       ) values ($1, $2, 'published', $3, $4, $5, $6, $7, $8)
        returning id`,
       [
         current.entity_id,
@@ -801,7 +778,6 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
         nextCommon.summary,
         nextCommon.body,
         nextCommon.expiresAt,
-        JSON.stringify(nextCommon.content ?? {}),
         current.version_id,
         input.actorMemberId,
       ],

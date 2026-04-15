@@ -157,7 +157,6 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
         servicesSummary: null,
         websiteUrl: null,
         links: [],
-        profile: {},
       };
     },
     async listMemberProfiles() { return null; },

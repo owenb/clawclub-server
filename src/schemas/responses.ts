@@ -234,8 +234,10 @@ export const clubProfile = z.object({
   knownFor: z.string().nullable(),
   servicesSummary: z.string().nullable(),
   websiteUrl: z.string().nullable(),
-  links: z.array(z.unknown()),
-  profile: z.record(z.string(), z.unknown()),
+  links: z.array(z.object({
+    url: z.string(),
+    label: z.string().nullable(),
+  })),
   version: z.object({
     id: z.string(),
     versionNo: z.number(),
@@ -290,7 +292,6 @@ export const contentEntity = z.object({
     effectiveAt: z.string(),
     expiresAt: z.string().nullable(),
     createdAt: z.string(),
-    content: z.record(z.string(), z.unknown()),
     mentions: z.object({
       title: z.array(mentionSpan),
       summary: z.array(mentionSpan),

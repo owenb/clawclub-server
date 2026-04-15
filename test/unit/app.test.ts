@@ -505,7 +505,6 @@ function makeClubProfile(clubId = 'club-1') {
     servicesSummary: 'Advisory and product strategy',
     websiteUrl: 'https://example.test',
     links: [{ label: 'Site', url: 'https://example.test' }],
-    profile: { homeBase: 'Lisbon' },
     version: {
       id: `profile-version-${clubId}`,
       versionNo: 1,
@@ -554,7 +553,6 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
       effectiveAt: '2026-03-12T00:00:00Z',
       expiresAt: null,
       createdAt: '2026-03-12T00:00:00Z',
-      content: {},
       mentions: { title: [], summary: [], body: [] },
       ...(overrides.version ?? {}),
     },
@@ -588,7 +586,6 @@ function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
       effectiveAt: '2026-03-12T00:00:00Z',
       expiresAt: null,
       createdAt: '2026-03-12T00:00:00Z',
-      content: {},
       mentions: { title: [], summary: [], body: [] },
       ...(overrides.version ?? {}),
     },
@@ -1043,7 +1040,6 @@ test('memberships.create direct-adds an active member inside owner scope', async
         servicesSummary: null,
         websiteUrl: null,
         links: [],
-        profile: {},
       },
       generationSource: 'membership_seed',
     },
@@ -1531,8 +1527,7 @@ test('profile.update normalizes nullable strings for club-scoped fields', async 
         profiles: [{
           ...makeClubProfile('club-2'),
           tagline: patch.tagline !== undefined ? patch.tagline : 'Building warm things',
-          links: patch.links !== undefined ? patch.links as unknown[] : [{ label: 'Site', url: 'https://example.test' }],
-          profile: patch.profile !== undefined ? patch.profile as Record<string, unknown> : { homeBase: 'Lisbon' },
+          links: patch.links !== undefined ? patch.links as Array<{ label: string | null; url: string }> : [{ label: 'Site', url: 'https://example.test' }],
         }],
       };
     },
@@ -1599,7 +1594,6 @@ test('profile.update normalizes nullable strings for club-scoped fields', async 
       clubId: 'club-2',
       tagline: '  ',
       links: [{ label: 'GitHub', url: 'https://github.com/example' }],
-      profile: { homeBase: 'Berlin' },
     },
   });
 
@@ -1608,7 +1602,6 @@ test('profile.update normalizes nullable strings for club-scoped fields', async 
     clubId: 'club-2',
     tagline: null,
     links: [{ label: 'GitHub', url: 'https://github.com/example' }],
-    profile: { homeBase: 'Berlin' },
   });
   assert.equal(result.actor.member.publicName, 'Member One');
   assert.equal(result.data.profiles[0]?.club.clubId, 'club-2');
@@ -1647,7 +1640,6 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
             summary: input.summary,
             body: input.body,
             expiresAt: input.expiresAt,
-            content: input.content,
           },
         },
       });
@@ -1717,7 +1709,6 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
       summary: 'Fast TypeScript debugging',
       body: 'Can help unblock hairy backend issues.',
       expiresAt: '2026-04-01T00:00:00Z',
-      content: { priceHint: '£120/hour' },
     },
   });
 
@@ -1729,7 +1720,6 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
     summary: 'Fast TypeScript debugging',
     body: 'Can help unblock hairy backend issues.',
     expiresAt: '2026-04-01T00:00:00Z',
-    content: { priceHint: '£120/hour' },
     clientKey: null,
   });
   assert.equal(result.action, 'content.create');
@@ -1773,7 +1763,6 @@ test('content.update appends a new version on the shared entity surface', async 
             summary: input.patch.summary ?? null,
             body: input.patch.body ?? null,
             expiresAt: input.patch.expiresAt ?? null,
-            content: input.patch.content ?? {},
           },
         }),
       });
@@ -1808,7 +1797,6 @@ test('content.update appends a new version on the shared entity surface', async 
       entityId: 'entity-1',
       title: 'Hello again',
       summary: '  ',
-      content: { mood: 'fresh' },
     },
   });
 
@@ -1819,7 +1807,6 @@ test('content.update appends a new version on the shared entity surface', async 
     patch: {
       title: 'Hello again',
       summary: null,
-      content: { mood: 'fresh' },
     },
   });
   assert.equal(result.action, 'content.update');
@@ -2095,7 +2082,6 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
       kind: 'event',
       title: 'Supper club',
       summary: 'Monthly supper club in Hackney',
-      content: { locationHint: 'Hackney' },
       event: {
         location: 'Hackney, London',
         startsAt: '2026-03-20T19:00:00Z',
@@ -2114,7 +2100,6 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
     summary: 'Monthly supper club in Hackney',
     body: null,
     expiresAt: null,
-    content: { locationHint: 'Hackney' },
     clientKey: null,
     event: {
       location: 'Hackney, London',

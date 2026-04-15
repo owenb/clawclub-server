@@ -43,7 +43,7 @@ export type ProfileSourceInput = {
   knownFor: string | null;
   servicesSummary: string | null;
   websiteUrl: string | null;
-  links: unknown[] | null;
+  links: Array<{ url: string; label: string | null }> | null;
 };
 
 export function buildProfileSourceText(input: ProfileSourceInput): string {
@@ -58,13 +58,7 @@ export function buildProfileSourceText(input: ProfileSourceInput): string {
   if (input.links && input.links.length > 0) {
     const linksText = input.links
       .slice(0, 10)
-      .map((link) => {
-        if (typeof link === 'object' && link !== null) {
-          const l = link as Record<string, unknown>;
-          return [l.label, l.url].filter(Boolean).join(': ');
-        }
-        return String(link);
-      })
+      .map((link) => link.label ?? link.url)
       .filter(Boolean)
       .join(', ');
     addSection(parts, 'Links', linksText);
@@ -79,7 +73,6 @@ export type EntitySourceInput = {
   title: string | null;
   summary: string | null;
   body: string | null;
-  content: Record<string, unknown> | null;
 };
 
 export function buildEntitySourceText(input: EntitySourceInput): string {
@@ -88,9 +81,6 @@ export function buildEntitySourceText(input: EntitySourceInput): string {
   addSection(parts, 'Title', input.title);
   addSection(parts, 'Summary', input.summary);
   addSection(parts, 'Body', input.body);
-  if (input.content && Object.keys(input.content).length > 0) {
-    addSection(parts, 'Content', JSON.stringify(input.content).slice(0, SECTION_MAX));
-  }
   return finalise(parts);
 }
 
@@ -105,7 +95,6 @@ export type EventSourceInput = {
   endsAt: string | null;
   timezone: string | null;
   recurrenceRule: string | null;
-  content: Record<string, unknown> | null;
 };
 
 export function buildEventSourceText(input: EventSourceInput): string {
@@ -119,8 +108,5 @@ export function buildEventSourceText(input: EventSourceInput): string {
   addSection(parts, 'Timezone', input.timezone);
   addSection(parts, 'Recurrence', input.recurrenceRule);
   addSection(parts, 'Body', input.body);
-  if (input.content && Object.keys(input.content).length > 0) {
-    addSection(parts, 'Content', JSON.stringify(input.content).slice(0, SECTION_MAX));
-  }
   return finalise(parts);
 }

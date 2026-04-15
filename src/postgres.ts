@@ -1141,8 +1141,7 @@ export function createRepository(pool: Pool): Repository {
         known_for: string | null;
         services_summary: string | null;
         website_url: string | null;
-        links: unknown[] | null;
-        profile: Record<string, unknown> | null;
+        links: Array<{ url: string; label: string | null }> | null;
         version_id: string;
         version_no: number;
         version_created_at: string;
@@ -1159,7 +1158,6 @@ export function createRepository(pool: Pool): Repository {
            cmp.services_summary,
            cmp.website_url,
            cmp.links,
-           cmp.profile,
            cmp.id as version_id,
            cmp.version_no,
            cmp.created_at::text as version_created_at,
@@ -1189,7 +1187,6 @@ export function createRepository(pool: Pool): Repository {
           servicesSummary: row.services_summary,
           websiteUrl: row.website_url,
           links: row.links ?? [],
-          profile: row.profile ?? {},
           version: {
             id: row.version_id,
             versionNo: Number(row.version_no),

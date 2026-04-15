@@ -940,7 +940,6 @@ const superadminMembershipsCreate: ActionDefinition = {
           servicesSummary: null,
           websiteUrl: null,
           links: [],
-          profile: {},
         };
 
     const membership = await ctx.repository.adminCreateMembership!({

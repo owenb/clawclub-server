@@ -179,7 +179,19 @@ export async function runHttpSmoke(): Promise<{
   const identityUrl = requireEnv('DATABASE_URL');
   const setupPool = new Pool({ connectionString: identityUrl });
   const memberName = readSmokeMemberName();
-  const actions = ['GET /api/schema', 'GET /stream', 'session.getContext', 'session.getContext (stale_client)', 'members.searchByFullText', 'profile.list', 'messages.getInbox', 'content.list', 'events.list'];
+  const actions = [
+    'GET /api/schema',
+    'GET /stream',
+    'session.getContext',
+    'session.getContext (stale_client)',
+    'members.searchByFullText',
+    'profile.list',
+    'profile.update',
+    'messages.getInbox',
+    'content.create',
+    'content.list',
+    'events.list',
+  ];
   let tokenId: string | null = null;
   let shutdown: (() => Promise<void>) | null = null;
 
@@ -236,6 +248,28 @@ export async function runHttpSmoke(): Promise<{
     assert.equal(profile.data?.memberId, memberId);
     assert.ok(Array.isArray(profile.data?.profiles), 'profile.list should return a profiles array');
 
+    const updatedProfile = await postAction(baseUrl, token.bearerToken, 'profile.update', {
+      clubId,
+      tagline: 'Building typed API contracts for agent-facing systems',
+      summary: 'I maintain the platform layer and focus on schema safety, deployment hygiene, and making production changes boring.',
+      links: [
+        { url: 'https://example.test', label: 'Personal site' },
+        { url: 'https://github.com/example', label: 'GitHub' },
+      ],
+    }, {
+      'clawclub-schema-seen': schemaHash,
+    });
+    const updatedProfiles = updatedProfile.data?.profiles as Array<Record<string, unknown>> | undefined;
+    const updatedOwnProfile = updatedProfiles?.find((entry) => {
+      const club = entry.club as Record<string, unknown> | undefined;
+      return club?.clubId === clubId;
+    });
+    assert.ok(updatedOwnProfile, 'profile.update should return the updated club profile');
+    assert.deepEqual(updatedOwnProfile?.links, [
+      { url: 'https://example.test', label: 'Personal site' },
+      { url: 'https://github.com/example', label: 'GitHub' },
+    ], 'profile.update should persist typed links');
+
     const inbox = await postAction(baseUrl, token.bearerToken, 'messages.getInbox', {
       clubId,
       limit: 5,
@@ -244,13 +278,30 @@ export async function runHttpSmoke(): Promise<{
     });
     assert.ok(Array.isArray(inbox.data?.results), 'messages.getInbox should return a results array');
 
-    const entities = await postAction(baseUrl, token.bearerToken, 'content.list', {
+    const created = await postAction(baseUrl, token.bearerToken, 'content.create', {
       clubId,
-      limit: 5,
+      kind: 'post',
+      title: 'HTTP smoke post about typed links and cleaner schemas',
+      body: 'This post exists only to prove the local HTTP smoke can still create content after the untyped JSON cleanup. It is specific enough to clear the gate and gives us a stable artifact to read back through content.list.',
     }, {
       'clawclub-schema-seen': schemaHash,
     });
-    assert.ok(Array.isArray(entities.data?.results), 'content.list should return a results array');
+    const createdEntity = created.data?.entity as Record<string, unknown> | undefined;
+    const createdEntityId = createdEntity?.entityId as string | undefined;
+    assert.ok(createdEntityId, 'content.create should return an entityId');
+
+    const entities = await postAction(baseUrl, token.bearerToken, 'content.list', {
+      clubId,
+      limit: 20,
+    }, {
+      'clawclub-schema-seen': schemaHash,
+    });
+    const entityResults = entities.data?.results as Array<Record<string, unknown>> | undefined;
+    assert.ok(Array.isArray(entityResults), 'content.list should return a results array');
+    const listedEntity = entityResults
+      ?.map((thread) => thread.firstEntity as Record<string, unknown>)
+      .find((entity) => entity.entityId === createdEntityId);
+    assert.ok(listedEntity, 'content.list should include the created post');
 
     const events = await postAction(baseUrl, token.bearerToken, 'events.list', {
       clubId,
@@ -259,6 +310,16 @@ export async function runHttpSmoke(): Promise<{
       'clawclub-schema-seen': schemaHash,
     });
     assert.ok(Array.isArray(events.data?.results), 'events.list should return a results array');
+
+    const refreshedProfile = await postAction(baseUrl, token.bearerToken, 'profile.list', { clubId }, {
+      'clawclub-schema-seen': schemaHash,
+    });
+    const refreshedProfiles = refreshedProfile.data?.profiles as Array<Record<string, unknown>> | undefined;
+    assert.equal(refreshedProfiles?.length, 1, 'profile.list with clubId should return one profile');
+    assert.deepEqual(refreshedProfiles?.[0]?.links, [
+      { url: 'https://example.test', label: 'Personal site' },
+      { url: 'https://github.com/example', label: 'GitHub' },
+    ], 'profile.list should read back typed links');
 
     return {
       memberId,

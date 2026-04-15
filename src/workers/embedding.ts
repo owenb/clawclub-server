@@ -40,7 +40,7 @@ type ProfileVersionRow = {
   known_for: string | null;
   services_summary: string | null;
   website_url: string | null;
-  links: unknown[] | null;
+  links: Array<{ url: string; label: string | null }> | null;
   is_current: boolean;
 };
 
@@ -51,7 +51,6 @@ type EntityVersionRow = {
   title: string | null;
   summary: string | null;
   body: string | null;
-  content: Record<string, unknown> | null;
   // Event-specific (null for non-events)
   location: string | null;
   starts_at: string | null;
@@ -106,7 +105,7 @@ async function loadProfileVersion(pool: Pool, versionId: string): Promise<Profil
 async function loadEntityVersion(pool: Pool, versionId: string): Promise<EntityVersionRow | null> {
   const result = await pool.query<EntityVersionRow>(
     `select ev.id, ev.entity_id, e.kind::text as kind,
-            ev.title, ev.summary, ev.body, ev.content,
+            ev.title, ev.summary, ev.body,
             evd.location,
             evd.starts_at::text as starts_at, evd.ends_at::text as ends_at,
             evd.timezone, evd.recurrence_rule,
@@ -183,12 +182,12 @@ function buildSourceText(job: EmbeddingJob, row: ProfileVersionRow | EntityVersi
     return buildEventSourceText({
       title: e.title, summary: e.summary, body: e.body,
       location: e.location, startsAt: e.starts_at, endsAt: e.ends_at,
-      timezone: e.timezone, recurrenceRule: e.recurrence_rule, content: e.content,
+      timezone: e.timezone, recurrenceRule: e.recurrence_rule,
     });
   }
 
   return buildEntitySourceText({
-    kind: e.kind, title: e.title, summary: e.summary, body: e.body, content: e.content,
+    kind: e.kind, title: e.title, summary: e.summary, body: e.body,
   });
 }
 
