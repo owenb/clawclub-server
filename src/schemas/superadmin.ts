@@ -4,7 +4,7 @@
  * superadmin.diagnostics.getHealth, superadmin.clubs.list, superadmin.clubs.create,
  * superadmin.clubs.archive, superadmin.clubs.assignOwner, superadmin.clubs.update,
  * superadmin.content.list, superadmin.messages.listThreads, superadmin.messages.getThread,
- * superadmin.accessTokens.list, superadmin.accessTokens.revoke
+ * superadmin.accessTokens.list, superadmin.accessTokens.revoke, superadmin.accessTokens.create
  *
  * Platform-wide actions restricted to server operators (superadmin role).
  */
@@ -27,7 +27,7 @@ import {
   adminContentSummary, adminThreadSummary,
   directMessageEntry,
   includedBundle,
-  bearerTokenSummary,
+  bearerTokenSummary, createdBearerToken,
   memberRef, membershipAdminSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
@@ -728,6 +728,92 @@ const superadminTokensRevoke: ActionDefinition = {
   },
 };
 
+// ── superadmin.accessTokens.create ─────────────────────────────
+//
+// Mint a fresh bearer token for an existing active member. This is the
+// recovery path for cases where the original token from `clubs.join` was
+// lost before the applicant could use it — for example when a human
+// applicant's agent didn't persist the token, or when an already-accepted
+// member has lost their device. Because anonymous `clubs.join` is not
+// idempotent (it creates a new member on every call), there is no other
+// way to recover access for an existing member through the API.
+//
+// SECURITY:
+//   - `auth: 'superadmin'` marks the action for the schema, but the real
+//     gate is `ctx.requireSuperadmin()` in the handler. A caller without
+//     the superadmin global role gets `403 forbidden`.
+//   - The handler MUST call `ctx.requireSuperadmin()` before touching the
+//     repository. Do not reorder these statements.
+//   - The target member must exist and have `state = 'active'`. Suspended
+//     or removed members cannot be minted for — the repository layer
+//     returns `null`, mapped here to `404 not_found`.
+//   - Every minted token records `{ mintedBy, mintedAt, mintedVia }` plus
+//     an optional `reason` in its metadata for post-hoc audit.
+//   - The per-member 10-token self-service quota is intentionally NOT
+//     enforced here. This is an ops/recovery path; the quota exists to
+//     protect self-service abuse, not admin recovery.
+//   - The returned plaintext bearer token is only emitted in this single
+//     response; the server stores only the hash in `member_bearer_tokens`
+//     and cannot retrieve it later. The admin must deliver it out-of-band.
+
+type SuperadminAccessTokensCreateInput = {
+  memberId: string;
+  label: string | null;
+  expiresAt: string | null;
+  reason: string | null;
+};
+
+const superadminTokensCreate: ActionDefinition = {
+  action: 'superadmin.accessTokens.create',
+  domain: 'superadmin',
+  description: 'Mint a fresh bearer token for an existing active member. Recovery path for lost or never-persisted tokens.',
+  auth: 'superadmin',
+  safety: 'mutating',
+  authorizationNote: 'Requires superadmin global role. The minted token is returned exactly once in plaintext; deliver it out-of-band.',
+
+  requiredCapability: 'adminCreateAccessToken',
+
+  wire: {
+    input: z.object({
+      memberId: wireRequiredString.describe('Existing active member to mint a token for'),
+      label: wireOptionalString.describe('Human-readable label for the new token (default: "admin-minted")'),
+      expiresAt: wireOptionalString.describe('Optional ISO 8601 expiration timestamp; null means no expiry'),
+      reason: wireOptionalString.describe('Optional free-text reason recorded in the token metadata for audit'),
+    }),
+    output: createdBearerToken,
+  },
+
+  parse: {
+    input: z.object({
+      memberId: parseRequiredString,
+      label: parseTrimmedNullableString.default(null),
+      expiresAt: parseTrimmedNullableString.default(null),
+      reason: parseTrimmedNullableString.default(null),
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    // SECURITY: this MUST be the first line. Do not reorder.
+    ctx.requireSuperadmin();
+    ctx.requireCapability('adminCreateAccessToken');
+    const { memberId, label, expiresAt, reason } = input as SuperadminAccessTokensCreateInput;
+
+    const created = await ctx.repository.adminCreateAccessToken!({
+      actorMemberId: ctx.actor.member.id,
+      memberId,
+      label,
+      expiresAt,
+      reason,
+    });
+
+    if (!created) {
+      throw new AppError(404, 'not_found', 'Member not found or not active');
+    }
+
+    return { data: created };
+  },
+};
+
 // ── superadmin.members.createWithAccessToken ───────────────────────────
 
 type SuperadminMembersCreateInput = {
@@ -881,5 +967,5 @@ registerActions([
   superadminMembershipsCreate,
   superadminContentList,
   superadminMessagesThreads, superadminMessagesRead,
-  superadminTokensList, superadminTokensRevoke,
+  superadminTokensList, superadminTokensRevoke, superadminTokensCreate,
 ]);

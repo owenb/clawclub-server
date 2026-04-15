@@ -108,3 +108,82 @@ export async function issueTokenForMember(
   );
   return { bearerToken: token.bearerToken };
 }
+
+/**
+ * Superadmin-initiated token minting for an existing member.
+ *
+ * Used by `superadmin.accessTokens.create` as a recovery/ops path: a
+ * superadmin mints a fresh bearer token for an existing active member
+ * (typically because the original token from `clubs.join` was lost before
+ * the application was approved, or any other lost-token scenario).
+ *
+ * Authorization MUST be enforced by the caller — this helper only performs
+ * the data-layer operation and does not check for superadmin status. The
+ * handler in src/schemas/superadmin.ts calls ctx.requireSuperadmin() first.
+ *
+ * Safety invariants:
+ *   - the target member must exist and have `state = 'active'`, otherwise
+ *     returns null and the caller maps that to 404 not_found. Minting
+ *     tokens for suspended or removed members is rejected because those
+ *     tokens could never authenticate (see readActor in auth.ts).
+ *   - every minted token's metadata records the acting superadmin's id,
+ *     the reason (if provided), and a `mintedAt` timestamp so any future
+ *     audit of `member_bearer_tokens` can reconstruct who issued what.
+ *   - the per-member 10-token self-service quota is intentionally NOT
+ *     enforced here. This is an ops/recovery path and must not be blocked
+ *     by a self-service safety net. The quota is still enforced on the
+ *     regular `accessTokens.create` surface.
+ */
+export async function createBearerTokenAsSuperadmin(
+  pool: Pool,
+  input: {
+    actorMemberId: string;
+    memberId: string;
+    label?: string | null;
+    expiresAt?: string | null;
+    reason?: string | null;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<CreatedBearerToken | null> {
+  return withTransaction(pool, async (client) => {
+    const existing = await client.query<{ id: string }>(
+      `select id from members where id = $1 and state = 'active'`,
+      [input.memberId],
+    );
+    if (existing.rows.length === 0) {
+      return null;
+    }
+
+    const token = buildBearerToken();
+    const auditMetadata: Record<string, unknown> = {
+      ...(input.metadata ?? {}),
+      mintedBy: input.actorMemberId,
+      mintedAt: new Date().toISOString(),
+      mintedVia: 'superadmin.accessTokens.create',
+    };
+    if (input.reason !== undefined && input.reason !== null) {
+      auditMetadata.reason = input.reason;
+    }
+
+    const result = await client.query<BearerTokenRow>(
+      `insert into member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
+       values ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)
+       returning ${SELECT_COLS}`,
+      [
+        token.tokenId,
+        input.memberId,
+        input.label ?? 'admin-minted',
+        token.tokenHash,
+        input.expiresAt ?? null,
+        JSON.stringify(auditMetadata),
+      ],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      throw new AppError(500, 'missing_row', 'Created bearer token row was not returned');
+    }
+
+    return { token: mapRow(row), bearerToken: token.bearerToken };
+  });
+}

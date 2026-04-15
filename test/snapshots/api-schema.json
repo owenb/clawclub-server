@@ -10896,6 +10896,102 @@
       "safety": "read_only"
     },
     {
+      "action": "superadmin.accessTokens.create",
+      "auth": "superadmin",
+      "authorizationNote": "Requires superadmin global role. The minted token is returned exactly once in plaintext; deliver it out-of-band.",
+      "description": "Mint a fresh bearer token for an existing active member. Recovery path for lost or never-persisted tokens.",
+      "domain": "superadmin",
+      "input": {
+        "properties": {
+          "expiresAt": {
+            "description": "Optional ISO 8601 expiration timestamp; null means no expiry",
+            "maxLength": 250000,
+            "nullable": true,
+            "type": "string"
+          },
+          "label": {
+            "description": "Human-readable label for the new token (default: \"admin-minted\")",
+            "maxLength": 250000,
+            "nullable": true,
+            "type": "string"
+          },
+          "memberId": {
+            "description": "Existing active member to mint a token for",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Optional free-text reason recorded in the token metadata for audit",
+            "maxLength": 250000,
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "memberId"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "bearerToken": {
+            "type": "string"
+          },
+          "token": {
+            "additionalProperties": false,
+            "properties": {
+              "createdAt": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "label": {
+                "nullable": true,
+                "type": "string"
+              },
+              "lastUsedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "memberId": {
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "revokedAt": {
+                "nullable": true,
+                "type": "string"
+              },
+              "tokenId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tokenId",
+              "memberId",
+              "label",
+              "createdAt",
+              "lastUsedAt",
+              "revokedAt",
+              "expiresAt",
+              "metadata"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "token",
+          "bearerToken"
+        ],
+        "type": "object"
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "superadmin.accessTokens.list",
       "auth": "superadmin",
       "description": "List bearer tokens for a specific member.",
@@ -14127,5 +14223,5 @@
     ]
   },
   "version": "0.2.55",
-  "schemaHash": "fc56bab3427a0515"
+  "schemaHash": "c394b4953c513ea2"
 }

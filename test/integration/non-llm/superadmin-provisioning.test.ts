@@ -440,3 +440,222 @@ describe('full superadmin provisioning workflow', () => {
     assert.ok(memberIds.includes(memberId), 'member should appear in members list');
   });
 });
+
+// ── superadmin.accessTokens.create ───────────────────────────────
+//
+// Security-critical action: mints a fresh bearer token for an existing
+// active member. Every test in this block verifies a single invariant.
+// Do not remove any of these — each one locks in a specific part of the
+// threat model.
+
+describe('superadmin.accessTokens.create', () => {
+  it('superadmin can mint a token for an existing member and the token authenticates as that member', async () => {
+    const admin = await h.seedSuperadmin('TokenMinter', 'token-minter');
+    const target = await h.seedMember('Target Human', 'target-human');
+
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+    });
+    const data = result.data as {
+      token: { tokenId: string; memberId: string; label: string | null; metadata: Record<string, unknown> };
+      bearerToken: string;
+    };
+
+    assert.equal(data.token.memberId, target.id, 'minted token must belong to the target member, not the minter');
+    assert.notEqual(data.token.memberId, admin.id, 'minted token must NOT belong to the superadmin');
+    assert.ok(data.bearerToken.startsWith('cc_live_'), 'plaintext bearer token must be returned');
+    assert.notEqual(data.bearerToken, admin.token, 'minted token must be distinct from the minting superadmin token');
+    assert.notEqual(data.bearerToken, target.id, 'bearer token must not be the member id');
+
+    // The critical security assertion: use the minted token in a real HTTP call
+    // and verify it authenticates as the target member, not the minter.
+    const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
+    const actor = session.actor as { member: { id: string; publicName: string } };
+    assert.equal(actor.member.id, target.id, 'minted token must authenticate as the target member');
+    assert.equal(actor.member.publicName, 'Target Human');
+  });
+
+  it('minted token metadata records the acting superadmin, mintedAt, and mintedVia for audit', async () => {
+    const admin = await h.seedSuperadmin('AuditMinter', 'audit-minter');
+    const target = await h.seedMember('Audit Target', 'audit-target');
+
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+      reason: 'integration test audit trail',
+    });
+    const data = result.data as { token: { metadata: Record<string, unknown> } };
+    const metadata = data.token.metadata;
+
+    assert.equal(metadata.mintedBy, admin.id, 'metadata.mintedBy must equal the superadmin member id');
+    assert.equal(metadata.mintedVia, 'superadmin.accessTokens.create', 'metadata.mintedVia must identify the action');
+    assert.ok(typeof metadata.mintedAt === 'string' && (metadata.mintedAt as string).length > 0, 'mintedAt must be a non-empty ISO string');
+    assert.equal(metadata.reason, 'integration test audit trail', 'reason must be captured in metadata');
+  });
+
+  it('default label is "admin-minted" when none is provided', async () => {
+    const admin = await h.seedSuperadmin('LabelMinter1', 'label-minter1');
+    const target = await h.seedMember('Default Label Target', 'default-label-target');
+
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+    });
+    const data = result.data as { token: { label: string | null } };
+    assert.equal(data.token.label, 'admin-minted');
+  });
+
+  it('custom label is honoured', async () => {
+    const admin = await h.seedSuperadmin('LabelMinter2', 'label-minter2');
+    const target = await h.seedMember('Custom Label Target', 'custom-label-target');
+
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+      label: 'recovery after lost device',
+    });
+    const data = result.data as { token: { label: string | null } };
+    assert.equal(data.token.label, 'recovery after lost device');
+  });
+
+  it('target member keeps their existing tokens — minting is additive, not replacing', async () => {
+    const admin = await h.seedSuperadmin('AdditiveMinter', 'additive-minter');
+    const target = await h.seedMember('Additive Target', 'additive-target');
+
+    // target already has the token from seedMember
+    const originalToken = target.token;
+
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+    });
+    const data = result.data as { bearerToken: string };
+    const mintedToken = data.bearerToken;
+
+    assert.notEqual(mintedToken, originalToken, 'minted token must differ from the original');
+
+    // Both tokens authenticate as the same member
+    const originalSession = await h.apiOk(originalToken, 'session.getContext', {});
+    const mintedSession = await h.apiOk(mintedToken, 'session.getContext', {});
+    assert.equal(
+      (originalSession.actor as any).member.id,
+      (mintedSession.actor as any).member.id,
+      'both tokens must authenticate as the same member',
+    );
+  });
+
+  it('minted token inherits the real club access of the target member', async () => {
+    const admin = await h.seedSuperadmin('ScopeMinter', 'scope-minter');
+    const owner = await h.seedOwner('scope-club', 'ScopeClub');
+    const target = await h.seedCompedMember(owner.club.id, 'Scoped Human', 'scoped-human');
+
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+    });
+    const data = result.data as { bearerToken: string };
+
+    const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
+    const memberships = (session.actor as any).activeMemberships as any[];
+    assert.equal(memberships.length, 1, 'target was a member of one club, minted token should see that club');
+    assert.equal(memberships[0].clubId, owner.club.id);
+    assert.equal(memberships[0].slug, 'scope-club');
+    assert.equal(memberships[0].role, 'member');
+  });
+
+  it('non-superadmin (regular member) cannot call the action', async () => {
+    const member = await h.seedMember('Not A Superadmin', 'not-a-superadmin');
+    const target = await h.seedMember('Protected Human', 'protected-human');
+
+    const err = await h.apiErr(member.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('non-superadmin (club owner / clubadmin) cannot call the action', async () => {
+    const owner = await h.seedOwner('no-mint-club', 'NoMintClub');
+    const target = await h.seedCompedMember(owner.club.id, 'Victim Human', 'victim-human');
+
+    const err = await h.apiErr(owner.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+    });
+    assert.equal(err.status, 403, 'club owners must not be able to mint tokens for their members');
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('unauthenticated call is rejected with 401', async () => {
+    const target = await h.seedMember('Anonymous Target', 'anonymous-target');
+
+    const err = await h.apiErr(null, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+    });
+    assert.equal(err.status, 401);
+  });
+
+  it('nonexistent memberId returns 404 not_found', async () => {
+    const admin = await h.seedSuperadmin('NotFoundMinter', 'not-found-minter');
+
+    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+      memberId: 'xxxxxxxxxxxx',
+    });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'not_found');
+  });
+
+  it('missing memberId returns invalid_input', async () => {
+    const admin = await h.seedSuperadmin('ValidationMinter', 'validation-minter');
+
+    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {});
+    assert.equal(err.code, 'invalid_input');
+  });
+
+  it('empty-string memberId returns invalid_input', async () => {
+    const admin = await h.seedSuperadmin('EmptyMinter', 'empty-minter');
+
+    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+      memberId: '   ',
+    });
+    assert.equal(err.code, 'invalid_input');
+  });
+
+  it('minting for a suspended member returns 404 (suspended members cannot authenticate)', async () => {
+    const admin = await h.seedSuperadmin('SuspendedMinter', 'suspended-minter');
+    const target = await h.seedMember('Will Be Suspended', 'will-be-suspended');
+
+    // Suspend the member directly at the DB level — there is no public API for this
+    // yet, but the invariant we're locking is: readActor filters on state='active',
+    // so even a minted token for a suspended member couldn't authenticate.
+    await h.sql(`update members set state = 'suspended' where id = $1`, [target.id]);
+
+    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+    });
+    assert.equal(err.status, 404, 'minting for a non-active member must fail with not_found');
+    assert.equal(err.code, 'not_found');
+  });
+
+  it('bypasses the per-member 10-token self-service quota', async () => {
+    const admin = await h.seedSuperadmin('QuotaMinter', 'quota-minter');
+    const target = await h.seedMember('Quota Target', 'quota-target');
+
+    // target already has 1 token from seedMember. Create 9 more via the self-service
+    // path using the target's own token. That brings them to MAX_ACTIVE_TOKENS.
+    for (let i = 0; i < 9; i++) {
+      await h.apiOk(target.token, 'accessTokens.create', { label: `saturation-${i}` });
+    }
+
+    // Self-service should now reject (quota exceeded)
+    const selfErr = await h.apiErr(target.token, 'accessTokens.create', { label: 'overflow' });
+    assert.equal(selfErr.status, 429);
+    assert.equal(selfErr.code, 'quota_exceeded');
+
+    // But the superadmin path MUST still succeed — this is the recovery guarantee.
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+      label: 'admin bypass for recovery',
+    });
+    const data = result.data as { bearerToken: string };
+    assert.ok(data.bearerToken.startsWith('cc_live_'), 'admin mint must succeed even when member is at self-service cap');
+
+    // And that new token must actually work
+    const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
+    assert.equal((session.actor as any).member.id, target.id);
+  });
+});

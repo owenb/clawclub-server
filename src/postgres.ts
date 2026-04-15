@@ -1412,6 +1412,8 @@ export function createRepository(pool: Pool): Repository {
       return identity.revokeBearerToken({ actorMemberId: memberId, tokenId });
     },
 
+    adminCreateAccessToken: (input) => identity.createBearerTokenAsSuperadmin(input),
+
     async adminGetDiagnostics() {
       const [migrationResult, memberCount, clubCount, tableCount, dbSize] = await Promise.all([
         pool.query<{ count: string; latest: string | null }>(

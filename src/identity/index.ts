@@ -47,6 +47,14 @@ export type IdentityRepository = {
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
   issueTokenForMember(memberId: string, label: string, metadata: Record<string, unknown>): Promise<{ bearerToken: string }>;
+  createBearerTokenAsSuperadmin(input: {
+    actorMemberId: string;
+    memberId: string;
+    label?: string | null;
+    expiresAt?: string | null;
+    reason?: string | null;
+    metadata?: Record<string, unknown>;
+  }): Promise<CreatedBearerToken | null>;
 
   // Memberships
   listMemberships(input: { actorMemberId: string; clubIds: string[]; limit: number; status?: MembershipState; cursor?: { stateCreatedAt: string; id: string } | null }): Promise<{ results: MembershipAdminSummary[]; hasMore: boolean; nextCursor: string | null }>;
@@ -106,6 +114,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     createBearerToken: (input) => tokens.createBearerToken(pool, input),
     revokeBearerToken: (input) => tokens.revokeBearerToken(pool, input),
     issueTokenForMember: (memberId, label, metadata) => tokens.issueTokenForMember(pool, memberId, label, metadata),
+    createBearerTokenAsSuperadmin: (input) => tokens.createBearerTokenAsSuperadmin(pool, input),
 
     // Memberships
     listMemberships: ({ clubIds, limit, status, cursor }) => memberships.listMemberships(pool, { clubIds, limit, status, cursor }),

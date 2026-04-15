@@ -1040,6 +1040,14 @@ export type Repository = {
   adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<WithIncluded<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] }> | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
   adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
+  adminCreateAccessToken?(input: {
+    actorMemberId: string;
+    memberId: string;
+    label?: string | null;
+    expiresAt?: string | null;
+    reason?: string | null;
+    metadata?: Record<string, unknown>;
+  }): Promise<CreatedBearerToken | null>;
   adminGetDiagnostics?(input: { actorMemberId: string }): Promise<AdminDiagnostics>;
 
   // ── Billing helpers ────────────────────────────────────

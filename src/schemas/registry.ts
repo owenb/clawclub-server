@@ -60,6 +60,7 @@ export type RepositoryCapability =
   | 'adminReadThread'
   | 'adminListMemberTokens'
   | 'adminRevokeMemberToken'
+  | 'adminCreateAccessToken'
   | 'adminGetDiagnostics'
   | 'promoteMemberToAdmin'
   | 'demoteMemberFromAdmin'
