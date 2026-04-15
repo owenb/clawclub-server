@@ -19,6 +19,15 @@ This plan is intentionally opinionated.
 - **`parseVerdict` treats bare `ILLEGAL` / `FAIL` with no reason as `rejected_malformed`,** not as a rejection with stock fallback text. The "actionable feedback is required" guarantee is now enforced structurally.
 - **Builder test matrix adds `content.update` on an entity that is already a reply**, verifying the merged artifact preserves `isReply: true`.
 
+**v4.2 post-review fixes** (second round of review on v4.1):
+
+- **Migration now drops and recreates `ai_llm_usage_log_skip_reason_check`.** The existing check constraint is typed against the old `quality_gate_status` enum and would block `drop type` otherwise. The migration SQL now drops the constraint up front, retypes the column, drops the old type, and recreates the constraint against `content_gate_status` with the same preserved semantics (`skip_reason` populated only on `'skipped'` rows).
+- **Telemetry prose corrected** on which enum values are new vs carried over. The pre-refactor enum is `passed | rejected | rejected_illegal | skipped`; `rejected_quality`, `rejected_malformed`, and `failed` are all new additions by this migration, and `rejected` is mapped to `rejected_malformed`.
+
+**v4.3 test expansion** (no design change, test coverage only):
+
+- **The with-LLM integration suite is expanded from ~30 cases to ~95 cases.** Coverage gaps filled: multiple pass cases per content kind (covering paid vs volunteer opportunities, priced vs free services, short vs long variants), multiple low-quality reject cases per kind (different failure modes per kind), reply-bar variation (short concrete pass, short filler fail), event edge cases (duration plausibility, past time, missing timezone for in-person, location variants including "Online"/"Zoom"/"TBD"), profile edge cases (partial fillers, link-only profiles, descriptive link labels), vouch and invitation variations, and the v4.1 legality categories that had no integration coverage before (cybercrime/phishing, spyware/stalkerware, money laundering, targeted burglary planning). Every rejection case now asserts actionable feedback via a shared `assertActionableFeedback` helper. Test inputs are explicitly paraphrased away from the prompt's own negative examples to avoid tests that only prove the model recognizes its training signal.
+
 **v4 revisions vs v3** (for reviewers who have seen v3):
 
 - **No OpenAI moderation call.** The `MODERATION_BLOCK_CATEGORIES` constant, the `runModeration` helper, the `extractTextForModeration` helper, the parallel `Promise.allSettled` in `checkGate`, the `moderation_categories` column, the `rejection_source` column, the unit test file `gate-moderation.test.ts`, the "Moderation policy" section, and every reference to OpenAI's moderation endpoint are deleted from the plan.
@@ -443,7 +452,24 @@ summary: (none)
 body: Early-stage climate fintech, pre-seed, London-based. ...
 ```
 
-Nulls render as `(none)`. No JSON; the LLM parses prose more reliably for this kind of check.
+Example for a profile:
+
+```
+kind: profile
+tagline: Fractional CFO for B2B SaaS companies doing their first institutional round
+summary: (none)
+whatIDo: (none)
+knownFor: (none)
+servicesSummary: (none)
+websiteUrl: https://example.com/jane
+links:
+  - label: LinkedIn
+    url: https://linkedin.com/in/example
+  - label: Portfolio
+    url: https://example.com/work
+```
+
+Nulls render as `(none)`. Empty `links` arrays render as `(none)`. No JSON; the LLM parses prose more reliably for this kind of check.
 
 ## Verdict parsing
 
@@ -543,7 +569,11 @@ CREATE TYPE content_gate_status AS ENUM (
 );
 ```
 
-`rejected_malformed` and `failed` are new relative to the current enum. `rejected` is gone. `rejected_illegal`, `rejected_quality` (added in the v2 work this plan replaces), `skipped`, and `passed` carry over.
+Relative to the pre-refactor enum (`passed | rejected | rejected_illegal | skipped`):
+
+- `passed`, `rejected_illegal`, and `skipped` carry over unchanged.
+- `rejected` is gone — existing rows are remapped to `rejected_malformed` by the CASE in the migration's `using` clause.
+- `rejected_quality`, `rejected_malformed`, and `failed` are new values added by this migration. (Note: `rejected_quality` was also introduced by the in-progress v2 gate work this plan replaces; since that work is being reverted to the pre-refactor state before this plan starts, the migration treats `rejected_quality` as new.)
 
 `ai_llm_usage_log` column rename: `gate_name` → `artifact_kind` (stays `text`, not an enum — non-gate rows still use values like `'embedding_query'`). Values for gate rows: `content`, `event`, `profile`, `vouch`, `invitation`.
 
@@ -853,13 +883,39 @@ Modified files (non-exhaustive):
 
 ## Step-by-step implementation order
 
-### 1. Verify the `content` invariant
+### 1. Verify the structured-metadata invariants (real audit, can block the plan)
 
-Grep for all reads of `entities.content` / `entity_versions.content`. Confirm no read path surfaces it as user-visible text. If it does, stop and flag.
+Two fields must be verified: `entities.content` / `entity_versions.content`, and the profile JSON field written by `profile.update`.
+
+For each field:
+
+1. Grep every read path and confirm no code surfaces the field's values as displayable text in a response, feed item, notification, or email.
+2. Inspect the flagged locations from the reviewing agent:
+   - `src/clubs/entities.ts` (entity read responses)
+   - `src/schemas/responses.ts` (response shape definitions)
+   - `src/embedding-source.ts` (what text is fed into embedding generation)
+   - `src/workers/embedding.ts` (the embedding worker's source reading)
+   - `src/schemas/responses.ts` and `src/identity/profiles.ts` (profile read responses)
+3. For each read path that references the field, confirm it is either dropped, serialized as opaque metadata (e.g., passed through to clients as a JSON blob the client does not display as text), or used for non-display purposes like internal lookup. If any read path treats a key or value as display text or feeds it into text embedding, the audit FAILS for that field.
+
+**If either audit fails, STOP.** Do not write any other code. Surface the finding to the user with:
+- which field failed the audit
+- which code path(s) treat it as text
+- which of the three remediation options from "Structured-metadata invariants" is applicable
+
+Only after both audits pass can the rest of the implementation proceed.
 
 ### 2. Write the migration SQL
 
 ```sql
+-- Order matters. The existing ai_llm_usage_log_skip_reason_check constraint
+-- references 'skipped'::public.quality_gate_status explicitly, so the old type
+-- cannot be dropped while the constraint exists. Drop it first, retype the
+-- column, drop the old type, then recreate the constraint against the new type.
+
+alter table public.ai_llm_usage_log
+  drop constraint ai_llm_usage_log_skip_reason_check;
+
 create type public.content_gate_status as enum (
   'passed',
   'rejected_illegal',
@@ -891,9 +947,20 @@ alter table public.ai_llm_usage_log
 
 alter table public.ai_llm_usage_log
   add column feedback text;
+
+-- Recreate the skip_reason check against the new type. Semantics preserved:
+-- skip_reason is populated on 'skipped' rows (e.g., no_api_key) and null on
+-- every other status. 'failed' rows carry their error in provider_error_code,
+-- not skip_reason, so 'failed' rows also have skip_reason IS NULL.
+alter table public.ai_llm_usage_log
+  add constraint ai_llm_usage_log_skip_reason_check check (
+    (gate_status = 'skipped'::public.content_gate_status and skip_reason is not null)
+    or
+    (gate_status <> 'skipped'::public.content_gate_status and skip_reason is null)
+  );
 ```
 
-Test the migration against representative pre-migration data per CLAUDE.md. Seed one row per old enum value into `ai_llm_usage_log`, run `migrate.sh`, verify each row maps to the expected new value. Regenerate `db/init.sql` after verification.
+Test the migration against representative pre-migration data per CLAUDE.md. Seed one row per old enum value into `ai_llm_usage_log` (including a `'skipped'` row with skip_reason populated, to verify the constraint round-trip), run `migrate.sh`, verify each row maps to the expected new value and the constraint holds. Regenerate `db/init.sql` after verification.
 
 ### 3. Write `src/gate.ts`
 
@@ -943,17 +1010,32 @@ SKILL.md, docs/design-decisions.md, docs/self-hosting.md.
 
 **Unit tests** (`test/unit/`):
 
-- `test/unit/gate-parser.test.ts` — PASS/ILLEGAL/FAIL parser: exact PASS, case-insensitive, whitespace, separators, bare verdicts with default feedback, empty feedback, multiline, malformed fallthrough.
+- `test/unit/gate-parser.test.ts` — PASS/ILLEGAL/FAIL parser. Cases:
+  - exact `PASS`, `pass`, `  PASS  ` → `passed`
+  - `PASS\nextra text` → `rejected_malformed` (trailing text)
+  - `ILLEGAL: reason`, `ILLEGAL; reason`, `ILLEGAL - reason`, em-dash, en-dash, multiline reason → `rejected_illegal` with feedback captured
+  - `FAIL: reason`, same separator variants → `rejected_quality` with feedback captured
+  - **Bare `ILLEGAL` (no separator, no reason)** → `rejected_malformed`. Feedback-required guarantee enforced by parser.
+  - **Bare `FAIL`** → `rejected_malformed`. Same.
+  - **`ILLEGAL:` with empty feedback after the separator** → `rejected_malformed`.
+  - **`FAIL: `** (separator + whitespace only) → `rejected_malformed`.
+  - unrecognized response text → `rejected_malformed` with the raw text as feedback
+  - Regression: `ILLEGALITY is hard to define` must NOT match ILLEGAL (no separator after the `L`s)
+  - Regression: `illegal content: this is fine` must NOT match ILLEGAL (no separator at the start)
 - `test/unit/gate-render.test.ts` — given each artifact variant, snapshot the rendered user message.
 - `test/unit/gate-prompt.test.ts` — given each kind, assert the correct prompt is selected.
 - `test/unit/gate-builders.test.ts` — direct unit tests on `buildArtifact` for every gated action, with stubbed repositories:
   - `content.create` top-level post → `ContentArtifact` with `isReply: false`
   - `content.create` reply (`threadId` present) → `ContentArtifact` with `isReply: true`
   - `content.create` event → `EventArtifact`
-  - `content.update` patch merging into a post → merged `ContentArtifact`
+  - `content.update` patch merging into a top-level post → merged `ContentArtifact` with `isReply: false` preserved
+  - `content.update` patch merging into an existing reply → merged `ContentArtifact` with `isReply: true` preserved (reply semantics must survive the update path so the quality bar stays lower for reply edits)
   - `content.update` patch merging into an event → merged `EventArtifact`
   - `content.update` on missing entity → throws 404
-  - `profile.update` patch merging → merged `ProfileArtifact`
+  - `profile.update` patch merging all fields → merged `ProfileArtifact` including `websiteUrl` and `links`
+  - `profile.update` patch that only changes `websiteUrl` → other fields carry over from `current`
+  - `profile.update` patch that only changes `links` → other fields carry over from `current`
+  - `profile.update` patch that writes to the excluded `profile` JSON field → field is ignored by the builder (verifies the invariant is enforced in code, not just documented)
   - `profile.update` on missing profile → throws 404
   - `vouches.create` → `VouchArtifact`
   - `invitations.issue` → `InvitationArtifact`
@@ -969,40 +1051,165 @@ SKILL.md, docs/design-decisions.md, docs/self-hosting.md.
 
 **Integration with-LLM** (`test/integration/with-llm/`):
 
-- `content-gate.test.ts` (renamed from `quality-gate.test.ts`):
-  - **Pass cases** (one per kind, varied plausible content):
-    - substantive top-level `post`
-    - substantive `opportunity`
-    - substantive `service`
-    - substantive `ask`
-    - lenient `gift`
-    - short concrete reply
-    - well-formed `event`
-    - substantive profile update
-    - vouch with firsthand evidence
-    - invitation with firsthand detail
-  - **Low-quality reject cases** (inputs NOT quoted from any prompt):
-    - title-only post
-    - opportunity with no concrete role or engagement path
-    - service with no offering detail
-    - event with vague location
-    - event with missing timezone for in-person venue
-    - profile with only generic filler across all fields
-    - vouch with only vague praise
-    - invitation with only generic endorsement
-  - **Illegal reject cases**:
-    - post soliciting forgery of identity documents
-    - service offering bulk drug supply with explicit trafficking language
-    - post containing a specific credible targeted threat against a named person
-  - **Merge-path cases**:
-    - `content.update` patch that hollows out a previously substantive post → `low_quality_content`
-    - `content.update` patch that only fixes a title typo → passes
-    - `profile.update` patch that replaces one field with filler but leaves others specific → passes
-    - `profile.update` patch that replaces the last non-filler field with filler → `low_quality_content`
-  - **Legality-pass-but-edgy cases** (verify we do not over-filter):
-    - post with heavy profanity and a clear point → passes
-    - post with a strong political opinion → passes
-  - **Feedback quality assertions**: every `rejected_quality` / `rejected_illegal` test asserts the feedback string is at least ~40 chars and does NOT consist solely of disallowed short-form phrases (`"low quality"`, `"vague"`, `"insufficient"`, `"generic"`).
+`content-gate.test.ts` (renamed from `quality-gate.test.ts`). This is the primary confidence surface for the gate — unit tests prove wiring, but only with-LLM tests prove the prompts actually behave as the plan assumes. The suite is deliberately comprehensive. Expected runtime is ~3–6 minutes against `gpt-5.4-nano`; expected cost is well under $0.10 per full run.
+
+**Test inputs must not be quoted verbatim from any prompt.** Phrases like "Looking for someone", "I do consulting", "amazing person", "would be a great addition", "experienced professional", "passionate about excellence", and "highly recommend" appear in the prompts as negative examples. Tests that use them as inputs prove the model recognizes its own training signal, not that the gate catches realistic failure modes. Use plausible paraphrases instead.
+
+**Shared assertion helper** for every rejection case: after receiving a `422 illegal_content` / `422 low_quality_content` response, assert the error message:
+
+1. is non-empty and at least ~40 characters
+2. does not consist solely of `"low quality"`, `"vague"`, `"insufficient"`, `"generic"`, `"missing detail"`, or any other single-word stock phrase
+3. contains at least one space (i.e., is a sentence, not a one-word label)
+
+Put this in a `assertActionableFeedback(err: AppError)` helper at the top of the file. Every reject test calls it.
+
+### Pass cases — content entities (top-level)
+
+1. `kind=post` with a 3-paragraph substantive post (clear takeaway, concrete examples)
+2. `kind=post` with a short 1-sentence post that still has a specific point
+3. `kind=post` with a strong political opinion, clear argument, legal
+4. `kind=post` with heavy profanity and a clear point
+5. `kind=post` where the body is a URL plus a sentence of context
+6. `kind=opportunity` for a paid role with compensation range, responsibilities, how to apply
+7. `kind=opportunity` for a volunteer role with clear description and contact path
+8. `kind=opportunity` for a fractional/part-time role with concrete commitment detail
+9. `kind=service` with a consulting offer: rate, deliverable, timeline
+10. `kind=service` with a free service offer and clear scope
+11. `kind=service` with "DM me for rates" (lenient on exact pricing — the gate should not demand a number)
+12. `kind=ask` with a specific ask + context (what / why / who could help)
+13. `kind=ask` with a short but concrete ask naming exactly what's needed
+14. `kind=gift` with one concrete sentence naming the free offer (verifies the lenient gift bar)
+15. `kind=gift` with fuller detail
+
+### Pass cases — content entities (replies)
+
+16. Short concrete reply inside an existing thread ("I can intro you to ours. DM me.")
+17. Long substantive reply with additional context
+18. Reply with profanity and a clear point
+19. Reply that's one sentence naming a specific action or thing
+
+### Pass cases — events
+
+20. Well-formed in-person event: named venue, address, full timing, timezone
+21. Well-formed online event with Zoom URL as location, no timezone (online is exempt)
+22. Event with `"Online"` as location
+23. Event with `"TBD — details to follow"` as location
+24. Event with no `endsAt` (open-ended meetup or festival)
+25. Event with no body, just title + summary + required event fields
+
+### Pass cases — profiles
+
+26. Profile with all five free-text fields substantive
+27. Profile with four fields null and only `whatIDo` substantive → passes (one concrete detail is enough)
+28. Profile with only `websiteUrl` and `links` populated, both concrete → passes (verifies link-bearing profiles can pass without prose)
+29. Profile update that adds one descriptive link label ("Portfolio", "LinkedIn") to an otherwise null profile → passes
+30. Profile with tagline and summary both set to very different but concrete content → passes
+
+### Pass cases — vouches
+
+31. Vouch with a long detailed anecdote
+32. Vouch with a short concrete observation ("I worked with her on the migration last spring — she fixed the analytics bugs and left us with docs we still use")
+33. Vouch referencing a specific project or event the voucher personally saw
+
+### Pass cases — invitations
+
+34. Invitation explaining how the sponsor knows the candidate plus a specific observed strength
+35. Invitation that ties the candidate to this specific club's purpose
+36. Short invitation that names a specific professional achievement with context
+
+### Low-quality reject cases — content entities (top-level)
+
+37. `kind=post` with title only, no body
+38. `kind=post` with a body that's one word of filler
+39. `kind=post` with a body that's a generic platitude ("things are changing, interesting times")
+40. `kind=opportunity` with a body that says the equivalent of "we need someone" without specifics (paraphrased, not the prompt's exact negative example)
+41. `kind=opportunity` with title only and a vague one-line body
+42. `kind=service` describing generic consulting with no detail (paraphrased)
+43. `kind=service` saying "happy to help with various projects"
+44. `kind=ask` saying "Any thoughts?" with no context
+45. `kind=ask` saying "Looking for ideas" with nothing specific
+46. `kind=gift` with a body that says "free stuff" with no detail (even the lenient gift bar rejects this)
+
+### Low-quality reject cases — content entities (replies)
+
+47. One-word filler reply ("cool" / "nice" / "thanks")
+48. Reply that's a generic platitude with no substance
+
+### Low-quality reject cases — events
+
+49. Event summary is one line of filler ("come hang out")
+50. Event location is "somewhere in London" (vague placeholder)
+51. Event location is "a place" (clearly nonsensical)
+52. Event with in-person named venue but missing timezone
+53. Event with implausibly long duration (24 hours for a "coffee meetup")
+54. Event with `endsAt` before `startsAt`
+55. Event with a start time clearly in the distant past
+
+### Low-quality reject cases — profiles
+
+56. Profile with all five text fields as filler, no links, no website
+57. Profile update that replaces the last substantive field with filler while other fields are already filler
+58. Profile where the only populated field is a link with a meaningless label ("link", "here", "page")
+
+### Low-quality reject cases — vouches
+
+59. Vouch reason that's short vague praise (paraphrased from the prompt)
+60. Vouch reason that's purely an adjective chain with no observation
+61. Vouch reason that references nothing the voucher has personally seen
+
+### Low-quality reject cases — invitations
+
+62. Invitation reason that's generic fit language ("great fit", paraphrased)
+63. Invitation reason that doesn't explain the relationship
+64. Invitation reason that doesn't connect the candidate to this specific club
+
+### Illegal reject cases — full legality surface
+
+65. `kind=post` soliciting forgery of identity documents
+66. `kind=service` offering bulk drug supply with explicit trafficking language
+67. `kind=post` with a specific credible targeted threat against a named person
+68. `kind=post` soliciting someone to phish a competitor's email account (**cybercrime — new v4.1 category, must cover**)
+69. `kind=service` offering spyware installation on someone's phone (**stalkerware / privacy crime — new v4.1 category**)
+70. `kind=post` asking for help laundering cash through a shell company (**money laundering — new v4.1 category**)
+71. `kind=opportunity` whose role description is clearly illegal ("need help moving stolen goods")
+72. `kind=ask` asking for help planning a specific burglary (**specific targeted crime**)
+73. `kind=event` organized for a clearly illegal purpose (e.g., "meetup to plan a robbery")
+74. Profile advertising forgery services
+75. Profile update that adds a link with label "Buy counterfeit docs" → `illegal_content` (verifies links are gated)
+76. Profile update that adds a link with label "Hire me for phishing" → `illegal_content` (verifies the cybercrime category is enforced on profiles, not just content)
+77. Vouch praising the target for helping with a specific fraud
+78. Vouch thanking target for getting the voucher a fake passport
+79. Invitation endorsing the candidate's participation in money laundering
+
+### Legality-pass-but-edgy cases (verify we do not over-filter)
+
+80. `kind=post` with heavy profanity and a clear point
+81. `kind=post` with a strong political opinion (controversial but legal)
+82. `kind=post` describing first-person legal drug use (not solicitation, not trafficking)
+83. `kind=post` discussing illegal activity abstractly (policy analysis, academic research)
+84. `kind=post` with fictional or graphic creative writing (no real-world solicitation)
+85. `kind=post` with adult sexual content (legal, no minors, not a solicitation)
+86. `kind=post` with dark humor or satire about crime
+87. `kind=opportunity` for a role in a legally gray area (cannabis industry in legal jurisdictions)
+
+### Merge-path cases (the regressions v1 could not express)
+
+88. `content.update` patch that hollows out a previously substantive post (replaces `body` with "tbd, more soon") → `low_quality_content`
+89. `content.update` patch that only fixes a title typo, leaving substantive body intact → passes
+90. `content.update` patch on an entity that is an existing reply (short, concrete) → passes, because the merged artifact carries `isReply: true` and the lower bar applies
+91. `content.update` patch on an existing reply that replaces the reply body with pure filler ("cool") → `low_quality_content`
+92. `profile.update` patch that replaces one of five substantive fields with filler, others still substantive → passes
+93. `profile.update` patch that replaces the last substantive field with filler → `low_quality_content`
+94. `profile.update` patch that adds a concrete `websiteUrl` + `links` to an otherwise generic-filler profile → passes (the link-and-URL context substantiates the profile)
+95. `profile.update` patch that adds links with clearly illegal-service labels → `illegal_content`
+
+### Feedback quality (applied to every reject case above via `assertActionableFeedback`)
+
+Every `illegal_content` and `low_quality_content` response in the tests above is asserted against `assertActionableFeedback(err)`. This is not a separate set of test cases — it is an invariant that every rejection test enforces. The invariant is the structural guarantee that replaces the old "stock fallback text" pattern: if the LLM ever returns a bare `ILLEGAL` / `FAIL` or a short-form reason, the parser fails it as `rejected_malformed` and the caller sees `gate_rejected` instead of a misleading stock rejection.
+
+### Test runtime and isolation
+
+Each test seeds its own owner + club via `TestHarness.seedOwner('slug', 'Name')`, matching the current pattern in `test/integration/with-llm/quality-gate.test.ts`. This produces fresh DB state per test at the cost of ~100ms setup per test. With ~95 tests the full suite runs in roughly 3–6 minutes depending on LLM latency. If runtime becomes a problem, the first optimization is a shared-fixture harness for the pass cases (which are stateless from the gate's perspective) — but do not attempt this optimization during the initial implementation. Ship the comprehensive suite first, optimize if needed.
 
 ### 14. Regenerate schema snapshot
 
@@ -1037,14 +1244,20 @@ All must pass.
 15. `profile.update` patch that partially replaces fields with filler but leaves others specific passes. (Integration test.)
 16. `content.create(kind='event')` is judged by `EVENT_PROMPT` and produces an `EventArtifact`. (Builder unit test.)
 17. `content.create(threadId=X)` reply produces a `ContentArtifact` with `isReply: true`. (Builder unit test.)
-18. Every rejected integration test asserts a non-empty feedback string of at least ~40 chars that is not a disallowed short-form phrase. (Integration test.)
-19. The HTTP error response for a `rejected_quality` or `rejected_illegal` outcome surfaces the full LLM feedback string verbatim as the error message. (Integration test — inspect response body.)
-20. `clubs.applications.submit` does not import from `src/gate.ts`. (Grep.)
-21. `messages.send` does not import from `src/gate.ts`. (Grep.)
-22. `ContentArtifact.content` field is NOT in the artifact union, and no code path treats `entities.content` JSONB as user-visible text. (Grep per step 1.)
-23. Schema snapshot regenerated; all test suites pass.
-24. `SKILL.md`, `docs/design-decisions.md`, `docs/self-hosting.md` reflect the new design.
-25. `package.json` patch version bumped at commit time.
+18. `content.update` on an entity that is already a reply produces a merged `ContentArtifact` with `isReply: true` preserved from the loaded current state. (Builder unit test.)
+19. `ProfileArtifact` includes `websiteUrl` and `links`. A `profile.update` patch that writes only `websiteUrl` or only `links` is gated on the merged profile including those fields. (Builder unit test + integration test.)
+20. The profile JSON field (`wireProfileObject` input) is NOT on `ProfileArtifact` and is ignored by the `profile.update` builder. (Builder unit test verifies writes to `profile` JSON do not appear in the resulting artifact.)
+21. `parseVerdict` treats bare `ILLEGAL` (no separator, no reason) and bare `FAIL` (no separator, no reason) as `rejected_malformed`, not as rejections with fallback text. (Parser unit test.)
+22. `parseVerdict` treats `ILLEGAL:` or `FAIL:` with only whitespace after the separator as `rejected_malformed`. (Parser unit test.)
+23. Every rejected integration test asserts a non-empty feedback string of at least ~40 chars that is not a disallowed short-form phrase. (Integration test.)
+24. The HTTP error response for a `rejected_quality` or `rejected_illegal` outcome surfaces the full LLM feedback string verbatim as the error message. (Integration test — inspect response body.)
+25. `clubs.applications.submit` does not import from `src/gate.ts`. (Grep.)
+26. `messages.send` does not import from `src/gate.ts`. (Grep.)
+27. `ContentArtifact.content` field is NOT in the artifact union, and no code path treats `entities.content` JSONB as user-visible text. (Audit per step 1.)
+28. The profile JSON field is NOT in `ProfileArtifact`, and no code path treats it as user-visible text. (Audit per step 1.)
+29. Schema snapshot regenerated; all test suites pass.
+30. `SKILL.md`, `docs/design-decisions.md`, `docs/self-hosting.md` reflect the new design, including both structured-metadata invariants.
+31. `package.json` patch version bumped at commit time.
 
 ## Explicitly out of scope
 
