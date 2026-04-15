@@ -1,6 +1,10 @@
 # TODO
 
-Deferred non-urgent work. Updated 2026-04-10.
+Deferred non-urgent work. Updated 2026-04-15.
+
+## Security
+
+- **Bearer tokens are unsafe in on-screen agent contexts.** The `cc_live_...` tokens leak through terminal scrollback, tool-call output panels in agents like Claude Code, screen recordings, pair-programming screen shares, and casual shoulder-surfing. Anyone who can see the user's screen for a second can copy full club access. This is a structural problem with bearer-token auth in agent-first contexts, not a ClawClub-specific bug. Needs a real redesign, not a patch. Options considered: (1) ed25519-signed requests where the agent holds a private key that never leaves the machine and signs each request with a timestamp + nonce — the preferred long-term direction; (2) short-lived access tokens minted from a long-lived refresh credential — a stepping-stone that bounds the blast radius of a captured token but doesn't eliminate the leak; (3) mTLS client cert device binding — probably too heavy for agent-first; (4) OS-keychain integration for specific agent clients (macOS Keychain / libsecret / Credential Vault) — mitigation only, not a fix. Ethereum-style keys work but ed25519 is simpler and has better Node library support; no strong reason to pick secp256k1 unless we want wallet-compat later. Migration needs to support both auth modes during transition, register public keys via a new onboarding flow, handle multi-device key registration, and rotate. Rough estimate: 2-3 weeks of focused work. Interim mitigations usable without server changes: document env-var token storage (`~/.clawclub/token` with `0600`) so the token is pasted once at setup rather than in every chat message; make rotation loud in the welcome copy so paranoid users self-service; tighten Claude Code's display of `Authorization:` headers in tool-call output (a Claude Code concern, not ours). Not blocking the tokenless-apply-and-onboarding plan — that plan ships bearer tokens because bearer tokens are what we have today, and this work layers on top later without rework. Raised 2026-04-15 during the onboarding redesign conversation.
 
 ## Performance / scale
 

@@ -102,7 +102,11 @@ If you skip it, note that in the handoff.
 
 Verify these four things before touching anything:
 
-1. **Confirm `.strict()` preserves refines in this Zod version.** Write a throwaway test: `const s = z.object({ a: z.number() }).refine(v => v.a > 0, 'a must be positive').strict();` then parse `{ a: -1, extra: 1 }` and confirm both errors fire (the refine error AND the unrecognized-key error). If only one fires, the plan's core assumption is wrong and we need to stop and discuss.
+1. **Confirm `.strict()` preserves refines in this Zod version.** Prior investigation found that this Zod version does NOT surface both issues in a single `safeParse` call — only `unrecognized_keys` comes back when the input has both extra keys AND a refine violation. That is acceptable and does not change the implementation approach. What you need to verify is the weaker, correct property: the refine survives `.strict()` in every sense the runtime cares about. Run three independent probes on `const s = z.object({ a: z.number() }).refine(v => v.a > 0, 'a must be positive').strict();`:
+   - **(a) type preservation:** `s` is still a `ZodObject`. Check with `s._def.typeName` (or the equivalent in this Zod version). If it has turned into `ZodEffects`, stop — the central registry helper needs to handle the effects wrapper.
+   - **(b) refine still fires on clean-shape input:** `s.safeParse({ a: -1 })` returns `success: false` with the refine error. If the refine is silently dropped, stop — we cannot rely on central `.strict()` and need to discuss.
+   - **(c) strict rejection fires on extra-key input:** `s.safeParse({ a: 1, extra: 1 })` returns `success: false` with an `unrecognized_keys` issue. If strict is silently dropped, stop — the central approach is broken.
+   Do NOT assert that both (b) and (c) fire in a single `safeParse({ a: -1, extra: 1 })` call. That is not how this Zod version reports errors, and the previous version of this plan was wrong to ask for it. Record the three probe results in the handoff.
 
 2. **Enumerate every registered action's input schemas and check the root type.** Your earlier investigation found they're all `ZodObject`. Reconfirm in one script run before proceeding. Print `schema._def.typeName` (or the equivalent in this Zod version) for each. If any action's root input is NOT a `ZodObject` — e.g. a primitive, array, union, or `ZodEffects` — surface it before touching the registry; the central helper will need to handle it or reject it.
 
@@ -217,7 +221,7 @@ When done, report:
    - Nested object audit: full list with file paths and whether each was a shared helper or inline.
    - `src/schema-endpoint.ts` paragraph summary of `relaxInputSchema`'s role and why it exists.
 
-2. **Layer 1 landing.** Registry helper diff summary. Confirmation that `.strict()` applied to `content.update` and `content.getThread` parse inputs preserves their refines (show the test output or a manual repro where both the refine error AND the unrecognized-key error fire on a single bad input).
+2. **Layer 1 landing.** Registry helper diff summary. Confirmation that `.strict()` applied to `content.update` and `content.getThread` parse inputs preserves their refines. "Preserves" here means the three-probe property from Pre-investigation item 1: the schema is still a `ZodObject`, the refine still fires on a clean-shape violating input, and strict still fires on an extra-key input. Show the three probe results. Do NOT expect both errors to come back from a single bad input — that's not how this Zod version reports.
 
 3. **Layer 2 landing.** List of every nested helper strictified, with file paths. List of any inline nested objects you extracted to helpers. Rationale per extraction (or per inline-strictify if you chose that path).
 
