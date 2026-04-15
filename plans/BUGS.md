@@ -10,24 +10,72 @@ Items flagged `[UNVERIFIED]` were in the original report but adjusted or refuted
 
 ## P0 — ship this week
 
-### `[~]` Anonymous `clubs.join` account takeover
+### `[x]` Anonymous `clubs.join` account takeover (commit `5e5189f`)
 
-Anonymous `clubs.join` at `src/clubs/unified.ts:713-742` issues a fresh bearer token for any existing in-flight member account keyed only on `(clubSlug, email)`. No proof of email ownership. The token is global to `members.id`, so an attacker inherits every club the victim belongs to.
+Anonymous `clubs.join` issued a fresh bearer token for any existing in-flight member keyed only on `(clubSlug, email)`. No proof of email ownership. The token was global to `members.id`, so an attacker inherited every club the victim belonged to.
 
-**Plan**: delete the replay branch, allow duplicate anonymous memberships, fix the related `attempts_exhausted` recoverability bug, fix the PoW difficulty-drop bug on authenticated refresh, remove dead helpers. No migration, no new error code.
+**Fix**: deleted the replay branch in `src/clubs/unified.ts`; anonymous `clubs.join` now always creates a new member + membership. Duplicate memberships with the same email string are allowed and disambiguated by `memberId`. Authenticated re-call still resumes cleanly for the legitimate "refresh my challenge" case.
 
-**Bundled fixes**:
-- `attempts_exhausted` error message lies — `src/clubs/unified.ts:1036-1042` updates `attempts` without touching `solved_at`, leaving an active exhausted challenge that blocks refresh until TTL.
-- PoW difficulty drops to cross-apply (5) on any authenticated refresh — `summarizeProofForMembership` at `src/clubs/unified.ts:581` unconditionally passes `crossApply: true`. Cold applicants can let the challenge expire and refresh at the lower difficulty. New rule: lower difficulty only when the caller is already `active`/`renewal_pending` in at least one club.
-- Dead helpers at `src/clubs/unified.ts:131-140` (`isAccessibleState`, `isAnonymousReplayState`, `isNonTerminalStatus`) — opportunistic cleanup.
+**Bundled fixes shipped in the same commit**:
+- `attempts_exhausted` error message now truthful — the final-rejection path sets `solved_at` so `ensurePowChallenge` correctly issues a fresh challenge on authenticated re-call.
+- PoW difficulty discount now strict: `status = 'active' AND left_at IS NULL` only. Grace-window members (`renewal_pending`, `cancelled`) get cold difficulty. Defense-in-depth against the clubadmin perpetuity bug below.
+- Dead helpers removed (`isAccessibleState`, `isAnonymousReplayState`, `isNonTerminalStatus`, `findReplayMembershipByEmail`).
+- SKILL.md, schema, and api-schema snapshot updated.
+- New tests lock in anonymous-not-idempotent behavior, authenticated refresh, exhausted recovery, and three negative difficulty cases.
+
+Verified live against the dev server: attacker replay produces an independent orphan member, attacker token gets 404 on victim's application, authenticated refresh preserves the membership and the cold difficulty.
 
 ---
 
 ### `[ ]` Match destruction on every worker restart
 
-`src/workers/synchronicity.ts:271-321`. `processEntityTriggers` expires pending matches before rebuilding them, and advances the `activity_seq` cursor only at the end. On any crash/restart mid-loop, the `ON CONFLICT DO NOTHING` clause blocks the rebuild because the expired row still occupies the unique key. Every Railway deploy silently destroys in-flight ask/offer matches.
+`src/workers/synchronicity.ts:271-321`. `processEntityTriggers` expires pending matches *before* rebuilding them, and advances the `activity_seq` cursor only at the end of the loop. Failure sequence:
 
-**Fix direction**: either advance the cursor per-row in its own transaction, or change the upsert to `ON CONFLICT ... DO UPDATE SET state='pending'` so re-runs resurrect rather than no-op.
+1. Worker starts processing an activity batch.
+2. For each source entity, it calls `expirePendingMatchesForSource` — flipping pending matches to `expired`.
+3. Then it calls `createMatch` for each new candidate, which uses `ON CONFLICT (match_kind, source_id, target_member_id) DO NOTHING`.
+4. Worker crashes or is SIGTERMed mid-loop. Railway restarts it.
+5. Restart reads the same `activity_seq` range.
+6. `expirePendingMatchesForSource` runs again on rows that were already expired — no-op.
+7. `createMatch` tries to insert new pending rows. **The `ON CONFLICT DO NOTHING` silently no-ops because the expired rows are still occupying the unique key.**
+8. Cursor advances past the batch. The destroyed matches are never retried.
+
+Net effect: every Railway redeploy silently destroys any in-flight ask/offer matches whose batch was being processed at SIGTERM time. Users never get the intro / match notification. There's no error log — every UPDATE and INSERT "succeeds."
+
+**Why deferred**: not fixing today, but it's urgent — this bites every deploy.
+
+**Fix options** (as understood at investigation time — needs verification when we come back):
+
+- **Option A: advance the cursor per-row in its own transaction.** Each row commits its work + cursor advance atomically. On crash, the next run resumes from the last committed row. Pros: correct by construction; doesn't change the upsert semantics; preserves "expired means terminal" invariants for other consumers. Cons: per-row transactions are more expensive (latency, WAL); need to measure whether batch throughput stays acceptable under typical load.
+
+- **Option B: change the upsert to `ON CONFLICT ... DO UPDATE SET state='pending', ...`** so a re-run resurrects expired rows rather than no-opping. Pros: smaller diff; no transaction-shape changes; can probably ship without a migration. Cons: clobbers the "expired = terminal" invariant, which **other consumers may depend on** (notifications delivery, admin UI, cleanup crons). Need to audit every reader of the matches table before doing this.
+
+**Recommendation (provisional)**: Option A, because it's correct-by-construction and doesn't touch invariants. But the cost/benefit depends on batch size and per-row work — the investigation pass should measure that before committing to A.
+
+**Related bugs (potentially bundle together)**:
+
+- `[ ]` **Synchronicity worker has no horizontal-scale guard** (also P0, same file). The cursor is a single row with no lease, no `FOR UPDATE`, no advisory lock. Two workers racing the same cursor would cause the same corruption as a crash-restart — for the same underlying reason (cursor advance is not atomic with per-row work). These two bugs share a root cause and might share a fix: taking a `pg_try_advisory_lock` on worker startup (exit if not acquired) plus per-row transactions would close both at once. **Decision needed when we come back**: bundle or separate.
+
+- `[ ]` **New entity matches lost when embedding worker is behind** (P1, also in `src/workers/synchronicity.ts`). Different symptom but closely related — `processEntityTriggers` advances the cursor past rows whose embedding isn't ready yet, so those rows never get matched. Whichever fix we pick for the restart bug should *not* make the embedding-lag bug worse. An ideal fix handles both.
+
+- `[ ]` **Workers crash on any transient DB error** (P1). The per-row transaction pattern of Option A is only useful if the worker doesn't die on the first pool error. Fix that first (or in the same PR) so the cursor-advance pattern actually gets a chance to work.
+
+**Investigation questions for the future agent** (answer before writing any code):
+
+1. How long is a typical `activity_seq` batch in practice? 10 rows? 1000? Measures whether per-row transactions are prohibitively expensive.
+2. What operations run per row? Vector lookups? LLM calls? Embedding fetches? Affects Option A's latency profile.
+3. What's the exact unique constraint on `signal_background_matches`? Columns, partial predicates, nullability. Affects both options.
+4. What values can `state` take, and which are terminal? Affects Option B's safety.
+5. Who else reads `signal_background_matches`? Admin UI, notification delivery, cleanup cron, another worker? Each needs to be compatible with whichever fix we pick.
+6. Does existing test coverage exercise a crash-restart path? If no, we need to figure out how to simulate one in `test/integration/non-llm/` — running worker code directly from the harness, or running the full function, then mutating state to simulate a half-committed run, then running it again.
+7. Can the `activity_seq` cursor itself be held in a table with a row-level lock such that two workers naturally serialize? That'd handle the horizontal-scale bug as a side effect of the fix.
+
+**Testing strategy (sketched)**: write an integration test that (a) runs `processEntityTriggers` halfway through a synthetic batch via `client.query('ROLLBACK')` or equivalent, (b) runs it again, (c) asserts all expected matches landed in `pending` state with no missed candidates. That's the minimal regression net.
+
+**What to NOT do**:
+- Do not simply add a try/catch around the loop and call it robust. The data-loss happens on successful operations, not errors — a catch won't help.
+- Do not add the `DO UPDATE` shape to the upsert without auditing every reader of the matches table. Silent invariant breakage is how we got here.
+- Do not bundle with unrelated worker hardening (statement_timeout, pool error handler, cancellable sleep). Those are listed in P2 and should land separately unless the investigation surfaces a hard dependency.
 
 ---
 
@@ -39,19 +87,31 @@ Anonymous `clubs.join` at `src/clubs/unified.ts:713-742` issues a fresh bearer t
 
 ---
 
-### `[ ]` Content quality gates are swapped
+### `[-]` Content quality gates are swapped — DEFERRED
 
-`src/schemas/entities.ts:213` and `src/schemas/entities.ts:313`. `entitiesCreate` declares `qualityGate: 'content-update'`; `entitiesUpdate` declares `qualityGate: 'content-create'`. New posts are judged against the lenient patch rubric; small edits are judged against the strict new-post rubric. Moderation is wrong on both sides.
+`src/schemas/entities.ts:213` and `src/schemas/entities.ts:313`. `entitiesCreate` declares `qualityGate: 'content-update'`; `entitiesUpdate` declares `qualityGate: 'content-create'`. New posts are judged against the lenient patch rubric; small edits are judged against the strict new-post rubric. Moderation is wrong on both sides right now.
 
-**Fix**: swap the two strings. Five seconds of work.
+**Why deferred**: the entire content quality gate subsystem is about to be redesigned — see `plans/content-quality-gate-redesign.md` (currently dirty in worktree, belongs to another workstream). Point-fixing the string swap now would get overwritten by the redesign. Don't touch it.
+
+**What to check after the redesign ships**:
+- Does the redesigned gate even use named prompt files like `content-create.txt` / `content-update.txt`? The redesign may collapse both into a single gate, or split them differently, or drop the named-prompt pattern entirely.
+- If the named-prompt pattern survives: verify the action-to-prompt mapping in the new code points `content.create → content-create.txt` and `content.update → content-update.txt`, not the other way around.
+- **Not-yet-verified concern**: the prompt *files* at `src/prompts/content-create.txt` and `src/prompts/content-update.txt` may themselves have been written against the wrong action. The "fix" might not be a label swap — it might be that the prompt content itself is mistuned. This has to be checked by reading the actual prompts, not assumed from filenames.
+- Check whether any tests in `test/integration/with-llm/quality-gate.test.ts` currently assert the wrong behavior (and therefore pass against the bug). If so, those tests are coverage gaps, not proof of correctness.
+
+**Fix (when we come back)**: if the post-redesign mapping is still wrong, it's a five-second fix in whatever file declares the action-to-gate binding. Worth five minutes of verification before and after.
 
 ---
 
-### `[ ]` `members.updateIdentity` bypasses handle validation
+### `[x]` `members.updateIdentity` bypasses handle validation (superseded + fixed)
 
-`src/schemas/membership.ts:177-182`. `handle` uses `parseTrimmedNullableString` instead of `parseHandle`, so any string is accepted (XSS tags, 250k chars, null bytes, DB constraint violations that surface as 500s). `displayName` has no `.max()`.
+The handle portion of this bug became moot when handles were removed entirely from the platform (commit `4e27c1f` "Delete handles entirely", migration `011_delete_handles.sql`). `parseHandle`, `members_handle_unique`, and every reference to a member's `@handle` are gone. `members.updateIdentity` now only accepts `displayName`.
 
-**Fix direction**: use `parseHandle`; add `.max(100)` (or appropriate) to `displayName`; add matching DB CHECK constraints.
+The residual `displayName` concerns (no max length, no null-byte sanitization) were fixed directly: `displayName` now uses `parseBoundedString` (caps at 500 chars, strips null bytes via `safeString`) on the parse side and `wireBoundedString.optional()` on the wire side. Live-verified on the dev server:
+
+- Normal displayName → saves correctly
+- 501-char displayName → rejected `400 invalid_input`
+- Null-byte displayName (`Clean\0Name`) → stripped to `CleanName`, no 500 surface
 
 ---
 

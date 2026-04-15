@@ -167,14 +167,14 @@ const membersUpdateIdentity: ActionDefinition = {
 
   wire: {
     input: z.object({
-      displayName: wireOptionalString.describe('Global display name'),
+      displayName: wireBoundedString.optional().describe('Global display name, max 500 characters'),
     }),
     output: memberIdentity,
   },
 
   parse: {
     input: z.object({
-      displayName: z.string().trim().min(1).optional(),
+      displayName: parseBoundedString.optional(),
     }),
   },
 

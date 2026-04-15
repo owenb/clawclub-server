@@ -108,6 +108,28 @@ describe('Profiles', () => {
     assert.equal((envelope.profiles as Array<unknown>).length, 2);
   });
 
+  it('members.updateIdentity rejects a displayName longer than 500 characters', async () => {
+    const owner = await h.seedOwner('profiles-identity-toolong', 'ProfilesIdentityTooLong');
+    const tooLong = 'a'.repeat(501);
+
+    const err = await h.apiErr(owner.token, 'members.updateIdentity', {
+      displayName: tooLong,
+    });
+
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+  });
+
+  it('members.updateIdentity rejects a displayName containing a null byte', async () => {
+    const owner = await h.seedOwner('profiles-identity-nullbyte', 'ProfilesIdentityNullByte');
+
+    const result = await h.apiOk(owner.token, 'members.updateIdentity', {
+      displayName: 'Clean\u0000Name',
+    });
+    const identity = result.data as Record<string, unknown>;
+    assert.equal(identity.displayName, 'CleanName');
+  });
+
   it('profile.list for self with no memberships returns profiles: []', async () => {
     const loner = await h.seedMember('No Clubs Yet', 'no-clubs-yet');
 

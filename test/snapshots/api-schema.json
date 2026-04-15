@@ -9450,9 +9450,8 @@
       "input": {
         "properties": {
           "displayName": {
-            "description": "Global display name",
-            "maxLength": 250000,
-            "nullable": true,
+            "description": "Global display name, max 500 characters",
+            "maxLength": 500,
             "type": "string"
           }
         },
@@ -14223,6 +14222,6 @@
       }
     ]
   },
-  "version": "0.2.57",
-  "schemaHash": "d722c09752cb23e0"
+  "version": "0.2.58",
+  "schemaHash": "de5a62feb0d01aef"
 }
