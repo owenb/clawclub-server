@@ -6,19 +6,10 @@ import { AppError } from '../contract.ts';
 import {
   wireRequiredString, parseRequiredString,
   wirePatchString, parsePatchString,
+  profileLink, parseProfileLink,
 } from './fields.ts';
 import { memberProfileEnvelope } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
-
-const wireProfileLink = z.object({
-  url: z.string().url().max(500),
-  label: z.string().max(100).nullable(),
-});
-
-const parseProfileLink = z.object({
-  url: z.string().trim().url().max(500),
-  label: z.string().trim().max(100).transform((value) => value === '' ? null : value).nullable(),
-});
 
 const PROFILE_UPDATE_ERRORS = [
   {
@@ -129,7 +120,7 @@ const profileUpdate: ActionDefinition = {
       knownFor: wirePatchString.describe('Known for'),
       servicesSummary: wirePatchString.describe('Services summary'),
       websiteUrl: wirePatchString.describe('Website URL'),
-      links: z.array(wireProfileLink).max(20).optional(),
+      links: z.array(profileLink).max(20).optional(),
     }),
     output: memberProfileEnvelope,
   },

@@ -217,6 +217,20 @@ export const wireOptionalRecord = z.record(z.string(), z.unknown()).optional()
 /** Parse: optional JSON object, defaults to {} */
 export const parseOptionalRecord = z.record(z.string(), z.unknown()).optional().default({});
 
+/** Shared typed club-profile link shape for wire/docs and responses */
+export const profileLink = z.object({
+  url: z.string().url().max(500),
+  label: z.string().max(100).nullable(),
+}).strict();
+
+/** Parse: trims URL/label and normalizes empty label to null */
+export const parseProfileLink = z.object({
+  url: safeString.pipe(z.string().trim().url().max(500)),
+  label: safeString.pipe(z.string().trim().max(100))
+    .transform(value => value === '' ? null : value)
+    .nullable(),
+}).strict();
+
 /**
  * Wire: full name (at least two words).
  * Server trims whitespace and normalizes internal whitespace.

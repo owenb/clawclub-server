@@ -10462,10 +10462,13 @@
                     "additionalProperties": false,
                     "properties": {
                       "label": {
+                        "maxLength": 100,
                         "nullable": true,
                         "type": "string"
                       },
                       "url": {
+                        "format": "uri",
+                        "maxLength": 500,
                         "type": "string"
                       }
                     },
@@ -10691,10 +10694,13 @@
                     "additionalProperties": false,
                     "properties": {
                       "label": {
+                        "maxLength": 100,
                         "nullable": true,
                         "type": "string"
                       },
                       "url": {
+                        "format": "uri",
+                        "maxLength": 500,
                         "type": "string"
                       }
                     },
@@ -12364,10 +12370,13 @@
                         "additionalProperties": false,
                         "properties": {
                           "label": {
+                            "maxLength": 100,
                             "nullable": true,
                             "type": "string"
                           },
                           "url": {
+                            "format": "uri",
+                            "maxLength": 500,
                             "type": "string"
                           }
                         },
@@ -14193,6 +14202,6 @@
       }
     ]
   },
-  "version": "0.2.58",
-  "schemaHash": "486ab773c593b9b4"
+  "version": "0.2.59",
+  "schemaHash": "e3c84455837eedf3"
 }

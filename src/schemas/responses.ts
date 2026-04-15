@@ -11,6 +11,7 @@
  * TypeScript compilation + test-time validation provides the safety net.
  */
 import { z } from 'zod';
+import { profileLink } from './fields.ts';
 import {
   entityKind, entityState, membershipState, membershipRole,
   eventRsvpState, updateReceiptState, messageRole,
@@ -234,10 +235,7 @@ export const clubProfile = z.object({
   knownFor: z.string().nullable(),
   servicesSummary: z.string().nullable(),
   websiteUrl: z.string().nullable(),
-  links: z.array(z.object({
-    url: z.string(),
-    label: z.string().nullable(),
-  })),
+  links: z.array(profileLink),
   version: z.object({
     id: z.string(),
     versionNo: z.number(),

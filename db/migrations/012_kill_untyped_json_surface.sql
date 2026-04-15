@@ -142,7 +142,7 @@ declare
   output jsonb;
 begin
   if input is null then
-    return '[]'::jsonb;
+    raise exception 'links unexpectedly NULL';
   end if;
 
   if jsonb_typeof(input) <> 'array' then
@@ -277,7 +277,6 @@ select e.id as entity_id,
   pev.body,
   pev.effective_at,
   pev.expires_at,
-  pev.reason,
   pev.created_at as version_created_at,
   pev.created_by_member_id
 from public.entities e
@@ -303,7 +302,6 @@ select le.entity_id,
   le.body,
   le.effective_at,
   le.expires_at,
-  le.reason,
   le.version_created_at,
   le.created_by_member_id,
   evd.location,
