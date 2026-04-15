@@ -167,11 +167,11 @@ on conflict do nothing;
 -- Memberships
 -- ============================================================
 
--- Owen: clubadmin of all three
-insert into club_memberships (club_id, member_id, role, status, joined_at) values
-  (:'dogclub_id', :'owen_id', 'clubadmin', 'active', now() - interval '58 days'),
-  (:'catclub_id', :'owen_id', 'clubadmin', 'active', now() - interval '58 days'),
-  (:'foxclub_id', :'owen_id', 'clubadmin', 'active', now() - interval '58 days')
+-- Owen: clubadmin of all three, auto-comped as owner
+insert into club_memberships (club_id, member_id, role, status, joined_at, is_comped, comped_at, comped_by_member_id) values
+  (:'dogclub_id', :'owen_id', 'clubadmin', 'active', now() - interval '58 days', true, now() - interval '58 days', null),
+  (:'catclub_id', :'owen_id', 'clubadmin', 'active', now() - interval '58 days', true, now() - interval '58 days', null),
+  (:'foxclub_id', :'owen_id', 'clubadmin', 'active', now() - interval '58 days', true, now() - interval '58 days', null)
 on conflict do nothing;
 
 -- Alice: member of DogClub and CatClub
@@ -417,6 +417,7 @@ values
   (:'charlie_fox_mid', :'owen_id', 'active', 0, 'USD', now() - interval '50 days', null),
   -- Diana: DogClub and FoxClub (self-paid)
   (:'diana_dog_mid', :'diana_id', 'active', 29, 'USD', now() - interval '40 days', now() + interval '21 days'),
+  (:'diana_cat_mid', :'diana_id', 'active', 29, 'USD', now() - interval '40 days', now() + interval '21 days'),
   (:'diana_fox_mid', :'diana_id', 'active', 29, 'USD', now() - interval '40 days', now() + interval '21 days'),
   -- Eddie: DogClub active, CatClub past_due
   (:'eddie_dog_mid', :'eddie_id', 'active',   29, 'USD', now() - interval '38 days', now() + interval '23 days'),

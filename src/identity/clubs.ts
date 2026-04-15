@@ -110,9 +110,9 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
       [ownerMsId, input.actorMemberId],
     );
     await client.query(
-      `update club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
+      `update club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = null
        where id = $1 and is_comped = false`,
-      [ownerMsId, input.actorMemberId],
+      [ownerMsId],
     );
 
     await createInitialClubProfileVersion(client, {
@@ -198,6 +198,12 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
       );
     }
 
+    await client.query(
+      `update club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = null
+       where id = $1 and is_comped = false`,
+      [newMembershipId],
+    );
+
     // 3. Ensure active membership state for new owner
     await client.query(
       `insert into club_membership_state_versions (membership_id, status, reason, version_no, created_by_member_id)
@@ -242,9 +248,9 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
       );
       if (oldMsRows.rows[0]) {
         await client.query(
-          `update club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = $2
+          `update club_memberships set is_comped = true, comped_at = now(), comped_by_member_id = null
            where id = $1 and is_comped = false`,
-          [oldMsRows.rows[0].id, input.ownerMemberId],
+          [oldMsRows.rows[0].id],
         );
       }
     }

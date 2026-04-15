@@ -754,7 +754,7 @@ CREATE VIEW public.accessible_club_memberships AS
     state_created_at,
     state_created_by_member_id
    FROM public.current_club_memberships cm
-  WHERE ((left_at IS NULL) AND ((role = 'clubadmin'::public.membership_role) OR ((is_comped = true) AND (status = 'active'::public.membership_state)) OR ((status = ANY (ARRAY['active'::public.membership_state, 'cancelled'::public.membership_state])) AND (EXISTS ( SELECT 1
+  WHERE ((left_at IS NULL) AND (((is_comped = true) AND (status = 'active'::public.membership_state)) OR ((status = ANY (ARRAY['active'::public.membership_state, 'cancelled'::public.membership_state])) AND (EXISTS ( SELECT 1
            FROM public.club_subscriptions s
           WHERE (((s.membership_id)::text = (cm.id)::text) AND (s.status = ANY (ARRAY['trialing'::public.subscription_status, 'active'::public.subscription_status, 'past_due'::public.subscription_status])) AND (COALESCE(s.ended_at, 'infinity'::timestamp with time zone) > now()) AND (COALESCE(s.current_period_end, 'infinity'::timestamp with time zone) > now()))))) OR ((status = 'renewal_pending'::public.membership_state) AND ((state_created_at + '7 days'::interval) > now()))));
 

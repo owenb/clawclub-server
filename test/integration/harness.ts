@@ -395,6 +395,14 @@ export class TestHarness {
     await this.withSuperTransaction(async (client) => {
       const existing = await this.readExistingCurrentMembership(client, clubId, ownerMemberId);
       if (existing) {
+        await client.query(
+          `update club_memberships
+           set is_comped = true,
+               comped_at = coalesce(comped_at, now()),
+               comped_by_member_id = null
+           where id = $1 and is_comped = false`,
+          [existing.id],
+        );
         return;
       }
 
@@ -405,9 +413,12 @@ export class TestHarness {
            role,
            status,
            joined_at,
-           metadata
+           metadata,
+           is_comped,
+           comped_at,
+           comped_by_member_id
          )
-         values ($1::short_id, $2::short_id, 'clubadmin', 'active', now(), '{}'::jsonb)
+         values ($1::short_id, $2::short_id, 'clubadmin', 'active', now(), '{}'::jsonb, true, now(), null)
          returning id`,
         [clubId, ownerMemberId],
       );

@@ -123,11 +123,20 @@ The residual `displayName` concerns (no max length, no null-byte sanitization) w
 
 ---
 
-### `[ ]` Clubadmins retain powers after subscription lapses
+### `[x]` Clubadmins retain powers after subscription lapses
 
-`db/init.sql:740-775`. The `accessible_club_memberships` view treats the `clubadmin` role as perpetually accessible with no status check — only `left_at IS NULL`. A clubadmin whose subscription lapsed keeps full admin authority indefinitely.
+`db/init.sql` — the `accessible_club_memberships` view treated the `clubadmin` role as perpetually accessible with no status check. A clubadmin whose subscription lapsed kept full admin authority indefinitely. Because the view is the auth root for every club-scoped action, the bug also leaked into DMs, profile reads, content reads, vouching, and match delivery — not just admin actions.
 
-**Fix direction**: add `status IN ('active', 'renewal_pending')` to the clubadmin clause, and/or extend the state-sync trigger to set `left_at` on `cancelled` for non-comped admins.
+**Fix shipped (Option A)**: auto-comp owners on club creation and ownership transfer, backfill existing owners, and remove the buggy clubadmin bypass from the view entirely. After the fix, clubadmins go through the same access rules as any other member: comped + active, OR has a live subscription, OR within the renewal grace window. Owners are always comped (platform grant, `comped_by_member_id = null`); non-owner clubadmins pay or are manually comped by the owner.
+
+**Bundled in the same PR**:
+- `createClub` and `assignClubOwner` now write `comped_by_member_id = null` (was self-referential `actorMemberId`, which was semantically wrong — owner auto-comp is a platform grant, not a human decision).
+- `assignClubOwner` previously did not auto-comp the new owner on ownership transfer. Now fixed.
+- Migration `013` backfills every existing owner membership to `is_comped = true, comped_by_member_id = null` while leaving rows that were already comped untouched (preserves any legacy non-null `comped_by_member_id` values).
+- Dev seeds and test harness updated to seed comped owners. Diana (the seeded non-owner clubadmin who was relying on the bypass) now has a live CatClub subscription so she remains valid post-fix.
+- 4 new integration tests in `test/integration/non-llm/clubadmin-access.test.ts` lock in: owner without subscription stays admin, ownership transfer auto-comps the new owner, promoted non-owner clubadmin loses access on subscription lapse, manually-comped non-owner clubadmin retains access on lapse.
+
+Verified live: created a fresh non-owner clubadmin, simulated a subscription lapse via direct SQL (the production-realistic shape — `superadmin.billing.expireMembership` would set `left_at` and trip the bug-independent filter), confirmed they get `403 forbidden` afterward and `session.getContext` no longer includes the club. Owner retains access throughout.
 
 ---
 

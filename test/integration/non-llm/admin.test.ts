@@ -1293,8 +1293,11 @@ describe('quotas.getUsage', () => {
 
   it('clubadmin gets 3x base quota', async () => {
     const ownerCtx = await h.seedOwner('quota-admin-3x', 'Quota Admin Club');
-    const admin = await h.seedMember('Club Admin');
-    await h.seedClubMembership(ownerCtx.club.id, admin.id, { role: 'clubadmin' });
+    const admin = await h.seedPaidMember(ownerCtx.club.id, 'Club Admin');
+    await h.apiOk(ownerCtx.token, 'clubowner.members.promoteToAdmin', {
+      clubId: ownerCtx.club.id,
+      memberId: admin.id,
+    });
 
     const result = await h.apiOk(admin.token, 'quotas.getUsage', {});
     const quotas = (result.data as Record<string, unknown>).quotas as Array<Record<string, unknown>>;
