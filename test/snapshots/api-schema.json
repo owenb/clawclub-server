@@ -10904,7 +10904,7 @@
       "input": {
         "properties": {
           "expiresAt": {
-            "description": "Optional ISO 8601 expiration timestamp; null means no expiry",
+            "description": "Optional ISO 8601 date or datetime (e.g. \"2025-12-31T23:59:59Z\"); null or omit for no expiry",
             "maxLength": 250000,
             "nullable": true,
             "type": "string"
@@ -10916,7 +10916,8 @@
             "type": "string"
           },
           "memberId": {
-            "description": "Existing active member to mint a token for",
+            "description": "Existing active member to mint a token for (short_id, max 64 characters)",
+            "maxLength": 64,
             "type": "string"
           },
           "reason": {
@@ -14222,6 +14223,6 @@
       }
     ]
   },
-  "version": "0.2.55",
-  "schemaHash": "c394b4953c513ea2"
+  "version": "0.2.57",
+  "schemaHash": "d722c09752cb23e0"
 }

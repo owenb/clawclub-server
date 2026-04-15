@@ -449,7 +449,7 @@ describe('full superadmin provisioning workflow', () => {
 // threat model.
 
 describe('superadmin.accessTokens.create', () => {
-  it('superadmin can mint a token for an existing member and the token authenticates as that member', async () => {
+  it('superadmin can mint a token for an existing member and the token authenticates as that member WITHOUT inheriting the minter\'s global roles', async () => {
     const admin = await h.seedSuperadmin('TokenMinter', 'token-minter');
     const target = await h.seedMember('Target Human', 'target-human');
 
@@ -470,9 +470,40 @@ describe('superadmin.accessTokens.create', () => {
     // The critical security assertion: use the minted token in a real HTTP call
     // and verify it authenticates as the target member, not the minter.
     const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
-    const actor = session.actor as { member: { id: string; publicName: string } };
+    const actor = session.actor as {
+      member: { id: string; publicName: string };
+      globalRoles: string[];
+    };
     assert.equal(actor.member.id, target.id, 'minted token must authenticate as the target member');
     assert.equal(actor.member.publicName, 'Target Human');
+
+    // The P0 finding from the second-agent review: the happy path must also
+    // lock down the negative case that the minted token does NOT inherit the
+    // minter's superadmin role. A future regression where the minted token
+    // authenticates as the target but accidentally carries the minter's
+    // global roles would be catastrophic, and without this assertion it
+    // would pass CI.
+    assert.deepEqual(actor.globalRoles, [], 'minted token must NOT inherit the minter\'s superadmin role');
+    assert.ok(!actor.globalRoles.includes('superadmin'), 'minted token must not have the superadmin global role');
+  });
+
+  it('sanity: the same assertion holds when the target is a regular member already in a club', async () => {
+    // Redundant with the happy path above, but using a member that already has
+    // a membership row verifies that inheriting "real" memberships doesn't
+    // leak global role inheritance. Locks the invariant from a second angle.
+    const admin = await h.seedSuperadmin('RoleIsolationAdmin', 'role-isolation-admin');
+    const owner = await h.seedOwner('role-isolation-club', 'RoleIsolationClub');
+    const target = await h.seedCompedMember(owner.club.id, 'Regular Member', 'regular-member-role');
+
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+    });
+    const data = result.data as { bearerToken: string };
+
+    const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
+    const actor = session.actor as { member: { id: string }; globalRoles: string[] };
+    assert.equal(actor.member.id, target.id);
+    assert.deepEqual(actor.globalRoles, [], 'target was not a superadmin, so the minted token must not carry the superadmin role');
   });
 
   it('minted token metadata records the acting superadmin, mintedAt, and mintedVia for audit', async () => {
@@ -657,5 +688,73 @@ describe('superadmin.accessTokens.create', () => {
     // And that new token must actually work
     const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
     assert.equal((session.actor as any).member.id, target.id);
+  });
+
+  // ── Input validation edges (second-agent review P3 findings) ──
+
+  it('malformed expiresAt returns 400 invalid_input (not a 500 from Postgres)', async () => {
+    const admin = await h.seedSuperadmin('ExpiresAtMinter', 'expires-at-minter');
+    const target = await h.seedMember('ExpiresAt Target', 'expires-at-target');
+
+    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+      expiresAt: 'not-an-iso-date',
+    });
+    assert.equal(err.status, 400, 'malformed ISO string must fail validation, not fall through to Postgres');
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /ISO 8601|expiresAt/i);
+  });
+
+  it('well-formed ISO expiresAt is accepted and stored on the token', async () => {
+    const admin = await h.seedSuperadmin('ValidExpiresAtMinter', 'valid-expires-at-minter');
+    const target = await h.seedMember('Valid ExpiresAt Target', 'valid-expires-at-target');
+
+    const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+      expiresAt: expiry,
+    });
+    const data = result.data as { token: { expiresAt: string | null }; bearerToken: string };
+    assert.ok(data.token.expiresAt, 'expiresAt must be persisted on the returned token summary');
+
+    // And the token should still authenticate right now (it hasn't expired yet)
+    const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
+    assert.equal((session.actor as any).member.id, target.id);
+  });
+
+  it('date-only expiresAt (ISO 8601 date form) is accepted', async () => {
+    const admin = await h.seedSuperadmin('DateOnlyMinter', 'date-only-minter');
+    const target = await h.seedMember('Date Only Target', 'date-only-target');
+
+    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+      expiresAt: '2099-12-31',
+    });
+    const data = result.data as { token: { expiresAt: string | null } };
+    assert.ok(data.token.expiresAt, 'date-only ISO 8601 must be accepted');
+  });
+
+  it('oversized memberId (>64 chars) returns invalid_input, not 404', async () => {
+    const admin = await h.seedSuperadmin('OversizeMinter', 'oversize-minter');
+
+    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+      memberId: 'x'.repeat(1024),
+    });
+    assert.equal(err.status, 400, 'oversized memberId must fail validation at the parse layer');
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /memberId|at most 64/i);
+  });
+
+  it('memberId at exactly 64 characters is accepted through validation (and returns 404 for unknown id)', async () => {
+    // A 64-char string is within the limit but won't correspond to a real member,
+    // so we expect the handler to reach the existence check and return 404. This
+    // proves the 64-char boundary is inclusive at the parse layer.
+    const admin = await h.seedSuperadmin('BoundaryMinter', 'boundary-minter');
+
+    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+      memberId: 'a'.repeat(64),
+    });
+    assert.equal(err.status, 404, '64-char memberId must pass validation and reach the existence check');
+    assert.equal(err.code, 'not_found');
   });
 });

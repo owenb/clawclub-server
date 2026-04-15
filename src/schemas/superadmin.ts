@@ -775,19 +775,28 @@ const superadminTokensCreate: ActionDefinition = {
 
   wire: {
     input: z.object({
-      memberId: wireRequiredString.describe('Existing active member to mint a token for'),
+      memberId: z.string().max(64).describe('Existing active member to mint a token for (short_id, max 64 characters)'),
       label: wireOptionalString.describe('Human-readable label for the new token (default: "admin-minted")'),
-      expiresAt: wireOptionalString.describe('Optional ISO 8601 expiration timestamp; null means no expiry'),
+      expiresAt: wireOptionalString.describe('Optional ISO 8601 date or datetime (e.g. "2025-12-31T23:59:59Z"); null or omit for no expiry'),
       reason: wireOptionalString.describe('Optional free-text reason recorded in the token metadata for audit'),
     }),
     output: createdBearerToken,
   },
 
   parse: {
+    // Validate at the parse layer so malformed input fails with 400 invalid_input
+    // rather than falling through to Postgres and returning 500. Both edges were
+    // caught by the second-agent security review.
     input: z.object({
-      memberId: parseRequiredString,
+      memberId: parseRequiredString.pipe(z.string().max(64, 'memberId must be at most 64 characters')),
       label: parseTrimmedNullableString.default(null),
-      expiresAt: parseTrimmedNullableString.default(null),
+      expiresAt: parseTrimmedNullableString.default(null).refine(
+        v => v === null || (
+          /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(v) &&
+          !Number.isNaN(Date.parse(v))
+        ),
+        'expiresAt must be a valid ISO 8601 date or datetime (e.g. "2025-12-31T23:59:59Z") or null',
+      ),
       reason: parseTrimmedNullableString.default(null),
     }),
   },
