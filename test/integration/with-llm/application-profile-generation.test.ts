@@ -198,6 +198,8 @@ describe('application profile generation (LLM)', () => {
     assert.ok(!flattened.includes('alicia.private@example.com'), 'private email must not leak into generated profile');
     assert.equal(websiteUrl, 'https://dogtrainer.example.com');
 
+    await h.apiOk(memberToken, 'clubs.onboard', {});
+
     const listBody = await h.apiOk(memberToken, 'profile.list', {});
     const envelope = listBody.data as Record<string, unknown>;
     const profiles = envelope.profiles as Array<Record<string, unknown>>;

@@ -968,6 +968,7 @@ CREATE TABLE public.clubs (
     summary text,
     owner_member_id public.short_id NOT NULL,
     admission_policy text,
+    welcome_template jsonb,
     membership_price_amount numeric(12,2),
     membership_price_currency text DEFAULT 'USD'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -1599,6 +1600,7 @@ CREATE TABLE public.members (
     display_name text NOT NULL,
     state public.member_state DEFAULT 'active'::public.member_state NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    onboarded_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT members_display_name_check CHECK ((length(btrim(display_name)) > 0)),
     CONSTRAINT members_public_name_check CHECK ((length(btrim(public_name)) > 0))

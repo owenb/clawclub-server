@@ -524,7 +524,10 @@ export function createServer(options: {
         response.socket?.setTimeout(0);
 
         writeSseEvent(response, 'ready', {
-          member: auth.actor.member,
+          member: {
+            id: auth.actor.member.id,
+            publicName: auth.actor.member.publicName,
+          },
           requestScope: auth.requestScope,
           notifications: notificationSeed.items,
           notificationsTruncated: notificationSeed.nextAfter !== null,

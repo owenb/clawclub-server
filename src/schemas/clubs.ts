@@ -18,6 +18,7 @@ import {
 import {
   applicationSummary,
   clubJoinResult,
+  clubsOnboardResult,
   clubsApplicationsSubmitResult,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type ActionResult, type HandlerContext, type OptionalHandlerContext } from './registry.ts';
@@ -79,6 +80,33 @@ const clubsJoin: ActionDefinition = {
       invitationCode,
     });
     return { data: join };
+  },
+};
+
+const clubsOnboard: ActionDefinition = {
+  action: 'clubs.onboard',
+  domain: 'clubs',
+  description: 'Complete the first-member onboarding ceremony after admission.',
+  auth: 'member',
+  safety: 'mutating',
+  requiredCapability: 'onboardMember',
+  notes: [
+    'This is idempotent. Already-onboarded members receive { alreadyOnboarded: true }.',
+    'Authenticated-but-unonboarded members may call only session.getContext and clubs.onboard until this succeeds.',
+  ],
+  wire: {
+    input: z.object({}),
+    output: clubsOnboardResult,
+  },
+  parse: {
+    input: z.object({}),
+  },
+  async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    ctx.requireCapability('onboardMember');
+    const result = await ctx.repository.onboardMember!({
+      actorMemberId: ctx.actor.member.id,
+    });
+    return { data: result };
   },
 };
 
@@ -261,6 +289,7 @@ const clubsBillingStartCheckout: ActionDefinition = {
 
 registerActions([
   clubsJoin,
+  clubsOnboard,
   clubsApplicationsSubmit,
   clubsApplicationsGet,
   clubsApplicationsList,

@@ -141,11 +141,27 @@ async function createToken(pool: Pool, flags: Flags) {
     ? new Date(Date.now() + parseDurationMs(flags.expiresIn)).toISOString()
     : null;
 
-  await pool.query(
-    `insert into member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
-     values ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)`,
-    [token.tokenId, memberId, flags.label ?? 'default', token.tokenHash, expiresAt, JSON.stringify(flags.metadata ?? {})],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `update members
+       set onboarded_at = coalesce(onboarded_at, now())
+       where id = $1`,
+      [memberId],
+    );
+    await client.query(
+      `insert into member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
+       values ($1, $2, $3, $4, $5::timestamptz, $6::jsonb)`,
+      [token.tokenId, memberId, flags.label ?? 'default', token.tokenHash, expiresAt, JSON.stringify(flags.metadata ?? {})],
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 
   console.log(
     JSON.stringify(

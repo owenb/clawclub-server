@@ -150,9 +150,34 @@ export type SubmitClubApplicationResult =
       feedback: string;
       attemptsRemaining: number;
     }
-  | {
+    | {
       status: 'attempts_exhausted';
       message: string;
+    };
+
+export type OnboardingWelcome = {
+  greeting: string;
+  preamble: string;
+  capabilities: string[];
+  closing: string;
+};
+
+export type ClubsOnboardResult =
+  | { alreadyOnboarded: true }
+  | { alreadyOnboarded: false; orphaned: true }
+  | {
+      alreadyOnboarded: false;
+      member: {
+        id: string;
+        displayName: string;
+      };
+      club: {
+        id: string;
+        slug: string;
+        name: string;
+        summary: string | null;
+      };
+      welcome: OnboardingWelcome;
     };
 
 export type ApplicationSummary = {
@@ -323,6 +348,7 @@ export type UpdateClubInput = {
 export type MemberActor = {
   id: string;
   publicName: string;
+  onboardedAt: string | null;
 };
 
 export type ActorContext = {
@@ -332,10 +358,7 @@ export type ActorContext = {
 };
 
 export type MaybeMemberActorContext = {
-  member: {
-    id: string;
-    publicName: string;
-  } | null;
+  member: MemberActor | null;
   memberships: MembershipSummary[];
   globalRoles: Array<'superadmin'>;
 };
@@ -916,6 +939,7 @@ export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
   validateBearerTokenPassive?(bearerToken: string): Promise<AuthResult | null>;
   joinClub?(input: JoinClubInput): Promise<JoinClubResult>;
+  onboardMember?(input: { actorMemberId: string }): Promise<ClubsOnboardResult>;
   submitClubApplication?(input: SubmitClubApplicationInput): Promise<SubmitClubApplicationResult>;
   getClubApplication?(input: {
     actorMemberId: string;

@@ -160,6 +160,37 @@ export const clubsApplicationsSubmitResult = z.discriminatedUnion('status', [
   }),
 ]);
 
+export const onboardingWelcome = z.object({
+  greeting: z.string(),
+  preamble: z.string(),
+  capabilities: z.array(z.string()),
+  closing: z.string(),
+});
+
+export const clubsOnboardResult = z.union([
+  z.object({
+    alreadyOnboarded: z.literal(true),
+  }),
+  z.object({
+    alreadyOnboarded: z.literal(false),
+    orphaned: z.literal(true),
+  }),
+  z.object({
+    alreadyOnboarded: z.literal(false),
+    member: z.object({
+      id: z.string(),
+      displayName: z.string(),
+    }),
+    club: z.object({
+      id: z.string(),
+      slug: z.string(),
+      name: z.string(),
+      summary: z.string().nullable(),
+    }),
+    welcome: onboardingWelcome,
+  }),
+]);
+
 export const invitationSummary = z.object({
   invitationId: z.string(),
   clubId: z.string(),

@@ -12,6 +12,7 @@ type SessionDescribeResponse = {
       id: string;
       publicName: string;
     };
+    onboardingPending: boolean;
     activeMemberships: Array<{
       clubId: string;
     }>;
@@ -90,13 +91,31 @@ async function resolveMemberId(pool: Pool, publicName: string): Promise<string> 
 async function mintBearerToken(pool: Pool, memberId: string, label: string): Promise<{ tokenId: string; bearerToken: string }> {
   const token = buildBearerToken();
 
-  await pool.query(
-    `
-      insert into member_bearer_tokens (id, member_id, label, token_hash, metadata)
-      values ($1, $2, $3, $4, '{}'::jsonb)
-    `,
-    [token.tokenId, memberId, label, token.tokenHash],
-  );
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `
+        update members
+        set onboarded_at = coalesce(onboarded_at, now())
+        where id = $1
+      `,
+      [memberId],
+    );
+    await client.query(
+      `
+        insert into member_bearer_tokens (id, member_id, label, token_hash, metadata)
+        values ($1, $2, $3, $4, '{}'::jsonb)
+      `,
+      [token.tokenId, memberId, label, token.tokenHash],
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 
   return {
     tokenId: token.tokenId,

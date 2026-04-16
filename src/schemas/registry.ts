@@ -34,6 +34,7 @@ export type ActionSafety = 'read_only' | 'mutating';
 
 export type RepositoryCapability =
   | 'joinClub'
+  | 'onboardMember'
   | 'submitClubApplication'
   | 'getClubApplication'
   | 'listClubApplications'

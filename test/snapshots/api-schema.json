@@ -3757,6 +3757,149 @@
       "safety": "mutating"
     },
     {
+      "action": "clubs.onboard",
+      "auth": "member",
+      "description": "Complete the first-member onboarding ceremony after admission.",
+      "domain": "clubs",
+      "input": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "notes": [
+        "This is idempotent. Already-onboarded members receive { alreadyOnboarded: true }.",
+        "Authenticated-but-unonboarded members may call only session.getContext and clubs.onboard until this succeeds."
+      ],
+      "output": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "alreadyOnboarded": {
+                "enum": [
+                  true
+                ],
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "alreadyOnboarded"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "alreadyOnboarded": {
+                "enum": [
+                  false
+                ],
+                "type": "boolean"
+              },
+              "orphaned": {
+                "enum": [
+                  true
+                ],
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "alreadyOnboarded",
+              "orphaned"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "alreadyOnboarded": {
+                "enum": [
+                  false
+                ],
+                "type": "boolean"
+              },
+              "club": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "slug": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "slug",
+                  "name",
+                  "summary"
+                ],
+                "type": "object"
+              },
+              "member": {
+                "additionalProperties": false,
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "displayName"
+                ],
+                "type": "object"
+              },
+              "welcome": {
+                "additionalProperties": false,
+                "properties": {
+                  "capabilities": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "closing": {
+                    "type": "string"
+                  },
+                  "greeting": {
+                    "type": "string"
+                  },
+                  "preamble": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "greeting",
+                  "preamble",
+                  "capabilities",
+                  "closing"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "alreadyOnboarded",
+              "member",
+              "club",
+              "welcome"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "safety": "mutating"
+    },
+    {
       "action": "content.closeLoop",
       "auth": "member",
       "authorizationNote": "Only the original author may close their own published loopable content.",
@@ -14583,6 +14726,9 @@
                 ],
                 "type": "object"
               },
+              "onboardingPending": {
+                "type": "boolean"
+              },
               "requestScope": {
                 "properties": {
                   "activeClubIds": {
@@ -14681,6 +14827,7 @@
             },
             "required": [
               "member",
+              "onboardingPending",
               "globalRoles",
               "activeMemberships",
               "requestScope",
@@ -15281,6 +15428,6 @@
       }
     ]
   },
-  "version": "0.2.79",
-  "schemaHash": "e4f8f345b9669cba"
+  "version": "0.2.83",
+  "schemaHash": "fc8405d282bcaf96"
 }

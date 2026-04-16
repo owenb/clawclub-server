@@ -268,14 +268,6 @@ describe('clubs.join proof-of-work challenge behavior', () => {
 
   it('refreshes an exhausted cold challenge and allows the same membership to submit successfully', async () => {
     const owner = await h.seedOwner('pow-exhausted-club', 'PoW Exhausted Club');
-    enqueueGateResponses(
-      'Missing city.',
-      'Missing city.',
-      'Missing city.',
-      'Missing city.',
-      'Missing city.',
-      'PASS',
-    );
 
     const joinBody = await h.apiOk(null, 'clubs.join', {
       clubSlug: owner.club.slug,
@@ -286,8 +278,10 @@ describe('clubs.join proof-of-work challenge behavior', () => {
     const memberToken = joinData.memberToken as string;
     const membershipId = joinData.membershipId as string;
     const nonce = findNonce(initialProof.challengeId as string, initialProof.difficulty as number);
+    const maxAttempts = initialProof.maxAttempts as number;
+    enqueueGateResponses(...new Array(maxAttempts).fill('Missing city.'), 'PASS');
 
-    for (let attempt = 1; attempt < 5; attempt++) {
+    for (let attempt = 1; attempt < maxAttempts; attempt++) {
       const result = await h.apiOk(memberToken, 'clubs.applications.submit', {
         membershipId,
         nonce,
@@ -297,7 +291,7 @@ describe('clubs.join proof-of-work challenge behavior', () => {
       });
       const data = result.data as Record<string, unknown>;
       assert.equal(data.status, 'needs_revision');
-      assert.equal(data.attemptsRemaining, 5 - attempt);
+      assert.equal(data.attemptsRemaining, maxAttempts - attempt);
     }
 
     const exhausted = await h.apiOk(memberToken, 'clubs.applications.submit', {
@@ -311,7 +305,7 @@ describe('clubs.join proof-of-work challenge behavior', () => {
     assert.equal(exhaustedData.status, 'attempts_exhausted');
 
     const exhaustedChallenge = await readLatestChallenge(membershipId);
-    assert.equal(exhaustedChallenge?.attempts, 5);
+    assert.equal(exhaustedChallenge?.attempts, maxAttempts);
     assert.notEqual(exhaustedChallenge?.solvedAt, null);
 
     const refreshed = await h.apiOk(memberToken, 'clubs.join', {

@@ -23,6 +23,7 @@ import {
 import { withTransaction } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
+import { applyActivationFanout as applyMembershipActivationFanout } from './identity/memberships.ts';
 import { createClubsRepository, batchListVouches, createVouch as createClubVouch, type ClubsRepository } from './clubs/index.ts';
 import { buildVouchReceivedMessage } from './clubs/welcome.ts';
 import * as unifiedClubs from './clubs/unified.ts';
@@ -824,6 +825,7 @@ export function createRepository(pool: Pool): Repository {
 
     // ── Unified club join ─────────────────────────────────
     joinClub: (input) => unifiedClubs.joinClub(pool, input),
+    onboardMember: (input) => unifiedClubs.onboardMember(pool, input),
     submitClubApplication: (input) => unifiedClubs.submitClubApplication(pool, input),
     getClubApplication: (input) => unifiedClubs.getClubApplication(pool, input.actorMemberId, input.membershipId),
     listClubApplications: (input) => unifiedClubs.listClubApplications(pool, input),
@@ -1578,10 +1580,11 @@ export function createRepository(pool: Pool): Repository {
       await withTransaction(pool, async (client) => {
         const row = await client.query<{
           membership_id: string; member_id: string; club_id: string;
-          status: string; state_version_no: number; state_version_id: string;
+          status: string; state_version_no: number; state_version_id: string; joined_at: string | null;
         }>(
           `select cnm.id as membership_id, cnm.member_id, cnm.club_id,
-                  cnm.status::text as status, cnm.state_version_no, cnm.state_version_id
+                  cnm.status::text as status, cnm.state_version_no, cnm.state_version_id,
+                  cnm.joined_at::text as joined_at
            from current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
@@ -1641,6 +1644,10 @@ export function createRepository(pool: Pool): Repository {
           [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
         );
 
+        await applyMembershipActivationFanout(client, membershipId, {
+          wasFirstActivation: m.joined_at === null,
+        });
+
         // Create subscription row
         const priceRow = await client.query<{ approved_price_amount: string | null }>(
           `select approved_price_amount::text from club_memberships where id = $1`,
@@ -1659,10 +1666,11 @@ export function createRepository(pool: Pool): Repository {
     async billingRenewMembership({ membershipId, newPaidThrough }) {
       await withTransaction(pool, async (client) => {
         const row = await client.query<{
-          membership_id: string; status: string; state_version_no: number; state_version_id: string;
+          membership_id: string; status: string; state_version_no: number; state_version_id: string; joined_at: string | null;
         }>(
           `select cnm.id as membership_id, cnm.status::text as status,
-                  cnm.state_version_no, cnm.state_version_id
+                  cnm.state_version_no, cnm.state_version_id,
+                  cnm.joined_at::text as joined_at
            from current_club_memberships cnm
            where cnm.id = $1 limit 1`,
           [membershipId],
@@ -1682,6 +1690,10 @@ export function createRepository(pool: Pool): Repository {
              values ($1, 'active', 'Billing renewal', $2, $3, null)`,
             [membershipId, Number(m.state_version_no) + 1, m.state_version_id],
           );
+
+          await applyMembershipActivationFanout(client, membershipId, {
+            wasFirstActivation: m.joined_at === null,
+          });
         }
 
         // Update subscription current_period_end forward only, and ensure status is active

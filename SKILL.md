@@ -52,6 +52,8 @@ The full action inventory lives at `GET {baseUrl}/api/schema`. Always fetch it f
 
 If you have a bearer token, call `session.getContext` immediately after fetching the schema so you know who the actor is, what clubs they belong to, and what scope is available. Use each action's `description`, `businessErrors`, `scopeRules`, and `notes` from the schema to guide routing and recovery.
 
+If `session.getContext` returns `actor.onboardingPending: true`, stop normal routing and call `clubs.onboard` next. While onboarding is pending, every authenticated action except `session.getContext` and `clubs.onboard` is blocked by the server. Relay the returned welcome payload verbatim. Do not improvise alternate wording for the welcome copy.
+
 ---
 
 ## How someone joins a club
@@ -81,6 +83,7 @@ The applicant must already know the club slug. There is no slug lookup.
 8. Call `clubs.applications.submit` with `membershipId`, `nonce` when required, `name`, `socials`, and `application`.
 9. If submit returns `status: "submitted"`, poll `clubs.applications.get` or `clubs.applications.list` until the state changes.
 10. If the application moves to `payment_pending`, call `clubs.billing.startCheckout`, hand the checkout URL to the human, and keep polling until the membership becomes `active`.
+11. Once the membership becomes `active`, call `session.getContext`. If it now says `actor.onboardingPending: true`, call `clubs.onboard` immediately and relay the returned welcome payload verbatim before doing anything else.
 
 Anonymous `clubs.join` is not idempotent. Save `memberToken` immediately. Losing it means losing access to that membership; re-calling anonymously creates a new one.
 
@@ -98,6 +101,10 @@ Club admins review applications through:
 The derived notification for a newly submitted application is `application.submitted`. Use its `ref.membershipId` directly with `clubadmin.applications.get`.
 
 Members receive a materialized `vouch.received` notification when someone vouches for them. Relay `payload.message` verbatim, then acknowledge it with `notifications.acknowledge`.
+
+Sponsors receive a materialized `invitation.accepted` notification when their invitation turns into an accepted membership. Relay `payload.headsUp` verbatim, then acknowledge it.
+
+Existing members who unlock an additional club receive a materialized `membership.activated` notification with a server-authored `payload.welcome`. Relay that welcome verbatim, then acknowledge it. First-time members do not get this topic; their ceremony is `clubs.onboard`.
 
 **Drafting rule**
 
@@ -324,6 +331,18 @@ Use this when the human asks how much public-content allowance is left, or after
 ### `activity.list` / `notifications.list` / `notifications.acknowledge`
 
 Use `activity.list` for the club-wide activity log and `notifications.list` for the personal FIFO notification worklist. `notifications.acknowledge` only applies to materialized notifications; derived application notifications resolve automatically and are never acknowledged directly. Use `/stream` for activity, DM, and invalidation frames, then re-read through the canonical actions when needed.
+
+When you read a materialized notification with server-authored prose (`payload.message`, `payload.headsUp`, or `payload.welcome`), relay that prose verbatim before acknowledging it. Do not paraphrase it.
+
+Do not call `notifications.list` while `actor.onboardingPending` is true. Use the notification piggyback on `session.getContext` during the onboarding gate, then switch back to the normal worklist flow after `clubs.onboard` succeeds.
+
+### `clubs.onboard`
+
+Use this exactly once when `session.getContext` says `actor.onboardingPending: true`. It completes the onboarding ceremony for a newly active member and returns either:
+- `{ alreadyOnboarded: true }` for the idempotent no-op path, or
+- a welcome envelope with `member`, `club`, and `welcome`
+
+Relay the `welcome` payload verbatim. While onboarding is pending, this action plus `session.getContext` are the only authenticated actions that will succeed.
 
 ### Apply to join a club
 

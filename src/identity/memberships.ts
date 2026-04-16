@@ -20,6 +20,7 @@ import {
 } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { encodeCursor } from '../schemas/fields.ts';
+import { buildSecondClubWelcome, buildSponsorHeadsUp } from '../clubs/welcome.ts';
 import { createInitialClubProfileVersion, emptyClubProfileFields, normalizeClubProfileFields } from './profiles.ts';
 
 type MembershipAdminRow = {
@@ -112,6 +113,23 @@ type AdminApplicationRow = {
   invitation_reason: string | null;
   sponsor_active_sponsored_count: number;
   sponsor_sponsored_this_month_count: number;
+};
+
+type ActivationFanoutRow = {
+  membership_id: string;
+  club_id: string;
+  club_slug: string;
+  club_name: string;
+  club_summary: string | null;
+  member_id: string;
+  member_public_name: string;
+  member_display_name: string;
+  member_onboarded_at: string | null;
+  sponsor_member_id: string | null;
+  sponsor_public_name: string | null;
+  invitation_id: string | null;
+  invitation_sponsor_member_id: string | null;
+  joined_at: string | null;
 };
 
 const ADMIN_VALID_TRANSITIONS: Record<MembershipState, readonly MembershipState[]> = {
@@ -422,6 +440,101 @@ async function ensureProfileVersionForActiveMembership(client: DbClient, input: 
     createdByMemberId: input.createdByMemberId,
     generationSource: draft ? 'application_generated' : 'membership_seed',
   });
+}
+
+async function readActivationFanoutRow(client: DbClient, membershipId: string): Promise<ActivationFanoutRow | null> {
+  const result = await client.query<ActivationFanoutRow>(
+    `select
+        cm.id as membership_id,
+        cm.club_id,
+        c.slug as club_slug,
+        c.name as club_name,
+        c.summary as club_summary,
+        cm.member_id,
+        m.public_name as member_public_name,
+        m.display_name as member_display_name,
+        m.onboarded_at::text as member_onboarded_at,
+        cm.sponsor_member_id,
+        sponsor.public_name as sponsor_public_name,
+        cm.invitation_id,
+        i.sponsor_member_id as invitation_sponsor_member_id,
+        cm.joined_at::text as joined_at
+     from current_club_memberships cm
+     join clubs c on c.id = cm.club_id
+     join members m on m.id = cm.member_id
+     left join members sponsor on sponsor.id = cm.sponsor_member_id
+     left join invitations i on i.id = cm.invitation_id
+     where cm.id = $1
+     limit 1`,
+    [membershipId],
+  );
+  return result.rows[0] ?? null;
+}
+
+async function insertInvitationAcceptedNotification(client: DbClient, row: ActivationFanoutRow): Promise<void> {
+  if (!row.invitation_id || !row.invitation_sponsor_member_id) {
+    return;
+  }
+  await client.query(
+    `insert into member_notifications (club_id, recipient_member_id, topic, payload)
+     values ($1, $2, 'invitation.accepted', $3::jsonb)`,
+    [
+      row.club_id,
+      row.invitation_sponsor_member_id,
+      JSON.stringify({
+        newMemberId: row.member_id,
+        newMemberPublicName: row.member_public_name,
+        invitationId: row.invitation_id,
+        clubName: row.club_name,
+        headsUp: buildSponsorHeadsUp({
+          newMemberPublicName: row.member_public_name,
+          clubName: row.club_name,
+        }),
+      }),
+    ],
+  );
+}
+
+async function insertMembershipActivatedNotification(client: DbClient, row: ActivationFanoutRow): Promise<void> {
+  if (row.member_onboarded_at === null) {
+    return;
+  }
+  await client.query(
+    `insert into member_notifications (club_id, recipient_member_id, topic, payload)
+     values ($1, $2, 'membership.activated', $3::jsonb)`,
+    [
+      row.club_id,
+      row.member_id,
+      JSON.stringify({
+        clubId: row.club_id,
+        clubName: row.club_name,
+        summary: row.club_summary,
+        ...(row.sponsor_member_id ? { sponsorMemberId: row.sponsor_member_id } : {}),
+        ...(row.sponsor_public_name ? { sponsorPublicName: row.sponsor_public_name } : {}),
+        welcome: buildSecondClubWelcome({
+          clubName: row.club_name,
+          memberName: row.member_display_name,
+          sponsorPublicName: row.sponsor_public_name,
+        }),
+      }),
+    ],
+  );
+}
+
+async function applyActivationFanout(client: DbClient, membershipId: string, options: {
+  wasFirstActivation: boolean;
+}): Promise<void> {
+  if (!options.wasFirstActivation) {
+    return;
+  }
+
+  const row = await readActivationFanoutRow(client, membershipId);
+  if (!row) {
+    return;
+  }
+
+  await insertInvitationAcceptedNotification(client, row);
+  await insertMembershipActivatedNotification(client, row);
 }
 
 // ── Exported functions ────────────────────────────────────────
@@ -900,11 +1013,12 @@ export async function transitionMembershipState(pool: Pool, input: TransitionMem
   return withTransaction(pool, async (client) => {
     const membershipResult = await client.query<{
       membership_id: string; club_id: string; member_id: string;
-      current_status: MembershipState; current_version_no: number; current_state_version_id: string;
+      current_status: MembershipState; current_version_no: number; current_state_version_id: string; current_joined_at: string | null;
     }>(
       `select cnm.id as membership_id, cnm.club_id, cnm.member_id,
               cnm.status as current_status, cnm.state_version_no as current_version_no,
-              cnm.state_version_id as current_state_version_id
+              cnm.state_version_id as current_state_version_id,
+              cnm.joined_at::text as current_joined_at
        from current_club_memberships cnm
        where cnm.id = $1 and cnm.club_id = any($2::short_id[])
        limit 1`,
@@ -931,6 +1045,9 @@ export async function transitionMembershipState(pool: Pool, input: TransitionMem
     );
 
     if (input.nextStatus === 'active') {
+      await applyActivationFanout(client, membership.membership_id, {
+        wasFirstActivation: membership.current_joined_at === null,
+      });
       await ensureProfileVersionForActiveMembership(client, {
         membershipId: membership.membership_id,
         memberId: membership.member_id,
@@ -1010,6 +1127,7 @@ export async function demoteMemberFromAdmin(pool: Pool, input: {
 
 export { setComped };
 export { hasLiveAccess };
+export { applyActivationFanout };
 
 /**
  * Create a member record directly (superadmin bypass, no application flow).
@@ -1024,8 +1142,8 @@ export async function createMemberDirect(pool: Pool, input: {
 
   return withTransaction(pool, async (client) => {
     const memberResult = await client.query<{ id: string }>(
-      `insert into members (public_name, display_name, state)
-       values ($1, $2, 'active')
+      `insert into members (public_name, display_name, state, onboarded_at)
+       values ($1, $2, 'active', now())
        returning id`,
       [input.publicName, input.publicName],
     );

@@ -45,6 +45,8 @@ import { checkLlmGate as defaultCheckLlmGate, type GateVerdict, type GatedArtifa
 import { NOTIFICATIONS_PAGE_SIZE } from './notifications-core.ts';
 import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
 
+const PRE_ONBOARDING_ALLOWED_ACTIONS = new Set(['session.getContext', 'clubs.onboard']);
+
 export type LlmGateFn = (artifact: GatedArtifact) => Promise<GateVerdict>;
 
 // ── Import all schema modules to trigger registration ────
@@ -119,6 +121,26 @@ function createResolveScopedClubs(actor: ActorContext) {
     }
     return actor.memberships;
   };
+}
+
+function isOnboardingPending(actor: Pick<ActorContext, 'member' | 'memberships'> | Pick<MaybeMemberActorContext, 'member' | 'memberships'>): boolean {
+  return actor.member !== null
+    && actor.member.onboardedAt === null
+    && actor.memberships.length > 0;
+}
+
+function assertOnboardingAllowed(actionName: string, actor: Pick<ActorContext, 'member' | 'memberships'> | Pick<MaybeMemberActorContext, 'member' | 'memberships'>): void {
+  if (!isOnboardingPending(actor)) {
+    return;
+  }
+  if (PRE_ONBOARDING_ALLOWED_ACTIONS.has(actionName)) {
+    return;
+  }
+  throw new AppError(
+    403,
+    'onboarding_required',
+    'You are authenticated but haven\'t completed onboarding yet. Call clubs.onboard to receive your welcome and activate your membership. No other action will succeed until this is done.',
+  );
 }
 
 // ── Capability check ─────────────────────────────────────
@@ -251,7 +273,7 @@ function assembleAuthenticatedResponse(
   const finalNotices = notices.concat(result.notices ?? []);
 
   // Apply nextMember if handler provided it (profile.update)
-  const member = result.nextMember ?? actor.member;
+  const member = result.nextMember ?? { id: actor.member.id, publicName: actor.member.publicName };
 
   // Apply acknowledgedNotificationIds if handler provided them.
   let finalSharedContext = sharedContext;
@@ -267,6 +289,7 @@ function assembleAuthenticatedResponse(
     action,
     actor: {
       member,
+      onboardingPending: isOnboardingPending(actor),
       globalRoles: actor.globalRoles,
       activeMemberships: actor.memberships,
       requestScope: result.requestScope ?? defaultRequestScope,
@@ -395,6 +418,8 @@ async function dispatchOptionalMember(
     };
   }
 
+  assertOnboardingAllowed(actionName, actor);
+
   if (def.requiredCapability) {
     checkCapability(repository, def.requiredCapability, actionName);
   }
@@ -466,16 +491,13 @@ async function dispatchAuthenticated(
     throw new AppError(401, 'unauthorized', 'Unknown bearer token');
   }
 
-  const actor = auth.actor;
+  let actor = auth.actor;
+  assertOnboardingAllowed(actionName, actor);
   const sharedContext = auth.sharedContext ?? { notifications: [], notificationsTruncated: false };
-  const defaultRequestScope: RequestScope = {
+  let defaultRequestScope: RequestScope = {
     requestedClubId: auth.requestScope.requestedClubId,
     activeClubIds: auth.requestScope.activeClubIds,
   };
-  const accessibleClubIds = actor.memberships.map((membership) => membership.clubId);
-  const adminClubIds = actor.memberships
-    .filter((membership) => membership.role === 'clubadmin')
-    .map((membership) => membership.clubId);
   let notificationsMemo: Promise<{ items: import('./contract.ts').NotificationItem[]; nextAfter: string | null }> | null = null;
 
   // Parse
@@ -524,6 +546,10 @@ async function dispatchAuthenticated(
         return Promise.resolve({ items: [], nextAfter: null });
       }
       if (!notificationsMemo) {
+        const accessibleClubIds = actor.memberships.map((membership) => membership.clubId);
+        const adminClubIds = actor.memberships
+          .filter((membership) => membership.role === 'clubadmin')
+          .map((membership) => membership.clubId);
         notificationsMemo = repository.listNotifications({
           actorMemberId: actor.member.id,
           accessibleClubIds,
@@ -538,6 +564,20 @@ async function dispatchAuthenticated(
   };
 
   const result = await def.handle(parsedInput, ctx);
+
+  if (actionName === 'clubs.onboard') {
+    const refreshed = repository.validateBearerTokenPassive
+      ? await repository.validateBearerTokenPassive(bearerToken)
+      : await repository.authenticateBearerToken(bearerToken);
+    if (refreshed) {
+      actor = refreshed.actor;
+      defaultRequestScope = {
+        requestedClubId: refreshed.requestScope.requestedClubId,
+        activeClubIds: refreshed.requestScope.activeClubIds,
+      };
+      notificationsMemo = null;
+    }
+  }
 
   let nextSharedContext: SharedResponseContext;
   try {

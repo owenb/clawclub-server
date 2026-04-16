@@ -5,7 +5,7 @@
 import type { Pool } from 'pg';
 import { AppError, type BearerTokenSummary, type CreateBearerTokenInput, type CreatedBearerToken, type RevokeBearerTokenInput } from '../contract.ts';
 import { buildBearerToken } from '../token.ts';
-import { withTransaction } from '../db.ts';
+import { withTransaction, type DbClient } from '../db.ts';
 
 const MAX_ACTIVE_TOKENS = 10;
 
@@ -54,6 +54,39 @@ export async function listBearerTokens(pool: Pool, actorMemberId: string): Promi
   return result.rows.map(mapRow);
 }
 
+async function markMemberOnboarded(client: DbClient, memberId: string): Promise<void> {
+  await client.query(
+    `update members
+     set onboarded_at = coalesce(onboarded_at, now())
+     where id = $1`,
+    [memberId],
+  );
+}
+
+async function maybeMarkMemberOnboardedForSelfServiceRotation(client: DbClient, memberId: string): Promise<void> {
+  const result = await client.query<{ onboarded_at: string | null; has_access: boolean }>(
+    `select
+        m.onboarded_at::text as onboarded_at,
+        exists(
+          select 1
+          from accessible_club_memberships acm
+          where acm.member_id = m.id
+        ) as has_access
+     from members m
+     where m.id = $1
+     limit 1`,
+    [memberId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return;
+  }
+  if (row.onboarded_at === null && !row.has_access) {
+    return;
+  }
+  await markMemberOnboarded(client, memberId);
+}
+
 export async function createBearerToken(pool: Pool, input: CreateBearerTokenInput): Promise<CreatedBearerToken> {
   const token = buildBearerToken();
   return withTransaction(pool, async (client) => {
@@ -64,6 +97,8 @@ export async function createBearerToken(pool: Pool, input: CreateBearerTokenInpu
     if (Number(countResult.rows[0]?.count ?? 0) >= MAX_ACTIVE_TOKENS) {
       throw new AppError(429, 'quota_exceeded', `Maximum ${MAX_ACTIVE_TOKENS} active tokens per member. Revoke unused tokens before creating new ones.`);
     }
+
+    await maybeMarkMemberOnboardedForSelfServiceRotation(client, input.actorMemberId);
 
     const result = await client.query<BearerTokenRow>(
       `insert into member_bearer_tokens (id, member_id, label, token_hash, expires_at, metadata)
@@ -101,12 +136,15 @@ export async function issueTokenForMember(
   metadata: Record<string, unknown>,
 ): Promise<{ bearerToken: string }> {
   const token = buildBearerToken();
-  await pool.query(
-    `insert into member_bearer_tokens (id, member_id, label, token_hash, metadata)
-     values ($1, $2, $3, $4, $5::jsonb)`,
-    [token.tokenId, memberId, label, token.tokenHash, JSON.stringify(metadata)],
-  );
-  return { bearerToken: token.bearerToken };
+  return withTransaction(pool, async (client) => {
+    await markMemberOnboarded(client, memberId);
+    await client.query(
+      `insert into member_bearer_tokens (id, member_id, label, token_hash, metadata)
+       values ($1, $2, $3, $4, $5::jsonb)`,
+      [token.tokenId, memberId, label, token.tokenHash, JSON.stringify(metadata)],
+    );
+    return { bearerToken: token.bearerToken };
+  });
 }
 
 /**
@@ -153,6 +191,8 @@ export async function createBearerTokenAsSuperadmin(
     if (existing.rows.length === 0) {
       return null;
     }
+
+    await markMemberOnboarded(client, input.memberId);
 
     const token = buildBearerToken();
     const auditMetadata: Record<string, unknown> = {

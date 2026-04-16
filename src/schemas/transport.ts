@@ -35,6 +35,7 @@ export const actorEnvelope = z.object({
     id: z.string(),
     publicName: z.string(),
   }),
+  onboardingPending: z.boolean(),
   globalRoles: z.array(z.string()),
   activeMemberships: z.array(membershipSummary),
   requestScope,

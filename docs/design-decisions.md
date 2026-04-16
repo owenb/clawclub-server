@@ -169,8 +169,12 @@ Examples:
   - the open-invitation cap per sponsor per club is deliberately tight (quality over volume) and is a tuning constant, not a long-term commitment to any specific number
   - if a sponsor's membership transitions to removed/banned/expired, their still-open invitations auto-revoke via the same membership-state transition helper
 - acceptance is a membership-state transition via `clubadmin.memberships.setStatus`
+- admin-driven membership transitions are now validated against an explicit legal-transition table; billing-owned transitions stay in billing sync
 - payment-required clubs transition accepted applicants to `payment_pending`; access begins only when billing moves the membership to `active`
 - `clubadmin.applications.list/get` continue to surface `payment_pending` rows so admins can see approved-but-unpaid applicants until billing activates access
+- new members carry `members.onboarded_at`; the dispatch layer gates credentialed-but-unonboarded members to `session.getContext` plus `clubs.onboard` until the ceremony completes
+- `actor.onboardingPending` is derived from the same predicate as the gate: `onboarded_at IS NULL` and at least one accessible membership
+- `clubs.onboard` is the credential-invariant onboarding ceremony: it marks `onboarded_at`, returns a server-authored welcome payload, and emits sibling `membership.activated` notifications for any additional clubs unlocked before the first ceremony ran
 - DMs require at least one shared club
 
 ## Search and discovery
@@ -237,7 +241,9 @@ Design decisions:
 - notifications are not club_activity: activity is broadcast to all members; notifications are targeted to one specific recipient
 - payloads are usually ID-first, but some topics deliberately include server-authored prose for verbatim relay (`welcome`, `headsUp`, `vouch.received`)
 - acknowledgement is durable: `acknowledged_state` is `processed` or `suppressed` with a `suppression_reason`, not just a boolean. This data drives match quality tuning
-- derived `application.*` notifications are intentionally not acknowledgeable; materialized topics like `synchronicity.*` and `vouch.received` are acknowledgeable by default
+- derived `application.*` notifications are intentionally not acknowledgeable; materialized topics like `synchronicity.*`, `vouch.received`, `invitation.accepted`, and `membership.activated` are acknowledgeable by default
+- `invitation.accepted` notifies sponsors when an invitation-backed application becomes an accepted membership
+- `membership.activated` notifies already-onboarded members when an additional club becomes active; first-time admissions skip this topic and rely on `clubs.onboard`
 - NOTIFY trigger fires on the unified `stream` channel for SSE wakeup
 - unique partial index on `match_id` prevents duplicate materialized notifications on crash-retry
 
@@ -345,6 +351,7 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - single unified Postgres database with canonical schema in `db/init.sql`
 - domain modules (identity, messaging, clubs) sharing one connection pool
 - `session.getContext`
+- onboarding ceremony: `members.onboarded_at`, dispatch-layer onboarding gate, `actor.onboardingPending`, and `clubs.onboard`
 - `superadmin.clubs.list/create/archive/assignOwner/update`
 - `superadmin.platform.getOverview/members.list/members.get/clubs.getStatistics/content.list/diagnostics.getHealth`
 - `superadmin.messages.listThreads/messages.getThread/accessTokens.list/accessTokens.revoke`
@@ -357,6 +364,7 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - `members.searchByFullText`, `members.searchBySemanticSimilarity`, `members.list`
 - `content.searchBySemanticSimilarity`
 - `clubs.join`
+- `clubs.onboard`
 - `clubs.applications.submit/get/list`
 - `clubs.billing.startCheckout`
 - `invitations.issue/listMine/revoke`
@@ -378,6 +386,7 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - `SKILL.md` as the hand-authored behavioral layer for agents
 - registry-driven action metadata and validation from `src/schemas/*.ts`
 - member notifications: general-purpose targeted notification primitive with durable acknowledgement state
+- onboarding/activation fanout: `invitation.accepted` for sponsors and `membership.activated` for additional-club unlocks
 - shared worker infrastructure: `src/workers/runner.ts` with lifecycle, pools, health, shutdown
 - synchronicity worker: ask-to-member, offer-to-ask, member-to-member, and event-to-member matching via pgvector similarity
 - match lifecycle: `signal_background_matches` with TTLs, version drift detection, freshness guards, per-kind throttling

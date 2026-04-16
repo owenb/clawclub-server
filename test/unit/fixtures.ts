@@ -19,6 +19,7 @@ export const passthroughGate: LlmGateFn = async () => ({
 export function makeActor(overrides: {
   memberId?: string;
   publicName?: string;
+  onboardedAt?: string | null;
   globalRoles?: ActorContext['globalRoles'];
   memberships?: MembershipSummary[];
 } = {}): ActorContext {
@@ -26,6 +27,7 @@ export function makeActor(overrides: {
     member: {
       id: overrides.memberId ?? 'member-1',
       publicName: overrides.publicName ?? 'Member One',
+      onboardedAt: overrides.onboardedAt ?? '2026-03-14T09:00:00Z',
     },
     globalRoles: overrides.globalRoles ?? [],
     memberships: overrides.memberships ?? [{
@@ -130,6 +132,9 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
           priceUsd: null,
         },
       };
+    },
+    async onboardMember() {
+      return { alreadyOnboarded: true };
     },
     async submitClubApplication() {
       return { status: 'submitted' as const, membershipId: 'membership-1', applicationSubmittedAt: '2026-04-03T00:00:00Z' };

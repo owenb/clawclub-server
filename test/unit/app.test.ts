@@ -54,6 +54,7 @@ function makeActor(): ActorContext {
     member: {
       id: 'member-1',
       publicName: 'Member One',
+      onboardedAt: '2026-03-12T00:00:00Z',
     },
     globalRoles: ['superadmin'],
     memberships: [
@@ -837,8 +838,135 @@ test('session.getContext returns the canonical actor session envelope once', asy
     ['club-1', 'club-2'],
   );
   assert.deepEqual(result.data, {});
+  assert.equal(result.actor.onboardingPending, false);
   assert.equal(result.actor.sharedContext.notifications.length, 1);
   assert.equal(result.actor.sharedContext.notifications[0]?.notificationId, 'synchronicity.ask_to_member:notification-1');
+});
+
+test('session.getContext keeps onboardingPending false for a pre-admission bearer holder with zero accessible memberships', async () => {
+  const auth = makeAuthResult();
+  auth.actor = {
+    ...auth.actor,
+    member: {
+      ...auth.actor.member,
+      onboardedAt: null,
+    },
+    memberships: [],
+  };
+  auth.requestScope = { requestedClubId: null, activeClubIds: [] };
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() {
+      return auth;
+    },
+  };
+
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
+  const result = await dispatcher.dispatch({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'session.getContext',
+  });
+
+  assert.equal(result.actor.onboardingPending, false);
+});
+
+test('dispatch gates non-allowlisted actions before input parsing for onboarding-pending members', async () => {
+  const auth = makeAuthResult();
+  auth.actor = {
+    ...auth.actor,
+    member: {
+      ...auth.actor.member,
+      onboardedAt: null,
+    },
+    memberships: [auth.actor.memberships[0]!],
+  };
+  auth.requestScope = { requestedClubId: null, activeClubIds: [auth.actor.memberships[0]!.clubId] };
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() {
+      return auth;
+    },
+  };
+
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
+
+  await assert.rejects(
+    () => dispatcher.dispatch({
+      bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+      action: 'content.create',
+      payload: {},
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 403);
+      assert.equal(error.code, 'onboarding_required');
+      assert.match(error.message, /clubs\.onboard/);
+      return true;
+    },
+  );
+});
+
+test('clubs.onboard refreshes the actor envelope after the handler marks onboarding complete', async () => {
+  const initialAuth = makeAuthResult();
+  initialAuth.actor = {
+    ...initialAuth.actor,
+    member: {
+      ...initialAuth.actor.member,
+      onboardedAt: null,
+    },
+    memberships: [initialAuth.actor.memberships[0]!],
+  };
+  initialAuth.requestScope = { requestedClubId: null, activeClubIds: [initialAuth.actor.memberships[0]!.clubId] };
+
+  const refreshedAuth = makeAuthResult();
+  refreshedAuth.actor = {
+    ...refreshedAuth.actor,
+    member: {
+      ...refreshedAuth.actor.member,
+      onboardedAt: '2026-03-14T12:00:00Z',
+    },
+    memberships: [refreshedAuth.actor.memberships[0]!],
+  };
+  refreshedAuth.requestScope = { requestedClubId: null, activeClubIds: [refreshedAuth.actor.memberships[0]!.clubId] };
+
+  let onboardCalls = 0;
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() {
+      return initialAuth;
+    },
+    async validateBearerTokenPassive() {
+      return refreshedAuth;
+    },
+    async onboardMember() {
+      onboardCalls += 1;
+      return {
+        alreadyOnboarded: false,
+        member: { id: 'member-1', displayName: 'Member One' },
+        club: { id: 'club-1', slug: 'alpha', name: 'Alpha', summary: 'First club' },
+        welcome: {
+          greeting: 'Welcome to Alpha, Member One.',
+          preamble: 'You have been accepted.',
+          capabilities: ['Ask me to show you who else is in Alpha.'],
+          closing: 'Tell me when you are ready.',
+        },
+      };
+    },
+  };
+
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
+  const result = await dispatcher.dispatch({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'clubs.onboard',
+    payload: {},
+  });
+
+  assert.equal(onboardCalls, 1);
+  assert.equal(result.actor.onboardingPending, false);
+  assert.equal(result.actor.member.id, 'member-1');
+  assert.equal((result.data as Record<string, unknown>).alreadyOnboarded, false);
 });
 
 test('superadmin.clubs.list requires superadmin and returns archived flag filter', async () => {

@@ -8,20 +8,20 @@ begin;
 -- Members (12 active + 1 suspended)
 -- ============================================================
 
-insert into members (public_name, display_name, state, created_at) values
-  ('Owen Barnes',     'Owen Barnes',     'active',    now() - interval '60 days'),
-  ('Alice Hound',     'Alice Hound',     'active',    now() - interval '50 days'),
-  ('Bob Whiskers',    'Bob Whiskers',    'active',    now() - interval '50 days'),
-  ('Charlie Paws',    'Charlie Paws',    'active',    now() - interval '50 days'),
-  ('Diana Feathers',  'Diana Feathers',  'active',    now() - interval '40 days'),
-  ('Eddie Scales',    'Eddie Scales',    'active',    now() - interval '40 days'),
-  ('Fiona Hooves',    'Fiona Hooves',    'active',    now() - interval '30 days'),
-  ('George Wings',    'George Wings',    'active',    now() - interval '30 days'),
-  ('Hannah Fins',     'Hannah Fins',     'active',    now() - interval '20 days'),
-  ('Ivan Tusks',      'Ivan Tusks',      'active',    now() - interval '20 days'),
-  ('Julia Stripes',   'Julia Stripes',   'active',    now() - interval '20 days'),
-  ('Kevin Spots',     'Kevin Spots',     'active',    now() - interval '5 days'),
-  ('Sam Shadow',      'Sam Shadow',      'suspended', now() - interval '45 days');
+insert into members (public_name, display_name, state, onboarded_at, created_at) values
+  ('Owen Barnes',     'Owen Barnes',     'active',    now() - interval '60 days', now() - interval '60 days'),
+  ('Alice Hound',     'Alice Hound',     'active',    now() - interval '50 days', now() - interval '50 days'),
+  ('Bob Whiskers',    'Bob Whiskers',    'active',    now() - interval '50 days', now() - interval '50 days'),
+  ('Charlie Paws',    'Charlie Paws',    'active',    now() - interval '50 days', now() - interval '50 days'),
+  ('Diana Feathers',  'Diana Feathers',  'active',    now() - interval '40 days', now() - interval '40 days'),
+  ('Eddie Scales',    'Eddie Scales',    'active',    now() - interval '40 days', now() - interval '40 days'),
+  ('Fiona Hooves',    'Fiona Hooves',    'active',    now() - interval '30 days', now() - interval '30 days'),
+  ('George Wings',    'George Wings',    'active',    now() - interval '30 days', now() - interval '30 days'),
+  ('Hannah Fins',     'Hannah Fins',     'active',    now() - interval '20 days', now() - interval '20 days'),
+  ('Ivan Tusks',      'Ivan Tusks',      'active',    now() - interval '20 days', now() - interval '20 days'),
+  ('Julia Stripes',   'Julia Stripes',   'active',    now() - interval '20 days', now() - interval '20 days'),
+  ('Kevin Spots',     'Kevin Spots',     'active',    now() - interval '5 days',  now() - interval '5 days'),
+  ('Sam Shadow',      'Sam Shadow',      'suspended', now() - interval '45 days', now() - interval '45 days');
 
 select id as owen_id    from members where public_name = 'Owen Barnes' \gset
 select id as alice_id   from members where public_name = 'Alice Hound' \gset

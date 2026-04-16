@@ -843,8 +843,13 @@ export class TestHarness {
   async createToken(memberId: string, label = 'test'): Promise<string> {
     const token = buildBearerToken();
     await this.sql(
-      `INSERT INTO member_bearer_tokens (id, member_id, label, token_hash, metadata)
-       VALUES ($1, $2, $3, $4, '{}'::jsonb)`,
+      `with mark as (
+         update members
+         set onboarded_at = coalesce(onboarded_at, now())
+         where id = $2
+       )
+       insert into member_bearer_tokens (id, member_id, label, token_hash, metadata)
+       values ($1, $2, $3, $4, '{}'::jsonb)`,
       [token.tokenId, memberId, label, token.tokenHash],
     );
     return token.bearerToken;

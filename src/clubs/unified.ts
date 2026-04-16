@@ -3,6 +3,7 @@ import type { Pool } from 'pg';
 import {
   AppError,
   type ApplicationSummary,
+  type ClubsOnboardResult,
   type InvitationStatus,
   type InvitationSummary,
   type JoinClubInput,
@@ -15,11 +16,12 @@ import { withTransaction, type DbClient } from '../db.ts';
 import { generateClubApplicationProfile } from '../identity/profiles.ts';
 import { buildBearerToken, buildInvitationCode, generateTokenId, hashTokenSecret, parseInvitationCode } from '../token.ts';
 import { runApplicationGate } from '../admissions-gate.ts';
+import { buildOnboardingWelcome, buildSecondClubWelcome } from './welcome.ts';
 
 const COLD_APPLICATION_DIFFICULTY = 7;
 const CROSS_APPLICATION_DIFFICULTY = 5;
-const APPLICATION_CHALLENGE_TTL_MS = 60 * 60 * 1000;
-const MAX_APPLICATION_ATTEMPTS = 5;
+const APPLICATION_CHALLENGE_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_APPLICATION_ATTEMPTS = 6;
 const MAX_PENDING_APPLICATIONS = 3;
 const OPEN_INVITATION_CAP = 3;
 
@@ -97,6 +99,17 @@ type PowChallengeRow = {
   solved_at: string | null;
   attempts: number;
   created_at: string;
+};
+
+type OnboardingMembershipRow = {
+  membership_id: string;
+  club_id: string;
+  club_slug: string;
+  club_name: string;
+  club_summary: string | null;
+  sponsor_member_id: string | null;
+  sponsor_public_name: string | null;
+  member_display_name: string;
 };
 
 function getPositiveIntegerEnv(name: string): number | null {
@@ -215,6 +228,28 @@ async function setMemberContactEmail(client: DbClient, memberId: string, email: 
        set email = excluded.email`,
     [memberId, email],
   );
+}
+
+async function readAccessibleMembershipsForOnboarding(client: DbClient, memberId: string): Promise<OnboardingMembershipRow[]> {
+  const result = await client.query<OnboardingMembershipRow>(
+    `select
+        acm.id as membership_id,
+        acm.club_id,
+        c.slug as club_slug,
+        c.name as club_name,
+        c.summary as club_summary,
+        acm.sponsor_member_id,
+        sponsor.public_name as sponsor_public_name,
+        member_row.display_name as member_display_name
+     from accessible_club_memberships acm
+     join clubs c on c.id = acm.club_id
+     join members member_row on member_row.id = acm.member_id
+     left join members sponsor on sponsor.id = acm.sponsor_member_id
+     where acm.member_id = $1
+     order by acm.joined_at asc, acm.id asc`,
+    [memberId],
+  );
+  return result.rows;
 }
 
 async function issueBearerToken(client: DbClient, memberId: string, label: string, metadata: Record<string, unknown>): Promise<string> {
@@ -732,6 +767,89 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
           ? Number(club.membership_price_amount)
           : null,
       },
+    };
+  });
+}
+
+export async function onboardMember(pool: Pool, input: { actorMemberId: string }): Promise<ClubsOnboardResult> {
+  return withTransaction(pool, async (client) => {
+    const memberResult = await client.query<{
+      member_id: string;
+      display_name: string;
+      onboarded_at: string | null;
+    }>(
+      `select id as member_id, display_name, onboarded_at::text as onboarded_at
+       from members
+       where id = $1
+         and state = 'active'
+       limit 1
+       for update`,
+      [input.actorMemberId],
+    );
+    const member = memberResult.rows[0];
+    if (!member) {
+      throw new AppError(404, 'not_found', 'Member not found');
+    }
+    if (member.onboarded_at !== null) {
+      return { alreadyOnboarded: true };
+    }
+
+    const memberships = await readAccessibleMembershipsForOnboarding(client, input.actorMemberId);
+    if (memberships.length === 0) {
+      console.warn(`clubs.onboard found no accessible memberships for member ${input.actorMemberId}`);
+      return { alreadyOnboarded: false, orphaned: true };
+    }
+
+    const [targetMembership, ...raceSiblings] = memberships;
+
+    for (const sibling of raceSiblings) {
+      await client.query(
+        `insert into member_notifications (club_id, recipient_member_id, topic, payload)
+         values ($1, $2, 'membership.activated', $3::jsonb)`,
+        [
+          sibling.club_id,
+          input.actorMemberId,
+          JSON.stringify({
+            clubId: sibling.club_id,
+            clubName: sibling.club_name,
+            summary: sibling.club_summary,
+            ...(sibling.sponsor_member_id ? { sponsorMemberId: sibling.sponsor_member_id } : {}),
+            ...(sibling.sponsor_public_name ? { sponsorPublicName: sibling.sponsor_public_name } : {}),
+            welcome: buildSecondClubWelcome({
+              clubName: sibling.club_name,
+              memberName: member.display_name,
+              sponsorPublicName: sibling.sponsor_public_name,
+            }),
+          }),
+        ],
+      );
+    }
+
+    await client.query(
+      `update members
+       set onboarded_at = now()
+       where id = $1
+         and onboarded_at is null`,
+      [input.actorMemberId],
+    );
+
+    return {
+      alreadyOnboarded: false,
+      member: {
+        id: input.actorMemberId,
+        displayName: member.display_name,
+      },
+      club: {
+        id: targetMembership.club_id,
+        slug: targetMembership.club_slug,
+        name: targetMembership.club_name,
+        summary: targetMembership.club_summary,
+      },
+      welcome: buildOnboardingWelcome({
+        clubName: targetMembership.club_name,
+        memberName: member.display_name,
+        sponsorPublicName: targetMembership.sponsor_public_name,
+      }),
     };
   });
 }
