@@ -36,7 +36,7 @@ const CLUBADMIN_SCOPE_RULES = [
 ] as const;
 
 const MEMBER_STATUSES = ['active', 'renewal_pending', 'cancelled'] as const;
-const APPLICATION_STATUSES = ['applying', 'submitted', 'interview_scheduled', 'interview_completed'] as const;
+const APPLICATION_STATUSES = ['applying', 'submitted', 'interview_scheduled', 'interview_completed', 'payment_pending'] as const;
 
 const wireMembershipRoles = z.array(membershipRole).min(1).optional();
 const parseOptionalMembershipStates = z.array(membershipState).min(1)
@@ -153,7 +153,7 @@ type ClubadminApplicationsListInput = {
 const clubadminApplicationsList: ActionDefinition = {
   action: 'clubadmin.applications.list',
   domain: 'clubadmin',
-  description: 'List in-flight applications in the specified club.',
+  description: 'List applications and payment-pending memberships in the specified club.',
   auth: 'clubadmin',
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
@@ -162,7 +162,7 @@ const clubadminApplicationsList: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe('Club to list applications for'),
-      statuses: wireMembershipStates.describe('Optional application-state filter limited to applying, submitted, interview_scheduled, interview_completed'),
+      statuses: wireMembershipStates.describe('Optional application-state filter limited to applying, submitted, interview_scheduled, interview_completed, payment_pending'),
       limit: wireLimitOf(20),
       cursor: wireCursor,
     }),
@@ -200,7 +200,7 @@ const clubadminApplicationsList: ActionDefinition = {
       actorMemberId: ctx.actor.member.id,
       clubId,
       limit,
-      statuses: statuses as Array<'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>,
+      statuses: statuses as Array<'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed' | 'payment_pending'>,
       cursor,
     });
 
@@ -442,7 +442,7 @@ const clubadminMembersGet: ActionDefinition = {
 const clubadminApplicationsGet: ActionDefinition = {
   action: 'clubadmin.applications.get',
   domain: 'clubadmin',
-  description: 'Get one in-flight application in the specified club.',
+  description: 'Get one application or payment-pending membership in the specified club.',
   auth: 'clubadmin',
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
@@ -450,7 +450,7 @@ const clubadminApplicationsGet: ActionDefinition = {
 
   wire: {
     input: z.object({
-      clubId: wireRequiredString.describe('Club the application belongs to'),
+      clubId: wireRequiredString.describe('Club the application or payment-pending membership belongs to'),
       membershipId: wireRequiredString.describe('Membership to fetch'),
     }),
     output: z.object({

@@ -92,7 +92,7 @@ type AdminApplicationRow = {
   member_id: string;
   public_name: string;
   display_name: string | null;
-  status: Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>;
+  status: Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed' | 'payment_pending'>;
   state_reason: string | null;
   state_version_no: number;
   state_created_at: string;
@@ -612,7 +612,7 @@ export async function getAdminMember(pool: Pool, input: {
 export async function listAdminApplications(pool: Pool, input: {
   clubId: string;
   limit: number;
-  statuses?: Array<Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>> | null;
+  statuses?: Array<Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed' | 'payment_pending'>> | null;
   cursor?: { stateCreatedAt: string; membershipId: string } | null;
 }): Promise<{ results: AdminApplicationSummary[]; hasMore: boolean; nextCursor: string | null }> {
   const fetchLimit = input.limit + 1;
@@ -677,7 +677,7 @@ export async function listAdminApplications(pool: Pool, input: {
      where cm.club_id = $1
        and cm.left_at is null
        and ($3::membership_state[] is null or cm.status = any($3))
-       and cm.status = any(array['applying','submitted','interview_scheduled','interview_completed']::membership_state[])
+       and cm.status = any(array['applying','submitted','interview_scheduled','interview_completed','payment_pending']::membership_state[])
        and ($4::timestamptz is null
          or cm.state_created_at < $4
          or (cm.state_created_at = $4 and cm.id < $5))
@@ -767,7 +767,7 @@ export async function getAdminApplication(pool: Pool, input: {
      where cm.club_id = $1
        and cm.id = $2
        and cm.left_at is null
-       and cm.status = any(array['applying','submitted','interview_scheduled','interview_completed']::membership_state[])
+       and cm.status = any(array['applying','submitted','interview_scheduled','interview_completed','payment_pending']::membership_state[])
      limit 1`,
     [input.clubId, input.membershipId],
   );

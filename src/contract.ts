@@ -223,7 +223,7 @@ export type AdminApplicationSummary = {
   publicName: string;
   displayName: string | null;
   state: {
-    status: Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>;
+    status: Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed' | 'payment_pending'>;
     reason: string | null;
     versionNo: number;
     createdAt: string;
@@ -976,7 +976,7 @@ export type Repository = {
     actorMemberId: string;
     clubId: string;
     limit: number;
-    statuses?: Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>[] | null;
+    statuses?: Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed' | 'payment_pending'>[] | null;
     cursor?: { stateCreatedAt: string; membershipId: string } | null;
   }): Promise<Paginated<AdminApplicationSummary>>;
   getAdminApplication?(input: {

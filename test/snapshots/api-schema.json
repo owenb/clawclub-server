@@ -418,13 +418,13 @@
       "action": "clubadmin.applications.get",
       "auth": "clubadmin",
       "authorizationNote": "Requires club admin role.",
-      "description": "Get one in-flight application in the specified club.",
+      "description": "Get one application or payment-pending membership in the specified club.",
       "domain": "clubadmin",
       "input": {
         "additionalProperties": false,
         "properties": {
           "clubId": {
-            "description": "Club the application belongs to",
+            "description": "Club the application or payment-pending membership belongs to",
             "type": "string"
           },
           "membershipId": {
@@ -620,7 +620,8 @@
                       "applying",
                       "submitted",
                       "interview_scheduled",
-                      "interview_completed"
+                      "interview_completed",
+                      "payment_pending"
                     ],
                     "type": "string"
                   },
@@ -729,7 +730,7 @@
       "action": "clubadmin.applications.list",
       "auth": "clubadmin",
       "authorizationNote": "Requires club admin role.",
-      "description": "List in-flight applications in the specified club.",
+      "description": "List applications and payment-pending memberships in the specified club.",
       "domain": "clubadmin",
       "input": {
         "additionalProperties": false,
@@ -750,7 +751,7 @@
             "type": "integer"
           },
           "statuses": {
-            "description": "Optional application-state filter limited to applying, submitted, interview_scheduled, interview_completed",
+            "description": "Optional application-state filter limited to applying, submitted, interview_scheduled, interview_completed, payment_pending",
             "items": {
               "enum": [
                 "applying",
@@ -1033,7 +1034,8 @@
                         "applying",
                         "submitted",
                         "interview_scheduled",
-                        "interview_completed"
+                        "interview_completed",
+                        "payment_pending"
                       ],
                       "type": "string"
                     },
@@ -15279,6 +15281,6 @@
       }
     ]
   },
-  "version": "0.2.75",
-  "schemaHash": "632c32590eec432b"
+  "version": "0.2.77",
+  "schemaHash": "e4f8f345b9669cba"
 }

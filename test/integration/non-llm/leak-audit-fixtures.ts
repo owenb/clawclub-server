@@ -12,12 +12,12 @@ export const LEAK_AUDIT_FIXTURES: Record<string, LeakAuditFixture> = {
   'billing.getMembershipStatus': { buildInput: (ctx) => ({ clubId: ctx.testClub.id }) },
   'clubs.applications.get': {
     buildInput: (ctx) => ({ membershipId: ctx.ownApplicationMembership.id }),
-    note: 'This is the actor’s own application surface, so application content is legitimate here.',
+    note: 'This is the actor’s own application surface, so application content is legitimate here. Scoping is covered in test/integration/non-llm/applications-self.test.ts.',
     skipResponseWalk: true,
   },
   'clubs.applications.list': {
     buildInput: (ctx) => ({ clubId: ctx.testClub.id }),
-    note: 'This is the actor’s own application surface, so application content is legitimate here when rows exist.',
+    note: 'This is the actor’s own application surface, so application content is legitimate here when rows exist. Scoping is covered in test/integration/non-llm/applications-self.test.ts.',
     skipResponseWalk: true,
   },
   'content.getThread': { buildInput: (ctx) => ({ threadId: ctx.contentThreadId, limit: 20 }) },

@@ -76,7 +76,7 @@ export type IdentityRepository = {
     actorMemberId: string;
     clubId: string;
     limit: number;
-    statuses?: Array<Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>> | null;
+    statuses?: Array<Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed' | 'payment_pending'>> | null;
     cursor?: { stateCreatedAt: string; membershipId: string } | null;
   }): Promise<{ results: AdminApplicationSummary[]; hasMore: boolean; nextCursor: string | null }>;
   getAdminApplication(input: {

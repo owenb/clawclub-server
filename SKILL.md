@@ -93,6 +93,8 @@ Club admins review applications through:
 - `clubadmin.members.get`
 - `clubadmin.memberships.setStatus`
 
+`clubadmin.applications.list/get` also carry `payment_pending` rows. Treat those as approved applicants who are still waiting on billing, not as accessible members.
+
 The derived notification for a newly submitted application is `application.submitted`. Use its `ref.membershipId` directly with `clubadmin.applications.get`.
 
 Members receive a materialized `vouch.received` notification when someone vouches for them. Relay `payload.message` verbatim, then acknowledge it with `notifications.acknowledge`.

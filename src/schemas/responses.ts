@@ -232,7 +232,7 @@ export const adminApplicationSummary = z.object({
   publicName: z.string(),
   displayName: z.string().nullable(),
   state: z.object({
-    status: z.enum(['applying', 'submitted', 'interview_scheduled', 'interview_completed']),
+    status: z.enum(['applying', 'submitted', 'interview_scheduled', 'interview_completed', 'payment_pending']),
     reason: z.string().nullable(),
     versionNo: z.number(),
     createdAt: z.string(),

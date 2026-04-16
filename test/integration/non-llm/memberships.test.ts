@@ -87,6 +87,12 @@ describe('clubadmin.applications.*', () => {
       applicationText: 'Already active elsewhere.',
       applicationSocials: '@ira',
     });
+    const paymentPendingMember = await h.seedMember('Pending Penny');
+    const paymentPendingMembership = await h.seedClubMembership(owner.club.id, paymentPendingMember.id, {
+      status: 'payment_pending',
+      approvedPriceAmount: 29,
+      approvedPriceCurrency: 'USD',
+    });
     const active = await h.seedCompedMember(owner.club.id, 'Already Active');
     await h.seedPendingMember(owner.club.id, 'Declined Deb', {
       status: 'submitted',
@@ -114,9 +120,62 @@ describe('clubadmin.applications.*', () => {
     assert.ok(memberIds.includes(applying.id));
     assert.ok(memberIds.includes(submitted.id));
     assert.ok(memberIds.includes(interviewed.id));
+    assert.ok(memberIds.includes(paymentPendingMember.id));
     assert.ok(!memberIds.includes(active.id));
+    const paymentPendingRow = results.find((result) => result.membershipId === paymentPendingMembership.id);
+    assert.equal((paymentPendingRow?.state as Record<string, unknown>).status, 'payment_pending');
     assert.equal((data.clubScope as Array<Record<string, unknown>>)[0]?.clubId, owner.club.id);
     assert.equal(data.statuses, null);
+  });
+
+  it('applications.list accepts payment_pending-only and mixed payment_pending filters', async () => {
+    const owner = await h.seedOwner('applications-list-payment-pending', 'Applications List Payment Pending');
+    const paymentPendingMember = await h.seedMember('Pending Penny');
+    const paymentPendingMembership = await h.seedClubMembership(owner.club.id, paymentPendingMember.id, {
+      status: 'payment_pending',
+      approvedPriceAmount: 29,
+      approvedPriceCurrency: 'USD',
+    });
+    const submitted = await h.seedPendingMember(owner.club.id, 'Submitted Sol', {
+      status: 'submitted',
+      submissionPath: 'cold',
+      proofKind: 'pow',
+      applicationEmail: 'submitted-sol@example.com',
+      applicationName: 'Submitted Sol',
+      applicationText: 'I show up consistently.',
+      applicationSocials: '@submittedsol',
+    });
+    await h.seedPendingMember(owner.club.id, 'Applying Amy', {
+      status: 'applying',
+      submissionPath: 'cold',
+      proofKind: 'pow',
+      applicationEmail: 'applying-amy@example.com',
+      applicationName: 'Applying Amy',
+    });
+
+    const paymentPendingOnly = await h.apiOk(owner.token, 'clubadmin.applications.list', {
+      clubId: owner.club.id,
+      statuses: ['payment_pending'],
+      limit: 20,
+    });
+    const paymentPendingResults = ((paymentPendingOnly.data as Record<string, unknown>).results as Array<Record<string, unknown>>);
+    assert.deepEqual(
+      paymentPendingResults.map((result) => result.membershipId),
+      [paymentPendingMembership.id],
+    );
+    assert.deepEqual((paymentPendingOnly.data as Record<string, unknown>).statuses, ['payment_pending']);
+
+    const mixed = await h.apiOk(owner.token, 'clubadmin.applications.list', {
+      clubId: owner.club.id,
+      statuses: ['payment_pending', 'submitted'],
+      limit: 20,
+    });
+    const mixedResults = ((mixed.data as Record<string, unknown>).results as Array<Record<string, unknown>>);
+    const mixedMembershipIds = mixedResults.map((result) => result.membershipId);
+    assert.ok(mixedMembershipIds.includes(paymentPendingMembership.id));
+    assert.ok(mixedMembershipIds.includes(submitted.membership.id));
+    assert.equal(mixedMembershipIds.length, 2);
+    assert.deepEqual((mixed.data as Record<string, unknown>).statuses, ['payment_pending', 'submitted']);
   });
 
   it('applications.list rejects member-status filters with sibling-action guidance', async () => {
@@ -175,6 +234,25 @@ describe('clubadmin.applications.*', () => {
     assert.equal(club.clubId, owner.club.id);
     assert.equal(club.slug, owner.club.slug);
   });
+
+  it('applications.get accepts payment_pending memberships', async () => {
+    const owner = await h.seedOwner('applications-get-payment-pending', 'Applications Get Payment Pending');
+    const paymentPendingMember = await h.seedMember('Pending Poppy');
+    const paymentPendingMembership = await h.seedClubMembership(owner.club.id, paymentPendingMember.id, {
+      status: 'payment_pending',
+      approvedPriceAmount: 29,
+      approvedPriceCurrency: 'USD',
+    });
+
+    const body = await h.apiOk(owner.token, 'clubadmin.applications.get', {
+      clubId: owner.club.id,
+      membershipId: paymentPendingMembership.id,
+    });
+
+    const application = ((body.data as Record<string, unknown>).application as Record<string, unknown>);
+    assert.equal(application.membershipId, paymentPendingMembership.id);
+    assert.equal((application.state as Record<string, unknown>).status, 'payment_pending');
+  });
 });
 
 describe('clubadmin.members.*', () => {
@@ -183,6 +261,12 @@ describe('clubadmin.members.*', () => {
     const admin = await h.seedPaidMember(owner.club.id, 'Admin Ada', { role: 'clubadmin' });
     const member = await h.seedCompedMember(owner.club.id, 'Member Mia');
     const renewing = await h.seedPaidMember(owner.club.id, 'Renewing Rita', { status: 'renewal_pending' });
+    const paymentPendingMember = await h.seedMember('Payment Pending Pia');
+    await h.seedClubMembership(owner.club.id, paymentPendingMember.id, {
+      status: 'payment_pending',
+      approvedPriceAmount: 29,
+      approvedPriceCurrency: 'USD',
+    });
     await h.seedPendingMember(owner.club.id, 'Pending Pete', {
       status: 'submitted',
       submissionPath: 'cold',
@@ -215,6 +299,7 @@ describe('clubadmin.members.*', () => {
     assert.ok(memberIds.includes(member.id));
     assert.ok(memberIds.includes(renewing.id));
     assert.ok(!memberIds.includes(admin.id), 'role filter should exclude clubadmins');
+    assert.ok(!memberIds.includes(paymentPendingMember.id), 'payment_pending rows should stay off the member surface');
 
     const memberRow = results.find((result) => result.memberId === member.id);
     const vouches = (memberRow?.vouches as Array<Record<string, unknown>>) ?? [];
@@ -252,12 +337,37 @@ describe('clubadmin.members.*', () => {
     assert.equal(adminMember.isComped, true);
     assert.equal((adminMember.state as Record<string, unknown>).status, 'active');
   });
+
+  it('members.get redirects payment_pending memberships to the applications surface', async () => {
+    const owner = await h.seedOwner('members-get-payment-pending', 'Members Get Payment Pending');
+    const paymentPendingMember = await h.seedMember('Pending Pam');
+    const paymentPendingMembership = await h.seedClubMembership(owner.club.id, paymentPendingMember.id, {
+      status: 'payment_pending',
+      approvedPriceAmount: 29,
+      approvedPriceCurrency: 'USD',
+    });
+
+    const err = await h.apiErr(owner.token, 'clubadmin.members.get', {
+      clubId: owner.club.id,
+      membershipId: paymentPendingMembership.id,
+    });
+
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'not_found');
+    assert.match(err.message, /clubadmin\.applications\.get/);
+  });
 });
 
 describe('members.* public read surface', () => {
   it('members.list returns flattened public member summaries with inline vouches', async () => {
     const owner = await h.seedOwner('public-members-club', 'Public Members Club');
     const member = await h.seedCompedMember(owner.club.id, 'Public Pat');
+    const paymentPendingMember = await h.seedMember('Pending Peta');
+    await h.seedClubMembership(owner.club.id, paymentPendingMember.id, {
+      status: 'payment_pending',
+      approvedPriceAmount: 29,
+      approvedPriceCurrency: 'USD',
+    });
     const pending = await h.seedPendingMember(owner.club.id, 'Pending Polly', {
       status: 'submitted',
       submissionPath: 'cold',
@@ -282,6 +392,7 @@ describe('members.* public read surface', () => {
     assert.ok(ids.includes(owner.id));
     assert.ok(ids.includes(member.id));
     assert.equal(ids.includes(pending.id), false);
+    assert.equal(ids.includes(paymentPendingMember.id), false);
 
     const memberRow = results.find((result) => result.memberId === member.id);
     assert.equal(memberRow?.membershipId, member.membership.id);

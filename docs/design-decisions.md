@@ -170,6 +170,7 @@ Examples:
   - if a sponsor's membership transitions to removed/banned/expired, their still-open invitations auto-revoke via the same membership-state transition helper
 - acceptance is a membership-state transition via `clubadmin.memberships.setStatus`
 - payment-required clubs transition accepted applicants to `payment_pending`; access begins only when billing moves the membership to `active`
+- `clubadmin.applications.list/get` continue to surface `payment_pending` rows so admins can see approved-but-unpaid applicants until billing activates access
 - DMs require at least one shared club
 
 ## Search and discovery
