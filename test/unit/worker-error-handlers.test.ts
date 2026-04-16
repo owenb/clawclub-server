@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createPools,
   createWorkerPoolErrorHandler,
   createWorkerUnhandledRejectionHandler,
   createWorkerUncaughtExceptionHandler,
@@ -68,4 +69,21 @@ test('installWorkerProcessHandlers is idempotent', (t) => {
   assert.equal(afterFirstUncaught, beforeUncaught + 1);
   assert.equal(afterSecondUnhandled, afterFirstUnhandled);
   assert.equal(afterSecondUncaught, afterFirstUncaught);
+});
+
+test('createPools attaches a pool error listener to the returned pool', async () => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = 'postgresql://localhost/postgres';
+
+  const pools = createPools({ name: 'test-wiring' });
+  try {
+    assert.ok(pools.db.listenerCount('error') > 0, 'expected error listener on pool');
+  } finally {
+    await pools.db.end().catch(() => {});
+    if (previousDatabaseUrl === undefined) {
+      delete process.env.DATABASE_URL;
+    } else {
+      process.env.DATABASE_URL = previousDatabaseUrl;
+    }
+  }
 });
