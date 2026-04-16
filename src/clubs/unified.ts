@@ -601,7 +601,7 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
       let email = await readMemberContactEmail(client, input.actorMemberId);
       if (!email) {
         if (!input.email) {
-          throw new AppError(422, 'email_required_for_first_join', 'An email is required before this member can join a club');
+          throw new AppError(422, 'contact_email_required', 'No contact email is on file for this member. Supply email so we can record one for this join.');
         }
         email = input.email;
         await setMemberContactEmail(client, input.actorMemberId, email);
@@ -696,7 +696,7 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
     }
 
     if (!input.email) {
-      throw new AppError(422, 'email_required_for_first_join', 'Anonymous joins require an email address');
+      throw new AppError(422, 'contact_email_required', 'Anonymous joins require an email address');
     }
     const normalizedEmail = normalizeEmail(input.email);
 

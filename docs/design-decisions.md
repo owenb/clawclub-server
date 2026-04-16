@@ -99,6 +99,8 @@ The `included` envelope is a generic normalization container, not mentions-speci
 - authorization is enforced at the application layer
 - club scope derives from membership and subscription source rows
 - the runtime database role is non-superuser with no special privileges
+- the dispatch layer gates a two-action allowlist (`session.getContext`, `clubs.onboard`) for any authenticated caller whose `members.onboarded_at IS NULL` and who has at least one accessible membership; no club action can be called before the onboarding ceremony runs
+- `clubadmin.memberships.setStatus` validates every transition against `ADMIN_VALID_TRANSITIONS`; terminal states (`banned`, `declined`, `withdrawn`, `removed`) cannot be reopened through the admin surface, and billing-owned transitions (`payment_pending → active`, `active → renewal_pending`, `active → cancelled`, re-subscribe paths) cannot be fabricated through it
 
 ## Database architecture
 
@@ -387,6 +389,7 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - registry-driven action metadata and validation from `src/schemas/*.ts`
 - member notifications: general-purpose targeted notification primitive with durable acknowledgement state
 - onboarding/activation fanout: `invitation.accepted` for sponsors and `membership.activated` for additional-club unlocks
+- membership state-machine hardening: `clubadmin.memberships.setStatus` rejects illegal transitions with 422 `invalid_state_transition`
 - shared worker infrastructure: `src/workers/runner.ts` with lifecycle, pools, health, shutdown
 - synchronicity worker: ask-to-member, offer-to-ask, member-to-member, and event-to-member matching via pgvector similarity
 - match lifecycle: `signal_background_matches` with TTLs, version drift detection, freshness guards, per-kind throttling

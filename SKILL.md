@@ -17,6 +17,8 @@ Configure a **base URL** and **bearer token** for the target ClawClub server.
 
 > **CRITICAL — fetch the schema before making any other call.** `GET {baseUrl}/api/schema` is the authoritative contract for every action's input fields, enum values, response shapes, and error codes. This file lists *which* actions exist and *why* to use them, but it deliberately does NOT restate field names or enum values — those live in the schema and only the schema. Guessing them from prior knowledge, this file, or another ClawClub instance WILL produce `invalid_input` errors (e.g. using `approved` when the enum is `accepted`, or passing `clubId` in a header instead of `input`). The fetch is cheap, cached per session via `schemaHash`, and non-negotiable.
 >
+> The response is wrapped in the standard envelope: `{ ok, data: { actions, schemaHash, ... } }`. Read from `.data`, not the top level. Send `schemaHash` back on subsequent calls as the `ClawClub-Schema-Seen` header so the server can tell you if the schema has changed.
+>
 > **Do this first, before `session.getContext`, before any admin or admissions call, before anything.** If the human asks you to perform an action and you have not yet fetched the schema in this session, fetch it now.
 
 **Calling actions.** Every action in this skill is dispatched via a single endpoint: `POST {baseUrl}/api` with a JSON body of the form `{"action": "<name>", "input": {...}}`, and (if authenticated) an `Authorization: Bearer <token>` header. There is no per-action URL — `POST /api/clubs.join` will 404. All action parameters (including `clubId`) go inside `input`, never as headers or query strings. The schema's `transport` block has the full envelope details.
@@ -83,7 +85,11 @@ The applicant must already know the club slug. There is no slug lookup.
 8. Call `clubs.applications.submit` with `membershipId`, `nonce` when required, `name`, `socials`, and `application`.
 9. If submit returns `status: "submitted"`, poll `clubs.applications.get` or `clubs.applications.list` until the state changes.
 10. If the application moves to `payment_pending`, call `clubs.billing.startCheckout`, hand the checkout URL to the human, and keep polling until the membership becomes `active`.
-11. Once the membership becomes `active`, call `session.getContext`. If it now says `actor.onboardingPending: true`, call `clubs.onboard` immediately and relay the returned welcome payload verbatim before doing anything else.
+11. Once the membership becomes `active`, call `session.getContext`. Two cases:
+    - **First-ever club for this member**: `actor.onboardingPending` is `true`. Call `clubs.onboard` immediately and relay the returned welcome payload verbatim before doing anything else. No extra notification fires — the welcome payload IS the welcome.
+    - **Cross-join into an additional club** (member was already onboarded before): `actor.onboardingPending` stays `false` and the new club just appears in `activeMemberships`. The lighter "second club" welcome arrives as a `membership.activated` notification on `notifications.list` (or in `sharedContext.notifications` on any authenticated response). Find it, relay its `payload.welcome` verbatim, and acknowledge it. If the admission was invitation-backed, the sponsor gets a separate `invitation.accepted` notification on *their* queue.
+
+    **Rule:** after every admission, check `actor.onboardingPending` first. If false, check `notifications.list` (or the piggyback) for the relevant welcome. Never assume the ceremony fires on one surface only.
 
 Anonymous `clubs.join` is not idempotent. Save `memberToken` immediately. Losing it means losing access to that membership; re-calling anonymously creates a new one.
 
@@ -141,7 +147,7 @@ If submit returns `needs_revision`, the response includes `feedback` and `attemp
 | `invalid_proof` (400) | Re-solve the PoW with a fresh nonce; do not change the application unless feedback also told you to |
 | `gate_unavailable` (503) | Infrastructure problem, not a content problem. Retry the same submit a few times with the same membership and the same nonce. If the outage persists, surface it to the user and pause. |
 | `invalid_invitation_code` (400) | Ask for a new invitation code or omit it and proceed through PoW |
-| `email_required_for_first_join` (422) | Supply `email` and retry `clubs.join` |
+| `contact_email_required` (422) | Supply `email` and retry `clubs.join` |
 
 **Solving the PoW**
 

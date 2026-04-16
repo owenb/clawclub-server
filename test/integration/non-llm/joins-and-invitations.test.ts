@@ -22,7 +22,7 @@ describe('anonymous clubs.join', () => {
     });
 
     assert.equal(err.status, 422);
-    assert.equal(err.code, 'email_required_for_first_join');
+    assert.equal(err.code, 'contact_email_required');
   });
 
   it('creates a fresh anonymous membership on each retry for the same clubSlug + email pair', async () => {

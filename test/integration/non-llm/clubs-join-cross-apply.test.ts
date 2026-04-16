@@ -49,7 +49,7 @@ describe('clubs.join authenticated cross-apply', () => {
     });
 
     assert.equal(err.status, 422);
-    assert.equal(err.code, 'email_required_for_first_join');
+    assert.equal(err.code, 'contact_email_required');
   });
 
   it('is idempotent for an existing non-terminal target membership and does not issue a new token', async () => {

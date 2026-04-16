@@ -45,8 +45,8 @@ const clubsJoin: ActionDefinition = {
   ],
   businessErrors: [
     {
-      code: 'email_required_for_first_join',
-      meaning: 'An authenticated member without a stored contact email must provide one before joining a new club.',
+      code: 'contact_email_required',
+      meaning: 'Caller has no stored contact email on file. Either an anonymous caller forgot to pass email, or an authenticated member without a recorded contact email is joining a new club.',
       recovery: 'Retry clubs.join with the email field set.',
     },
     {
