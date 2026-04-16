@@ -240,6 +240,50 @@ test('superadmin.diagnostics.getHealth returns system diagnostics', async () => 
         tablesWithRls: 15,
         totalAppTables: 18,
         databaseSize: '24 MB',
+        workers: {
+          embedding: {
+            queue: {
+              claimable: 2,
+              scheduledFuture: 1,
+              atOrOverMaxAttempts: 3,
+            },
+            oldestClaimableAgeSeconds: 60,
+            byModel: [{
+              model: 'text-embedding-3-small',
+              dimensions: 1536,
+              claimable: 2,
+              scheduledFuture: 1,
+              atOrOverMaxAttempts: 3,
+            }],
+            retryErrorSample: [{
+              jobId: 'retryjob123456',
+              subjectKind: 'entity_version',
+              model: 'text-embedding-3-small',
+              attemptCount: 4,
+              lastError: 'transient provider failure',
+              nextAttemptAt: '2026-03-14T12:05:00Z',
+            }],
+          },
+          synchronicity: {
+            cursors: {
+              activitySeq: { value: 12, updatedAt: '2026-03-14T12:00:00Z', ageSeconds: 10 },
+              profileArtifactAt: { value: '2026-03-14T11:59:00Z', updatedAt: '2026-03-14T12:00:00Z', ageSeconds: 10 },
+              membershipScanAt: { value: '2026-03-14T11:58:00Z', updatedAt: '2026-03-14T12:00:00Z', ageSeconds: 10 },
+              backstopSweepAt: { value: '2026-03-13T12:00:00Z', updatedAt: '2026-03-14T12:00:00Z', ageSeconds: 10 },
+            },
+            entityPublicationBacklog: {
+              pendingCount: 5,
+              oldestPendingAgeSeconds: 120,
+            },
+            recomputeQueue: {
+              readyCount: 2,
+              inFlightCount: 1,
+              scheduledCount: 4,
+            },
+            pendingMatchesCount: 6,
+          },
+        },
+        collectedAt: '2026-03-14T12:00:00Z',
       };
     },
   };
@@ -260,6 +304,9 @@ test('superadmin.diagnostics.getHealth returns system diagnostics', async () => 
     assert.equal(body.data.diagnostics.migrationCount, 43);
     assert.equal(body.data.diagnostics.tablesWithRls, 15);
     assert.equal(body.data.diagnostics.databaseSize, '24 MB');
+    assert.equal(body.data.diagnostics.workers.embedding.queue.claimable, 2);
+    assert.equal(body.data.diagnostics.workers.synchronicity.entityPublicationBacklog.pendingCount, 5);
+    assert.equal(body.data.diagnostics.collectedAt, '2026-03-14T12:00:00Z');
   } finally {
     await shutdown();
   }

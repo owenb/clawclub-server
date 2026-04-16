@@ -9,6 +9,7 @@
 import type { Pool } from 'pg';
 import {
   AppError,
+  type AdminDiagnostics,
   type SuperadminMemberSummary,
   type Repository,
   type EntitySummary,
@@ -1499,8 +1500,44 @@ export function createRepository(pool: Pool): Repository {
 
     adminCreateAccessToken: (input) => identity.createBearerTokenAsSuperadmin(input),
 
-    async adminGetDiagnostics() {
-      const [migrationResult, memberCount, clubCount, tableCount, dbSize] = await Promise.all([
+    async adminGetDiagnostics(): Promise<AdminDiagnostics> {
+      const MAX_ATTEMPTS = 5;
+      const RECOMPUTE_LEASE_INTERVAL = `interval '5 minutes'`;
+
+      const cursorResult = await pool.query<{
+        state_key: string;
+        state_value: string;
+        updated_at: string;
+        age_seconds: string;
+      }>(
+        `select state_key,
+                state_value,
+                updated_at::text as updated_at,
+                extract(epoch from (now() - updated_at))::text as age_seconds
+         from worker_state
+         where worker_id = 'synchronicity'
+           and state_key in ('activity_seq', 'profile_artifact_at', 'membership_scan_at', 'backstop_sweep_at')`,
+      );
+      const cursorMap = new Map(cursorResult.rows.map((row) => [row.state_key, row]));
+      const activitySeqValue = cursorMap.get('activity_seq')?.state_value ?? null;
+
+      const entityBacklogQuery = activitySeqValue !== null
+        ? pool.query<{ pending_count: string; oldest_pending_age_seconds: string | null }>(
+            `select count(*)::text as pending_count,
+                    extract(epoch from (now() - min(created_at)))::text as oldest_pending_age_seconds
+             from club_activity
+             where topic = 'entity.version.published'
+               and seq > $1::bigint`,
+            [activitySeqValue],
+          )
+        : Promise.resolve({
+            rows: [{
+              pending_count: null,
+              oldest_pending_age_seconds: null,
+            }] as Array<{ pending_count: string | null; oldest_pending_age_seconds: string | null }>,
+          });
+
+      const [migrationResult, memberCount, clubCount, tableCount, dbSize, queueCounts, byModelRows, oldestClaimable, retryErrorRows, entityBacklog, recomputeQueueCounts, pendingMatchesRow] = await Promise.all([
         pool.query<{ count: string; latest: string | null }>(
           `select count(*)::text as count, max(filename) as latest from public.schema_migrations
            where exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'schema_migrations')`,
@@ -1511,7 +1548,92 @@ export function createRepository(pool: Pool): Repository {
           `select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_name <> 'schema_migrations'`,
         ),
         pool.query<{ size: string }>(`select pg_size_pretty(pg_database_size(current_database())) as size`),
+        pool.query<{ collected_at: string; claimable: string; scheduled_future: string; at_or_over_max: string }>(
+          `select now()::text as collected_at,
+                  count(*) filter (where attempt_count < $1 and next_attempt_at <= now())::text as claimable,
+                  count(*) filter (where attempt_count < $1 and next_attempt_at > now())::text as scheduled_future,
+                  count(*) filter (where attempt_count >= $1)::text as at_or_over_max
+           from ai_embedding_jobs`,
+          [MAX_ATTEMPTS],
+        ),
+        pool.query<{ model: string; dimensions: number; claimable: string; scheduled_future: string; at_or_over_max: string }>(
+          `select model,
+                  dimensions,
+                  count(*) filter (where attempt_count < $1 and next_attempt_at <= now())::text as claimable,
+                  count(*) filter (where attempt_count < $1 and next_attempt_at > now())::text as scheduled_future,
+                  count(*) filter (where attempt_count >= $1)::text as at_or_over_max
+           from ai_embedding_jobs
+           group by model, dimensions
+           order by model, dimensions`,
+          [MAX_ATTEMPTS],
+        ),
+        pool.query<{ age_seconds: string | null }>(
+          `select extract(epoch from (now() - min(created_at)))::text as age_seconds
+           from ai_embedding_jobs
+           where attempt_count < $1
+             and next_attempt_at <= now()`,
+          [MAX_ATTEMPTS],
+        ),
+        pool.query<{
+          id: string;
+          subject_kind: 'member_club_profile_version' | 'entity_version';
+          model: string;
+          attempt_count: number;
+          last_error: string | null;
+          next_attempt_at: string;
+        }>(
+          `select id,
+                  subject_kind::text as subject_kind,
+                  model,
+                  attempt_count,
+                  substring(last_error from 1 for 500) as last_error,
+                  next_attempt_at::text as next_attempt_at
+           from ai_embedding_jobs
+           where last_error is not null
+           order by attempt_count desc, next_attempt_at asc
+           limit 10`,
+        ),
+        entityBacklogQuery,
+        pool.query<{ ready_count: string; in_flight_count: string; scheduled_count: string }>(
+          `select
+             count(*) filter (
+               where recompute_after <= now()
+                 and (claimed_at is null or claimed_at < now() - ${RECOMPUTE_LEASE_INTERVAL})
+             )::text as ready_count,
+             count(*) filter (
+               where recompute_after <= now()
+                 and claimed_at >= now() - ${RECOMPUTE_LEASE_INTERVAL}
+             )::text as in_flight_count,
+             count(*) filter (
+               where recompute_after > now()
+                 and claimed_at is null
+             )::text as scheduled_count
+           from signal_recompute_queue
+           where queue_name = 'introductions'`,
+        ),
+        pool.query<{ count: string }>(
+          `select count(*)::text as count
+           from signal_background_matches
+           where state = 'pending'`,
+        ),
       ]);
+
+      const cursorOf = <T>(key: string, parseValue: (value: string) => T) => {
+        const row = cursorMap.get(key);
+        if (!row) {
+          return { value: null, updatedAt: null, ageSeconds: null };
+        }
+        return {
+          value: parseValue(row.state_value),
+          updatedAt: row.updated_at,
+          ageSeconds: Math.round(Number(row.age_seconds)),
+        };
+      };
+
+      const queueRow = queueCounts.rows[0];
+      if (!queueRow) {
+        throw new Error('adminGetDiagnostics queue aggregate returned no rows');
+      }
 
       return {
         migrationCount: Number(migrationResult.rows[0]?.count ?? 0),
@@ -1521,6 +1643,56 @@ export function createRepository(pool: Pool): Repository {
         tablesWithRls: 0,
         totalAppTables: Number(tableCount.rows[0]?.count ?? 0),
         databaseSize: dbSize.rows[0]?.size ?? '0 bytes',
+        workers: {
+          embedding: {
+            queue: {
+              claimable: Number(queueRow.claimable),
+              scheduledFuture: Number(queueRow.scheduled_future),
+              atOrOverMaxAttempts: Number(queueRow.at_or_over_max),
+            },
+            oldestClaimableAgeSeconds: oldestClaimable.rows[0]?.age_seconds
+              ? Math.round(Number(oldestClaimable.rows[0].age_seconds))
+              : null,
+            byModel: byModelRows.rows.map((row) => ({
+              model: row.model,
+              dimensions: row.dimensions,
+              claimable: Number(row.claimable),
+              scheduledFuture: Number(row.scheduled_future),
+              atOrOverMaxAttempts: Number(row.at_or_over_max),
+            })),
+            retryErrorSample: retryErrorRows.rows.map((row) => ({
+              jobId: row.id,
+              subjectKind: row.subject_kind,
+              model: row.model,
+              attemptCount: row.attempt_count,
+              lastError: row.last_error ?? '',
+              nextAttemptAt: row.next_attempt_at,
+            })),
+          },
+          synchronicity: {
+            cursors: {
+              activitySeq: cursorOf('activity_seq', (value) => Number(value)),
+              profileArtifactAt: cursorOf('profile_artifact_at', (value) => value),
+              membershipScanAt: cursorOf('membership_scan_at', (value) => value),
+              backstopSweepAt: cursorOf('backstop_sweep_at', (value) => value),
+            },
+            entityPublicationBacklog: {
+              pendingCount: entityBacklog.rows[0]?.pending_count != null
+                ? Number(entityBacklog.rows[0].pending_count)
+                : null,
+              oldestPendingAgeSeconds: entityBacklog.rows[0]?.oldest_pending_age_seconds
+                ? Math.round(Number(entityBacklog.rows[0].oldest_pending_age_seconds))
+                : null,
+            },
+            recomputeQueue: {
+              readyCount: Number(recomputeQueueCounts.rows[0]?.ready_count ?? 0),
+              inFlightCount: Number(recomputeQueueCounts.rows[0]?.in_flight_count ?? 0),
+              scheduledCount: Number(recomputeQueueCounts.rows[0]?.scheduled_count ?? 0),
+            },
+            pendingMatchesCount: Number(pendingMatchesRow.rows[0]?.count ?? 0),
+          },
+        },
+        collectedAt: queueRow.collected_at,
       };
     },
 

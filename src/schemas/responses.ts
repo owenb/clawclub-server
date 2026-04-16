@@ -645,6 +645,12 @@ export const adminThreadSummary = z.object({
   latestMessageAt: z.string(),
 });
 
+const adminWorkerCursor = <T extends z.ZodTypeAny>(valueSchema: T) => z.object({
+  value: valueSchema.nullable(),
+  updatedAt: z.string().nullable(),
+  ageSeconds: z.number().nullable(),
+});
+
 export const adminDiagnostics = z.object({
   migrationCount: z.number(),
   latestMigration: z.string().nullable(),
@@ -653,4 +659,48 @@ export const adminDiagnostics = z.object({
   tablesWithRls: z.number(),
   totalAppTables: z.number(),
   databaseSize: z.string(),
+  workers: z.object({
+    embedding: z.object({
+      queue: z.object({
+        claimable: z.number(),
+        scheduledFuture: z.number(),
+        atOrOverMaxAttempts: z.number(),
+      }),
+      oldestClaimableAgeSeconds: z.number().nullable(),
+      byModel: z.array(z.object({
+        model: z.string(),
+        dimensions: z.number(),
+        claimable: z.number(),
+        scheduledFuture: z.number(),
+        atOrOverMaxAttempts: z.number(),
+      })),
+      retryErrorSample: z.array(z.object({
+        jobId: z.string(),
+        subjectKind: z.enum(['member_club_profile_version', 'entity_version']),
+        model: z.string(),
+        attemptCount: z.number(),
+        lastError: z.string(),
+        nextAttemptAt: z.string(),
+      })),
+    }),
+    synchronicity: z.object({
+      cursors: z.object({
+        activitySeq: adminWorkerCursor(z.number()),
+        profileArtifactAt: adminWorkerCursor(z.string()),
+        membershipScanAt: adminWorkerCursor(z.string()),
+        backstopSweepAt: adminWorkerCursor(z.string()),
+      }),
+      entityPublicationBacklog: z.object({
+        pendingCount: z.number().nullable(),
+        oldestPendingAgeSeconds: z.number().nullable(),
+      }),
+      recomputeQueue: z.object({
+        readyCount: z.number(),
+        inFlightCount: z.number(),
+        scheduledCount: z.number(),
+      }),
+      pendingMatchesCount: z.number(),
+    }),
+  }),
+  collectedAt: z.string(),
 });

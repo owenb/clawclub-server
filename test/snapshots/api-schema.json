@@ -13383,6 +13383,9 @@
               "clubCount": {
                 "type": "number"
               },
+              "collectedAt": {
+                "type": "string"
+              },
               "databaseSize": {
                 "type": "string"
               },
@@ -13401,6 +13404,279 @@
               },
               "totalAppTables": {
                 "type": "number"
+              },
+              "workers": {
+                "additionalProperties": false,
+                "properties": {
+                  "embedding": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "byModel": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "atOrOverMaxAttempts": {
+                              "type": "number"
+                            },
+                            "claimable": {
+                              "type": "number"
+                            },
+                            "dimensions": {
+                              "type": "number"
+                            },
+                            "model": {
+                              "type": "string"
+                            },
+                            "scheduledFuture": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "model",
+                            "dimensions",
+                            "claimable",
+                            "scheduledFuture",
+                            "atOrOverMaxAttempts"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "oldestClaimableAgeSeconds": {
+                        "nullable": true,
+                        "type": "number"
+                      },
+                      "queue": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atOrOverMaxAttempts": {
+                            "type": "number"
+                          },
+                          "claimable": {
+                            "type": "number"
+                          },
+                          "scheduledFuture": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "claimable",
+                          "scheduledFuture",
+                          "atOrOverMaxAttempts"
+                        ],
+                        "type": "object"
+                      },
+                      "retryErrorSample": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "attemptCount": {
+                              "type": "number"
+                            },
+                            "jobId": {
+                              "type": "string"
+                            },
+                            "lastError": {
+                              "type": "string"
+                            },
+                            "model": {
+                              "type": "string"
+                            },
+                            "nextAttemptAt": {
+                              "type": "string"
+                            },
+                            "subjectKind": {
+                              "enum": [
+                                "member_club_profile_version",
+                                "entity_version"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "jobId",
+                            "subjectKind",
+                            "model",
+                            "attemptCount",
+                            "lastError",
+                            "nextAttemptAt"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "queue",
+                      "oldestClaimableAgeSeconds",
+                      "byModel",
+                      "retryErrorSample"
+                    ],
+                    "type": "object"
+                  },
+                  "synchronicity": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cursors": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "activitySeq": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "ageSeconds": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "updatedAt": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "value": {
+                                "nullable": true,
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "updatedAt",
+                              "ageSeconds"
+                            ],
+                            "type": "object"
+                          },
+                          "backstopSweepAt": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "ageSeconds": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "updatedAt": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "value": {
+                                "nullable": true,
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "updatedAt",
+                              "ageSeconds"
+                            ],
+                            "type": "object"
+                          },
+                          "membershipScanAt": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "ageSeconds": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "updatedAt": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "value": {
+                                "nullable": true,
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "updatedAt",
+                              "ageSeconds"
+                            ],
+                            "type": "object"
+                          },
+                          "profileArtifactAt": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "ageSeconds": {
+                                "nullable": true,
+                                "type": "number"
+                              },
+                              "updatedAt": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "value": {
+                                "nullable": true,
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "updatedAt",
+                              "ageSeconds"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "activitySeq",
+                          "profileArtifactAt",
+                          "membershipScanAt",
+                          "backstopSweepAt"
+                        ],
+                        "type": "object"
+                      },
+                      "entityPublicationBacklog": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "oldestPendingAgeSeconds": {
+                            "nullable": true,
+                            "type": "number"
+                          },
+                          "pendingCount": {
+                            "nullable": true,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "pendingCount",
+                          "oldestPendingAgeSeconds"
+                        ],
+                        "type": "object"
+                      },
+                      "pendingMatchesCount": {
+                        "type": "number"
+                      },
+                      "recomputeQueue": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "inFlightCount": {
+                            "type": "number"
+                          },
+                          "readyCount": {
+                            "type": "number"
+                          },
+                          "scheduledCount": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "readyCount",
+                          "inFlightCount",
+                          "scheduledCount"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "cursors",
+                      "entityPublicationBacklog",
+                      "recomputeQueue",
+                      "pendingMatchesCount"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "embedding",
+                  "synchronicity"
+                ],
+                "type": "object"
               }
             },
             "required": [
@@ -13410,7 +13686,9 @@
               "clubCount",
               "tablesWithRls",
               "totalAppTables",
-              "databaseSize"
+              "databaseSize",
+              "workers",
+              "collectedAt"
             ],
             "type": "object"
           }
@@ -15428,6 +15706,6 @@
       }
     ]
   },
-  "version": "0.2.83",
-  "schemaHash": "fc8405d282bcaf96"
+  "version": "0.2.87",
+  "schemaHash": "14642136ceec4028"
 }

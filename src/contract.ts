@@ -925,6 +925,12 @@ export type AdminThreadSummary = {
   latestMessageAt: string;
 };
 
+export type AdminWorkerCursor<T> = {
+  value: T | null;
+  updatedAt: string | null;
+  ageSeconds: number | null;
+};
+
 export type AdminDiagnostics = {
   migrationCount: number;
   latestMigration: string | null;
@@ -933,6 +939,50 @@ export type AdminDiagnostics = {
   tablesWithRls: number;
   totalAppTables: number;
   databaseSize: string;
+  workers: {
+    embedding: {
+      queue: {
+        claimable: number;
+        scheduledFuture: number;
+        atOrOverMaxAttempts: number;
+      };
+      oldestClaimableAgeSeconds: number | null;
+      byModel: Array<{
+        model: string;
+        dimensions: number;
+        claimable: number;
+        scheduledFuture: number;
+        atOrOverMaxAttempts: number;
+      }>;
+      retryErrorSample: Array<{
+        jobId: string;
+        subjectKind: 'member_club_profile_version' | 'entity_version';
+        model: string;
+        attemptCount: number;
+        lastError: string;
+        nextAttemptAt: string;
+      }>;
+    };
+    synchronicity: {
+      cursors: {
+        activitySeq: AdminWorkerCursor<number>;
+        profileArtifactAt: AdminWorkerCursor<string>;
+        membershipScanAt: AdminWorkerCursor<string>;
+        backstopSweepAt: AdminWorkerCursor<string>;
+      };
+      entityPublicationBacklog: {
+        pendingCount: number | null;
+        oldestPendingAgeSeconds: number | null;
+      };
+      recomputeQueue: {
+        readyCount: number;
+        inFlightCount: number;
+        scheduledCount: number;
+      };
+      pendingMatchesCount: number;
+    };
+  };
+  collectedAt: string;
 };
 
 export type Repository = {
