@@ -114,6 +114,43 @@ type AdminApplicationRow = {
   sponsor_sponsored_this_month_count: number;
 };
 
+const ADMIN_VALID_TRANSITIONS: Record<MembershipState, readonly MembershipState[]> = {
+  applying: ['banned', 'removed'],
+  submitted: ['interview_scheduled', 'interview_completed', 'payment_pending', 'active', 'declined', 'banned', 'removed'],
+  interview_scheduled: ['interview_completed', 'declined', 'banned', 'removed'],
+  interview_completed: ['payment_pending', 'active', 'declined', 'banned', 'removed'],
+  payment_pending: ['declined', 'banned', 'removed'],
+  active: ['banned', 'removed'],
+  renewal_pending: ['banned', 'removed'],
+  cancelled: ['banned', 'removed'],
+  expired: ['banned', 'removed'],
+  removed: [],
+  banned: [],
+  declined: [],
+  withdrawn: [],
+};
+
+function assertAdminTransitionAllowed(currentStatus: MembershipState, nextStatus: MembershipState): void {
+  const allowedNextStates = ADMIN_VALID_TRANSITIONS[currentStatus];
+  if (allowedNextStates.includes(nextStatus)) {
+    return;
+  }
+
+  if (allowedNextStates.length === 0) {
+    throw new AppError(
+      422,
+      'invalid_state_transition',
+      `Cannot transition membership from '${currentStatus}' to '${nextStatus}' via clubadmin.memberships.setStatus. Memberships in state '${currentStatus}' cannot be changed through this surface.`,
+    );
+  }
+
+  throw new AppError(
+    422,
+    'invalid_state_transition',
+    `Cannot transition membership from '${currentStatus}' to '${nextStatus}' via clubadmin.memberships.setStatus. Legal next states from '${currentStatus}' are: ${allowedNextStates.join(', ')}.`,
+  );
+}
+
 function mapMembershipRow(row: MembershipAdminRow): MembershipAdminSummary {
   return {
     membershipId: row.membership_id,
@@ -882,6 +919,8 @@ export async function transitionMembershipState(pool: Pool, input: TransitionMem
     if (membership.member_id === input.actorMemberId && input.nextStatus !== 'active' && input.nextStatus !== membership.current_status) {
       throw new AppError(403, 'forbidden', 'Admins may not self-revoke or self-reject through this surface');
     }
+
+    assertAdminTransitionAllowed(membership.current_status, input.nextStatus);
 
     await client.query(
       `insert into club_membership_state_versions

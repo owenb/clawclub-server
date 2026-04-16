@@ -5,6 +5,87 @@ import { activeMemberships } from '../helpers.ts';
 
 let h: TestHarness;
 
+const ALL_MEMBERSHIP_STATES = [
+  'applying',
+  'submitted',
+  'interview_scheduled',
+  'interview_completed',
+  'payment_pending',
+  'active',
+  'renewal_pending',
+  'cancelled',
+  'expired',
+  'removed',
+  'banned',
+  'declined',
+  'withdrawn',
+] as const;
+
+const ADMIN_VALID_TRANSITIONS = {
+  applying: ['banned', 'removed'],
+  submitted: ['interview_scheduled', 'interview_completed', 'payment_pending', 'active', 'declined', 'banned', 'removed'],
+  interview_scheduled: ['interview_completed', 'declined', 'banned', 'removed'],
+  interview_completed: ['payment_pending', 'active', 'declined', 'banned', 'removed'],
+  payment_pending: ['declined', 'banned', 'removed'],
+  active: ['banned', 'removed'],
+  renewal_pending: ['banned', 'removed'],
+  cancelled: ['banned', 'removed'],
+  expired: ['banned', 'removed'],
+  removed: [],
+  banned: [],
+  declined: [],
+  withdrawn: [],
+} as const satisfies Record<(typeof ALL_MEMBERSHIP_STATES)[number], readonly (typeof ALL_MEMBERSHIP_STATES)[number][]>;
+
+async function seedMembershipForTransition(
+  clubId: string,
+  fromStatus: (typeof ALL_MEMBERSHIP_STATES)[number],
+  suffix: string,
+): Promise<{ token: string; membershipId: string }> {
+  const publicName = `Transition ${fromStatus} ${suffix}`;
+
+  switch (fromStatus) {
+    case 'applying':
+    case 'submitted':
+    case 'interview_scheduled':
+    case 'interview_completed': {
+      const seeded = await h.seedPendingMember(clubId, publicName, {
+        status: fromStatus,
+        submissionPath: 'cold',
+        proofKind: 'pow',
+        applicationEmail: `${suffix}@example.com`,
+        applicationName: publicName,
+        applicationText: fromStatus === 'applying' ? null : `Application text for ${suffix}`,
+        applicationSocials: fromStatus === 'applying' ? null : `@${suffix}`,
+      });
+      return { token: seeded.token, membershipId: seeded.membership.id };
+    }
+    case 'active': {
+      const seeded = await h.seedCompedMember(clubId, publicName);
+      return { token: seeded.token, membershipId: seeded.membership.id };
+    }
+    case 'renewal_pending':
+    case 'cancelled': {
+      const seeded = await h.seedPaidMember(clubId, publicName, { status: fromStatus });
+      return { token: seeded.token, membershipId: seeded.membership.id };
+    }
+    case 'payment_pending':
+    case 'expired':
+    case 'removed':
+    case 'banned':
+    case 'declined':
+    case 'withdrawn': {
+      const member = await h.seedMember(publicName);
+      const membership = await h.seedClubMembership(clubId, member.id, {
+        status: fromStatus,
+        approvedPriceAmount: fromStatus === 'payment_pending' ? 29 : undefined,
+        approvedPriceCurrency: fromStatus === 'payment_pending' ? 'USD' : undefined,
+      });
+      return { token: member.token, membershipId: membership.id };
+    }
+  }
+}
+
 before(async () => {
   h = await TestHarness.start();
 }, { timeout: 60_000 });
@@ -480,10 +561,78 @@ describe('submitted applications can be accepted into active memberships', () =>
 });
 
 describe('membership state transitions update access correctly', () => {
-  it('banned and expired states revoke access', async () => {
-    const owner = await h.seedOwner('ban-expire-club', 'Ban Expire Club');
+  it('enforces the admin transition table across all membership states', { timeout: 120_000 }, async (t) => {
+    const owner = await h.seedOwner('membership-transition-table', 'Membership Transition Table');
+    let transitionCounter = 0;
+
+    for (const fromStatus of ALL_MEMBERSHIP_STATES) {
+      for (const toStatus of ALL_MEMBERSHIP_STATES) {
+        await t.test(`${fromStatus} -> ${toStatus}`, async () => {
+          transitionCounter += 1;
+          const seeded = await seedMembershipForTransition(owner.club.id, fromStatus, `${fromStatus}-${toStatus}-${transitionCounter}`);
+          const allowed = ADMIN_VALID_TRANSITIONS[fromStatus].includes(toStatus);
+
+          if (allowed) {
+            const transition = await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
+              clubId: owner.club.id,
+              membershipId: seeded.membershipId,
+              status: toStatus,
+              reason: `transition ${fromStatus} -> ${toStatus}`,
+            });
+            const membership = (transition.data as Record<string, unknown>).membership as Record<string, unknown>;
+            assert.equal((membership.state as Record<string, unknown>).status, toStatus);
+            return;
+          }
+
+          const err = await h.apiErr(owner.token, 'clubadmin.memberships.setStatus', {
+            clubId: owner.club.id,
+            membershipId: seeded.membershipId,
+            status: toStatus,
+            reason: `transition ${fromStatus} -> ${toStatus}`,
+          });
+
+          assert.equal(err.status, 422);
+          assert.equal(err.code, 'invalid_state_transition');
+          assert.match(err.message, new RegExp(`'${fromStatus}'`));
+          assert.match(err.message, new RegExp(`'${toStatus}'`));
+        });
+      }
+    }
+  });
+
+  it('rejects billing-owned transitions on the admin surface', async () => {
+    const owner = await h.seedOwner('billing-owned-admin-transitions', 'Billing Owned Admin Transitions');
+    const pending = await h.seedMember('Billing Pending');
+    const pendingMembership = await h.seedClubMembership(owner.club.id, pending.id, {
+      status: 'payment_pending',
+      approvedPriceAmount: 29,
+      approvedPriceCurrency: 'USD',
+    });
+    const active = await h.seedCompedMember(owner.club.id, 'Billing Active');
+
+    const paymentPendingErr = await h.apiErr(owner.token, 'clubadmin.memberships.setStatus', {
+      clubId: owner.club.id,
+      membershipId: pendingMembership.id,
+      status: 'active',
+      reason: 'should be billing-owned',
+    });
+    assert.equal(paymentPendingErr.status, 422);
+    assert.equal(paymentPendingErr.code, 'invalid_state_transition');
+
+    const activeErr = await h.apiErr(owner.token, 'clubadmin.memberships.setStatus', {
+      clubId: owner.club.id,
+      membershipId: active.membership.id,
+      status: 'cancelled',
+      reason: 'should be billing-owned',
+    });
+    assert.equal(activeErr.status, 422);
+    assert.equal(activeErr.code, 'invalid_state_transition');
+  });
+
+  it('banned and removed states revoke access', async () => {
+    const owner = await h.seedOwner('ban-remove-club', 'Ban Remove Club');
     const banned = await h.seedCompedMember(owner.club.id, 'Banned Bob');
-    const expired = await h.seedCompedMember(owner.club.id, 'Expired Eve');
+    const removed = await h.seedCompedMember(owner.club.id, 'Removed Rae');
 
     await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
@@ -493,21 +642,21 @@ describe('membership state transitions update access correctly', () => {
     });
     await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
       clubId: owner.club.id,
-      membershipId: expired.membership.id,
-      status: 'expired',
-      reason: 'billing lapsed',
+      membershipId: removed.membership.id,
+      status: 'removed',
+      reason: 'membership removed by admin',
     });
 
     const bannedSession = await h.apiOk(banned.token, 'session.getContext', {});
-    const expiredSession = await h.apiOk(expired.token, 'session.getContext', {});
+    const removedSession = await h.apiOk(removed.token, 'session.getContext', {});
     assert.equal(activeMemberships(bannedSession).some((m) => m.clubId === owner.club.id), false);
-    assert.equal(activeMemberships(expiredSession).some((m) => m.clubId === owner.club.id), false);
+    assert.equal(activeMemberships(removedSession).some((m) => m.clubId === owner.club.id), false);
   });
 
   it('comped members and renewal_pending members keep the right access semantics', async () => {
     const owner = await h.seedOwner('comp-renewal-club', 'Comp Renewal Club');
     const comped = await h.seedCompedMember(owner.club.id, 'Comped Carl');
-    const renewing = await h.seedPaidMember(owner.club.id, 'Renewing Rita');
+    const renewing = await h.seedPaidMember(owner.club.id, 'Renewing Rita', { status: 'renewal_pending' });
 
     const compedSubs = await h.sql<{ count: string }>(
       `select count(*)::text as count
@@ -516,13 +665,6 @@ describe('membership state transitions update access correctly', () => {
       [comped.membership.id],
     );
     assert.equal(Number(compedSubs[0]?.count ?? 0), 0, 'comped access should not require a subscription row');
-
-    await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
-      clubId: owner.club.id,
-      membershipId: renewing.membership.id,
-      status: 'renewal_pending',
-      reason: 'payment retry window',
-    });
 
     const compedSession = await h.apiOk(comped.token, 'session.getContext', {});
     const renewingSession = await h.apiOk(renewing.token, 'session.getContext', {});
