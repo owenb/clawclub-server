@@ -1,21 +1,27 @@
 # Credential redesign (Phase B) — Ed25519 public-key identity
 
-**Status:** mechanism decided, implementation-ready pending Phase A landing
+**Status:** mechanism decided, ready for reviewer pass once pow-at-join has landed.
 **Author:** Owen + Claude Opus 4.6
 **Date:** 2026-04-16
-**Depends on:** Phase A (`plans/onboarding-ceremony.md`) shipping first.
+**Depends on:** Phase A (`plans/onboarding-ceremony.md`) AND the pow-at-join workstream (`plans/pow-at-join.md`) shipping first. Phase B builds on the two-call anonymous flow and the stateless HMAC challenge primitive that pow-at-join introduces — do not attempt to sequence this work before those land.
 
-This plan replaces bearer-token authentication with Ed25519-based public-key identity. The applicant's agent generates a keypair locally at `clubs.join`, the public key IS the identity, and admission is a server-side state change rather than a credential handoff. Nothing is ever delivered to the applicant at admission — their agent has had the private key since the moment they said hello.
+This plan replaces bearer-token authentication with Ed25519-based public-key identity. The applicant's agent generates a keypair locally at `clubs.prepareJoin` / `clubs.join`, the public key IS the identity, and admission is a server-side state change rather than a credential handoff. Nothing is ever delivered to the applicant at admission — their agent has had the private key since the moment they said hello.
+
+**What pow-at-join simplifies.** The free-identity threat model is already closed by the time Phase B starts. Every server-side identity — today a bearer, tomorrow an authenticator row — already costs the caller a solved PoW challenge to create. That means Phase B is no longer about *whether* to gate identity creation; it is only about *what shape of identity* the server hands out once the gate has been passed. The two-call anonymous flow, the consumed-challenge replay prevention, the cross-join email cleanup, and the bootstrap-paradox fix are all already in production. Phase B is genuinely a credential-primitive swap, not a rearchitecture.
 
 ---
 
 ## 1. The problem this phase answers
 
-Today's credential model issues a long-lived bearer token from `clubs.join` at first contact — before the human has been admitted to anything, before they know a token exists, and with no place for the agent to durably store it. This has caused real lock-outs; we have minted emergency tokens via `superadmin.accessTokens.create` for applicants who couldn't hold onto what they never understood they had.
+Two separate issues with today's credential model:
 
-The diagnosis: the credential is structurally misplaced in time. It is issued at the moment it provides least value and has highest loss risk, and becomes essential only after the human has walked away.
+**The delivery problem.** `clubs.join` issues a long-lived bearer token at first contact — before the human has been admitted to anything, before they know a token exists, and with no place for the agent to durably store it. This has caused real lock-outs; we have minted emergency tokens via `superadmin.accessTokens.create` for applicants who couldn't hold onto what they never understood they had. Even under pow-at-join, where the bearer is no longer free, the server still *issues a reusable secret* the client must remember. Lose it, lose access.
 
-The fix: don't issue a reusable secret at all. Let the applicant's agent generate its own credential locally. The server only ever sees a public key.
+**The delivery-channel problem for paid-club activation.** Admin-delivered bearers work for free clubs because the admin is in the loop at `setStatus(active)`. Paid clubs go `submitted → payment_pending → active` with the `→ active` driven by a billing webhook — no admin is present at the moment a credential would be handed off.
+
+The diagnosis: the credential is structurally misplaced in time AND in delivery channel. Solving only one half leaves the other half broken.
+
+The fix: don't issue a reusable secret at all. Let the applicant's agent generate its own credential locally. The server only ever sees a public key. Admission becomes a state flip on a stored row — no delivery moment, no delivery channel, no loss scenario for secrets the server issued.
 
 ---
 
@@ -47,16 +53,26 @@ Ed25519 is the right primitive. It is:
 
 ---
 
-## 3. What Phase A gave us
+## 3. What Phase A and pow-at-join gave us
 
-Phase A shipped the auth-invariant pieces. None of it needs to change for Phase B:
+Phase A shipped the auth-invariant onboarding pieces. None of it needs to change for Phase B:
 
 - `members.onboarded_at` column with two-condition gate.
 - `clubs.onboard` ceremony and welcome composers.
 - `invitation.accepted` and `membership.activated` notification fanout, hung off the shared transition-to-active seam.
 - State-machine validation for `clubadmin.memberships.setStatus`.
 
-Phase B swaps credentials underneath all of that. The ceremony, the fanout, and the gate all still apply. The only change they see is that `actor.member.id` now comes from a verified signature against a stored public key, not a resolved bearer token.
+Pow-at-join shipped the identity-creation gate and the anonymous two-call flow. Phase B inherits it whole:
+
+- **`clubs.prepareJoin` already exists** and already issues a stateless HMAC-signed challenge. Phase B extends its output shape to also carry anything the client needs for Ed25519 enrollment; it does not invent the action.
+- **`clubs.join` already verifies the challenge and the PoW solution BEFORE any server-side row is written.** Phase B adds one more write to that successful-verification path: `member_authenticators` row for the client's public key, alongside the existing `members` + `club_memberships` writes.
+- **`consumed_pow_challenges` already enforces one-time challenge consumption.** Phase B does not add a parallel replay-prevention mechanism.
+- **Anonymous rate-limit bucket already shared between `prepareJoin` and `join`.** Phase B does not re-key the limiter.
+- **Cross-join already doesn't ask for email and doesn't re-do PoW.** Phase B does not touch that path's input shape.
+- **The bootstrap contradiction between `GET /` and `/skill` is already resolved.** Phase B's SKILL updates layer onto the already-consistent ordered bootstrap.
+- **`clubs.applications.submit` no longer carries PoW responsibility.** The bearer (soon to be an Ed25519 signature) is the receipt.
+
+Phase B swaps credentials underneath all of this. The ceremony, the fanout, the gate, and the PoW flow all still apply. The only change they see is that `actor.member.id` now comes from a verified Ed25519 signature against a stored public key, not a resolved bearer token.
 
 ---
 
@@ -165,19 +181,18 @@ No discriminated union on `actor` itself — under §2.3 the actor is a real mem
 
 **Susan (cold applicant).**
 
-1. Agent generates an Ed25519 keypair locally. Stores the private key in session memory.
-2. Agent calls `clubs.join` anonymously, passing `clubSlug`, `email`, AND `publicKey: base64url(bytes)`.
-3. Server creates a `members` row, a `club_memberships` row in `applying`, a `member_authenticators` row with `status = 'pending_admission'`, and a PoW challenge. Returns `{ clubId, membershipId, authenticatorId, proof, club }`. **No credential in the response.** The applicant's agent already has its private key.
-4. Agent drafts the application, solves the PoW, calls `clubs.applications.submit` — signed with the private key, `X-Authenticator-Id` set. The dispatch layer admits `pending_admission` authenticators for this specific action.
-5. Susan walks away. Nothing stored on her side — no secret, no key, because she never sees the key. The private key dies with the agent session.
-6. Admin approves via `clubadmin.memberships.setStatus(active)`. Server flips the authenticator from `pending_admission` to `active` atomically with the state transition. No notification, no delivery. Phase A's `invitation.accepted` fires if applicable.
-7. **When Susan opens a new conversation**, she has no private key — the old agent's session context is gone. The recovery path is re-enrollment (§4.7): admin delivers a one-time re-enrollment grant, Susan's new agent generates a fresh keypair and enrolls it. Susan is now fully active with the new keypair.
+1. Agent calls `clubs.prepareJoin({clubSlug})` (already exists from pow-at-join). Server returns an HMAC-signed challenge blob + difficulty.
+2. Agent generates an Ed25519 keypair locally. Stores the private key via the SDK's durable storage layer (§4.10). Solves the PoW.
+3. Agent calls `clubs.join({clubSlug, email, challengeBlob, nonce, publicKey: base64url(bytes)})`. The `publicKey` is the new Phase B field; everything else already flows through pow-at-join's two-call path.
+4. Server verifies the challenge + PoW (already works under pow-at-join), consumes the challenge, then — as a single transaction — creates a `members` row, a `club_memberships` row in `applying`, AND a `member_authenticators` row with `status = 'pending_admission'` holding Susan's public key. Returns `{ clubId, membershipId, authenticatorId, club }`. **No credential in the response.** The applicant's agent already has its private key.
+5. Agent drafts the application, calls `clubs.applications.submit` — signed with the private key, `X-Authenticator-Id` set to the returned id. The dispatch layer admits `pending_admission` authenticators for exactly three actions (see §4.3).
+6. Susan walks away. Nothing stored on her side the human sees — no pasted secret, no bearer. The private key lives wherever the SDK's durable storage placed it (§4.10).
+7. Admin approves via `clubadmin.memberships.setStatus(active)`. Server flips the authenticator from `pending_admission` to `active` atomically with the state transition. No notification, no delivery. Phase A's `invitation.accepted` fires if applicable.
+8. **When Susan opens a new conversation** with the same agent host, the SDK retrieves the persisted private key and she is onboarded as normal. If she opens a new conversation with a DIFFERENT agent host that cannot access the first host's storage, she has no key — recovery is re-enrollment (§4.7). See §4.10 for why durable-storage-by-default keeps re-enrollment a rare recovery path, not a regular one.
 
-This is the single real UX difference from §2.1. Under §2.1 the admin delivers a bearer that Susan can paste into any future agent. Under §2.3 the applicant's agent session itself is the credential holder; re-opening the application in a different agent on a different device requires re-enrollment. **This is acceptable.** See §4.7 for why the re-enrollment path is not a regression.
+**Jenny (invited new applicant).** Same as Susan, plus an `invitationCode` in the `clubs.join` request. Invited joins still skip `clubs.prepareJoin` and PoW — the invitation is the cost, same as under pow-at-join. The `publicKey` input is required regardless of path; server still stores it in `member_authenticators` at join time. Sponsor gets `invitation.accepted` notification on admission.
 
-**Jenny (invited new applicant).** Identical to Susan, plus an `invitationCode` in the `clubs.join` request. Sponsor gets `invitation.accepted` notification on admission.
-
-**Alice (cross-joining existing member).** Alice has already been onboarded; her agent already holds a private key for her existing authenticator. She calls `clubs.join` with her existing signed auth (no `publicKey` needed — she already has authenticators) and the new `clubSlug`. Server creates a CatClub `club_memberships` row in `applying` bound to her existing member_id. The same authenticator authorizes the submit. Admission flips the membership to `active`; `membership.activated` notification fires for Alice.
+**Alice (cross-joining existing member).** Alice has already been onboarded; her agent already holds a private key for her existing authenticator. She calls `clubs.join` with her existing signed auth (no `publicKey` input — she already has authenticators) and the new `clubSlug`. No `clubs.prepareJoin`, no PoW, no email — same as under pow-at-join. Server creates a CatClub `club_memberships` row in `applying` bound to her existing member_id. The same authenticator authorizes the submit. Admission flips the membership to `active`; `membership.activated` notification fires for Alice.
 
 **Bob (invited cross-joiner).** Same as Alice plus an invitation code. `invitation.accepted` fires for the sponsor; `membership.activated` fires for Bob.
 
@@ -185,9 +200,13 @@ This is the single real UX difference from §2.1. Under §2.1 the admin delivers
 
 Existing onboarded members adding a new agent / new device.
 
-- **`members.enrollAuthenticator`** — new action. `auth: 'member'`, signed-request only (no bearer, to avoid weird bootstrap cycles). Input: `{ publicKey: base64url(bytes), label?: string }`. Output: `{ authenticatorId, status: 'active' }`. Handler: insert a new authenticator row with `status = 'active'`, `created_via = 'enroll_from_existing'`.
+- **`members.enrollAuthenticator`** — new action. Input: `{ publicKey: base64url(bytes), label?: string }`. Output: `{ authenticatorId, status: 'active' }`. Handler: insert a new authenticator row with `status = 'active'`, `created_via = 'enroll_from_existing'`.
 
-The ergonomics: Alice opens a new agent on a different device. The new agent generates a keypair. Alice's old agent (still holding the previous private key) calls `members.enrollAuthenticator` on behalf of the new agent, passing the new public key. The server records it. The new agent is now a fully independent authenticator for the same member.
+**Auth during the migration window: BOTH `signed_request` and `bearer_legacy` accepted.** Existing members today authenticate via bearer; they must be able to enroll their first Ed25519 authenticator using that bearer. Restricting this action to signed-request only from day one would create a bootstrap cycle — an existing member with a bearer and no authenticator would have no way to enroll one. The action therefore accepts both auth kinds during the migration window.
+
+After the bearer-deprecation cycle lands (future workstream; see §6.3), `members.enrollAuthenticator` narrows to signed-request only. Until then, dual-auth is the correct and necessary shape.
+
+The ergonomics: Alice opens a new agent on a different device. The new agent generates a keypair. Alice's old agent (still holding the previous private key, or a legacy bearer, during the migration window) calls `members.enrollAuthenticator` on behalf of the new agent, passing the new public key. The server records it. The new agent is now a fully independent authenticator for the same member.
 
 **No authentication is delivered between agents.** The new agent has had its private key from birth; all that moves is the public key.
 
@@ -213,10 +232,12 @@ Re-enrollment does NOT revoke existing authenticators. That is an independent ad
 
 **`clubadmin.accessTokens.create` is deprecated by this primitive.** Under §2.3 there are no access tokens to re-mint. Recovery is authenticator re-enrollment, not token re-minting. The action can be removed or aliased to `createReEnrollmentGrant` during the deprecation cycle.
 
-### 4.8. `clubs.join` response change
+### 4.8. `clubs.join` shape changes
 
-- `memberToken` field **removed.** No backwards-compatibility shim.
-- Response shape: `{ clubId, membershipId, authenticatorId, proof, club }`. The `authenticatorId` is informational (the agent already knows the public key it generated; the id is what gets put in `X-Authenticator-Id` headers).
+- `memberToken` field **removed** from the response. No backwards-compatibility shim. (Phase B's irreversible break.)
+- `publicKey` input field **added** on the anonymous and invitation-backed paths (but NOT cross-join, where the actor already has authenticators).
+- Response shape: `{ clubId, membershipId, authenticatorId, club }`. The `authenticatorId` is informational — the agent already knows the public key it generated; the id is what gets put in `X-Authenticator-Id` headers on subsequent requests.
+- The `proof` block in today's response (used by pow-at-join's `clubs.prepareJoin` / `clubs.join` flow) is unchanged by Phase B — Phase B's change is orthogonal to how PoW is communicated.
 - Cross-join authenticated requests have no `publicKey` input (the actor already has authenticators) and no `authenticatorId` in the response (nothing new was created).
 
 ### 4.9. `setStatus(active)` — no mint, just state flip
@@ -226,6 +247,53 @@ The Phase A atomic transition now includes a fourth per-member step: flip `membe
 If the member has multiple `pending_admission` authenticators (shouldn't happen in normal flow but possible via bugs or the race), flip all of them. An activated member with stuck pending authenticators is a worse state than a small over-promotion.
 
 No credential is minted. No plaintext secret enters the response envelope. The response shape is unchanged from what it was before the abandoned §2.1 plan.
+
+### 4.10. Durable private-key storage — SDK owns it
+
+The single biggest risk in the §2.3 design is a naive implementation that keeps the private key in volatile agent-session memory. If the key dies when a conversation rolls, re-enrollment stops being a rare recovery flow and becomes the default return path — which is worse UX than today's lose-your-bearer scenario. The SDK MUST persist private keys durably by default, per host type. This is not an optional add-on; it is a first-class deliverable of the Phase B ship.
+
+**Host-type strategy.**
+
+- **Node / local CLI / server-side agents** (`claude-code`, self-hosters building agents with Node): persist to `$XDG_CONFIG_HOME/clawclub/keys/<memberId>.key` (or platform equivalent). Mode `0600`, owner-only. The SDK reads on start, writes on enrollment, refuses to run if the file permissions are wrong.
+- **Browser-hosted agents** (anything running in a web worker or a browser tab): persist to `IndexedDB` with an origin-scoped database. The key never leaves the browser. Fall back to `localStorage` only if IndexedDB is unavailable.
+- **Claude.ai / ChatGPT / hosted conversation contexts**: these platforms vary in what they expose. The SDK's strategy is (a) write the key's base64 representation into the conversation's Project-level persistent memory if available, (b) as a fallback, surface the key to the user ONCE with the same "save this in your password manager" guidance the legacy bearer flow used today. This fallback means the last-resort UX is no worse than today's bearer flow, but the primary path is Project-memory persistence where the platform supports it.
+- **Other custom agents**: the SDK exposes a pluggable `KeyStore` interface. Self-hosters who can't use any of the defaults above MUST implement their own; the SDK refuses to operate without one.
+
+**What the SDK delivers.**
+
+- A reference client package (TypeScript/JavaScript first, Python follow-up) that includes: Ed25519 keypair generation, canonical-request signing, signature verification helpers, and a default `KeyStore` implementation per host type above.
+- A compliance checklist for self-hosters who bring their own key storage: must survive process restart, must be readable only by the same member's agent, must not be logged, must be rotatable via `members.enrollAuthenticator`.
+- Integration tests that exercise each default `KeyStore` end-to-end.
+
+**What the SDK does NOT deliver.**
+
+- Biometric / hardware-backed storage (that's passkeys, ruled out in §2).
+- Cross-device key sync. Each device enrolls its own authenticator; the multi-authenticator model (§4.1) is the sync primitive.
+
+**Cost of getting this wrong.** If the SDK does not make durable storage the default, every cold-applicant agent re-roll becomes an admin-drag re-enrollment. That would make §2.3 strictly worse than today's bearer-with-paste-backup flow on the "casual user loses their conversation" axis. This is THE make-or-break implementation detail of Phase B.
+
+### 4.11. `/stream` — signed-auth handshake and passive revalidation
+
+The existing `/stream` endpoint (SSE activity / notifications / invalidation) today hard-requires a bearer in the `Authorization` header and periodically revalidates it via `validateBearerTokenPassive`. Under Phase B, signed-request auth MUST have an equivalent story — otherwise signed-auth members lose first-party update streams or inherit weaker revocation semantics than bearer users.
+
+**Signed-auth handshake on `GET /stream`.**
+
+- The client opens the stream with the same three signing headers used on every other request: `X-Authenticator-Id`, `X-Timestamp`, `X-Signature`. The canonical string covers `method + path + timestamp + sha256(body_or_empty)` — same primitive as every authenticated action, so the server verifies the stream-open exactly the same way it verifies any POST.
+- On successful verification the server resolves `authenticator → member`, opens the SSE connection, and stores the authenticator id alongside the connection in its per-process stream tracker.
+
+**Passive revalidation during the stream's lifetime.**
+
+- The server cannot replay the original signature forever — that would be a forgery. Instead, it periodically re-reads the authenticator row (already indexed by `authenticator_id`) on the same cadence `validateBearerTokenPassive` uses today. If the row is still `active` and not `revoked`, the stream continues. If the row is revoked or the member is banned/removed, the server closes the SSE connection with the same close frame it uses for revoked bearers today.
+- The revalidation query is keyed by `authenticator_id`, which is cheap (single-row lookup on a primary key). Cost is the same order of magnitude as today's bearer passive revalidation.
+
+**Bearer coexistence on `/stream`.**
+
+- A bearer presented on `/stream` continues to go through `validateBearerTokenPassive` unchanged. A signed-auth request goes through the new path. Same conflicting-auth rule as §4.3: if both are present, 401 `conflicting_auth` immediately.
+
+**What NOT to do.**
+
+- Do not issue a short-lived "stream session token" minted from the signed handshake. That re-introduces a server-minted credential the client has to manage, which is exactly what Phase B is trying to eliminate. Passive revalidation against the authenticator row is sufficient.
+- Do not skip the periodic revalidation. Without it, a revoked authenticator could keep its stream open indefinitely — which is strictly worse than bearer behavior today.
 
 ---
 
@@ -245,14 +313,16 @@ The free-club path and the paid-club path converge at the repository-layer trans
 
 Create `db/migrations/NNN_pubkey_authenticators.sql` using the next unused migration number. Apply via `scripts/migrate.sh`.
 
+**Note what this migration does NOT touch:** `consumed_pow_challenges` already exists from pow-at-join. The two-call anonymous flow already works. This migration is purely additive — two new tables for authenticator storage and re-enrollment grants, nothing else.
+
 ### 6.2. New tables
 
 ```sql
 create table public.member_authenticators (
   id              text primary key,
-  member_id       text not null references public.members(id) on delete cascade,
+  member_id       public.short_id not null references public.members(id) on delete cascade,
   alg             text not null check (alg = 'ed25519'),
-  public_key      bytea not null,
+  public_key      bytea not null check (octet_length(public_key) = 32),
   status          text not null check (status in ('pending_admission', 'active', 'revoked')),
   created_at      timestamptz not null default now(),
   last_used_at    timestamptz,
@@ -265,25 +335,39 @@ create unique index member_authenticators_pubkey_idx on public.member_authentica
 
 create table public.re_enrollment_grants (
   id              text primary key,
-  member_id       text not null references public.members(id) on delete cascade,
+  member_id       public.short_id not null references public.members(id) on delete cascade,
   code_hash       text not null,
   created_at      timestamptz not null default now(),
   expires_at      timestamptz not null,
   used_at         timestamptz,
-  created_by_member_id text not null references public.members(id),
+  created_by_member_id public.short_id not null references public.members(id),
   reason          text
 );
 create index re_enrollment_grants_member_idx on public.re_enrollment_grants (member_id);
 create unique index re_enrollment_grants_code_hash_idx on public.re_enrollment_grants (code_hash);
 ```
 
+Notes:
+
+- `public_key` is constrained to exactly 32 bytes at the DB layer (raw Ed25519 public key). Any other length is a bug, caught by the check constraint rather than deferred to runtime validation.
+- Short-id columns use `public.short_id` to match schema conventions across the repo (same discipline applied to `consumed_pow_challenges` under pow-at-join).
+- A re-enrollment grant restores the member's **whole account**, not just one club. That is intentional: the grant issuer is a clubadmin of at least one of the member's clubs, and the remedy is "bind a fresh keypair to this member's identity," which is a member-level operation. Narrower scope would be possible (restrict new authenticator's acceptable actions to one club) but adds complexity for no real security benefit — a re-enrolled member could trivially cross-join anyway, so a per-club grant just defers the same outcome by a round trip. Pinned: grants are member-wide.
+
 ### 6.3. Bearer-token migration story
 
-**Existing members keep their bearer tokens until they enroll.** The `member_bearer_tokens` table stays. The bearer auth path (§4.3 step 3) stays in the dispatch layer. An existing member can call `members.enrollAuthenticator` via their existing bearer to enroll their first Ed25519 authenticator; after enrollment, they can use either credential.
+**Existing members keep their bearer tokens until they enroll.** The `member_bearer_tokens` table stays. The bearer auth path (§4.3 step 3) stays in the dispatch layer. An existing member uses their existing bearer to call `members.enrollAuthenticator` — which accepts dual-auth during the migration window per §4.6 — and binds their first Ed25519 authenticator. After that, they can use either credential.
 
-**New members never receive bearers.** `clubs.join` inserts a `member_authenticators` row instead of a `member_bearer_tokens` row. The mint-at-admission code path in Phase A is replaced by the state-flip described in §4.9.
+**New members never receive bearers.** `clubs.join` inserts a `member_authenticators` row instead of a `member_bearer_tokens` row. The mint-at-admission code path from pow-at-join is replaced by the state-flip described in §4.9.
 
-**Legacy bearer deprecation is a future workstream, not this one.** Keep the coexistence model for however long makes sense. The `authenticator.createReEnrollmentGrant` primitive is available throughout, so a member who loses their bearer (the old-world stranded-bearer problem) can be rescued by admin granting them a re-enrollment code — they then enroll an Ed25519 authenticator and never use bearers again.
+**Legacy bearer deprecation is a future workstream, not this one.** Keep the coexistence model for however long makes sense. The `clubadmin.authenticators.createReEnrollmentGrant` primitive is available throughout, so a member who loses their bearer (the old-world stranded-bearer problem) can be rescued by admin granting them a re-enrollment code — they then enroll an Ed25519 authenticator and never use bearers again.
+
+The three pieces that together close the bootstrap:
+
+1. **Dual-auth `members.enrollAuthenticator`** (§4.6) lets a legacy-bearer holder enroll their first Ed25519 key.
+2. **`clubadmin.authenticators.createReEnrollmentGrant`** (§4.7) lets a member with no working credentials at all get back in.
+3. **Signed-auth `/stream` handshake** (§4.11) ensures migrated members don't lose the realtime side-channel as they switch credential kinds.
+
+All three must be live on day one of the Phase B deploy. Missing any one of them creates a stranded-member scenario.
 
 ### 6.4. Pre-cutover prod queries
 
@@ -395,6 +479,7 @@ Phase A has already rewritten the onboarding section. Phase B additionally:
 ### 10.4. Integration — enrollment and recovery
 
 - Member enrolls a second authenticator from an existing signed session. Both authenticators are valid for that member.
+- **Dual-auth `members.enrollAuthenticator`**: legacy-bearer-holding member enrolls their first Ed25519 authenticator using the bearer, not a signature. Succeeds. After enrollment, the same member can use either credential.
 - Member revokes one of their authenticators. That authenticator's signatures now return 401; the other still works.
 - Attempt to revoke the last active authenticator → 409 `would_lock_out_member`.
 - Admin creates a re-enrollment grant for a member in their club. Returned code is plaintext.
@@ -403,6 +488,22 @@ Phase A has already rewritten the onboarding section. Phase B additionally:
 - Attempt to use grant code a second time → 409 `grant_used`.
 - Grant expires (24h wall) → 410 `grant_expired`.
 - Recovery across Susan's scenario: a cold applicant loses their agent mid-application; admin grants re-enrollment; applicant's new agent enrolls; the original `applying` membership survives and can be submitted.
+- **Grant scope**: a re-enrollment grant issued by clubadmin-of-DogClub lets the member enroll an authenticator that works across ALL their clubs, not just DogClub. Assert the new authenticator authorizes actions in a second (unrelated) club the member was active in before re-enrollment.
+
+### 10.4.1. Integration — `/stream` signed-auth
+
+- Signed-auth handshake on `GET /stream` succeeds when headers are valid. Connection opens.
+- Invalid signature on `/stream` → 401, no SSE frames sent.
+- Expired timestamp on `/stream` → 401.
+- Revocation while stream is open: revoke the authenticator mid-stream; assert the server closes the connection with the revoked-credential close frame within one passive revalidation interval.
+- Conflicting-auth on `/stream`: present both `X-Signature` and `Authorization: Bearer` → 401 `conflicting_auth`, stream does not open.
+- Bearer-coexistence on `/stream`: legacy-bearer request still works; signed-auth request still works; they're independent paths.
+
+### 10.4.2. Integration — SDK durable-storage defaults
+
+- Node/CLI default `KeyStore`: generate + persist + restart-simulation → key retrievable. File mode is 0600 on POSIX.
+- Browser default `KeyStore`: generate + persist to IndexedDB + page-reload simulation → key retrievable.
+- `KeyStore` compliance assertions: any `KeyStore` implementation must survive the full enroll → restart → sign cycle without human intervention. Parameterized test over the provided implementations.
 
 ### 10.5. Integration — activation
 
@@ -429,16 +530,21 @@ Phase A has already rewritten the onboarding section. Phase B additionally:
 2. **Timestamp skew window is 5 min.** Replay outside window rejected.
 3. **No replay protection via nonce table on day one.** The 5-min window is the bound. If replay becomes a concern, add a short-TTL seen-timestamps cache keyed by `authenticator_id`.
 4. **Ed25519 only; no curve negotiation.** Single `alg` value in the table. Future algs require a schema change and an explicit migration, not a feature flag.
-5. **Public keys stored raw.** No plaintext private keys anywhere in the server code, logs, or DB.
+5. **Public keys stored raw.** No plaintext private keys anywhere in the server code, logs, or DB. `public_key` is constrained to exactly 32 bytes at the DB layer.
 6. **Re-enrollment grants are one-time, 24h TTL, hashed at rest.** Same discipline as bearer tokens today.
 7. **Re-enrollment does not auto-revoke existing authenticators.** Suspected compromise requires explicit admin revocation.
-8. **Conflicting-auth rejection is immediate.** A request with both signed and bearer headers returns 401 without trying either.
-9. **`member_authenticators.public_key` has a unique index.** Same public key cannot bind to two members.
-10. **`members.authenticators.revoke` prevents self-lockout.** Attempting to revoke the last `active` authenticator returns 409.
-11. **Rate limit on `clubs.join` and `members.enrollAuthenticatorFromGrant`.** Both are anonymous entry points with DB writes.
-12. **`pending_admission` authenticators are allowlisted to exactly three actions.** `session.getContext`, `clubs.onboard`, `clubs.applications.submit/.get`. No other action accepts them.
-13. **Bearer deprecation boundary is explicit.** The dispatch layer logs every bearer-authenticated request so we can observe adoption. Future cycle decides when to kill the fallback.
-14. **`createMemberDirect` and equivalent seed/bootstrap paths insert `member_authenticators` rows**, not `member_bearer_tokens`. Seed-data integrity is the regression net: after `reset-dev.sh`, every member has at least one `active` authenticator.
+8. **Re-enrollment grants restore member-wide identity, not a single club.** Documented behavior per §6.2.
+9. **Conflicting-auth rejection is immediate.** A request with both signed and bearer headers returns 401 without trying either. Applies on every authenticated surface AND on `/stream`.
+10. **`member_authenticators.public_key` has a unique index.** Same public key cannot bind to two members.
+11. **`members.authenticators.revoke` prevents self-lockout.** Attempting to revoke the last `active` authenticator returns 409.
+12. **Rate limit on `clubs.join` and `members.enrollAuthenticatorFromGrant`.** Both are anonymous entry points with DB writes. The shared anonymous bucket established by pow-at-join extends to `members.enrollAuthenticatorFromGrant`.
+13. **`pending_admission` authenticators are allowlisted to exactly three actions.** `session.getContext`, `clubs.onboard`, `clubs.applications.submit/.get`. No other action accepts them.
+14. **Dual-auth on `members.enrollAuthenticator` is time-bounded.** Bearer coexistence is a migration window, not a permanent feature. Once bearer deprecation lands, this action narrows to signed-request only.
+15. **`/stream` passive revalidation works for signed auth.** Revoked authenticators close their streams within one revalidation interval. Test explicitly asserts this.
+16. **Bearer deprecation boundary is explicit.** The dispatch layer logs every bearer-authenticated request so we can observe adoption. Future cycle decides when to kill the fallback.
+17. **`createMemberDirect` and equivalent seed/bootstrap paths insert `member_authenticators` rows**, not `member_bearer_tokens`. Seed-data integrity is the regression net: after `reset-dev.sh`, every member has at least one `active` authenticator.
+18. **SDK `KeyStore` refuses to operate without a storage backend.** The SDK MUST require the caller to either use one of the defaults or provide a `KeyStore` implementation. Running without persistent storage is rejected.
+19. **SDK key-file permissions are enforced.** The Node/CLI default `KeyStore` refuses to read a key file whose permissions are not owner-only (0600 on POSIX).
 
 ---
 
@@ -447,19 +553,20 @@ Phase A has already rewritten the onboarding section. Phase B additionally:
 ### 12.1. Implementation order
 
 1. **Signing module.** `src/signed-request.ts` — canonical-string builder, Ed25519 verify helper. Unit tests.
-2. **Migration.** `NNN_pubkey_authenticators.sql`. Test on scratch DB. Apply via `scripts/migrate.sh`.
+2. **Migration.** `NNN_pubkey_authenticators.sql` — add `member_authenticators` and `re_enrollment_grants` only. No changes to `consumed_pow_challenges` (already exists from pow-at-join). Test on scratch DB. Apply via `scripts/migrate.sh`.
 3. **Repository methods.** `createAuthenticator`, `findAuthenticatorById`, `activateAuthenticator`, `revokeAuthenticator`, `listAuthenticatorsForMember`, plus re-enrollment grant CRUD.
-4. **Dispatch-layer signed-auth path.** Add to `src/dispatch.ts`. Conflicting-auth rejection. Bearer fallback for legacy only.
-5. **`clubs.join`** response change. Pubkey in input for anonymous joins.
-6. **`clubs.applications.submit/.get`** — auth mode becomes `'member_pending_or_active'`. Input shape unchanged except legacy field removal.
-7. **`setStatus` / billing shared seam** — authenticator state flip wired in atomically with Phase A's notification fanout.
-8. **New actions.** `members.enrollAuthenticator`, `members.enrollAuthenticatorFromGrant`, `members.authenticators.list`, `members.authenticators.revoke`, `clubadmin.authenticators.createReEnrollmentGrant`.
-9. **SKILL.md and docs/design-decisions.md** updates. Same commit as code.
-10. **Reference client SDK.** Minimal TS/JS package for self-hosters. Python follow-up.
-11. **Integration tests.** §10.
-12. **Manual live-server dry run.** §10.6.
-13. **Pre-cutover prod queries.** §6.4.
-14. **Commit.** Bump `package.json`. **DO NOT push.** Present to Owen.
+4. **Dispatch-layer signed-auth path.** Add to `src/dispatch.ts`. Conflicting-auth rejection (bearer + signed together → 401). Bearer fallback for legacy only.
+5. **`/stream` signed-auth handshake and passive revalidation.** Per §4.11. Bearer coexistence on the same endpoint.
+6. **`clubs.join`** shape change. `publicKey` input added to anonymous and invitation-backed paths; server stores it in `member_authenticators` atomically with `members` / `club_memberships` inside the existing pow-at-join verification path. `memberToken` removed from response.
+7. **`clubs.applications.submit/.get`** — auth mode becomes `'member_pending_or_active'`. Input shape unchanged except legacy field removal.
+8. **`setStatus` / billing shared seam** — authenticator state flip wired in atomically with Phase A's notification fanout.
+9. **New actions.** `members.enrollAuthenticator` (dual-auth during migration window per §4.6), `members.enrollAuthenticatorFromGrant`, `members.authenticators.list`, `members.authenticators.revoke`, `clubadmin.authenticators.createReEnrollmentGrant`.
+10. **Reference client SDK** with default `KeyStore` implementations per §4.10. TS/JS first; Python follow-up post-ship.
+11. **SKILL.md and docs/design-decisions.md** updates. Same commit as code.
+12. **Integration tests.** §10 — including `/stream` and SDK defaults.
+13. **Manual live-server dry run.** §10.6.
+14. **Pre-cutover prod queries.** §6.4.
+15. **Commit.** Bump `package.json`. **DO NOT push.** Present to Owen.
 
 ### 12.2. Deploy
 
@@ -472,16 +579,34 @@ When authorized, push triggers Railway auto-deploy. Monitor:
 
 ### 12.3. Rollback
 
-`git revert` + push. Migration is additive; new tables stay but are unused. Legacy bearers unaffected.
+**Forward-fix is the preferred path.** The Phase B migration is additive (two new tables, no drops, no data rewrites of existing rows), so the usual "revert leaves a dropped table" problem from pow-at-join does not apply here. A `git revert` + push leaves `member_authenticators` and `re_enrollment_grants` in place but unused — harmless. Legacy bearer auth is unaffected because the bearer path was never removed, only joined by the signed-auth path.
+
+Specifically:
+
+- **Reverted code reads nothing it doesn't find.** Both new tables exist post-migration. The reverted server won't touch them.
+- **Legacy bearers keep working.** The dispatch-layer signed-auth path is additive; bearer handling is unchanged.
+- **`clubs.join`'s `memberToken` removal is the one breaking change** agents might notice. A reverted server re-emits `memberToken` for anonymous joins. That's fine — re-emission matches what the reverted server expects.
+
+The `/stream` signed-auth handshake is the subtlest rollback concern. A reverted server won't recognize `X-Signature` headers on `/stream`; clients already connected via signed auth will disconnect. They should reconnect using bearer. The SDK handles this automatically if both credentials are available; if not, the client's next action call will cleanly fall back.
+
+Pre-deploy ritual: snapshot the prod DB before applying the migration, keep it 24 hours past deploy. Same discipline as pow-at-join.
 
 ---
 
 ## 13. Open questions
 
 1. **SDK languages beyond TS/Python.** Go, Rust, Ruby? Decide at ship time based on anticipated self-hoster adoption.
-2. **Re-enrollment grant TTL.** 24h matches the PoW challenge wall. Flag to Owen if a different window is preferred.
-3. **Seed-data bootstrap keys.** Dev-DB seeding needs to produce valid Ed25519 keypairs for the canned test members. Use deterministic keys per member-id so tests are reproducible; document in `db/seeds/dev.sql` that these are test-only keys and should never be used for real members.
-4. **Bearer deprecation timeline.** Not this phase. Flag for a future cycle — needs telemetry on bearer usage before we decide when to kill it.
+2. **Seed-data bootstrap keys.** Dev-DB seeding needs to produce valid Ed25519 keypairs for the canned test members. Use deterministic keys per member-id so tests are reproducible; document in `db/seeds/dev.sql` that these are test-only keys and should never be used for real members.
+3. **Bearer deprecation timeline.** Not this phase. Flag for a future cycle — needs telemetry on bearer usage before we decide when to kill it.
+
+**Resolved (pinned):**
+
+- ~~Re-enrollment grant TTL.~~ 24h.
+- ~~Re-enrollment grant scope.~~ Member-wide, not per-club. See §6.2.
+- ~~Bootstrap contradiction for `members.enrollAuthenticator`.~~ Dual-auth during migration window, signed-only after bearer deprecation. See §4.6.
+- ~~`/stream` signed-auth design.~~ Signed handshake at connect; passive authenticator-row revalidation thereafter. See §4.11.
+- ~~Durable key storage in the SDK.~~ First-class deliverable, host-type-specific defaults. See §4.10.
+- ~~`public_key` length check.~~ DB-level constraint: exactly 32 bytes. See §6.2.
 
 ---
 
@@ -503,24 +628,32 @@ When authorized, push triggers Railway auto-deploy. Monitor:
 | No `tokenInstruction` / `lossWarning` in welcome copy | Under §2.3 there is no reusable secret to instruct the user to save. Phase A's welcome copy stays clean. |
 | SDK-first for self-hosters | Ship TS/JS + Python reference implementations. Don't make adopters implement from prose. |
 | `clubadmin.accessTokens.create` deprecated, not immediately removed | Phase B supersedes its purpose. Deletion follows bearer deprecation. |
+| Re-enrollment grant scope is member-wide, not per-club | Narrower scope would defer the same outcome by a round trip (member can cross-join anyway). Keep the model simple. |
+| Dual-auth `members.enrollAuthenticator` during migration window | Pure signed-request would create a bootstrap cycle for legacy-bearer-holding members with no authenticator. Dual-auth closes the cycle; narrowing to signed-only lands with bearer deprecation. |
+| `/stream` signed handshake + passive authenticator revalidation | SSE needs the same revocation story bearers have today. Replaying the handshake signature forever is wrong; re-reading the authenticator row is right. |
+| SDK is a first-class deliverable, not an afterthought | Without durable key storage in the default SDK, re-enrollment stops being a rare recovery flow and becomes the default cold-restart path. That would make §2.3 worse than today's bearer flow. |
+| `public_key` = exactly 32 bytes at the DB layer | Check constraint catches malformed inserts at the lowest level. Cheaper than runtime validation in every repository method. |
 
 ---
 
 ## 15. What "done" looks like
 
-- [ ] Migration written, tested against scratch DB, applied via `scripts/migrate.sh`.
-- [ ] `db/init.sql` updated.
-- [ ] `src/signed-request.ts` module with unit tests.
+- [ ] Migration written, tested against scratch DB, applied via `scripts/migrate.sh`. Additive only — `member_authenticators` + `re_enrollment_grants` tables. No changes to `consumed_pow_challenges` (already exists from pow-at-join).
+- [ ] `db/init.sql` updated. `public_key` check constraint enforces exactly 32 bytes.
+- [ ] `src/signed-request.ts` module with unit tests (canonical string, timestamp skew, Ed25519 verify).
 - [ ] Repository methods for authenticators and re-enrollment grants.
-- [ ] Dispatch-layer signed-auth path with bearer coexistence and conflicting-auth rejection.
-- [ ] `clubs.join` input/output updated; `memberToken` removed.
+- [ ] Dispatch-layer signed-auth path with bearer coexistence and conflicting-auth rejection (both on action dispatch AND on `/stream`).
+- [ ] `/stream` signed-auth handshake implemented; passive authenticator-row revalidation runs on the same cadence as today's bearer passive revalidation.
+- [ ] `clubs.join` shape: `publicKey` input added to anonymous and invitation-backed paths; `memberToken` removed from response; server writes `member_authenticators` row atomically with `members`/`club_memberships`.
 - [ ] `clubs.applications.submit/.get` accept signed auth including `pending_admission`.
 - [ ] `setStatus(active)` / billing shared seam flips authenticator state atomically with Phase A's fanout.
-- [ ] `members.enrollAuthenticator`, `members.enrollAuthenticatorFromGrant`, `members.authenticators.list`, `members.authenticators.revoke` implemented.
+- [ ] `members.enrollAuthenticator` (dual-auth during migration window), `members.enrollAuthenticatorFromGrant`, `members.authenticators.list`, `members.authenticators.revoke` implemented.
 - [ ] `clubadmin.authenticators.createReEnrollmentGrant` implemented.
+- [ ] Reference client SDK (TS/JS) published with default `KeyStore` implementations for Node/CLI and browser. Python follow-up queued.
+- [ ] SDK compliance test: generate → persist → restart → sign → verify cycles for each default `KeyStore`.
+- [ ] `createMemberDirect` and seed-data paths updated to create `member_authenticators` rows for every new member.
 - [ ] SKILL.md and `docs/design-decisions.md` updated in the same commit.
-- [ ] Reference client SDK (TS/JS) published alongside.
-- [ ] Integration tests pass, including bearer coexistence and re-enrollment flows.
+- [ ] Integration tests pass, including bearer coexistence, `/stream` signed auth, re-enrollment flows, and SDK `KeyStore` defaults.
 - [ ] Manual live-server dry run passes.
 - [ ] Pre-cutover prod queries reviewed.
 - [ ] `npm run check` and `npm run test:all` pass.
