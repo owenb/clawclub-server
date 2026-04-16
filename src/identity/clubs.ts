@@ -96,6 +96,8 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
     const clubId = clubResult.rows[0]?.club_id;
     if (!clubId) return null;
 
+    // Owner bootstrap is not an admission path, so it deliberately bypasses
+    // activation fanout and onboarding ceremony notifications.
     // Create owner's clubadmin membership + active state + comp.
     const ownerMsResult = await client.query<{ id: string }>(
       `insert into club_memberships (club_id, member_id, role, status, joined_at, metadata)
@@ -169,6 +171,9 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
     // 2. Ensure new owner has a live clubadmin membership. Historical terminal
     // rows are ignored now that re-application can create multiple records for
     // the same (member, club) pair over time.
+    // Ownership reassignment is bootstrap/admin surgery, not an admission path,
+    // so it deliberately bypasses activation fanout and onboarding ceremony
+    // notifications.
     const existingMs = await client.query<{ id: string }>(
       `select cnm.id
        from current_club_memberships cnm
