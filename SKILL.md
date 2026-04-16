@@ -236,17 +236,32 @@ Ask: what, when, where, remote/in-person, paid/unpaid, duration, why recommend i
 
 ## Mentions
 
-Both public posts and DMs support literal `[Display Name|memberId]` mentions inside plain-text fields (`title`, `summary`, `body` for `content.create` / `content.update`; `messageText` for `messages.send`). `memberId` is the 12-character short_id you get from any member-referencing response (mention spans, `members.searchByFullText`, `included.membersById`, etc.). The label portion is your authored display text for that member.
+The bracket syntax `[Display Name|memberId]` is a **wire-level encoding**, not something the human ever types or reads. The human talks to you in ordinary English ("tell Kevin thanks", "tagging the dalmatian guy", "welcome @kevin"). Your job is to recognise when they mean a specific club member, disambiguate in plain conversation, and silently emit the bracket form in the outgoing content. Never show the brackets to the human. Never ask them to type an id. Never echo the raw stored body of a post back in your reply if it contains brackets — rewrite it to the human-facing form first.
 
-The server resolves each mention at write time (existence check only — the id must refer to an existing member) and re-hydrates the mentioned member's current identity on every read, so recipients always see the latest `publicName` and `displayName` — even if the mentioned member has renamed since the content was written.
+**The workflow**
 
-**Use mentions silently** whenever it is crystal clear which specific member the human is referring to. No confirmation prompt, just write `[Alice Hound|a7k9m2p4q8r3]` inline. If the human is replying to Alice's post and says "tell her thanks", that mention is the right call and you should just do it.
+1. The human drafts a message or post in normal language, sometimes naming other members.
+2. Before you submit, scan the draft for any reference that might be a member: first names, full names, nicknames, "him/her", "the breeder I met".
+3. For each reference:
+   - Call `members.searchByFullText` (scoped to the relevant club for public content, or unscoped for DMs) to find candidates.
+   - **If exactly one match is obvious from context**, convert the reference silently without asking. Example: the human is replying to Alice's own post and says "tell her thanks" — just tag Alice, don't interrupt.
+   - **If there's any ambiguity** (multiple matches, partial name, nickname you haven't seen before), ask the human in plain English: "Do you mean Kevin Spots from DogClub?" Confirm with them. If they say yes, insert the mention silently on submit. If they say no or pick someone else, use that id instead. If they want it to stay as plain text, leave it alone.
+   - **If the reference clearly isn't a club member** (the human's dentist, a public figure, a company), leave it as plain text. Not everything is a tag.
+4. When you submit `content.create` / `content.update` / `messages.send`, the body field must contain `[Display Name|memberId]` for confirmed mentions and plain text for everything else. The `Display Name` portion is whatever the human wrote — "Kev", "Kevin", "Kevin Spots" — all fine, the server preserves it as `authoredLabel`.
 
-**Do NOT guess.** If the human says "tell Kevin I'm in" and you are not 100% sure *which* Kevin — maybe there are multiple Kevins in the club, maybe they mean someone who is not a member at all — leave the name as plain text (`Kevin`). Resolve the ambiguity with a members search first, or just write the name in plain text and let the human correct you. Mentioning the wrong member id misroutes the message, which is worse than not mentioning anyone.
+**When reading content back to the human**
 
-Unknown member ids return `invalid_input` — relay the error to the human, do not retry with a fabricated id.
+Responses include mention spans with `{ memberId, authoredLabel, start, end }` and an `included.membersById` bundle with each member's current `publicName` / `displayName`. When you quote or summarise content to the human, render mentions as the *current* display name (from `included`) — not as `authoredLabel` and definitely not as the raw bracket span. The human should see "Kevin Spots" or "@Kevin Spots", never "[Kevin Spots|xekjjcz5nyyx]".
 
-On read, mention-bearing responses include a per-field `mentions` array with `{ memberId, authoredLabel, start, end }` spans plus a deduplicated top-level `included.membersById` bundle with each member's current `publicName` and `displayName`. Use `memberId` for any follow-up action input (it is the stable identity). Treat `authoredLabel` as preserved author text — it may differ from the current `displayName` at `included.membersById[memberId]` if the mentioned member has since renamed.
+**Rules**
+
+- The bracket syntax is internal plumbing. The human never sees it and never types it.
+- Disambiguate in plain English. Don't paste `[Name|id]` into a confirmation prompt.
+- Better to leave a name as plain text than tag the wrong member. Mentioning the wrong id misroutes signal, which is worse than not mentioning anyone.
+- Unknown member ids return `invalid_mentions` — relay the meaning to the human, do not retry with a fabricated id.
+- The bracket syntax is distinct from markdown links `[text](url)` — the pipe `|` plus the fixed 12-char id format make them unambiguous; your parser never confuses them.
+
+**Wire-level shape (for reference, not for the human)**
 
 ```json
 {
@@ -267,7 +282,7 @@ On read, mention-bearing responses include a per-field `mentions` array with `{ 
 }
 ```
 
-The bracket syntax is distinct from markdown links `[text](url)` — the pipe separator `|` and the fixed 12-character id format make them unambiguous.
+The server resolves mentions at write time (existence check only — the id must refer to an existing member) and re-hydrates the mentioned member's current identity on every read. Recipients always see the latest display name, even after a rename.
 
 ## When To Clarify First
 
