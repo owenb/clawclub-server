@@ -40,29 +40,32 @@ export type MembershipSummary = {
   joinedAt: string;
 };
 
+export type MemberRef = {
+  memberId: string;
+  publicName: string;
+};
+
 export type MembershipVouchSummary = {
   edgeId: string;
-  fromMember: {
-    memberId: string;
-    publicName: string;
-  };
+  fromMember: MemberRef;
   reason: string;
   metadata: Record<string, unknown>;
   createdAt: string;
   createdByMemberId: string | null;
 };
 
+export type InlineMembershipVouchSummary = {
+  edgeId: string;
+  voucher: MemberRef;
+  reason: string;
+  createdAt: string;
+};
+
 export type MembershipAdminSummary = {
   membershipId: string;
   clubId: string;
-  member: {
-    memberId: string;
-    publicName: string;
-  };
-  sponsor: {
-    memberId: string;
-    publicName: string;
-  } | null;
+  member: MemberRef;
+  sponsor: MemberRef | null;
   role: 'clubadmin' | 'member';
   isOwner: boolean;
   state: {
@@ -91,14 +94,6 @@ export type CreateMembershipInput = {
     fields: ClubProfileFields;
     generationSource: 'application_generated' | 'membership_seed';
   };
-};
-
-export type MembershipReviewSummary = MembershipAdminSummary & {
-  sponsorStats: {
-    activeSponsoredCount: number;
-    sponsoredThisMonthCount: number;
-  };
-  vouches: MembershipVouchSummary[];
 };
 
 export type TransitionMembershipInput = {
@@ -181,28 +176,77 @@ export type ApplicationSummary = {
   };
 };
 
-export type MembershipApplicationAdminSummary = {
-  membership: MembershipAdminSummary;
-  club: {
-    clubId: string;
-    slug: string;
-    name: string;
-    summary: string | null;
-    admissionPolicy: string | null;
-    ownerName: string;
-    priceUsd: number | null;
+export type PublicMemberSummary = {
+  membershipId: string;
+  memberId: string;
+  publicName: string;
+  displayName: string;
+  tagline: string | null;
+  summary: string | null;
+  whatIDo: string | null;
+  knownFor: string | null;
+  servicesSummary: string | null;
+  websiteUrl: string | null;
+  links: ClubProfileLink[];
+  role: 'clubadmin' | 'member';
+  isOwner: boolean;
+  joinedAt: string;
+  sponsor: MemberRef | null;
+  vouches: InlineMembershipVouchSummary[];
+};
+
+export type AdminMemberSummary = PublicMemberSummary & {
+  isComped: boolean;
+  compedAt: string | null;
+  compedByMemberId: string | null;
+  approvedPriceAmount: number | null;
+  approvedPriceCurrency: string | null;
+  subscription: {
+    status: 'trialing' | 'active' | 'past_due' | 'cancelled' | 'ended';
+    currentPeriodEnd: string | null;
+    endedAt: string | null;
+  } | null;
+  acceptedCovenantAt: string | null;
+  leftAt: string | null;
+  state: {
+    status: MembershipState;
+    reason: string | null;
+    versionNo: number;
+    createdAt: string;
+    createdByMemberId: string | null;
   };
-  application: {
-    submissionPath: 'cold' | 'invitation' | 'cross_apply' | 'owner_nominated' | null;
-    proofKind: 'pow' | 'invitation' | 'none' | null;
-    appliedAt: string | null;
-    submittedAt: string | null;
-    applicationName: string | null;
-    applicationEmail: string | null;
-    applicationSocials: string | null;
-    applicationText: string | null;
-    generatedProfileDraft: Record<string, unknown> | null;
+};
+
+export type AdminApplicationSummary = {
+  membershipId: string;
+  memberId: string;
+  publicName: string;
+  displayName: string | null;
+  state: {
+    status: Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>;
+    reason: string | null;
+    versionNo: number;
+    createdAt: string;
+    createdByMemberId: string | null;
   };
+  appliedAt: string | null;
+  submittedAt: string | null;
+  applicationName: string | null;
+  applicationEmail: string | null;
+  applicationSocials: string | null;
+  applicationText: string | null;
+  proofKind: 'pow' | 'invitation' | 'none' | null;
+  submissionPath: 'cold' | 'invitation' | 'cross_apply' | 'owner_nominated' | null;
+  generatedProfileDraft: ClubProfileFields | null;
+  sponsor: MemberRef | null;
+  invitation: {
+    id: string;
+    reason: string | null;
+  } | null;
+  sponsorStats: {
+    activeSponsoredCount: number;
+    sponsoredThisMonthCount: number;
+  } | null;
 };
 
 export type IssueInvitationInput = {
@@ -366,19 +410,6 @@ export type MemberSearchResult = {
   servicesSummary: string | null;
   websiteUrl: string | null;
   sharedClubs: SharedClubRef[];
-};
-
-export type ClubMemberSummary = {
-  memberId: string;
-  publicName: string;
-  displayName: string;
-  tagline: string | null;
-  summary: string | null;
-  whatIDo: string | null;
-  knownFor: string | null;
-  servicesSummary: string | null;
-  websiteUrl: string | null;
-  memberships: MembershipSummary[];
 };
 
 export type ClubProfile = {
@@ -806,7 +837,7 @@ export type AdminOverview = {
   }>;
 };
 
-export type AdminMemberSummary = {
+export type SuperadminMemberSummary = {
   memberId: string;
   publicName: string;
   state: string;
@@ -815,7 +846,7 @@ export type AdminMemberSummary = {
   tokenCount: number;
 };
 
-export type AdminMemberDetail = {
+export type SuperadminMemberDetail = {
   memberId: string;
   publicName: string;
   displayName: string;
@@ -910,38 +941,60 @@ export type Repository = {
     invitationId: string;
     adminClubIds?: string[];
   }): Promise<InvitationSummary | null>;
-  getMembershipApplication?(input: {
-    actorMemberId: string;
-    membershipId: string;
-    accessibleClubIds: string[];
-  }): Promise<MembershipApplicationAdminSummary | null>;
   listClubs?(input: { actorMemberId: string; includeArchived: boolean }): Promise<ClubSummary[]>;
   createClub?(input: CreateClubInput): Promise<ClubSummary | null>;
   archiveClub?(input: ArchiveClubInput): Promise<ClubSummary | null>;
   assignClubOwner?(input: AssignClubOwnerInput): Promise<ClubSummary | null>;
   updateClub?(input: UpdateClubInput): Promise<ClubSummary | null>;
-  listMemberships(input: {
-    actorMemberId: string;
-    clubIds: string[];
-    limit: number;
-    status?: MembershipState;
-    cursor?: { stateCreatedAt: string; id: string } | null;
-  }): Promise<Paginated<MembershipAdminSummary>>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
-  listMembershipReviews(input: {
-    actorMemberId: string;
-    clubIds: string[];
-    limit: number;
-    statuses: MembershipState[];
-    cursor?: { stateCreatedAt: string; id: string } | null;
-  }): Promise<Paginated<MembershipReviewSummary>>;
   listMembers(input: {
     actorMemberId: string;
     clubId: string;
     limit: number;
-    cursor?: { joinedAt: string; memberId: string } | null;
-  }): Promise<Paginated<ClubMemberSummary>>;
+    cursor?: { joinedAt: string; membershipId: string } | null;
+  }): Promise<Paginated<PublicMemberSummary>>;
+  getMember(input: {
+    actorMemberId: string;
+    clubId: string;
+    memberId: string;
+  }): Promise<PublicMemberSummary | null>;
+  listAdminMembers(input: {
+    actorMemberId: string;
+    clubId: string;
+    limit: number;
+    statuses?: Extract<MembershipState, 'active' | 'renewal_pending' | 'cancelled'>[] | null;
+    roles?: Array<'clubadmin' | 'member'> | null;
+    cursor?: { joinedAt: string; membershipId: string } | null;
+  }): Promise<Paginated<AdminMemberSummary>>;
+  getAdminMember(input: {
+    actorMemberId: string;
+    clubId: string;
+    membershipId: string;
+  }): Promise<AdminMemberSummary | null>;
+  listAdminApplications?(input: {
+    actorMemberId: string;
+    clubId: string;
+    limit: number;
+    statuses?: Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>[] | null;
+    cursor?: { stateCreatedAt: string; membershipId: string } | null;
+  }): Promise<Paginated<AdminApplicationSummary>>;
+  getAdminApplication?(input: {
+    actorMemberId: string;
+    clubId: string;
+    membershipId: string;
+  }): Promise<{
+    club: {
+      clubId: string;
+      slug: string;
+      name: string;
+      summary: string | null;
+      admissionPolicy: string | null;
+      ownerName: string | null;
+      priceUsd: number | null;
+    };
+    application: AdminApplicationSummary;
+  } | null>;
   buildMembershipSeedProfile?(input: {
     memberId: string;
     clubId: string;
@@ -1064,8 +1117,8 @@ export type Repository = {
     };
   }): Promise<MembershipAdminSummary | null>;
   adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
-  adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminMemberSummary>>;
-  adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<AdminMemberDetail | null>;
+  adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<SuperadminMemberSummary>>;
+  adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<SuperadminMemberDetail | null>;
   adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
   adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<WithIncluded<Paginated<AdminContentSummary>>>;
   adminListThreads?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminThreadSummary>>;

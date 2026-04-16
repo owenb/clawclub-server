@@ -33,7 +33,7 @@ The schema includes a `schemaHash`. Cache per base URL for the current session. 
 4. **Notification worklist drain** — `notifications.list` with `{ limit, after }` until `nextAfter === null`
 5. **Real-time** — `GET {baseUrl}/stream?after=latest`
 
-> **Club admins:** new submitted applications appear automatically as derived `application.submitted` notifications in the worklist (items 2 and 4 above, or the real-time stream) — no need to poll `clubadmin.memberships.listForReview` on a schedule. When one appears, use the notification's `ref.membershipId` directly with `clubadmin.memberships.get`.
+> **Club admins:** new submitted applications appear automatically as derived `application.submitted` notifications in the worklist (items 2 and 4 above, or the real-time stream) — no need to poll `clubadmin.applications.list` on a schedule. When one appears, use the notification's `ref.membershipId` directly with `clubadmin.applications.get`.
 
 After processing:
 - call `messages.acknowledge` with `threadId` to mark a DM thread read
@@ -87,11 +87,15 @@ Anonymous `clubs.join` is not idempotent. Save `memberToken` immediately. Losing
 **Admin review**
 
 Club admins review applications through:
-- `clubadmin.memberships.listForReview`
-- `clubadmin.memberships.get`
+- `clubadmin.applications.list`
+- `clubadmin.applications.get`
+- `clubadmin.members.list`
+- `clubadmin.members.get`
 - `clubadmin.memberships.setStatus`
 
-The derived notification for a newly submitted application is `application.submitted`. Use its `ref.membershipId` directly with `clubadmin.memberships.get`.
+The derived notification for a newly submitted application is `application.submitted`. Use its `ref.membershipId` directly with `clubadmin.applications.get`.
+
+Members receive a materialized `vouch.received` notification when someone vouches for them. Relay `payload.message` verbatim, then acknowledge it with `notifications.acknowledge`.
 
 **Drafting rule**
 
@@ -194,7 +198,7 @@ Treat conversation as the interface. Never expose raw CRUD to the human. Turn pl
 - Use club context when composing DMs or posts
 - If a human asks to join a club, use the unified `clubs.join` → `clubs.applications.submit` flow
 - If a club admin asks to review applicants, use the `clubadmin.*` actions (check `isOwner` or `role: 'clubadmin'` in `session.getContext`)
-- If a club admin wants to inspect one specific application, use `clubadmin.memberships.get` directly instead of list-and-filter
+- If a club admin wants to inspect one specific application, use `clubadmin.applications.get` directly instead of list-and-filter
 
 ## Club awareness
 

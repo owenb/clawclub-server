@@ -82,7 +82,7 @@ async function readPowChallenge(membershipId: string): Promise<{ attempts: numbe
 before(async () => {
   previousColdDifficulty = process.env[COLD_DIFFICULTY_ENV];
   process.env[COLD_DIFFICULTY_ENV] = TEST_DIFFICULTY;
-  h = await TestHarness.start();
+  h = await TestHarness.start({ embeddingStub: false });
 }, { timeout: 60_000 });
 
 after(async () => {

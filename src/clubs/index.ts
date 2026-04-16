@@ -29,7 +29,7 @@ export { appendClubActivity } from './entities.ts';
 
 // ── Vouches ─────────────────────────────────────────────────
 
-export async function createVouch(pool: Pool, input: {
+export async function createVouch(db: Pool | DbClient, input: {
   actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null;
 }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null> {
   // Membership verification happens in the composition layer (postgres.ts).
@@ -37,7 +37,7 @@ export async function createVouch(pool: Pool, input: {
 
   // If clientKey provided, check for replay/conflict first
   if (input.clientKey) {
-    const existing = await pool.query<{
+    const existing = await db.query<{
       id: string; from_member_id: string; to_member_id: string; club_id: string;
       reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
       from_public_name: string | null;
@@ -69,7 +69,7 @@ export async function createVouch(pool: Pool, input: {
   }
 
   try {
-    const result = await pool.query<{
+      const result = await db.query<{
       id: string; from_member_id: string; from_public_name: string;
       reason: string; metadata: Record<string, unknown>; created_at: string; created_by_member_id: string | null;
     }>(

@@ -8,7 +8,7 @@
  *   - Wire schemas (input/output shapes for docs and schema endpoint)
  *   - Parse schemas (runtime normalization with transforms/defaults)
  *   - Handler functions
- *   - Quality gate and capability requirements
+ *   - LLM gate and capability requirements
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
@@ -41,7 +41,6 @@ export type RepositoryCapability =
   | 'issueInvitation'
   | 'listIssuedInvitations'
   | 'revokeInvitation'
-  | 'getMembershipApplication'
   | 'listClubs'
   | 'createClub'
   | 'archiveClub'

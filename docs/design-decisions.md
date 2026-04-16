@@ -154,7 +154,7 @@ Examples:
 - vouching is peer-to-peer endorsement between existing members in the same club, created via `vouches.create` and stored as `vouched_for` edges in `club_edges`
 - one active vouch per (actor, target) pair per club, enforced by partial unique index
 - self-vouching prevented by DB CHECK constraint
-- vouches surface in `vouches.list` (any member) and `clubadmin.memberships.listForReview` (clubadmins)
+- vouches surface in `vouches.list` (any member), `members.list/get`, and `clubadmin.members.list/get`
 - membership applications are states on `club_memberships`, not a separate admissions entity
 - there is one public join action: `clubs.join`
   - anonymous callers provide `clubSlug` + `email`
@@ -232,10 +232,11 @@ The authenticated response envelope piggybacks the head of the notification queu
 `member_notifications` is the general-purpose transport primitive for targeted, system-generated notifications. Any code path that needs to tell a specific member something — billing, moderation, membership state transitions, synchronicity — inserts a row and the notification worklist delivers it.
 
 Design decisions:
-- notifications are not DMs: no sender, no thread, no reply expected. They are structured data for the agent, not human-readable messages
+- notifications are not DMs: no sender, no thread, no reply expected. They are targeted work items for the agent
 - notifications are not club_activity: activity is broadcast to all members; notifications are targeted to one specific recipient
-- payloads are ID-first: stable identifiers + score + author identity. No denormalized entity titles or summaries — agents fetch current details via entity IDs, so removed/edited content never leaks through stale payloads
+- payloads are usually ID-first, but some topics deliberately include server-authored prose for verbatim relay (`welcome`, `headsUp`, `vouch.received`)
 - acknowledgement is durable: `acknowledged_state` is `processed` or `suppressed` with a `suppression_reason`, not just a boolean. This data drives match quality tuning
+- derived `application.*` notifications are intentionally not acknowledgeable; materialized topics like `synchronicity.*` and `vouch.received` are acknowledgeable by default
 - NOTIFY trigger fires on the unified `stream` channel for SSE wakeup
 - unique partial index on `match_id` prevents duplicate materialized notifications on crash-retry
 
@@ -346,7 +347,9 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - `superadmin.clubs.list/create/archive/assignOwner/update`
 - `superadmin.platform.getOverview/members.list/members.get/clubs.getStatistics/content.list/diagnostics.getHealth`
 - `superadmin.messages.listThreads/messages.getThread/accessTokens.list/accessTokens.revoke`
-- `clubadmin.memberships.list/listForReview/create/get/setStatus`
+- `clubadmin.members.list/get`
+- `clubadmin.applications.list/get`
+- `clubadmin.memberships.create/setStatus`
 - `clubadmin.members.promote/demote`
 - `clubadmin.clubs.getStatistics`
 - `clubadmin.content.remove`

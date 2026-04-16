@@ -108,6 +108,19 @@ export type SeededInvitation = {
   revokedAt: string | null;
 };
 
+export type LeakAuditContext = {
+  testClub: SeededClub;
+  regularMember: SeededMember & { membership: SeededMembership };
+  otherMember: SeededMember & { membership: SeededMembership };
+  applicant: SeededMember & { membership: SeededMembership };
+  otherClub: SeededClub;
+  ownApplicationMembership: SeededMembership;
+  contentThreadId: string;
+  contentEntityId: string;
+  dmThreadId: string;
+  invitation: SeededInvitation;
+};
+
 type SeedClubMembershipStatus =
   | 'active'
   | 'renewal_pending'
@@ -158,6 +171,7 @@ export class TestHarness {
   private httpServer: ReturnType<typeof createServer>['server'];
   private shutdown: () => Promise<void>;
   port: number;
+  private previousEmbeddingStub: string | undefined;
 
   private constructor(
     pools: { super: Pool; app: Pool },
@@ -165,16 +179,28 @@ export class TestHarness {
     httpServer: ReturnType<typeof createServer>['server'],
     shutdown: () => Promise<void>,
     port: number,
+    previousEmbeddingStub: string | undefined,
   ) {
     this.pools = pools;
     this.dbName = dbName;
     this.httpServer = httpServer;
     this.shutdown = shutdown;
     this.port = port;
+    this.previousEmbeddingStub = previousEmbeddingStub;
   }
 
-  static async start(options: { llmGate?: LlmGateFn; streamScopeRefreshMs?: number } = {}): Promise<TestHarness> {
+  static async start(options: {
+    llmGate?: LlmGateFn;
+    streamScopeRefreshMs?: number;
+    embeddingStub?: boolean;
+  } = {}): Promise<TestHarness> {
     const dbName = createDbName();
+    const previousEmbeddingStub = process.env.CLAWCLUB_EMBEDDING_STUB;
+    if (options.embeddingStub ?? true) {
+      process.env.CLAWCLUB_EMBEDDING_STUB = '1';
+    } else if (previousEmbeddingStub === undefined) {
+      delete process.env.CLAWCLUB_EMBEDDING_STUB;
+    }
 
     // 1. Create database (terminate stale connections first)
     const bootstrapPool = new Pool({ connectionString: 'postgresql://localhost/postgres' });
@@ -238,6 +264,7 @@ export class TestHarness {
       serverInstance.server,
       serverInstance.shutdown,
       port,
+      previousEmbeddingStub,
     );
   }
 
@@ -255,6 +282,11 @@ export class TestHarness {
       await bootstrapPool.query(`DROP DATABASE IF EXISTS ${this.dbName}`);
     } finally {
       await bootstrapPool.end();
+      if (this.previousEmbeddingStub === undefined) {
+        delete process.env.CLAWCLUB_EMBEDDING_STUB;
+      } else {
+        process.env.CLAWCLUB_EMBEDDING_STUB = this.previousEmbeddingStub;
+      }
     }
   }
 
@@ -971,6 +1003,84 @@ export class TestHarness {
     const member = await this.seedMember(publicName);
     const membership = await this.seedPendingMembership(clubId, member.id, options);
     return { ...member, membership };
+  }
+
+  async seedLeakAuditScenario(): Promise<LeakAuditContext> {
+    const owner = await this.seedOwner('leak-audit-club', 'Leak Audit Club');
+    const regularMember = await this.seedCompedMember(owner.club.id, 'Leak Audit Caller');
+    const otherMember = await this.seedCompedMember(owner.club.id, 'Leak Audit Other');
+    const applicant = await this.seedPendingMember(owner.club.id, 'Leak Audit Applicant', {
+      status: 'submitted',
+      submissionPath: 'cold',
+      proofKind: 'pow',
+      applicationEmail: 'applicant@leak-audit.test',
+      applicationName: 'Leak Audit Applicant',
+      applicationSocials: '@leak-applicant',
+      applicationText: 'This should never leak to regular members.',
+      generatedProfileDraft: {
+        tagline: 'Draft tagline',
+        summary: null,
+        whatIDo: null,
+        knownFor: null,
+        servicesSummary: null,
+        websiteUrl: null,
+        links: [],
+      },
+    });
+    const otherClubOwner = await this.seedOwner('leak-audit-other-club', 'Leak Audit Other Club');
+    const ownApplicationMembership = await this.seedPendingMembership(otherClubOwner.club.id, regularMember.id, {
+      status: 'submitted',
+      submissionPath: 'cross_apply',
+      proofKind: 'pow',
+      applicationEmail: 'caller@leak-audit.test',
+      applicationName: 'Leak Audit Caller',
+      applicationSocials: '@caller',
+      applicationText: 'Own application content',
+      generatedProfileDraft: {
+        tagline: 'Own draft tagline',
+        summary: null,
+        whatIDo: null,
+        knownFor: null,
+        servicesSummary: null,
+        websiteUrl: null,
+        links: [],
+      },
+    });
+
+    const content = await this.apiOk(regularMember.token, 'content.create', {
+      clubId: owner.club.id,
+      kind: 'ask',
+      title: 'Leak audit thread',
+      body: 'Leak audit content body',
+    });
+    const entity = ((content.data as Record<string, unknown>).entity ?? {}) as Record<string, unknown>;
+    const message = await this.apiOk(regularMember.token, 'messages.send', {
+      recipientMemberId: otherMember.id,
+      messageText: 'Leak audit DM',
+    });
+    const messageData = ((message.data as Record<string, unknown>).message ?? {}) as Record<string, unknown>;
+    const invitation = await this.seedInvitation(owner.club.id, regularMember.id, 'invitee@leak-audit.test', {
+      candidateName: 'Leak Audit Invitee',
+    });
+
+    await this.apiOk(otherMember.token, 'vouches.create', {
+      clubId: owner.club.id,
+      memberId: regularMember.id,
+      reason: 'Known to follow through.',
+    });
+
+    return {
+      testClub: owner.club,
+      regularMember,
+      otherMember,
+      applicant,
+      otherClub: otherClubOwner.club,
+      ownApplicationMembership,
+      contentThreadId: String(entity.contentThreadId),
+      contentEntityId: String(entity.entityId),
+      dmThreadId: String(messageData.threadId),
+      invitation,
+    };
   }
 
   // ── GET endpoints ──

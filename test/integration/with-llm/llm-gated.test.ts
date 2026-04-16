@@ -17,7 +17,7 @@ import { TestHarness } from '../harness.ts';
 let h: TestHarness;
 
 before(async () => {
-  h = await TestHarness.start();
+  h = await TestHarness.start({ embeddingStub: false });
 }, { timeout: 60_000 });
 
 after(async () => {

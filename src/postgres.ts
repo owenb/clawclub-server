@@ -9,9 +9,11 @@
 import type { Pool } from 'pg';
 import {
   AppError,
+  type SuperadminMemberSummary,
   type Repository,
   type EntitySummary,
   type MembershipVouchSummary,
+  type PublicMemberSummary,
   type IncludedBundle,
   type IncludedMember,
   type MessageFramePayload,
@@ -21,7 +23,8 @@ import {
 import { withTransaction } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
-import { createClubsRepository, batchListVouches, type ClubsRepository } from './clubs/index.ts';
+import { createClubsRepository, batchListVouches, createVouch as createClubVouch, type ClubsRepository } from './clubs/index.ts';
+import { buildVouchReceivedMessage } from './clubs/welcome.ts';
 import * as unifiedClubs from './clubs/unified.ts';
 import {
   emptyIncludedBundle,
@@ -39,6 +42,7 @@ import {
   NOTIFICATIONS_PAGE_SIZE,
   encodeNotificationCursor,
   decodeNotificationCursor,
+  splitNotificationId,
 } from './notifications-core.ts';
 
 // ── Enrichment helpers ──────────────────────────────────────
@@ -54,6 +58,18 @@ function mapVouchToSummary(v: { edgeId: string; fromMemberId: string; fromPublic
   };
 }
 
+function mapInlineVouch(v: { edgeId: string; fromMemberId: string; fromPublicName: string; reason: string; createdAt: string }) {
+  return {
+    edgeId: v.edgeId,
+    voucher: {
+      memberId: v.fromMemberId,
+      publicName: v.fromPublicName,
+    },
+    reason: v.reason,
+    createdAt: v.createdAt,
+  };
+}
+
 function mergeIncludedById(...bundles: IncludedBundle[]): IncludedBundle {
   const membersById: Record<string, IncludedMember> = {};
   for (const bundle of bundles) {
@@ -64,17 +80,6 @@ function mergeIncludedById(...bundles: IncludedBundle[]): IncludedBundle {
 
 function buildNotificationId(kind: string, primaryRef: string): string {
   return `${kind}:${primaryRef}`;
-}
-
-function splitNotificationId(notificationId: string): { kind: string; primaryRef: string } | null {
-  const separator = notificationId.lastIndexOf(':');
-  if (separator <= 0 || separator === notificationId.length - 1) {
-    return null;
-  }
-  return {
-    kind: notificationId.slice(0, separator),
-    primaryRef: notificationId.slice(separator + 1),
-  };
 }
 
 function encodeInboxCursor(createdAt: string, inboxEntryId: string): string {
@@ -621,34 +626,64 @@ export function createRepository(pool: Pool): Repository {
     updateClub: (input) => identity.updateClub(input),
 
     // ── Memberships ────────────────────────────────────────
-    listMemberships: (input) => identity.listMemberships(input),
     createMembership: (input) => identity.createMembership(input),
     transitionMembershipState: (input) => identity.transitionMembershipState(input),
-    listMembers: (input) => identity.listMembers(input),
-    promoteMemberToAdmin: (input) => identity.promoteMemberToAdmin!(input),
-    demoteMemberFromAdmin: (input) => identity.demoteMemberFromAdmin!(input),
-
-    async listMembershipReviews(input) {
-      const paginated = await identity.listMembershipReviews(input);
+    async listMembers(input) {
+      const paginated = await identity.listMembers(input);
       if (paginated.results.length === 0) return paginated;
 
-      // Batch-load vouches for all target members on the page in one query.
-      // Reviews are always scoped to a single club (clubIds comes from the action's clubId).
-      const clubId = paginated.results[0].clubId;
-      const targetMemberIds = [...new Set(paginated.results.map(r => r.member.memberId))];
       const vouchMap = await batchListVouches(pool, {
-        clubId,
-        targetMemberIds,
+        clubId: input.clubId,
+        targetMemberIds: [...new Set(paginated.results.map((row) => row.memberId))],
         perTargetLimit: 50,
       });
-
-      for (const review of paginated.results) {
-        const rawVouches = vouchMap.get(review.member.memberId) ?? [];
-        review.vouches = rawVouches.map(mapVouchToSummary);
+      for (const row of paginated.results) {
+        row.vouches = (vouchMap.get(row.memberId) ?? []).map(mapInlineVouch);
       }
-
       return paginated;
     },
+    async getMember(input) {
+      const summary = await identity.getMember(input);
+      if (!summary) return null;
+
+      const vouchMap = await batchListVouches(pool, {
+        clubId: input.clubId,
+        targetMemberIds: [summary.memberId],
+        perTargetLimit: 50,
+      });
+      summary.vouches = (vouchMap.get(summary.memberId) ?? []).map(mapInlineVouch);
+      return summary;
+    },
+    async listAdminMembers(input) {
+      const paginated = await identity.listAdminMembers(input);
+      if (paginated.results.length === 0) return paginated;
+
+      const vouchMap = await batchListVouches(pool, {
+        clubId: input.clubId,
+        targetMemberIds: [...new Set(paginated.results.map((row) => row.memberId))],
+        perTargetLimit: 50,
+      });
+      for (const row of paginated.results) {
+        row.vouches = (vouchMap.get(row.memberId) ?? []).map(mapInlineVouch);
+      }
+      return paginated;
+    },
+    async getAdminMember(input) {
+      const summary = await identity.getAdminMember(input);
+      if (!summary) return null;
+
+      const vouchMap = await batchListVouches(pool, {
+        clubId: input.clubId,
+        targetMemberIds: [summary.memberId],
+        perTargetLimit: 50,
+      });
+      summary.vouches = (vouchMap.get(summary.memberId) ?? []).map(mapInlineVouch);
+      return summary;
+    },
+    listAdminApplications: (input) => identity.listAdminApplications(input),
+    getAdminApplication: (input) => identity.getAdminApplication(input),
+    promoteMemberToAdmin: (input) => identity.promoteMemberToAdmin!(input),
+    demoteMemberFromAdmin: (input) => identity.demoteMemberFromAdmin!(input),
 
     // ── Profiles ───────────────────────────────────────────
     listMemberProfiles: ({ actorMemberId, targetMemberId, actorClubIds, clubId }) => {
@@ -722,19 +757,55 @@ export function createRepository(pool: Pool): Repository {
 
     // ── Vouches ──────────────────────────────────────────
     async createVouch(input) {
-      // Verify the target member has an accessible membership in this club (identity check)
-      const targetCheck = await pool.query<{ ok: boolean }>(
-        `select exists(
-           select 1 from accessible_club_memberships
-           where member_id = $1 and club_id = $2
-         ) as ok`,
-        [input.targetMemberId, input.clubId],
-      );
-      if (!targetCheck.rows[0]?.ok) return null;
+      return withTransaction(pool, async (client) => {
+        const targetCheck = await client.query<{ ok: boolean }>(
+          `select exists(
+             select 1 from accessible_club_memberships
+             where member_id = $1 and club_id = $2
+           ) as ok`,
+          [input.targetMemberId, input.clubId],
+        );
+        if (!targetCheck.rows[0]?.ok) return null;
 
-      const raw = await clubs.createVouch(input);
-      if (!raw) return null;
-      return mapVouchToSummary(raw);
+        const raw = await createClubVouch(client, input);
+        if (!raw) return null;
+
+        const club = await client.query<{ slug: string; name: string }>(
+          `select slug, name from clubs where id = $1 limit 1`,
+          [input.clubId],
+        );
+        const clubRow = club.rows[0];
+        if (clubRow) {
+          const message = buildVouchReceivedMessage({
+            voucherPublicName: raw.fromPublicName,
+            clubName: clubRow.name,
+            clubId: input.clubId,
+            vouchedMemberId: input.targetMemberId,
+            reason: raw.reason,
+          });
+          await client.query(
+            `insert into member_notifications (club_id, recipient_member_id, topic, payload, match_id)
+             values ($1, $2, 'vouch.received', $3::jsonb, $4)
+             on conflict (match_id) where match_id is not null do nothing`,
+            [input.clubId, input.targetMemberId, JSON.stringify({
+              voucher: {
+                memberId: raw.fromMemberId,
+                publicName: raw.fromPublicName,
+              },
+              club: {
+                clubId: input.clubId,
+                slug: clubRow.slug,
+                name: clubRow.name,
+              },
+              reason: raw.reason,
+              createdAt: raw.createdAt,
+              message,
+            }), raw.edgeId],
+          );
+        }
+
+        return mapVouchToSummary(raw);
+      });
     },
 
     async listVouches(input) {
@@ -756,12 +827,6 @@ export function createRepository(pool: Pool): Repository {
     submitClubApplication: (input) => unifiedClubs.submitClubApplication(pool, input),
     getClubApplication: (input) => unifiedClubs.getClubApplication(pool, input.actorMemberId, input.membershipId),
     listClubApplications: (input) => unifiedClubs.listClubApplications(pool, input),
-    getMembershipApplication: (input) => unifiedClubs.getMembershipApplication(
-      pool,
-      input.actorMemberId,
-      input.membershipId,
-      input.accessibleClubIds,
-    ),
     startMembershipCheckout: (input) => unifiedClubs.startMembershipCheckout(pool, input),
     issueInvitation: (input) => unifiedClubs.issueInvitation(pool, input),
     listIssuedInvitations: (input) => unifiedClubs.listIssuedInvitations(pool, input),
@@ -972,7 +1037,7 @@ export function createRepository(pool: Pool): Repository {
             const parsed = splitNotificationId(notificationId);
             if (!parsed) return null;
             const { kind, primaryRef: rowId } = parsed;
-            if (!kind.startsWith('synchronicity.') || rowId.length === 0) return null;
+            if (kind.startsWith('application.') || rowId.length === 0) return null;
             return rowId;
           })
           .filter((rowId): rowId is string => rowId !== null);
@@ -1110,7 +1175,7 @@ export function createRepository(pool: Pool): Repository {
         [cursor?.createdAt ?? null, cursor?.id ?? null, fetchLimit],
       );
 
-      const rows = result.rows.map((r) => ({
+      const rows: SuperadminMemberSummary[] = result.rows.map((r) => ({
         memberId: r.member_id, publicName: r.public_name,
         state: r.state, createdAt: r.created_at,
         membershipCount: r.membership_count, tokenCount: r.token_count,

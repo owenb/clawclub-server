@@ -90,12 +90,11 @@ export const vouchSummary = z.object({
   createdByMemberId: z.string().nullable(),
 });
 
-export const membershipReviewSummary = membershipAdminSummary.extend({
-  sponsorStats: z.object({
-    activeSponsoredCount: z.number(),
-    sponsoredThisMonthCount: z.number(),
-  }),
-  vouches: z.array(vouchSummary),
+export const inlineVouchSummary = z.object({
+  edgeId: z.string(),
+  voucher: memberRef,
+  reason: z.string(),
+  createdAt: z.string(),
 });
 
 export const clubJoinResult = z.object({
@@ -173,31 +172,24 @@ export const invitationSummary = z.object({
   createdAt: z.string(),
 });
 
-export const membershipApplicationAdminSummary = z.object({
-  membership: membershipAdminSummary,
-  club: z.object({
-    clubId: z.string(),
-    slug: z.string(),
-    name: z.string(),
-    summary: z.string().nullable(),
-    admissionPolicy: z.string().nullable(),
-    ownerName: z.string(),
-    priceUsd: z.number().nullable(),
-  }),
-  application: z.object({
-    submissionPath: z.enum(['cold', 'invitation', 'cross_apply', 'owner_nominated']).nullable(),
-    proofKind: z.enum(['pow', 'invitation', 'none']).nullable(),
-    appliedAt: z.string().nullable(),
-    submittedAt: z.string().nullable(),
-    applicationName: z.string().nullable(),
-    applicationEmail: z.string().nullable(),
-    applicationSocials: z.string().nullable(),
-    applicationText: z.string().nullable(),
-    generatedProfileDraft: z.record(z.string(), z.unknown()).nullable(),
-  }),
+export const publicMemberSummary = z.object({
+  membershipId: z.string(),
+  memberId: z.string(),
+  publicName: z.string(),
+  displayName: z.string(),
+  tagline: z.string().nullable(),
+  summary: z.string().nullable(),
+  whatIDo: z.string().nullable(),
+  knownFor: z.string().nullable(),
+  servicesSummary: z.string().nullable(),
+  websiteUrl: z.string().nullable(),
+  links: z.array(profileLink),
+  role: membershipRole,
+  isOwner: z.boolean(),
+  joinedAt: z.string(),
+  sponsor: memberRef.nullable(),
+  vouches: z.array(inlineVouchSummary),
 });
-
-// ── Members ──────────────────────────────────────────────
 
 export const memberSearchResult = z.object({
   memberId: z.string(),
@@ -212,17 +204,66 @@ export const memberSearchResult = z.object({
   sharedClubs: z.array(sharedClubRef),
 });
 
-export const clubMemberSummary = z.object({
+export const adminMemberSummary = publicMemberSummary.extend({
+  isComped: z.boolean(),
+  compedAt: z.string().nullable(),
+  compedByMemberId: z.string().nullable(),
+  approvedPriceAmount: z.number().nullable(),
+  approvedPriceCurrency: z.string().nullable(),
+  subscription: z.object({
+    status: z.enum(['trialing', 'active', 'past_due', 'cancelled', 'ended']),
+    currentPeriodEnd: z.string().nullable(),
+    endedAt: z.string().nullable(),
+  }).nullable(),
+  acceptedCovenantAt: z.string().nullable(),
+  leftAt: z.string().nullable(),
+  state: z.object({
+    status: membershipState,
+    reason: z.string().nullable(),
+    versionNo: z.number(),
+    createdAt: z.string(),
+    createdByMemberId: z.string().nullable(),
+  }),
+});
+
+export const adminApplicationSummary = z.object({
+  membershipId: z.string(),
   memberId: z.string(),
   publicName: z.string(),
-  displayName: z.string(),
-  tagline: z.string().nullable(),
-  summary: z.string().nullable(),
-  whatIDo: z.string().nullable(),
-  knownFor: z.string().nullable(),
-  servicesSummary: z.string().nullable(),
-  websiteUrl: z.string().nullable(),
-  memberships: z.array(membershipSummary),
+  displayName: z.string().nullable(),
+  state: z.object({
+    status: z.enum(['applying', 'submitted', 'interview_scheduled', 'interview_completed']),
+    reason: z.string().nullable(),
+    versionNo: z.number(),
+    createdAt: z.string(),
+    createdByMemberId: z.string().nullable(),
+  }),
+  appliedAt: z.string().nullable(),
+  submittedAt: z.string().nullable(),
+  applicationName: z.string().nullable(),
+  applicationEmail: z.string().nullable(),
+  applicationSocials: z.string().nullable(),
+  applicationText: z.string().nullable(),
+  proofKind: z.enum(['pow', 'invitation', 'none']).nullable(),
+  submissionPath: z.enum(['cold', 'invitation', 'cross_apply', 'owner_nominated']).nullable(),
+  generatedProfileDraft: z.object({
+    tagline: z.string().nullable(),
+    summary: z.string().nullable(),
+    whatIDo: z.string().nullable(),
+    knownFor: z.string().nullable(),
+    servicesSummary: z.string().nullable(),
+    websiteUrl: z.string().nullable(),
+    links: z.array(profileLink),
+  }).nullable(),
+  sponsor: memberRef.nullable(),
+  invitation: z.object({
+    id: z.string(),
+    reason: z.string().nullable(),
+  }).nullable(),
+  sponsorStats: z.object({
+    activeSponsoredCount: z.number(),
+    sponsoredThisMonthCount: z.number(),
+  }).nullable(),
 });
 
 // ── Profile ──────────────────────────────────────────────
@@ -514,7 +555,7 @@ export const adminOverview = z.object({
   })),
 });
 
-export const adminMemberSummary = z.object({
+export const superadminMemberSummary = z.object({
   memberId: z.string(),
   publicName: z.string(),
   state: z.string(),
@@ -523,7 +564,7 @@ export const adminMemberSummary = z.object({
   tokenCount: z.number(),
 });
 
-export const adminMemberDetail = z.object({
+export const superadminMemberDetail = z.object({
   memberId: z.string(),
   publicName: z.string(),
   displayName: z.string(),

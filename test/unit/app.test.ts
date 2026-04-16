@@ -17,13 +17,13 @@ import {
   type IncludedBundle,
   type ListEntitiesInput,
   type ListEventsInput,
+  type AdminApplicationSummary,
+  type AdminMemberSummary,
   type MembershipAdminSummary,
-  type MembershipApplicationAdminSummary,
-  type MembershipReviewSummary,
   type MemberProfileEnvelope,
-  type ClubMemberSummary,
   type ClubSummary,
   type JoinClubResult,
+  type PublicMemberSummary,
   type RsvpEventInput,
   type UpdateEntityInput,
   type MemberSearchResult,
@@ -355,32 +355,40 @@ function makeMembershipAdmin(overrides: Partial<MembershipAdminSummary> = {}): M
   };
 }
 
-function makeMembershipReview(overrides: Partial<MembershipReviewSummary> = {}): MembershipReviewSummary {
+function makeAdminApplication(overrides: Partial<AdminApplicationSummary> = {}): AdminApplicationSummary {
   return {
-    ...makeMembershipAdmin({
-      state: {
-        ...makeMembershipAdmin().state,
-        status: 'submitted',
-        reason: 'Warm intro via existing member',
-      },
-    }),
+    membershipId: 'membership-9',
+    memberId: 'member-9',
+    publicName: 'Member Nine',
+    displayName: 'Member Nine',
+    state: {
+      status: 'submitted',
+      reason: 'Warm intro via existing member',
+      versionNo: 1,
+      createdAt: '2026-03-12T00:00:00Z',
+      createdByMemberId: 'member-1',
+    },
+    appliedAt: '2026-03-12T00:00:00Z',
+    submittedAt: '2026-03-12T00:05:00Z',
+    applicationName: 'Member Nine',
+    applicationEmail: 'nine@example.com',
+    applicationSocials: '@membernine',
+    applicationText: 'Warm intro via sponsor',
+    proofKind: 'invitation',
+    submissionPath: 'invitation',
+    generatedProfileDraft: { tagline: 'Warm systems builder', summary: null, whatIDo: null, knownFor: null, servicesSummary: null, websiteUrl: null, links: [] },
+    sponsor: {
+      memberId: 'member-1',
+      publicName: 'Member One',
+    },
+    invitation: {
+      id: 'invitation-1',
+      reason: 'Strong collaborator',
+    },
     sponsorStats: {
       activeSponsoredCount: 1,
       sponsoredThisMonthCount: 2,
     },
-    vouches: [
-      {
-        edgeId: 'edge-1',
-        fromMember: {
-          memberId: 'member-2',
-          publicName: 'Member Two',
-        },
-        reason: 'I trust their presence and follow-through.',
-        metadata: { strength: 'warm' },
-        createdAt: '2026-03-12T00:02:00Z',
-        createdByMemberId: 'member-2',
-      },
-    ],
     ...overrides,
   };
 }
@@ -409,17 +417,19 @@ function makeApplicationSummary(overrides: Partial<ApplicationSummary> = {}): Ap
   };
 }
 
-function makeMembershipApplication(overrides: Partial<MembershipApplicationAdminSummary> = {}): MembershipApplicationAdminSummary {
+function makeAdminApplicationEnvelope(overrides: {
+  club?: {
+    clubId: string;
+    slug: string;
+    name: string;
+    summary: string | null;
+    admissionPolicy: string | null;
+    ownerName: string | null;
+    priceUsd: number | null;
+  };
+  application?: Partial<AdminApplicationSummary>;
+} = {}) {
   return {
-    membership: makeMembershipAdmin({
-      membershipId: 'membership-9',
-      clubId: 'club-2',
-      state: {
-        ...makeMembershipAdmin().state,
-        status: 'submitted',
-        reason: 'Warm intro via sponsor',
-      },
-    }),
     club: {
       clubId: 'club-2',
       slug: 'beta',
@@ -428,19 +438,9 @@ function makeMembershipApplication(overrides: Partial<MembershipApplicationAdmin
       admissionPolicy: 'Tell us about yourself.',
       ownerName: 'Member One',
       priceUsd: 49,
+      ...overrides.club,
     },
-    application: {
-      submissionPath: 'invitation',
-      proofKind: 'invitation',
-      appliedAt: '2026-03-12T00:00:00Z',
-      submittedAt: '2026-03-12T00:05:00Z',
-      applicationName: 'Member Nine',
-      applicationEmail: 'nine@example.com',
-      applicationSocials: '@membernine',
-      applicationText: 'Warm intro via sponsor',
-      generatedProfileDraft: { tagline: 'Warm systems builder' },
-    },
-    ...overrides,
+    application: makeAdminApplication(overrides.application),
   };
 }
 
@@ -467,8 +467,9 @@ function makeJoinClubResult(overrides: Partial<JoinClubResult> = {}): JoinClubRe
   };
 }
 
-function makeClubMember(overrides: Partial<ClubMemberSummary> = {}): ClubMemberSummary {
+function makeClubMember(overrides: Partial<PublicMemberSummary> = {}): PublicMemberSummary {
   return {
+    membershipId: 'membership-1',
     memberId: 'member-1',
     publicName: 'Member One',
     displayName: 'Member One',
@@ -478,7 +479,34 @@ function makeClubMember(overrides: Partial<ClubMemberSummary> = {}): ClubMemberS
     knownFor: 'Bringing people together',
     servicesSummary: 'Advisory and product strategy',
     websiteUrl: 'https://example.test',
-    memberships: [makeActor().memberships[0]!],
+    links: [{ label: 'Site', url: 'https://example.test' }],
+    role: 'member',
+    isOwner: false,
+    joinedAt: '2026-03-12T00:00:00Z',
+    sponsor: null,
+    vouches: [],
+    ...overrides,
+  };
+}
+
+function makeAdminMember(overrides: Partial<AdminMemberSummary> = {}): AdminMemberSummary {
+  return {
+    ...makeClubMember(),
+    isComped: true,
+    compedAt: '2026-03-12T00:00:00Z',
+    compedByMemberId: 'member-1',
+    approvedPriceAmount: null,
+    approvedPriceCurrency: null,
+    subscription: null,
+    acceptedCovenantAt: null,
+    leftAt: null,
+    state: {
+      status: 'active',
+      reason: null,
+      versionNo: 1,
+      createdAt: '2026-03-12T00:00:00Z',
+      createdByMemberId: 'member-1',
+    },
     ...overrides,
   };
 }
@@ -653,20 +681,29 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async listClubApplications() {
       return [makeApplicationSummary()];
     },
-    async getMembershipApplication() {
-      return makeMembershipApplication();
+    async getMember() {
+      return makeClubMember();
     },
-    async listMemberships() {
-      return { results: [makeMembershipAdmin()], hasMore: false, nextCursor: null };
+    async listMembers() {
+      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
+    },
+    async listAdminMembers() {
+      return { results: [makeAdminMember()], hasMore: false, nextCursor: null };
+    },
+    async getAdminMember() {
+      return makeAdminMember();
+    },
+    async listAdminApplications() {
+      return { results: [makeAdminApplication()], hasMore: false, nextCursor: null };
+    },
+    async getAdminApplication() {
+      return makeAdminApplicationEnvelope();
     },
     async createMembership() {
       return makeMembershipAdmin();
     },
     async transitionMembershipState() {
       return makeMembershipAdmin({ state: { ...makeMembershipAdmin().state, status: 'active', versionNo: 2 } });
-    },
-    async listMembershipReviews() {
-      return { results: [makeMembershipReview()], hasMore: false, nextCursor: null };
     },
     async issueInvitation() {
       return {
@@ -721,9 +758,6 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     },
     async fullTextSearchMembers() {
       return { results, hasMore: false, nextCursor: null };
-    },
-    async listMembers() {
-      return { results: [makeClubMember()], hasMore: false, nextCursor: null };
     },
     async getMemberProfile({ targetMemberId }) {
       return makeProfile(targetMemberId);
@@ -905,18 +939,20 @@ test('superadmin.clubs.assignOwner appends a new owner version via the superadmi
   assert.equal(result.data.club.version.versionNo, 2);
 });
 
-test('memberships.list stays inside owner club scope and can filter by status', async () => {
+test('clubadmin.members.list stays inside owner club scope and can filter by status and role', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async listMemberships(input) {
+    async listAdminMembers(input) {
       capturedInput = input as Record<string, unknown>;
       return {
-        results: [makeMembershipAdmin({
-          clubId: 'club-2',
-          state: { ...makeMembershipAdmin().state, status: 'submitted', reason: 'Awaiting review' },
-          joinedAt: null,
+        results: [makeAdminMember({
+          membershipId: 'membership-10',
+          memberId: 'member-9',
+          publicName: 'Member Nine',
+          role: 'member',
+          state: { ...makeAdminMember().state, status: 'active', reason: 'Current member' },
         })],
         hasMore: false,
         nextCursor: null,
@@ -927,56 +963,54 @@ test('memberships.list stays inside owner club scope and can filter by status', 
   const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'clubadmin.memberships.list',
-    payload: { clubId: 'club-2', status: 'submitted', limit: 4 },
+    action: 'clubadmin.members.list',
+    payload: { clubId: 'club-2', statuses: ['active'], roles: ['member'], limit: 4 },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    clubIds: ['club-2'],
+    clubId: 'club-2',
     limit: 4,
-    status: 'submitted',
+    statuses: ['active'],
+    roles: ['member'],
     cursor: null,
   });
-  assert.equal(result.action, 'clubadmin.memberships.list');
+  assert.equal(result.action, 'clubadmin.members.list');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
-  assert.equal(result.data.results[0]?.state.status, 'submitted');
+  assert.equal(result.data.results[0]?.state.status, 'active');
 });
 
 // Auth rejection for clubadmin actions (regular member cannot call) is tested
 // in integration tests with a real DB and bearer token flow.
 
-test('memberships.review defaults to the reviewable application statuses and returns sponsor/vouch context', async () => {
+test('clubadmin.applications.list stays inside owner club scope and returns application summaries', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async listMembershipReviews(input) {
+    async listAdminApplications(input) {
       capturedInput = input as unknown as Record<string, unknown>;
-      return { results: [makeMembershipReview()], hasMore: false, nextCursor: null };
+      return { results: [makeAdminApplication()], hasMore: false, nextCursor: null };
     },
   };
 
   const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'clubadmin.memberships.listForReview',
+    action: 'clubadmin.applications.list',
     payload: {
       clubId: 'club-2',
       limit: 3,
     },
   });
 
-  assert.deepEqual(capturedInput, {
-    actorMemberId: 'member-1',
-    clubIds: ['club-2'],
-    limit: 3,
-    statuses: ['submitted', 'interview_scheduled', 'interview_completed'],
-    cursor: null,
-  });
-  assert.equal(result.action, 'clubadmin.memberships.listForReview');
+  assert.equal(capturedInput?.actorMemberId, 'member-1');
+  assert.equal(capturedInput?.clubId, 'club-2');
+  assert.equal(capturedInput?.limit, 3);
+  assert.equal(capturedInput?.cursor, null);
+  assert.equal(result.action, 'clubadmin.applications.list');
   assert.equal(result.data.results[0]?.sponsorStats.sponsoredThisMonthCount, 2);
-  assert.equal(result.data.results[0]?.vouches[0]?.fromMember.memberId, 'member-2');
+  assert.equal(result.data.results[0]?.submissionPath, 'invitation');
 });
 
 test('memberships.create direct-adds an active member inside owner scope', async () => {
@@ -1086,26 +1120,20 @@ test('memberships.transition appends a new membership state version inside owner
 // Auth rejection for clubadmin.memberships.setStatus (regular member cannot call) is tested
 // in integration tests with a real DB and bearer token flow.
 
-test('clubadmin.memberships.get returns the unified membership/application summary inside owner scope', async () => {
+test('clubadmin.applications.get returns the admin application summary inside owner scope', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 
   const repository: Repository = {
     ...makeRepository(),
-    async getMembershipApplication(input) {
+    async getAdminApplication(input) {
       capturedInput = input as Record<string, unknown>;
-      return makeMembershipApplication({
-        membership: makeMembershipAdmin({
-          membershipId: 'membership-10',
-          clubId: 'club-2',
+      return makeAdminApplicationEnvelope({
+        application: {
           state: {
-            ...makeMembershipAdmin().state,
+            ...makeAdminApplication().state,
             status: 'interview_scheduled',
             versionNo: 2,
           },
-          joinedAt: null,
-        }),
-        application: {
-          ...makeMembershipApplication().application,
           submissionPath: 'cross_apply',
           proofKind: 'pow',
         },
@@ -1116,18 +1144,19 @@ test('clubadmin.memberships.get returns the unified membership/application summa
   const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
-    action: 'clubadmin.memberships.get',
+    action: 'clubadmin.applications.get',
     payload: { clubId: 'club-2', membershipId: 'membership-10' },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
+    clubId: 'club-2',
     membershipId: 'membership-10',
-    accessibleClubIds: ['club-2'],
   });
-  assert.equal(result.action, 'clubadmin.memberships.get');
-  assert.equal(result.data.membership.state.status, 'interview_scheduled');
+  assert.equal(result.action, 'clubadmin.applications.get');
+  assert.equal(result.data.application.state.status, 'interview_scheduled');
   assert.equal(result.data.application.submissionPath, 'cross_apply');
+  assert.equal(result.data.club.slug, 'beta');
 });
 
 test('clubs.join returns the anonymous envelope and forwards normalized email', async () => {
@@ -1299,8 +1328,8 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
   assert.equal(result.data.clubScope[0]?.clubId, 'club-2');
 });
 
-test('members.list returns active members with scoped membership context', async () => {
-  let capturedInput: { actorMemberId: string; clubId: string; limit: number; cursor: { joinedAt: string; memberId: string } | null } | null = null;
+test('members.list returns active members with flattened public member summaries', async () => {
+  let capturedInput: { actorMemberId: string; clubId: string; limit: number; cursor: { joinedAt: string; membershipId: string } | null } | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1313,10 +1342,12 @@ test('members.list returns active members with scoped membership context', async
       capturedInput = input;
       return { results: [
         makeClubMember({
+          membershipId: 'membership-2',
           memberId: 'member-2',
           publicName: 'Member Two',
           displayName: 'Member Two',
-          memberships: [makeActor().memberships[1]!],
+          role: 'clubadmin',
+          isOwner: true,
         }),
       ], hasMore: false, nextCursor: null };
     },
@@ -1401,7 +1432,8 @@ test('members.list returns active members with scoped membership context', async
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
   assert.equal(result.data.results[0]?.memberId, 'member-2');
-  assert.equal(result.data.results[0]?.memberships[0]?.clubId, 'club-2');
+  assert.equal(result.data.results[0]?.membershipId, 'membership-2');
+  assert.equal(result.data.results[0]?.role, 'clubadmin');
 });
 
 test('profile.list defaults to the actor member id', async () => {

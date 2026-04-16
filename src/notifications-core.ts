@@ -13,3 +13,17 @@ export function decodeNotificationCursor(cursor: string): {
   const [createdAt, notificationId] = decodeCursor(cursor, 2);
   return { createdAt, notificationId };
 }
+
+export function splitNotificationId(notificationId: string): {
+  kind: string;
+  primaryRef: string;
+} | null {
+  const separator = notificationId.lastIndexOf(':');
+  if (separator <= 0 || separator === notificationId.length - 1) {
+    return null;
+  }
+  return {
+    kind: notificationId.slice(0, separator),
+    primaryRef: notificationId.slice(separator + 1),
+  };
+}

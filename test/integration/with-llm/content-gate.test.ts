@@ -31,7 +31,7 @@ before(async () => {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY must be set for content gate anchor tests');
   }
-  h = await TestHarness.start();
+  h = await TestHarness.start({ embeddingStub: false });
 }, { timeout: 60_000 });
 
 after(async () => {

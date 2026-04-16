@@ -16,7 +16,7 @@ import {
 } from './fields.ts';
 import {
   membershipSummary,
-  memberSearchResult, clubMemberSummary, memberIdentity, vouchSummary,
+  memberSearchResult, memberIdentity, publicMemberSummary, vouchSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -111,7 +111,7 @@ const membersList: ActionDefinition = {
     output: z.object({
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-      results: z.array(clubMemberSummary),
+      results: z.array(publicMemberSummary),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
     }),
@@ -131,8 +131,8 @@ const membersList: ActionDefinition = {
     const club = ctx.requireAccessibleClub(clubId);
 
     const cursor = rawCursor ? (() => {
-      const [joinedAt, memberId] = decodeCursor(rawCursor, 2);
-      return { joinedAt, memberId };
+      const [joinedAt, membershipId] = decodeCursor(rawCursor, 2);
+      return { joinedAt, membershipId };
     })() : null;
 
     const result = await ctx.repository.listMembers({
@@ -144,6 +144,69 @@ const membersList: ActionDefinition = {
 
     return {
       data: { limit, clubScope: [club], results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
+      requestScope: { requestedClubId: club.clubId, activeClubIds: [club.clubId] },
+    };
+  },
+};
+
+// ── members.get ────────────────────────────────────────
+
+type MembersGetInput = {
+  clubId: string;
+  memberId: string;
+};
+
+const membersGet: ActionDefinition = {
+  action: 'members.get',
+  domain: 'members',
+  description: 'Get one accessible member in the specified club.',
+  auth: 'member',
+  safety: 'read_only',
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Restrict to one club'),
+      memberId: wireRequiredString.describe('Member to fetch'),
+    }),
+    output: z.object({
+      club: z.object({
+        clubId: z.string(),
+        slug: z.string(),
+        name: z.string(),
+      }),
+      member: publicMemberSummary,
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      memberId: parseRequiredString,
+    }),
+  },
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, memberId } = input as MembersGetInput;
+    const club = ctx.requireAccessibleClub(clubId);
+
+    const member = await ctx.repository.getMember({
+      actorMemberId: ctx.actor.member.id,
+      clubId: club.clubId,
+      memberId,
+    });
+    if (!member) {
+      throw new AppError(404, 'not_found', 'Member not found in the specified club');
+    }
+
+    return {
+      data: {
+        club: {
+          clubId: club.clubId,
+          slug: club.slug,
+          name: club.name,
+        },
+        member,
+      },
       requestScope: { requestedClubId: club.clubId, activeClubIds: [club.clubId] },
     };
   },
@@ -317,7 +380,7 @@ const vouchesCreate: ActionDefinition = {
 // ── vouches.list ────────────────────────────────────────
 
 type VouchesListInput = {
-  memberId: string;
+  memberId?: string;
   clubId?: string;
   limit: number;
   cursor: string | null;
@@ -332,7 +395,7 @@ const vouchesList: ActionDefinition = {
 
   wire: {
     input: z.object({
-      memberId: wireRequiredString.describe('Member to list vouches for'),
+      memberId: wireRequiredString.optional().describe('Member to list vouches for (defaults to the calling member)'),
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
       limit: wireLimitOf(20),
       cursor: wireCursor,
@@ -347,7 +410,7 @@ const vouchesList: ActionDefinition = {
 
   parse: {
     input: z.object({
-      memberId: parseRequiredString,
+      memberId: parseRequiredString.optional(),
       clubId: parseRequiredString.optional(),
       limit: parseLimitOf(20, 20),
       cursor: parseCursor,
@@ -355,7 +418,8 @@ const vouchesList: ActionDefinition = {
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { memberId: targetMemberId, clubId, limit, cursor: rawCursor } = input as VouchesListInput;
+    const { memberId, clubId, limit, cursor: rawCursor } = input as VouchesListInput;
+    const targetMemberId = memberId ?? ctx.actor.member.id;
 
     if (clubId) {
       ctx.requireAccessibleClub(clubId);
@@ -429,13 +493,11 @@ const membersFindViaEmbedding: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { query, clubId, limit, cursor: rawCursor } = input as MembersFindViaEmbeddingInput;
-    const { embed } = await import('ai');
-    const { createOpenAI } = await import('@ai-sdk/openai');
-    const { EMBEDDING_PROFILES } = await import('../ai.ts');
+    const { EMBEDDING_PROFILES, embedQueryText, isEmbeddingStubEnabled } = await import('../ai.ts');
 
     const profile = EMBEDDING_PROFILES.member_profile;
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
+    if (!apiKey && !isEmbeddingStubEnabled()) {
       ctx.repository.logLlmUsage?.({
         memberId: ctx.actor.member.id,
         requestedClubId: clubId ?? null,
@@ -455,19 +517,15 @@ const membersFindViaEmbedding: ActionDefinition = {
 
     const club = ctx.requireAccessibleClub(clubId);
 
-    const provider = createOpenAI({ apiKey });
-    const embeddingModel = provider.embedding(profile.model);
-
     let embedding: number[];
     let usageTokens = 0;
     try {
-      const result = await embed({
-        model: embeddingModel,
+      const result = await embedQueryText({
         value: query,
-        providerOptions: { openai: { dimensions: profile.dimensions } },
+        profile: 'member_profile',
       });
       embedding = result.embedding;
-      usageTokens = result.usage?.tokens ?? 0;
+      usageTokens = result.usageTokens;
     } catch (err) {
       console.error('Embedding provider error in members.searchBySemanticSimilarity:', err);
       ctx.repository.logLlmUsage?.({
@@ -527,6 +585,7 @@ const membersFindViaEmbedding: ActionDefinition = {
 registerActions([
   membersFullTextSearch,
   membersList,
+  membersGet,
   membersUpdateIdentity,
   membersFindViaEmbedding,
   vouchesCreate,

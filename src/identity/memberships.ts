@@ -7,13 +7,15 @@
 import type { Pool } from 'pg';
 import {
   AppError,
+  type AdminApplicationSummary,
+  type AdminMemberSummary,
   type ClubProfileFields,
+  type ClubProfileLink,
   type CreateMembershipInput,
   type MembershipAdminSummary,
-  type MembershipReviewSummary,
   type MembershipState,
   type MembershipSummary,
-  type ClubMemberSummary,
+  type PublicMemberSummary,
   type TransitionMembershipInput,
 } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
@@ -39,6 +41,79 @@ type MembershipAdminRow = {
   metadata: Record<string, unknown> | null;
 };
 
+type PublicMemberRow = {
+  membership_id: string;
+  club_id: string;
+  member_id: string;
+  public_name: string;
+  display_name: string;
+  tagline: string | null;
+  summary: string | null;
+  what_i_do: string | null;
+  known_for: string | null;
+  services_summary: string | null;
+  website_url: string | null;
+  links: ClubProfileLink[] | null;
+  role: MembershipSummary['role'];
+  is_owner: boolean;
+  joined_at: string;
+  sponsor_member_id: string | null;
+  sponsor_public_name: string | null;
+};
+
+type AdminMemberRow = PublicMemberRow & {
+  is_comped: boolean;
+  comped_at: string | null;
+  comped_by_member_id: string | null;
+  approved_price_amount: string | null;
+  approved_price_currency: string | null;
+  subscription_status: 'trialing' | 'active' | 'past_due' | 'cancelled' | 'ended' | null;
+  subscription_current_period_end: string | null;
+  subscription_ended_at: string | null;
+  accepted_covenant_at: string | null;
+  left_at: string | null;
+  status: MembershipState;
+  state_reason: string | null;
+  state_version_no: number;
+  state_created_at: string;
+  state_created_by_member_id: string | null;
+};
+
+type AdminApplicationRow = {
+  membership_id: string;
+  club_id: string;
+  club_slug: string;
+  club_name: string;
+  club_summary: string | null;
+  admission_policy: string | null;
+  owner_name: string | null;
+  membership_price_amount: string | null;
+  membership_price_currency: string | null;
+  member_id: string;
+  public_name: string;
+  display_name: string | null;
+  status: Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>;
+  state_reason: string | null;
+  state_version_no: number;
+  state_created_at: string;
+  state_created_by_member_id: string | null;
+  applied_at: string | null;
+  application_submitted_at: string | null;
+  application_name: string | null;
+  application_email: string | null;
+  application_socials: string | null;
+  application_text: string | null;
+  proof_kind: 'pow' | 'invitation' | 'none' | null;
+  submission_path: 'cold' | 'invitation' | 'cross_apply' | 'owner_nominated' | null;
+  generated_profile_draft: ClubProfileFields | null;
+  sponsor_member_id: string | null;
+  sponsor_public_name: string | null;
+  invitation_id: string | null;
+  invitation_reason: string | null;
+  sponsor_active_sponsored_count: number;
+  sponsor_sponsored_this_month_count: number;
+};
+
 function mapMembershipRow(row: MembershipAdminRow): MembershipAdminSummary {
   return {
     membershipId: row.membership_id,
@@ -59,6 +134,97 @@ function mapMembershipRow(row: MembershipAdminRow): MembershipAdminSummary {
     joinedAt: row.joined_at,
     acceptedCovenantAt: row.accepted_covenant_at,
     metadata: row.metadata ?? {},
+  };
+}
+
+function parseNullableNumber(value: string | null): number | null {
+  return value === null ? null : Number(value);
+}
+
+function mapPublicMemberRow(row: PublicMemberRow): PublicMemberSummary {
+  return {
+    membershipId: row.membership_id,
+    memberId: row.member_id,
+    publicName: row.public_name,
+    displayName: row.display_name,
+    tagline: row.tagline,
+    summary: row.summary,
+    whatIDo: row.what_i_do,
+    knownFor: row.known_for,
+    servicesSummary: row.services_summary,
+    websiteUrl: row.website_url,
+    links: row.links ?? [],
+    role: row.role,
+    isOwner: row.is_owner,
+    joinedAt: row.joined_at,
+    sponsor: row.sponsor_member_id
+      ? { memberId: row.sponsor_member_id, publicName: row.sponsor_public_name ?? 'Unknown sponsor' }
+      : null,
+    vouches: [],
+  };
+}
+
+function mapAdminMemberRow(row: AdminMemberRow): AdminMemberSummary {
+  return {
+    ...mapPublicMemberRow(row),
+    isComped: row.is_comped,
+    compedAt: row.comped_at,
+    compedByMemberId: row.comped_by_member_id,
+    approvedPriceAmount: parseNullableNumber(row.approved_price_amount),
+    approvedPriceCurrency: row.approved_price_currency,
+    subscription: row.is_comped || row.subscription_status === null
+      ? null
+      : {
+          status: row.subscription_status,
+          currentPeriodEnd: row.subscription_current_period_end,
+          endedAt: row.subscription_ended_at,
+        },
+    acceptedCovenantAt: row.accepted_covenant_at,
+    leftAt: row.left_at,
+    state: {
+      status: row.status,
+      reason: row.state_reason,
+      versionNo: Number(row.state_version_no),
+      createdAt: row.state_created_at,
+      createdByMemberId: row.state_created_by_member_id,
+    },
+  };
+}
+
+function mapAdminApplicationRow(row: AdminApplicationRow): AdminApplicationSummary {
+  return {
+    membershipId: row.membership_id,
+    memberId: row.member_id,
+    publicName: row.public_name,
+    displayName: row.display_name,
+    state: {
+      status: row.status,
+      reason: row.state_reason,
+      versionNo: Number(row.state_version_no),
+      createdAt: row.state_created_at,
+      createdByMemberId: row.state_created_by_member_id,
+    },
+    appliedAt: row.applied_at,
+    submittedAt: row.application_submitted_at,
+    applicationName: row.application_name,
+    applicationEmail: row.application_email,
+    applicationSocials: row.application_socials,
+    applicationText: row.application_text,
+    proofKind: row.proof_kind,
+    submissionPath: row.submission_path,
+    generatedProfileDraft: row.generated_profile_draft ? normalizeClubProfileFields(row.generated_profile_draft) : null,
+    sponsor: row.sponsor_member_id
+      ? { memberId: row.sponsor_member_id, publicName: row.sponsor_public_name ?? 'Unknown sponsor' }
+      : null,
+    invitation: row.invitation_id
+      ? { id: row.invitation_id, reason: row.invitation_reason }
+      : null,
+    sponsorStats: row.sponsor_member_id
+      ? {
+          activeSponsoredCount: Number(row.sponsor_active_sponsored_count ?? 0),
+          sponsoredThisMonthCount: Number(row.sponsor_sponsored_this_month_count ?? 0),
+        }
+      : null,
   };
 }
 
@@ -223,85 +389,304 @@ async function ensureProfileVersionForActiveMembership(client: DbClient, input: 
 
 // ── Exported functions ────────────────────────────────────────
 
-export async function listMemberships(pool: Pool, input: {
-  clubIds: string[]; limit: number; status?: MembershipState;
-  cursor?: { stateCreatedAt: string; id: string } | null;
-}): Promise<{ results: MembershipAdminSummary[]; hasMore: boolean; nextCursor: string | null }> {
-  if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null };
+export async function listMembers(pool: Pool, input: {
+  clubId: string;
+  limit: number;
+  cursor?: { joinedAt: string; membershipId: string } | null;
+}): Promise<{ results: PublicMemberSummary[]; hasMore: boolean; nextCursor: string | null }> {
   const fetchLimit = input.limit + 1;
-  const cursorStateCreatedAt = input.cursor?.stateCreatedAt ?? null;
-  const cursorId = input.cursor?.id ?? null;
+  const cursorJoinedAt = input.cursor?.joinedAt ?? null;
+  const cursorMembershipId = input.cursor?.membershipId ?? null;
 
-  const result = await pool.query<MembershipAdminRow>(
-    `select ${MEMBERSHIP_SELECT} ${MEMBERSHIP_FROM}
-     where cnm.club_id = any($1::short_id[])
-       and ($2::membership_state is null or cnm.status = $2)
-       and ($4::timestamptz is null
-         or cnm.state_created_at < $4
-         or (cnm.state_created_at = $4 and cnm.id < $5))
-     order by cnm.state_created_at desc, cnm.id desc
-     limit $3`,
-    [input.clubIds, input.status ?? null, fetchLimit, cursorStateCreatedAt, cursorId],
+  const result = await pool.query<PublicMemberRow>(
+    `select
+       acm.id as membership_id,
+       acm.club_id,
+       acm.member_id,
+       m.public_name,
+       m.display_name,
+       cmp.tagline,
+       cmp.summary,
+       cmp.what_i_do,
+       cmp.known_for,
+       cmp.services_summary,
+       cmp.website_url,
+       cmp.links,
+       acm.role,
+       (c.owner_member_id = acm.member_id) as is_owner,
+       acm.joined_at::text as joined_at,
+       acm.sponsor_member_id,
+       sponsor.public_name as sponsor_public_name
+     from accessible_club_memberships acm
+     join members m on m.id = acm.member_id and m.state = 'active'
+     join clubs c on c.id = acm.club_id and c.archived_at is null
+     join current_member_club_profiles cmp on cmp.member_id = acm.member_id and cmp.club_id = acm.club_id
+     left join members sponsor on sponsor.id = acm.sponsor_member_id
+     where acm.club_id = $1
+       and ($3::timestamptz is null
+         or acm.joined_at < $3
+         or (acm.joined_at = $3 and acm.id < $4))
+     order by acm.joined_at desc, acm.id desc
+     limit $2`,
+    [input.clubId, fetchLimit, cursorJoinedAt, cursorMembershipId],
   );
-  const rows = result.rows.map(mapMembershipRow);
+
+  const rows = result.rows.map(mapPublicMemberRow);
   const hasMore = rows.length > input.limit;
   if (hasMore) rows.pop();
   const last = rows[rows.length - 1];
-  const nextCursor = last ? encodeCursor([last.state.createdAt, last.membershipId]) : null;
+  const nextCursor = last ? encodeCursor([last.joinedAt, last.membershipId]) : null;
   return { results: rows, hasMore, nextCursor };
 }
 
-/**
- * Returns reviews with sponsorStats but empty vouches array.
- * The composition layer fills in vouches from the clubs module.
- */
-export async function listMembershipReviews(pool: Pool, input: {
-  clubIds: string[]; limit: number; statuses: MembershipState[];
-  cursor?: { stateCreatedAt: string; id: string } | null;
-}): Promise<{ results: MembershipReviewSummary[]; hasMore: boolean; nextCursor: string | null }> {
-  if (input.clubIds.length === 0 || input.statuses.length === 0) return { results: [], hasMore: false, nextCursor: null };
+export async function getMember(pool: Pool, input: {
+  clubId: string;
+  memberId: string;
+}): Promise<PublicMemberSummary | null> {
+  const result = await pool.query<PublicMemberRow>(
+    `select
+       acm.id as membership_id,
+       acm.club_id,
+       acm.member_id,
+       m.public_name,
+       m.display_name,
+       cmp.tagline,
+       cmp.summary,
+       cmp.what_i_do,
+       cmp.known_for,
+       cmp.services_summary,
+       cmp.website_url,
+       cmp.links,
+       acm.role,
+       (c.owner_member_id = acm.member_id) as is_owner,
+       acm.joined_at::text as joined_at,
+       acm.sponsor_member_id,
+       sponsor.public_name as sponsor_public_name
+     from accessible_club_memberships acm
+     join members m on m.id = acm.member_id and m.state = 'active'
+     join clubs c on c.id = acm.club_id and c.archived_at is null
+     join current_member_club_profiles cmp on cmp.member_id = acm.member_id and cmp.club_id = acm.club_id
+     left join members sponsor on sponsor.id = acm.sponsor_member_id
+     where acm.club_id = $1
+       and acm.member_id = $2
+     limit 1`,
+    [input.clubId, input.memberId],
+  );
+  return result.rows[0] ? mapPublicMemberRow(result.rows[0]) : null;
+}
 
+export async function listAdminMembers(pool: Pool, input: {
+  clubId: string;
+  limit: number;
+  statuses?: Array<Extract<MembershipState, 'active' | 'renewal_pending' | 'cancelled'>> | null;
+  roles?: Array<'clubadmin' | 'member'> | null;
+  cursor?: { joinedAt: string; membershipId: string } | null;
+}): Promise<{ results: AdminMemberSummary[]; hasMore: boolean; nextCursor: string | null }> {
+  const fetchLimit = input.limit + 1;
+  const cursorJoinedAt = input.cursor?.joinedAt ?? null;
+  const cursorMembershipId = input.cursor?.membershipId ?? null;
+
+  const result = await pool.query<AdminMemberRow>(
+    `select
+       acm.id as membership_id,
+       acm.club_id,
+       acm.member_id,
+       m.public_name,
+       m.display_name,
+       cmp.tagline,
+       cmp.summary,
+       cmp.what_i_do,
+       cmp.known_for,
+       cmp.services_summary,
+       cmp.website_url,
+       cmp.links,
+       acm.role,
+       (c.owner_member_id = acm.member_id) as is_owner,
+       acm.joined_at::text as joined_at,
+       acm.sponsor_member_id,
+       sponsor.public_name as sponsor_public_name,
+       acm.is_comped,
+       acm.comped_at::text as comped_at,
+       acm.comped_by_member_id,
+       acm.approved_price_amount::text as approved_price_amount,
+       acm.approved_price_currency,
+       sub.status::text as subscription_status,
+       sub.current_period_end::text as subscription_current_period_end,
+       sub.ended_at::text as subscription_ended_at,
+       acm.accepted_covenant_at::text as accepted_covenant_at,
+       acm.left_at::text as left_at,
+       acm.status,
+       acm.state_reason,
+       acm.state_version_no,
+       acm.state_created_at::text as state_created_at,
+       acm.state_created_by_member_id
+     from accessible_club_memberships acm
+     join members m on m.id = acm.member_id and m.state = 'active'
+     join clubs c on c.id = acm.club_id and c.archived_at is null
+     join current_member_club_profiles cmp on cmp.member_id = acm.member_id and cmp.club_id = acm.club_id
+     left join members sponsor on sponsor.id = acm.sponsor_member_id
+     left join lateral (
+       select s.status, s.current_period_end, s.ended_at
+       from club_subscriptions s
+       where s.membership_id = acm.id
+       order by s.started_at desc, s.id desc
+       limit 1
+     ) sub on true
+     where acm.club_id = $1
+       and ($3::membership_state[] is null or acm.status = any($3))
+       and ($4::membership_role[] is null or acm.role = any($4))
+       and ($5::timestamptz is null
+         or acm.joined_at < $5
+         or (acm.joined_at = $5 and acm.id < $6))
+     order by acm.joined_at desc, acm.id desc
+     limit $2`,
+    [input.clubId, fetchLimit, input.statuses ?? null, input.roles ?? null, cursorJoinedAt, cursorMembershipId],
+  );
+
+  const rows = result.rows.map(mapAdminMemberRow);
+  const hasMore = rows.length > input.limit;
+  if (hasMore) rows.pop();
+  const last = rows[rows.length - 1];
+  const nextCursor = last ? encodeCursor([last.joinedAt, last.membershipId]) : null;
+  return { results: rows, hasMore, nextCursor };
+}
+
+export async function getAdminMember(pool: Pool, input: {
+  clubId: string;
+  membershipId: string;
+}): Promise<AdminMemberSummary | null> {
+  const result = await pool.query<AdminMemberRow>(
+    `select
+       acm.id as membership_id,
+       acm.club_id,
+       acm.member_id,
+       m.public_name,
+       m.display_name,
+       cmp.tagline,
+       cmp.summary,
+       cmp.what_i_do,
+       cmp.known_for,
+       cmp.services_summary,
+       cmp.website_url,
+       cmp.links,
+       acm.role,
+       (c.owner_member_id = acm.member_id) as is_owner,
+       acm.joined_at::text as joined_at,
+       acm.sponsor_member_id,
+       sponsor.public_name as sponsor_public_name,
+       acm.is_comped,
+       acm.comped_at::text as comped_at,
+       acm.comped_by_member_id,
+       acm.approved_price_amount::text as approved_price_amount,
+       acm.approved_price_currency,
+       sub.status::text as subscription_status,
+       sub.current_period_end::text as subscription_current_period_end,
+       sub.ended_at::text as subscription_ended_at,
+       acm.accepted_covenant_at::text as accepted_covenant_at,
+       acm.left_at::text as left_at,
+       acm.status,
+       acm.state_reason,
+       acm.state_version_no,
+       acm.state_created_at::text as state_created_at,
+       acm.state_created_by_member_id
+     from accessible_club_memberships acm
+     join members m on m.id = acm.member_id and m.state = 'active'
+     join clubs c on c.id = acm.club_id and c.archived_at is null
+     join current_member_club_profiles cmp on cmp.member_id = acm.member_id and cmp.club_id = acm.club_id
+     left join members sponsor on sponsor.id = acm.sponsor_member_id
+     left join lateral (
+       select s.status, s.current_period_end, s.ended_at
+       from club_subscriptions s
+       where s.membership_id = acm.id
+       order by s.started_at desc, s.id desc
+       limit 1
+     ) sub on true
+     where acm.club_id = $1
+       and acm.id = $2
+     limit 1`,
+    [input.clubId, input.membershipId],
+  );
+  return result.rows[0] ? mapAdminMemberRow(result.rows[0]) : null;
+}
+
+export async function listAdminApplications(pool: Pool, input: {
+  clubId: string;
+  limit: number;
+  statuses?: Array<Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>> | null;
+  cursor?: { stateCreatedAt: string; membershipId: string } | null;
+}): Promise<{ results: AdminApplicationSummary[]; hasMore: boolean; nextCursor: string | null }> {
   const fetchLimit = input.limit + 1;
   const cursorStateCreatedAt = input.cursor?.stateCreatedAt ?? null;
-  const cursorId = input.cursor?.id ?? null;
+  const cursorMembershipId = input.cursor?.membershipId ?? null;
 
-  const result = await pool.query<MembershipAdminRow & {
-    sponsor_active_sponsored_count: number;
-    sponsor_sponsored_this_month_count: number;
-  }>(
+  const result = await pool.query<AdminApplicationRow>(
     `with sponsor_stats as (
        select
-         sponsored.sponsor_member_id, sponsored.club_id,
+         sponsored.sponsor_member_id,
+         sponsored.club_id,
          count(*) filter (where sponsored.status = 'active')::int as active_sponsored_count,
-         count(*) filter (where date_trunc('month', sponsored.joined_at) = date_trunc('month', now()))::int as sponsored_this_month_count
+         count(*) filter (
+           where sponsored.joined_at is not null
+             and date_trunc('month', sponsored.joined_at) = date_trunc('month', now())
+         )::int as sponsored_this_month_count
        from current_club_memberships sponsored
-       where sponsored.club_id = any($1::short_id[])
+       where sponsored.club_id = $1
          and sponsored.sponsor_member_id is not null
        group by sponsored.sponsor_member_id, sponsored.club_id
      )
-     select ${MEMBERSHIP_SELECT},
+     select
+       cm.id as membership_id,
+       cm.club_id,
+       c.slug as club_slug,
+       c.name as club_name,
+       c.summary as club_summary,
+       c.admission_policy,
+       owner.public_name as owner_name,
+       c.membership_price_amount::text as membership_price_amount,
+       c.membership_price_currency,
+       cm.member_id,
+       m.public_name,
+       m.display_name,
+       cm.status,
+       cm.state_reason,
+       cm.state_version_no,
+       cm.state_created_at::text as state_created_at,
+       cm.state_created_by_member_id,
+       cm.applied_at::text as applied_at,
+       cm.application_submitted_at::text as application_submitted_at,
+       cm.application_name,
+       cm.application_email,
+       cm.application_socials,
+       cm.application_text,
+       cm.proof_kind,
+       cm.submission_path,
+       cm.generated_profile_draft,
+       cm.sponsor_member_id,
+       sponsor.public_name as sponsor_public_name,
+       cm.invitation_id,
+       i.reason as invitation_reason,
        coalesce(ss.active_sponsored_count, 0) as sponsor_active_sponsored_count,
        coalesce(ss.sponsored_this_month_count, 0) as sponsor_sponsored_this_month_count
-     ${MEMBERSHIP_FROM}
-     left join sponsor_stats ss on ss.sponsor_member_id = cnm.sponsor_member_id and ss.club_id = cnm.club_id
-     where cnm.club_id = any($1::short_id[])
-       and cnm.status = any($2::membership_state[])
+     from current_club_memberships cm
+     join members m on m.id = cm.member_id
+     join clubs c on c.id = cm.club_id and c.archived_at is null
+     left join members sponsor on sponsor.id = cm.sponsor_member_id
+     left join invitations i on i.id = cm.invitation_id
+     left join members owner on owner.id = c.owner_member_id
+     left join sponsor_stats ss on ss.sponsor_member_id = cm.sponsor_member_id and ss.club_id = cm.club_id
+     where cm.club_id = $1
+       and cm.left_at is null
+       and ($3::membership_state[] is null or cm.status = any($3))
+       and cm.status = any(array['applying','submitted','interview_scheduled','interview_completed']::membership_state[])
        and ($4::timestamptz is null
-         or cnm.state_created_at < $4
-         or (cnm.state_created_at = $4 and cnm.id < $5))
-     order by cnm.state_created_at desc, cnm.id desc
-     limit $3`,
-    [input.clubIds, input.statuses, fetchLimit, cursorStateCreatedAt, cursorId],
+         or cm.state_created_at < $4
+         or (cm.state_created_at = $4 and cm.id < $5))
+     order by cm.state_created_at desc, cm.id desc
+     limit $2`,
+    [input.clubId, fetchLimit, input.statuses ?? null, cursorStateCreatedAt, cursorMembershipId],
   );
 
-  const rows = result.rows.map((row) => ({
-    ...mapMembershipRow(row),
-    sponsorStats: {
-      activeSponsoredCount: Number(row.sponsor_active_sponsored_count ?? 0),
-      sponsoredThisMonthCount: Number(row.sponsor_sponsored_this_month_count ?? 0),
-    },
-    vouches: [], // filled by composition layer
-  }));
+  const rows = result.rows.map(mapAdminApplicationRow);
   const hasMore = rows.length > input.limit;
   if (hasMore) rows.pop();
   const last = rows[rows.length - 1];
@@ -309,68 +694,102 @@ export async function listMembershipReviews(pool: Pool, input: {
   return { results: rows, hasMore, nextCursor };
 }
 
-export async function listMembers(pool: Pool, input: {
-  clubId: string; limit: number;
-  cursor?: { joinedAt: string; memberId: string } | null;
-}): Promise<{ results: ClubMemberSummary[]; hasMore: boolean; nextCursor: string | null }> {
-  const fetchLimit = input.limit + 1;
-  const cursorJoinedAt = input.cursor?.joinedAt ?? null;
-  const cursorMemberId = input.cursor?.memberId ?? null;
-
-  const result = await pool.query<{
-    member_id: string; public_name: string; display_name: string;
-    tagline: string | null; summary: string | null;
-    what_i_do: string | null; known_for: string | null;
-    services_summary: string | null; website_url: string | null;
-    memberships: MembershipSummary[] | null;
-    _latest_joined_at: string;
-  }>(
-    `select
-       m.id as member_id, m.public_name,
+export async function getAdminApplication(pool: Pool, input: {
+  clubId: string;
+  membershipId: string;
+}): Promise<{
+  club: {
+    clubId: string;
+    slug: string;
+    name: string;
+    summary: string | null;
+    admissionPolicy: string | null;
+    ownerName: string | null;
+    priceUsd: number | null;
+  };
+  application: AdminApplicationSummary;
+} | null> {
+  const result = await pool.query<AdminApplicationRow>(
+    `with sponsor_stats as (
+       select
+         sponsored.sponsor_member_id,
+         sponsored.club_id,
+         count(*) filter (where sponsored.status = 'active')::int as active_sponsored_count,
+         count(*) filter (
+           where sponsored.joined_at is not null
+             and date_trunc('month', sponsored.joined_at) = date_trunc('month', now())
+         )::int as sponsored_this_month_count
+       from current_club_memberships sponsored
+       where sponsored.club_id = $1
+         and sponsored.sponsor_member_id is not null
+       group by sponsored.sponsor_member_id, sponsored.club_id
+     )
+     select
+       cm.id as membership_id,
+       cm.club_id,
+       c.slug as club_slug,
+       c.name as club_name,
+       c.summary as club_summary,
+       c.admission_policy,
+       owner.public_name as owner_name,
+       c.membership_price_amount::text as membership_price_amount,
+       c.membership_price_currency,
+       cm.member_id,
+       m.public_name,
        m.display_name,
-       cmp.tagline, cmp.summary, cmp.what_i_do, cmp.known_for,
-       cmp.services_summary, cmp.website_url,
-       jsonb_agg(distinct jsonb_build_object(
-         'membershipId', anm.id, 'clubId', anm.club_id, 'slug', n.slug,
-         'name', n.name, 'summary', n.summary, 'role', anm.role,
-         'isOwner', (n.owner_member_id = anm.member_id), 'status', anm.status,
-         'sponsorMemberId', anm.sponsor_member_id, 'joinedAt', anm.joined_at::text
-       )) filter (where anm.id is not null) as memberships,
-       max(anm.joined_at)::text as _latest_joined_at
-     from accessible_club_memberships anm
-     join members m on m.id = anm.member_id and m.state = 'active'
-     join clubs n on n.id = anm.club_id and n.archived_at is null
-     join current_member_club_profiles cmp
-       on cmp.member_id = m.id and cmp.club_id = anm.club_id
-     where anm.club_id = $1
-     group by m.id, m.public_name, m.display_name, cmp.tagline,
-              cmp.summary, cmp.what_i_do, cmp.known_for, cmp.services_summary, cmp.website_url
-     having ($3::timestamptz is null
-       or max(anm.joined_at) < $3
-       or (max(anm.joined_at) = $3 and m.id < $4))
-     order by max(anm.joined_at) desc, m.id desc
-     limit $2`,
-    [input.clubId, fetchLimit, cursorJoinedAt, cursorMemberId],
+       cm.status,
+       cm.state_reason,
+       cm.state_version_no,
+       cm.state_created_at::text as state_created_at,
+       cm.state_created_by_member_id,
+       cm.applied_at::text as applied_at,
+       cm.application_submitted_at::text as application_submitted_at,
+       cm.application_name,
+       cm.application_email,
+       cm.application_socials,
+       cm.application_text,
+       cm.proof_kind,
+       cm.submission_path,
+       cm.generated_profile_draft,
+       cm.sponsor_member_id,
+       sponsor.public_name as sponsor_public_name,
+       cm.invitation_id,
+       i.reason as invitation_reason,
+       coalesce(ss.active_sponsored_count, 0) as sponsor_active_sponsored_count,
+       coalesce(ss.sponsored_this_month_count, 0) as sponsor_sponsored_this_month_count
+     from current_club_memberships cm
+     join members m on m.id = cm.member_id
+     join clubs c on c.id = cm.club_id and c.archived_at is null
+     left join members sponsor on sponsor.id = cm.sponsor_member_id
+     left join invitations i on i.id = cm.invitation_id
+     left join members owner on owner.id = c.owner_member_id
+     left join sponsor_stats ss on ss.sponsor_member_id = cm.sponsor_member_id and ss.club_id = cm.club_id
+     where cm.club_id = $1
+       and cm.id = $2
+       and cm.left_at is null
+       and cm.status = any(array['applying','submitted','interview_scheduled','interview_completed']::membership_state[])
+     limit 1`,
+    [input.clubId, input.membershipId],
   );
 
-  const rows: ClubMemberSummary[] = result.rows.map((row) => ({
-    memberId: row.member_id,
-    publicName: row.public_name,
-    displayName: row.display_name,
-    tagline: row.tagline,
-    summary: row.summary,
-    whatIDo: row.what_i_do,
-    knownFor: row.known_for,
-    servicesSummary: row.services_summary,
-    websiteUrl: row.website_url,
-    memberships: row.memberships ?? [],
-  }));
-
-  const hasMore = rows.length > input.limit;
-  if (hasMore) rows.pop();
-  const lastRow = rows.length > 0 ? result.rows[rows.length - 1] : null;
-  const nextCursor = lastRow ? encodeCursor([lastRow._latest_joined_at, lastRow.member_id]) : null;
-  return { results: rows, hasMore, nextCursor };
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    club: {
+      clubId: row.club_id,
+      slug: row.club_slug,
+      name: row.club_name,
+      summary: row.club_summary,
+      admissionPolicy: row.admission_policy,
+      ownerName: row.owner_name,
+      priceUsd: row.membership_price_currency === 'USD' && row.membership_price_amount !== null
+        ? Number(row.membership_price_amount)
+        : null,
+    },
+    application: mapAdminApplicationRow(row),
+  };
 }
 
 export async function createMembership(pool: Pool, input: CreateMembershipInput): Promise<MembershipAdminSummary | null> {

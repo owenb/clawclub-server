@@ -22,7 +22,7 @@ import {
   membershipRole, membershipCreateInitialStatus,
 } from './fields.ts';
 import {
-  adminOverview, adminMemberSummary, adminMemberDetail,
+  adminOverview, superadminMemberSummary, superadminMemberDetail,
   adminDiagnostics, clubSummary,
   adminContentSummary, adminThreadSummary,
   directMessageEntry,
@@ -95,7 +95,7 @@ const superadminMembersList: ActionDefinition = {
       limit: wireLimit,
       cursor: wireCursor,
     }),
-    output: z.object({ members: z.array(adminMemberSummary), hasMore: z.boolean(), nextCursor: z.string().nullable() }),
+    output: z.object({ members: z.array(superadminMemberSummary), hasMore: z.boolean(), nextCursor: z.string().nullable() }),
   },
 
   parse: {
@@ -136,7 +136,7 @@ const superadminMembersGet: ActionDefinition = {
     input: z.object({
       memberId: wireRequiredString.describe('Member to inspect'),
     }),
-    output: z.object({ member: adminMemberDetail }),
+    output: z.object({ member: superadminMemberDetail }),
   },
 
   parse: {

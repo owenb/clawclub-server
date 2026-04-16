@@ -2,11 +2,12 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
 import { getActivity, getNotifications } from '../helpers.ts';
+import { passthroughGate } from '../../unit/fixtures.ts';
 
 let h: TestHarness;
 
 before(async () => {
-  h = await TestHarness.start();
+  h = await TestHarness.start({ llmGate: passthroughGate });
 }, { timeout: 60_000 });
 
 after(async () => {
@@ -115,6 +116,59 @@ describe('activity and notifications surfaces', () => {
     });
     assert.equal(err.status, 422);
     assert.equal(err.code, 'invalid_input');
+  });
+
+  it('vouches.create emits an acknowledgeable vouch.received notification with server-authored message', async () => {
+    const owner = await h.seedOwner('vouch-notif-club', 'Vouch Notif Club');
+    const target = await h.seedCompedMember(owner.club.id, 'Target Tia');
+
+    await h.apiOk(owner.token, 'vouches.create', {
+      clubId: owner.club.id,
+      memberId: target.id,
+      reason: 'Shows up consistently',
+    });
+
+    const notifications = getNotifications(await h.apiOk(target.token, 'notifications.list', { limit: 20 }));
+    const item = notifications.items.find((entry) => entry.kind === 'vouch.received');
+    assert.ok(item, 'target should receive a vouch.received notification');
+    assert.equal(item?.acknowledgeable, true);
+    const payload = item?.payload as Record<string, unknown>;
+    assert.match(String(payload.message), /vouches\.list/);
+    assert.match(String(payload.message), /members\.get/);
+    assert.equal((payload.voucher as Record<string, unknown>).memberId, owner.id);
+
+    const ack = await h.apiOk(target.token, 'notifications.acknowledge', {
+      notificationIds: [item!.notificationId],
+      state: 'processed',
+    });
+    const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
+    assert.equal(receipts[0]?.notificationId, item!.notificationId);
+
+    const rawId = item!.notificationId.split(':').pop();
+    const dbRows = await h.sqlClubs<{ acknowledged_state: string }>(
+      `select acknowledged_state from member_notifications where id = $1`,
+      [rawId],
+    );
+    assert.equal(dbRows[0]?.acknowledged_state, 'processed');
+  });
+
+  it('notifications.acknowledge allows future materialized topics by default', async () => {
+    const owner = await h.seedOwner('future-topic-club', 'Future Topic Club');
+
+    const rows = await h.sqlClubs<{ id: string }>(
+      `insert into member_notifications (club_id, recipient_member_id, topic, payload)
+       values ($1, $2, 'future.topic', '{"kind":"future.topic","message":"future"}'::jsonb)
+       returning id`,
+      [owner.club.id, owner.id],
+    );
+    const notificationId = `future.topic:${rows[0]!.id}`;
+
+    const ack = await h.apiOk(owner.token, 'notifications.acknowledge', {
+      notificationIds: [notificationId],
+      state: 'processed',
+    });
+    const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
+    assert.equal(receipts[0]?.notificationId, notificationId);
   });
 
   it('activity.list after=latest skips backlog and returns only later activity', async () => {

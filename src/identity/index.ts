@@ -5,9 +5,10 @@
 import type { Pool } from 'pg';
 import type {
   ActorContext,
+  AdminApplicationSummary,
+  AdminMemberSummary,
   AuthResult,
   BearerTokenSummary,
-  ClubMemberSummary,
   ClubSummary,
   CreateBearerTokenInput,
   CreateClubInput,
@@ -21,8 +22,8 @@ import type {
   MemberIdentity,
   MemberSearchResult,
   MembershipAdminSummary,
-  MembershipReviewSummary,
   MembershipState,
+  PublicMemberSummary,
   RevokeBearerTokenInput,
   TransitionMembershipInput,
   UpdateClubInput,
@@ -58,11 +59,42 @@ export type IdentityRepository = {
   }): Promise<CreatedBearerToken | null>;
 
   // Memberships
-  listMemberships(input: { actorMemberId: string; clubIds: string[]; limit: number; status?: MembershipState; cursor?: { stateCreatedAt: string; id: string } | null }): Promise<{ results: MembershipAdminSummary[]; hasMore: boolean; nextCursor: string | null }>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
-  listMembershipReviews(input: { actorMemberId: string; clubIds: string[]; limit: number; statuses: MembershipState[]; cursor?: { stateCreatedAt: string; id: string } | null }): Promise<{ results: MembershipReviewSummary[]; hasMore: boolean; nextCursor: string | null }>;
-  listMembers(input: { actorMemberId: string; clubId: string; limit: number; cursor?: { joinedAt: string; memberId: string } | null }): Promise<{ results: ClubMemberSummary[]; hasMore: boolean; nextCursor: string | null }>;
+  listMembers(input: { actorMemberId: string; clubId: string; limit: number; cursor?: { joinedAt: string; membershipId: string } | null }): Promise<{ results: PublicMemberSummary[]; hasMore: boolean; nextCursor: string | null }>;
+  getMember(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<PublicMemberSummary | null>;
+  listAdminMembers(input: {
+    actorMemberId: string;
+    clubId: string;
+    limit: number;
+    statuses?: Array<Extract<MembershipState, 'active' | 'renewal_pending' | 'cancelled'>> | null;
+    roles?: Array<'clubadmin' | 'member'> | null;
+    cursor?: { joinedAt: string; membershipId: string } | null;
+  }): Promise<{ results: AdminMemberSummary[]; hasMore: boolean; nextCursor: string | null }>;
+  getAdminMember(input: { actorMemberId: string; clubId: string; membershipId: string }): Promise<AdminMemberSummary | null>;
+  listAdminApplications(input: {
+    actorMemberId: string;
+    clubId: string;
+    limit: number;
+    statuses?: Array<Extract<MembershipState, 'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>> | null;
+    cursor?: { stateCreatedAt: string; membershipId: string } | null;
+  }): Promise<{ results: AdminApplicationSummary[]; hasMore: boolean; nextCursor: string | null }>;
+  getAdminApplication(input: {
+    actorMemberId: string;
+    clubId: string;
+    membershipId: string;
+  }): Promise<{
+    club: {
+      clubId: string;
+      slug: string;
+      name: string;
+      summary: string | null;
+      admissionPolicy: string | null;
+      ownerName: string | null;
+      priceUsd: number | null;
+    };
+    application: AdminApplicationSummary;
+  } | null>;
   buildMembershipSeedProfile(input: { memberId: string; clubId: string }): Promise<ClubProfileFields>;
   promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
   demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
@@ -119,11 +151,14 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     createBearerTokenAsSuperadmin: (input) => tokens.createBearerTokenAsSuperadmin(pool, input),
 
     // Memberships
-    listMemberships: ({ clubIds, limit, status, cursor }) => memberships.listMemberships(pool, { clubIds, limit, status, cursor }),
     createMembership: (input) => memberships.createMembership(pool, input),
     transitionMembershipState: (input) => memberships.transitionMembershipState(pool, input),
-    listMembershipReviews: ({ clubIds, limit, statuses, cursor }) => memberships.listMembershipReviews(pool, { clubIds, limit, statuses, cursor }),
     listMembers: ({ clubId, limit, cursor }) => memberships.listMembers(pool, { clubId, limit, cursor }),
+    getMember: ({ clubId, memberId }) => memberships.getMember(pool, { clubId, memberId }),
+    listAdminMembers: ({ clubId, limit, statuses, roles, cursor }) => memberships.listAdminMembers(pool, { clubId, limit, statuses, roles, cursor }),
+    getAdminMember: ({ clubId, membershipId }) => memberships.getAdminMember(pool, { clubId, membershipId }),
+    listAdminApplications: ({ clubId, limit, statuses, cursor }) => memberships.listAdminApplications(pool, { clubId, limit, statuses, cursor }),
+    getAdminApplication: ({ clubId, membershipId }) => memberships.getAdminApplication(pool, { clubId, membershipId }),
     buildMembershipSeedProfile: ({ memberId, clubId }) => profiles.buildMembershipSeedProfile(pool, { memberId, clubId }),
     promoteMemberToAdmin: (input) => memberships.promoteMemberToAdmin(pool, input),
     demoteMemberFromAdmin: (input) => memberships.demoteMemberFromAdmin(pool, input),

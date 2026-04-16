@@ -1,6 +1,7 @@
 /**
- * Club admin action contracts: clubadmin.memberships.list, clubadmin.memberships.listForReview,
- * clubadmin.memberships.create, clubadmin.memberships.get, clubadmin.memberships.setStatus,
+ * Club admin action contracts: clubadmin.members.list, clubadmin.members.get,
+ * clubadmin.applications.list, clubadmin.applications.get,
+ * clubadmin.memberships.create, clubadmin.memberships.setStatus,
  * clubadmin.clubs.getStatistics
  *
  * All actions require auth: 'clubadmin' — the caller must be a club admin,
@@ -13,17 +14,20 @@ import {
   wireOptionalString, parseTrimmedNullableString,
   wireOptionalRecord, parseOptionalRecord,
   membershipState,
+  membershipRole,
   membershipCreateInitialStatus,
-  wireMembershipStates, parseMembershipStates,
+  wireMembershipStates,
   type MembershipState,
   wireCursor, parseCursor, decodeCursor,
   wireLimitOf, parseLimitOf,
 } from './fields.ts';
 import {
-  membershipAdminSummary, membershipReviewSummary,
-  membershipApplicationAdminSummary,
+  adminApplicationSummary,
   adminClubStats,
+  adminMemberSummary,
   contentEntity, includedBundle, messageRemovalResult,
+  membershipSummary,
+  membershipAdminSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
@@ -31,19 +35,43 @@ const CLUBADMIN_SCOPE_RULES = [
   'clubadmin actions require an explicit clubId. The server does not infer it from session context.',
 ] as const;
 
-// ── clubadmin.memberships.list ─────────────────────────
+const MEMBER_STATUSES = ['active', 'renewal_pending', 'cancelled'] as const;
+const APPLICATION_STATUSES = ['applying', 'submitted', 'interview_scheduled', 'interview_completed'] as const;
 
-type MembershipsListInput = {
+const wireMembershipRoles = z.array(membershipRole).min(1).optional();
+const parseOptionalMembershipStates = z.array(membershipState).min(1)
+  .optional()
+  .transform((states) => states ? [...new Set(states)] : undefined);
+const parseMembershipRoles = z.array(membershipRole).min(1)
+  .optional()
+  .transform((roles) => roles ? [...new Set(roles)] : undefined);
+
+function assertStateSubset(
+  states: MembershipState[] | undefined,
+  allowed: readonly MembershipState[],
+  siblingAction: string,
+): void {
+  if (!states) return;
+  const invalid = states.filter((state) => !allowed.includes(state));
+  if (invalid.length > 0) {
+    throw new AppError(422, 'invalid_input', `Statuses ${invalid.join(', ')} are out of scope here. Try ${siblingAction}.`);
+  }
+}
+
+// ── clubadmin.members.list ─────────────────────────
+
+type ClubadminMembersListInput = {
   clubId: string;
-  status?: MembershipState;
+  statuses?: MembershipState[];
+  roles?: Array<'clubadmin' | 'member'>;
   limit: number;
   cursor: string | null;
 };
 
-const clubadminMembershipsList: ActionDefinition = {
-  action: 'clubadmin.memberships.list',
+const clubadminMembersList: ActionDefinition = {
+  action: 'clubadmin.members.list',
   domain: 'clubadmin',
-  description: 'List memberships in the specified club.',
+  description: 'List accessible members in the specified club.',
   auth: 'clubadmin',
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
@@ -51,15 +79,18 @@ const clubadminMembershipsList: ActionDefinition = {
 
   wire: {
     input: z.object({
-      clubId: wireRequiredString.describe('Club to list memberships for'),
-      status: membershipState.optional().describe('Filter by membership status'),
+      clubId: wireRequiredString.describe('Club to list members for'),
+      statuses: wireMembershipStates.describe('Optional membership-state filter limited to active, renewal_pending, cancelled'),
+      roles: wireMembershipRoles.describe('Optional role filter limited to clubadmin/member'),
       limit: wireLimitOf(50),
       cursor: wireCursor,
     }),
     output: z.object({
       limit: z.number(),
-      status: membershipState.nullable(),
-      results: z.array(membershipAdminSummary),
+      clubScope: z.array(membershipSummary),
+      statuses: z.array(membershipState).nullable(),
+      roles: z.array(membershipRole).nullable(),
+      results: z.array(adminMemberSummary),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
     }),
@@ -68,49 +99,61 @@ const clubadminMembershipsList: ActionDefinition = {
   parse: {
     input: z.object({
       clubId: parseRequiredString,
-      status: membershipState.optional(),
+      statuses: parseOptionalMembershipStates,
+      roles: parseMembershipRoles,
       limit: parseLimitOf(50, 50),
       cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, status, limit, cursor: rawCursor } = input as MembershipsListInput;
+    const { clubId, statuses, roles, limit, cursor: rawCursor } = input as ClubadminMembersListInput;
+    const club = ctx.requireAccessibleClub(clubId);
     ctx.requireClubAdmin(clubId);
+    assertStateSubset(statuses, MEMBER_STATUSES, 'clubadmin.applications.list');
 
     const cursor = rawCursor ? (() => {
-      const [stateCreatedAt, id] = decodeCursor(rawCursor, 2);
-      return { stateCreatedAt, id };
+      const [joinedAt, membershipId] = decodeCursor(rawCursor, 2);
+      return { joinedAt, membershipId };
     })() : null;
 
-    const result = await ctx.repository.listMemberships({
+    const result = await ctx.repository.listAdminMembers({
       actorMemberId: ctx.actor.member.id,
-      clubIds: [clubId],
+      clubId,
       limit,
-      status,
+      statuses: (statuses as Array<'active' | 'renewal_pending' | 'cancelled'> | undefined) ?? null,
+      roles: roles ?? null,
       cursor,
     });
 
     return {
-      data: { limit, status: status ?? null, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
+      data: {
+        limit,
+        clubScope: [club],
+        statuses: statuses ?? null,
+        roles: roles ?? null,
+        results: result.results,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+      },
       requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
     };
   },
 };
 
-// ── clubadmin.memberships.listForReview ───────────────────────
+// ── clubadmin.applications.list ───────────────────────
 
-type MembershipsReviewInput = {
+type ClubadminApplicationsListInput = {
   clubId: string;
   statuses: MembershipState[];
   limit: number;
   cursor: string | null;
 };
 
-const clubadminMembershipsReview: ActionDefinition = {
-  action: 'clubadmin.memberships.listForReview',
+const clubadminApplicationsList: ActionDefinition = {
+  action: 'clubadmin.applications.list',
   domain: 'clubadmin',
-  description: 'List memberships pending review in the specified club.',
+  description: 'List in-flight applications in the specified club.',
   auth: 'clubadmin',
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
@@ -118,15 +161,16 @@ const clubadminMembershipsReview: ActionDefinition = {
 
   wire: {
     input: z.object({
-      clubId: wireRequiredString.describe('Club to review memberships for'),
-      statuses: wireMembershipStates.describe('Filter by statuses (default: submitted, interview_scheduled, interview_completed)'),
+      clubId: wireRequiredString.describe('Club to list applications for'),
+      statuses: wireMembershipStates.describe('Optional application-state filter limited to applying, submitted, interview_scheduled, interview_completed'),
       limit: wireLimitOf(20),
       cursor: wireCursor,
     }),
     output: z.object({
       limit: z.number(),
-      statuses: z.array(membershipState),
-      results: z.array(membershipReviewSummary),
+      clubScope: z.array(membershipSummary),
+      statuses: z.array(membershipState).nullable(),
+      results: z.array(adminApplicationSummary),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
     }),
@@ -135,31 +179,40 @@ const clubadminMembershipsReview: ActionDefinition = {
   parse: {
     input: z.object({
       clubId: parseRequiredString,
-      statuses: parseMembershipStates(['submitted', 'interview_scheduled', 'interview_completed']),
+      statuses: parseOptionalMembershipStates,
       limit: parseLimitOf(20, 20),
       cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, statuses, limit, cursor: rawCursor } = input as MembershipsReviewInput;
+    const { clubId, statuses, limit, cursor: rawCursor } = input as ClubadminApplicationsListInput;
+    const club = ctx.requireAccessibleClub(clubId);
     ctx.requireClubAdmin(clubId);
+    assertStateSubset(statuses, APPLICATION_STATUSES, 'clubadmin.members.list');
 
     const cursor = rawCursor ? (() => {
-      const [stateCreatedAt, id] = decodeCursor(rawCursor, 2);
-      return { stateCreatedAt, id };
+      const [stateCreatedAt, membershipId] = decodeCursor(rawCursor, 2);
+      return { stateCreatedAt, membershipId };
     })() : null;
 
-    const result = await ctx.repository.listMembershipReviews({
+    const result = await ctx.repository.listAdminApplications!({
       actorMemberId: ctx.actor.member.id,
-      clubIds: [clubId],
+      clubId,
       limit,
-      statuses,
+      statuses: statuses as Array<'applying' | 'submitted' | 'interview_scheduled' | 'interview_completed'>,
       cursor,
     });
 
     return {
-      data: { limit, statuses, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
+      data: {
+        limit,
+        clubScope: [club],
+        statuses: statuses ?? null,
+        results: result.results,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+      },
       requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
     };
   },
@@ -313,12 +366,12 @@ const clubadminMembershipsTransition: ActionDefinition = {
   },
 };
 
-// ── clubadmin.memberships.get ─────────────────────────────
+// ── clubadmin.members.get ─────────────────────────────
 
-const clubadminMembershipsGet: ActionDefinition = {
-  action: 'clubadmin.memberships.get',
+const clubadminMembersGet: ActionDefinition = {
+  action: 'clubadmin.members.get',
   domain: 'clubadmin',
-  description: 'Get one membership/application in the specified club.',
+  description: 'Get one accessible member in the specified club.',
   auth: 'clubadmin',
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
@@ -329,7 +382,14 @@ const clubadminMembershipsGet: ActionDefinition = {
       clubId: wireRequiredString.describe('Club the membership belongs to'),
       membershipId: wireRequiredString.describe('Membership to fetch'),
     }),
-    output: membershipApplicationAdminSummary,
+    output: z.object({
+      club: z.object({
+        clubId: z.string(),
+        slug: z.string(),
+        name: z.string(),
+      }),
+      member: adminMemberSummary,
+    }),
   },
 
   parse: {
@@ -339,27 +399,107 @@ const clubadminMembershipsGet: ActionDefinition = {
     }),
   },
 
-  requiredCapability: 'getMembershipApplication',
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { clubId, membershipId } = input as { clubId: string; membershipId: string };
+    const club = ctx.requireAccessibleClub(clubId);
+    ctx.requireClubAdmin(clubId);
+
+    const member = await ctx.repository.getAdminMember({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      membershipId,
+    });
+
+    if (member) {
+      return {
+        data: {
+          club: {
+            clubId: club.clubId,
+            slug: club.slug,
+            name: club.name,
+          },
+          member,
+        },
+        requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
+      };
+    }
+
+    const application = await ctx.repository.getAdminApplication!({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      membershipId,
+    });
+    if (application) {
+      throw new AppError(404, 'not_found', 'Membership not found in the member surface for this club. Try clubadmin.applications.get instead.');
+    }
+
+    throw new AppError(404, 'not_found', 'No active member with that id was found in the specified club');
+  },
+};
+
+// ── clubadmin.applications.get ─────────────────────────────
+
+const clubadminApplicationsGet: ActionDefinition = {
+  action: 'clubadmin.applications.get',
+  domain: 'clubadmin',
+  description: 'Get one in-flight application in the specified club.',
+  auth: 'clubadmin',
+  safety: 'read_only',
+  authorizationNote: 'Requires club admin role.',
+  scopeRules: [...CLUBADMIN_SCOPE_RULES],
+
+  wire: {
+    input: z.object({
+      clubId: wireRequiredString.describe('Club the application belongs to'),
+      membershipId: wireRequiredString.describe('Membership to fetch'),
+    }),
+    output: z.object({
+      club: z.object({
+        clubId: z.string(),
+        slug: z.string(),
+        name: z.string(),
+        summary: z.string().nullable(),
+        admissionPolicy: z.string().nullable(),
+        ownerName: z.string().nullable(),
+        priceUsd: z.number().nullable(),
+      }),
+      application: adminApplicationSummary,
+    }),
+  },
+
+  parse: {
+    input: z.object({
+      clubId: parseRequiredString,
+      membershipId: parseRequiredString,
+    }),
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { clubId, membershipId } = input as { clubId: string; membershipId: string };
     ctx.requireClubAdmin(clubId);
-    ctx.requireCapability('getMembershipApplication');
 
-    const summary = await ctx.repository.getMembershipApplication!({
+    const summary = await ctx.repository.getAdminApplication!({
       actorMemberId: ctx.actor.member.id,
+      clubId,
       membershipId,
-      accessibleClubIds: [clubId],
     });
-
-    if (!summary || summary.club.clubId !== clubId) {
-      throw new AppError(404, 'not_found', 'Membership not found in the specified club');
+    if (summary) {
+      return {
+        data: summary,
+        requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
+      };
     }
 
-    return {
-      data: summary,
-      requestScope: { requestedClubId: clubId, activeClubIds: [clubId] },
-    };
+    const member = await ctx.repository.getAdminMember({
+      actorMemberId: ctx.actor.member.id,
+      clubId,
+      membershipId,
+    });
+    if (member) {
+      throw new AppError(404, 'not_found', 'Membership not found in the applications surface for this club. Try clubadmin.members.get instead.');
+    }
+
+    throw new AppError(404, 'not_found', 'Membership not found in the specified club');
   },
 };
 
@@ -465,8 +605,9 @@ const clubadminEntitiesRemove: ActionDefinition = {
 // Messages are no longer club-scoped — club admins have no authority over private messages.
 
 registerActions([
-  clubadminMembershipsList, clubadminMembershipsReview,
-  clubadminMembershipsCreate, clubadminMembershipsTransition, clubadminMembershipsGet,
+  clubadminMembersList, clubadminApplicationsList,
+  clubadminMembershipsCreate, clubadminMembershipsTransition,
+  clubadminMembersGet, clubadminApplicationsGet,
   clubadminClubsStats,
   clubadminEntitiesRemove,
 ]);

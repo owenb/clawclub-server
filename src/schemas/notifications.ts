@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { wireCursor, parseCursor, wireLimitOf, parseLimitOf, updateReceiptState } from './fields.ts';
 import { notificationItem, notificationReceipt } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
-import { NOTIFICATIONS_PAGE_SIZE } from '../notifications-core.ts';
+import { NOTIFICATIONS_PAGE_SIZE, splitNotificationId } from '../notifications-core.ts';
 import { AppError } from '../contract.ts';
 
 const notificationsList: ActionDefinition = {
@@ -101,8 +101,11 @@ const notificationsAcknowledge: ActionDefinition = {
       suppressionReason?: string | null;
     };
 
-    if (notificationIds.some((id) => !id.startsWith('synchronicity.'))) {
-      throw new AppError(422, 'invalid_input', 'Only materialized synchronicity notifications can be acknowledged');
+    if (notificationIds.some((id) => {
+      const parsed = splitNotificationId(id);
+      return !parsed || parsed.kind.startsWith('application.');
+    })) {
+      throw new AppError(422, 'invalid_input', 'Only materialized non-application notifications can be acknowledged');
     }
 
     const receipts = await ctx.repository.acknowledgeNotifications({

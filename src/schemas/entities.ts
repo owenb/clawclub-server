@@ -683,14 +683,12 @@ const entitiesFindViaEmbedding: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { query, clubId, kinds, limit, cursor: rawCursor } = input as EntitiesFindViaEmbeddingInput;
-    const { embed } = await import('ai');
-    const { createOpenAI } = await import('@ai-sdk/openai');
-    const { EMBEDDING_PROFILES } = await import('../ai.ts');
+    const { EMBEDDING_PROFILES, embedQueryText, isEmbeddingStubEnabled } = await import('../ai.ts');
     const { AppError: AppErr } = await import('../contract.ts');
 
     const profile = EMBEDDING_PROFILES.entity;
     const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
+    if (!apiKey && !isEmbeddingStubEnabled()) {
       ctx.repository.logLlmUsage?.({
         memberId: ctx.actor.member.id,
         requestedClubId: clubId ?? null,
@@ -716,19 +714,15 @@ const entitiesFindViaEmbedding: ActionDefinition = {
       throw new AppErr(403, 'forbidden', 'This member does not currently have access to any clubs');
     }
 
-    const provider = createOpenAI({ apiKey });
-    const embeddingModel = provider.embedding(profile.model);
-
     let embedding: number[];
     let usageTokens = 0;
     try {
-      const result = await embed({
-        model: embeddingModel,
+      const result = await embedQueryText({
         value: query,
-        providerOptions: { openai: { dimensions: profile.dimensions } },
+        profile: 'entity',
       });
       embedding = result.embedding;
-      usageTokens = result.usage?.tokens ?? 0;
+      usageTokens = result.usageTokens;
     } catch (err) {
       console.error('Embedding provider error in content.searchBySemanticSimilarity:', err);
       ctx.repository.logLlmUsage?.({

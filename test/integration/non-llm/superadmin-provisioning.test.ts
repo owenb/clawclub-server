@@ -380,13 +380,13 @@ describe('superadmin.clubs.create owner membership', () => {
     });
     const club = (clubResult.data as any).club;
 
-    // Owner should be able to list memberships (clubadmin action)
-    const msResult = await h.apiOk(ownerToken, 'clubadmin.memberships.list', {
+    // Owner should be able to list members (clubadmin action)
+    const msResult = await h.apiOk(ownerToken, 'clubadmin.members.list', {
       clubId: club.clubId,
     });
     const results = (msResult.data as any).results as any[];
     assert.equal(results.length, 1, 'should see their own membership');
-    assert.equal(results[0].member.memberId, ownerId);
+    assert.equal(results[0].memberId, ownerId);
   });
 });
 

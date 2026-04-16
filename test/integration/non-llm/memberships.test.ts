@@ -34,13 +34,8 @@ describe('clubadmin.memberships.create direct-adds active members', () => {
       true,
       'active direct-add should grant access immediately',
     );
-
-    const members = await h.apiOk(member.token, 'members.list', { clubId: owner.club.id, limit: 10 });
-    assert.ok(Array.isArray((members.data as Record<string, unknown>).results));
   });
-});
 
-describe('clubadmin.memberships.create payment_pending stays non-accessible', () => {
   it('payment_pending direct-add does not grant access', async () => {
     const owner = await h.seedOwner('direct-payment-pending', 'Direct Payment Pending');
     const member = await h.seedMember('Pam Pending');
@@ -64,39 +59,9 @@ describe('clubadmin.memberships.create payment_pending stays non-accessible', ()
   });
 });
 
-describe('clubs.join creates applying memberships without access', () => {
-  it('anonymous join returns an applying membership and PoW challenge', async () => {
-    const owner = await h.seedOwner('join-applying-club', 'Join Applying Club');
-
-    const joinBody = await h.apiOk(null, 'clubs.join', {
-      clubSlug: owner.club.slug,
-      email: 'joiner@example.com',
-    });
-
-    assert.equal(joinBody.action, 'clubs.join');
-    const joinData = joinBody.data as Record<string, unknown>;
-    assert.equal(typeof joinData.memberToken, 'string');
-    assert.equal(joinData.clubId, owner.club.id);
-    assert.equal((joinData.proof as Record<string, unknown>).kind, 'pow');
-    assert.equal(typeof (joinData.proof as Record<string, unknown>).challengeId, 'string');
-
-    const memberToken = joinData.memberToken as string;
-    const membershipId = joinData.membershipId as string;
-    const application = await h.apiOk(memberToken, 'clubs.applications.get', { membershipId });
-    assert.equal((application.data as any).application.state, 'applying');
-
-    const retryBody = await h.apiOk(null, 'clubs.join', {
-      clubSlug: owner.club.slug,
-      email: 'joiner@example.com',
-    });
-
-    assert.notEqual((retryBody.data as Record<string, unknown>).membershipId, membershipId);
-  });
-});
-
-describe('clubadmin.memberships.listForReview defaults to reviewable application states', () => {
-  it('includes submitted and interview stages, excludes applying', async () => {
-    const owner = await h.seedOwner('review-default-club', 'Review Default Club');
+describe('clubadmin.applications.*', () => {
+  it('applications.list returns only in-flight applications by default', async () => {
+    const owner = await h.seedOwner('applications-list-club', 'Applications List Club');
     const applying = await h.seedPendingMember(owner.club.id, 'Applying Annie', {
       status: 'applying',
       submissionPath: 'cold',
@@ -122,51 +87,230 @@ describe('clubadmin.memberships.listForReview defaults to reviewable application
       applicationText: 'Already active elsewhere.',
       applicationSocials: '@ira',
     });
+    const active = await h.seedCompedMember(owner.club.id, 'Already Active');
+    await h.seedPendingMember(owner.club.id, 'Declined Deb', {
+      status: 'submitted',
+      submissionPath: 'cold',
+      proofKind: 'pow',
+      applicationEmail: 'declined@example.com',
+      applicationName: 'Declined Deb',
+    }).then(async ({ membership }) => {
+      await h.apiOk(owner.token, 'clubadmin.memberships.setStatus', {
+        clubId: owner.club.id,
+        membershipId: membership.id,
+        status: 'declined',
+        reason: 'not a fit',
+      });
+    });
 
-    const reviewBody = await h.apiOk(owner.token, 'clubadmin.memberships.listForReview', {
+    const body = await h.apiOk(owner.token, 'clubadmin.applications.list', {
       clubId: owner.club.id,
       limit: 20,
     });
-    const results = (reviewBody.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const memberIds = results.map((result) => (result.member as Record<string, unknown>).memberId);
+    const data = body.data as Record<string, unknown>;
+    const results = data.results as Array<Record<string, unknown>>;
+    const memberIds = results.map((result) => result.memberId);
 
-    assert.ok(memberIds.includes(submitted.id), 'submitted application should appear in default review queue');
-    assert.ok(memberIds.includes(interviewed.id), 'interview_scheduled application should appear in default review queue');
-    assert.ok(!memberIds.includes(applying.id), 'applying membership should not appear in default review queue');
+    assert.ok(memberIds.includes(applying.id));
+    assert.ok(memberIds.includes(submitted.id));
+    assert.ok(memberIds.includes(interviewed.id));
+    assert.ok(!memberIds.includes(active.id));
+    assert.equal((data.clubScope as Array<Record<string, unknown>>)[0]?.clubId, owner.club.id);
+    assert.equal(data.statuses, null);
   });
-});
 
-describe('clubadmin.memberships.get returns the unified application summary', () => {
-  it('surfaces submitted application details for review', async () => {
-    const owner = await h.seedOwner('membership-get-club', 'Membership Get Club');
+  it('applications.list rejects member-status filters with sibling-action guidance', async () => {
+    const owner = await h.seedOwner('applications-list-invalid', 'Applications List Invalid');
+
+    const err = await h.apiErr(owner.token, 'clubadmin.applications.list', {
+      clubId: owner.club.id,
+      statuses: ['active'],
+    });
+
+    assert.equal(err.status, 422);
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /clubadmin\.members\.list/);
+  });
+
+  it('applications.get returns rich application and club context', async () => {
+    const owner = await h.seedOwner('applications-get-club', 'Applications Get Club');
+    const invitation = await h.seedInvitation(owner.club.id, owner.id, 'gail@example.com', {
+      candidateName: 'Get Gail',
+      reason: 'Trusted operator',
+    });
     const applicant = await h.seedPendingMember(owner.club.id, 'Get Gail', {
       status: 'submitted',
       submissionPath: 'invitation',
       proofKind: 'invitation',
-      applicationEmail: 'get-gail@example.com',
+      applicationEmail: 'gail@example.com',
       applicationName: 'Get Gail',
       applicationText: 'I build backend systems.',
       applicationSocials: '@getgail',
       sponsorMemberId: owner.id,
-      invitationId: (await h.seedInvitation(owner.club.id, owner.id, 'get-gail@example.com', {
-        candidateName: 'Get Gail',
-      })).id,
-      generatedProfileDraft: { tagline: 'Builder of reliable systems' },
+      invitationId: invitation.id,
+      generatedProfileDraft: {
+        tagline: 'Builder of reliable systems',
+        summary: null,
+        whatIDo: null,
+        knownFor: null,
+        servicesSummary: null,
+        websiteUrl: null,
+        links: [],
+      },
     });
 
-    const body = await h.apiOk(owner.token, 'clubadmin.memberships.get', {
+    const body = await h.apiOk(owner.token, 'clubadmin.applications.get', {
       clubId: owner.club.id,
       membershipId: applicant.membership.id,
     });
 
     const data = body.data as Record<string, unknown>;
-    const membership = data.membership as Record<string, unknown>;
-    const application = data.application as Record<string, unknown> | undefined;
-    assert.equal(((membership.state as Record<string, unknown>).status), 'submitted');
-    assert.equal(application?.submissionPath, 'invitation');
-    assert.equal(application?.proofKind, 'invitation');
-    assert.equal(application?.applicationEmail, 'get-gail@example.com');
-    assert.equal(application?.applicationText, 'I build backend systems.');
+    const application = data.application as Record<string, unknown>;
+    const club = data.club as Record<string, unknown>;
+    assert.equal((application.state as Record<string, unknown>).status, 'submitted');
+    assert.equal(application.submissionPath, 'invitation');
+    assert.equal(application.proofKind, 'invitation');
+    assert.equal(application.applicationEmail, 'gail@example.com');
+    assert.equal(application.applicationText, 'I build backend systems.');
+    assert.equal(club.clubId, owner.club.id);
+    assert.equal(club.slug, owner.club.slug);
+  });
+});
+
+describe('clubadmin.members.*', () => {
+  it('members.list returns accessible members with inline vouches', async () => {
+    const owner = await h.seedOwner('members-list-club', 'Members List Club');
+    const admin = await h.seedPaidMember(owner.club.id, 'Admin Ada', { role: 'clubadmin' });
+    const member = await h.seedCompedMember(owner.club.id, 'Member Mia');
+    const renewing = await h.seedPaidMember(owner.club.id, 'Renewing Rita', { status: 'renewal_pending' });
+    await h.seedPendingMember(owner.club.id, 'Pending Pete', {
+      status: 'submitted',
+      submissionPath: 'cold',
+      proofKind: 'pow',
+      applicationEmail: 'pending@example.com',
+      applicationName: 'Pending Pete',
+      applicationText: 'Would like to join.',
+      applicationSocials: '@pending',
+    });
+
+    await h.sql(
+      `insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, created_at)
+       values
+         ($1, 'vouched_for', $2, $3, 'Great in person', $2, '2026-04-01T10:00:00Z'),
+         ($1, 'vouched_for', $4, $3, 'Shows up consistently', $4, '2026-04-01T11:00:00Z')`,
+      [owner.club.id, owner.id, member.id, admin.id],
+    );
+
+    const body = await h.apiOk(owner.token, 'clubadmin.members.list', {
+      clubId: owner.club.id,
+      statuses: ['active', 'renewal_pending'],
+      roles: ['member'],
+      limit: 20,
+    });
+
+    const data = body.data as Record<string, unknown>;
+    const results = data.results as Array<Record<string, unknown>>;
+    const memberIds = results.map((result) => result.memberId);
+
+    assert.ok(memberIds.includes(member.id));
+    assert.ok(memberIds.includes(renewing.id));
+    assert.ok(!memberIds.includes(admin.id), 'role filter should exclude clubadmins');
+
+    const memberRow = results.find((result) => result.memberId === member.id);
+    const vouches = (memberRow?.vouches as Array<Record<string, unknown>>) ?? [];
+    assert.deepEqual(vouches.map((vouch) => vouch.reason), ['Shows up consistently', 'Great in person']);
+  });
+
+  it('members.list rejects application-status filters with sibling-action guidance', async () => {
+    const owner = await h.seedOwner('members-list-invalid', 'Members List Invalid');
+
+    const err = await h.apiErr(owner.token, 'clubadmin.members.list', {
+      clubId: owner.club.id,
+      statuses: ['submitted'],
+    });
+
+    assert.equal(err.status, 422);
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /clubadmin\.applications\.list/);
+  });
+
+  it('members.get returns admin member details', async () => {
+    const owner = await h.seedOwner('members-get-club', 'Members Get Club');
+    const member = await h.seedCompedMember(owner.club.id, 'Get Mo');
+
+    const body = await h.apiOk(owner.token, 'clubadmin.members.get', {
+      clubId: owner.club.id,
+      membershipId: member.membership.id,
+    });
+
+    const data = body.data as Record<string, unknown>;
+    const club = data.club as Record<string, unknown>;
+    const adminMember = data.member as Record<string, unknown>;
+
+    assert.equal(club.clubId, owner.club.id);
+    assert.equal(adminMember.memberId, member.id);
+    assert.equal(adminMember.isComped, true);
+    assert.equal((adminMember.state as Record<string, unknown>).status, 'active');
+  });
+});
+
+describe('members.* public read surface', () => {
+  it('members.list returns flattened public member summaries with inline vouches', async () => {
+    const owner = await h.seedOwner('public-members-club', 'Public Members Club');
+    const member = await h.seedCompedMember(owner.club.id, 'Public Pat');
+    const pending = await h.seedPendingMember(owner.club.id, 'Pending Polly', {
+      status: 'submitted',
+      submissionPath: 'cold',
+      proofKind: 'pow',
+      applicationEmail: 'pending-polly@example.com',
+      applicationName: 'Pending Polly',
+    });
+
+    await h.sql(
+      `insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id)
+       values ($1, 'vouched_for', $2, $3, 'Known for follow-through', $2)`,
+      [owner.club.id, owner.id, member.id],
+    );
+
+    const body = await h.apiOk(owner.token, 'members.list', {
+      clubId: owner.club.id,
+      limit: 20,
+    });
+
+    const results = ((body.data as Record<string, unknown>).results as Array<Record<string, unknown>>);
+    const ids = results.map((result) => result.memberId);
+    assert.ok(ids.includes(owner.id));
+    assert.ok(ids.includes(member.id));
+    assert.equal(ids.includes(pending.id), false);
+
+    const memberRow = results.find((result) => result.memberId === member.id);
+    assert.equal(memberRow?.membershipId, member.membership.id);
+    assert.deepEqual((memberRow?.vouches as Array<Record<string, unknown>>).map((vouch) => vouch.reason), ['Known for follow-through']);
+  });
+
+  it('members.get returns one accessible member and hides applications', async () => {
+    const owner = await h.seedOwner('public-member-get', 'Public Member Get');
+    const member = await h.seedCompedMember(owner.club.id, 'Visible Vic');
+    const pending = await h.seedPendingMember(owner.club.id, 'Hidden Hannah', {
+      status: 'submitted',
+      submissionPath: 'cold',
+      proofKind: 'pow',
+      applicationEmail: 'hidden@example.com',
+      applicationName: 'Hidden Hannah',
+    });
+
+    const ok = await h.apiOk(owner.token, 'members.get', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    assert.equal(((ok.data as Record<string, unknown>).member as Record<string, unknown>).memberId, member.id);
+
+    const err = await h.apiErr(owner.token, 'members.get', {
+      clubId: owner.club.id,
+      memberId: pending.id,
+    });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'not_found');
   });
 });
 
@@ -181,7 +325,15 @@ describe('submitted applications can be accepted into active memberships', () =>
       applicationName: 'Accept Ava',
       applicationText: 'I run community ops.',
       applicationSocials: '@acceptava',
-      generatedProfileDraft: { tagline: 'Community operator' },
+      generatedProfileDraft: {
+        tagline: 'Community operator',
+        summary: null,
+        whatIDo: null,
+        knownFor: null,
+        servicesSummary: null,
+        websiteUrl: null,
+        links: [],
+      },
     });
 
     const before = await h.apiOk(applicant.token, 'session.getContext', {});
@@ -213,58 +365,6 @@ describe('submitted applications can be accepted into active memberships', () =>
       [applicant.membership.id],
     );
     assert.equal(Number(profileRows[0]?.count ?? 0), 1, 'acceptance should create the first club profile version');
-  });
-});
-
-describe('review vouches stay attached to the correct application', () => {
-  it('listForReview batches vouch loading by applicant and keeps newest-first order', async () => {
-    const owner = await h.seedOwner('vouch-review-club', 'Vouch Review Club');
-    const applicantA = await h.seedPendingMember(owner.club.id, 'Alice Applicant', {
-      status: 'submitted',
-      submissionPath: 'cold',
-      proofKind: 'pow',
-      applicationEmail: 'alice@applicants.example.com',
-      applicationName: 'Alice Applicant',
-      applicationText: 'Application A',
-      applicationSocials: '@alice',
-    });
-    const applicantB = await h.seedPendingMember(owner.club.id, 'Bob Applicant', {
-      status: 'submitted',
-      submissionPath: 'cold',
-      proofKind: 'pow',
-      applicationEmail: 'bob@applicants.example.com',
-      applicationName: 'Bob Applicant',
-      applicationText: 'Application B',
-      applicationSocials: '@bob',
-    });
-    const voucher1 = await h.seedCompedMember(owner.club.id, 'Voucher One');
-    const voucher2 = await h.seedCompedMember(owner.club.id, 'Voucher Two');
-
-    await h.sql(
-      `insert into club_edges (club_id, kind, from_member_id, to_member_id, reason, created_by_member_id, created_at)
-       values ($1, 'vouched_for', $2, $3, 'A vouch 1', $2, '2026-04-01T10:00:00Z'),
-              ($1, 'vouched_for', $4, $3, 'A vouch 2', $4, '2026-04-01T11:00:00Z'),
-              ($1, 'vouched_for', $2, $5, 'B vouch 1', $2, '2026-04-01T09:00:00Z')`,
-      [owner.club.id, voucher1.id, applicantA.id, voucher2.id, applicantB.id],
-    );
-
-    const reviewBody = await h.apiOk(owner.token, 'clubadmin.memberships.listForReview', {
-      clubId: owner.club.id,
-      statuses: ['submitted'],
-      limit: 20,
-    });
-    const results = (reviewBody.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-
-    const reviewA = results.find((result) => ((result.member as Record<string, unknown>).memberId) === applicantA.id);
-    const reviewB = results.find((result) => ((result.member as Record<string, unknown>).memberId) === applicantB.id);
-    assert.ok(reviewA);
-    assert.ok(reviewB);
-
-    const vouchesA = (reviewA!.vouches as Array<Record<string, unknown>>).map((vouch) => vouch.reason);
-    const vouchesB = (reviewB!.vouches as Array<Record<string, unknown>>).map((vouch) => vouch.reason);
-
-    assert.deepEqual(vouchesA, ['A vouch 2', 'A vouch 1']);
-    assert.deepEqual(vouchesB, ['B vouch 1']);
   });
 });
 
@@ -322,17 +422,22 @@ describe('membership state transitions update access correctly', () => {
   });
 });
 
-describe('clubadmin membership actions stay scoped to admins and superadmins', () => {
-  it('regular members cannot use clubadmin.memberships.list', async () => {
+describe('clubadmin read surfaces stay scoped to admins and superadmins', () => {
+  it('regular members cannot use admin member or application surfaces', async () => {
     const owner = await h.seedOwner('membership-scope-club', 'Membership Scope Club');
     const regular = await h.seedCompedMember(owner.club.id, 'Regular Riley');
 
-    const err = await h.apiErr(regular.token, 'clubadmin.memberships.list', {
+    const membersErr = await h.apiErr(regular.token, 'clubadmin.members.list', {
+      clubId: owner.club.id,
+    });
+    const applicationsErr = await h.apiErr(regular.token, 'clubadmin.applications.list', {
       clubId: owner.club.id,
     });
 
-    assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(membersErr.status, 403);
+    assert.equal(membersErr.code, 'forbidden');
+    assert.equal(applicationsErr.status, 403);
+    assert.equal(applicationsErr.code, 'forbidden');
   });
 
   it('superadmin can direct-add and transition memberships in unrelated clubs', async () => {

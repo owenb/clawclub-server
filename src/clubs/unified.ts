@@ -7,7 +7,6 @@ import {
   type InvitationSummary,
   type JoinClubInput,
   type JoinClubResult,
-  type MembershipApplicationAdminSummary,
   type MembershipState,
   type SubmitClubApplicationInput,
   type SubmitClubApplicationResult,
@@ -1072,63 +1071,6 @@ export async function listClubApplications(pool: Pool, input: {
     if (application) summaries.push(application);
   }
   return summaries;
-}
-
-export async function getMembershipApplication(pool: Pool, actorMemberId: string, membershipId: string, accessibleClubIds: string[]): Promise<MembershipApplicationAdminSummary | null> {
-  const row = await readMembershipApplicationRow(pool, membershipId);
-  if (!row || !accessibleClubIds.includes(row.club_id)) {
-    return null;
-  }
-  return {
-    membership: {
-      membershipId: row.membership_id,
-      clubId: row.club_id,
-      member: {
-        memberId: row.member_id,
-        publicName: row.member_public_name,
-      },
-      sponsor: row.sponsor_member_id
-        ? {
-            memberId: row.sponsor_member_id,
-            publicName: row.sponsor_public_name ?? 'Unknown sponsor',
-          }
-        : null,
-      role: row.role,
-      isOwner: row.is_owner,
-      state: {
-        status: row.status,
-        reason: row.state_reason,
-        versionNo: row.state_version_no,
-        createdAt: row.state_created_at,
-        createdByMemberId: row.state_created_by_member_id,
-      },
-      joinedAt: row.joined_at,
-      acceptedCovenantAt: row.accepted_covenant_at,
-      metadata: row.metadata ?? {},
-    },
-    club: {
-      clubId: row.club_id,
-      slug: row.club_slug,
-      name: row.club_name,
-      summary: row.club_summary,
-      admissionPolicy: row.admission_policy,
-      ownerName: row.owner_name,
-      priceUsd: row.membership_price_currency === 'USD' && row.membership_price_amount !== null
-        ? Number(row.membership_price_amount)
-        : null,
-    },
-    application: {
-      submissionPath: row.submission_path,
-      proofKind: row.proof_kind,
-      appliedAt: row.applied_at,
-      submittedAt: row.application_submitted_at,
-      applicationName: row.application_name,
-      applicationEmail: row.application_email,
-      applicationSocials: row.application_socials,
-      applicationText: row.application_text,
-      generatedProfileDraft: row.generated_profile_draft,
-    },
-  };
 }
 
 export async function issueInvitation(pool: Pool, input: {

@@ -140,12 +140,14 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async issueInvitation() { return null; },
     async listIssuedInvitations() { return []; },
     async revokeInvitation() { return null; },
-    async getMembershipApplication() { return null; },
-    async listMemberships() { return { results: [], hasMore: false, nextCursor: null }; },
     async createMembership() { return null; },
     async transitionMembershipState() { return null; },
-    async listMembershipReviews() { return { results: [], hasMore: false, nextCursor: null }; },
     async listMembers() { return { results: [], hasMore: false, nextCursor: null }; },
+    async getMember() { return null; },
+    async listAdminMembers() { return { results: [], hasMore: false, nextCursor: null }; },
+    async getAdminMember() { return null; },
+    async listAdminApplications() { return { results: [], hasMore: false, nextCursor: null }; },
+    async getAdminApplication() { return null; },
     async buildMembershipSeedProfile() {
       return {
         tagline: null,
