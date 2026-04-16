@@ -77,6 +77,15 @@ For `content.create` and `content.update` the resolver runs in a `preGate` hook 
 - DM send paths are not content-gated
 - rejection feedback is passed through verbatim from the LLM to the caller; the server does not rewrite it
 
+### Testing the content gate: anchor suite vs calibration suite
+
+The real-LLM test surface for the content gate is deliberately split into two files with very different roles, because real-LLM suites and deterministic CI suites are different jobs:
+
+- **Anchor suite** — `test/integration/with-llm/content-gate.test.ts` — ~15 high-confidence cases covering all five artifact kinds, both rejection paths, and merge-path regressions. Runs in `test:integration:with-llm`. This is the blocking real-LLM gate for releases. Every case is chosen so any reasonably-tuned model returns the same verdict on any run; a flake here is a real signal worth investigating. Runtime: ~90 seconds. Cost: pennies.
+- **Calibration suite** — `test/calibration/content-gate-calibration.test.ts` — the full 95-case matrix (pass, low-quality reject, illegal reject, edgy-but-legal, merge-path). Runs on demand via `npm run test:calibration`. Not in CI. This is a calibration and regression-monitoring tool used after prompt edits or model updates, paired with `ai_llm_usage_log` telemetry for production calibration. Runtime: ~3–6 minutes. Cost: under $0.10 per run.
+
+The split exists because chasing 95/95 green on the full suite in CI would mean overfitting fixtures and prompt text to one model snapshot's current mood, which is the opposite of robust engineering. A handful of boundary-case flakes in the calibration suite is expected LLM non-determinism and not a bug in the gate. Treat full-suite failures as blocking only if a whole *category* regresses (e.g. "all illegal cases now pass"). Production calibration — whether the live gate is actually hitting the ~80% pass-rate target — is observed via `ai_llm_usage_log` after deploy, not synthetic tests.
+
 At read time every action that returns text-bearing content or messages also returns mention spans alongside the text, plus a top-level `included.membersById` bundle that hydrates each referenced member's *current* identity (`publicName`, `displayName`). Spans carry `memberId` (the stable identity for any follow-up action input), `authoredLabel` (the literal label at write time, preserved as historical author intent — it may diverge from the current display name if the member has since renamed), and 0-based UTF-16 offsets covering the full `[label|id]` span. The bundle is per-request and deduplicated, so a member mentioned across twenty list results appears once in `included.membersById`.
 
 Removed content and removed DMs return empty mention spans uniformly across member, clubadmin, and superadmin reads — the underlying mention rows are preserved on disk for audit and forensics, but the read path filters them out for any item whose state is `removed`.

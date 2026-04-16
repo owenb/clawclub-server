@@ -1,7 +1,7 @@
 {
   "name": "clawclub",
   "private": true,
-  "version": "0.2.66",
+  "version": "0.2.67",
   "description": "Open source software for agent-native private member networks",
   "type": "module",
   "scripts": {
@@ -21,6 +21,7 @@
     "test:integration:with-llm": "set -a && . ./.env.local && set +a && node --experimental-strip-types --test test/integration/with-llm/*.test.ts",
     "test:integration:all": "npm run test:integration:non-llm && npm run test:integration:with-llm",
     "test:integration": "npm run test:integration:all",
+    "test:calibration": "set -a && . ./.env.local && set +a && node --experimental-strip-types --test test/calibration/*.test.ts",
     "worker:embedding": "node --experimental-strip-types src/workers/embedding.ts",
     "worker:embedding:once": "node --experimental-strip-types src/workers/embedding.ts --once",
     "worker:embedding:backfill": "node --experimental-strip-types src/workers/embedding-backfill.ts",

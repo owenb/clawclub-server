@@ -10649,12 +10649,12 @@
         },
         {
           "code": "gate_rejected",
-          "meaning": "The profile update failed the quality gate after schema validation.",
+          "meaning": "The profile update failed the content gate after schema validation.",
           "recovery": "Review the feedback, revise the profile fields, and resubmit."
         },
         {
           "code": "gate_unavailable",
-          "meaning": "The profile quality gate is temporarily unavailable.",
+          "meaning": "The content gate is temporarily unavailable.",
           "recovery": "Retry after a short delay. If the problem persists, surface the outage to the user."
         }
       ],
@@ -14320,6 +14320,6 @@
       }
     ]
   },
-  "version": "0.2.66",
-  "schemaHash": "402ca9b0fcfd30f5"
+  "version": "0.2.67",
+  "schemaHash": "57f07482bb03e65c"
 }

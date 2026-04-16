@@ -200,7 +200,7 @@ export type ActionDefinition = {
 
   /**
    * Optional preflight hook for authenticated actions.
-   * Runs after parsing and before any quality gate execution.
+   * Runs after parsing and before any llm gate execution.
    * Signals failure by throwing AppError.
    */
   preGate?: (input: unknown, ctx: PreGateContext) => Promise<void>;

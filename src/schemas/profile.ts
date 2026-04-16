@@ -25,12 +25,12 @@ const PROFILE_UPDATE_ERRORS = [
   },
   {
     code: 'gate_rejected',
-    meaning: 'The profile update failed the quality gate after schema validation.',
+    meaning: 'The profile update failed the content gate after schema validation.',
     recovery: 'Review the feedback, revise the profile fields, and resubmit.',
   },
   {
     code: 'gate_unavailable',
-    meaning: 'The profile quality gate is temporarily unavailable.',
+    meaning: 'The content gate is temporarily unavailable.',
     recovery: 'Retry after a short delay. If the problem persists, surface the outage to the user.',
   },
 ] as const;

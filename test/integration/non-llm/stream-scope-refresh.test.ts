@@ -15,7 +15,7 @@ after(async () => {
   await h.stop();
 });
 
-// Helper: insert a club_activity row directly (bypasses LLM quality gate).
+// Helper: insert a club_activity row directly (bypasses the LLM content gate).
 async function insertActivity(clubId: string, memberId: string, topic: string): Promise<void> {
   await h.sql(
     `INSERT INTO club_activity (club_id, topic, payload, created_by_member_id)

@@ -3556,7 +3556,7 @@ test('dispatcher runs preGate even when no llm gate is configured', async () => 
   registerActions([{
     action,
     domain: 'test',
-    description: 'PreGate without quality gate',
+    description: 'PreGate without llm gate',
     auth: 'member',
     safety: 'read_only',
     wire: {

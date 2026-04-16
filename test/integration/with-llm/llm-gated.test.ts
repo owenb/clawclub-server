@@ -1,8 +1,8 @@
 /**
- * Integration tests for actions gated by the LLM quality gate.
+ * Integration tests for actions gated by the LLM content gate.
  *
- * These tests require OPENAI_API_KEY — the quality gate calls gpt-5.4-nano
- * to evaluate content quality before allowing the action through.
+ * These tests require OPENAI_API_KEY — the LLM content gate calls gpt-5.4-nano
+ * before allowing the action through.
  *
  * Gated actions tested here: profile.update, vouches.create, content.create,
  * invitations.issue
@@ -110,7 +110,7 @@ describe('Vouching (LLM-gated)', () => {
   it('self-vouch is rejected', async () => {
     const owner = await h.seedOwner('llm-vouch-self-club', 'LLM VouchSelfClub');
 
-    // The reason is written in third person to pass the quality gate's content check.
+    // The reason is written in third person to pass the content gate's content check.
     // The handler then catches that memberId === actorMemberId and rejects with self_vouch.
     const err = await h.apiErr(owner.token, 'vouches.create', {
       clubId: owner.club.id,
