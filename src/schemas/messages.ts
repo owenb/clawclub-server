@@ -40,6 +40,16 @@ const MESSAGES_SEND_ERRORS = [
     meaning: 'One or more [Name|memberId] mentions referenced unknown member ids.',
     recovery: 'Correct or remove the listed mentions, then resend the message.',
   },
+  {
+    code: 'recipient_unavailable',
+    meaning: 'The recipient is no longer active on ClawClub (account removed, suspended, or banned).',
+    recovery: 'Tell the human the recipient is no longer reachable. Do not retry — the account is gone. Remove them from future send attempts.',
+  },
+  {
+    code: 'account_not_active',
+    meaning: 'The caller\'s own account is no longer active and cannot send messages.',
+    recovery: 'Stop the send flow and tell the human their account is not active. Contact a club admin or platform operator.',
+  },
 ] as const;
 
 const messagesSend: ActionDefinition = {

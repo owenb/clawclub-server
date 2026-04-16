@@ -392,6 +392,44 @@ describe('messages', () => {
     assert.ok(messages.length >= 3);
   });
 
+  it('existing thread cannot reach a platform-banned recipient', async () => {
+    const owner = await h.seedOwner('msg-banned-recipient', 'MsgBannedRecipient');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Banned');
+
+    // Owner starts a DM with Bob while both are active and share a club.
+    const sent = await h.apiOk(owner.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Before ban',
+    });
+    const threadId = ((sent.data as Record<string, unknown>).message as Record<string, unknown>).threadId as string;
+
+    // Bob is banned platform-wide. Simulated by flipping members.state directly;
+    // this is the exact state billingBanMember would leave the row in, and it
+    // isolates the DM standing gate from other parts of the ban flow.
+    await h.sql(`update members set state = 'banned' where id = $1`, [bob.id]);
+
+    // The thread still exists, but the owner can no longer DM into it because
+    // the standing check at the write path rejects banned recipients. The error
+    // must be specific enough that an agent can tell its user why the send
+    // failed: "Bob is no longer on ClawClub," not a generic not_found.
+    const err = await h.apiErr(owner.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'After ban',
+    });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'recipient_unavailable');
+    assert.match(err.message, /no longer active on ClawClub/i);
+
+    // No new message row was created — only the pre-ban "Before ban" message
+    // should exist in the thread.
+    const threadMessages = await h.sql<{ message_text: string }>(
+      `select message_text from dm_messages where thread_id = $1 order by created_at asc`,
+      [threadId],
+    );
+    assert.equal(threadMessages.length, 1);
+    assert.equal(threadMessages[0]?.message_text, 'Before ban');
+  });
+
   it('messages.acknowledge marks a thread read and is idempotent', async () => {
     const owner = await h.seedOwner('msg-ack-null', 'MsgAckNull');
     const alice = await h.seedCompedMember(owner.club.id, 'Alice Ack');

@@ -1,31 +1,10 @@
 # Known bugs
 
-Findings from a security/correctness audit run on 2026-04-14. Six parallel agents swept the codebase; a second verification pass confirmed or corrected the findings.
-
-**Legend**: `[ ]` open, `[~]` in progress, `[x]` fixed (link to commit), `[-]` won't fix (with reason).
-
-Items flagged `[UNVERIFIED]` were in the original report but adjusted or refuted on verification; keeping them here so we don't rediscover them later.
+Currently-open bugs from the security/correctness audit. Entries are removed when the fix lands — this list tracks what's *left*, not what's been done. Originally compiled 2026-04-14 by six parallel audit agents plus a verification pass.
 
 ---
 
 ## P0 — ship this week
-
-### `[x]` Anonymous `clubs.join` account takeover (commit `5e5189f`)
-
-Anonymous `clubs.join` issued a fresh bearer token for any existing in-flight member keyed only on `(clubSlug, email)`. No proof of email ownership. The token was global to `members.id`, so an attacker inherited every club the victim belonged to.
-
-**Fix**: deleted the replay branch in `src/clubs/unified.ts`; anonymous `clubs.join` now always creates a new member + membership. Duplicate memberships with the same email string are allowed and disambiguated by `memberId`. Authenticated re-call still resumes cleanly for the legitimate "refresh my challenge" case.
-
-**Bundled fixes shipped in the same commit**:
-- `attempts_exhausted` error message now truthful — the final-rejection path sets `solved_at` so `ensurePowChallenge` correctly issues a fresh challenge on authenticated re-call.
-- PoW difficulty discount now strict: `status = 'active' AND left_at IS NULL` only. Grace-window members (`renewal_pending`, `cancelled`) get cold difficulty. Defense-in-depth against the clubadmin perpetuity bug below.
-- Dead helpers removed (`isAccessibleState`, `isAnonymousReplayState`, `isNonTerminalStatus`, `findReplayMembershipByEmail`).
-- SKILL.md, schema, and api-schema snapshot updated.
-- New tests lock in anonymous-not-idempotent behavior, authenticated refresh, exhausted recovery, and three negative difficulty cases.
-
-Verified live against the dev server: attacker replay produces an independent orphan member, attacker token gets 404 on victim's application, authenticated refresh preserves the membership and the cold difficulty.
-
----
 
 ### `[ ]` Match destruction on every worker restart
 
@@ -87,34 +66,6 @@ Net effect: every Railway redeploy silently destroys any in-flight ask/offer mat
 
 ---
 
-### `[-]` Content quality gates are swapped — DEFERRED
-
-`src/schemas/entities.ts:213` and `src/schemas/entities.ts:313`. `entitiesCreate` declares `qualityGate: 'content-update'`; `entitiesUpdate` declares `qualityGate: 'content-create'`. New posts are judged against the lenient patch rubric; small edits are judged against the strict new-post rubric. Moderation is wrong on both sides right now.
-
-**Why deferred**: the entire content quality gate subsystem is about to be redesigned — see `plans/content-quality-gate-redesign.md` (currently dirty in worktree, belongs to another workstream). Point-fixing the string swap now would get overwritten by the redesign. Don't touch it.
-
-**What to check after the redesign ships**:
-- Does the redesigned gate even use named prompt files like `content-create.txt` / `content-update.txt`? The redesign may collapse both into a single gate, or split them differently, or drop the named-prompt pattern entirely.
-- If the named-prompt pattern survives: verify the action-to-prompt mapping in the new code points `content.create → content-create.txt` and `content.update → content-update.txt`, not the other way around.
-- **Not-yet-verified concern**: the prompt *files* at `src/prompts/content-create.txt` and `src/prompts/content-update.txt` may themselves have been written against the wrong action. The "fix" might not be a label swap — it might be that the prompt content itself is mistuned. This has to be checked by reading the actual prompts, not assumed from filenames.
-- Check whether any tests in `test/integration/with-llm/quality-gate.test.ts` currently assert the wrong behavior (and therefore pass against the bug). If so, those tests are coverage gaps, not proof of correctness.
-
-**Fix (when we come back)**: if the post-redesign mapping is still wrong, it's a five-second fix in whatever file declares the action-to-gate binding. Worth five minutes of verification before and after.
-
----
-
-### `[x]` `members.updateIdentity` bypasses handle validation (superseded + fixed)
-
-The handle portion of this bug became moot when handles were removed entirely from the platform (commit `4e27c1f` "Delete handles entirely", migration `011_delete_handles.sql`). `parseHandle`, `members_handle_unique`, and every reference to a member's `@handle` are gone. `members.updateIdentity` now only accepts `displayName`.
-
-The residual `displayName` concerns (no max length, no null-byte sanitization) were fixed directly: `displayName` now uses `parseBoundedString` (caps at 500 chars, strips null bytes via `safeString`) on the parse side and `wireBoundedString.optional()` on the wire side. Live-verified on the dev server:
-
-- Normal displayName → saves correctly
-- 501-char displayName → rejected `400 invalid_input`
-- Null-byte displayName (`Clean\0Name`) → stripped to `CleanName`, no 500 surface
-
----
-
 ### `[ ]` `clubadmin.memberships.setStatus` has no state-machine validation
 
 `src/identity/memberships.ts:447-505`. Any state → any state allowed. A clubadmin can move `banned → active`, `declined → active`, `applying → active` (skipping the application gate entirely), or reverse any decision.
@@ -122,29 +73,6 @@ The residual `displayName` concerns (no max length, no null-byte sanitization) w
 **Fix direction**: encode a `VALID_TRANSITIONS` table and reject transitions not in it. Terminal states (`banned`, `removed`, `expired`, `declined`, `withdrawn`) require an explicit re-review path.
 
 ---
-
-### `[x]` Clubadmins retain powers after subscription lapses
-
-`db/init.sql` — the `accessible_club_memberships` view treated the `clubadmin` role as perpetually accessible with no status check. A clubadmin whose subscription lapsed kept full admin authority indefinitely. Because the view is the auth root for every club-scoped action, the bug also leaked into DMs, profile reads, content reads, vouching, and match delivery — not just admin actions.
-
-**Fix shipped (Option A)**: auto-comp owners on club creation and ownership transfer, backfill existing owners, and remove the buggy clubadmin bypass from the view entirely. After the fix, clubadmins go through the same access rules as any other member: comped + active, OR has a live subscription, OR within the renewal grace window. Owners are always comped (platform grant, `comped_by_member_id = null`); non-owner clubadmins pay or are manually comped by the owner.
-
-**Bundled in the same PR**:
-- `createClub` and `assignClubOwner` now write `comped_by_member_id = null` (was self-referential `actorMemberId`, which was semantically wrong — owner auto-comp is a platform grant, not a human decision).
-- `assignClubOwner` previously did not auto-comp the new owner on ownership transfer. Now fixed.
-- Migration `013` backfills every existing owner membership to `is_comped = true, comped_by_member_id = null` while leaving rows that were already comped untouched (preserves any legacy non-null `comped_by_member_id` values).
-- Dev seeds and test harness updated to seed comped owners. Diana (the seeded non-owner clubadmin who was relying on the bypass) now has a live CatClub subscription so she remains valid post-fix.
-- 4 new integration tests in `test/integration/non-llm/clubadmin-access.test.ts` lock in: owner without subscription stays admin, ownership transfer auto-comps the new owner, promoted non-owner clubadmin loses access on subscription lapse, manually-comped non-owner clubadmin retains access on lapse.
-
-Verified live: created a fresh non-owner clubadmin, simulated a subscription lapse via direct SQL (the production-realistic shape — `superadmin.billing.expireMembership` would set `left_at` and trip the bug-independent filter), confirmed they get `403 forbidden` afterward and `session.getContext` no longer includes the club. Owner retains access throughout.
-
----
-
-### `[ ]` Banned users can still DM via pre-existing threads
-
-`src/postgres.ts:774-805`. `sendDirectMessage` falls back to `hasExistingThread` without re-checking either party's `members.state`. A globally banned user keeps messaging anyone they'd already started a thread with, indefinitely.
-
-**Fix direction**: require `members.state = 'active'` for both sender and recipient inside `sendDirectMessage`, not just when starting a new thread.
 
 ---
 
@@ -448,6 +376,24 @@ No file — verified absent. One missed `.catch` in future work crashes the enti
 
 ---
 
+### `[ ]` `clubs.join` emits spurious `notifications_dirty` on the SSE stream
+
+**Reported**: watching `/stream` as a clubadmin, someone calling `clubs.join` (which just creates an `applying` membership and returns a PoW challenge) triggers a `notifications_dirty` frame on the clubadmin's stream. But the applicant hasn't actually submitted anything yet — they just started the flow. No real admin-visible event has occurred, so there's nothing for the clubadmin to act on. The dirty frame causes the client to re-read notifications, find nothing new, and waste work.
+
+The intended behavior: notifications should only fire when the applicant calls `clubs.applications.submit` (the point at which admins actually have something to review). `clubs.join` by itself should be silent on the admin side.
+
+**Fix direction**: find whatever hook fires `notifications_dirty` on membership creation (probably a trigger on `club_memberships` inserts or `club_membership_state_versions`, or a `pg_notify` call inside `joinClub`) and narrow it so it only fires on the `applying → submitted` transition, not on `null → applying`.
+
+**Investigation questions**:
+- Where is the dirty-frame being emitted? Grep for `notifications_dirty`, `pg_notify`, and trigger definitions on membership tables.
+- Is it the `application.submitted` derived notification firing too early, or a separate generic dirty frame? Those are different fix paths.
+- Does the fix also cover `clubs.join` retries (which shouldn't exist for anonymous after the takeover fix, but authenticated re-call for challenge refresh still happens)? Those should also be silent.
+- Are there any other actions (e.g. `clubs.applications.submit` itself) that are currently under-firing and should be the place the signal moves to?
+
+Low severity — it's stream noise, not data loss or a security hole. But every watcher pays the cost of a wasted notifications poll every time the frame fires, and if `clubs.join` is on the hot path (which it is for any active club with applicant flow), that's a lot of wasted round trips.
+
+---
+
 ## P3 — minor / latent
 
 ### `[ ]` `is_current_published` in embedding worker is brittle
@@ -600,22 +546,3 @@ No file — verified absent. One missed `.catch` in future work crashes the enti
 
 ---
 
-## Refuted / adjusted on verification
-
-These appeared in the original audit but did not survive the verification pass. Kept here to prevent rediscovery.
-
-### `[-]` `members.list` cross-club leakage — NOT A BUG
-
-Original claim: `members.list` returned memberships for every club a listed member belonged to, leaking cross-club membership. Verification: the `jsonb_agg` is properly scoped to the queried `club_id` via `anm.club_id = $1`. No leak.
-
-### `[-]` `dm_threads` idempotent-index 23505 race — NOT A BUG
-
-Original claim: concurrent `messages.send` with the same `clientKey` crashed 500 via `dm_threads_idempotent_idx`. Verification: thread creation uses `ON CONFLICT DO NOTHING`. The profile/content/RSVP version races (P1 above) are still real.
-
-### `[-]` `application_pow_challenges` insert race — NOT REPRODUCED
-
-The advisory lock in the current `clubs.join` path covers it. No synthetic reproduction possible against the current code.
-
-### `[UNVERIFIED]` `deliverOneMatch` self-deadlock
-
-The client/pool-mixing is real (see P3 entry above) but a deterministic deadlock was not reproduced. Treating as correctness hygiene, not an outage risk.
