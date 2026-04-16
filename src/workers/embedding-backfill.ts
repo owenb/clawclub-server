@@ -10,7 +10,7 @@
  * Run this after migrations, then run the embedding worker to process the queue.
  */
 import { EMBEDDING_PROFILES } from '../ai.ts';
-import { createPools, closePools, type WorkerPools } from './runner.ts';
+import { createPools, closePools, installWorkerProcessHandlers, type WorkerPools } from './runner.ts';
 
 async function backfill(pools: WorkerPools): Promise<void> {
   const profileConfig = EMBEDDING_PROFILES.member_profile;
@@ -65,7 +65,8 @@ async function backfill(pools: WorkerPools): Promise<void> {
 // ── Main ────────────────────────────────────────────────
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const pools = createPools({ maxConnections: 2 });
+  installWorkerProcessHandlers('embedding-backfill');
+  const pools = createPools({ maxConnections: 2, name: 'embedding-backfill' });
   try {
     await backfill(pools);
   } finally {

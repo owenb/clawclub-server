@@ -12,6 +12,7 @@
  */
 import { Pool } from 'pg';
 import * as http from 'node:http';
+import { basename } from 'node:path';
 
 // ── Types ─────────────────────────────────────────────────
 
@@ -21,6 +22,7 @@ export type WorkerPools = {
 
 export type PoolConfig = {
   maxConnections?: number;
+  name?: string;
 };
 
 export type WorkerLoopOptions = {
@@ -30,8 +32,72 @@ export type WorkerLoopOptions = {
 
 // ── Pool management ───────────────────────────────────────
 
+type WorkerLogger = (...args: unknown[]) => void;
+type WorkerProcessHandlerOptions = {
+  logger?: WorkerLogger;
+  terminate?: () => void;
+};
+
+let workerProcessHandlersInstalled = false;
+let installedUnhandledRejectionHandler: ((reason: unknown) => void) | null = null;
+let installedUncaughtExceptionHandler: ((error: unknown) => void) | null = null;
+
+function getDefaultWorkerName(): string {
+  const entrypoint = process.argv[1];
+  if (!entrypoint) return 'worker';
+  return basename(entrypoint).replace(/\.[^.]+$/, '') || 'worker';
+}
+
+export function createWorkerPoolErrorHandler(name: string, options: { logger?: WorkerLogger } = {}): (error: unknown) => void {
+  const logger = options.logger ?? console.error;
+  return (error: unknown) => {
+    logger(`[${name}] [pool error]`, error);
+  };
+}
+
+export function createWorkerUnhandledRejectionHandler(name: string, options: { logger?: WorkerLogger } = {}): (reason: unknown) => void {
+  const logger = options.logger ?? console.error;
+  return (reason: unknown) => {
+    logger(`[${name}] [unhandled rejection]`, reason);
+  };
+}
+
+export function createWorkerUncaughtExceptionHandler(
+  name: string,
+  options: WorkerProcessHandlerOptions = {},
+): (error: unknown) => void {
+  const logger = options.logger ?? console.error;
+  const terminate = options.terminate ?? (() => process.exit(1));
+  return (error: unknown) => {
+    logger(`[${name}] [uncaught exception]`, error);
+    terminate();
+  };
+}
+
+export function installWorkerProcessHandlers(name: string, options: WorkerProcessHandlerOptions = {}): void {
+  if (workerProcessHandlersInstalled) return;
+  installedUnhandledRejectionHandler = createWorkerUnhandledRejectionHandler(name, options);
+  installedUncaughtExceptionHandler = createWorkerUncaughtExceptionHandler(name, options);
+  process.on('unhandledRejection', installedUnhandledRejectionHandler);
+  process.on('uncaughtException', installedUncaughtExceptionHandler);
+  workerProcessHandlersInstalled = true;
+}
+
+export function resetInstalledWorkerProcessHandlersForTests(): void {
+  if (installedUnhandledRejectionHandler) {
+    process.off('unhandledRejection', installedUnhandledRejectionHandler);
+    installedUnhandledRejectionHandler = null;
+  }
+  if (installedUncaughtExceptionHandler) {
+    process.off('uncaughtException', installedUncaughtExceptionHandler);
+    installedUncaughtExceptionHandler = null;
+  }
+  workerProcessHandlersInstalled = false;
+}
+
 export function createPools(config: PoolConfig = {}): WorkerPools {
   const max = config.maxConnections ?? 3;
+  const name = config.name ?? getDefaultWorkerName();
 
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
@@ -39,9 +105,10 @@ export function createPools(config: PoolConfig = {}): WorkerPools {
     process.exit(1);
   }
 
-  return {
-    db: new Pool({ connectionString: databaseUrl, max }),
-  };
+  const db = new Pool({ connectionString: databaseUrl, max });
+  db.on('error', createWorkerPoolErrorHandler(name));
+
+  return { db };
 }
 
 export async function closePools(pools: WorkerPools): Promise<void> {
@@ -77,6 +144,7 @@ export async function runWorkerLoop(
   processFn: (pools: WorkerPools) => Promise<number>,
   opts: WorkerLoopOptions,
 ): Promise<void> {
+  installWorkerProcessHandlers(name);
   const health = opts.healthPort ? startHealthServer(opts.healthPort, name) : null;
   console.log(`Worker ${name} started (loop mode)`);
 
@@ -113,6 +181,7 @@ export async function runWorkerOnce(
   pools: WorkerPools,
   processFn: (pools: WorkerPools) => Promise<number>,
 ): Promise<void> {
+  installWorkerProcessHandlers(name);
   console.log(`Worker ${name} started (one-shot mode)`);
   let total = 0;
   while (true) {
