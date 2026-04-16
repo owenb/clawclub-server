@@ -1,18 +1,14 @@
-import { describe, it, before, after } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
+import { findPowNonce, prepareAnonymousJoin } from '../helpers.ts';
 
 const COLD_DIFFICULTY_ENV = 'CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY';
-const CROSS_DIFFICULTY_ENV = 'CLAWCLUB_TEST_CROSS_APPLICATION_DIFFICULTY';
 const OPENAI_API_KEY_ENV = 'OPENAI_API_KEY';
-
 const TEST_COLD_DIFFICULTY = '2';
-const TEST_CROSS_DIFFICULTY = '1';
 
 let h: TestHarness;
 let previousColdDifficulty: string | undefined;
-let previousCrossDifficulty: string | undefined;
 let previousApiKey: string | undefined;
 let originalFetch: typeof globalThis.fetch;
 const queuedGateResponses: string[] = [];
@@ -22,8 +18,7 @@ function enqueueGateResponses(...responses: string[]): void {
 }
 
 function dequeueGateResponse(): string {
-  const response = queuedGateResponses.shift();
-  return response ?? 'PASS';
+  return queuedGateResponses.shift() ?? 'PASS';
 }
 
 function makeOpenAiResponse(text: string): Response {
@@ -44,91 +39,47 @@ function makeOpenAiResponse(text: string): Response {
   });
 }
 
-function findNonce(challengeId: string, difficulty: number): string {
-  const zeros = '0'.repeat(difficulty);
-  for (let nonce = 0; nonce < 250_000; nonce++) {
-    const candidate = String(nonce);
-    const hash = createHash('sha256').update(`${challengeId}:${candidate}`, 'utf8').digest('hex');
-    if (hash.endsWith(zeros)) {
-      return candidate;
-    }
-  }
-  throw new Error(`Unable to find trailing-zero nonce for difficulty ${difficulty}`);
-}
-
-async function readLatestChallenge(membershipId: string): Promise<{
+async function joinCold(clubSlug: string, email: string): Promise<{
+  challengeBlob: string;
   challengeId: string;
   difficulty: number;
-  attempts: number;
-  solvedAt: string | null;
-  expiresAt: string;
-} | null> {
-  const rows = await h.sql<{
-    challenge_id: string;
-    difficulty: string;
-    attempts: string;
-    solved_at: string | null;
-    expires_at: string;
-  }>(
-    `select
-        id as challenge_id,
-        difficulty::text as difficulty,
-        attempts::text as attempts,
-        solved_at::text as solved_at,
-        expires_at::text as expires_at
-     from application_pow_challenges
-     where membership_id = $1
-     order by created_at desc
-     limit 1`,
-    [membershipId],
-  );
-
-  const row = rows[0];
-  if (!row) return null;
+  token: string;
+  membershipId: string;
+}> {
+  const challenge = await prepareAnonymousJoin(h, clubSlug);
+  const nonce = findPowNonce(challenge.challengeId, challenge.difficulty);
+  const join = await h.apiOk(null, 'clubs.join', {
+    clubSlug,
+    email,
+    challengeBlob: challenge.challengeBlob,
+    nonce,
+  });
+  const data = join.data as Record<string, unknown>;
   return {
-    challengeId: row.challenge_id,
-    difficulty: Number(row.difficulty),
-    attempts: Number(row.attempts),
-    solvedAt: row.solved_at,
-    expiresAt: row.expires_at,
+    ...challenge,
+    token: data.memberToken as string,
+    membershipId: data.membershipId as string,
   };
 }
 
-async function expectCrossApplyDifficultyToStayColdForOnlyMembershipInState(input: {
-  state: 'renewal_pending' | 'cancelled' | 'banned';
-  access?: 'comped' | 'paid' | 'none';
-  sourceSlug: string;
-  sourceName: string;
-  targetSlug: string;
-  targetName: string;
-  publicName: string;
-  email: string;
-}): Promise<void> {
-  const sourceOwner = await h.seedOwner(input.sourceSlug, input.sourceName);
-  const targetOwner = await h.seedOwner(input.targetSlug, input.targetName);
-  const member = await h.seedMember(input.publicName);
-  await h.seedClubMembership(sourceOwner.club.id, member.id, {
-    status: input.state,
-    access: input.access ?? 'comped',
-  });
-
-  const joinBody = await h.apiOk(member.token, 'clubs.join', {
-    clubSlug: targetOwner.club.slug,
-    email: input.email,
-  });
-  const joinData = joinBody.data as Record<string, unknown>;
-  const proof = joinData.proof as Record<string, unknown>;
-
-  assert.equal(proof.kind, 'pow');
-  assert.equal(proof.difficulty, Number(TEST_COLD_DIFFICULTY));
+async function readSubmitBudget(membershipId: string): Promise<{ attempts: number; expiresAt: string | null }> {
+  const rows = await h.sql<{ attempts: string; expires_at: string | null }>(
+    `select submit_attempt_count::text as attempts,
+            submit_window_expires_at::text as expires_at
+     from club_memberships
+     where id = $1`,
+    [membershipId],
+  );
+  return {
+    attempts: Number(rows[0]?.attempts ?? 0),
+    expiresAt: rows[0]?.expires_at ?? null,
+  };
 }
 
 before(async () => {
   previousColdDifficulty = process.env[COLD_DIFFICULTY_ENV];
-  previousCrossDifficulty = process.env[CROSS_DIFFICULTY_ENV];
   previousApiKey = process.env[OPENAI_API_KEY_ENV];
   process.env[COLD_DIFFICULTY_ENV] = TEST_COLD_DIFFICULTY;
-  process.env[CROSS_DIFFICULTY_ENV] = TEST_CROSS_DIFFICULTY;
   process.env[OPENAI_API_KEY_ENV] = 'test-openai-key';
 
   originalFetch = globalThis.fetch;
@@ -163,12 +114,6 @@ after(async () => {
     process.env[COLD_DIFFICULTY_ENV] = previousColdDifficulty;
   }
 
-  if (previousCrossDifficulty === undefined) {
-    delete process.env[CROSS_DIFFICULTY_ENV];
-  } else {
-    process.env[CROSS_DIFFICULTY_ENV] = previousCrossDifficulty;
-  }
-
   if (previousApiKey === undefined) {
     delete process.env[OPENAI_API_KEY_ENV];
   } else {
@@ -176,163 +121,100 @@ after(async () => {
   }
 }, { timeout: 15_000 });
 
-describe('clubs.join proof-of-work challenge behavior', () => {
-  it('keeps cold difficulty when an anonymous applicant refreshes an expired challenge while authenticated', async () => {
-    const owner = await h.seedOwner('pow-refresh-cold-club', 'PoW Refresh Cold Club');
+describe('clubs.prepareJoin and submit budget behavior', () => {
+  it('issues a cold-join challenge and rejects replay after one successful join', async () => {
+    const owner = await h.seedOwner('pow-replay-club', 'PoW Replay Club');
+    const challenge = await prepareAnonymousJoin(h, owner.club.slug);
 
+    assert.equal(challenge.difficulty, Number(TEST_COLD_DIFFICULTY));
+
+    const nonce = findPowNonce(challenge.challengeId, challenge.difficulty);
     const firstJoin = await h.apiOk(null, 'clubs.join', {
       clubSlug: owner.club.slug,
-      email: 'cold-refresh@example.com',
+      email: 'pow-replay@example.com',
+      challengeBlob: challenge.challengeBlob,
+      nonce,
     });
     const firstData = firstJoin.data as Record<string, unknown>;
-    const firstProof = firstData.proof as Record<string, unknown>;
-    const memberToken = firstData.memberToken as string;
-    const membershipId = firstData.membershipId as string;
+    assert.ok(firstData.memberToken);
 
-    assert.equal(firstProof.kind, 'pow');
-    assert.equal(firstProof.difficulty, Number(TEST_COLD_DIFFICULTY));
+    const replay = await h.apiErr(null, 'clubs.join', {
+      clubSlug: owner.club.slug,
+      email: 'pow-replay@example.com',
+      challengeBlob: challenge.challengeBlob,
+      nonce,
+    }, 'challenge_already_used');
+    assert.equal(replay.status, 409);
 
-    await h.sql(
-      `update application_pow_challenges
-       set expires_at = now() - interval '1 minute'
-       where membership_id = $1
-         and solved_at is null`,
-      [membershipId],
+    const consumedRows = await h.sql<{ count: string }>(
+      `select count(*)::text as count
+       from consumed_pow_challenges
+       where challenge_id = $1`,
+      [challenge.challengeId],
+    );
+    assert.equal(Number(consumedRows[0]?.count ?? 0), 1);
+  });
+
+  it('tracks submit attempts on club_memberships without requiring nonce', async () => {
+    const owner = await h.seedOwner('pow-submit-budget', 'PoW Submit Budget');
+    const joined = await joinCold(owner.club.slug, 'pow-budget@example.com');
+
+    enqueueGateResponses(
+      'Missing city.',
+      'Missing city.',
+      'Missing city.',
+      'Missing city.',
+      'Missing city.',
+      'Missing city.',
     );
 
-    const refreshed = await h.apiOk(memberToken, 'clubs.join', {
-      clubSlug: owner.club.slug,
-    });
-    const refreshedData = refreshed.data as Record<string, unknown>;
-    const refreshedProof = refreshedData.proof as Record<string, unknown>;
-
-    assert.equal(refreshedData.memberToken, null);
-    assert.equal(refreshedData.membershipId, membershipId);
-    assert.equal(refreshedProof.kind, 'pow');
-    assert.equal(refreshedProof.difficulty, Number(TEST_COLD_DIFFICULTY));
-    assert.notEqual(refreshedProof.challengeId, firstProof.challengeId);
-  });
-
-  it('gives cross-apply difficulty only to members with an active membership elsewhere', async () => {
-    const sourceOwner = await h.seedOwner('pow-cross-source', 'PoW Cross Source');
-    const targetOwner = await h.seedOwner('pow-cross-target', 'PoW Cross Target');
-    const member = await h.seedCompedMember(sourceOwner.club.id, 'Cross Apply Casey');
-
-    const joinBody = await h.apiOk(member.token, 'clubs.join', {
-      clubSlug: targetOwner.club.slug,
-      email: 'cross.casey@example.com',
-    });
-    const joinData = joinBody.data as Record<string, unknown>;
-    const proof = joinData.proof as Record<string, unknown>;
-
-    assert.equal(proof.kind, 'pow');
-    assert.equal(proof.difficulty, Number(TEST_CROSS_DIFFICULTY));
-  });
-
-  it('keeps cold difficulty when the caller only has a renewal_pending membership elsewhere', async () => {
-    await expectCrossApplyDifficultyToStayColdForOnlyMembershipInState({
-      state: 'renewal_pending',
-      sourceSlug: 'pow-renewal-source',
-      sourceName: 'PoW Renewal Source',
-      targetSlug: 'pow-renewal-target',
-      targetName: 'PoW Renewal Target',
-      publicName: 'Renewal Pending Riley',
-      email: 'renewal.pending@example.com',
-    });
-  });
-
-  it('keeps cold difficulty when the caller only has a cancelled membership elsewhere', async () => {
-    await expectCrossApplyDifficultyToStayColdForOnlyMembershipInState({
-      state: 'cancelled',
-      sourceSlug: 'pow-cancelled-source',
-      sourceName: 'PoW Cancelled Source',
-      targetSlug: 'pow-cancelled-target',
-      targetName: 'PoW Cancelled Target',
-      publicName: 'Cancelled Casey',
-      email: 'cancelled.casey@example.com',
-    });
-  });
-
-  it('keeps cold difficulty when the caller only has a banned membership elsewhere', async () => {
-    await expectCrossApplyDifficultyToStayColdForOnlyMembershipInState({
-      state: 'banned',
-      access: 'none',
-      sourceSlug: 'pow-banned-source',
-      sourceName: 'PoW Banned Source',
-      targetSlug: 'pow-banned-target',
-      targetName: 'PoW Banned Target',
-      publicName: 'Banned Bailey',
-      email: 'banned.bailey@example.com',
-    });
-  });
-
-  it('refreshes an exhausted cold challenge and allows the same membership to submit successfully', async () => {
-    const owner = await h.seedOwner('pow-exhausted-club', 'PoW Exhausted Club');
-
-    const joinBody = await h.apiOk(null, 'clubs.join', {
-      clubSlug: owner.club.slug,
-      email: 'retry.after.exhaustion@example.com',
-    });
-    const joinData = joinBody.data as Record<string, unknown>;
-    const initialProof = joinData.proof as Record<string, unknown>;
-    const memberToken = joinData.memberToken as string;
-    const membershipId = joinData.membershipId as string;
-    const nonce = findNonce(initialProof.challengeId as string, initialProof.difficulty as number);
-    const maxAttempts = initialProof.maxAttempts as number;
-    enqueueGateResponses(...new Array(maxAttempts).fill('Missing city.'), 'PASS');
-
-    for (let attempt = 1; attempt < maxAttempts; attempt++) {
-      const result = await h.apiOk(memberToken, 'clubs.applications.submit', {
-        membershipId,
-        nonce,
-        name: 'Retry After Exhaustion',
-        socials: '@retry-after-exhaustion',
-        application: 'This draft still misses a required field.',
+    for (let attempt = 1; attempt <= 6; attempt += 1) {
+      const response = await h.apiOk(joined.token, 'clubs.applications.submit', {
+        membershipId: joined.membershipId,
+        name: 'Budget Bailey',
+        socials: '@budgetbailey',
+        application: 'Still missing the city.',
       });
-      const data = result.data as Record<string, unknown>;
+      const data = response.data as Record<string, unknown>;
       assert.equal(data.status, 'needs_revision');
-      assert.equal(data.attemptsRemaining, maxAttempts - attempt);
+      assert.equal(data.attemptsRemaining, Math.max(0, 6 - attempt));
+
+      const budget = await readSubmitBudget(joined.membershipId);
+      assert.equal(budget.attempts, attempt);
+      assert.ok(budget.expiresAt);
     }
 
-    const exhausted = await h.apiOk(memberToken, 'clubs.applications.submit', {
-      membershipId,
-      nonce,
-      name: 'Retry After Exhaustion',
-      socials: '@retry-after-exhaustion',
-      application: 'This draft still misses a required field.',
+    const exhausted = await h.apiOk(joined.token, 'clubs.applications.submit', {
+      membershipId: joined.membershipId,
+      name: 'Budget Bailey',
+      socials: '@budgetbailey',
+      application: 'Still missing the city.',
     });
     const exhaustedData = exhausted.data as Record<string, unknown>;
     assert.equal(exhaustedData.status, 'attempts_exhausted');
 
-    const exhaustedChallenge = await readLatestChallenge(membershipId);
-    assert.equal(exhaustedChallenge?.attempts, maxAttempts);
-    assert.notEqual(exhaustedChallenge?.solvedAt, null);
+    const finalBudget = await readSubmitBudget(joined.membershipId);
+    assert.equal(finalBudget.attempts, 6);
+  });
 
-    const refreshed = await h.apiOk(memberToken, 'clubs.join', {
-      clubSlug: owner.club.slug,
-    });
-    const refreshedData = refreshed.data as Record<string, unknown>;
-    const refreshedProof = refreshedData.proof as Record<string, unknown>;
+  it('surfaces challenge_expired from the submission window on the membership row', async () => {
+    const owner = await h.seedOwner('pow-submit-window', 'PoW Submit Window');
+    const joined = await joinCold(owner.club.slug, 'pow-window@example.com');
 
-    assert.equal(refreshedData.memberToken, null);
-    assert.equal(refreshedData.membershipId, membershipId);
-    assert.equal(refreshedProof.kind, 'pow');
-    assert.equal(refreshedProof.difficulty, Number(TEST_COLD_DIFFICULTY));
-    assert.notEqual(refreshedProof.challengeId, initialProof.challengeId);
+    await h.sql(
+      `update club_memberships
+       set submit_window_expires_at = now() - interval '1 minute'
+       where id = $1`,
+      [joined.membershipId],
+    );
 
-    const refreshedNonce = findNonce(refreshedProof.challengeId as string, refreshedProof.difficulty as number);
-    const submitted = await h.apiOk(memberToken, 'clubs.applications.submit', {
-      membershipId,
-      nonce: refreshedNonce,
-      name: 'Retry After Exhaustion',
-      socials: '@retry-after-exhaustion',
-      application: 'I live in London and build distributed systems for payments teams.',
-    });
-    const submittedData = submitted.data as Record<string, unknown>;
-    assert.equal(submittedData.status, 'submitted');
-
-    const application = await h.apiOk(memberToken, 'clubs.applications.get', { membershipId });
-    assert.equal((application.data as Record<string, any>).application.state, 'submitted');
-    assert.equal(queuedGateResponses.length, 0);
+    const err = await h.apiErr(joined.token, 'clubs.applications.submit', {
+      membershipId: joined.membershipId,
+      name: 'Window Wren',
+      socials: '@windowwren',
+      application: 'I missed the window.',
+    }, 'challenge_expired');
+    assert.equal(err.status, 410);
+    assert.match(err.message, /submission window/i);
   });
 });

@@ -11,6 +11,7 @@ import { getAction, generateRequestTemplate, GENERIC_REQUEST_TEMPLATE } from './
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { NOTIFICATIONS_PAGE_SIZE } from './notifications-core.ts';
 import { createRepository } from './postgres.ts';
+import { ensurePowChallengeConfig } from './pow-challenge.ts';
 import { getSchemaPayload } from './schema-endpoint.ts';
 
 const PACKAGE_VERSION: string = JSON.parse(
@@ -21,8 +22,8 @@ const EXPOSED_RESPONSE_HEADERS = 'ClawClub-Version, ClawClub-Schema-Hash';
 const STALE_CLIENT_MESSAGE = [
   'The ClawClub API schema has changed since your agent last fetched it. Your cached schema is out of date, which can cause invalid_input errors and missing capabilities. To recover, do the following and then retry this request:',
   '',
-  '1. GET /api/schema and replace your cached schema.',
-  '2. GET /skill and replace your cached skill document.',
+  '1. GET /skill and replace your cached skill document.',
+  '2. GET /api/schema and replace your cached schema.',
   '3. Retry the original request.',
   '',
   'Auto-retry is only safe for read-only actions or mutations that include a clientKey. For other mutations, confirm with the human before retrying so you do not duplicate a side effect.',
@@ -48,7 +49,7 @@ const SKILL_MD: string = [
 
 const NOTIFICATION_WAKEUP_KINDS = new Set(['notification']);
 
-type AnonymousJoinAction = 'clubs.join';
+type AnonymousJoinAction = 'clubs.join' | 'clubs.prepareJoin';
 type FixedWindowRateLimit = { limit: number; windowMs: number };
 type FixedWindowRateLimitState = { count: number; resetAt: number };
 
@@ -65,11 +66,19 @@ export const DEFAULT_SERVER_LIMITS = {
 } as const;
 
 export const DEFAULT_ANONYMOUS_JOIN_RATE_LIMITS: Record<AnonymousJoinAction, FixedWindowRateLimit> = {
+  'clubs.prepareJoin': {
+    limit: 10,
+    windowMs: 60 * 60 * 1000,
+  },
   'clubs.join': {
     limit: 10,
     windowMs: 60 * 60 * 1000,
   },
 } as const;
+
+function getAnonymousJoinRateLimitKey(clientIp: string): string {
+  return `anon_join:${clientIp}`;
+}
 
 function readJsonBody(
   request: http.IncomingMessage,
@@ -282,7 +291,7 @@ function writeSseComment(response: http.ServerResponse, comment: string) {
 function isAnonymousJoinAction(value: unknown): value is AnonymousJoinAction {
   if (typeof value !== 'string') return false;
   const def = getAction(value);
-  return def?.auth === 'optional_member' && value === 'clubs.join';
+  return value === 'clubs.prepareJoin' || (def?.auth === 'optional_member' && value === 'clubs.join');
 }
 
 function getClientIp(request: http.IncomingMessage, trustProxy: boolean): string {
@@ -396,6 +405,7 @@ export function createServer(options: {
   const updatesNotifier = options.updatesNotifier
     ?? (dbUrl ? createPostgresMemberUpdateNotifier(dbUrl) : createTimeoutOnlyNotifier());
   const anonymousJoinRateLimits: Record<AnonymousJoinAction, FixedWindowRateLimit> = {
+    'clubs.prepareJoin': options.anonymousJoinRateLimits?.['clubs.prepareJoin'] ?? DEFAULT_ANONYMOUS_JOIN_RATE_LIMITS['clubs.prepareJoin'],
     'clubs.join': options.anonymousJoinRateLimits?.['clubs.join'] ?? DEFAULT_ANONYMOUS_JOIN_RATE_LIMITS['clubs.join'],
   };
   const anonymousJoinRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
@@ -692,8 +702,7 @@ export function createServer(options: {
         '<html><head><title>ClawClub</title></head>',
         '<body>',
         `<h1>ClawClub Version ${PACKAGE_VERSION}</h1>`,
-        '<p>Tell your agent to look at <a href="/skill">SKILL.md</a></p>',
-        '<p>See the full API Schema at <a href="/api/schema">/api/schema</a></p>',
+        '<p>Bootstrap order: 1. fetch <a href="/skill">/skill</a>, 2. fetch <a href="/api/schema">/api/schema</a>, 3. call actions.</p>',
         '<p><a href="https://clawclub.social">clawclub.social</a></p>',
         '</body></html>',
       ].join('\n');
@@ -763,7 +772,7 @@ export function createServer(options: {
       // Rate-limit anonymous join by IP (before dispatch)
       if (isAnonymousJoinAction(body.action) && !getBearerToken(request)) {
         const clientIp = getClientIp(request, trustProxy);
-        const key = `${body.action}:${clientIp}`;
+        const key = getAnonymousJoinRateLimitKey(clientIp);
 
         if (!consumeFixedWindowRateLimit(anonymousJoinRateLimitBuckets, key, anonymousJoinRateLimits[body.action])) {
           throw new AppError(429, 'rate_limited', `Too many ${body.action} requests from this IP`);
@@ -850,6 +859,8 @@ export function createServer(options: {
 
   // Billing config check — runs async, callers should await `ready` before listening
   const ready: Promise<void> = (async () => {
+    ensurePowChallengeConfig();
+
     const billingEnabled = process.env.BILLING_ENABLED === 'true' || process.env.BILLING_ENABLED === '1';
     if (!billingEnabled && pool) {
       const paidCheck = await pool.query<{ count: string }>(

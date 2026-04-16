@@ -825,6 +825,7 @@ export function createRepository(pool: Pool): Repository {
     },
 
     // ── Unified club join ─────────────────────────────────
+    prepareClubJoin: (input) => unifiedClubs.prepareClubJoin(pool, input),
     joinClub: (input) => unifiedClubs.joinClub(pool, input),
     onboardMember: (input) => unifiedClubs.onboardMember(pool, input),
     submitClubApplication: (input) => unifiedClubs.submitClubApplication(pool, input),

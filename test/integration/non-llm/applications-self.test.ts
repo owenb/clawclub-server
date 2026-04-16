@@ -31,7 +31,7 @@ describe('clubs.applications.list', () => {
     const applicationB = await h.seedPendingMembership(ownerB.club.id, applicant.id, {
       status: 'payment_pending',
       submissionPath: 'cross_apply',
-      proofKind: 'pow',
+      proofKind: 'none',
       applicationEmail: 'applicant-one@example.com',
       applicationName: 'Applicant One',
       applicationText: 'Application B',
@@ -85,7 +85,7 @@ describe('clubs.applications.list', () => {
     const filtered = await h.seedPendingMembership(ownerB.club.id, applicant.id, {
       status: 'payment_pending',
       submissionPath: 'cross_apply',
-      proofKind: 'pow',
+      proofKind: 'none',
       applicationEmail: 'filter@example.com',
       applicationName: 'Applicant Filter',
       applicationText: 'Application B',

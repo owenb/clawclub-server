@@ -101,18 +101,6 @@ export const clubJoinResult = z.object({
   memberToken: z.string().nullable(),
   clubId: z.string(),
   membershipId: z.string(),
-  proof: z.discriminatedUnion('kind', [
-    z.object({
-      kind: z.literal('pow'),
-      challengeId: z.string(),
-      difficulty: z.number(),
-      expiresAt: z.string(),
-      maxAttempts: z.number(),
-    }),
-    z.object({
-      kind: z.literal('none'),
-    }),
-  ]),
   club: z.object({
     name: z.string(),
     summary: z.string().nullable(),
@@ -120,6 +108,14 @@ export const clubJoinResult = z.object({
     admissionPolicy: z.string().nullable(),
     priceUsd: z.number().nullable().optional(),
   }),
+});
+
+export const clubPrepareJoinResult = z.object({
+  clubId: z.string(),
+  challengeBlob: z.string(),
+  challengeId: z.string(),
+  difficulty: z.number(),
+  expiresAt: z.string(),
 });
 
 export const applicationSummary = z.object({

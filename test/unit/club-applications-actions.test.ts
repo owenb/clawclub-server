@@ -7,13 +7,6 @@ const joinStub = {
   memberToken: 'cc_live_member_abc',
   clubId: 'club-1',
   membershipId: 'membership-1',
-  proof: {
-    kind: 'pow' as const,
-    challengeId: 'c1',
-    difficulty: 7,
-    expiresAt: '2026-04-03T00:00:00Z',
-    maxAttempts: 5,
-  },
   club: {
     name: 'Alpha Club',
     summary: 'A test club',
@@ -23,7 +16,37 @@ const joinStub = {
   },
 };
 
-test('clubs.join returns a PoW challenge bound to a club for anonymous callers', async () => {
+test('clubs.prepareJoin returns a signed challenge for anonymous callers', async () => {
+  let capturedInput: any = null;
+  const repository = makeRepository({
+    async prepareClubJoin(input) {
+      capturedInput = input;
+      return {
+        clubId: 'club-1',
+        challengeBlob: 'payload.signature',
+        challengeId: 'c1',
+        difficulty: 7,
+        expiresAt: '2026-04-03T00:00:00Z',
+      };
+    },
+  });
+
+  const dispatcher = buildDispatcher({ repository });
+  const result: any = await dispatcher.dispatch({
+    bearerToken: null,
+    action: 'clubs.prepareJoin',
+    payload: { clubSlug: 'alpha' },
+  });
+
+  assert.equal(result.action, 'clubs.prepareJoin');
+  assert.equal(result.data.clubId, 'club-1');
+  assert.equal(result.data.challengeBlob, 'payload.signature');
+  assert.equal(result.data.challengeId, 'c1');
+  assert.equal(result.data.difficulty, 7);
+  assert.equal(capturedInput.clubSlug, 'alpha');
+});
+
+test('clubs.join forwards solved challenge fields for anonymous callers', async () => {
   let capturedInput: any = null;
   const repository = makeRepository({
     async joinClub(input) {
@@ -36,20 +59,25 @@ test('clubs.join returns a PoW challenge bound to a club for anonymous callers',
   const result: any = await dispatcher.dispatch({
     bearerToken: null,
     action: 'clubs.join',
-    payload: { clubSlug: 'alpha', email: 'Jane@Example.COM ' },
+    payload: {
+      clubSlug: 'alpha',
+      email: 'Jane@Example.COM ',
+      challengeBlob: 'payload.signature',
+      nonce: '42',
+    },
   });
 
   assert.equal(result.action, 'clubs.join');
   assert.equal(result.data.memberToken, 'cc_live_member_abc');
   assert.equal(result.data.clubId, 'club-1');
   assert.equal(result.data.membershipId, 'membership-1');
-  assert.equal(result.data.proof.challengeId, 'c1');
-  assert.equal(result.data.proof.difficulty, 7);
   assert.equal(result.data.club.admissionPolicy, 'Tell us your name and city.');
   assert.equal(capturedInput.actorMemberId, null);
   assert.equal(capturedInput.clubSlug, 'alpha');
   assert.equal(capturedInput.email, 'jane@example.com');
   assert.equal(capturedInput.invitationCode, undefined);
+  assert.equal(capturedInput.challengeBlob, 'payload.signature');
+  assert.equal(capturedInput.nonce, '42');
 });
 
 test('clubs.join rejects missing clubSlug', async () => {
@@ -122,7 +150,6 @@ test('clubs.applications.submit forwards all fields to repository', async () => 
     action: 'clubs.applications.submit',
     payload: {
       membershipId: 'membership-1',
-      nonce: '123',
       name: '  Jane Doe  ',
       socials: '  @janedoe on twitter  ',
       application: '  Love the community  ',
@@ -134,7 +161,6 @@ test('clubs.applications.submit forwards all fields to repository', async () => 
   assert.equal(result.data.membershipId, 'membership-1');
   assert.equal(capturedInput.actorMemberId, 'member-1');
   assert.equal(capturedInput.membershipId, 'membership-1');
-  assert.equal(capturedInput.nonce, '123');
   assert.equal(capturedInput.name, 'Jane Doe');
   assert.equal(capturedInput.socials, '@janedoe on twitter');
   assert.equal(capturedInput.application, 'Love the community');
@@ -154,7 +180,6 @@ test('clubs.applications.submit returns needs_revision from repository', async (
     action: 'clubs.applications.submit',
     payload: {
       membershipId: 'membership-1',
-      nonce: '123',
       name: 'Jane Doe',
       socials: '@jane',
       application: 'test',
@@ -180,7 +205,6 @@ test('clubs.applications.submit returns attempts_exhausted from repository', asy
     action: 'clubs.applications.submit',
     payload: {
       membershipId: 'membership-1',
-      nonce: '123',
       name: 'Jane Doe',
       socials: '@jane',
       application: 'test',
@@ -203,7 +227,6 @@ test('clubs.applications.submit rejects missing socials', async () => {
       action: 'clubs.applications.submit',
       payload: {
         membershipId: 'membership-1',
-        nonce: '123',
         name: 'Jane Doe',
         socials: '',
         application: 'I want to join',
@@ -228,7 +251,6 @@ test('clubs.applications.submit rejects missing application', async () => {
       action: 'clubs.applications.submit',
       payload: {
         membershipId: 'membership-1',
-        nonce: '123',
         name: 'Jane Doe',
         socials: '@jane',
         application: '',
@@ -256,7 +278,6 @@ test('clubs.applications.submit accepts application up to 4000 characters', asyn
     action: 'clubs.applications.submit',
     payload: {
       membershipId: 'membership-1',
-      nonce: '123',
       name: 'Jane Doe',
       socials: '@jane',
       application: 'x'.repeat(4000),
@@ -270,7 +291,6 @@ test('clubs.applications.submit accepts application up to 4000 characters', asyn
       action: 'clubs.applications.submit',
       payload: {
         membershipId: 'membership-1',
-        nonce: '123',
         name: 'Jane Doe',
         socials: '@jane',
         application: 'x'.repeat(4001),
@@ -294,7 +314,6 @@ test('clubs.applications.submit rejects name and socials exceeding 500 character
   for (const field of ['name', 'socials'] as const) {
     const payload: Record<string, string> = {
       membershipId: 'membership-1',
-      nonce: '123',
       name: 'Jane Doe',
       socials: '@jane',
       application: 'test',

@@ -1152,13 +1152,10 @@ export async function createMemberDirect(pool: Pool, input: {
 
     const memberId = row.id;
 
-    // Store private contact email
-    if (input.email) {
-      await client.query(
-        `insert into member_private_contacts (member_id, email) values ($1, $2)`,
-        [memberId, input.email],
-      );
-    }
+    await client.query(
+      `insert into member_private_contacts (member_id, email) values ($1, $2)`,
+      [memberId, input.email ?? `${memberId}@backfill.clawclub.local`],
+    );
 
     // Issue bearer token
     const token = buildBearerToken();

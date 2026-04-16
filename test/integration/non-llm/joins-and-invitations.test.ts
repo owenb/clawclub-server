@@ -2,15 +2,27 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
+import { joinAnonymouslyWithPow } from '../helpers.ts';
+
+const COLD_DIFFICULTY_ENV = 'CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY';
+const TEST_COLD_DIFFICULTY = '2';
 
 let h: TestHarness;
+let previousColdDifficulty: string | undefined;
 
 before(async () => {
+  previousColdDifficulty = process.env[COLD_DIFFICULTY_ENV];
+  process.env[COLD_DIFFICULTY_ENV] = TEST_COLD_DIFFICULTY;
   h = await TestHarness.start({ llmGate: passthroughGate });
 }, { timeout: 60_000 });
 
 after(async () => {
   await h?.stop();
+  if (previousColdDifficulty === undefined) {
+    delete process.env[COLD_DIFFICULTY_ENV];
+  } else {
+    process.env[COLD_DIFFICULTY_ENV] = previousColdDifficulty;
+  }
 }, { timeout: 15_000 });
 
 describe('anonymous clubs.join', () => {
@@ -28,20 +40,18 @@ describe('anonymous clubs.join', () => {
   it('creates a fresh anonymous membership on each retry for the same clubSlug + email pair', async () => {
     const owner = await h.seedOwner('join-replay-club', 'Join Replay Club');
 
-    const first = await h.apiOk(null, 'clubs.join', {
+    const firstData = await joinAnonymouslyWithPow(h, {
       clubSlug: owner.club.slug,
       email: 'replay@example.com',
     });
-    const second = await h.apiOk(null, 'clubs.join', {
+    const secondData = await joinAnonymouslyWithPow(h, {
       clubSlug: owner.club.slug,
       email: 'replay@example.com',
     });
 
-    const firstData = first.data as Record<string, unknown>;
-    const secondData = second.data as Record<string, unknown>;
     assert.equal(firstData.clubId, owner.club.id);
-    assert.equal((firstData.proof as Record<string, unknown>).kind, 'pow');
-    assert.equal((secondData.proof as Record<string, unknown>).kind, 'pow');
+    assert.equal('proof' in firstData, false);
+    assert.equal('proof' in secondData, false);
     assert.notEqual(firstData.membershipId, secondData.membershipId);
     assert.notEqual(firstData.memberToken, secondData.memberToken);
 
@@ -148,7 +158,7 @@ describe('invitation lifecycle', () => {
     }, 'invalid_invitation_code');
 
     const firstData = firstJoin.data as Record<string, unknown>;
-    assert.equal((firstData.proof as Record<string, unknown>).kind, 'none');
+    assert.equal('proof' in firstData, false);
     assert.equal(secondJoin.status, 400);
 
     const application = await h.apiOk(firstData.memberToken as string, 'clubs.applications.get', {

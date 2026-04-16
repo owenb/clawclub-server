@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import type { Pool } from 'pg';
 import {
   AppError,
@@ -9,21 +8,22 @@ import {
   type JoinClubInput,
   type JoinClubResult,
   type MembershipState,
+  type PrepareJoinInput,
+  type PrepareJoinResult,
   type SubmitClubApplicationInput,
   type SubmitClubApplicationResult,
 } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { generateClubApplicationProfile } from '../identity/profiles.ts';
-import { buildBearerToken, buildInvitationCode, generateTokenId, hashTokenSecret, parseInvitationCode } from '../token.ts';
+import { buildBearerToken, buildInvitationCode, hashTokenSecret, parseInvitationCode } from '../token.ts';
 import { runApplicationGate } from '../admissions-gate.ts';
+import { getColdApplicationDifficulty, issuePowChallenge, validatePowSolution, verifyPowChallenge } from '../pow-challenge.ts';
 import { buildOnboardingWelcome, buildSecondClubWelcome } from './welcome.ts';
 
-const COLD_APPLICATION_DIFFICULTY = 7;
-const CROSS_APPLICATION_DIFFICULTY = 5;
-const APPLICATION_CHALLENGE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_APPLICATION_ATTEMPTS = 6;
 const MAX_PENDING_APPLICATIONS = 3;
 const OPEN_INVITATION_CAP = 3;
+const SUBMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 type ClubLookupRow = {
   club_id: string;
@@ -91,16 +91,6 @@ type InvitationRow = {
   created_at: string;
 };
 
-type PowChallengeRow = {
-  challenge_id: string;
-  membership_id: string;
-  difficulty: number;
-  expires_at: string;
-  solved_at: string | null;
-  attempts: number;
-  created_at: string;
-};
-
 type OnboardingMembershipRow = {
   membership_id: string;
   club_id: string;
@@ -112,29 +102,8 @@ type OnboardingMembershipRow = {
   member_display_name: string;
 };
 
-function getPositiveIntegerEnv(name: string): number | null {
-  const raw = process.env[name];
-  if (raw == null || raw.trim().length === 0) return null;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) return null;
-  return parsed;
-}
-
-function getColdApplicationDifficulty(): number {
-  return getPositiveIntegerEnv('CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY') ?? COLD_APPLICATION_DIFFICULTY;
-}
-
-function getCrossApplicationDifficulty(): number {
-  return getPositiveIntegerEnv('CLAWCLUB_TEST_CROSS_APPLICATION_DIFFICULTY') ?? CROSS_APPLICATION_DIFFICULTY;
-}
-
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
-}
-
-export function validateApplicationPow(challengeId: string, nonce: string, difficulty: number): boolean {
-  const hash = createHash('sha256').update(`${challengeId}:${nonce}`, 'utf8').digest('hex');
-  return hash.endsWith('0'.repeat(difficulty));
 }
 
 function decideApplicationTimestamp(status: MembershipState, stateCreatedAt: string): string | null {
@@ -343,61 +312,6 @@ async function readMembershipApplicationRow(client: DbClient, membershipId: stri
   return result.rows[0] ?? null;
 }
 
-async function readActivePowChallenge(client: DbClient, membershipId: string): Promise<PowChallengeRow | null> {
-  const result = await client.query<PowChallengeRow>(
-    `select
-        id as challenge_id,
-        membership_id,
-        difficulty,
-        expires_at::text as expires_at,
-        solved_at::text as solved_at,
-        attempts,
-        created_at::text as created_at
-     from application_pow_challenges
-     where membership_id = $1
-       and solved_at is null
-     order by created_at desc
-     limit 1`,
-    [membershipId],
-  );
-  return result.rows[0] ?? null;
-}
-
-async function ensurePowChallenge(client: DbClient, membershipId: string, difficulty: number): Promise<JoinClubResult['proof']> {
-  const existing = await readActivePowChallenge(client, membershipId);
-  if (existing && Date.parse(existing.expires_at) > Date.now()) {
-    return {
-      kind: 'pow',
-      challengeId: existing.challenge_id,
-      difficulty: existing.difficulty,
-      expiresAt: existing.expires_at,
-      maxAttempts: MAX_APPLICATION_ATTEMPTS,
-    };
-  }
-
-  if (existing) {
-    await client.query(`delete from application_pow_challenges where id = $1`, [existing.challenge_id]);
-  }
-
-  const result = await client.query<{ challenge_id: string; expires_at: string }>(
-    `insert into application_pow_challenges (membership_id, difficulty, expires_at)
-     values ($1, $2, now() + ($3 || ' milliseconds')::interval)
-     returning id as challenge_id, expires_at::text as expires_at`,
-    [membershipId, difficulty, APPLICATION_CHALLENGE_TTL_MS],
-  );
-  const row = result.rows[0];
-  if (!row) {
-    throw new AppError(500, 'challenge_creation_failed', 'Failed to create application challenge');
-  }
-  return {
-    kind: 'pow',
-    challengeId: row.challenge_id,
-    difficulty,
-    expiresAt: row.expires_at,
-    maxAttempts: MAX_APPLICATION_ATTEMPTS,
-  };
-}
-
 async function materializeExpiredInvitation(client: DbClient, invitationId: string): Promise<void> {
   await client.query(
     `update invitations
@@ -500,7 +414,7 @@ async function insertApplyingMembership(client: DbClient, input: {
   sponsorMemberId: string | null;
   applicationEmail: string;
   submissionPath: 'cold' | 'invitation' | 'cross_apply';
-  proofKind: 'pow' | 'invitation';
+  proofKind: 'pow' | 'invitation' | 'none';
   invitationId: string | null;
 }): Promise<string> {
   const result = await client.query<{ membership_id: string }>(
@@ -514,9 +428,11 @@ async function insertApplyingMembership(client: DbClient, input: {
         applied_at,
         submission_path,
         proof_kind,
-        invitation_id
+        invitation_id,
+        submit_attempt_count,
+        submit_window_expires_at
      )
-     values ($1, $2, $3, 'member', 'applying', $4, now(), $5, $6, $7)
+     values ($1, $2, $3, 'member', 'applying', $4, now(), $5, $6, $7, 0, now() + ($8 || ' milliseconds')::interval)
      returning id as membership_id`,
     [
       input.clubId,
@@ -526,6 +442,7 @@ async function insertApplyingMembership(client: DbClient, input: {
       input.submissionPath,
       input.proofKind,
       input.invitationId,
+      SUBMIT_WINDOW_MS,
     ],
   );
   const membershipId = result.rows[0]?.membership_id;
@@ -568,26 +485,34 @@ async function readCurrentOpenMembershipByMember(client: DbClient, clubId: strin
   return result.rows[0] ?? null;
 }
 
-async function hasActiveMembershipForPowDiscount(client: DbClient, memberId: string): Promise<boolean> {
-  const result = await client.query<{ ok: boolean }>(
-    `select exists(
-       select 1
-       from current_club_memberships
-       where member_id = $1
-         and status = 'active'
-         and left_at is null
-     ) as ok`,
-    [memberId],
-  );
-  return result.rows[0]?.ok === true;
+async function consumePowChallenge(client: DbClient, input: { challengeId: string; clubId: string }): Promise<void> {
+  try {
+    await client.query(
+      `insert into consumed_pow_challenges (challenge_id, club_id)
+       values ($1, $2)`,
+      [input.challengeId, input.clubId],
+    );
+  } catch (error: unknown) {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code) : null;
+    if (code === '23505') {
+      throw new AppError(409, 'challenge_already_used', 'The challenge was already used');
+    }
+    throw error;
+  }
 }
 
-async function summarizeProofForMembership(client: DbClient, membershipId: string, proofKind: 'pow' | 'invitation' | 'none' | null, memberId: string): Promise<JoinClubResult['proof']> {
-  if (proofKind === 'invitation' || proofKind === 'none') {
-    return { kind: 'none' };
+export async function prepareClubJoin(pool: Pool, input: PrepareJoinInput): Promise<PrepareJoinResult> {
+  const club = await readClubBySlug(pool, input.clubSlug);
+  if (!club) {
+    throw new AppError(404, 'not_found', 'Club not found');
   }
-  const crossApply = await hasActiveMembershipForPowDiscount(client, memberId);
-  return ensurePowChallenge(client, membershipId, crossApply ? getCrossApplicationDifficulty() : getColdApplicationDifficulty());
+  return {
+    clubId: club.club_id,
+    ...issuePowChallenge({
+      clubId: club.club_id,
+      difficulty: getColdApplicationDifficulty(),
+    }),
+  };
 }
 
 export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinClubResult> {
@@ -598,13 +523,12 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
     }
 
     if (input.actorMemberId) {
-      let email = await readMemberContactEmail(client, input.actorMemberId);
+      if (input.email) {
+        throw new AppError(422, 'invalid_input', 'Authenticated callers must omit email and reuse the contact email already on file.');
+      }
+      const email = await readMemberContactEmail(client, input.actorMemberId);
       if (!email) {
-        if (!input.email) {
-          throw new AppError(422, 'contact_email_required', 'No contact email is on file for this member. Supply email so we can record one for this join.');
-        }
-        email = input.email;
-        await setMemberContactEmail(client, input.actorMemberId, email);
+        throw new AppError(500, 'contact_email_missing', 'Authenticated member is missing a stored contact email');
       }
       const normalizedEmail = normalizeEmail(email);
 
@@ -633,7 +557,6 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
           memberToken: null,
           clubId: club.club_id,
           membershipId: existing.membership_id,
-          proof: await summarizeProofForMembership(client, existing.membership_id, existing.proof_kind, input.actorMemberId),
           club: {
             name: club.name,
             summary: club.summary,
@@ -663,7 +586,7 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
         sponsorMemberId: invitation?.sponsor_member_id ?? null,
         applicationEmail: email,
         submissionPath: invitation ? 'invitation' : 'cross_apply',
-        proofKind: invitation ? 'invitation' : 'pow',
+        proofKind: invitation ? 'invitation' : 'none',
         invitationId: invitation?.invitation_id ?? null,
       });
 
@@ -680,9 +603,6 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
         memberToken: null,
         clubId: club.club_id,
         membershipId,
-        proof: invitation
-          ? { kind: 'none' }
-          : await summarizeProofForMembership(client, membershipId, 'pow', input.actorMemberId),
         club: {
           name: club.name,
           summary: club.summary,
@@ -721,6 +641,27 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
         clubId: club.club_id,
         normalizedEmail,
       });
+    } else {
+      if (!input.challengeBlob || !input.nonce) {
+        throw new AppError(422, 'challenge_required', 'Anonymous cold joins require challengeBlob and nonce from clubs.prepareJoin');
+      }
+      const verified = verifyPowChallenge({
+        challengeBlob: input.challengeBlob,
+        expectedClubId: club.club_id,
+      });
+      if (!verified.ok) {
+        if (verified.reason === 'expired') {
+          throw new AppError(422, 'challenge_expired', 'The join challenge expired');
+        }
+        throw new AppError(422, 'invalid_challenge', 'The join challenge is invalid');
+      }
+      if (!validatePowSolution(verified.payload.id, input.nonce, verified.payload.difficulty)) {
+        throw new AppError(422, 'invalid_proof', 'The supplied proof does not satisfy the challenge difficulty');
+      }
+      await consumePowChallenge(client, {
+        challengeId: verified.payload.id,
+        clubId: club.club_id,
+      });
     }
 
     const memberId = await createAnonymousMember(client, {
@@ -755,9 +696,6 @@ export async function joinClub(pool: Pool, input: JoinClubInput): Promise<JoinCl
       memberToken,
       clubId: club.club_id,
       membershipId,
-      proof: invitation
-        ? { kind: 'none' }
-        : await summarizeProofForMembership(client, membershipId, 'pow', memberId),
       club: {
         name: club.name,
         summary: club.summary,
@@ -862,11 +800,8 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
     clubSummary: string | null;
     admissionPolicy: string | null;
     applicationEmail: string;
-    proofKind: 'pow' | 'invitation' | 'none' | null;
-    challengeId: string | null;
-    challengeDifficulty: number | null;
-    challengeExpiresAt: string | null;
-    challengeAttempts: number;
+    submitAttemptCount: number;
+    submitWindowExpiresAt: string | null;
   };
 
   type PhaseOneResult = PhaseOne | Extract<SubmitClubApplicationResult, { status: 'attempts_exhausted' }>;
@@ -880,7 +815,8 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
       admission_policy: string | null;
       application_email: string | null;
       status: MembershipState;
-      proof_kind: 'pow' | 'invitation' | 'none' | null;
+      submit_attempt_count: number;
+      submit_window_expires_at: string | null;
     }>(
       `select cm.id as membership_id,
               cm.club_id,
@@ -889,7 +825,8 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
               c.admission_policy,
               cm.application_email,
               cm.status,
-              cm.proof_kind
+              cm.submit_attempt_count,
+              cm.submit_window_expires_at::text as submit_window_expires_at
        from current_club_memberships cm
        join clubs c on c.id = cm.club_id
        where cm.id = $1
@@ -908,56 +845,13 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
       throw new AppError(500, 'application_email_missing', 'Applying memberships must carry an application email');
     }
 
-    if (row.proof_kind !== 'pow') {
-      return {
-        membershipId: row.membership_id,
-        clubId: row.club_id,
-        clubName: row.club_name,
-        clubSummary: row.club_summary,
-        admissionPolicy: row.admission_policy,
-        applicationEmail: row.application_email,
-        proofKind: row.proof_kind,
-        challengeId: null,
-        challengeDifficulty: null,
-        challengeExpiresAt: null,
-        challengeAttempts: 0,
-      } satisfies PhaseOne;
+    if (!row.submit_window_expires_at || Date.parse(row.submit_window_expires_at) <= Date.now()) {
+      throw new AppError(410, 'challenge_expired', 'The application submission window elapsed');
     }
-
-    if (!input.nonce) {
-      throw new AppError(400, 'missing_nonce', 'A nonce is required for proof-of-work applications');
-    }
-
-    const challenge = await client.query<PowChallengeRow>(
-      `select
-          id as challenge_id,
-          membership_id,
-          difficulty,
-          expires_at::text as expires_at,
-          solved_at::text as solved_at,
-          attempts,
-          created_at::text as created_at
-       from application_pow_challenges
-       where membership_id = $1
-         and solved_at is null
-       for update`,
-      [row.membership_id],
-    );
-    const challengeRow = challenge.rows[0];
-    if (!challengeRow || Date.parse(challengeRow.expires_at) <= Date.now()) {
-      if (challengeRow) {
-        await client.query(`delete from application_pow_challenges where id = $1`, [challengeRow.challenge_id]);
-      }
-      throw new AppError(410, 'challenge_expired', 'The active proof-of-work challenge has expired');
-    }
-    if (!validateApplicationPow(challengeRow.challenge_id, input.nonce, challengeRow.difficulty)) {
-      throw new AppError(400, 'invalid_proof', 'The supplied proof does not satisfy the challenge difficulty');
-    }
-    if (challengeRow.attempts >= MAX_APPLICATION_ATTEMPTS) {
-      await client.query(`update application_pow_challenges set solved_at = now() where id = $1`, [challengeRow.challenge_id]);
+    if (row.submit_attempt_count >= MAX_APPLICATION_ATTEMPTS) {
       return {
         status: 'attempts_exhausted',
-        message: 'You have used all attempts. Re-call clubs.join authenticated with your bearer token to request a new challenge.',
+        message: 'You have used all submit attempts. Start a fresh join flow to create a new submission window.',
       };
     }
     return {
@@ -967,11 +861,8 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
       clubSummary: row.club_summary,
       admissionPolicy: row.admission_policy,
       applicationEmail: row.application_email,
-      proofKind: row.proof_kind,
-      challengeId: challengeRow.challenge_id,
-      challengeDifficulty: challengeRow.difficulty,
-      challengeExpiresAt: challengeRow.expires_at,
-      challengeAttempts: challengeRow.attempts,
+      submitAttemptCount: row.submit_attempt_count,
+      submitWindowExpiresAt: row.submit_window_expires_at,
     } satisfies PhaseOne;
   });
 
@@ -998,37 +889,47 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
   }
   if (gate.status === 'needs_revision') {
     return withTransaction(pool, async (client) => {
+      const membership = await client.query<{
+        status: MembershipState;
+        submit_attempt_count: number;
+        submit_window_expires_at: string | null;
+      }>(
+        `select status, submit_attempt_count, submit_window_expires_at::text as submit_window_expires_at
+         from current_club_memberships
+         where id = $1
+           and member_id = $2
+         limit 1`,
+        [input.membershipId, input.actorMemberId],
+      );
+      const row = membership.rows[0];
+      if (!row) {
+        throw new AppError(404, 'not_found', 'Application not found');
+      }
+      if (row.status !== 'applying') {
+        throw new AppError(409, 'invalid_state', 'Only applying memberships can be submitted');
+      }
+      if (!row.submit_window_expires_at || Date.parse(row.submit_window_expires_at) <= Date.now()) {
+        throw new AppError(410, 'challenge_expired', 'The application submission window elapsed');
+      }
+      const nextAttemptCount = row.submit_attempt_count + 1;
       await client.query(
-        `update application_pow_challenges
-         set attempts = attempts + 1
+        `update club_memberships
+         set submit_attempt_count = $2
          where id = $1`,
-        [phaseOne.challengeId],
+        [input.membershipId, nextAttemptCount],
       );
-      const nextAttemptResult = await client.query<{ attempts: number }>(
-        `select attempts
-         from application_pow_challenges
-         where id = $1`,
-        [phaseOne.challengeId],
-      );
-      const attempts = Number(nextAttemptResult.rows[0]?.attempts ?? 0);
-      const attemptsRemaining = Math.max(0, MAX_APPLICATION_ATTEMPTS - attempts);
-      if (attemptsRemaining <= 0) {
-        await client.query(
-          `update application_pow_challenges
-           set solved_at = now()
-           where id = $1`,
-          [phaseOne.challengeId],
-        );
+      if (nextAttemptCount >= MAX_APPLICATION_ATTEMPTS) {
         return {
-          status: 'attempts_exhausted',
-          message: 'You have used all attempts. Re-call clubs.join authenticated with your bearer token to request a new challenge.',
+          status: 'needs_revision',
+          feedback: gate.feedback,
+          attemptsRemaining: 0,
         } as const;
       }
 
       return {
         status: 'needs_revision',
         feedback: gate.feedback,
-        attemptsRemaining,
+        attemptsRemaining: MAX_APPLICATION_ATTEMPTS - nextAttemptCount,
       } as const;
     });
   }
@@ -1059,9 +960,14 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
       status: MembershipState;
       state_version_no: number;
       state_version_id: string;
-      proof_kind: 'pow' | 'invitation' | 'none' | null;
+      submit_attempt_count: number;
+      submit_window_expires_at: string | null;
     }>(
-      `select status, state_version_no, state_version_id, proof_kind
+      `select status,
+              state_version_no,
+              state_version_id,
+              submit_attempt_count,
+              submit_window_expires_at::text as submit_window_expires_at
        from current_club_memberships
        where id = $1
          and member_id = $2
@@ -1075,53 +981,15 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
     if (membershipRow.status !== 'applying') {
       throw new AppError(409, 'invalid_state', 'Only applying memberships can be submitted');
     }
-
-    let nextAttemptNo = 1;
-    if (membershipRow.proof_kind === 'pow') {
-      if (!input.nonce) {
-        throw new AppError(400, 'missing_nonce', 'A nonce is required for proof-of-work applications');
-      }
-      const challenge = await client.query<PowChallengeRow>(
-        `select
-            id as challenge_id,
-            membership_id,
-            difficulty,
-            expires_at::text as expires_at,
-            solved_at::text as solved_at,
-            attempts,
-            created_at::text as created_at
-         from application_pow_challenges
-         where membership_id = $1
-           and solved_at is null
-         for update`,
-        [input.membershipId],
-      );
-      const challengeRow = challenge.rows[0];
-      if (!challengeRow || Date.parse(challengeRow.expires_at) <= Date.now()) {
-        if (challengeRow) {
-          await client.query(`delete from application_pow_challenges where id = $1`, [challengeRow.challenge_id]);
-        }
-        throw new AppError(410, 'challenge_expired', 'The active proof-of-work challenge has expired');
-      }
-      if (!validateApplicationPow(challengeRow.challenge_id, input.nonce, challengeRow.difficulty)) {
-        throw new AppError(400, 'invalid_proof', 'The supplied proof does not satisfy the challenge difficulty');
-      }
-      nextAttemptNo = challengeRow.attempts + 1;
-      if (nextAttemptNo > MAX_APPLICATION_ATTEMPTS) {
-        await client.query(`update application_pow_challenges set solved_at = now() where id = $1`, [challengeRow.challenge_id]);
-        return {
-          status: 'attempts_exhausted',
-          message: 'You have used all attempts. Re-call clubs.join authenticated with your bearer token to request a new challenge.',
-        } satisfies SubmitClubApplicationResult;
-      }
-
-      await client.query(
-        `update application_pow_challenges
-         set attempts = $2,
-             solved_at = now()
-         where id = $1`,
-        [challengeRow.challenge_id, nextAttemptNo],
-      );
+    if (!membershipRow.submit_window_expires_at || Date.parse(membershipRow.submit_window_expires_at) <= Date.now()) {
+      throw new AppError(410, 'challenge_expired', 'The application submission window elapsed');
+    }
+    const nextAttemptCount = membershipRow.submit_attempt_count + 1;
+    if (nextAttemptCount > MAX_APPLICATION_ATTEMPTS) {
+      return {
+        status: 'attempts_exhausted',
+        message: 'You have used all submit attempts. Start a fresh join flow to create a new submission window.',
+      } satisfies SubmitClubApplicationResult;
     }
 
     await client.query(
@@ -1129,9 +997,10 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
        set application_name = $2,
            application_socials = $3,
            application_text = $4,
-           application_submitted_at = now()
+           application_submitted_at = now(),
+           submit_attempt_count = $5
        where id = $1`,
-      [input.membershipId, input.name, input.socials, input.application],
+      [input.membershipId, input.name, input.socials, input.application, nextAttemptCount],
     );
     await client.query(
       `insert into club_membership_state_versions (

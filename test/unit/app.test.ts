@@ -450,13 +450,6 @@ function makeJoinClubResult(overrides: Partial<JoinClubResult> = {}): JoinClubRe
     memberToken: 'cc_live_join_abcdefgh_abcdefghjkmnpqrs',
     clubId: 'club-2',
     membershipId: 'membership-9',
-    proof: {
-      kind: 'pow',
-      challengeId: 'challenge-1',
-      difficulty: 7,
-      expiresAt: '2026-03-15T13:00:00.000Z',
-      maxAttempts: 5,
-    },
     club: {
       name: 'Beta',
       summary: 'Second club',
@@ -1316,10 +1309,11 @@ test('clubs.join returns the anonymous envelope and forwards normalized email', 
     clubSlug: 'beta',
     email: 'jane@example.com',
     invitationCode: undefined,
+    challengeBlob: undefined,
+    nonce: undefined,
   });
   assert.equal(result.action, 'clubs.join');
   assert.equal(result.data.membershipId, 'membership-9');
-  assert.equal(result.data.proof.kind, 'pow');
   assert.equal('actor' in result, false);
 });
 
@@ -1344,7 +1338,6 @@ test('clubs.applications.submit forwards the authenticated member and submitted 
     action: 'clubs.applications.submit',
     payload: {
       membershipId: 'membership-9',
-      nonce: '183729471',
       name: 'Jane Doe',
       socials: '@janedoe',
       application: 'Love the community',
@@ -1354,7 +1347,6 @@ test('clubs.applications.submit forwards the authenticated member and submitted 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
     membershipId: 'membership-9',
-    nonce: '183729471',
     name: 'Jane Doe',
     socials: '@janedoe',
     application: 'Love the community',

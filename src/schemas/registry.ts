@@ -33,6 +33,7 @@ export type ActionSafety = 'read_only' | 'mutating';
 // Used to check runtime availability before dispatch (→ 501 if missing).
 
 export type RepositoryCapability =
+  | 'prepareClubJoin'
   | 'joinClub'
   | 'onboardMember'
   | 'submitClubApplication'

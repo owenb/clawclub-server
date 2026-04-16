@@ -112,18 +112,20 @@ export function makeNotificationItem(overrides: Partial<NotificationItem> = {}):
 export function makeRepository(overrides: Partial<Repository> = {}): Repository {
   return {
     async authenticateBearerToken() { return null; },
+    async prepareClubJoin() {
+      return {
+        clubId: 'club-1',
+        challengeBlob: 'payload.signature',
+        challengeId: 'challenge-1',
+        difficulty: 7,
+        expiresAt: '2026-04-03T00:00:00Z',
+      };
+    },
     async joinClub() {
       return {
         memberToken: 'cc_live_member_abc',
         clubId: 'club-1',
         membershipId: 'membership-1',
-        proof: {
-          kind: 'pow' as const,
-          challengeId: 'challenge-1',
-          difficulty: 7,
-          expiresAt: '2026-04-03T00:00:00Z',
-          maxAttempts: 5,
-        },
         club: {
           name: 'Alpha Club',
           summary: 'A test club',

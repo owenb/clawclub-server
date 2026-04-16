@@ -158,15 +158,15 @@ Examples:
 - self-vouching prevented by DB CHECK constraint
 - vouches surface in `vouches.list` (any member), `members.list/get`, and `clubadmin.members.list/get`
 - membership applications are states on `club_memberships`, not a separate admissions entity
-- there is one public join action: `clubs.join`
-  - anonymous callers provide `clubSlug` + `email`
-  - authenticated callers provide `clubSlug` and reuse their existing member identity
-  - invitation-backed callers provide `invitationCode` and skip PoW
-- `clubs.join` may return a PoW challenge or `proof.kind = "none"`; the submit step is always `clubs.applications.submit`
+- there is one public join action, plus one anonymous preparation step:
+  - anonymous cold callers first request a stateless PoW challenge with `clubs.prepareJoin`, then call `clubs.join` with `clubSlug`, `email`, `challengeBlob`, and a solved nonce
+  - authenticated callers provide `clubSlug`, reuse their existing member identity, and must not send `email`
+  - invitation-backed callers provide `invitationCode` and skip PoW entirely
+- `clubs.applications.submit` is always the submit step, and no longer verifies PoW; the bearer minted at anonymous join time is the receipt that proof-of-cost was already paid
 - invitations are the sponsor primitive
   - an existing member issues an invitation with `invitations.issue`; the plaintext code is returned exactly once
   - the candidate still joins through `clubs.join` by presenting the code
-  - invitation-backed joins skip PoW (`proof.kind = "none"`) but still run the application-completeness gate on `clubs.applications.submit`
+  - invitation-backed joins skip `clubs.prepareJoin` / PoW but still run the application-completeness gate on `clubs.applications.submit`
   - the sponsor-candidate link is persisted immutably on the resulting `club_memberships` row (`sponsor_member_id` + `invitation_id`) as an FK-enforced chain; who is responsible for whom is queryable and cannot be rewritten after insert
   - the open-invitation cap per sponsor per club is deliberately tight (quality over volume) and is a tuning constant, not a long-term commitment to any specific number
   - if a sponsor's membership transitions to removed/banned/expired, their still-open invitations auto-revoke via the same membership-state transition helper
@@ -302,7 +302,7 @@ Quality and trust:
 ## Launch topology
 
 - launch deployment is explicitly single-node (one server process)
-- in-memory rate limiting (anonymous `clubs.join` IP buckets) and per-process SSE stream tracking are acceptable only because of this
+- in-memory rate limiting (shared anonymous `clubs.prepareJoin` / `clubs.join` IP buckets) and per-process SSE stream tracking are acceptable only because of this
 - if multi-node is needed later, rate limiting moves to Postgres and SSE coordination needs a shared notification channel
 
 ## Quality / legality gate

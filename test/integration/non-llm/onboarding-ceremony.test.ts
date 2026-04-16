@@ -1,8 +1,8 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
-import { activeMemberships, getNotifications } from '../helpers.ts';
+import { activeMemberships, getNotifications, joinAnonymouslyWithPow } from '../helpers.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
 import { getRegistry } from '../../../src/schemas/registry.ts';
 
@@ -36,18 +36,6 @@ function makeOpenAiResponse(text: string): Response {
   });
 }
 
-function findNonce(challengeId: string, difficulty: number): string {
-  const zeros = '0'.repeat(difficulty);
-  for (let nonce = 0; nonce < 250_000; nonce += 1) {
-    const candidate = String(nonce);
-    const hash = createHash('sha256').update(`${challengeId}:${candidate}`, 'utf8').digest('hex');
-    if (hash.endsWith(zeros)) {
-      return candidate;
-    }
-  }
-  throw new Error(`Unable to find trailing-zero nonce for difficulty ${difficulty}`);
-}
-
 function actorOnboardingPending(body: Record<string, unknown>): boolean {
   return Boolean((body.actor as Record<string, unknown>).onboardingPending);
 }
@@ -67,28 +55,31 @@ async function joinAndSubmitApplication(input: {
   socials: string;
   application: string;
 }): Promise<{ token: string; membershipId: string }> {
-  const joinBody = await h.apiOk(input.token, 'clubs.join', {
-    clubSlug: input.clubSlug,
-    email: input.email,
-    ...(input.invitationCode ? { invitationCode: input.invitationCode } : {}),
-  });
-  const joinData = joinBody.data as Record<string, unknown>;
-  const proof = joinData.proof as Record<string, unknown>;
+  const joinData = input.token
+    ? (await h.apiOk(input.token, 'clubs.join', {
+        clubSlug: input.clubSlug,
+        ...(input.invitationCode ? { invitationCode: input.invitationCode } : {}),
+      })).data as Record<string, unknown>
+    : input.invitationCode
+      ? (await h.apiOk(null, 'clubs.join', {
+          clubSlug: input.clubSlug,
+          email: input.email,
+          invitationCode: input.invitationCode,
+        })).data as Record<string, unknown>
+      : await joinAnonymouslyWithPow(h, {
+          clubSlug: input.clubSlug,
+          email: input.email,
+        });
   const membershipId = joinData.membershipId as string;
   const token = (joinData.memberToken as string | null) ?? input.token;
   assert.ok(token, 'join should yield an authenticated token');
 
-  const submitInput: Record<string, unknown> = {
+  const submitBody = await h.apiOk(token, 'clubs.applications.submit', {
     membershipId,
     name: input.name,
     socials: input.socials,
     application: input.application,
-  };
-  if (proof.kind === 'pow') {
-    submitInput.nonce = findNonce(proof.challengeId as string, proof.difficulty as number);
-  }
-
-  const submitBody = await h.apiOk(token, 'clubs.applications.submit', submitInput);
+  });
   assert.equal((submitBody.data as Record<string, unknown>).status, 'submitted');
 
   return { token, membershipId };
@@ -151,7 +142,13 @@ before(async () => {
       : 'PASS';
     return makeOpenAiResponse(text);
   };
-  h = await TestHarness.start({ llmGate: passthroughGate });
+  h = await TestHarness.start({
+    llmGate: passthroughGate,
+    anonymousJoinRateLimits: {
+      'clubs.prepareJoin': { limit: 100, windowMs: 60 * 60 * 1000 },
+      'clubs.join': { limit: 100, windowMs: 60 * 60 * 1000 },
+    },
+  });
 }, { timeout: 60_000 });
 
 after(async () => {
@@ -222,13 +219,11 @@ describe('onboarding ceremony gate', () => {
   it('does not gate pre-admission bearer holders from clubs.join and keeps onboardingPending false', async () => {
     const owner = await h.seedOwner('pre-admission-club', 'Pre Admission Club');
 
-    const joinBody = await h.apiOk(null, 'clubs.join', {
+    const joinData = await joinAnonymouslyWithPow(h, {
       clubSlug: owner.club.slug,
       email: 'pre-admission@example.com',
     });
-    const joinData = joinBody.data as Record<string, unknown>;
     const token = joinData.memberToken as string;
-    const proof = joinData.proof as Record<string, unknown>;
     const membershipId = joinData.membershipId as string;
 
     const session = await h.apiOk(token, 'session.getContext', {});
@@ -237,7 +232,6 @@ describe('onboarding ceremony gate', () => {
 
     const submitBody = await h.apiOk(token, 'clubs.applications.submit', {
       membershipId,
-      nonce: proof.kind === 'pow' ? findNonce(proof.challengeId as string, proof.difficulty as number) : undefined,
       name: 'Pre Admission Person',
       socials: '@preadmission',
       application: 'I am still applying and must not be blocked by onboarding.',
@@ -293,10 +287,11 @@ describe('onboarding ceremony notification fanout', () => {
     const sourceOwner = await h.seedOwner('fanout-source-club', 'Fanout Source Club');
     const targetOwner = await h.seedOwner('fanout-target-club', 'Fanout Target Club');
     const member = await h.seedCompedMember(sourceOwner.club.id, 'Cross Join Casey');
+    const memberEmail = `${member.id}@test.clawclub.local`;
     const invitation = await h.apiOk(targetOwner.token, 'invitations.issue', {
       clubId: targetOwner.club.id,
       candidateName: 'Cross Join Casey',
-      candidateEmail: 'cross-join@example.com',
+      candidateEmail: memberEmail,
       reason: 'Trusted across clubs',
     });
     const invitationCode = (invitation.data as Record<string, unknown>).invitationCode as string;
@@ -304,7 +299,6 @@ describe('onboarding ceremony notification fanout', () => {
     const application = await joinAndSubmitApplication({
       token: member.token,
       clubSlug: targetOwner.club.slug,
-      email: 'cross-join@example.com',
       invitationCode,
       name: 'Cross Join Casey',
       socials: '@crossjoincasey',
@@ -452,6 +446,7 @@ describe('onboarding ceremony notification fanout', () => {
     const sourceOwner = await h.seedOwner('billing-fanout-source', 'Billing Fanout Source');
     const targetOwner = await h.seedOwner('billing-fanout-target', 'Billing Fanout Target');
     const member = await h.seedCompedMember(sourceOwner.club.id, 'Paid Path Parker');
+    const memberEmail = `${member.id}@test.clawclub.local`;
 
     await h.apiOk(admin.token, 'superadmin.billing.setClubPrice', {
       clubId: targetOwner.club.id,
@@ -462,14 +457,13 @@ describe('onboarding ceremony notification fanout', () => {
     const issued = await h.apiOk(targetOwner.token, 'invitations.issue', {
       clubId: targetOwner.club.id,
       candidateName: 'Paid Path Parker',
-      candidateEmail: 'paid-path@example.com',
+      candidateEmail: memberEmail,
       reason: 'Already trusted elsewhere',
     });
 
     const application = await joinAndSubmitApplication({
       token: member.token,
       clubSlug: targetOwner.club.slug,
-      email: 'paid-path@example.com',
       invitationCode: (issued.data as Record<string, unknown>).invitationCode as string,
       name: 'Paid Path Parker',
       socials: '@paidpathparker',
@@ -553,17 +547,17 @@ describe('onboarding ceremony notification fanout', () => {
     const sourceOwner = await h.seedOwner('atomic-admin-source', 'Atomic Admin Source');
     const targetOwner = await h.seedOwner('atomic-admin-target', 'Atomic Admin Target');
     const member = await h.seedCompedMember(sourceOwner.club.id, 'Atomic Admin Annie');
+    const memberEmail = `${member.id}@test.clawclub.local`;
     const issued = await h.apiOk(targetOwner.token, 'invitations.issue', {
       clubId: targetOwner.club.id,
       candidateName: 'Atomic Admin Annie',
-      candidateEmail: 'atomic-admin@example.com',
+      candidateEmail: memberEmail,
       reason: 'Trusted operator',
     });
 
     const application = await joinAndSubmitApplication({
       token: member.token,
       clubSlug: targetOwner.club.slug,
-      email: 'atomic-admin@example.com',
       invitationCode: (issued.data as Record<string, unknown>).invitationCode as string,
       name: 'Atomic Admin Annie',
       socials: '@atomicadminannie',
@@ -598,6 +592,7 @@ describe('onboarding ceremony notification fanout', () => {
     const sourceOwner = await h.seedOwner('atomic-billing-source', 'Atomic Billing Source');
     const targetOwner = await h.seedOwner('atomic-billing-target', 'Atomic Billing Target');
     const member = await h.seedCompedMember(sourceOwner.club.id, 'Atomic Billing Blair');
+    const memberEmail = `${member.id}@test.clawclub.local`;
 
     await h.apiOk(admin.token, 'superadmin.billing.setClubPrice', {
       clubId: targetOwner.club.id,
@@ -608,14 +603,13 @@ describe('onboarding ceremony notification fanout', () => {
     const issued = await h.apiOk(targetOwner.token, 'invitations.issue', {
       clubId: targetOwner.club.id,
       candidateName: 'Atomic Billing Blair',
-      candidateEmail: 'atomic-billing@example.com',
+      candidateEmail: memberEmail,
       reason: 'Trusted operator',
     });
 
     const application = await joinAndSubmitApplication({
       token: member.token,
       clubSlug: targetOwner.club.slug,
-      email: 'atomic-billing@example.com',
       invitationCode: (issued.data as Record<string, unknown>).invitationCode as string,
       name: 'Atomic Billing Blair',
       socials: '@atomicbillingblair',

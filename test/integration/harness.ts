@@ -158,6 +158,7 @@ type SeedPendingMembershipOptions = {
   applicationText?: string | null;
   appliedAt?: string | null;
   applicationSubmittedAt?: string | null;
+  submitWindowExpiresAt?: string | null;
   generatedProfileDraft?: Record<string, unknown> | null;
   sponsorMemberId?: string | null;
   invitationId?: string | null;
@@ -193,6 +194,10 @@ export class TestHarness {
     llmGate?: LlmGateFn;
     streamScopeRefreshMs?: number;
     embeddingStub?: boolean;
+    anonymousJoinRateLimits?: {
+      'clubs.prepareJoin'?: { limit: number; windowMs: number };
+      'clubs.join'?: { limit: number; windowMs: number };
+    };
   } = {}): Promise<TestHarness> {
     const dbName = createDbName();
     const previousEmbeddingStub = process.env.CLAWCLUB_EMBEDDING_STUB;
@@ -250,7 +255,13 @@ export class TestHarness {
       `postgresql://localhost/${dbName}`,
     );
 
-    const serverInstance = createServer({ repository, updatesNotifier, llmGate: options.llmGate, streamScopeRefreshMs: options.streamScopeRefreshMs });
+    const serverInstance = createServer({
+      repository,
+      updatesNotifier,
+      llmGate: options.llmGate,
+      streamScopeRefreshMs: options.streamScopeRefreshMs,
+      anonymousJoinRateLimits: options.anonymousJoinRateLimits,
+    });
     const port = await new Promise<number>((resolve) => {
       serverInstance.server.listen(0, () => {
         const addr = serverInstance.server.address();
@@ -399,6 +410,13 @@ export class TestHarness {
       [publicName],
     );
     const id = rows[0]!.id;
+    await this.sql(
+      `insert into member_private_contacts (member_id, email)
+       values ($1, $2)
+       on conflict (member_id) do update
+         set email = excluded.email`,
+      [id, `${id}@test.clawclub.local`],
+    );
 
     const token = await this.createToken(id);
     return { id, publicName, token };
@@ -651,8 +669,8 @@ export class TestHarness {
     if (options.submissionPath === 'cold' && options.proofKind !== 'pow') {
       throw new Error('seedPendingMembership cold applications must use proofKind=pow');
     }
-    if (options.submissionPath === 'cross_apply' && options.proofKind !== 'pow') {
-      throw new Error('seedPendingMembership cross-apply applications must use proofKind=pow');
+    if (options.submissionPath === 'cross_apply' && options.proofKind !== 'none') {
+      throw new Error('seedPendingMembership cross-apply applications must use proofKind=none');
     }
     if (options.submissionPath === 'owner_nominated' && options.proofKind !== 'none') {
       throw new Error('seedPendingMembership owner-nominated applications must use proofKind=none');
@@ -700,6 +718,8 @@ export class TestHarness {
            proof_kind,
            invitation_id,
            generated_profile_draft,
+           submit_attempt_count,
+           submit_window_expires_at,
            metadata
          )
          values (
@@ -718,6 +738,8 @@ export class TestHarness {
            $12,
            $13::short_id,
            $14::jsonb,
+           0,
+           coalesce($16::timestamptz, now() + interval '24 hours'),
            $15::jsonb
          )
          returning id`,
@@ -737,6 +759,7 @@ export class TestHarness {
           options.invitationId ?? null,
           JSON.stringify(options.generatedProfileDraft ?? null),
           JSON.stringify(options.metadata ?? {}),
+          options.submitWindowExpiresAt ?? null,
         ],
       );
       const membershipId = insertedMembership.rows[0]?.id;
@@ -1036,7 +1059,7 @@ export class TestHarness {
     const ownApplicationMembership = await this.seedPendingMembership(otherClubOwner.club.id, regularMember.id, {
       status: 'submitted',
       submissionPath: 'cross_apply',
-      proofKind: 'pow',
+      proofKind: 'none',
       applicationEmail: 'caller@leak-audit.test',
       applicationName: 'Leak Audit Caller',
       applicationSocials: '@caller',

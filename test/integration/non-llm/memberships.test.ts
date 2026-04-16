@@ -162,7 +162,7 @@ describe('clubadmin.applications.*', () => {
     const interviewed = await h.seedPendingMember(owner.club.id, 'Interview Ira', {
       status: 'interview_scheduled',
       submissionPath: 'cross_apply',
-      proofKind: 'pow',
+      proofKind: 'none',
       applicationEmail: 'ira@example.com',
       applicationName: 'Interview Ira',
       applicationText: 'Already active elsewhere.',

@@ -112,15 +112,26 @@ export type JoinClubInput = {
   clubSlug: string;
   email?: string;
   invitationCode?: string;
+  challengeBlob?: string;
+  nonce?: string;
+};
+
+export type PrepareJoinInput = {
+  clubSlug: string;
+};
+
+export type PrepareJoinResult = {
+  clubId: string;
+  challengeBlob: string;
+  challengeId: string;
+  difficulty: number;
+  expiresAt: string;
 };
 
 export type JoinClubResult = {
   memberToken: string | null;
   clubId: string;
   membershipId: string;
-  proof:
-    | { kind: 'pow'; challengeId: string; difficulty: number; expiresAt: string; maxAttempts: number }
-    | { kind: 'none' };
   club: {
     name: string;
     summary: string | null;
@@ -133,7 +144,6 @@ export type JoinClubResult = {
 export type SubmitClubApplicationInput = {
   actorMemberId: string;
   membershipId: string;
-  nonce?: string;
   name: string;
   socials: string;
   application: string;
@@ -988,6 +998,7 @@ export type AdminDiagnostics = {
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
   validateBearerTokenPassive?(bearerToken: string): Promise<AuthResult | null>;
+  prepareClubJoin?(input: PrepareJoinInput): Promise<PrepareJoinResult>;
   joinClub?(input: JoinClubInput): Promise<JoinClubResult>;
   onboardMember?(input: { actorMemberId: string }): Promise<ClubsOnboardResult>;
   submitClubApplication?(input: SubmitClubApplicationInput): Promise<SubmitClubApplicationResult>;

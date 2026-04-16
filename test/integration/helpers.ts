@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { TestHarness } from './harness.ts';
 
 export function activeMemberships(sessionBody: Record<string, unknown>): Array<Record<string, unknown>> {
@@ -25,6 +26,47 @@ export function getNotifications(result: Record<string, unknown>): {
 } {
   const data = result.data as Record<string, unknown>;
   return data as { items: Array<Record<string, unknown>>; nextAfter: string | null };
+}
+
+export function findPowNonce(challengeId: string, difficulty: number): string {
+  const zeros = '0'.repeat(difficulty);
+  for (let nonce = 0; nonce < 250_000; nonce += 1) {
+    const candidate = String(nonce);
+    const hash = createHash('sha256').update(`${challengeId}:${candidate}`, 'utf8').digest('hex');
+    if (hash.endsWith(zeros)) {
+      return candidate;
+    }
+  }
+  throw new Error(`Unable to find trailing-zero nonce for difficulty ${difficulty}`);
+}
+
+export async function prepareAnonymousJoin(
+  h: TestHarness,
+  clubSlug: string,
+): Promise<{ challengeBlob: string; challengeId: string; difficulty: number; expiresAt: string }> {
+  const body = await h.apiOk(null, 'clubs.prepareJoin', { clubSlug });
+  const data = body.data as Record<string, unknown>;
+  return {
+    challengeBlob: data.challengeBlob as string,
+    challengeId: data.challengeId as string,
+    difficulty: data.difficulty as number,
+    expiresAt: data.expiresAt as string,
+  };
+}
+
+export async function joinAnonymouslyWithPow(
+  h: TestHarness,
+  input: { clubSlug: string; email: string },
+): Promise<Record<string, unknown>> {
+  const challenge = await prepareAnonymousJoin(h, input.clubSlug);
+  const nonce = findPowNonce(challenge.challengeId, challenge.difficulty);
+  const body = await h.apiOk(null, 'clubs.join', {
+    clubSlug: input.clubSlug,
+    email: input.email,
+    challengeBlob: challenge.challengeBlob,
+    nonce,
+  });
+  return body.data as Record<string, unknown>;
 }
 
 const LOOPABLE_KINDS = new Set(['ask', 'gift', 'service', 'opportunity']);

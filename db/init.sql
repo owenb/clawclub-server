@@ -638,6 +638,8 @@ CREATE TABLE public.club_memberships (
     proof_kind text,
     invitation_id public.short_id,
     generated_profile_draft jsonb,
+    submit_attempt_count integer DEFAULT 0 NOT NULL,
+    submit_window_expires_at timestamp with time zone,
     CONSTRAINT club_memberships_proof_kind_check CHECK (((proof_kind IS NULL) OR (proof_kind = ANY (ARRAY['pow'::text, 'invitation'::text, 'none'::text])))),
     CONSTRAINT club_memberships_submission_path_check CHECK (((submission_path IS NULL) OR (submission_path = ANY (ARRAY['cold'::text, 'invitation'::text, 'cross_apply'::text, 'owner_nominated'::text]))))
 );
@@ -710,6 +712,8 @@ CREATE VIEW public.current_club_memberships AS
     m.proof_kind,
     m.invitation_id,
     m.generated_profile_draft,
+    m.submit_attempt_count,
+    m.submit_window_expires_at,
     cms.id AS state_version_id,
     cms.reason AS state_reason,
     cms.version_no AS state_version_no,
@@ -750,6 +754,8 @@ CREATE VIEW public.accessible_club_memberships AS
     proof_kind,
     invitation_id,
     generated_profile_draft,
+    submit_attempt_count,
+    submit_window_expires_at,
     state_version_id,
     state_reason,
     state_version_no,
@@ -792,6 +798,8 @@ CREATE VIEW public.active_club_memberships AS
     proof_kind,
     invitation_id,
     generated_profile_draft,
+    submit_attempt_count,
+    submit_window_expires_at,
     state_version_id,
     state_reason,
     state_version_no,
@@ -845,18 +853,13 @@ CREATE TABLE public.ai_llm_usage_log (
 );
 
 
---
--- Name: application_pow_challenges; Type: TABLE; Schema: public; Owner: -
+-- Name: consumed_pow_challenges; Type: TABLE; Schema: public; Owner: -
 --
 
-CREATE TABLE public.application_pow_challenges (
-    id public.short_id DEFAULT public.new_id() NOT NULL,
-    membership_id public.short_id NOT NULL,
-    difficulty integer NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    solved_at timestamp with time zone,
-    attempts integer DEFAULT 0 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE public.consumed_pow_challenges (
+    challenge_id text NOT NULL,
+    consumed_at timestamp with time zone DEFAULT now() NOT NULL,
+    club_id public.short_id NOT NULL
 );
 
 
@@ -1707,12 +1710,11 @@ ALTER TABLE ONLY public.ai_llm_usage_log
     ADD CONSTRAINT ai_llm_usage_log_pkey PRIMARY KEY (id);
 
 
---
--- Name: application_pow_challenges application_pow_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: consumed_pow_challenges consumed_pow_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.application_pow_challenges
-    ADD CONSTRAINT application_pow_challenges_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.consumed_pow_challenges
+    ADD CONSTRAINT consumed_pow_challenges_pkey PRIMARY KEY (challenge_id);
 
 
 --
@@ -2144,11 +2146,10 @@ CREATE INDEX ai_llm_usage_log_club_created_idx ON public.ai_llm_usage_log USING 
 CREATE INDEX ai_llm_usage_log_member_created_idx ON public.ai_llm_usage_log USING btree (member_id, created_at DESC);
 
 
---
--- Name: application_pow_challenges_one_active_per_membership; Type: INDEX; Schema: public; Owner: -
+-- Name: consumed_pow_challenges_consumed_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX application_pow_challenges_one_active_per_membership ON public.application_pow_challenges USING btree (membership_id) WHERE (solved_at IS NULL);
+CREATE INDEX consumed_pow_challenges_consumed_idx ON public.consumed_pow_challenges USING btree (consumed_at);
 
 
 --
@@ -2747,12 +2748,11 @@ ALTER TABLE ONLY public.ai_llm_usage_log
     ADD CONSTRAINT ai_llm_usage_log_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
 
 
---
--- Name: application_pow_challenges application_pow_challenges_membership_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: consumed_pow_challenges consumed_pow_challenges_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.application_pow_challenges
-    ADD CONSTRAINT application_pow_challenges_membership_fkey FOREIGN KEY (membership_id) REFERENCES public.club_memberships(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.consumed_pow_challenges
+    ADD CONSTRAINT consumed_pow_challenges_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id) ON DELETE CASCADE;
 
 
 --

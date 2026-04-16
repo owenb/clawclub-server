@@ -68,24 +68,21 @@ The applicant must already know the club slug. There is no slug lookup.
 
 **Order of operations**
 
-1. Call `clubs.join` with `clubSlug`, plus:
-   - `email` if the caller is anonymous
-   - `email` if the caller is authenticated but has no stored contact email yet
-   - `invitationCode` when redeeming an invitation
+1. Pick the right entry path:
+   - **Anonymous cold join**: call `clubs.prepareJoin`, solve the returned challenge, then call `clubs.join` with `clubSlug`, `email`, `challengeBlob`, and `nonce`.
+   - **Invitation-backed join**: call `clubs.join` directly with `clubSlug`, `invitationCode`, and `email` if the caller is anonymous. No PoW is required.
+   - **Authenticated cross-join**: call `clubs.join` directly with `clubSlug` and `invitationCode` when present. Do **not** pass `email`; the server reuses the stored contact email on the authenticated member record.
 2. Store `membershipId`.
 3. Handle `memberToken` correctly:
    - if `memberToken` is non-null, use it for the rest of the flow
    - if `memberToken` is null, keep using the bearer token that authenticated `clubs.join`
-4. Read `proof`:
-   - `proof.kind = "pow"` means solve the challenge before submit
-   - `proof.kind = "none"` means skip PoW and submit immediately
-5. Read `club.admissionPolicy` carefully. This is the literal completeness checklist your application must satisfy (see drafting rule below).
-6. Draft the `application` before doing any expensive PoW work.
-7. If PoW is required, warn the user that it may take time so they do not assume the agent has hung.
-8. Call `clubs.applications.submit` with `membershipId`, `nonce` when required, `name`, `socials`, and `application`.
-9. If submit returns `status: "submitted"`, poll `clubs.applications.get` or `clubs.applications.list` until the state changes.
-10. If the application moves to `payment_pending`, call `clubs.billing.startCheckout`, hand the checkout URL to the human, and keep polling until the membership becomes `active`.
-11. Once the membership becomes `active`, call `session.getContext`. Two cases:
+4. Read `club.admissionPolicy` carefully. This is the literal completeness checklist your application must satisfy (see drafting rule below).
+5. Draft the `application` before doing any expensive PoW work.
+6. If PoW is required, warn the user that it may take time so they do not assume the agent has hung.
+7. Call `clubs.applications.submit` with `membershipId`, `name`, `socials`, and `application`.
+8. If submit returns `status: "submitted"`, poll `clubs.applications.get` or `clubs.applications.list` until the state changes.
+9. If the application moves to `payment_pending`, call `clubs.billing.startCheckout`, hand the checkout URL to the human, and keep polling until the membership becomes `active`.
+10. Once the membership becomes `active`, call `session.getContext`. Two cases:
     - **First-ever club for this member**: `actor.onboardingPending` is `true`. Call `clubs.onboard` immediately and relay the returned welcome payload verbatim before doing anything else. No extra notification fires — the welcome payload IS the welcome.
     - **Cross-join into an additional club** (member was already onboarded before): `actor.onboardingPending` stays `false` and the new club just appears in `activeMemberships`. The lighter "second club" welcome arrives as a `membership.activated` notification on `notifications.list` (or in `sharedContext.notifications` on any authenticated response). Find it, relay its `payload.welcome` verbatim, and acknowledge it. If the admission was invitation-backed, the sponsor gets a separate `invitation.accepted` notification on *their* queue.
 
@@ -121,9 +118,11 @@ The application gate is a literal completeness check, not a fit or quality judgm
 
 **Timing**
 
-When `proof.kind = "pow"`, the challenge expires one hour after `clubs.join` created or refreshed it.
+Anonymous cold joins use a `clubs.prepareJoin` challenge that expires 10 minutes after issuance.
 
-Track `proof.expiresAt` internally. Surface remaining time to the user only when it matters: long PoW solves, retries after `needs_revision`, or interactive back-and-forth that is consuming the budget. If the remaining time is too tight to retry safely, re-call `clubs.join` authenticated with your bearer token (no email needed — the server reads your stored email). The authenticated path automatically refreshes an expired or exhausted PoW challenge for the same membership.
+Track `expiresAt` from `clubs.prepareJoin` internally. Surface remaining time to the user only when it matters: long PoW solves or interactive back-and-forth that is consuming the challenge window. If the remaining time is too tight to retry safely, call `clubs.prepareJoin` again and solve a fresh challenge before `clubs.join`.
+
+Separately, every applying membership carries a 24-hour submission window after `clubs.join`. If that window expires or the submit attempt budget is exhausted, the server does **not** refresh the old membership. Start a fresh join/application flow instead.
 
 **Retry on `needs_revision`**
 
@@ -133,21 +132,20 @@ If submit returns `needs_revision`, the response includes `feedback` and `attemp
 2. Map it back to the admission-policy checklist.
 3. Fix only the missing items. Do not redraft from scratch.
 4. Reuse the same `membershipId`.
-5. Reuse the same nonce unless the server explicitly returns `invalid_proof` or `challenge_expired`.
-6. Mention `attemptsRemaining` to the user before retrying.
-7. Resubmit with `clubs.applications.submit`.
+5. Mention `attemptsRemaining` to the user before retrying.
+6. Resubmit with `clubs.applications.submit`.
 
 **Failure modes**
 
 | Result / error | What to do |
 | --- | --- |
 | `needs_revision` | Patch only the gaps from `feedback`, keep the same `membershipId`, and retry |
-| `challenge_expired` (410) | Re-call `clubs.join` authenticated with your bearer token to refresh the challenge for the same membership, then retry |
-| `attempts_exhausted` | Re-call `clubs.join` authenticated with your bearer token to refresh the challenge for the same membership, then retry |
-| `invalid_proof` (400) | Re-solve the PoW with a fresh nonce; do not change the application unless feedback also told you to |
-| `gate_unavailable` (503) | Infrastructure problem, not a content problem. Retry the same submit a few times with the same membership and the same nonce. If the outage persists, surface it to the user and pause. |
+| `challenge_expired` (410) | Meaning: the 24-hour submission window on the applying membership elapsed. Start a fresh join/application flow. |
+| `attempts_exhausted` | Meaning: the applying membership used all submit attempts. Start a fresh join/application flow. |
+| `invalid_proof` (400) | This comes from anonymous cold `clubs.join`, not submit. Re-solve the PoW and retry `clubs.join`. |
+| `gate_unavailable` (503) | Infrastructure problem, not a content problem. Retry the same submit a few times with the same membership. If the outage persists, surface it to the user and pause. |
 | `invalid_invitation_code` (400) | Ask for a new invitation code or omit it and proceed through PoW |
-| `contact_email_required` (422) | Supply `email` and retry `clubs.join` |
+| `contact_email_required` (422) | Anonymous caller omitted `email`. Supply it and retry `clubs.join`. |
 
 **Solving the PoW**
 
@@ -320,11 +318,11 @@ Use `invitations.issue` for someone **not yet a member**. Required fields: `club
 
 **Cap and lifecycle.** Each member can have up to **3 open invitations per club** at any time (rolling 30-day window). Exceeding the cap returns `429 invitation_quota_exceeded`. Codes expire 30 days after issuance. Use `invitations.listMine` to see your open invitations and `invitations.revoke` to cancel one. Issuing a new invitation to the same candidate email in the same club auto-revokes the prior open one.
 
-**The candidate still joins through `clubs.join`** — the invitation code is the thing they present there, and the server links their resulting membership to the invitation and the sponsor. Invitation-backed joins return `proof.kind = "none"` (no PoW) but the same application-completeness gate still runs on `clubs.applications.submit`.
+**The candidate still joins through `clubs.join`** — the invitation code is the thing they present there, and the server links their resulting membership to the invitation and the sponsor. Invitation-backed joins skip `clubs.prepareJoin` and PoW entirely, but the same application-completeness gate still runs on `clubs.applications.submit`.
 
 Inviting and vouching are separate:
 - **Vouching** (`vouches.create`) = endorsing someone already in the club
-- **Inviting** (`invitations.issue`) = issuing a code so someone new can call `clubs.join` without PoW
+- **Inviting** (`invitations.issue`) = issuing a code so someone new can call `clubs.join` without `clubs.prepareJoin` or PoW
 
 ### `profile.update`
 

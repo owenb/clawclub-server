@@ -1,15 +1,13 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
+import { joinAnonymouslyWithPow } from '../helpers.ts';
 
 const TEST_DIFFICULTY = '1';
 const COLD_DIFFICULTY_ENV = 'CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY';
-const CROSS_DIFFICULTY_ENV = 'CLAWCLUB_TEST_CROSS_APPLICATION_DIFFICULTY';
 
 let h: TestHarness;
 let previousColdDifficulty: string | undefined;
-let previousCrossDifficulty: string | undefined;
 
 async function setAdmissionPolicy(clubId: string, policy: string): Promise<void> {
   await h.sql(
@@ -20,18 +18,6 @@ async function setAdmissionPolicy(clubId: string, policy: string): Promise<void>
      from clubs c where c.id = $1`,
     [clubId, policy],
   );
-}
-
-function findTrailingNonce(challengeId: string, difficulty: number): string {
-  const zeros = '0'.repeat(difficulty);
-  for (let nonce = 0; nonce < 100_000; nonce++) {
-    const candidate = String(nonce);
-    const hash = createHash('sha256').update(`${challengeId}:${candidate}`, 'utf8').digest('hex');
-    if (hash.endsWith(zeros)) {
-      return candidate;
-    }
-  }
-  throw new Error(`Unable to find trailing nonce for difficulty ${difficulty}`);
 }
 
 async function getCurrentClubProfile(memberId: string, clubId: string): Promise<Record<string, unknown>> {
@@ -84,19 +70,15 @@ async function joinAndSubmitCold(input: {
   socials: string;
   application: string;
 }): Promise<{ memberToken: string; membershipId: string }> {
-  const joinBody = await h.apiOk(null, 'clubs.join', {
+  const join = await joinAnonymouslyWithPow(h, {
     clubSlug: input.clubSlug,
     email: input.email,
   });
-  const join = joinBody.data as Record<string, unknown>;
-  const proof = join.proof as Record<string, unknown>;
-  const nonce = findTrailingNonce(proof.challengeId as string, proof.difficulty as number);
   const memberToken = join.memberToken as string;
   const membershipId = join.membershipId as string;
 
   const submitBody = await h.apiOk(memberToken, 'clubs.applications.submit', {
     membershipId,
-    nonce,
     name: input.name,
     socials: input.socials,
     application: input.application,
@@ -108,23 +90,18 @@ async function joinAndSubmitCold(input: {
 async function joinAndSubmitCrossApply(input: {
   actorToken: string;
   clubSlug: string;
-  email: string;
   name: string;
   socials: string;
   application: string;
 }): Promise<{ membershipId: string }> {
   const joinBody = await h.apiOk(input.actorToken, 'clubs.join', {
     clubSlug: input.clubSlug,
-    email: input.email,
   });
   const join = joinBody.data as Record<string, unknown>;
-  const proof = join.proof as Record<string, unknown>;
-  const nonce = findTrailingNonce(proof.challengeId as string, proof.difficulty as number);
   const membershipId = join.membershipId as string;
 
   const submitBody = await h.apiOk(input.actorToken, 'clubs.applications.submit', {
     membershipId,
-    nonce,
     name: input.name,
     socials: input.socials,
     application: input.application,
@@ -135,9 +112,7 @@ async function joinAndSubmitCrossApply(input: {
 
 before(async () => {
   previousColdDifficulty = process.env[COLD_DIFFICULTY_ENV];
-  previousCrossDifficulty = process.env[CROSS_DIFFICULTY_ENV];
   process.env[COLD_DIFFICULTY_ENV] = TEST_DIFFICULTY;
-  process.env[CROSS_DIFFICULTY_ENV] = TEST_DIFFICULTY;
   h = await TestHarness.start({ embeddingStub: false });
 }, { timeout: 60_000 });
 
@@ -147,11 +122,6 @@ after(async () => {
     delete process.env[COLD_DIFFICULTY_ENV];
   } else {
     process.env[COLD_DIFFICULTY_ENV] = previousColdDifficulty;
-  }
-  if (previousCrossDifficulty === undefined) {
-    delete process.env[CROSS_DIFFICULTY_ENV];
-  } else {
-    process.env[CROSS_DIFFICULTY_ENV] = previousCrossDifficulty;
   }
 }, { timeout: 15_000 });
 
@@ -262,7 +232,6 @@ describe('application profile generation (LLM)', () => {
     const { membershipId } = await joinAndSubmitCrossApply({
       actorToken: member.token,
       clubSlug: ownerB.club.slug,
-      email: 'ada.multiclub@example.com',
       name: 'Ada MultiClub',
       socials: 'https://instagram.com/adacats',
       application: [

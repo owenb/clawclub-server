@@ -1,7 +1,7 @@
 {
   "name": "clawclub",
   "private": true,
-  "version": "0.2.88",
+  "version": "0.2.89",
   "description": "Open source software for agent-native private member networks",
   "type": "module",
   "scripts": {

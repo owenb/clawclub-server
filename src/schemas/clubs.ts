@@ -17,6 +17,7 @@ import {
 } from './fields.ts';
 import {
   applicationSummary,
+  clubPrepareJoinResult,
   clubJoinResult,
   clubsOnboardResult,
   clubsApplicationsSubmitResult,
@@ -31,10 +32,39 @@ const parseAsciiEmail = parseEmail.refine((value) => /^[\x00-\x7F]+$/.test(value
 
 const applicationStatusFilter = z.union([membershipState, z.array(membershipState).min(1)]);
 
+const clubsPrepareJoin: ActionDefinition = {
+  action: 'clubs.prepareJoin',
+  domain: 'clubs',
+  description: 'Issue a proof-of-work challenge for an anonymous cold join without creating any server-side identity yet.',
+  auth: 'none',
+  safety: 'read_only',
+  requiredCapability: 'prepareClubJoin',
+  notes: [
+    'This is for anonymous cold joins only. Invited and authenticated callers skip it.',
+    'No database rows are created by this action.',
+  ],
+  wire: {
+    input: z.object({
+      clubSlug: wireRequiredString.describe('Club slug to join'),
+    }),
+    output: clubPrepareJoinResult,
+  },
+  parse: {
+    input: z.object({
+      clubSlug: parseRequiredString,
+    }),
+  },
+  async handleCold(input: unknown, ctx): Promise<ActionResult> {
+    const { clubSlug } = input as { clubSlug: string };
+    const result = await ctx.repository.prepareClubJoin!({ clubSlug });
+    return { data: result };
+  },
+};
+
 const clubsJoin: ActionDefinition = {
   action: 'clubs.join',
   domain: 'clubs',
-  description: 'Create a club application for the calling human. Missing Authorization joins anonymously; a valid bearer token reuses the existing member identity.',
+  description: 'Create a club application for the calling human. Missing Authorization joins anonymously after a solved clubs.prepareJoin challenge; a valid bearer token reuses the existing member identity.',
   auth: 'optional_member',
   safety: 'mutating',
   requiredCapability: 'joinClub',
@@ -42,24 +72,52 @@ const clubsJoin: ActionDefinition = {
     'Anonymous clubs.join is not idempotent. Repeating it with the same email creates a new, unrelated membership.',
     'Anonymous callers must save the returned memberToken immediately; losing it loses access to that membership.',
     'Missing Authorization header uses the anonymous branch. Present-but-invalid Authorization returns 401.',
+    'Authenticated callers must not pass email; this action uses one shared optional-member wire schema, so the rejection happens semantically after auth resolution.',
   ],
   businessErrors: [
     {
+      code: 'challenge_required',
+      meaning: 'Anonymous callers must call clubs.prepareJoin first and then supply challengeBlob + nonce to clubs.join.',
+      recovery: 'Call clubs.prepareJoin, solve the challenge, and retry clubs.join with challengeBlob and nonce.',
+    },
+    {
+      code: 'invalid_challenge',
+      meaning: 'The supplied challenge blob was malformed, failed HMAC verification, or targeted a different club.',
+      recovery: 'Call clubs.prepareJoin again for the intended club and retry with the new challengeBlob.',
+    },
+    {
+      code: 'challenge_expired',
+      meaning: 'The supplied prepareJoin challenge expired before clubs.join was called.',
+      recovery: 'Call clubs.prepareJoin again and solve a fresh challenge.',
+    },
+    {
+      code: 'challenge_already_used',
+      meaning: 'The supplied challenge was already consumed by a previous clubs.join attempt.',
+      recovery: 'Call clubs.prepareJoin again and solve a fresh challenge.',
+    },
+    {
+      code: 'invalid_proof',
+      meaning: 'The supplied nonce does not satisfy the challenge difficulty.',
+      recovery: 'Solve the challenge correctly and retry clubs.join before it expires.',
+    },
+    {
       code: 'contact_email_required',
-      meaning: 'Caller has no stored contact email on file. Either an anonymous caller forgot to pass email, or an authenticated member without a recorded contact email is joining a new club.',
+      meaning: 'Anonymous caller did not supply email.',
       recovery: 'Retry clubs.join with the email field set.',
     },
     {
       code: 'invalid_invitation_code',
       meaning: 'The invitation code was malformed, expired, revoked, mismatched, or otherwise unusable.',
-      recovery: 'Retry with a different invitation code or omit invitationCode and proceed through PoW.',
+      recovery: 'Retry with a different invitation code or omit invitationCode and proceed through clubs.prepareJoin.',
     },
   ],
   wire: {
     input: z.object({
       clubSlug: wireRequiredString.describe('Club slug to join'),
-      email: wireAsciiEmail.optional().describe('Required for anonymous joins and for authenticated joins that do not yet have a stored contact email.'),
+      email: wireAsciiEmail.optional().describe('Required for anonymous joins. Authenticated callers must omit it.'),
       invitationCode: wireRequiredString.optional().describe('Optional invitation code (cc_inv_...).'),
+      challengeBlob: wireRequiredString.optional().describe('Required on the anonymous non-invitation path; returned by clubs.prepareJoin.'),
+      nonce: wireBoundedString.optional().describe('Proof-of-work solution for the anonymous non-invitation path.'),
     }),
     output: clubJoinResult,
   },
@@ -68,16 +126,26 @@ const clubsJoin: ActionDefinition = {
       clubSlug: parseRequiredString,
       email: parseAsciiEmail.optional(),
       invitationCode: parseTrimmedNullableString.transform((value) => value ?? undefined),
+      challengeBlob: parseTrimmedNullableString.transform((value) => value ?? undefined),
+      nonce: parseTrimmedNullableString.transform((value) => value ?? undefined),
     }),
   },
   async handleOptionalMember(input: unknown, ctx: OptionalHandlerContext): Promise<ActionResult> {
     ctx.requireCapability('joinClub');
-    const { clubSlug, email, invitationCode } = input as { clubSlug: string; email?: string; invitationCode?: string };
+    const { clubSlug, email, invitationCode, challengeBlob, nonce } = input as {
+      clubSlug: string;
+      email?: string;
+      invitationCode?: string;
+      challengeBlob?: string;
+      nonce?: string;
+    };
     const join = await ctx.repository.joinClub!({
       actorMemberId: ctx.actor.member?.id ?? null,
       clubSlug,
       email,
       invitationCode,
+      challengeBlob,
+      nonce,
     });
     return { data: join };
   },
@@ -113,31 +181,20 @@ const clubsOnboard: ActionDefinition = {
 const clubsApplicationsSubmit: ActionDefinition = {
   action: 'clubs.applications.submit',
   domain: 'clubs',
-  description: 'Submit an in-progress club application for the calling member.',
+  description: 'Submit an in-progress club application for the calling member. challenge_expired means the submission window elapsed, not a proof-of-work failure.',
   auth: 'member',
   safety: 'mutating',
   requiredCapability: 'submitClubApplication',
   businessErrors: [
     {
-      code: 'missing_nonce',
-      meaning: 'This application still requires proof of work and no nonce was supplied.',
-      recovery: 'Solve the current challenge and retry with nonce set.',
-    },
-    {
       code: 'challenge_expired',
-      meaning: 'The active proof-of-work challenge expired.',
-      recovery: 'Re-call clubs.join authenticated with your bearer token to refresh the challenge for the same membership, then retry submit.',
-    },
-    {
-      code: 'invalid_proof',
-      meaning: 'The supplied nonce does not satisfy the challenge difficulty.',
-      recovery: 'Solve the proof again and retry submit with the same application text.',
+      meaning: 'The application submission window elapsed before the application was submitted.',
+      recovery: 'Start a fresh join/application flow to create a new membership and submission window.',
     },
   ],
   wire: {
     input: z.object({
       membershipId: wireRequiredString.describe('Membership to submit'),
-      nonce: wireBoundedString.optional().describe('Required when the membership proof_kind is pow. Ignored otherwise.'),
       name: wireBoundedString.describe('Applicant name'),
       socials: wireBoundedString.describe('Social links or profile URLs'),
       application: wireApplicationText,
@@ -147,7 +204,6 @@ const clubsApplicationsSubmit: ActionDefinition = {
   parse: {
     input: z.object({
       membershipId: parseRequiredString,
-      nonce: parseTrimmedNullableString.transform((value) => value ?? undefined),
       name: parseBoundedString,
       socials: parseBoundedString,
       application: parseApplicationText,
@@ -155,9 +211,8 @@ const clubsApplicationsSubmit: ActionDefinition = {
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireCapability('submitClubApplication');
-    const { membershipId, nonce, name, socials, application } = input as {
+    const { membershipId, name, socials, application } = input as {
       membershipId: string;
-      nonce?: string;
       name: string;
       socials: string;
       application: string;
@@ -165,7 +220,6 @@ const clubsApplicationsSubmit: ActionDefinition = {
     const result = await ctx.repository.submitClubApplication!({
       actorMemberId: ctx.actor.member.id,
       membershipId,
-      nonce,
       name,
       socials,
       application,
@@ -288,6 +342,7 @@ const clubsBillingStartCheckout: ActionDefinition = {
 };
 
 registerActions([
+  clubsPrepareJoin,
   clubsJoin,
   clubsOnboard,
   clubsApplicationsSubmit,

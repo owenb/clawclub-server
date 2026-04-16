@@ -14,21 +14,20 @@ after(async () => {
 }, { timeout: 15_000 });
 
 describe('clubs.join authenticated cross-apply', () => {
-  it('reuses the existing member identity and returns a PoW challenge for the target club', async () => {
+  it('reuses the existing member identity without requiring email or PoW', async () => {
     const sourceOwner = await h.seedOwner('cross-source-club', 'Cross Source Club');
     const targetOwner = await h.seedOwner('cross-target-club', 'Cross Target Club');
     const member = await h.seedCompedMember(sourceOwner.club.id, 'Ada Cross');
 
     const joinBody = await h.apiOk(member.token, 'clubs.join', {
       clubSlug: targetOwner.club.slug,
-      email: 'ada.cross@example.com',
     });
 
     assert.equal(joinBody.action, 'clubs.join');
     const join = joinBody.data as Record<string, unknown>;
     assert.equal(join.memberToken, null);
     assert.equal(join.clubId, targetOwner.club.id);
-    assert.equal((join.proof as Record<string, unknown>).kind, 'pow');
+    assert.equal('proof' in join, false);
 
     const application = await h.apiOk(member.token, 'clubs.applications.get', {
       membershipId: join.membershipId as string,
@@ -36,20 +35,21 @@ describe('clubs.join authenticated cross-apply', () => {
     const summary = (application.data as Record<string, unknown>).application as Record<string, unknown>;
     assert.equal(summary.state, 'applying');
     assert.equal(summary.submissionPath, 'cross_apply');
-    assert.equal(summary.applicationEmail, 'ada.cross@example.com');
+    assert.equal(summary.applicationEmail, `${member.id}@test.clawclub.local`);
   });
 
-  it('requires email on the first authenticated join when the member has no stored contact email', async () => {
+  it('rejects authenticated callers that still try to pass email', async () => {
     const sourceOwner = await h.seedOwner('cross-email-source', 'Cross Email Source');
     const targetOwner = await h.seedOwner('cross-email-target', 'Cross Email Target');
     const member = await h.seedCompedMember(sourceOwner.club.id, 'No Email');
 
     const err = await h.apiErr(member.token, 'clubs.join', {
       clubSlug: targetOwner.club.slug,
+      email: 'no.email@example.com',
     });
 
     assert.equal(err.status, 422);
-    assert.equal(err.code, 'contact_email_required');
+    assert.equal(err.code, 'invalid_input');
   });
 
   it('is idempotent for an existing non-terminal target membership and does not issue a new token', async () => {
@@ -59,7 +59,6 @@ describe('clubs.join authenticated cross-apply', () => {
 
     const first = await h.apiOk(member.token, 'clubs.join', {
       clubSlug: targetOwner.club.slug,
-      email: 'replay.riley@example.com',
     });
     const second = await h.apiOk(member.token, 'clubs.join', {
       clubSlug: targetOwner.club.slug,
@@ -68,7 +67,7 @@ describe('clubs.join authenticated cross-apply', () => {
     assert.equal((first.data as Record<string, unknown>).membershipId, (second.data as Record<string, unknown>).membershipId);
     assert.equal((first.data as Record<string, unknown>).memberToken, null);
     assert.equal((second.data as Record<string, unknown>).memberToken, null);
-    assert.equal(((second.data as Record<string, unknown>).proof as Record<string, unknown>).kind, 'pow');
+    assert.equal('proof' in (second.data as Record<string, unknown>), false);
   });
 
   it('accepts invitation-backed cross-apply through the same join action', async () => {
@@ -79,20 +78,19 @@ describe('clubs.join authenticated cross-apply', () => {
     const issued = await h.apiOk(targetOwner.token, 'invitations.issue', {
       clubId: targetOwner.club.id,
       candidateName: 'Invitation Iris',
-      candidateEmail: 'iris@example.com',
+      candidateEmail: `${member.id}@test.clawclub.local`,
       reason: 'Strong prior collaborator',
     });
     const invitationCode = (issued.data as Record<string, unknown>).invitationCode as string;
 
     const joinBody = await h.apiOk(member.token, 'clubs.join', {
       clubSlug: targetOwner.club.slug,
-      email: 'iris@example.com',
       invitationCode,
     });
 
     const join = joinBody.data as Record<string, unknown>;
     assert.equal(join.memberToken, null);
-    assert.equal((join.proof as Record<string, unknown>).kind, 'none');
+    assert.equal('proof' in join, false);
 
     const application = await h.apiOk(member.token, 'clubs.applications.get', {
       membershipId: join.membershipId as string,

@@ -80,13 +80,6 @@ test('createServer exposes contract headers on core routes and JSON responses', 
         memberToken: 'cc_live_member_abc',
         clubId: 'club-1',
         membershipId: 'membership-1',
-        proof: {
-          kind: 'pow' as const,
-          challengeId: 'challenge-1',
-          difficulty: 7,
-          expiresAt: '2026-03-15T13:00:00.000Z',
-          maxAttempts: 5,
-        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
@@ -123,7 +116,7 @@ test('createServer exposes contract headers on core routes and JSON responses', 
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         action: 'clubs.join',
-        input: { clubSlug: 'test', email: 'jane@example.com' },
+        input: { clubSlug: 'test', email: 'jane@example.com', challengeBlob: 'payload.signature', nonce: '42' },
       }),
     });
     assert.equal(postOk.status, 200);
@@ -154,13 +147,6 @@ test('createServer accepts unauthenticated clubs.join over POST /api', async () 
         memberToken: 'cc_live_member_abc',
         clubId: 'club-1',
         membershipId: 'membership-1',
-        proof: {
-          kind: 'pow' as const,
-          challengeId: 'challenge-1',
-          difficulty: 7,
-          expiresAt: '2026-03-15T13:00:00.000Z',
-          maxAttempts: 5,
-        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Tell us about yourself.' },
       };
     },
@@ -183,7 +169,7 @@ test('createServer accepts unauthenticated clubs.join over POST /api', async () 
       },
       body: JSON.stringify({
         action: 'clubs.join',
-        input: { clubSlug: 'test', email: 'jane@example.com' },
+        input: { clubSlug: 'test', email: 'jane@example.com', challengeBlob: 'payload.signature', nonce: '42' },
       }),
     });
 
@@ -193,9 +179,6 @@ test('createServer accepts unauthenticated clubs.join over POST /api', async () 
     assert.equal(body.action, 'clubs.join');
     assert.equal(body.data.membershipId, 'membership-1');
     assert.equal(body.data.memberToken, 'cc_live_member_abc');
-    assert.equal(body.data.proof.challengeId, 'challenge-1');
-    assert.equal(body.data.proof.difficulty, 7);
-    assert.equal(body.data.proof.maxAttempts, 5);
     assert.equal(body.data.club.name, 'Test');
     assert.equal('actor' in body, false);
   } finally {
@@ -240,7 +223,6 @@ test('createServer returns authenticated envelope for clubs.applications.submit'
         action: 'clubs.applications.submit',
         input: {
           membershipId: 'membership-1',
-          nonce: '12345',
           name: 'Jane Doe',
           socials: '@j',
           application: 'test',
@@ -272,7 +254,6 @@ test('createServer returns authenticated envelope for clubs.join when bearer tok
         memberToken: null,
         clubId: 'club-1',
         membershipId: 'membership-1',
-        proof: { kind: 'none' as const },
         club: { name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Tell us about yourself.' },
       };
     },
@@ -316,10 +297,21 @@ test('createServer returns authenticated envelope for clubs.join when bearer tok
 
 test('createServer rate limits anonymous clubs.join per IP but not authenticated joins', async () => {
   const requestFetch = globalThis.fetch;
+  let prepareJoinCalls = 0;
   let joinCalls = 0;
 
   const repository: Repository = {
     ...makeRepository(),
+    async prepareClubJoin() {
+      prepareJoinCalls += 1;
+      return {
+        clubId: 'club-1',
+        challengeBlob: 'payload.signature',
+        challengeId: `challenge-${prepareJoinCalls}`,
+        difficulty: 7,
+        expiresAt: '2026-03-15T13:00:00.000Z',
+      };
+    },
     async authenticateBearerToken(token) {
       return token === 'cc_live_test' ? makeAuthResult() : null;
     },
@@ -329,13 +321,6 @@ test('createServer rate limits anonymous clubs.join per IP but not authenticated
         memberToken: joinCalls === 1 ? 'cc_live_member_abc' : null,
         clubId: 'club-1',
         membershipId: `membership-${joinCalls}`,
-        proof: {
-          kind: 'pow' as const,
-          challengeId: `challenge-${joinCalls}`,
-          difficulty: 7,
-          expiresAt: '2026-03-15T13:00:00.000Z',
-          maxAttempts: 5,
-        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
@@ -345,6 +330,7 @@ test('createServer rate limits anonymous clubs.join per IP but not authenticated
     repository,
     updatesNotifier: makeUpdatesNotifier(),
     anonymousJoinRateLimits: {
+      'clubs.prepareJoin': { limit: 1, windowMs: 60_000 },
       'clubs.join': { limit: 1, windowMs: 60_000 },
     },
   });
@@ -354,22 +340,20 @@ test('createServer rate limits anonymous clubs.join per IP but not authenticated
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const joinInput = {
-      action: 'clubs.join',
-      input: { clubSlug: 'test', email: 'jane@example.com' },
-    };
-
-    const firstJoin = await requestFetch(`http://127.0.0.1:${port}/api`, {
+    const firstPrepare = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(joinInput),
+      body: JSON.stringify({ action: 'clubs.prepareJoin', input: { clubSlug: 'test' } }),
     });
-    assert.equal(firstJoin.status, 200);
+    assert.equal(firstPrepare.status, 200);
 
     const secondJoin = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(joinInput),
+      body: JSON.stringify({
+        action: 'clubs.join',
+        input: { clubSlug: 'test', email: 'jane@example.com', challengeBlob: 'payload.signature', nonce: '42' },
+      }),
     });
     const secondJoinBody = await secondJoin.json();
     assert.equal(secondJoin.status, 429);
@@ -387,7 +371,8 @@ test('createServer rate limits anonymous clubs.join per IP but not authenticated
     const authenticatedBody = await authenticatedJoin.json();
     assert.equal(authenticatedJoin.status, 200);
     assert.equal(authenticatedBody.ok, true);
-    assert.equal(joinCalls, 2);
+    assert.equal(prepareJoinCalls, 1);
+    assert.equal(joinCalls, 1);
   } finally {
     await shutdown();
   }
@@ -405,13 +390,6 @@ test('createServer enforces request body limits by byte size, not decoded string
         memberToken: 'cc_live_member_abc',
         clubId: 'club-1',
         membershipId: 'membership-1',
-        proof: {
-          kind: 'pow' as const,
-          challengeId: 'challenge-1',
-          difficulty: 7,
-          expiresAt: '2026-03-15T13:00:00.000Z',
-          maxAttempts: 5,
-        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
@@ -595,13 +573,6 @@ test('createServer accepts missing, empty, and matching ClawClub-Schema-Seen hea
         memberToken: 'cc_live_member_abc',
         clubId: 'club-1',
         membershipId: 'membership-1',
-        proof: {
-          kind: 'pow' as const,
-          challengeId: 'challenge-1',
-          difficulty: 7,
-          expiresAt: '2026-03-15T13:00:00.000Z',
-          maxAttempts: 5,
-        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
@@ -629,7 +600,7 @@ test('createServer accepts missing, empty, and matching ClawClub-Schema-Seen hea
         headers,
         body: JSON.stringify({
           action: 'clubs.join',
-          input: { clubSlug: 'test', email: 'jane@example.com' },
+          input: { clubSlug: 'test', email: 'jane@example.com', challengeBlob: 'payload.signature', nonce: '42' },
         }),
       });
       const body = await response.json();
@@ -655,13 +626,6 @@ test('createServer returns stale_client when ClawClub-Schema-Seen mismatches', a
         memberToken: 'cc_live_member_abc',
         clubId: 'club-1',
         membershipId: 'membership-1',
-        proof: {
-          kind: 'pow' as const,
-          challengeId: 'challenge-1',
-          difficulty: 7,
-          expiresAt: '2026-03-15T13:00:00.000Z',
-          maxAttempts: 5,
-        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
@@ -682,7 +646,7 @@ test('createServer returns stale_client when ClawClub-Schema-Seen mismatches', a
       },
       body: JSON.stringify({
         action: 'clubs.join',
-        input: { clubSlug: 'test', email: 'jane@example.com' },
+        input: { clubSlug: 'test', email: 'jane@example.com', challengeBlob: 'payload.signature', nonce: '42' },
       }),
     });
     const body = await response.json();
@@ -885,13 +849,6 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
         memberToken: 'cc_live_member_abc',
         clubId: 'club-1',
         membershipId: `membership-${joinCalls}`,
-        proof: {
-          kind: 'pow' as const,
-          challengeId: `challenge-${joinCalls}`,
-          difficulty: 7,
-          expiresAt: '2026-03-15T13:00:00.000Z',
-          maxAttempts: 5,
-        },
         club: { slug: 'test', name: 'Test', summary: null, ownerName: 'Owner', admissionPolicy: 'Policy.' },
       };
     },
