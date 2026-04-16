@@ -8,9 +8,7 @@
  *   node --experimental-strip-types src/workers/embedding.ts --once   # one-shot
  */
 import type { Pool } from 'pg';
-import { embedMany } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
-import { EMBEDDING_PROFILES } from '../ai.ts';
+import { EMBEDDING_PROFILES, embedManyDocuments, isEmbeddingStubEnabled } from '../ai.ts';
 import { buildProfileSourceText, buildEntitySourceText, buildEventSourceText, computeSourceHash } from '../embedding-source.ts';
 import { createPools, runWorkerLoop, runWorkerOnce, type WorkerPools } from './runner.ts';
 
@@ -225,27 +223,22 @@ async function processPlane(
   if (prepared.length === 0) return staleJobIds.length;
 
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  if (!apiKey && !isEmbeddingStubEnabled()) {
     await releaseJobs(pool, prepared.map(p => p.job.id));
     logEmbeddingSpend(pool, 'embedding_worker', 'skipped', 'no_api_key', null, null, null);
     console.error(`OPENAI_API_KEY not set — released ${prepared.length} ${planeName} jobs`);
     return 0;
   }
 
-  const provider = createOpenAI({ apiKey });
-  const firstJob = prepared[0].job;
-  const model = provider.embedding(firstJob.model);
-
   let embeddings: number[][];
   let usageTokens = 0;
   try {
-    const result = await embedMany({
-      model,
+    const result = await embedManyDocuments({
       values: prepared.map(p => p.sourceText),
-      providerOptions: { openai: { dimensions: firstJob.dimensions } },
+      profile: subjectKind === 'member_club_profile_version' ? 'member_profile' : 'entity',
     });
     embeddings = result.embeddings;
-    usageTokens = result.usage?.tokens ?? 0;
+    usageTokens = result.usageTokens;
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     const isConfigError = /api key|unauthorized|quota|rate limit|insufficient|billing/i.test(errorMsg);

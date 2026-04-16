@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { embed } from 'ai';
+import { embed, embedMany } from 'ai';
 
 export const CLAWCLUB_OPENAI_MODEL = 'gpt-5.4-nano';
 
@@ -73,6 +73,40 @@ export async function embedQueryText(input: {
   });
   return {
     embedding: result.embedding,
+    usageTokens: result.usage?.tokens ?? 0,
+  };
+}
+
+/**
+ * Batch embedding helper for worker/indexing paths. Test stub mode returns the
+ * same deterministic per-string vectors as embedQueryText without network use.
+ */
+export async function embedManyDocuments(input: {
+  values: string[];
+  profile: EmbeddingProfileKey;
+}): Promise<{ embeddings: number[][]; usageTokens: number }> {
+  const profile = EMBEDDING_PROFILES[input.profile];
+  if (isEmbeddingStubEnabled()) {
+    return {
+      embeddings: input.values.map((value) => buildStubEmbedding(`${input.profile}:${value}`, profile.dimensions)),
+      usageTokens: 0,
+    };
+  }
+
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('Embedding service is not configured');
+  }
+
+  const provider = createOpenAI({ apiKey });
+  const model = provider.embedding(profile.model);
+  const result = await embedMany({
+    model,
+    values: input.values,
+    providerOptions: { openai: { dimensions: profile.dimensions } },
+  });
+  return {
+    embeddings: result.embeddings,
     usageTokens: result.usage?.tokens ?? 0,
   };
 }
