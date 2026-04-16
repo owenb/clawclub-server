@@ -325,7 +325,7 @@ Always start with `clubs.join`. If the caller is anonymous, pass `email`. If the
 
 ## Legality gate
 
-Some mutating actions go through a legality or quality gate. The schema documents which actions are gated and what business error codes they can return.
+Some mutating actions go through the content gate. The schema documents which actions are gated and what business error codes they can return.
 
 Treat gate feedback as authoritative server feedback. Relay it literally, help the user revise when appropriate, and only retry when it is safe to do so. A gate outage is an infrastructure problem, not a content problem.
 

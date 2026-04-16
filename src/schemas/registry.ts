@@ -21,6 +21,7 @@ import type {
   RequestScope,
   SharedResponseContext,
 } from '../contract.ts';
+import type { GatedArtifact } from '../gate.ts';
 
 // ── Auth and safety types ────────────────────────────────
 
@@ -158,6 +159,18 @@ export type SchemaBusinessError = {
   recovery: string;
 };
 
+export type LlmGateBuildContext = {
+  actor: ActorContext;
+  repository: Repository;
+};
+
+export type LlmGateDeclaration = {
+  buildArtifact: (
+    parsedInput: unknown,
+    ctx: LlmGateBuildContext,
+  ) => Promise<GatedArtifact>;
+};
+
 export type ActionDefinition = {
   // ── Public metadata (exposed by schema endpoint) ──
   action: string;
@@ -180,8 +193,7 @@ export type ActionDefinition = {
     input: z.ZodType;
   };
 
-  /** Quality gate prompt file name (without path), or undefined for no gate */
-  qualityGate?: string;
+  llmGate?: LlmGateDeclaration;
 
   /** Repository method that must exist for this action to be available (→ 501 if missing) */
   requiredCapability?: RepositoryCapability;

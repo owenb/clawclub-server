@@ -3469,6 +3469,11 @@
           "recovery": "Correct or remove the listed mentions, then resubmit the content."
         },
         {
+          "code": "low_quality_content",
+          "meaning": "The content gate rejected the submission for being too low-information or generic.",
+          "recovery": "Relay the feedback to the user, add the missing concrete detail, and resubmit."
+        },
+        {
           "code": "illegal_content",
           "meaning": "The content gate rejected the submission for soliciting or facilitating clearly illegal activity.",
           "recovery": "Relay the reason to the user, revise the content, and resubmit."
@@ -6662,6 +6667,11 @@
           "recovery": "Correct or remove the listed mentions, then resubmit the update."
         },
         {
+          "code": "low_quality_content",
+          "meaning": "The content gate rejected the update for being too low-information or generic.",
+          "recovery": "Relay the feedback to the user, add the missing concrete detail, and resubmit."
+        },
+        {
           "code": "illegal_content",
           "meaning": "The content gate rejected the update for soliciting or facilitating clearly illegal activity.",
           "recovery": "Relay the reason to the user, revise the update, and resubmit."
@@ -8453,6 +8463,26 @@
           "code": "invitation_quota_exceeded",
           "meaning": "The sponsor already has the maximum number of open invitations for this club and rolling window.",
           "recovery": "Revoke an unused invitation or wait for an existing one to close before issuing a new one."
+        },
+        {
+          "code": "low_quality_content",
+          "meaning": "The invitation reason was too generic or missing relationship context.",
+          "recovery": "Relay the feedback to the sponsor, add how they know the candidate and one concrete detail, then resubmit."
+        },
+        {
+          "code": "illegal_content",
+          "meaning": "The invitation reason endorsed clearly illegal activity.",
+          "recovery": "Relay the feedback to the sponsor, remove the illegal endorsement, and resubmit."
+        },
+        {
+          "code": "gate_rejected",
+          "meaning": "The content gate returned a malformed or non-passing verdict.",
+          "recovery": "Review the feedback, revise the invitation reason, and resubmit."
+        },
+        {
+          "code": "gate_unavailable",
+          "meaning": "The content gate is temporarily unavailable.",
+          "recovery": "Retry after a short delay. If the problem persists, surface the outage to the user."
         }
       ],
       "description": "Issue a new invitation for a specific candidate email in a specific club.",
@@ -10607,6 +10637,11 @@
       "auth": "member",
       "authorizationNote": "Updates own profile only.",
       "businessErrors": [
+        {
+          "code": "low_quality_content",
+          "meaning": "The profile update was rejected for being too generic or low-information.",
+          "recovery": "Relay the feedback to the user, add a concrete role, domain, skill, or experience, and resubmit."
+        },
         {
           "code": "illegal_content",
           "meaning": "The profile update was rejected for soliciting or facilitating clearly illegal activity.",
@@ -13234,6 +13269,11 @@
           "recovery": "Treat the existing vouch as canonical instead of retrying."
         },
         {
+          "code": "low_quality_content",
+          "meaning": "The submission was rejected for being too generic or lacking firsthand detail.",
+          "recovery": "Relay the feedback to the user, add one specific thing the voucher personally saw, and resubmit."
+        },
+        {
           "code": "illegal_content",
           "meaning": "The submission was rejected for soliciting or facilitating clearly illegal activity.",
           "recovery": "Relay the reason to the user, revise the vouch text, and resubmit."
@@ -14280,6 +14320,6 @@
       }
     ]
   },
-  "version": "0.2.65",
-  "schemaHash": "a0070c525ac76809"
+  "version": "0.2.66",
+  "schemaHash": "402ca9b0fcfd30f5"
 }

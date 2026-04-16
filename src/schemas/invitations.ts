@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
+import type { GatedArtifact } from '../gate.ts';
 import {
   parseCursor,
   parseEmail,
@@ -25,12 +26,31 @@ const invitationsIssue: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   requiredCapability: 'issueInvitation',
-  qualityGate: 'invitations-issue',
   businessErrors: [
     {
       code: 'invitation_quota_exceeded',
       meaning: 'The sponsor already has the maximum number of open invitations for this club and rolling window.',
       recovery: 'Revoke an unused invitation or wait for an existing one to close before issuing a new one.',
+    },
+    {
+      code: 'low_quality_content',
+      meaning: 'The invitation reason was too generic or missing relationship context.',
+      recovery: 'Relay the feedback to the sponsor, add how they know the candidate and one concrete detail, then resubmit.',
+    },
+    {
+      code: 'illegal_content',
+      meaning: 'The invitation reason endorsed clearly illegal activity.',
+      recovery: 'Relay the feedback to the sponsor, remove the illegal endorsement, and resubmit.',
+    },
+    {
+      code: 'gate_rejected',
+      meaning: 'The content gate returned a malformed or non-passing verdict.',
+      recovery: 'Review the feedback, revise the invitation reason, and resubmit.',
+    },
+    {
+      code: 'gate_unavailable',
+      meaning: 'The content gate is temporarily unavailable.',
+      recovery: 'Retry after a short delay. If the problem persists, surface the outage to the user.',
     },
   ],
   wire: {
@@ -52,6 +72,12 @@ const invitationsIssue: ActionDefinition = {
       candidateEmail: parseAsciiEmail,
       reason: parseRequiredString,
     }),
+  },
+  llmGate: {
+    async buildArtifact(input): Promise<GatedArtifact> {
+      const parsed = input as { reason: string };
+      return { kind: 'invitation', reason: parsed.reason };
+    },
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireCapability('issueInvitation');

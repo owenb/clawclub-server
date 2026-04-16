@@ -3,6 +3,7 @@
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
+import type { GatedArtifact } from '../gate.ts';
 import {
   wireRequiredString, parseRequiredString,
   wirePatchString, parsePatchString,
@@ -12,6 +13,11 @@ import { memberProfileEnvelope } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 const PROFILE_UPDATE_ERRORS = [
+  {
+    code: 'low_quality_content',
+    meaning: 'The profile update was rejected for being too generic or low-information.',
+    recovery: 'Relay the feedback to the user, add a concrete role, domain, skill, or experience, and resubmit.',
+  },
   {
     code: 'illegal_content',
     meaning: 'The profile update was rejected for soliciting or facilitating clearly illegal activity.',
@@ -138,7 +144,31 @@ const profileUpdate: ActionDefinition = {
     }),
   },
 
-  qualityGate: 'profile-update',
+  llmGate: {
+    async buildArtifact(input, ctx): Promise<GatedArtifact> {
+      const patch = input as ProfileUpdateInput;
+      const current = await ctx.repository.loadProfileForGate?.({
+        actorMemberId: ctx.actor.member.id,
+        clubId: patch.clubId,
+      });
+      if (!current) {
+        throw new AppError(404, 'not_found', 'Profile not found inside the actor scope');
+      }
+      return {
+        kind: 'profile',
+        tagline: patch.tagline !== undefined ? patch.tagline : current.tagline,
+        summary: patch.summary !== undefined ? patch.summary : current.summary,
+        whatIDo: patch.whatIDo !== undefined ? patch.whatIDo : current.whatIDo,
+        knownFor: patch.knownFor !== undefined ? patch.knownFor : current.knownFor,
+        servicesSummary: patch.servicesSummary !== undefined ? patch.servicesSummary : current.servicesSummary,
+        websiteUrl: patch.websiteUrl !== undefined ? patch.websiteUrl : current.websiteUrl,
+        links: patch.links !== undefined ? patch.links : current.links,
+      };
+    },
+  },
+  preGate: async (input) => {
+    validateProfileUpdateInput(input as ProfileUpdateInput);
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const patch = input as ProfileUpdateInput;

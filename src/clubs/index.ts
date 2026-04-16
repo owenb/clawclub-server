@@ -6,6 +6,7 @@ import type { Pool } from 'pg';
 import type {
   ContentEntitySearchResult,
   CreateEntityInput,
+  EntityForGate,
   EntitySummary,
   IncludedBundle,
   ListEntitiesInput,
@@ -368,13 +369,13 @@ export async function getQuotaStatus(pool: Pool, input: {
 export async function logLlmUsage(pool: Pool, input: LogLlmUsageInput): Promise<void> {
   await pool.query(
     `insert into ai_llm_usage_log (
-       member_id, requested_club_id, action_name, gate_name, provider, model,
-       gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code
-     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+       member_id, requested_club_id, action_name, artifact_kind, provider, model,
+       gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code, feedback
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
     [
-      input.memberId, input.requestedClubId, input.actionName, input.gateName ?? 'quality_gate',
+      input.memberId, input.requestedClubId, input.actionName, input.artifactKind,
       input.provider, input.model, input.gateStatus, input.skipReason,
-      input.promptTokens, input.completionTokens, input.providerErrorCode ?? null,
+      input.promptTokens, input.completionTokens, input.providerErrorCode ?? null, input.feedback,
     ],
   );
 }
@@ -551,6 +552,7 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
 export type ClubsRepository = {
   createEntity(input: CreateEntityInput): Promise<WithIncluded<{ entity: EntitySummary }>>;
   updateEntity(input: UpdateEntityInput): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
+  loadEntityForGate(input: { actorMemberId: string; entityId: string; accessibleClubIds: string[] }): Promise<EntityForGate | null>;
   closeEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
   reopenEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
   removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean }): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
@@ -589,6 +591,7 @@ export function createClubsRepository(pool: Pool): ClubsRepository {
   return {
     createEntity: (input) => entities.createEntity(pool, input),
     updateEntity: (input) => entities.updateEntity(pool, input),
+    loadEntityForGate: (input) => entities.loadEntityForGate(pool, input),
     closeEntityLoop: (input) => entities.closeEntityLoop(pool, input),
     reopenEntityLoop: (input) => entities.reopenEntityLoop(pool, input),
     removeEntity: (input) => entities.removeEntity(pool, input),

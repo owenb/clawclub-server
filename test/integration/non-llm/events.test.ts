@@ -6,7 +6,7 @@ let h: TestHarness;
 
 before(async () => {
   h = await TestHarness.start({
-    qualityGate: async () => ({
+    llmGate: async () => ({
       status: 'passed',
       usage: { promptTokens: 0, completionTokens: 0 },
     }),

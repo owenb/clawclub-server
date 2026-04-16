@@ -15,6 +15,7 @@ import {
   type MemberIdentity,
   type MemberProfileEnvelope,
   type MemberSearchResult,
+  type ProfileForGate,
   type UpdateClubProfileInput,
   type UpdateMemberIdentityInput,
 } from '../contract.ts';
@@ -462,6 +463,23 @@ export async function updateClubProfile(
     throw new AppError(500, 'missing_row', 'Updated profile could not be reloaded');
   }
   return updated;
+}
+
+export async function loadProfileForGate(pool: Pool, input: {
+  actorMemberId: string;
+  clubId: string;
+}): Promise<ProfileForGate | null> {
+  const current = await readCurrentClubProfile(pool, input.actorMemberId, input.clubId);
+  if (!current) return null;
+  return normalizeClubProfileFields({
+    tagline: current.tagline,
+    summary: current.summary,
+    whatIDo: current.what_i_do,
+    knownFor: current.known_for,
+    servicesSummary: current.services_summary,
+    websiteUrl: current.website_url,
+    links: current.links ?? [],
+  });
 }
 
 function extractUrls(text: string): string[] {

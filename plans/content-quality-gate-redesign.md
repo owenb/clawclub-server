@@ -27,7 +27,7 @@ Those two properties collapse an entire defensive layer out of v4.3:
 **Other corrections to v4.3 details, now that the current state is visible:**
 
 - The current `quality_gate_status` enum has **4** values: `passed | rejected | rejected_illegal | skipped`. v4.3's post-review notes were written against a 5-value intermediate state that was subsequently reverted. The migration in this plan targets 4-value pre-state → 6-value post-state.
-- The next migration number is **013**, not 012. Migration 012 is already the JSON surface kill.
+- The next migration number is **014**, not 013. Migration 013 is already the comp-owners / clubadmin-bypass change; migration 012 is the JSON surface kill.
 - The current action definitions already import `profileLink` / `parseProfileLink` from `src/schemas/fields.ts` (via the link-normalization migration). The gate plan imports the same canonical types — no redefinition.
 - `profile.update` currently takes `clubId` (not `membershipId`). The artifact builder loads by `clubId`.
 
@@ -88,7 +88,7 @@ One consequence worth calling out: the old v4.3 "structured-metadata invariants"
 - `src/dispatch.ts` has four separate call sites that check `def.qualityGate` (one per dispatch branch, one duplicated). They will be replaced by a single centralized helper.
 - `quality_gate_status` DB enum has 4 values: `passed | rejected | rejected_illegal | skipped`.
 - `ai_llm_usage_log` has: `gate_name text DEFAULT 'quality_gate' NOT NULL`, `gate_status quality_gate_status NOT NULL`, a skip-reason check constraint, and standard telemetry columns. No `feedback`, no `moderation_categories`, no `rejection_source`.
-- The last applied migration in `public.schema_migrations` is `012_kill_untyped_json_surface.sql`. The next migration this plan creates is `013_content_gate_redesign.sql`.
+- The highest existing migration in `db/migrations/` is `013_comp_owners_and_remove_clubadmin_bypass.sql`. The next migration this plan creates is `014_content_gate_redesign.sql`.
 
 If any of the above is not true at kickoff, surface the drift before writing code.
 
@@ -893,7 +893,7 @@ New files:
 
 - `src/gate.ts` (~200 LOC) — types, `checkLlmGate`, `pickPrompt`, `parseVerdict`, `renderArtifact`, five prompt constants, `normalizeErrorCode`
 - `src/admissions-gate.ts` (~100 LOC) — `runApplicationGate`, application prompt, parser, result type
-- `db/migrations/013_content_gate_redesign.sql` — enum rename, column rename, feedback column
+- `db/migrations/014_content_gate_redesign.sql` — enum rename, column rename, feedback column
 
 Deleted files:
 
@@ -953,7 +953,7 @@ Unlike v4.3, there is no Step 1 audit. The structured-metadata problem it was so
 
 ### 1. Write the migration SQL
 
-`db/migrations/013_content_gate_redesign.sql`:
+`db/migrations/014_content_gate_redesign.sql`:
 
 ```sql
 -- Order matters. The existing ai_llm_usage_log_skip_reason_check constraint

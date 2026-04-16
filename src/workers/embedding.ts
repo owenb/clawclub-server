@@ -158,9 +158,9 @@ function logEmbeddingSpend(
   providerErrorCode: string | null,
 ): void {
   pool.query(
-    `insert into ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-    [null, null, actionName, 'embedding_index', 'openai', EMBEDDING_PROFILES.member_profile.model, gateStatus, skipReason, promptTokens, completionTokens, providerErrorCode],
+    `insert into ai_llm_usage_log (member_id, requested_club_id, action_name, artifact_kind, provider, model, gate_status, skip_reason, prompt_tokens, completion_tokens, provider_error_code, feedback)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [null, null, actionName, 'embedding_index', 'openai', EMBEDDING_PROFILES.member_profile.model, gateStatus, skipReason, promptTokens, completionTokens, providerErrorCode, null],
   ).catch(err => console.error('Failed to log embedding spend:', err));
 }
 

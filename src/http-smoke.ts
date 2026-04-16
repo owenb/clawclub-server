@@ -280,8 +280,8 @@ export async function runHttpSmoke(): Promise<{
     const created = await postAction(baseUrl, token.bearerToken, 'content.create', {
       clubId,
       kind: 'post',
-      title: 'HTTP smoke post about typed links and cleaner schemas',
-      body: 'This post exists only to prove the local HTTP smoke can still create content after the untyped JSON cleanup. It is specific enough to clear the gate and gives us a stable artifact to read back through content.list.',
+      title: 'HTTP smoke post about the links schema cleanup',
+      body: 'We finished the links-schema cleanup this week. Profiles now accept only typed {url,label} links, which removed hidden extra keys from agent writes and made profile responses easier to reason about. I am posting this here so the smoke test can verify content.create and content.list on a concrete post.',
     }, {
       'clawclub-schema-seen': schemaHash,
     });

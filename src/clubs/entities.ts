@@ -5,6 +5,7 @@
 import type { Pool } from 'pg';
 import type {
   ContentEntity,
+  EntityForGate,
   ContentThreadSummary,
   CreateEntityInput,
   EventFields,
@@ -89,6 +90,7 @@ type CurrentEntityForUpdateRow = {
   club_id: string;
   content_thread_id: string;
   kind: ContentEntity['kind'];
+  is_reply?: boolean;
   author_member_id: string;
   version_id: string;
   version_no: number;
@@ -102,6 +104,18 @@ type CurrentEntityForUpdateRow = {
   timezone: string | null;
   recurrence_rule: string | null;
   capacity: number | null;
+};
+
+type EntityForGateRow = {
+  entity_kind: EntityForGate['entityKind'];
+  is_reply: boolean;
+  title: string | null;
+  summary: string | null;
+  body: string | null;
+  location: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  timezone: string | null;
 };
 
 type ExistingClientKeyRow = {
@@ -815,6 +829,65 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
     const summary = await readContentEntityBundle(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
     return summary.entity ? { entity: summary.entity, included: summary.included } : null;
   });
+}
+
+export async function loadEntityForGate(pool: Pool, input: {
+  actorMemberId: string;
+  entityId: string;
+  accessibleClubIds: string[];
+}): Promise<EntityForGate | null> {
+  const result = await pool.query<EntityForGateRow>(
+    `select
+       e.kind::text as entity_kind,
+       exists (
+         select 1
+         from entities earlier
+         where earlier.content_thread_id = e.content_thread_id
+           and earlier.archived_at is null
+           and earlier.deleted_at is null
+           and (
+             earlier.created_at < e.created_at
+             or (earlier.created_at = e.created_at and earlier.id < e.id)
+           )
+       ) as is_reply,
+       cev.title,
+       cev.summary,
+       cev.body,
+       evd.location,
+       evd.starts_at::text as starts_at,
+       evd.ends_at::text as ends_at,
+       evd.timezone
+     from entities e
+     join current_entity_versions cev on cev.entity_id = e.id
+     left join event_version_details evd on evd.entity_version_id = cev.id
+     where e.id = $1
+       and e.club_id = any($2::text[])
+       and e.author_member_id = $3
+       and e.archived_at is null
+       and e.deleted_at is null
+       and cev.state = 'published'
+     limit 1`,
+    [input.entityId, input.accessibleClubIds, input.actorMemberId],
+  );
+
+  const row = result.rows[0];
+  if (!row) return null;
+
+  return {
+    entityKind: row.entity_kind,
+    isReply: row.is_reply,
+    title: row.title,
+    summary: row.summary,
+    body: row.body,
+    event: row.entity_kind === 'event' && row.location && row.starts_at
+      ? {
+        location: row.location,
+        startsAt: row.starts_at,
+        endsAt: row.ends_at,
+        timezone: row.timezone,
+      }
+      : null,
+  };
 }
 
 export async function removeEntity(pool: Pool, input: {

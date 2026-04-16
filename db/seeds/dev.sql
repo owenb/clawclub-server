@@ -1113,22 +1113,22 @@ insert into club_activity (club_id, topic, audience, payload, entity_id, created
 on conflict do nothing;
 
 -- ============================================================
--- LLM usage log (quality gate records)
+-- LLM usage log (content gate records)
 -- ============================================================
 
-insert into ai_llm_usage_log (member_id, requested_club_id, action_name, gate_name, provider, model, gate_status, prompt_tokens, completion_tokens, created_at) values
-  (:'alice_id',   :'dogclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 320, 45, now() - interval '21 days'),
-  (:'alice_id',   :'dogclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 410, 38, now() - interval '14 days'),
-  (:'charlie_id', :'dogclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 350, 42, now() - interval '7 days'),
-  (:'owen_id',    :'dogclub_id', 'content.create',   'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 290, 40, now() - interval '8 days'),
-  (:'alice_id',   :'catclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 380, 44, now() - interval '20 days'),
-  (:'bob_id',     :'catclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 340, 41, now() - interval '12 days'),
-  (:'diana_id',   :'catclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 400, 48, now() - interval '8 days'),
-  (:'bob_id',     :'foxclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 420, 50, now() - interval '18 days'),
-  (:'ivan_id',    :'foxclub_id', 'content.create', 'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 260, 36, now() - interval '5 days'),
-  (:'owen_id',    :'foxclub_id', 'content.create',   'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 310, 41, now() - interval '5 days'),
-  (:'alice_id',   null,          'profile.update',  'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 480, 55, now() - interval '25 days'),
-  (:'owen_id',    null,          'profile.update',  'quality_gate', 'openai', 'gpt-5.4-nano', 'passed', 520, 60, now() - interval '30 days')
+insert into ai_llm_usage_log (member_id, requested_club_id, action_name, artifact_kind, provider, model, gate_status, prompt_tokens, completion_tokens, created_at) values
+  (:'alice_id',   :'dogclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 320, 45, now() - interval '21 days'),
+  (:'alice_id',   :'dogclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 410, 38, now() - interval '14 days'),
+  (:'charlie_id', :'dogclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 350, 42, now() - interval '7 days'),
+  (:'owen_id',    :'dogclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 290, 40, now() - interval '8 days'),
+  (:'alice_id',   :'catclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 380, 44, now() - interval '20 days'),
+  (:'bob_id',     :'catclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 340, 41, now() - interval '12 days'),
+  (:'diana_id',   :'catclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 400, 48, now() - interval '8 days'),
+  (:'bob_id',     :'foxclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 420, 50, now() - interval '18 days'),
+  (:'ivan_id',    :'foxclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 260, 36, now() - interval '5 days'),
+  (:'owen_id',    :'foxclub_id', 'content.create', 'content', 'openai', 'gpt-5.4-nano', 'passed', 310, 41, now() - interval '5 days'),
+  (:'alice_id',   null,          'profile.update', 'profile', 'openai', 'gpt-5.4-nano', 'passed', 480, 55, now() - interval '25 days'),
+  (:'owen_id',    null,          'profile.update', 'profile', 'openai', 'gpt-5.4-nano', 'passed', 520, 60, now() - interval '30 days')
 on conflict do nothing;
 
 -- ############################################################

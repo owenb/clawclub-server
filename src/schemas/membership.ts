@@ -6,6 +6,7 @@
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
+import type { GatedArtifact } from '../gate.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
@@ -219,6 +220,11 @@ const VOUCH_CREATE_ERRORS = [
     recovery: 'Treat the existing vouch as canonical instead of retrying.',
   },
   {
+    code: 'low_quality_content',
+    meaning: 'The submission was rejected for being too generic or lacking firsthand detail.',
+    recovery: 'Relay the feedback to the user, add one specific thing the voucher personally saw, and resubmit.',
+  },
+  {
     code: 'illegal_content',
     meaning: 'The submission was rejected for soliciting or facilitating clearly illegal activity.',
     recovery: 'Relay the reason to the user, revise the vouch text, and resubmit.',
@@ -263,7 +269,12 @@ const vouchesCreate: ActionDefinition = {
     }),
   },
 
-  qualityGate: 'vouches-create',
+  llmGate: {
+    async buildArtifact(input): Promise<GatedArtifact> {
+      const parsed = input as VouchesCreateInput;
+      return { kind: 'vouch', reason: parsed.reason };
+    },
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { clubId, memberId, reason, clientKey } = input as VouchesCreateInput & { clientKey?: string | null };
@@ -429,7 +440,7 @@ const membersFindViaEmbedding: ActionDefinition = {
         memberId: ctx.actor.member.id,
         requestedClubId: clubId ?? null,
         actionName: 'members.searchBySemanticSimilarity',
-        gateName: 'embedding_query',
+        artifactKind: 'embedding_query',
         provider: 'openai',
         model: profile.model,
         gateStatus: 'skipped',
@@ -437,6 +448,7 @@ const membersFindViaEmbedding: ActionDefinition = {
         promptTokens: null,
         completionTokens: null,
         providerErrorCode: null,
+        feedback: null,
       })?.catch(() => {});
       throw new AppError(503, 'embedding_unavailable', 'Embedding service is not configured');
     }
@@ -462,7 +474,7 @@ const membersFindViaEmbedding: ActionDefinition = {
         memberId: ctx.actor.member.id,
         requestedClubId: club.clubId,
         actionName: 'members.searchBySemanticSimilarity',
-        gateName: 'embedding_query',
+        artifactKind: 'embedding_query',
         provider: 'openai',
         model: profile.model,
         gateStatus: 'skipped',
@@ -470,6 +482,7 @@ const membersFindViaEmbedding: ActionDefinition = {
         promptTokens: null,
         completionTokens: null,
         providerErrorCode: err instanceof Error ? err.message.slice(0, 200) : 'unknown',
+        feedback: null,
       })?.catch(() => {});
       throw new AppError(503, 'embedding_unavailable', 'Embedding service is temporarily unavailable');
     }
@@ -478,7 +491,7 @@ const membersFindViaEmbedding: ActionDefinition = {
         memberId: ctx.actor.member.id,
         requestedClubId: club.clubId,
       actionName: 'members.searchBySemanticSimilarity',
-      gateName: 'embedding_query',
+      artifactKind: 'embedding_query',
       provider: 'openai',
       model: profile.model,
       gateStatus: 'passed',
@@ -486,6 +499,7 @@ const membersFindViaEmbedding: ActionDefinition = {
       promptTokens: usageTokens,
       completionTokens: 0,
       providerErrorCode: null,
+      feedback: null,
     })?.catch(() => {});
 
     const queryVector = `[${embedding.join(',')}]`;

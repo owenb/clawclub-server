@@ -51,6 +51,7 @@ describe('profile.update (LLM-gated)', () => {
     await h.apiOk(owner.token, 'profile.update', {
       clubId: owner.club.id,
       tagline: 'Building carbon tracking tools for the manufacturing sector',
+      summary: 'I build reporting systems for small manufacturers that need auditable emissions data without hiring a full internal platform team.',
     });
 
     const result = await h.apiOk(dave.token, 'profile.list', { memberId: owner.id });

@@ -15,7 +15,7 @@ import {
 import { withTransaction, type DbClient } from '../db.ts';
 import { generateClubApplicationProfile } from '../identity/profiles.ts';
 import { buildBearerToken, buildInvitationCode, generateTokenId, hashTokenSecret, parseInvitationCode } from '../token.ts';
-import { runApplicationGate } from '../quality-gate.ts';
+import { runApplicationGate } from '../admissions-gate.ts';
 
 const COLD_APPLICATION_DIFFICULTY = 7;
 const CROSS_APPLICATION_DIFFICULTY = 5;
@@ -876,11 +876,44 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
     },
   );
 
-  if (gate.status === 'failed' || gate.status === 'skipped') {
+  if (gate.status === 'unavailable') {
     throw new AppError(503, 'gate_unavailable', 'Application gate is temporarily unavailable. Please try again later.');
   }
-  if (gate.status === 'rejected_illegal') {
-    throw new AppError(422, 'illegal_content', gate.feedback);
+  if (gate.status === 'needs_revision') {
+    return withTransaction(pool, async (client) => {
+      await client.query(
+        `update application_pow_challenges
+         set attempts = attempts + 1
+         where id = $1`,
+        [phaseOne.challengeId],
+      );
+      const nextAttemptResult = await client.query<{ attempts: number }>(
+        `select attempts
+         from application_pow_challenges
+         where id = $1`,
+        [phaseOne.challengeId],
+      );
+      const attempts = Number(nextAttemptResult.rows[0]?.attempts ?? 0);
+      const attemptsRemaining = Math.max(0, MAX_APPLICATION_ATTEMPTS - attempts);
+      if (attemptsRemaining <= 0) {
+        await client.query(
+          `update application_pow_challenges
+           set solved_at = now()
+           where id = $1`,
+          [phaseOne.challengeId],
+        );
+        return {
+          status: 'attempts_exhausted',
+          message: 'You have used all attempts. Re-call clubs.join authenticated with your bearer token to request a new challenge.',
+        } as const;
+      }
+
+      return {
+        status: 'needs_revision',
+        feedback: gate.feedback,
+        attemptsRemaining,
+      } as const;
+    });
   }
 
   const generatedProfileDraft = await generateClubApplicationProfile({
@@ -965,40 +998,13 @@ export async function submitClubApplication(pool: Pool, input: SubmitClubApplica
         } satisfies SubmitClubApplicationResult;
       }
 
-      if (gate.status === 'passed') {
-        await client.query(
-          `update application_pow_challenges
-           set attempts = $2,
-               solved_at = now()
-           where id = $1`,
-          [challengeRow.challenge_id, nextAttemptNo],
-        );
-      } else {
-        const exhausted = nextAttemptNo >= MAX_APPLICATION_ATTEMPTS;
-        await client.query(
-          `update application_pow_challenges
-           set attempts = $2,
-               solved_at = case when $3::boolean then now() else solved_at end
-           where id = $1`,
-          [challengeRow.challenge_id, nextAttemptNo, exhausted],
-        );
-      }
-    }
-
-    if (gate.status !== 'passed') {
-      if (membershipRow.proof_kind === 'pow' && nextAttemptNo >= MAX_APPLICATION_ATTEMPTS) {
-        return {
-          status: 'attempts_exhausted',
-          message: 'You have used all attempts. Re-call clubs.join authenticated with your bearer token to request a new challenge.',
-        };
-      }
-      return {
-        status: 'needs_revision',
-        feedback: gate.status === 'rejected' ? gate.feedback : 'Please revise your application and try again.',
-        attemptsRemaining: membershipRow.proof_kind === 'pow'
-          ? MAX_APPLICATION_ATTEMPTS - nextAttemptNo
-          : MAX_APPLICATION_ATTEMPTS,
-      };
+      await client.query(
+        `update application_pow_challenges
+         set attempts = $2,
+             solved_at = now()
+         where id = $1`,
+        [challengeRow.challenge_id, nextAttemptNo],
+      );
     }
 
     await client.query(

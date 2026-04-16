@@ -4,6 +4,7 @@
  */
 import { z } from 'zod';
 import { AppError } from '../contract.ts';
+import type { GatedArtifact } from '../gate.ts';
 import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
@@ -16,7 +17,7 @@ import {
   wireEventFieldsPatch, parseEventFieldsPatch,
 } from './fields.ts';
 import { contentEntity, contentEntitySearchResult, contentThreadSummary, includedBundle, membershipSummary } from './responses.ts';
-import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
+import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult, type LlmGateBuildContext } from './registry.ts';
 
 type EventInput = {
   location: string;
@@ -44,6 +45,11 @@ const CONTENT_CREATE_ERRORS = [
     recovery: 'Correct or remove the listed mentions, then resubmit the content.',
   },
   {
+    code: 'low_quality_content',
+    meaning: 'The content gate rejected the submission for being too low-information or generic.',
+    recovery: 'Relay the feedback to the user, add the missing concrete detail, and resubmit.',
+  },
+  {
     code: 'illegal_content',
     meaning: 'The content gate rejected the submission for soliciting or facilitating clearly illegal activity.',
     recovery: 'Relay the reason to the user, revise the content, and resubmit.',
@@ -65,6 +71,11 @@ const CONTENT_UPDATE_ERRORS = [
     code: 'invalid_mentions',
     meaning: 'One or more [Name|memberId] mentions referenced unknown member ids.',
     recovery: 'Correct or remove the listed mentions, then resubmit the update.',
+  },
+  {
+    code: 'low_quality_content',
+    meaning: 'The content gate rejected the update for being too low-information or generic.',
+    recovery: 'Relay the feedback to the user, add the missing concrete detail, and resubmit.',
   },
   {
     code: 'illegal_content',
@@ -153,6 +164,30 @@ type CreateInput = {
   event?: EventInput | null;
 };
 
+async function buildCreateArtifact(input: CreateInput): Promise<GatedArtifact> {
+  if (input.kind === 'event') {
+    return {
+      kind: 'event',
+      title: input.title,
+      summary: input.summary,
+      body: input.body,
+      location: input.event!.location,
+      startsAt: input.event!.startsAt,
+      endsAt: input.event!.endsAt ?? null,
+      timezone: input.event!.timezone ?? null,
+    };
+  }
+
+  return {
+    kind: 'content',
+    entityKind: input.kind,
+    isReply: Boolean(input.threadId),
+    title: input.title,
+    summary: input.summary,
+    body: input.body,
+  };
+}
+
 const entitiesCreate: ActionDefinition = {
   action: 'content.create',
   domain: 'content',
@@ -194,7 +229,11 @@ const entitiesCreate: ActionDefinition = {
     }),
   },
 
-  qualityGate: 'content-create',
+  llmGate: {
+    async buildArtifact(input): Promise<GatedArtifact> {
+      return buildCreateArtifact(input as CreateInput);
+    },
+  },
   preGate: async (input, ctx) => {
     const parsed = input as CreateInput;
     validateCreatePayload(parsed);
@@ -255,6 +294,43 @@ type UpdateInput = {
   event?: Partial<EventInput> | null;
 };
 
+async function buildUpdateArtifact(input: UpdateInput, ctx: LlmGateBuildContext): Promise<GatedArtifact> {
+  const current = await ctx.repository.loadEntityForGate?.({
+    actorMemberId: ctx.actor.member.id,
+    entityId: input.entityId,
+    accessibleClubIds: ctx.actor.memberships.map((membership) => membership.clubId),
+  });
+  if (!current) {
+    throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+  }
+
+  const title = input.title !== undefined ? input.title : current.title;
+  const summary = input.summary !== undefined ? input.summary : current.summary;
+  const body = input.body !== undefined ? input.body : current.body;
+
+  if (current.entityKind === 'event') {
+    return {
+      kind: 'event',
+      title,
+      summary,
+      body,
+      location: input.event?.location ?? current.event!.location,
+      startsAt: input.event?.startsAt ?? current.event!.startsAt,
+      endsAt: input.event?.endsAt ?? current.event!.endsAt,
+      timezone: input.event?.timezone ?? current.event!.timezone,
+    };
+  }
+
+  return {
+    kind: 'content',
+    entityKind: current.entityKind,
+    isReply: current.isReply,
+    title,
+    summary,
+    body,
+  };
+}
+
 const entitiesUpdate: ActionDefinition = {
   action: 'content.update',
   domain: 'content',
@@ -290,7 +366,11 @@ const entitiesUpdate: ActionDefinition = {
     }, 'content.update requires at least one field to change'),
   },
 
-  qualityGate: 'content-create',
+  llmGate: {
+    async buildArtifact(input, ctx): Promise<GatedArtifact> {
+      return buildUpdateArtifact(input as UpdateInput, ctx);
+    },
+  },
   preGate: async (input, ctx) => {
     const parsed = input as UpdateInput;
     validateUpdateEventPatch(parsed.event);
@@ -615,7 +695,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
         memberId: ctx.actor.member.id,
         requestedClubId: clubId ?? null,
         actionName: 'content.searchBySemanticSimilarity',
-        gateName: 'embedding_query',
+        artifactKind: 'embedding_query',
         provider: 'openai',
         model: profile.model,
         gateStatus: 'skipped',
@@ -623,6 +703,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
         promptTokens: null,
         completionTokens: null,
         providerErrorCode: null,
+        feedback: null,
       })?.catch(() => {});
       throw new AppErr(503, 'embedding_unavailable', 'Embedding service is not configured');
     }
@@ -654,7 +735,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
         memberId: ctx.actor.member.id,
         requestedClubId: clubId ?? null,
         actionName: 'content.searchBySemanticSimilarity',
-        gateName: 'embedding_query',
+        artifactKind: 'embedding_query',
         provider: 'openai',
         model: profile.model,
         gateStatus: 'skipped',
@@ -662,6 +743,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
         promptTokens: null,
         completionTokens: null,
         providerErrorCode: err instanceof Error ? err.message.slice(0, 200) : 'unknown',
+        feedback: null,
       })?.catch(() => {});
       throw new AppErr(503, 'embedding_unavailable', 'Embedding service is temporarily unavailable');
     }
@@ -670,7 +752,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
       memberId: ctx.actor.member.id,
       requestedClubId: clubId ?? null,
       actionName: 'content.searchBySemanticSimilarity',
-      gateName: 'embedding_query',
+      artifactKind: 'embedding_query',
       provider: 'openai',
       model: profile.model,
       gateStatus: 'passed',
@@ -678,6 +760,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
       promptTokens: usageTokens,
       completionTokens: 0,
       providerErrorCode: null,
+      feedback: null,
     })?.catch(() => {});
 
     const queryVector = `[${embedding.join(',')}]`;

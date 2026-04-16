@@ -41,11 +41,11 @@ import {
   type OptionalHandlerContext,
   type RepositoryCapability,
 } from './schemas/registry.ts';
-import { runQualityGate as defaultRunQualityGate, QUALITY_GATE_PROVIDER, type QualityGateResult } from './quality-gate.ts';
+import { checkLlmGate as defaultCheckLlmGate, type GateVerdict, type GatedArtifact } from './gate.ts';
 import { NOTIFICATIONS_PAGE_SIZE } from './notifications-core.ts';
-
-export type QualityGateFn = (action: string, payload: Record<string, unknown>) => Promise<QualityGateResult>;
 import { CLAWCLUB_OPENAI_MODEL } from './ai.ts';
+
+export type LlmGateFn = (artifact: GatedArtifact) => Promise<GateVerdict>;
 
 // ── Import all schema modules to trigger registration ────
 import './schemas/session.ts';
@@ -133,7 +133,7 @@ function checkCapability(
   }
 }
 
-// ── Legality gate handling ────────────────────────────────
+// ── Gate handling ────────────────────────────────────────
 
 function extractRequestedClubId(payload: Record<string, unknown>): string | null {
   const clubId = payload.clubId;
@@ -144,13 +144,15 @@ function buildLlmLogEntry(
   actionName: string,
   memberId: string | null,
   requestedClubId: string | null,
-  gate: QualityGateResult,
+  artifactKind: GatedArtifact['kind'],
+  gate: GateVerdict,
 ): LogLlmUsageInput {
   const base = {
     memberId: memberId ?? null,
     requestedClubId,
     actionName,
-    provider: QUALITY_GATE_PROVIDER,
+    artifactKind,
+    provider: 'openai',
     model: CLAWCLUB_OPENAI_MODEL,
   };
 
@@ -161,18 +163,20 @@ function buildLlmLogEntry(
       skipReason: gate.reason,
       promptTokens: null,
       completionTokens: null,
-      providerErrorCode: gate.providerErrorCode ?? null,
+      providerErrorCode: null,
+      feedback: null,
     };
   }
 
   if (gate.status === 'failed') {
     return {
       ...base,
-      gateStatus: 'skipped',
-      skipReason: gate.reason,
+      gateStatus: 'failed',
+      skipReason: null,
       promptTokens: null,
       completionTokens: null,
-      providerErrorCode: gate.providerErrorCode ?? null,
+      providerErrorCode: gate.errorCode,
+      feedback: null,
     };
   }
 
@@ -183,6 +187,7 @@ function buildLlmLogEntry(
     promptTokens: gate.usage.promptTokens,
     completionTokens: gate.usage.completionTokens,
     providerErrorCode: null,
+    feedback: gate.status === 'passed' ? null : gate.feedback,
   };
 }
 
@@ -193,8 +198,44 @@ function fireAndForgetLlmLog(repository: Repository, entry: LogLlmUsageInput): v
   });
 }
 
-function gateNotices(_gate: QualityGateResult): ResponseNotice[] {
-  return [];
+function verdictToHttpError(verdict: GateVerdict): AppError | null {
+  switch (verdict.status) {
+    case 'passed':
+      return null;
+    case 'rejected_illegal':
+      return new AppError(422, 'illegal_content', verdict.feedback);
+    case 'rejected_quality':
+      return new AppError(422, 'low_quality_content', verdict.feedback);
+    case 'rejected_malformed':
+      return new AppError(422, 'gate_rejected', verdict.feedback);
+    case 'skipped':
+    case 'failed':
+      return new AppError(503, 'gate_unavailable', `Content gate unavailable (${verdict.reason}).`);
+  }
+}
+
+async function runLlmGateFor(
+  def: ActionDefinition,
+  parsedInput: unknown,
+  actor: ActorContext | null,
+  repository: Repository,
+  requestedClubId: string | null,
+  runLlmGate: LlmGateFn,
+): Promise<void> {
+  if (!def.llmGate) return;
+  if (!actor) {
+    throw new AppError(500, 'invalid_data', `Action ${def.action} declared llmGate without an authenticated actor`);
+  }
+
+  const artifact = await def.llmGate.buildArtifact(parsedInput, { actor, repository });
+  const verdict = await runLlmGate(artifact);
+  fireAndForgetLlmLog(
+    repository,
+    buildLlmLogEntry(def.action, actor.member.id, requestedClubId, artifact.kind, verdict),
+  );
+
+  const err = verdictToHttpError(verdict);
+  if (err) throw err;
 }
 
 // ── Response envelope assembly ───────────────────────────
@@ -263,8 +304,8 @@ export type DispatchInput = {
   payload?: unknown;
 };
 
-export function buildDispatcher({ repository, qualityGate }: { repository: Repository; qualityGate?: QualityGateFn }) {
-  const runQualityGate = qualityGate ?? defaultRunQualityGate;
+export function buildDispatcher({ repository, llmGate }: { repository: Repository; llmGate?: LlmGateFn }) {
+  const runLlmGate = llmGate ?? defaultCheckLlmGate;
   return {
     async dispatch(input: DispatchInput) {
       // 1. Identify action
@@ -284,13 +325,13 @@ export function buildDispatcher({ repository, qualityGate }: { repository: Repos
 
       // 3. Branch on auth
       if (def.auth === 'none') {
-        return await dispatchCold(def, actionName, payload, repository, runQualityGate);
+        return await dispatchCold(def, actionName, payload, repository, runLlmGate);
       }
       if (def.auth === 'optional_member') {
-        return await dispatchOptionalMember(def, actionName, payload, input.bearerToken, repository, runQualityGate);
+        return await dispatchOptionalMember(def, actionName, payload, input.bearerToken, repository, runLlmGate);
       }
 
-      return await dispatchAuthenticated(def, actionName, payload, input.bearerToken, repository, runQualityGate);
+      return await dispatchAuthenticated(def, actionName, payload, input.bearerToken, repository, runLlmGate);
     },
   };
 }
@@ -300,7 +341,7 @@ async function dispatchCold(
   actionName: string,
   payload: Record<string, unknown>,
   repository: Repository,
-  runQualityGate: QualityGateFn,
+  runLlmGate: LlmGateFn,
 ) {
   // Check capability (safe before auth since cold actions have no auth)
   if (def.requiredCapability) {
@@ -310,27 +351,8 @@ async function dispatchCold(
   // Parse
   const parsedInput = parseActionInput(def, payload);
 
-  // Legality gate (cold actions currently don't have gates, but support it)
-  let notices: ResponseNotice[] = [];
-  if (def.qualityGate) {
-    const gate = await runQualityGate(actionName, parsedInput as Record<string, unknown>);
-
-    const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
-    if (!(gate.status === 'skipped' && gate.reason === 'no_gate_for_action')) {
-      fireAndForgetLlmLog(repository, buildLlmLogEntry(actionName, null, requestedClubId, gate));
-    }
-
-    if (gate.status === 'failed') {
-      throw new AppError(503, 'gate_unavailable', `Content gate unavailable (${gate.reason}). Gated actions cannot proceed.`);
-    }
-    if (gate.status === 'rejected_illegal') {
-      throw new AppError(422, 'illegal_content', gate.feedback);
-    }
-    if (gate.status === 'rejected') {
-      throw new AppError(422, 'gate_rejected', gate.feedback);
-    }
-    notices = gateNotices(gate);
-  }
+  await runLlmGateFor(def, parsedInput, null, repository, extractRequestedClubId(parsedInput as Record<string, unknown>), runLlmGate);
+  const notices: ResponseNotice[] = [];
 
   // Execute
   if (!def.handleCold) {
@@ -350,7 +372,7 @@ async function dispatchOptionalMember(
   payload: Record<string, unknown>,
   bearerToken: string | null,
   repository: Repository,
-  runQualityGate: QualityGateFn,
+  runLlmGate: LlmGateFn,
 ) {
   let actor: MaybeMemberActorContext = { member: null, memberships: [], globalRoles: [] };
   let sharedContext: SharedResponseContext = { notifications: [], notificationsTruncated: false };
@@ -379,24 +401,15 @@ async function dispatchOptionalMember(
 
   const parsedInput = parseActionInput(def, payload);
 
-  let notices: ResponseNotice[] = [];
-  if (def.qualityGate) {
-    const gate = await runQualityGate(actionName, parsedInput as Record<string, unknown>);
-    const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
-    if (!(gate.status === 'skipped' && gate.reason === 'no_gate_for_action')) {
-      fireAndForgetLlmLog(repository, buildLlmLogEntry(actionName, actor.member?.id ?? null, requestedClubId, gate));
-    }
-    if (gate.status === 'failed') {
-      throw new AppError(503, 'gate_unavailable', `Content gate unavailable (${gate.reason}). Gated actions cannot proceed.`);
-    }
-    if (gate.status === 'rejected_illegal') {
-      throw new AppError(422, 'illegal_content', gate.feedback);
-    }
-    if (gate.status === 'rejected') {
-      throw new AppError(422, 'gate_rejected', gate.feedback);
-    }
-    notices = gateNotices(gate);
-  }
+  await runLlmGateFor(
+    def,
+    parsedInput,
+    actor.member ? actor as ActorContext : null,
+    repository,
+    extractRequestedClubId(parsedInput as Record<string, unknown>),
+    runLlmGate,
+  );
+  const notices: ResponseNotice[] = [];
 
   if (!def.handleOptionalMember) {
     throw new AppError(501, 'not_implemented', `Action ${actionName} has no optional-member handler`);
@@ -442,7 +455,7 @@ async function dispatchAuthenticated(
   payload: Record<string, unknown>,
   bearerToken: string | null,
   repository: Repository,
-  runQualityGate: QualityGateFn,
+  runLlmGate: LlmGateFn,
 ) {
   // Authenticate
   if (typeof bearerToken !== 'string' || bearerToken.trim().length === 0) {
@@ -469,7 +482,7 @@ async function dispatchAuthenticated(
   const parsedInput = parseActionInput(def, payload);
 
   // Pre-gate club access check: reject unauthorized requests before running the LLM gate
-  if (def.qualityGate) {
+  if (def.llmGate) {
     const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
     if (requestedClubId && !auth.requestScope.activeClubIds.includes(requestedClubId)) {
       throw new AppError(403, 'forbidden', 'Requested club is outside your access scope');
@@ -481,26 +494,15 @@ async function dispatchAuthenticated(
   }
 
   // Legality gate (runs on parsed/normalized input, after auth, before execution)
-  let notices: ResponseNotice[] = [];
-  if (def.qualityGate) {
-    const gate = await runQualityGate(actionName, parsedInput as Record<string, unknown>);
-
-    const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
-    if (!(gate.status === 'skipped' && gate.reason === 'no_gate_for_action')) {
-      fireAndForgetLlmLog(repository, buildLlmLogEntry(actionName, actor.member.id, requestedClubId, gate));
-    }
-
-    if (gate.status === 'failed') {
-      throw new AppError(503, 'gate_unavailable', `Content gate unavailable (${gate.reason}). Gated actions cannot proceed.`);
-    }
-    if (gate.status === 'rejected_illegal') {
-      throw new AppError(422, 'illegal_content', gate.feedback);
-    }
-    if (gate.status === 'rejected') {
-      throw new AppError(422, 'gate_rejected', gate.feedback);
-    }
-    notices = gateNotices(gate);
-  }
+  await runLlmGateFor(
+    def,
+    parsedInput,
+    actor,
+    repository,
+    extractRequestedClubId(parsedInput as Record<string, unknown>),
+    runLlmGate,
+  );
+  const notices: ResponseNotice[] = [];
 
   // Execute
   if (!def.handle) {

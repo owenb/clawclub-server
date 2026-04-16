@@ -170,14 +170,16 @@ CREATE TYPE public.message_role AS ENUM (
 
 
 --
--- Name: quality_gate_status; Type: TYPE; Schema: public; Owner: -
+-- Name: content_gate_status; Type: TYPE; Schema: public; Owner: -
 --
 
-CREATE TYPE public.quality_gate_status AS ENUM (
+CREATE TYPE public.content_gate_status AS ENUM (
     'passed',
-    'rejected',
     'rejected_illegal',
-    'skipped'
+    'rejected_quality',
+    'rejected_malformed',
+    'skipped',
+    'failed'
 );
 
 
@@ -829,16 +831,17 @@ CREATE TABLE public.ai_llm_usage_log (
     member_id public.short_id,
     requested_club_id public.short_id,
     action_name text NOT NULL,
-    gate_name text DEFAULT 'quality_gate'::text NOT NULL,
+    artifact_kind text NOT NULL,
     provider text NOT NULL,
     model text NOT NULL,
-    gate_status public.quality_gate_status NOT NULL,
+    gate_status public.content_gate_status NOT NULL,
     skip_reason text,
     prompt_tokens integer,
     completion_tokens integer,
     provider_error_code text,
+    feedback text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT ai_llm_usage_log_skip_reason_check CHECK ((((gate_status = 'skipped'::public.quality_gate_status) AND (skip_reason IS NOT NULL)) OR ((gate_status <> 'skipped'::public.quality_gate_status) AND (skip_reason IS NULL))))
+    CONSTRAINT ai_llm_usage_log_skip_reason_check CHECK ((((gate_status = 'skipped'::public.content_gate_status) AND (skip_reason IS NOT NULL)) OR ((gate_status <> 'skipped'::public.content_gate_status) AND (skip_reason IS NULL))))
 );
 
 
@@ -3462,4 +3465,6 @@ INSERT INTO public.schema_migrations (filename) VALUES
   ('009_global_content_quota_default.sql'),
   ('010_rename_application_generated_profile_source.sql'),
   ('011_delete_handles.sql'),
-  ('012_kill_untyped_json_surface.sql');
+  ('012_kill_untyped_json_surface.sql'),
+  ('013_comp_owners_and_remove_clubadmin_bypass.sql'),
+  ('014_content_gate_redesign.sql');

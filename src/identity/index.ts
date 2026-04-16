@@ -16,6 +16,7 @@ import type {
   ArchiveClubInput,
   AssignClubOwnerInput,
   ClubProfileFields,
+  ProfileForGate,
   MemberProfileEnvelope,
   MemberIdentity,
   MemberSearchResult,
@@ -90,6 +91,7 @@ export type IdentityRepository = {
   listMemberProfiles(input: { actorMemberId: string; targetMemberId: string; actorClubIds: string[]; clubId?: string }): Promise<MemberProfileEnvelope | null>;
   updateMemberIdentity(input: { actor: ActorContext; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
   updateClubProfile(input: { actor: ActorContext; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
+  loadProfileForGate(input: { actorMemberId: string; clubId: string }): Promise<ProfileForGate | null>;
 
   // Clubs
   listClubs(input: { actorMemberId: string; includeArchived: boolean }): Promise<ClubSummary[]>;
@@ -158,6 +160,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     listMemberProfiles: ({ actorMemberId, targetMemberId, actorClubIds, clubId }) => profiles.listMemberProfiles(pool, { actorMemberId, targetMemberId, actorClubIds, clubId }),
     updateMemberIdentity: ({ actor, patch }) => profiles.updateMemberIdentity(pool, actor, patch),
     updateClubProfile: ({ actor, patch }) => profiles.updateClubProfile(pool, actor, patch),
+    loadProfileForGate: ({ actorMemberId, clubId }) => profiles.loadProfileForGate(pool, { actorMemberId, clubId }),
 
     // Clubs
     listClubs: ({ includeArchived }) => clubs.listClubs(pool, includeArchived),

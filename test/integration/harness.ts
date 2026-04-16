@@ -21,7 +21,7 @@ import { createPostgresMemberUpdateNotifier } from '../../src/member-updates-not
 import { buildBearerToken, buildInvitationCode } from '../../src/token.ts';
 import { z } from 'zod';
 import { getAction } from '../../src/schemas/registry.ts';
-import type { QualityGateFn } from '../../src/dispatch.ts';
+import type { LlmGateFn } from '../../src/dispatch.ts';
 import {
   authenticatedSuccessEnvelope,
   unauthenticatedSuccessEnvelope,
@@ -173,7 +173,7 @@ export class TestHarness {
     this.port = port;
   }
 
-  static async start(options: { qualityGate?: QualityGateFn; streamScopeRefreshMs?: number } = {}): Promise<TestHarness> {
+  static async start(options: { llmGate?: LlmGateFn; streamScopeRefreshMs?: number } = {}): Promise<TestHarness> {
     const dbName = createDbName();
 
     // 1. Create database (terminate stale connections first)
@@ -224,7 +224,7 @@ export class TestHarness {
       `postgresql://localhost/${dbName}`,
     );
 
-    const serverInstance = createServer({ repository, updatesNotifier, qualityGate: options.qualityGate, streamScopeRefreshMs: options.streamScopeRefreshMs });
+    const serverInstance = createServer({ repository, updatesNotifier, llmGate: options.llmGate, streamScopeRefreshMs: options.streamScopeRefreshMs });
     const port = await new Promise<number>((resolve) => {
       serverInstance.server.listen(0, () => {
         const addr = serverInstance.server.address();

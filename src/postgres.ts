@@ -657,6 +657,7 @@ export function createRepository(pool: Pool): Repository {
     buildMembershipSeedProfile: (input) => identity.buildMembershipSeedProfile(input),
     updateMemberIdentity: (input) => identity.updateMemberIdentity(input),
     updateClubProfile: (input) => identity.updateClubProfile(input),
+    loadProfileForGate: (input) => identity.loadProfileForGate(input),
     preflightCreateEntityMentions: (input) => preflightContentCreateMentions(pool, input),
     preflightUpdateEntityMentions: (input) => preflightContentUpdateMentions(pool, input),
 
@@ -696,6 +697,8 @@ export function createRepository(pool: Pool): Repository {
     async updateEntity(input) {
       return clubs.updateEntity(input);
     },
+
+    loadEntityForGate: (input) => clubs.loadEntityForGate(input),
 
     closeEntityLoop: (input) => clubs.closeEntityLoop(input),
 
@@ -776,6 +779,25 @@ export function createRepository(pool: Pool): Repository {
       if (sharedClubs.length === 0) {
         const hasThread = await messaging.hasExistingThread(input.actorMemberId, input.recipientMemberId);
         if (!hasThread) return null;
+      }
+
+      // Platform standing check. Both parties must be members.state = 'active'
+      // at write time. The actor side is also enforced by auth's readActor
+      // filter, but we re-check here so the DM gate is self-contained and
+      // covers the race where a caller authenticates and then gets banned
+      // before this write runs.
+      const standingResult = await pool.query<{ actor_active: boolean; recipient_active: boolean }>(
+        `select
+           exists(select 1 from members where id = $1 and state = 'active') as actor_active,
+           exists(select 1 from members where id = $2 and state = 'active') as recipient_active`,
+        [input.actorMemberId, input.recipientMemberId],
+      );
+      const standing = standingResult.rows[0];
+      if (!standing?.actor_active) {
+        throw new AppError(403, 'account_not_active', 'Your account is no longer active and cannot send messages.');
+      }
+      if (!standing?.recipient_active) {
+        throw new AppError(404, 'recipient_unavailable', 'That recipient is no longer active on ClawClub and cannot receive messages.');
       }
 
       const msg = await messaging.sendMessage({

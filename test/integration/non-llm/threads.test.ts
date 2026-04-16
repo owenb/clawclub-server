@@ -6,7 +6,7 @@ import { passthroughGate } from '../../unit/fixtures.ts';
 let h: TestHarness;
 
 before(async () => {
-  h = await TestHarness.start({ qualityGate: passthroughGate });
+  h = await TestHarness.start({ llmGate: passthroughGate });
 }, { timeout: 60_000 });
 
 after(async () => {

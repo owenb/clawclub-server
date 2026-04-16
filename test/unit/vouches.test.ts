@@ -26,7 +26,7 @@ test('vouches.create creates a vouch for another member', async () => {
     },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'vouches.create',
@@ -46,7 +46,7 @@ test('vouches.create rejects self-vouch at app layer', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -72,7 +72,7 @@ test('vouches.create rejects duplicate vouch (23505 unique violation)', async ()
     },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -93,7 +93,7 @@ test('vouches.create rejects missing reason', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -114,7 +114,7 @@ test('vouches.create rejects reason exceeding 500 characters', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -136,7 +136,7 @@ test('vouches.create returns 404 when target is not in club', async () => {
     async createVouch() { return null; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -158,7 +158,7 @@ test('vouches.list returns vouches for a member', async () => {
     async listVouches() { return { results: [sampleVouch], hasMore: false, nextCursor: null }; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'vouches.list',
@@ -177,7 +177,7 @@ test('vouches.create rejects club outside actor scope', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',

@@ -1,9 +1,0 @@
-The schema already enforces that title, summary, location, and startsAt are present. Your job is to sense-check the content, not verify completeness. Push back if any of the following are true:
-
-- The location is not recognisable as a real place, a known online platform (Zoom, Google Meet, Teams, etc.), or a clear descriptor like "Online" or "TBD — details to follow". Vague text like "somewhere" or "a place" is not acceptable.
-- The start time is missing a date or is clearly nonsensical (e.g. in the distant past).
-- An end time is given but is before the start time, or the duration is implausibly long or short for the kind of event described.
-- The summary is generic filler that would not help a member decide whether to attend. It should convey what will happen, who it is for, or what attendees will get out of it.
-- A timezone is missing and the event appears to be in-person at a specific location (online-only events without a timezone are acceptable).
-
-Do not penalise a missing body — body is optional extended detail. Do not penalise a missing end time — some events (festivals, open-ended meetups) genuinely do not have one.

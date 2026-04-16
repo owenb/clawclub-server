@@ -441,6 +441,16 @@ export type UpdateClubProfileInput = {
   links?: ClubProfileLink[];
 };
 
+export type ProfileForGate = {
+  tagline: string | null;
+  summary: string | null;
+  whatIDo: string | null;
+  knownFor: string | null;
+  servicesSummary: string | null;
+  websiteUrl: string | null;
+  links: ClubProfileLink[];
+};
+
 export type EntityKind = 'post' | 'opportunity' | 'service' | 'ask' | 'gift' | 'event';
 export type EntityState = 'draft' | 'published' | 'removed';
 
@@ -746,6 +756,20 @@ export type UpdateEntityInput = {
   };
 };
 
+export type EntityForGate = {
+  entityKind: 'post' | 'ask' | 'gift' | 'service' | 'opportunity' | 'event';
+  isReply: boolean;
+  title: string | null;
+  summary: string | null;
+  body: string | null;
+  event: {
+    location: string;
+    startsAt: string;
+    endsAt: string | null;
+    timezone: string | null;
+  } | null;
+};
+
 export type SetEntityLoopInput = {
   actorMemberId: string;
   accessibleClubIds: string[];
@@ -930,6 +954,10 @@ export type Repository = {
   }): Promise<MemberProfileEnvelope | null>;
   updateMemberIdentity?(input: { actor: ActorContext; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
   updateClubProfile?(input: { actor: ActorContext; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
+  loadProfileForGate?(input: {
+    actorMemberId: string;
+    clubId: string;
+  }): Promise<ProfileForGate | null>;
   preflightCreateEntityMentions?(input: {
     actorMemberId: string;
     actorClubIds: string[];
@@ -952,6 +980,11 @@ export type Repository = {
   }): Promise<void>;
   createEntity(input: CreateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }>>;
   updateEntity(input: UpdateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
+  loadEntityForGate?(input: {
+    actorMemberId: string;
+    entityId: string;
+    accessibleClubIds: string[];
+  }): Promise<EntityForGate | null>;
   closeEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
   reopenEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
   removeEntity?(input: RemoveEntityInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
@@ -1101,14 +1134,21 @@ export type LogLlmUsageInput = {
   memberId: string | null;
   requestedClubId: string | null;
   actionName: string;
-  gateName?: string;
+  artifactKind: string | null;
   provider: string;
   model: string;
-  gateStatus: 'passed' | 'rejected' | 'rejected_illegal' | 'skipped';
+  gateStatus:
+    | 'passed'
+    | 'rejected_illegal'
+    | 'rejected_quality'
+    | 'rejected_malformed'
+    | 'skipped'
+    | 'failed';
   skipReason: string | null;
   promptTokens: number | null;
   completionTokens: number | null;
   providerErrorCode: string | null;
+  feedback: string | null;
 };
 
 export type ResponseNotice = {

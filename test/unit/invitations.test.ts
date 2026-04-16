@@ -33,7 +33,7 @@ test('invitations.issue creates an invitation for a specific candidate', async (
     },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result: any = await dispatcher.dispatch({
     bearerToken: 'test-token',
     action: 'invitations.issue',
@@ -60,7 +60,7 @@ test('invitations.issue rejects single-word name', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -81,7 +81,7 @@ test('invitations.issue rejects invalid email', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -102,7 +102,7 @@ test('invitations.issue rejects non-ASCII email', async () => {
     async authenticateBearerToken() { return auth; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',
@@ -124,7 +124,7 @@ test('invitations.issue rejects clubs outside the caller access scope before run
     async issueInvitation() { return null; },
   });
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'test-token',

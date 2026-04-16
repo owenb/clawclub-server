@@ -9,7 +9,7 @@ ClawClub is a headless backend. There is no web UI — you interact with it thro
 
 - **Node.js** (22+ recommended)
 - **PostgreSQL 15+** with the [pgvector](https://github.com/pgvector/pgvector) extension installed
-- **An OpenAI API key** — required for the legality gate (content creation) and semantic search. See [AI features](#ai-features) below.
+- **An OpenAI API key** — required for the content gate, the admissions completeness gate, and semantic search. See [AI features](#ai-features) below.
 
 
 ## Quick start
@@ -80,11 +80,15 @@ See `.env.example` for the full list. The key ones:
 
 ## AI features
 
-ClawClub uses OpenAI for two things: a **legality gate** on content creation, and **embedding-based semantic search**.
+ClawClub uses OpenAI for three things: the **content gate** on gated writes, the **admissions completeness gate** on `clubs.applications.submit`, and **embedding-based semantic search**.
 
-### Legality gate
+### Content gate
 
-Actions that create or modify published content (`content.create`, `content.update`, `profile.update`, `vouches.create`, `invitations.issue`, `clubs.applications.submit`) pass through an LLM check before execution. Without a valid API key, these actions fail with 503 `gate_unavailable`. There is no way to bypass the gate — this is a deliberate product decision.
+Actions that create or modify published content (`content.create`, `content.update`, `profile.update`, `vouches.create`, `invitations.issue`) pass through an LLM content gate before execution. Without a valid API key, these actions fail with 503 `gate_unavailable`. There is no bypass.
+
+### Admissions completeness gate
+
+`clubs.applications.submit` is checked by a separate LLM completeness gate. It does not judge tone, fit, or quality; it only verifies that the applicant answered every explicit question in the club's admission policy. Without a valid API key, submit returns 503 `gate_unavailable`.
 
 ### Semantic search
 

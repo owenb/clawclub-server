@@ -788,7 +788,7 @@ test('session.getContext returns the canonical actor session envelope once', asy
       };
     },
   };
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'session.getContext',
@@ -818,7 +818,7 @@ test('superadmin.clubs.list requires superadmin and returns archived flag filter
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'superadmin.clubs.list',
@@ -848,7 +848,7 @@ test('superadmin.clubs.create derives superadmin ownership assignment server-sid
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'superadmin.clubs.create',
@@ -886,7 +886,7 @@ test('superadmin.clubs.assignOwner appends a new owner version via the superadmi
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'superadmin.clubs.assignOwner',
@@ -924,7 +924,7 @@ test('memberships.list stays inside owner club scope and can filter by status', 
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'clubadmin.memberships.list',
@@ -957,7 +957,7 @@ test('memberships.review defaults to the reviewable application statuses and ret
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'clubadmin.memberships.listForReview',
@@ -996,7 +996,7 @@ test('memberships.create direct-adds an active member inside owner scope', async
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'clubadmin.memberships.create',
@@ -1058,7 +1058,7 @@ test('memberships.transition appends a new membership state version inside owner
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'clubadmin.memberships.setStatus',
@@ -1113,7 +1113,7 @@ test('clubadmin.memberships.get returns the unified membership/application summa
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'clubadmin.memberships.get',
@@ -1144,7 +1144,7 @@ test('clubs.join returns the anonymous envelope and forwards normalized email', 
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: null,
     action: 'clubs.join',
@@ -1181,7 +1181,7 @@ test('clubs.applications.submit forwards the authenticated member and submitted 
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'clubs.applications.submit',
@@ -1281,7 +1281,7 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'members.searchByFullText',
@@ -1381,7 +1381,7 @@ test('members.list returns active members with scoped membership context', async
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'members.list',
@@ -1481,7 +1481,7 @@ test('profile.list defaults to the actor member id', async () => {
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'profile.list',
@@ -1506,6 +1506,17 @@ test('profile.update normalizes nullable strings for club-scoped fields', async 
     },
     async listMembers() {
       return { results: [makeClubMember()], hasMore: false, nextCursor: null };
+    },
+    async loadProfileForGate() {
+      return {
+        tagline: 'Building warm things',
+        summary: null,
+        whatIDo: null,
+        knownFor: null,
+        servicesSummary: null,
+        websiteUrl: null,
+        links: [{ label: 'Site', url: 'https://example.test' }],
+      };
     },
     async updateClubProfile({ patch }) {
       capturedPatch = patch;
@@ -1573,7 +1584,7 @@ test('profile.update normalizes nullable strings for club-scoped fields', async 
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'profile.update',
@@ -1610,6 +1621,16 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
     },
     async getMemberProfile() {
       return makeProfile();
+    },
+    async loadEntityForGate() {
+      return {
+        entityKind: 'post' as const,
+        isReply: false,
+        title: 'Old title',
+        summary: 'Old summary',
+        body: 'Old body',
+        event: null,
+      };
     },
     async updateClubProfile() {
       return makeProfile();
@@ -1685,7 +1706,7 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
 
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'content.create',
@@ -1730,6 +1751,16 @@ test('content.update appends a new version on the shared entity surface', async 
     },
     async getMemberProfile() {
       return makeProfile();
+    },
+    async loadEntityForGate() {
+      return {
+        entityKind: 'post' as const,
+        isReply: false,
+        title: 'Old title',
+        summary: 'Old summary',
+        body: 'Old body',
+        event: null,
+      };
     },
     async updateClubProfile() {
       return makeProfile();
@@ -1776,7 +1807,7 @@ test('content.update appends a new version on the shared entity surface', async 
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'content.update',
@@ -1867,7 +1898,7 @@ test('content.remove appends a removed version on the shared entity surface', as
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'content.remove',
@@ -1891,7 +1922,7 @@ test('content.remove appends a removed version on the shared entity surface', as
 });
 
 test('content.update rejects empty patches', async () => {
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository: makeRepository(), llmGate: passthroughGate });
 
   await assert.rejects(
     () =>
@@ -1956,7 +1987,7 @@ test('content.update rejects non-author updates', async () => {
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
 
   await assert.rejects(
     () =>
@@ -2060,7 +2091,7 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
 
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'content.create',
@@ -2176,7 +2207,7 @@ test('events.list stays inside accessible scope and forwards optional query', as
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'events.list',
@@ -2269,7 +2300,7 @@ test('events.rsvp uses the actor membership in the event club', async () => {
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'events.rsvp',
@@ -2330,7 +2361,7 @@ test('content.list can span accessible clubs and filter by kinds with optional q
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'content.list',
@@ -2388,7 +2419,7 @@ test('superadmin.clubs.create rejects non-superadmins', async () => {
 });
 
 test('members.searchByFullText rejects a club outside the actor scope', async () => {
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository: makeRepository(), llmGate: passthroughGate });
 
   await assert.rejects(
     () =>
@@ -2481,7 +2512,7 @@ test('profile.list returns 404 when the target member is outside shared scope', 
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
 
   await assert.rejects(
     () =>
@@ -2578,7 +2609,7 @@ test('messages.send picks a shared club, appends the request scope, and returns 
 
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.send',
@@ -2674,7 +2705,7 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
 
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
 
   await assert.rejects(
     () =>
@@ -2767,7 +2798,7 @@ test('messages.getInbox stays inside accessible scope and returns inbox summarie
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.getInbox',
@@ -2868,7 +2899,7 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.getInbox',
@@ -2973,7 +3004,7 @@ test('messages.getThread scopes thread access server-side and returns DM entries
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'messages.getThread',
@@ -2995,7 +3026,7 @@ test('messages.getThread scopes thread access server-side and returns DM entries
 });
 
 test('accessTokens.list returns the actor token inventory', async () => {
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository: makeRepository(), llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'accessTokens.list',
@@ -3086,7 +3117,7 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
 
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'accessTokens.create',
@@ -3182,7 +3213,7 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'accessTokens.revoke',
@@ -3226,7 +3257,7 @@ test('notifications.list returns the paginated notification worklist', async () 
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'notifications.list',
@@ -3262,7 +3293,7 @@ test('notifications.acknowledge appends receipts and removes items from shared c
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'notifications.acknowledge',
@@ -3293,7 +3324,7 @@ test('notifications.acknowledge rejects derived notification IDs', async () => {
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
 
   await assert.rejects(
     () =>
@@ -3377,7 +3408,7 @@ test('messages.getThread returns 404 when the thread is outside actor scope', as
     },
   };
 
-  const dispatcher = buildDispatcher({ repository, qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
 
   await assert.rejects(
     () =>
@@ -3398,7 +3429,7 @@ test('messages.getThread returns 404 when the thread is outside actor scope', as
 });
 
 test('session.getContext rejects unknown bearer tokens', async () => {
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository: makeRepository(), llmGate: passthroughGate });
 
   await assert.rejects(
     () =>
@@ -3418,10 +3449,11 @@ test('session.getContext rejects unknown bearer tokens', async () => {
 test('gated actions fail with 503 gate_unavailable when the gate returns failed', async () => {
   const failingGate: typeof passthroughGate = async () => ({
     status: 'failed' as const,
-    reason: 'no_api_key' as const,
+    reason: 'provider_error' as const,
+    errorCode: 'upstream_failure',
   });
 
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: failingGate });
+  const dispatcher = buildDispatcher({ repository: makeRepository(), llmGate: failingGate });
 
   await assert.rejects(
     () => dispatcher.dispatch({
@@ -3438,14 +3470,14 @@ test('gated actions fail with 503 gate_unavailable when the gate returns failed'
   );
 });
 
-test('gated actions fail with 422 gate_rejected when the gate returns a non-PASS non-ILLEGAL response', async () => {
+test('gated actions fail with 422 gate_rejected when the gate returns malformed feedback', async () => {
   const rejectingGate: typeof passthroughGate = async () => ({
-    status: 'rejected' as const,
+    status: 'rejected_malformed' as const,
     feedback: 'Ambiguous response from LLM',
     usage: { promptTokens: 10, completionTokens: 5 },
   });
 
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: rejectingGate });
+  const dispatcher = buildDispatcher({ repository: makeRepository(), llmGate: rejectingGate });
 
   await assert.rejects(
     () => dispatcher.dispatch({
@@ -3462,7 +3494,7 @@ test('gated actions fail with 422 gate_rejected when the gate returns a non-PASS
   );
 });
 
-test('dispatcher runs preGate after parse and before the quality gate', async () => {
+test('dispatcher runs preGate after parse and before the llm gate', async () => {
   const action = nextTestActionName('pregate-order');
   const calls: string[] = [];
 
@@ -3472,7 +3504,18 @@ test('dispatcher runs preGate after parse and before the quality gate', async ()
     description: 'PreGate ordering test',
     auth: 'member',
     safety: 'read_only',
-    qualityGate: 'test-quality-gate',
+    llmGate: {
+      async buildArtifact(input) {
+        return {
+          kind: 'content',
+          entityKind: 'post',
+          isReply: false,
+          title: null,
+          summary: null,
+          body: (input as { text: string }).text,
+        };
+      },
+    },
     wire: {
       input: z.object({ text: z.string() }),
       output: z.object({ ok: z.boolean() }),
@@ -3490,12 +3533,12 @@ test('dispatcher runs preGate after parse and before the quality gate', async ()
     },
   }]);
 
-  const gate: typeof passthroughGate = async (_action, payload) => {
-    calls.push(`gate:${(payload as { text: string }).text}`);
+  const gate: typeof passthroughGate = async (artifact) => {
+    calls.push(`gate:${(artifact as { body: string }).body}`);
     return { status: 'passed', usage: { promptTokens: 0, completionTokens: 0 } };
   };
 
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: gate });
+  const dispatcher = buildDispatcher({ repository: makeRepository(), llmGate: gate });
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action,
@@ -3506,7 +3549,7 @@ test('dispatcher runs preGate after parse and before the quality gate', async ()
   assert.deepEqual(result.data, { ok: true });
 });
 
-test('dispatcher runs preGate even when no quality gate is configured', async () => {
+test('dispatcher runs preGate even when no llm gate is configured', async () => {
   const action = nextTestActionName('pregate-no-gate');
   const calls: string[] = [];
 
@@ -3532,7 +3575,7 @@ test('dispatcher runs preGate even when no quality gate is configured', async ()
     },
   }]);
 
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository: makeRepository(), llmGate: passthroughGate });
   await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action,
@@ -3564,7 +3607,7 @@ test('AppError thrown from preGate propagates through the dispatcher unchanged',
     handle: async () => ({ data: { ok: true } }),
   }]);
 
-  const dispatcher = buildDispatcher({ repository: makeRepository(), qualityGate: passthroughGate });
+  const dispatcher = buildDispatcher({ repository: makeRepository(), llmGate: passthroughGate });
   await assert.rejects(
     () => dispatcher.dispatch({
       bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',

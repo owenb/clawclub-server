@@ -7,11 +7,11 @@ import type {
   Repository,
 } from '../../src/contract.ts';
 import type { MemberUpdateNotifier } from '../../src/member-updates-notifier.ts';
-import type { QualityGateFn } from '../../src/dispatch.ts';
+import type { LlmGateFn } from '../../src/dispatch.ts';
 import { encodeNotificationCursor } from '../../src/notifications-core.ts';
 
 /** Passthrough gate for mocked unit tests — always returns 'passed'. */
-export const passthroughGate: QualityGateFn = async () => ({
+export const passthroughGate: LlmGateFn = async () => ({
   status: 'passed' as const,
   usage: { promptTokens: 0, completionTokens: 0 },
 });

@@ -5,7 +5,7 @@ import { gzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { AppError, type Repository } from './contract.ts';
-import { buildDispatcher, type QualityGateFn } from './dispatch.ts';
+import { buildDispatcher, type LlmGateFn } from './dispatch.ts';
 import { decodeCursor, encodeCursor } from './schemas/fields.ts';
 import { getAction, generateRequestTemplate, GENERIC_REQUEST_TEMPLATE } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
@@ -365,7 +365,7 @@ export function createServer(options: {
   repository?: Repository;
   updatesNotifier?: MemberUpdateNotifier;
   anonymousJoinRateLimits?: Partial<Record<AnonymousJoinAction, FixedWindowRateLimit>>;
-  qualityGate?: QualityGateFn;
+  llmGate?: LlmGateFn;
   trustProxy?: boolean;
   streamScopeRefreshMs?: number;
 } = {}) {
@@ -401,7 +401,7 @@ export function createServer(options: {
   const anonymousJoinRateLimitBuckets = new Map<string, FixedWindowRateLimitState>();
   const activeStreams = new Map<string, number>();
   const streamScopeRefreshMs = options.streamScopeRefreshMs ?? 60_000;
-  const dispatcher = buildDispatcher({ repository, qualityGate: options.qualityGate });
+  const dispatcher = buildDispatcher({ repository, llmGate: options.llmGate });
   const sockets = new Set<net.Socket>();
 
   const server = http.createServer(async (request, response) => {
