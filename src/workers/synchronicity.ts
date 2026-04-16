@@ -18,7 +18,7 @@
  *   node --experimental-strip-types src/workers/synchronicity.ts --once   # one-shot
  */
 import type { Pool, PoolClient } from 'pg';
-import { createPools, runWorkerLoop, runWorkerOnce, type WorkerPools } from './runner.ts';
+import { acquireExclusiveWorkerLock, createPools, runWorkerLoop, runWorkerOnce, type WorkerPools } from './runner.ts';
 import {
   findMembersMatchingEntity,
   findSimilarMembers,
@@ -1014,16 +1014,33 @@ async function processSynchronicity(pools: WorkerPools): Promise<number> {
 // ── Entry point ───────────────────────────────────────────
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const pools = createPools();
+  const lock = await acquireExclusiveWorkerLock('clawclub:synchronicity');
+  if (!lock.acquired) {
+    console.error(
+      `[synchronicity] failed to acquire advisory lock after ${lock.attempts} attempts — exiting 1 so Railway's ON_FAILURE policy retries the container`,
+    );
+    process.exit(1);
+  }
+
+  const pools = createPools({ name: 'synchronicity' });
   const healthPort = process.env.WORKER_HEALTH_PORT ? parseInt(process.env.WORKER_HEALTH_PORT, 10) : undefined;
 
-  if (process.argv.includes('--once')) {
-    await runWorkerOnce('synchronicity', pools, processSynchronicity);
-  } else {
-    await runWorkerLoop('synchronicity', pools, processSynchronicity, {
-      pollIntervalMs: POLL_INTERVAL_MS,
-      healthPort,
-    });
+  try {
+    if (process.argv.includes('--once')) {
+      await runWorkerOnce('synchronicity', pools, processSynchronicity);
+    } else {
+      await runWorkerLoop('synchronicity', pools, processSynchronicity, {
+        pollIntervalMs: POLL_INTERVAL_MS,
+        healthPort,
+      });
+    }
+  } finally {
+    // Release the session-scoped advisory lock by closing its dedicated connection.
+    // This matters for `--once`: without it, the process hangs with an open TCP
+    // connection instead of exiting after the worker run completes. The catch is
+    // intentional: even if client.end() throws, connection teardown still releases
+    // the lock, and rethrowing here would only mask the real worker error.
+    await lock.client.end().catch(() => {});
   }
 }
 

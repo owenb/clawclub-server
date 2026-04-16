@@ -10,7 +10,7 @@
  *   const pools = createPools();
  *   await runWorkerLoop('my-worker', pools, process, { pollIntervalMs: 5000 });
  */
-import { Pool } from 'pg';
+import { Client, Pool } from 'pg';
 import * as http from 'node:http';
 import { basename } from 'node:path';
 
@@ -28,6 +28,19 @@ export type PoolConfig = {
 export type WorkerLoopOptions = {
   pollIntervalMs: number;
   healthPort?: number;
+};
+
+export type ExclusiveLockResult =
+  | { acquired: true; client: Client }
+  | { acquired: false; attempts: number };
+
+export type AcquireExclusiveWorkerLockOptions = {
+  databaseUrl?: string;
+  logger?: WorkerLogger;
+  maxAttempts?: number;
+  retryDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  clientFactory?: (databaseUrl: string) => Client;
 };
 
 // ── Pool management ───────────────────────────────────────
@@ -93,6 +106,56 @@ export function resetInstalledWorkerProcessHandlersForTests(): void {
     installedUncaughtExceptionHandler = null;
   }
   workerProcessHandlersInstalled = false;
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export async function acquireExclusiveWorkerLock(
+  lockKey: string,
+  options: AcquireExclusiveWorkerLockOptions = {},
+): Promise<ExclusiveLockResult> {
+  const databaseUrl = options.databaseUrl ?? process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL must be set');
+  }
+
+  const logger = options.logger ?? console.error;
+  const maxAttempts = Math.max(1, options.maxAttempts ?? 30);
+  const retryDelayMs = Math.max(0, options.retryDelayMs ?? 2000);
+  const sleep = options.sleep ?? defaultSleep;
+  const clientFactory = options.clientFactory ?? ((url: string) => new Client({ connectionString: url }));
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const client = clientFactory(databaseUrl);
+    try {
+      await client.connect();
+      const result = await client.query<{ acquired: boolean }>(
+        `select pg_try_advisory_lock(hashtext($1)) as acquired`,
+        [lockKey],
+      );
+      if (result.rows[0]?.acquired) {
+        return { acquired: true, client };
+      }
+    } catch (error) {
+      // Connection / query errors propagate intentionally — the retry loop
+      // covers lock contention only, not infrastructure failure. Wrapping
+      // this in retry would mask DB outages and delay Railway restart.
+      await client.end().catch(() => {});
+      throw error;
+    }
+
+    await client.end().catch(() => {});
+    if (attempt === 1) {
+      logger(`[${lockKey}] lock held by another instance, retrying up to ${maxAttempts} times every ${retryDelayMs}ms...`);
+    }
+    if (attempt < maxAttempts) {
+      await sleep(retryDelayMs);
+    }
+  }
+
+  return { acquired: false, attempts: maxAttempts };
 }
 
 export function createPools(config: PoolConfig = {}): WorkerPools {
