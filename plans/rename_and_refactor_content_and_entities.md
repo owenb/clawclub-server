@@ -244,6 +244,7 @@ The implementer must grep `db/init.sql` for `entity_id` / `entity_version_id` be
 |---|---|
 | `ContentEntity` | `Content` |
 | `ContentEntitySearchResult` | `ContentSearchResult` |
+| `ContentThreadSummary` | `ContentThread` (merged, see flat-shape decision) |
 | `EntitySummary` | removed |
 | `EventSummary` | removed |
 | `EntityKind` | `ContentKind` |
@@ -321,50 +322,40 @@ type Content = {
 
 (No `handle` on `author` — migration 011 removed handles. No `payload` / `content` on `version` — migration 012 removed the untyped JSON surface. `mentions` carries inline `[Name|memberId]` spans per the mentions work.)
 
-### `ContentThreadSummary`
-
-```ts
-type ContentThreadSummary = {
-  id: string;
-  clubId: string;
-  firstContent: Content;
-  contentCount: number;
-  lastActivityAt: string;
-};
-```
-
 ### `ContentThread`
+
+One flat thread-metadata type used by both `content.list` and `content.getThread`. There is no separate `ContentThreadSummary` — the two types collapse into this one under the flat shape decision below.
 
 ```ts
 type ContentThread = {
   id: string;
   clubId: string;
   firstContent: Content;
-  contents: Content[];
   contentCount: number;
   lastActivityAt: string;
-  hasMore: boolean;
-  nextCursor: string | null;
 };
 ```
+
+Pagination and the thread body live at the top level of the `content.getThread` response, next to `thread`, not inside it. See "Action contract adjustments" below.
 
 Existing visibility behavior remains:
 
 - removed first content is still surfaced as redacted
-- expired first content may still appear in `firstContent` while being absent from `contents`
+- expired first content may still appear in `firstContent` while being absent from the top-level `contents` array
 
-Clients must not assume `firstContent === contents[0]`.
+Clients must not assume `thread.firstContent === contents[0]`.
 
 ### Action contract adjustments
 
-The goal is to make the wire format read naturally. Every content-related action output also carries an `included: IncludedBundle` sidecar (shipped 2026-04-xx via the handles-deletion work); the rename does not touch that sidecar shape.
+The goal is to make the wire format read naturally. Every content-related action output also carries an `included: IncludedBundle` sidecar (shipped via the handles-deletion work); the rename does not touch that sidecar shape.
 
 - `content.create` returns `{ content: Content, included: IncludedBundle }`
 - `content.update` returns `{ content: Content, included: IncludedBundle }`
 - `content.remove` returns `{ content: Content, included: IncludedBundle }`
 - `content.closeLoop` returns `{ content: Content, included: IncludedBundle }`
 - `content.reopenLoop` returns `{ content: Content, included: IncludedBundle }`
-- `content.getThread` returns `{ thread: ContentThread, included: IncludedBundle }`
+- `content.getThread` returns `{ thread: ContentThread, contents: Content[], hasMore: boolean, nextCursor: string | null, included: IncludedBundle }` — flat shape, pagination and the body array at the top level alongside `thread`. The `thread` object is thread identity only, not a paginated container.
+- `content.list` returns `results: ContentThread[]` + pagination + `included: IncludedBundle` — each result is a flat thread-identity summary.
 - `content.searchBySemanticSimilarity` returns `results: ContentSearchResult[]` + `included: IncludedBundle`
 - `events.list` returns `results: Content[]` + `included: IncludedBundle`
 - `events.rsvp` returns `{ event: Content, included: IncludedBundle }`
@@ -379,7 +370,9 @@ Input cleanup:
 
 (No input `content` / `payload` field rename — migration 012 removed the field on both actions entirely.)
 
-**Open design call on `content.getThread` output shape.** The current live shape is flat: `{ thread: ContentThreadSummary, entities: Content[], hasMore, nextCursor, included }`. The target shape above nests pagination inside the `ContentThread` type. Both are defensible — flat matches the pagination convention of `content.list` / `events.list`, nested reads as one cohesive thread object. The plan currently proposes nested; the implementer should confirm with the reviewer before committing to nested vs flat at the restructure step.
+**Thread response shape: locked to flat.** Pagination (`hasMore`, `nextCursor`) and the body array (`contents`) sit at the top level of the `content.getThread` response, next to `thread`, not inside it. Reasons: the `firstContent` / `contents[0]` distinction (expired-first-content stays in `firstContent` while being absent from `contents`) telegraphs more clearly when those fields live at different depths; `response.thread` becomes "thread identity" cleanly, cacheable independently of the current page; and it matches the pagination convention used by every other paginated action in the API. There is no separate `ContentThreadSummary` type — `ContentThread` is used everywhere a thread's metadata is returned.
+
+**Structured metadata input / output: locked to absent.** `content.create` and `content.update` do not accept a generic structured metadata field on input (no `content`, no `payload`). `ContentEntity.version` does not expose a generic structured metadata field on output. Kind-specific structured data lives on a typed field (`event: EventFields` today; future kinds that need structure get their own typed fields). Rationale: the quality gate has to know what content to send to the legality filter, and a JSON escape hatch is structured-but-unvalidated input that bypasses the gate by construction. Typed fields per kind is the correct pattern.
 
 ## Why `content` Everywhere Instead Of Keeping `entity` Internally
 
@@ -541,7 +534,8 @@ Must update:
 
 Add explicit regression tests for:
 
-- `content.getThread` response uses `thread.id`, `thread.firstContent`, `thread.contentCount`, and the renamed thread body field (flat `contents` at top level or nested inside `thread`, per the design call above)
+- `content.getThread` response is flat: `thread.id`, `thread.firstContent`, `thread.contentCount`, `thread.lastActivityAt` on the thread object; `contents`, `hasMore`, `nextCursor`, `included` at the top level
+- `content.list` results are flat `ContentThread[]` (no separate `ContentThreadSummary` wrapper)
 - `content.create`, `content.update`, `content.remove`, `content.closeLoop`, `content.reopenLoop` return `{ content: Content, included: IncludedBundle }`
 - `events.rsvp` and `events.cancelRsvp` return `{ event: Content, included: IncludedBundle }`
 - semantic search returns `ContentSearchResult[]` alongside `included: IncludedBundle`
