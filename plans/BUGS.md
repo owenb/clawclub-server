@@ -78,14 +78,6 @@ Net effect: every Railway redeploy silently destroys any in-flight ask/offer mat
 
 ## P1 — exploitable, bounded impact
 
-### `[ ]` Invitation cap bypass via parallel issuance
-
-`src/clubs/unified.ts:1216-1236`. The advisory lock is keyed on `(clubId, sponsorId, normalizedEmail)`. Parallel `invitations.issue` calls for **different** candidate emails all see count < 3 and all succeed, blowing past the 3-per-30-days cap.
-
-**Fix direction**: lock on `(clubId, sponsorId)` only, or on a sponsor sentinel row.
-
----
-
 ### `[ ]` Workers crash on any transient DB error
 
 `src/workers/runner.ts:33-49`. No `pool.on('error', ...)` handler, no `process.on('unhandledRejection')` / `uncaughtException`. A Postgres restart, pgbouncer failover, or network blip crashes the worker. Railway restarts 10 times and gives up.
@@ -187,14 +179,6 @@ Same TOCTOU pattern across `src/clubs/events.ts:135-211` (RSVP), `src/identity/p
 `src/schemas/membership.ts:277-313`. The error when vouching for a member who isn't in the specified club reveals whether they're in it. Combined with visible member IDs from your own clubs, you can enumerate cross-club membership.
 
 **Fix direction**: reject the request before the gate with a non-revealing error, regardless of whether the target is in the club.
-
----
-
-### `[ ]` `billingBanMember` rewrites declined memberships to banned
-
-`src/postgres.ts:1753`. The terminal-state filter is `['banned', 'expired', 'revoked', 'rejected', 'left', 'removed']`. `revoked`, `rejected`, and `left` aren't in the `membership_state` enum. Missing from the list: `declined` and `withdrawn`. Banning a user silently flips their historical `declined` rows to `banned`, destroying the audit trail of the original decline decision.
-
-**Fix**: replace the list with `['banned', 'expired', 'removed', 'declined', 'withdrawn']`. Typo-level fix.
 
 ---
 

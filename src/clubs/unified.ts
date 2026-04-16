@@ -1100,8 +1100,8 @@ export async function issueInvitation(pool: Pool, input: {
       [input.actorMemberId],
     );
     await client.query(
-      `select pg_advisory_xact_lock(hashtext('invitation_issue:' || $1 || ':' || $2 || ':' || $3))`,
-      [input.clubId, input.actorMemberId, normalizedEmail],
+      `select pg_advisory_xact_lock(hashtext('invitation_issue:' || $1 || ':' || $2))`,
+      [input.clubId, input.actorMemberId],
     );
 
     await materializeInvitationExpiryForTuple(client, input.clubId, input.actorMemberId, normalizedEmail);

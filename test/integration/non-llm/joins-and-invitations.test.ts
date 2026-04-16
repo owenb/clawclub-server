@@ -86,6 +86,44 @@ describe('invitation lifecycle', () => {
     assert.ok(revokedInvitations.some((item) => item.invitationId === invitation.invitationId));
   });
 
+  it('enforces the 3-per-30-days cap under parallel issuance for different emails', async () => {
+    const owner = await h.seedOwner('invite-cap-parallel', 'Invite Cap Parallel');
+    const sponsor = await h.seedCompedMember(owner.club.id, 'Parallel Sponsor');
+
+    const results = await Promise.all(
+      [1, 2, 3, 4, 5].map((i) =>
+        h.api(sponsor.token, 'invitations.issue', {
+          clubId: owner.club.id,
+          candidateName: `Candidate ${i}`,
+          candidateEmail: `cap-candidate-${i}@example.com`,
+          reason: 'parallel-cap-test',
+        }),
+      ),
+    );
+
+    const okCount = results.filter((result) => result.status === 200 && result.body.ok).length;
+    const quotaErrCount = results.filter((result) => {
+      if (result.status !== 429 || result.body.ok) return false;
+      const err = result.body.error as { code?: string } | undefined;
+      return err?.code === 'invitation_quota_exceeded';
+    }).length;
+
+    assert.equal(okCount, 3, 'expected exactly 3 issuance calls to succeed');
+    assert.equal(quotaErrCount, 2, 'expected exactly 2 issuance calls to hit the cap');
+
+    const liveCount = await h.sql<{ count: string }>(
+      `select count(*)::text as count
+       from invitations
+       where club_id = $1
+         and sponsor_member_id = $2
+         and revoked_at is null
+         and used_at is null
+         and expired_at is null`,
+      [owner.club.id, sponsor.id],
+    );
+    assert.equal(Number(liveCount[0]?.count ?? 0), 3, 'expected exactly 3 live invitation rows after the burst');
+  });
+
   it('anonymous invitation redemption skips PoW once and rejects retries with the used invitation', async () => {
     const owner = await h.seedOwner('invite-redeem-club', 'Invite Redeem Club');
 

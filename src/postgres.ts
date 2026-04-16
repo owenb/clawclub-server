@@ -1829,7 +1829,7 @@ export function createRepository(pool: Pool): Repository {
         }
 
         // Find all non-terminal memberships
-        const terminalStates = ['banned', 'expired', 'revoked', 'rejected', 'left', 'removed'];
+        const terminalStates = ['banned', 'expired', 'removed', 'declined', 'withdrawn'];
         const membershipsResult = await client.query<{
           membership_id: string; status: string; state_version_no: number; state_version_id: string;
         }>(

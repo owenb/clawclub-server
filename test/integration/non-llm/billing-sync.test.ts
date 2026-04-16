@@ -192,6 +192,87 @@ describe('superadmin.billing.expireMembership removes access', () => {
   });
 });
 
+describe('superadmin.billing.banMember preserves terminal memberships', () => {
+  it('does not rewrite declined or withdrawn memberships, and appends exactly one banned history row for active memberships', async () => {
+    const target = await h.seedMember('Ban Target');
+    const declinedClub = await h.seedOwner('ban-declined-club', 'Ban Declined Club');
+    const withdrawnClub = await h.seedOwner('ban-withdrawn-club', 'Ban Withdrawn Club');
+    const activeClub = await h.seedOwner('ban-active-club', 'Ban Active Club');
+
+    const declined = await h.seedClubMembership(declinedClub.club.id, target.id, {
+      status: 'declined',
+      reason: 'declined before platform ban',
+    });
+    const withdrawn = await h.seedClubMembership(withdrawnClub.club.id, target.id, {
+      status: 'withdrawn',
+      reason: 'withdrew before platform ban',
+    });
+    const active = await h.seedCompedMembership(activeClub.club.id, target.id);
+
+    const countVersions = async (membershipId: string): Promise<number> => {
+      const rows = await h.sql<{ count: string }>(
+        `select count(*)::text as count
+         from club_membership_state_versions
+         where membership_id = $1`,
+        [membershipId],
+      );
+      return Number(rows[0]?.count ?? 0);
+    };
+
+    const beforeDeclinedCount = await countVersions(declined.id);
+    const beforeWithdrawnCount = await countVersions(withdrawn.id);
+    const beforeActiveCount = await countVersions(active.id);
+
+    await h.apiOk(admin.token, 'superadmin.billing.banMember', {
+      memberId: target.id,
+      reason: 'platform ban for audit-trail regression test',
+    });
+
+    const memberRows = await h.sql<{ state: string }>(
+      `select state::text as state from members where id = $1`,
+      [target.id],
+    );
+    assert.equal(memberRows[0]?.state, 'banned');
+
+    const statuses = await h.sql<{ id: string; status: string }>(
+      `select id, status::text as status
+       from current_club_memberships
+       where id in ($1, $2, $3)`,
+      [declined.id, withdrawn.id, active.id],
+    );
+    const statusByMembershipId = new Map(statuses.map((row) => [row.id, row.status]));
+    assert.equal(statusByMembershipId.get(declined.id), 'declined');
+    assert.equal(statusByMembershipId.get(withdrawn.id), 'withdrawn');
+    assert.equal(statusByMembershipId.get(active.id), 'banned');
+
+    const afterDeclinedCount = await countVersions(declined.id);
+    const afterWithdrawnCount = await countVersions(withdrawn.id);
+    const afterActiveCount = await countVersions(active.id);
+    assert.equal(afterDeclinedCount, beforeDeclinedCount, 'declined memberships should not gain new history rows');
+    assert.equal(afterWithdrawnCount, beforeWithdrawnCount, 'withdrawn memberships should not gain new history rows');
+    assert.equal(afterActiveCount, beforeActiveCount + 1, 'active membership should gain exactly one banned history row');
+
+    const activeBannedRows = await h.sql<{ count: string }>(
+      `select count(*)::text as count
+       from club_membership_state_versions
+       where membership_id = $1
+         and status = 'banned'`,
+      [active.id],
+    );
+    assert.equal(Number(activeBannedRows[0]?.count ?? 0), 1, 'active membership should have exactly one banned history row');
+
+    const latestActiveVersion = await h.sql<{ status: string }>(
+      `select status::text as status
+       from club_membership_state_versions
+       where membership_id = $1
+       order by version_no desc
+       limit 1`,
+      [active.id],
+    );
+    assert.equal(latestActiveVersion[0]?.status, 'banned');
+  });
+});
+
 // ── setClubPrice idempotency ────────────────────────────────────────────────
 
 describe('superadmin.billing.setClubPrice is idempotent', () => {
