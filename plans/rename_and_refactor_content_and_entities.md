@@ -584,8 +584,6 @@ These are not strictly part of the rename, but the rename PR is the cheapest mom
 
 1. **Add `content.get({id}) → { content: Content, included: IncludedBundle }`.** The current API has no singular-read for a content item. If an agent receives a `contentId` from a notification or a search result and wants the current state of just that one item, the only path today is `content.getThread`, which fetches the whole thread. A `content.get` action closes that gap. It is ~15 lines: accept `id`, call the existing repository helper, return `{ content, included }`.
 
-2. **Settle `content.getThread` output shape (flat vs nested).** See the open design call in "Action contract adjustments." The plan currently proposes nested; the current live shape is flat. Pick one at the restructure step and commit to it, do not ship both.
-
 ## Risks
 
 ### 1. Rename churn across a wide surface
