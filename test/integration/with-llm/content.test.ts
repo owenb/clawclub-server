@@ -201,8 +201,8 @@ describe('events', () => {
       summary: 'Casual breakfast at The Table in Shoreditch. We will go around the room and each share one thing we are stuck on and one thing working well. Bring your own coffee order, food is covered.',
       event: {
         location: 'The Table, 83 Southwark Street, London SE1',
-        startsAt: '2026-05-01T18:00:00Z',
-        endsAt: '2026-05-01T20:00:00Z',
+        startsAt: '2026-05-01T07:30:00Z',
+        endsAt: '2026-05-01T09:00:00Z',
         timezone: 'Europe/London',
       },
     });
