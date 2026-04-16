@@ -16,7 +16,6 @@ describe('renderArtifact', () => {
       [
         'kind: content',
         'entityKind: opportunity',
-        'isReply: false',
         'title: Need a part-time operator',
         'summary: (none)',
         'body: Three days a week, remote-friendly.',

@@ -88,8 +88,6 @@ QUALITY: Catch the clear 10% of posts that are genuinely low-information slop. R
 - kind=gift: lenient — any concrete sentence naming the free offer is enough
 - A post that links somewhere else still passes if it adds even one or two concrete takeaways or reasons the link matters
 
-A reply inside an existing thread has a much lower bar than a top-level post. A short concrete reply is always fine. Use the isReply field to identify replies.
-
 Be generous. Short is fine if specific. Casual, technical, and opinionated are all fine. Default to PASS. Aim for roughly 80% of submissions to PASS on the first attempt — only the clear bottom slice should be rejected.
 
 When you reject, your reason is shown verbatim to the agent that submitted the post and the agent will relay it to the poster. Every rejection MUST contain two parts:
@@ -111,6 +109,29 @@ Respond with exactly one of:
 PASS
 ILLEGAL: <specific, actionable reason>
 FAIL: <specific, actionable reason>`;
+
+const REPLY_PROMPT = `You are a legality check for a reply inside a private members club thread.
+
+LEGALITY: Reject only if the reply actively solicits or facilitates activity that is clearly illegal in most jurisdictions. Use your judgment — the rule is "clearly illegal," not a fixed list. Illustrative examples (not exhaustive): violence against a specific person, child sexual abuse material, fraud, forgery, drug trafficking, money laundering, cybercrime (phishing, hacking, spyware), stalking, human trafficking, illegal weapons sales. Apply the same standard to any other clearly-illegal activity you recognize. Do NOT reject for being offensive, profane, sexually explicit, politically extreme, or in poor taste.
+
+Anything that is not clearly illegal passes. A reply is the member talking inside an ongoing conversation; there is no quality bar for replies. Bare acknowledgements like "yes", "no", "thanks", "agreed", "+1", "lol", "cool", "fair", "noted", and emoji-only replies all pass. Short, informal, off-topic, or low-information replies all pass. Do NOT reject for being brief, conversational, empty-feeling, or a simple acknowledgement. Default to PASS.
+
+When you reject, your reason is shown verbatim to the agent that submitted the reply and the agent will relay it to the replier. Every rejection MUST contain two parts:
+(1) what is specifically illegal, in one sentence
+(2) a concrete suggestion for how to reframe it lawfully
+Plain English, directed at the replier, no jargon.
+
+Good rejection reasons (note the two-part shape: problem + fix):
+- "This reply contains a specific violent threat against a named person — remove the threat and rewrite as a complaint or mediation request instead."
+- "The reply is soliciting someone to phish a competitor account, which is cybercrime — remove the request and find a lawful way to compete."
+
+Bad rejection reasons (these are stock labels, not sentences, and never give the user something to act on):
+- "inappropriate"
+- "too brief"
+
+Respond with exactly one of:
+PASS
+ILLEGAL: <specific, actionable reason>`;
 
 const EVENT_PROMPT = `You are a legality and sense-check for events in a private members club. Reject for illegality or fields that clearly do not make sense; almost everything else passes.
 
@@ -264,7 +285,6 @@ export function renderArtifact(artifact: GatedArtifact): string {
       return [
         'kind: content',
         `entityKind: ${artifact.entityKind}`,
-        `isReply: ${artifact.isReply ? 'true' : 'false'}`,
         renderField('title', artifact.title),
         renderField('summary', artifact.summary),
         renderField('body', artifact.body),
@@ -332,10 +352,10 @@ export function parseVerdict(text: string): ParsedVerdict {
   return { status: 'rejected_malformed', feedback: normalized };
 }
 
-export function pickPrompt(kind: GatedArtifact['kind']): string {
-  switch (kind) {
+export function pickPrompt(artifact: GatedArtifact): string {
+  switch (artifact.kind) {
     case 'content':
-      return CONTENT_PROMPT;
+      return artifact.isReply ? REPLY_PROMPT : CONTENT_PROMPT;
     case 'event':
       return EVENT_PROMPT;
     case 'profile':
@@ -353,7 +373,7 @@ export async function checkLlmGate(artifact: GatedArtifact): Promise<GateVerdict
     return { status: 'skipped', reason: 'no_api_key' };
   }
 
-  const system = pickPrompt(artifact.kind);
+  const system = pickPrompt(artifact);
   const user = renderArtifact(artifact);
 
   let result;

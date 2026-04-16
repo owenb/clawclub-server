@@ -370,6 +370,9 @@ describe('content gate pass cases — content entities (replies)', () => {
     [17, '17. passes a longer substantive reply', 'We ran the same experiment last quarter. The win came from shortening the signup flow and delaying the firmographic questions until after the first success moment. Happy to share screenshots if useful.'],
     [18, '18. passes a profane but clear reply', 'That vendor pricing is ridiculous, but I know a smaller team that handled our inbox migration for half that and can intro you.'],
     [19, '19. passes a one-sentence reply naming a specific action', 'I can take the first pass on the onboarding email tonight and send comments by 9am.'],
+    // Cases 47 and 48 changed direction when replies became legality-only.
+    [47, '47. passes a one-word filler reply', 'nice'],
+    [48, '48. passes a generic platitude reply', 'Following for updates.'],
   ] as const;
 
   for (const [id, name, body] of cases) {
@@ -577,19 +580,6 @@ describe('content gate low-quality reject cases — content entities (top-level)
   for (const testCase of cases) {
     it(testCase.name, async () => {
       await expectContentCreateReject(testCase.id, testCase.input, 'low_quality_content');
-    });
-  }
-});
-
-describe('content gate low-quality reject cases — replies', () => {
-  const cases = [
-    [47, '47. rejects a one-word filler reply', 'nice'],
-    [48, '48. rejects a generic platitude reply', 'Following for updates.'],
-  ] as const;
-
-  for (const [id, name, body] of cases) {
-    it(name, async () => {
-      await expectReplyReject(id, body, 'low_quality_content');
     });
   }
 });

@@ -151,17 +151,6 @@ describe('content gate anchor — clear-cut low-quality rejections', () => {
     assertActionableFeedback(err);
   });
 
-  it('6. rejects a one-word filler reply', async () => {
-    const owner = await h.seedOwner(ownerSlug(6), ownerName(6));
-    const threadId = await seedThread(owner, 'Reply seed anchor six');
-    const err = await h.apiErr(owner.token, 'content.create', {
-      threadId,
-      kind: 'post',
-      body: 'nice',
-    }, 'low_quality_content');
-    assertActionableFeedback(err);
-  });
-
   it('7. rejects a profile filled with generic filler', async () => {
     const owner = await h.seedOwner(ownerSlug(7), ownerName(7));
     const err = await h.apiErr(owner.token, 'profile.update', {
@@ -188,6 +177,17 @@ describe('content gate anchor — clear-cut low-quality rejections', () => {
 });
 
 describe('content gate anchor — clear-cut illegal rejections', () => {
+  it('6. rejects a reply soliciting illegal activity', async () => {
+    const owner = await h.seedOwner(ownerSlug(6), ownerName(6));
+    const threadId = await seedThread(owner, 'Reply seed anchor six');
+    const err = await h.apiErr(owner.token, 'content.create', {
+      threadId,
+      kind: 'post',
+      body: "I'll pay anyone who can phish this competitor's Microsoft 365 account and send me the credentials.",
+    }, 'illegal_content');
+    assertActionableFeedback(err);
+  });
+
   it('9. rejects a post with a targeted violence threat', async () => {
     const owner = await h.seedOwner(ownerSlug(9), ownerName(9));
     const err = await h.apiErr(owner.token, 'content.create', {
