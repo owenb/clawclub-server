@@ -199,8 +199,31 @@ alter table public.content_version_mentions
   rename constraint entity_version_mentions_end_offset_not_null to content_version_mentions_end_offset_not_null;
 alter table public.content_version_mentions
   rename constraint entity_version_mentions_mentioned_member_id_not_null to content_version_mentions_mentioned_member_id_not_null;
-alter table public.content_version_mentions
-  rename constraint entity_version_mentions_authored_label_not_null to content_version_mentions_authored_label_not_null;
+-- Migration 011 renamed authored_handle -> authored_label but Postgres does not
+-- rename the auto-generated NOT NULL constraint when a column is renamed. So in
+-- production the constraint is still named entity_version_mentions_authored_handle_not_null,
+-- while in dev init.sql (regenerated via pg_dump) it appears as authored_label_not_null.
+-- Rename whichever one is actually present.
+do $$
+declare
+  existing_name text;
+begin
+  select conname into existing_name
+  from pg_constraint
+  where conrelid = 'public.content_version_mentions'::regclass
+    and conname in (
+      'entity_version_mentions_authored_handle_not_null',
+      'entity_version_mentions_authored_label_not_null'
+    );
+
+  if existing_name is not null then
+    execute format(
+      'alter table public.content_version_mentions rename constraint %I to content_version_mentions_authored_label_not_null',
+      existing_name
+    );
+  end if;
+end
+$$;
 alter table public.content_version_mentions
   rename constraint entity_version_mentions_created_at_not_null to content_version_mentions_created_at_not_null;
 
