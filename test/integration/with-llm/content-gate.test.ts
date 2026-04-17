@@ -138,6 +138,18 @@ describe('content gate anchor — clear-cut pass cases', () => {
     const vouch = (result.data as Record<string, unknown>).vouch as Record<string, unknown>;
     assert.ok(vouch.edgeId);
   });
+
+  it('16. passes a brief vouch with abstract praise plus one concrete hook', async () => {
+    const owner = await h.seedOwner(ownerSlug(16), ownerName(16));
+    const target = await h.seedCompedMember(owner.club.id, `Vouch Target ${16}`);
+    const result = await h.apiOk(owner.token, 'vouches.create', {
+      clubId: owner.club.id,
+      memberId: target.id,
+      reason: "Great designer and very AI-forward. He told me about Paperclip before I'd heard of it — has a sharp eye for what matters.",
+    });
+    const vouch = (result.data as Record<string, unknown>).vouch as Record<string, unknown>;
+    assert.ok(vouch.edgeId);
+  });
 });
 
 describe('content gate anchor — clear-cut low-quality rejections', () => {
