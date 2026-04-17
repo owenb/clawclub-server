@@ -98,7 +98,7 @@ Even with Cloudflare in front:
 - Let the edge handle anonymous per-IP throttling, geo/risk policy, request filtering, and bot suppression.
 - Keep app-side controls for authenticated per-token quotas, per-member quotas, invitation abuse checks, and OpenAI spend caps. The edge cannot enforce those correctly because it does not know your actor model.
 - If Cloudflare is in front, lock the Railway origin so only Cloudflare can reach it, or use an authenticated tunnel or mTLS equivalent. Otherwise attackers can bypass Cloudflare and spoof trusted headers directly at the origin.
-- Configure trusted client-IP headers by deployment topology, not by a generic `TRUST_PROXY=1` switch alone. The right header depends on what is actually in front of the origin.
+- The server now always prefers the leftmost `X-Forwarded-For` value and falls back to the socket remote address. No env switch. If Cloudflare or another edge is introduced where `CF-Connecting-IP` or `True-Client-IP` is the canonical client header, change `getClientIp` in `src/server.ts` to read that header first — don't re-introduce an env-var toggle.
 
 If Cloudflare is not an option:
 

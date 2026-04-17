@@ -837,7 +837,7 @@ test('createServer rejects SSE stream when per-member connection cap is reached'
   }
 });
 
-test('createServer uses x-forwarded-for only when trustProxy is enabled', async () => {
+test('createServer uses x-forwarded-for as the rate-limit key when present', async () => {
   const requestFetch = globalThis.fetch;
   let joinCalls = 0;
 
@@ -854,37 +854,43 @@ test('createServer uses x-forwarded-for only when trustProxy is enabled', async 
     },
   };
 
-  const { server: serverNoProxy, shutdown: shutdownNoProxy } = createServer({
+  const { server, shutdown } = createServer({
     repository,
     updatesNotifier: makeUpdatesNotifier(),
     anonymousJoinRateLimits: { 'clubs.join': { limit: 1, windowMs: 60_000 } },
-    trustProxy: false,
   });
 
   try {
-    await new Promise<void>((resolve) => serverNoProxy.listen(0, resolve));
-    const address = serverNoProxy.address();
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
     const body = JSON.stringify({ action: 'clubs.join', input: { clubSlug: 'test', email: 'jane@example.com' } });
 
-    await requestFetch(`http://127.0.0.1:${port}/api`, {
+    const firstRes = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-forwarded-for': '1.2.3.4' },
       body,
     });
+    assert.equal(firstRes.status, 200, 'First request from 1.2.3.4 should succeed');
 
-    const secondRes = await requestFetch(`http://127.0.0.1:${port}/api`, {
+    const secondResSameIp = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '1.2.3.4' },
+      body,
+    });
+    const secondSameBody = await secondResSameIp.json();
+    assert.equal(secondResSameIp.status, 429, 'Second request from same X-Forwarded-For should be rate limited');
+    assert.equal(secondSameBody.error.code, 'rate_limited');
+
+    const thirdResDifferentIp = await requestFetch(`http://127.0.0.1:${port}/api`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-forwarded-for': '5.6.7.8' },
       body,
     });
-    const secondBody = await secondRes.json();
-
-    assert.equal(secondRes.status, 429, 'Without trustProxy, different X-Forwarded-For should still be rate limited by socket IP');
-    assert.equal(secondBody.error.code, 'rate_limited');
+    assert.equal(thirdResDifferentIp.status, 200, 'Request from a different X-Forwarded-For should succeed');
   } finally {
-    await shutdownNoProxy();
+    await shutdown();
   }
 });
 

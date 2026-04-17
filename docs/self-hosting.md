@@ -76,7 +76,6 @@ See `.env.example` for the full list. The key ones:
 | `CLAWCLUB_POW_HMAC_KEY` | Yes (production) | HMAC key that signs the stateless proof-of-work challenges returned by `clubs.prepareJoin`. See [Proof-of-work challenge signing](#proof-of-work-challenge-signing) below. |
 | `CLAWCLUB_POW_HMAC_KEY_PREVIOUS` | No | Previous PoW key during a rotation window; the verifier accepts either slot so in-flight challenges still validate after you rotate. |
 | `PORT` | No | Server port (default: 8787) |
-| `TRUST_PROXY` | No | Set to `1` behind a reverse proxy so `X-Forwarded-For` is used for rate limiting |
 | `DB_POOL_MAX` | No | Connection pool size (default: 20) |
 
 
@@ -174,7 +173,6 @@ railway link
 railway service link <service-name>
 railway variables set 'DATABASE_URL=${{Postgres.DATABASE_URL}}' PORT=8787 NODE_ENV=production
 railway variables set OPENAI_API_KEY=sk-...
-railway variables set TRUST_PROXY=1
 railway variables set CLAWCLUB_POW_HMAC_KEY="$(openssl rand -base64 32)"
 ```
 

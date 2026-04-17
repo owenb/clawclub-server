@@ -294,14 +294,12 @@ function isAnonymousJoinAction(value: unknown): value is AnonymousJoinAction {
   return value === 'clubs.prepareJoin' || (def?.auth === 'optional_member' && value === 'clubs.join');
 }
 
-function getClientIp(request: http.IncomingMessage, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = request.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string') {
-      const first = forwarded.split(',')[0].trim();
-      if (first.length > 0) {
-        return first;
-      }
+function getClientIp(request: http.IncomingMessage): string {
+  const forwarded = request.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') {
+    const first = forwarded.split(',')[0].trim();
+    if (first.length > 0) {
+      return first;
     }
   }
 
@@ -375,11 +373,8 @@ export function createServer(options: {
   updatesNotifier?: MemberUpdateNotifier;
   anonymousJoinRateLimits?: Partial<Record<AnonymousJoinAction, FixedWindowRateLimit>>;
   llmGate?: LlmGateFn;
-  trustProxy?: boolean;
   streamScopeRefreshMs?: number;
 } = {}) {
-  const trustProxy = options.trustProxy ?? (process.env.TRUST_PROXY === '1');
-
   const poolConfig = {
     max: Number(process.env.DB_POOL_MAX ?? 20),
     idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_TIMEOUT_MS ?? 30_000),
@@ -771,7 +766,7 @@ export function createServer(options: {
 
       // Rate-limit anonymous join by IP (before dispatch)
       if (isAnonymousJoinAction(body.action) && !getBearerToken(request)) {
-        const clientIp = getClientIp(request, trustProxy);
+        const clientIp = getClientIp(request);
         const key = getAnonymousJoinRateLimitKey(clientIp);
 
         if (!consumeFixedWindowRateLimit(anonymousJoinRateLimitBuckets, key, anonymousJoinRateLimits[body.action])) {

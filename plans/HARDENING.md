@@ -118,14 +118,15 @@ Three separate problems, one composite failure mode.
 
 Where:
 
-- `src/server.ts:288` — `getClientIp` reads only `x-forwarded-for`, leftmost value, when `TRUST_PROXY=1`. Otherwise falls back to `request.socket.remoteAddress`, which behind Railway's edge is the edge's IP — so all anonymous traffic shares one bucket.
+- `src/server.ts` — `getClientIp` prefers the leftmost `X-Forwarded-For` value if present, otherwise falls back to `request.socket.remoteAddress`. No env gate; `TRUST_PROXY` is gone. This matches the practical reality that every real deployment of this server sits behind a proxy (Railway, Fly, Cloudflare, nginx, etc.).
 - `src/server.ts:67-72` — anonymous `clubs.join` limit is a fixed `10/hour/IP`, in-process memory only.
 - `src/server.ts:765-768` — limiter uses the full literal client IP as the bucket key.
 
 The composite problems:
 
 - Full-address IPv6 keying is trivially bypassed. A residential IPv6 customer has a /64 allocation (2^64 addresses) for free. Rate-limiting by full address is worthless against IPv6.
-- Current code only trusts the leftmost `X-Forwarded-For`. The existing unit test (`test/unit/server.test.ts:876-927`) proves that `X-Forwarded-For` is ignored when `trustProxy` is off, but there is no corresponding test that the chosen header is correct for Railway or Cloudflare. Railway's public-networking docs document `X-Real-IP`; Cloudflare's docs recommend origin apps prefer `CF-Connecting-IP` or `True-Client-IP` over `X-Forwarded-For`.
+- The leftmost-`X-Forwarded-For` rule is spoofable in direct-to-Node deployments and in any topology where a proxy appends rather than overwrites the header. The practical mitigation today is the PoW cost on every anonymous `clubs.join`, which is the actual spend floor an attacker faces — the IP bucket is belt-and-braces on top. A deployment that genuinely has nothing in front of Node and cares about accurate IP-bucket keying must handle that at its topology layer (e.g. require a specific proxy, strip incoming `X-Forwarded-For` at the edge, or pin a trusted-hop count).
+- There is no corresponding test that the chosen header is correct for Railway or Cloudflare specifically. Railway's public-networking docs document `X-Real-IP`; Cloudflare's docs recommend origin apps prefer `CF-Connecting-IP` or `True-Client-IP` over `X-Forwarded-For`. If we ever care about per-platform canonical headers, add that without re-introducing an env-var switch.
 - The in-memory limiter does not survive restarts or scale across replicas. A rolling deploy resets every bucket.
 - If Cloudflare is ever added in front of Railway, the right header becomes `CF-Connecting-IP`, and trusting anything else means attackers can bypass Cloudflare by hitting the origin directly.
 
@@ -144,7 +145,6 @@ Fix, concretely:
 - If we add Cloudflare, do not treat a DNS change as sufficient. Cloudflare's own guidance is to protect the origin with allowlisting, Authenticated Origin Pulls, Tunnel, or equivalent. Otherwise the edge is decorative.
 - Key IPv6 clients by `/64`, not full address.
 - Move rate limits to shared state (Redis or Postgres). Decide fail-open vs fail-closed per endpoint before shipping — I'd say fail-closed on `clubs.join`, `superadmin.*`, and LLM-gated writes; fail-open with local fallback on read paths.
-- Record today's `TRUST_PROXY` value in prod. If it's off, every anonymous caller currently shares one bucket; if it's on, `X-Forwarded-For` spoofing works.
 
 ### 2.5 No hard dollar kill switch on OpenAI spend
 
