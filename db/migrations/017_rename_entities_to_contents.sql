@@ -151,6 +151,8 @@ alter table public.content_embeddings
 alter table public.content_embeddings
   rename constraint entity_embeddings_version_fkey to content_embeddings_version_fkey;
 alter table public.content_embeddings
+  rename constraint entity_embeddings_dimensions_check to content_embeddings_dimensions_check;
+alter table public.content_embeddings
   rename constraint entity_embeddings_id_not_null to content_embeddings_id_not_null;
 alter table public.content_embeddings
   rename constraint entity_embeddings_entity_id_not_null to content_embeddings_content_id_not_null;

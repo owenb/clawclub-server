@@ -48,69 +48,69 @@ insert into content_threads (club_id, created_by_member_id)
 values (:'club_id', :'member_id')
 returning id as post_thread_id \gset
 
-insert into entities (club_id, kind, author_member_id, content_thread_id)
+insert into contents (club_id, kind, author_member_id, thread_id)
 values (:'club_id', 'post', :'member_id', :'post_thread_id')
-returning id as post_entity_id \gset
+returning id as post_content_id \gset
 
-insert into entity_versions (entity_id, version_no, title, body, expires_at, created_by_member_id)
-values (:'post_entity_id', 1, 'In Lisbon this week', 'Around for coffee, music, and mutual aid.', now() + interval '7 days', :'member_id')
+insert into content_versions (content_id, version_no, title, body, expires_at, created_by_member_id)
+values (:'post_content_id', 1, 'In Lisbon this week', 'Around for coffee, music, and mutual aid.', now() + interval '7 days', :'member_id')
 returning id as post_version_id \gset
 
 insert into content_threads (club_id, created_by_member_id)
 values (:'club_id', :'member_id')
 returning id as event_thread_id \gset
 
-insert into entities (club_id, kind, author_member_id, content_thread_id)
+insert into contents (club_id, kind, author_member_id, thread_id)
 values (:'club_id', 'event', :'member_id', :'event_thread_id')
-returning id as event_entity_id \gset
+returning id as event_content_id \gset
 
-insert into entity_versions (entity_id, version_no, title, body, created_by_member_id)
-values (:'event_entity_id', 1, 'Friday dinner', 'Small dinner for nearby members', :'member_id')
-returning id as event_version_id \gset
+insert into content_versions (content_id, version_no, title, body, created_by_member_id)
+values (:'event_content_id', 1, 'Friday dinner', 'Small dinner for nearby members', :'member_id')
+returning id as event_content_version_id \gset
 
-insert into event_version_details (entity_version_id, location, starts_at, ends_at, timezone, recurrence_rule, capacity)
-values (:'event_version_id', 'Downtown', now() + interval '2 days', now() + interval '2 days 3 hours', 'Europe/Lisbon', 'FREQ=WEEKLY;COUNT=4', 8);
+insert into event_version_details (content_version_id, location, starts_at, ends_at, timezone, recurrence_rule, capacity)
+values (:'event_content_version_id', 'Downtown', now() + interval '2 days', now() + interval '2 days 3 hours', 'Europe/Lisbon', 'FREQ=WEEKLY;COUNT=4', 8);
 
 insert into content_threads (club_id, created_by_member_id)
 values (:'club_id', :'owner_id')
-returning id as complaint_thread_id \gset
+returning id as report_thread_id \gset
 
-insert into entities (club_id, kind, author_member_id, content_thread_id)
-values (:'club_id', 'complaint', :'owner_id', :'complaint_thread_id')
-returning id as complaint_entity_id \gset
+insert into contents (club_id, kind, author_member_id, thread_id)
+values (:'club_id', 'post', :'owner_id', :'report_thread_id')
+returning id as report_content_id \gset
 
-insert into entity_versions (entity_id, version_no, title, body, created_by_member_id)
-values (:'complaint_entity_id', 1, 'Noise concern', 'Complaint logged for review', :'owner_id');
+insert into content_versions (content_id, version_no, title, body, created_by_member_id)
+values (:'report_content_id', 1, 'Noise concern', 'Follow-up note linked to the Lisbon post', :'owner_id');
 
-insert into club_edges (club_id, kind, from_entity_id, to_entity_id, created_by_member_id, reason)
-values (:'club_id', 'about', :'complaint_entity_id', :'post_entity_id', :'owner_id', 'Complaint refers to the Lisbon post');
+insert into club_edges (club_id, kind, from_content_id, to_content_id, created_by_member_id, reason)
+values (:'club_id', 'about', :'report_content_id', :'post_content_id', :'owner_id', 'Follow-up refers to the Lisbon post');
 
 insert into club_edges (club_id, kind, from_member_id, to_member_id, created_by_member_id, reason)
 values (:'club_id', 'vouched_for', :'owner_id', :'member_id', :'owner_id', 'Trusts follow-through');
 
-insert into event_rsvps (event_entity_id, membership_id, response, note)
-values (:'event_entity_id', :'member_membership_id', 'yes', 'Looking forward to it');
+insert into event_rsvps (event_content_id, membership_id, response, note)
+values (:'event_content_id', :'member_membership_id', 'yes', 'Looking forward to it');
 
 insert into member_notifications (
   recipient_member_id,
   club_id,
   topic,
   payload,
-  entity_id
+  content_id
 )
 values (
   :'member_id',
   :'club_id',
-  'entity.version.published',
-  jsonb_build_object('entityId', :'event_entity_id'),
-  :'event_entity_id'
+  'content.version.published',
+  jsonb_build_object('contentId', :'event_content_id'),
+  :'event_content_id'
 );
 
 select
   (select count(*) from current_member_club_profiles) as current_profiles,
-  (select count(*) from current_entity_versions) as current_entity_versions,
-  (select count(*) from published_entity_versions) as published_entity_versions,
-  (select count(*) from live_entities) as live_entities,
+  (select count(*) from current_content_versions) as current_content_versions,
+  (select count(*) from published_content_versions) as published_content_versions,
+  (select count(*) from live_content) as live_content,
   (select count(*) from active_club_memberships) as active_memberships,
   (select count(*) from member_notifications where acknowledged_state is null) as pending_notifications;
 

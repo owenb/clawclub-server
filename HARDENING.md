@@ -214,7 +214,7 @@ Fix (suggested starting points): DM text 4k–8k, title 200, summary 1000, conte
 
 ### 3.5 Some write paths can burn LLM budget before full authorization resolves
 
-Where: `src/dispatch.ts:503-520` parses input and runs `preGate` before the LLM gate, but its built-in pre-gate auth check only covers a directly supplied `clubId`. `src/schemas/entities.ts:237-253` validates `content.create` inputs and mentions but does not resolve `threadId` to an authorized club before the gate. `src/schemas/entities.ts:374-387` validates `content.update` patches but does not verify authorship before the gate. The stronger checks land later in `handle` / repository code.
+Where: `src/dispatch.ts:503-520` parses input and runs `preGate` before the LLM gate, but its built-in pre-gate auth check only covers a directly supplied `clubId`. `src/schemas/content.ts` validates `content.create` inputs and mentions but does not resolve `threadId` to an authorized club before the gate. `src/schemas/content.ts` validates `content.update` patches but does not verify authorship before the gate. The stronger checks land later in `handle` / repository code.
 
 This is already tracked in `plans/BUGS.md`, and it belongs in the hardening report too. The risk is not remote code execution; it is spend abuse and information leakage. An authenticated member can sometimes force the legality gate to run on content they cannot actually write to, then receive the gate's feedback or at least burn your budget.
 
@@ -276,7 +276,7 @@ Add the DB pool to the stream-exhaustion monitoring. Consider increasing the pol
 
 ### 4.3 Embedding search relies on a `WHERE` clause per query
 
-Where: `src/schemas/entities.ts:709-711` scopes semantic search to `ctx.actor.memberships` or `requireAccessibleClub`. The `entity_embeddings` table is shared across clubs. A future query path that forgets the club filter leaks cross-club content via vector similarity.
+Where: `src/schemas/content.ts` scopes semantic search to `ctx.actor.memberships` or `requireAccessibleClub`. The `content_embeddings` table is shared across clubs. A future query path that forgets the club filter leaks cross-club content via vector similarity.
 
 Structural fix: make the repository method require a `NonEmpty<string[]>` of club IDs in its type signature, so omitting scope is a compile error. Add an authz test that asserts cross-club leakage is impossible even with a crafted query.
 
@@ -322,7 +322,7 @@ No documented procedure exists for rotating the OpenAI key, the database passwor
 
 ### 4.11 Semantic search is another unmetered OpenAI cost surface
 
-Where: `src/schemas/entities.ts:684-748` and `src/schemas/membership.ts:494-520` call `embedQueryText(...)` for semantic search, but there is no dedicated quota or rate limit on these embedding-backed reads.
+Where: `src/schemas/content.ts` and `src/schemas/membership.ts:494-520` call `embedQueryText(...)` for semantic search, but there is no dedicated quota or rate limit on these embedding-backed reads.
 
 This matters because it is easy to focus only on the legality gate when thinking about OpenAI spend. An authenticated attacker with farmed tokens can also burn money through repeated semantic-search queries. The per-request cost is smaller, but the surface is broader and "read-only" endpoints tend to get less scrutiny.
 
@@ -393,7 +393,7 @@ Before declaring any item fixed:
 - For OpenAI kill switches, a synthetic-load test must actually drive spend to the cap and confirm requests refuse.
 - For the Cloudflare origin lock, a staging test must confirm that direct-to-Railway requests bypassing Cloudflare are rejected.
 - For the `requestTemplate` fix, add a regression test that unauthenticated and member-level callers cannot learn superadmin input shapes from 400 responses.
-- For the paid-operation pre-flight work, add tests that prove unauthorized `threadId` / `entityId` writes and quota-blocked writes fail before any LLM call is made.
+- For the paid-operation pre-flight work, add tests that prove unauthorized `threadId` / `contentId` writes and quota-blocked writes fail before any LLM call is made.
 - After all P0 items ship, an external pen test on a staging environment that matches production topology. Not just automated scanning — humans trying to break things.
 
 ## 8. Things explicitly out of scope of this report

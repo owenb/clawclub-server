@@ -464,7 +464,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'dogclub_id', :'alice_id', now() - interval '14 days', now() - interval '14 days')
 returning id as dog_post1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'dogclub_id', 'post', :'alice_id', :'dog_post1_thread', now() - interval '14 days')
 returning id as dog_post1 \gset
 
@@ -480,7 +480,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'dogclub_id', :'charlie_id', now() - interval '7 days', now() - interval '7 days')
 returning id as dog_post2_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'dogclub_id', 'post', :'charlie_id', :'dog_post2_thread', now() - interval '7 days')
 returning id as dog_post2 \gset
 
@@ -496,7 +496,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'dogclub_id', :'owen_id', now() - interval '10 days', now() - interval '10 days')
 returning id as dog_opp1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, open_loop, created_at)
 values (:'dogclub_id', 'opportunity', :'owen_id', :'dog_opp1_thread', true, now() - interval '10 days')
 returning id as dog_opp1 \gset
 
@@ -513,7 +513,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'dogclub_id', :'alice_id', now() - interval '21 days', now() - interval '21 days')
 returning id as dog_svc1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, open_loop, created_at)
 values (:'dogclub_id', 'service', :'alice_id', :'dog_svc1_thread', true, now() - interval '21 days')
 returning id as dog_svc1 \gset
 
@@ -529,7 +529,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'dogclub_id', :'charlie_id', now() - interval '3 days', now() - interval '3 days')
 returning id as dog_ask1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, open_loop, created_at)
 values (:'dogclub_id', 'ask', :'charlie_id', :'dog_ask1_thread', true, now() - interval '3 days')
 returning id as dog_ask1 \gset
 
@@ -546,7 +546,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'dogclub_id', :'owen_id', now() - interval '8 days', now() - interval '8 days')
 returning id as dog_evt1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'dogclub_id', 'event', :'owen_id', :'dog_evt1_thread', now() - interval '8 days')
 returning id as dog_evt1 \gset
 
@@ -569,7 +569,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'dogclub_id', :'alice_id', now() - interval '20 days', now() - interval '20 days')
 returning id as dog_evt2_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'dogclub_id', 'event', :'alice_id', :'dog_evt2_thread', now() - interval '20 days')
 returning id as dog_evt2 \gset
 
@@ -592,7 +592,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'dogclub_id', :'ivan_id', now() - interval '2 days', now() - interval '2 days')
 returning id as dog_post3_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'dogclub_id', 'post', :'ivan_id', :'dog_post3_thread', now() - interval '2 days')
 returning id as dog_post3 \gset
 
@@ -604,7 +604,7 @@ values (:'dog_post3', 1, 'published',
   now() - interval '2 days', now() - interval '2 days', :'ivan_id');
 
 -- Comments on dog_post1 (replies in dog_post1's thread)
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'dogclub_id', 'post', :'charlie_id', :'dog_post1_thread', now() - interval '13 days')
 returning id as dog_cmt1 \gset
 
@@ -615,7 +615,7 @@ values (:'dog_cmt1', 1, 'published',
   'Great recap Alice! My husky Blizzard had such a blast in the agility ring. Third place felt like a win — those border collies are impossibly fast. Already training for next year!',
   now() - interval '13 days', now() - interval '13 days', :'charlie_id');
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'dogclub_id', 'post', :'owen_id', :'dog_post1_thread', now() - interval '13 days' + interval '2 hours')
 returning id as dog_cmt2 \gset
 
@@ -635,7 +635,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'catclub_id', :'alice_id', now() - interval '20 days', now() - interval '20 days')
 returning id as cat_post1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'catclub_id', 'post', :'alice_id', :'cat_post1_thread', now() - interval '20 days')
 returning id as cat_post1 \gset
 
@@ -651,7 +651,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'catclub_id', :'bob_id', now() - interval '12 days', now() - interval '12 days')
 returning id as cat_post2_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'catclub_id', 'post', :'bob_id', :'cat_post2_thread', now() - interval '12 days')
 returning id as cat_post2 \gset
 
@@ -667,7 +667,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'catclub_id', :'diana_id', now() - interval '8 days', now() - interval '8 days')
 returning id as cat_opp1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, open_loop, created_at)
 values (:'catclub_id', 'opportunity', :'diana_id', :'cat_opp1_thread', true, now() - interval '8 days')
 returning id as cat_opp1 \gset
 
@@ -684,7 +684,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'catclub_id', :'bob_id', now() - interval '15 days', now() - interval '15 days')
 returning id as cat_svc1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, open_loop, created_at)
 values (:'catclub_id', 'service', :'bob_id', :'cat_svc1_thread', true, now() - interval '15 days')
 returning id as cat_svc1 \gset
 
@@ -700,7 +700,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'catclub_id', :'julia_id', now() - interval '4 days', now() - interval '4 days')
 returning id as cat_ask1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, open_loop, created_at)
 values (:'catclub_id', 'ask', :'julia_id', :'cat_ask1_thread', true, now() - interval '4 days')
 returning id as cat_ask1 \gset
 
@@ -716,7 +716,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'catclub_id', :'diana_id', now() - interval '6 days', now() - interval '6 days')
 returning id as cat_evt1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'catclub_id', 'event', :'diana_id', :'cat_evt1_thread', now() - interval '6 days')
 returning id as cat_evt1 \gset
 
@@ -735,7 +735,7 @@ values (:'cat_evt1_v', 'Zoom (link sent day of event)',
   'America/New_York');
 
 -- Comment on cat_post1 by Bob (reply in cat_post1's thread)
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'catclub_id', 'post', :'bob_id', :'cat_post1_thread', now() - interval '19 days')
 returning id as cat_cmt1 \gset
 
@@ -751,7 +751,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'catclub_id', :'george_id', now() - interval '16 days', now() - interval '16 days')
 returning id as cat_spam_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'catclub_id', 'post', :'george_id', :'cat_spam_thread', now() - interval '16 days')
 returning id as cat_spam \gset
 
@@ -777,7 +777,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'foxclub_id', :'bob_id', now() - interval '18 days', now() - interval '18 days')
 returning id as fox_post1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'foxclub_id', 'post', :'bob_id', :'fox_post1_thread', now() - interval '18 days')
 returning id as fox_post1 \gset
 
@@ -793,7 +793,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'foxclub_id', :'charlie_id', now() - interval '9 days', now() - interval '9 days')
 returning id as fox_post2_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'foxclub_id', 'post', :'charlie_id', :'fox_post2_thread', now() - interval '9 days')
 returning id as fox_post2 \gset
 
@@ -809,7 +809,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'foxclub_id', :'owen_id', now() - interval '6 days', now() - interval '6 days')
 returning id as fox_opp1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, open_loop, created_at)
 values (:'foxclub_id', 'opportunity', :'owen_id', :'fox_opp1_thread', true, now() - interval '6 days')
 returning id as fox_opp1 \gset
 
@@ -826,7 +826,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'foxclub_id', :'charlie_id', now() - interval '14 days', now() - interval '14 days')
 returning id as fox_svc1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, open_loop, created_at)
 values (:'foxclub_id', 'service', :'charlie_id', :'fox_svc1_thread', true, now() - interval '14 days')
 returning id as fox_svc1 \gset
 
@@ -842,7 +842,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'foxclub_id', :'ivan_id', now() - interval '5 days', now() - interval '5 days')
 returning id as fox_ask1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, open_loop, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, open_loop, created_at)
 values (:'foxclub_id', 'ask', :'ivan_id', :'fox_ask1_thread', true, now() - interval '5 days')
 returning id as fox_ask1 \gset
 
@@ -858,7 +858,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'foxclub_id', :'owen_id', now() - interval '5 days', now() - interval '5 days')
 returning id as fox_evt1_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'foxclub_id', 'event', :'owen_id', :'fox_evt1_thread', now() - interval '5 days')
 returning id as fox_evt1 \gset
 
@@ -881,7 +881,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'foxclub_id', :'bob_id', now() - interval '30 days', now() - interval '30 days')
 returning id as fox_evt2_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'foxclub_id', 'event', :'bob_id', :'fox_evt2_thread', now() - interval '30 days')
 returning id as fox_evt2 \gset
 
@@ -900,7 +900,7 @@ values (:'fox_evt2_v', 'Woodland Community Center',
   'Europe/London');
 
 -- Comment on fox_post1 by Ivan (reply in fox_post1's thread)
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'foxclub_id', 'post', :'ivan_id', :'fox_post1_thread', now() - interval '17 days')
 returning id as fox_cmt1 \gset
 
@@ -916,7 +916,7 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'foxclub_id', :'ivan_id', now() - interval '1 day', now() - interval '1 day')
 returning id as fox_draft_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
 values (:'foxclub_id', 'post', :'ivan_id', :'fox_draft_thread', now() - interval '1 day')
 returning id as fox_draft \gset
 
@@ -932,8 +932,8 @@ insert into content_threads (club_id, created_by_member_id, last_activity_at, cr
 values (:'foxclub_id', :'fiona_id', now() - interval '2 days', now() - interval '2 days')
 returning id as fox_complaint_thread \gset
 
-insert into contents (club_id, kind, author_member_id, content_thread_id, created_at)
-values (:'foxclub_id', 'complaint', :'fiona_id', :'fox_complaint_thread', now() - interval '2 days')
+insert into contents (club_id, kind, author_member_id, thread_id, created_at)
+values (:'foxclub_id', 'post', :'fiona_id', :'fox_complaint_thread', now() - interval '2 days')
 returning id as fox_complaint \gset
 
 insert into content_versions (content_id, version_no, state, title, summary, body, effective_at, created_at, created_by_member_id)

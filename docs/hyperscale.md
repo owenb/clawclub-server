@@ -67,7 +67,7 @@ Durable Objects replace the LISTEN/NOTIFY + SSE infrastructure. A DO is a single
 
 Two DO classes:
 
-**ClubDO** — one per club. Holds WebSocket connections for online members of that club. When the API Worker writes club-wide content (entity published, event created), it sends one message to the club's DO. The DO fans out to connected members. A single DO supports up to 32,768 hibernating WebSockets with a soft limit of ~1,000 req/s — more than sufficient for bounded club sizes.
+**ClubDO** — one per club. Holds WebSocket connections for online members of that club. When the API Worker writes club-wide content (content published, event created), it sends one message to the club's DO. The DO fans out to connected members. A single DO supports up to 32,768 hibernating WebSockets with a soft limit of ~1,000 req/s — more than sufficient for bounded club sizes.
 
 **MemberDO** — one per member. Holds WebSocket connections for that member's personal inbox (DMs, synchronicity signals, admission decisions). No fan-out — targeted delivery only.
 
@@ -102,7 +102,7 @@ If true "sleep at night" data durability matters more than operational simplicit
 
 ### Vectors: keep in Postgres initially
 
-Do not externalize vectors to Qdrant or Vectorize on day one. pgvector in the database (`profile_embeddings` and `entity_embeddings`) is simpler and avoids a sync problem between the relational store and an external vector index.
+Do not externalize vectors to Qdrant or Vectorize on day one. pgvector in the database (`profile_embeddings` and `content_embeddings`) is simpler and avoids a sync problem between the relational store and an external vector index.
 
 When to reconsider:
 - When semantic search latency becomes noticeable in production
@@ -338,10 +338,10 @@ The schema is built on Postgres-the-database-engine, not just Postgres-the-wire-
 | DSQL limitation | ClawClub usage | Scope |
 |---|---|---|
 | No custom domains | `short_id` is the ID type for every table | pervasive |
-| No enum types | `entity_kind`, `membership_state`, `entity_state`, `edge_kind`, `rsvp_state`, etc. | 41 types |
+| No enum types | `content_kind`, `membership_state`, `content_state`, `edge_kind`, `rsvp_state`, etc. | 41 types |
 | No stored functions | `new_id()`, trigger functions, etc. | 90+ functions |
 | No triggers | Data consistency guards, search vector updates | 23 triggers |
-| No views | `current_entity_versions`, `current_club_memberships`, `accessible_club_memberships`, etc. | 40+ views |
+| No views | `current_content_versions`, `current_club_memberships`, `accessible_club_memberships`, etc. | 40+ views |
 | No foreign keys | Referential integrity across every relationship | 100+ FKs |
 | No sequences / IDENTITY | `club_activity.seq`, `signal_deliveries.seq` | 4 sequences |
 | No custom schemas | Everything lives in `public` | every table |

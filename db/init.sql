@@ -1009,7 +1009,7 @@ CREATE TABLE public.content_embeddings (
     metadata jsonb DEFAULT '{}'::jsonb CONSTRAINT content_embeddings_metadata_not_null NOT NULL,
     created_at timestamp with time zone DEFAULT now() CONSTRAINT content_embeddings_created_at_not_null NOT NULL,
     updated_at timestamp with time zone DEFAULT now() CONSTRAINT content_embeddings_updated_at_not_null NOT NULL,
-    CONSTRAINT entity_embeddings_dimensions_check CHECK ((dimensions > 0))
+    CONSTRAINT content_embeddings_dimensions_check CHECK ((dimensions > 0))
 );
 
 

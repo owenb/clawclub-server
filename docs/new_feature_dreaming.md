@@ -4,7 +4,7 @@ Working notes from a long design session about where ClawClub goes next. Not a s
 
 ## The big direction: Club Mind
 
-The synchronicity engine today does vector matching — cosine similarity in pgvector against profile and entity embeddings. That's good for matches that *look alike* but it can't reason about *causally connected* things. The killer example: "Maria mentioned wanting to leave Stripe last week" and "Owen is hiring engineers this week" will never be close in embedding space, but a human hearing both things in the same week would immediately connect them.
+The synchronicity engine today does vector matching — cosine similarity in pgvector against profile and content embeddings. That's good for matches that *look alike* but it can't reason about *causally connected* things. The killer example: "Maria mentioned wanting to leave Stripe last week" and "Owen is hiring engineers this week" will never be close in embedding space, but a human hearing both things in the same week would immediately connect them.
 
 The long-term direction is to add an **LLM reasoning layer** on top of the existing vector engine. Not replace it — augment it. The vector engine handles the fast, event-triggered, obvious matches. A scheduled reasoning worker (gpt-5.4-nano) reads the club state and produces matches that need actual thinking.
 
@@ -21,7 +21,7 @@ It's not one or the other. Both run. The right one drives the experience based o
 
 Five things worth building. Each is independently shippable.
 
-### 1. The WHY field on entities (deferred — see "WHY field design" below)
+### 1. The WHY field on content (deferred — see "WHY field design" below)
 
 Status: designed in detail, **not built**. Has real privacy implications that need careful thought before committing.
 
@@ -37,14 +37,14 @@ Every member offers exactly **three gifts** to the community as part of joining.
 
 The drafted SKILL.md edits live in the conversation history — they're a clean stopgap that starts collecting gift data immediately even before the schema work lands.
 
-### 3. Open and closed loops on entities
+### 3. Open and closed loops on content
 
 Owen's reframe: "open" isn't a primitive — it's the natural state. "Closed" is the affirmative action. There's no "open loops" feature, just sensible defaults plus a close verb.
 
-- Add `is_open boolean` (or `loop_state text` for future flexibility) on `entities`
+- Add `open_loop boolean` on `contents`
 - Default to `true` for all kinds except events (which have inherent end dates)
-- New action `content.close` to flip it
-- Synchronicity worker stops treating closed entities as match candidates
+- New actions `content.closeLoop` / `content.reopenLoop` to flip it
+- Synchronicity worker stops treating closed content as match candidates
 - The 5-day delivery TTL in `src/workers/synchronicity.ts:51-56` stays the same — what changes is that *relevance* persists until the member closes the loop
 
 **No privacy issues. Smallest of the primitives. Probably the next thing built.**
@@ -70,7 +70,7 @@ The most viscerally demoable feature on the list ("you and Maria are both in Tok
 ### 5. The reasoning layer (Club Mind v0)
 
 A new background worker that runs daily (or hourly for paid clubs). For each club, it assembles a context window:
-- Recent published entities with bodies
+- Recent published content with bodies
 - Open loops in the club
 - Member list with profile summaries and standing gifts
 - Recent matches the existing engine has already delivered (so it doesn't duplicate)
@@ -111,16 +111,16 @@ Initially we thought the agent could capture motivation in the post body itself,
 
 ### Attempt 2: private `why` field
 
-Add an optional `why` field to entity creation. Strong privacy: never displayed to anyone but the author. Stored alongside the entity. Used by the synchronicity engine for matching only.
+Add an optional `why` field to content creation. Strong privacy: never displayed to anyone but the author. Stored alongside the content. Used by the synchronicity engine for matching only.
 
 Designed in detail, then deferred because it's a big feature with real privacy implications that need more chewing.
 
 ### Key design decisions reached
 
-- **Field placement:** new `why text` column on `entity_versions` (not `entities`) — versions with content
+- **Field placement:** new `why text` column on `content_versions` (not `contents`) — versions with content
 - **Privacy invariant:** strong. Author-only. Never visible to other members, club admins, matched recipients, or even superadmins via the API. Strong invariant is what makes the field worth building; weaker invariant collapses the value
 - **Quality gate:** must see the why for legality checking (someone could launder bad intent through innocent body + bad why). Gate is automated, not human-browsable, so privacy is preserved
-- **Embedding source:** why is included in the entity embedding source with a `WHY:` label. Embeddings can't be reversed to plaintext, so privacy is preserved while matching benefits
+- **Embedding source:** why is included in the content embedding source with a `WHY:` label. Embeddings can't be reversed to plaintext, so privacy is preserved while matching benefits
 - **Visibility on read:** every read path filters why to null unless `actor == author`. Needs an exhaustive pattern (TypeScript types that make it impossible to forget)
 - **Visibility on match delivery:** Maria does NOT see Owen's why when Owen's ask is matched to her profile. She sees the body
 - **Update semantics:** standard patch — omit to inherit, null to clear, string to replace
@@ -142,11 +142,11 @@ Designed in detail, then deferred because it's a big feature with real privacy i
 
 ### Touch points if we pick it back up
 
-- `db/init.sql` — add `why text` column to `entity_versions`
-- `src/schemas/entities.ts` — wire/parse for `content.create` and `content.update`
-- `src/schemas/responses.ts` — `entitySummary` shape
-- Repository layer — `createEntity`, `updateEntity`, `listEntities`, `findEntitiesViaEmbedding`, all read paths
-- `src/embedding-source.ts` — `buildEntitySourceText`, around lines 87–97
+- `db/init.sql` — add `why text` column to `content_versions`
+- `src/schemas/content.ts` — wire/parse for `content.create` and `content.update`
+- `src/schemas/responses.ts` — content response shape
+- Repository layer — `createContent`, `updateContent`, `listContent`, `findContentViaEmbedding`, all read paths
+- `src/embedding-source.ts` — `buildContentSourceText`
 - `src/quality-gate.ts` — `content-create` gate prompt
 - `SKILL.md` — agent guidance with the layered judgment rules
 - `test/integration/with-llm/content.test.ts` — exhaustive privacy tests, especially the redaction at every read path
@@ -158,7 +158,7 @@ Designed in detail, then deferred because it's a big feature with real privacy i
 - **Outcome traces / "was this useful?" follow-ups** — surveillance smell, gamification risk. Deferred indefinitely. Once the Club Mind exists, it can *observe* whether members keep mentioning each other in subsequent posts/whys, which is the non-surveillance version of outcome data.
 - **Emergences as a primitive** — *"the club generated an insight this month"*. It's an *output* of the reasoning layer, not a primitive. Comes free when the Club Mind exists.
 - **"Alive vs resting" rename of open/closed** — too poetic for the API. Save "alive" for marketing copy. Use `open`/`closed` in code.
-- **Intentions as a new entity kind** — overlaps too much with `ask` and `member.tell()`. The body of an ask can already be intentional/exploratory.
+- **Intentions as a new content kind** — overlaps too much with `ask` and `member.tell()`. The body of an ask can already be intentional/exploratory.
 - **Appreciations as feedback to the engine** — same risk profile as outcome traces. Deferred.
 - **Replacing the synchronicity engine entirely with LLM reasoning** — too aggressive. The hybrid approach (vector engine for fast/obvious, LLM for causal/non-obvious) is the right shape.
 - **Conflating gifts with services** — they're different. Services are professional, often paid. Gifts are free, no expectations. Owen pushed back hard on this and was right.
@@ -172,17 +172,17 @@ Designed in detail, then deferred because it's a big feature with real privacy i
 - Stores matches in `signal_background_matches`, delivers as `signal_deliveries` via the update feed
 - Throttled per match kind: ask/offer = 1/day, intros = 2/week
 - TTLs in `synchronicity.ts:51-56` — ask/offer = 5 days, intro = 21 days, event = 2 days
-- Triggered by: entity publication, profile embedding completion, member accessibility changes
+- Triggered by: content publication, profile embedding completion, member accessibility changes
 - Embedding model: `text-embedding-3-small` (1536 dims) via `embedMany` from Vercel AI SDK
 - Profile embeddings include `services_summary`, `known_for`, `what_i_do`, `tagline`, `summary`, `links`, plus the extensible `profile` jsonb
-- Entity embeddings include title, summary, body, and the `content` jsonb (and would include WHY if/when we ship it)
+- Content embeddings include title, summary, body (and would include WHY if/when we ship it)
 - Quality gate (`src/quality-gate.ts`) runs on `content.create`, `content.update`, `profile.update`, `vouches.create`, `admissions.sponsorCandidate` — model is `gpt-5.4-nano` (events are now created via `content.create(kind='event')`)
 
 ## Open questions to resolve when we come back
 
 - WHY field name (`why` vs `motivation` vs `private_context`)
 - Strong vs weaker privacy invariant on WHY (recommendation: strong)
-- Gifts: distinct entity kind, profile field, or both? (current direction: profile field, keep `service` separate)
+- Gifts: distinct content kind, profile field, or both? (current direction: profile field, keep `service` separate)
 - Reasoning layer cadence: daily for everyone, or tier by club size / paid status?
 - `member.tell()` lifetime and scoping precise rules
 - What does the Club Mind see vs not see in its reasoning context (privacy implications)

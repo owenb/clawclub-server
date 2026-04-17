@@ -17,17 +17,17 @@ The system must work when there are hundreds of thousands of clubs, millions of 
 
 1. **No per-member fanout.** Club-level work is done once and shared across all members. Personalisation happens at read time, not write time. This follows the `club_activity` precedent.
 
-2. **Structured output, not prose.** The server returns structured JSON with entity/member references, relevance signals, and topic metadata. Agents synthesise prose in their own voice. An optional `pulse` field carries a short club-level summary for vibe, but highlights are structured.
+2. **Structured output, not prose.** The server returns structured JSON with content/member references, relevance signals, and topic metadata. Agents synthesise prose in their own voice. An optional `pulse` field carries a short club-level summary for vibe, but highlights are structured.
 
 3. **Shard-compatible from day one.** Club-level summaries live on the club shard. Cross-club merge happens on the query/control plane. References resolve against current state at read time, so redacted/archived content silently drops.
 
-4. **Embeddings are the primary relevance signal.** Member profile embeddings and entity embeddings already exist in the same vector space. Nearest-neighbor queries handle "what's relevant to this person" without per-request LLM calls.
+4. **Embeddings are the primary relevance signal.** Member profile embeddings and content embeddings already exist in the same vector space. Nearest-neighbor queries handle "what's relevant to this person" without per-request LLM calls.
 
 5. **LLM calls are amortised background work.** The only LLM usage is the background worker producing topic labels and vibe summaries for rollups. Per-member digest requests involve zero LLM calls — just database queries and scoring math.
 
-6. **Deterministic extraction first, LLM only for semantics.** Entity references, stats, active members, upcoming events, and open loops are all computed from SQL over the activity window. The LLM is only used for topic labeling (semantic clustering of what the window was "about") and the optional one-line vibe summary. This makes rollups cheaper, reproducible, and trustworthy.
+6. **Deterministic extraction first, LLM only for semantics.** Content references, stats, active members, upcoming events, and open loops are all computed from SQL over the activity window. The LLM is only used for topic labeling (semantic clustering of what the window was "about") and the optional one-line vibe summary. This makes rollups cheaper, reproducible, and trustworthy.
 
-7. **Rollups preserve all candidates, personalisation prunes.** Rollups store every entity ref in the window (up to a bounded cap), not an LLM-curated "notable" subset. Editorial choices about what matters to a specific member happen at read time in the ranking layer, not at write time in the rollup. This prevents candidate starvation — the per-member ranker always has a full pool to work with.
+7. **Rollups preserve all candidates, personalisation prunes.** Rollups store every content ref in the window (up to a bounded cap), not an LLM-curated "notable" subset. Editorial choices about what matters to a specific member happen at read time in the ranking layer, not at write time in the rollup. This prevents candidate starvation — the per-member ranker always has a full pool to work with.
 
 ---
 
@@ -111,15 +111,15 @@ The rollup has two distinct sections: **deterministic fields** computed from SQL
 
   // ── DETERMINISTIC (computed from SQL, no LLM) ──────────
 
-  // ALL entities in the window, up to a cap of 100.
+  // ALL content in the window, up to a cap of 100.
   // Not filtered by "importance" — the full candidate pool
   // for downstream per-member ranking.
-  "entities": [
+  "contents": [
     {
-      "entity_id": "abc123",
-      "entity_version_id": "def456",
+      "content_id": "abc123",
+      "content_version_id": "def456",
       "kind": "ask",
-      "topic": "entity.version.published",
+      "topic": "content.version.published",
       "author_member_id": "mem789",
       "title": "Looking for a ceramics studio in East London"
     }
@@ -130,15 +130,15 @@ The rollup has two distinct sections: **deterministic fields** computed from SQL
   "new_member_ids": [],
   // Aggregate signals
   "stats": {
-    "entity_count": 8,
+    "content_count": 8,
     "event_count": 2,
-    "comment_count": 14,
+    "reply_count": 14,
     "unique_authors": 6
   },
-  // Events with approaching deadlines (from entity.kind = 'event' in window)
+  // Events with approaching deadlines (from content.kind = 'event' in window)
   "upcoming_events": [
     {
-      "entity_id": "evt001",
+      "content_id": "evt001",
       "title": "Sunday roast",
       "starts_at": "2026-04-06T12:00:00Z"
     }
@@ -146,7 +146,7 @@ The rollup has two distinct sections: **deterministic fields** computed from SQL
   // Open loops: asks without responses in the window
   "open_loops": [
     {
-      "entity_id": "ask002",
+      "content_id": "ask002",
       "kind": "ask",
       "title": "Need a venue for 40-person dinner",
       "signal": "unanswered_ask"
@@ -161,8 +161,8 @@ The rollup has two distinct sections: **deterministic fields** computed from SQL
 ```
 
 Key design decisions:
-- **Entity IDs, not content.** Rollups store references. If an entity is later redacted or archived, the read path resolves the reference and silently drops it. No stale prose leakage.
-- **All entities, not curated entities.** Rollups store every entity ref in the window up to a hard cap of 100. The LLM does not decide which entities are "notable" — that's the per-member ranker's job at read time. This prevents candidate starvation.
+- **Content IDs, not content payloads.** Rollups store references. If a content item is later redacted or archived, the read path resolves the reference and silently drops it. No stale prose leakage.
+- **All content, not curated content.** Rollups store every content ref in the window up to a hard cap of 100. The LLM does not decide which content is "notable" — that's the per-member ranker's job at read time. This prevents candidate starvation.
 - **Deterministic first.** Stats, active members, upcoming events, and open loops come from SQL aggregation over the activity window. The LLM only handles topic labeling and the optional `summary_text`. If the LLM call fails, the deterministic fields are still written — the rollup is useful without topics.
 - **`summary_text` is optional.** A one-liner for the pulse ("Active week — lots of event planning and a few asks"). Prose about specific entities or members should never appear here — only aggregate vibes. Generated by the LLM alongside topic extraction.
 - **`model` and `source_version`** allow re-processing rollups when the prompt or model improves, without dropping data.
@@ -171,7 +171,7 @@ Key design decisions:
 
 Hybrid: **up to N events OR M estimated tokens, whichever comes first**, plus a time ceiling so quiet clubs still get summarised. The token budget is the hard constraint — event count is just a soft hint.
 
-- **Token budget (hard cap)**: 12,000 estimated tokens of source content per window. The worker estimates tokens from `club_activity.payload` sizes *before* loading full content, using a deliberately conservative estimator (1 token per 3 characters of JSON payload). If the estimate exceeds the budget, the window is shortened. This prevents blowouts from long entity bodies.
+- **Token budget (hard cap)**: 12,000 estimated tokens of source content per window. The worker estimates tokens from `club_activity.payload` sizes *before* loading full content, using a deliberately conservative estimator (1 token per 3 characters of JSON payload). If the estimate exceeds the budget, the window is shortened. This prevents blowouts from long content bodies.
 - **Event cap (soft cap)**: 50 events per window. Reached before the token budget in most cases. But a window of 10 long-form posts can hit the token budget at 10 events.
 - **Time ceiling**: 24 hours — if a club has had any activity in the last 24h that hasn't been rolled up, process it regardless of event count
 - **Minimum gap**: Don't roll up fewer than 3 events unless the time ceiling forces it (avoids micro-rollups for near-silent clubs)
@@ -202,7 +202,7 @@ digest-worker.ts
   │   ├── Estimate window size from payload sizes (respect token budget)
   │   ├── Load activity window (from last_rolled_seq, bounded by caps)
   │   ├── PASS 1 (SQL): Compute deterministic fields
-  │   │     entity refs, stats, active_member_ids, upcoming_events, open_loops
+  │   │     content refs, stats, active_member_ids, upcoming_events, open_loops
   │   ├── INSERT rollup with deterministic fields (usable immediately)
   │   ├── PASS 2 (LLM): Send titles/summaries to gpt-5.4-nano
   │   │     for topic labels + summary_text
@@ -218,18 +218,18 @@ Advisory locking (`pg_advisory_xact_lock(hashtext(club_id))`) prevents multiple 
 
 ### LLM prompt design
 
-The LLM's job is narrow: **topic labeling and vibe summary only.** All structural extraction (entity refs, stats, active members, events, open loops) is done in SQL before the LLM is called. The LLM receives the deterministic fields plus entity titles/summaries as context, and returns only the semantic fields.
+The LLM's job is narrow: **topic labeling and vibe summary only.** All structural extraction (content refs, stats, active members, events, open loops) is done in SQL before the LLM is called. The LLM receives the deterministic fields plus content titles/summaries as context, and returns only the semantic fields.
 
 ```
 System: You are labeling the themes of a batch of activity from a private
-members club. You will receive a list of entity titles and summaries from the
+members club. You will receive a list of content titles and summaries from the
 batch. Your job:
 
 1. Extract 3-5 short topic labels that capture what the club was talking about
    in this batch. Use lowercase phrases, 1-3 words each.
 
 2. Write a single sentence summarizing the overall activity level and theme.
-   Do not name specific members or entities. Just the vibe.
+   Do not name specific members or content items. Just the vibe.
    Example: "Active week — mostly event planning and a few asks about venues."
 
 Output JSON: { "topics": [...], "summary_text": "..." }
@@ -284,11 +284,11 @@ This is the core of personalisation. When a member requests a digest, the server
 
 | Signal | Source | Weight | Notes |
 |--------|--------|--------|-------|
-| **Embedding similarity** | member profile embedding vs entity embedding | High | Already in same vector space. Cosine similarity via pgvector. |
+| **Embedding similarity** | member profile embedding vs content embedding | High | Already in same vector space. Cosine similarity via pgvector. |
 | **Social proximity** | DM history, comment replies, shared RSVP attendance | High | Computed on-demand from existing tables. Lightweight joins. |
 | **Recency** | `club_activity.created_at` | Medium | Exponential decay. Recent items score higher. |
 | **Engagement volume** | Comment count, RSVP count | Medium | Derivable from rollup stats + on-demand query for top items. |
-| **Novelty** | New members, first-time posters, new entity kinds | Low-Medium | Boost items that represent something the member hasn't seen before. |
+| **Novelty** | New members, first-time posters, new content kinds | Low-Medium | Boost items that represent something the member hasn't seen before. |
 | **Time urgency** | Events approaching, asks aging without response | Medium | Events within 72h get a deadline boost. Unanswered asks get a freshness bump. |
 
 ### Scoring formula (v1, intentionally simple)
@@ -298,26 +298,26 @@ score = (w_embed * embedding_similarity)
       + (w_social * social_proximity_score)
       + (w_recency * recency_decay(age_hours))
       + (w_engagement * log(1 + engagement_count))
-      + (w_urgency * urgency_boost(entity))
+      + (w_urgency * urgency_boost(content))
 ```
 
 Weights are code-configured constants, not ML-trained. Tuned by hand from real usage data. Start with embedding similarity as the dominant signal and adjust.
 
 `social_proximity_score` for a given (member, author) pair:
 - 1.0 if they've had a DM conversation
-- 0.7 if they've replied to each other's entities
+- 0.7 if they've replied to each other's content
 - 0.4 if they've attended the same event
 - 0.0 otherwise
 
-This is a sparse, on-demand lookup — not a pre-computed graph. At digest time, we know the candidate entity authors (from rollups), so we query the member's interactions with those specific authors. Small, bounded query.
+This is a sparse, on-demand lookup — not a pre-computed graph. At digest time, we know the candidate content authors (from rollups), so we query the member's interactions with those specific authors. Small, bounded query.
 
 ### Embedding similarity at scale
 
-For a single-club digest with thousands of entities, we don't need to scan them all. Rollups store all entity refs from each window (up to 100 per rollup). For a "catch me up on the last week" query covering 5 rollups, the candidate pool is at most 500 entity IDs. We compute embedding similarity only against those candidates — a targeted pgvector query with an `entity_version_id IN (...)` filter, not a full table scan.
+For a single-club digest with thousands of content items, we don't need to scan them all. Rollups store all content refs from each window (up to 100 per rollup). For a "catch me up on the last week" query covering 5 rollups, the candidate pool is at most 500 content IDs. We compute embedding similarity only against those candidates — a targeted pgvector query with a `content_version_id IN (...)` filter, not a full table scan.
 
 For cross-club digests, we run this per-club in parallel, then merge. 20 clubs × ~100 candidates each = ~2000 total candidates, which is still well within pgvector's comfort zone for exact (non-ANN) queries.
 
-If we later need to answer "find me anything in this club's entire history that matches my interests" (the discovery case), that's a pgvector ANN query against `entity_embeddings` — which is what `content.searchBySemanticSimilarity` already does. The digest system doesn't replace it; it complements it for the temporal catch-up case.
+If we later need to answer "find me anything in this club's entire history that matches my interests" (the discovery case), that's a pgvector ANN query against `content_embeddings` — which is what `content.searchBySemanticSimilarity` already does. The digest system doesn't replace it; it complements it for the temporal catch-up case.
 
 ---
 
@@ -393,11 +393,11 @@ Action: digest.read
       "toTime": "2026-04-05T14:30:00Z"
     },
 
-    // Relevance-ranked highlights. Each is a resolved entity.
+    // Relevance-ranked highlights. Each is a resolved content item.
     "highlights": [
       {
-        "entityId": "ask123",
-        "entityVersionId": "ver456",
+        "contentId": "ask123",
+        "contentVersionId": "ver456",
         "kind": "ask",
         "title": "Looking for a ceramics studio in East London",
         "summary": "...",
@@ -417,7 +417,7 @@ Action: digest.read
     // Upcoming events, sorted by start time
     "upcomingEvents": [
       {
-        "entityId": "evt001",
+        "contentId": "evt001",
         "title": "Sunday roast",
         "startsAt": "2026-04-06T12:00:00Z",
         "location": "The Bleeding Heart, Farringdon",
@@ -525,11 +525,11 @@ Updated on each `digest.read` call, per club. This means "I've seen up to here i
 
 ## New `club_activity` topics needed
 
-The current `club_activity` only captures entity publish/archive/redact. The digest system benefits from richer signals. These should be added incrementally — the digest works without them, but gets better with them:
+The current `club_activity` only captures content publish/remove. The digest system benefits from richer signals. These should be added incrementally — the digest works without them, but gets better with them:
 
 ### v1 (ship with digest)
 
-No new topics needed. The digest works entirely on existing `entity.version.published`, `entity.version.archived`, `entity.redacted` topics.
+No new topics needed. The digest works entirely on existing `content.version.published` and `content.removed` topics.
 
 ### v2 (quick follow-ups)
 
@@ -543,7 +543,7 @@ No new topics needed. The digest works entirely on existing `entity.version.publ
 
 | Topic | Emitted by | Value for digest |
 |-------|-----------|-----------------|
-| `entity.comment.published` | comment creation | Engagement volume, "this ask got 5 responses" |
+| `content.reply.published` | reply creation | Engagement volume, "this ask got 5 responses" |
 | `event.capacity.low` | derived (RSVP count approaching capacity) | Urgency signal for events |
 
 Each new topic makes rollups richer without changing the rollup schema or worker architecture — they're just more events in the window.
@@ -556,15 +556,15 @@ Each new topic makes rollups richer without changing the rollup schema or worker
 
 **Rollup storage**: 100K clubs × ~1 rollup/day × 365 days = ~36.5M rows/year before compaction. After compaction (daily → weekly → monthly), ~5M rows/year. Each row is ~2-5KB of JSONB. Total: ~10-25GB/year. Manageable on a single Postgres.
 
-**Rollup compute**: With the deterministic-first design, the LLM call is cheap — it only receives entity titles and summaries (~500-1000 input tokens per rollup), not full payloads. 100K clubs × 1 LLM call/day at ~1K tokens each = ~100M input tokens/day. But most clubs are inactive on any given day. Realistic daily active clubs: 10-20% of total = 10-20K LLM calls/day, well within budget. Inactive clubs skip the worker entirely — no wasted compute.
+**Rollup compute**: With the deterministic-first design, the LLM call is cheap — it only receives content titles and summaries (~500-1000 input tokens per rollup), not full payloads. 100K clubs × 1 LLM call/day at ~1K tokens each = ~100M input tokens/day. But most clubs are inactive on any given day. Realistic daily active clubs: 10-20% of total = 10-20K LLM calls/day, well within budget. Inactive clubs skip the worker entirely — no wasted compute.
 
 **Digest reads**: Member calls `digest.read`. The query:
 1. Load rollups covering the period (1-5 rows per club, indexed lookup)
-2. Extract candidate entity IDs from rollups (~20-50 per club)
+2. Extract candidate content IDs from rollups (~20-50 per club)
 3. Compute embedding similarity for candidates (~1 pgvector query)
 4. Compute social proximity for candidate authors (~1 join query)
 5. Score + rank (~in-memory, microseconds)
-6. Resolve top-N entities to current state (~1 batch query)
+6. Resolve top-N content items to current state (~1 batch query)
 7. Load RSVP data for upcoming events (~1 query)
 
 Total: ~5-7 queries, all index-backed, no sequential scans. Sub-100ms for single-club, sub-500ms for 20-club cross-club (parallelised).
@@ -622,7 +622,7 @@ Phase 1 is deliberately narrow so that weak results can be attributed clearly: i
 - Rollup compaction (daily/weekly/monthly)
 - Retention policy for fine-grained rollups
 - Notable members: new joins, unusual quiet, first-time posters
-- `entity.comment.published` activity topic
+- `content.reply.published` activity topic
 - Refined scoring weights based on real usage data
 
 **What the agent can do after Phase 3**: "Sarah's been quiet — not like her." "Someone new joined who builds AI tools for musicians."
@@ -656,7 +656,7 @@ When the digest worker restarts (deploy, crash), there's a window where activity
 
 ### Redaction in compacted rollups
 
-Fine-grained rollups store entity IDs and titles. When an entity is redacted, the read path resolves the reference and drops it — clean. But compacted rollups (Phase 3) merge entity lists from multiple windows. A compacted rollup's `stats` (entity_count, comment_count) will include counts from now-redacted entities. This is acceptable: aggregate stats don't leak content, and the alternative (recomputing compacted rollups on every redaction) is expensive for little benefit. The rule is: **no prose about specific entities or members in `summary_text`**, which is already enforced by the LLM prompt. Stats can be stale.
+Fine-grained rollups store content IDs and titles. When a content item is redacted, the read path resolves the reference and drops it — clean. But compacted rollups (Phase 3) merge content lists from multiple windows. A compacted rollup's `stats` (`content_count`, `reply_count`) will include counts from now-redacted content. This is acceptable: aggregate stats don't leak content, and the alternative (recomputing compacted rollups on every redaction) is expensive for little benefit. The rule is: **no prose about specific content items or members in `summary_text`**, which is already enforced by the LLM prompt. Stats can be stale.
 
 ---
 
@@ -668,7 +668,7 @@ Fine-grained rollups store entity IDs and titles. When an entity is redacted, th
 
 3. **Member absence detection** ("Sarah's been quiet"). This requires baseline activity tracking per member per club — average posts/week, last active timestamp. It's derivable from `club_activity` but needs a materialised view or periodic computation. Phase 3. Open question: is this creepy? It's useful, but some members might find it uncomfortable that the system tracks their silence. May need to be opt-in or limited to close connections.
 
-4. **Should the digest include entity bodies or just titles/summaries?** Leaning toward: titles and summaries in the highlights, with `entityId` for the agent to fetch the full entity if it wants to quote from it. Keeps the digest response compact and avoids transmitting content that might be long.
+4. **Should the digest include content bodies or just titles/summaries?** Leaning toward: titles and summaries in the highlights, with `contentId` for the agent to fetch the full content if it wants to quote from it. Keeps the digest response compact and avoids transmitting content that might be long.
 
 5. **Pre-computation vs on-demand for cross-club digests?** On-demand for Phase 2. If latency becomes an issue, pre-compute daily digests for active members as a background job and serve cached results with a freshness tail of raw recent activity. Decision depends on real latency numbers from Phase 1.
 
@@ -680,15 +680,15 @@ Fine-grained rollups store entity IDs and titles. When an entity is redacted, th
 
 1. **`digest.read` advancing the cursor on every read is risky.** The current plan says `digest_cursors` are updated on each `digest.read` call. That couples "fetched by some agent process" with "actually seen by the member." Retries, background refreshes, or speculative reads could silently move the boundary forward. It may be safer to make cursor advancement explicit (`digest.acknowledge`, or an `advanceCursor: true` flag) rather than automatic.
 
-2. **The plan still says "entity IDs, not content," but `rollup_json` stores titles.** That weakens the redaction story. If a post is later redacted, the read path can drop the entity reference, but the rollup row still contains a persisted title at rest. If the design goal is "no stale content leakage," the safest version is IDs only, plus deterministic metadata that is not user-authored text. If titles stay, the doc should say clearly that rollups are privileged server-side cache data, not content-free references.
+2. **The plan still says "content IDs, not content payloads," but `rollup_json` stores titles.** That weakens the redaction story. If a post is later redacted, the read path can drop the content reference, but the rollup row still contains a persisted title at rest. If the design goal is "no stale content leakage," the safest version is IDs only, plus deterministic metadata that is not user-authored text. If titles stay, the doc should say clearly that rollups are privileged server-side cache data, not content-free references.
 
 3. **Compaction coverage semantics need to be specified more precisely.** Once you have `window`, `daily`, `weekly`, and `monthly` rows, the read path needs an exact algorithm for choosing a non-overlapping covering set for a requested range. Otherwise it's easy to double-count or miss gaps. Related: if compaction rows coexist with fine-grained rows, the schema/indexing should reflect that access pattern explicitly rather than treating all ranges as equivalent blobs.
 
-4. **Candidate starvation is still a real risk unless rollups retain enough entities.** The ranking layer only works if the rollup layer preserves a broad candidate set. If rollups end up storing only model-selected or aggressively pruned entities, personalization can never recover items that were omitted upstream. The doc should make this an explicit rule: Phase 1 rollups retain all entity references in the window up to a deterministic cap, or prune only by deterministic objective rules, not by LLM judgment.
+4. **Candidate starvation is still a real risk unless rollups retain enough content.** The ranking layer only works if the rollup layer preserves a broad candidate set. If rollups end up storing only model-selected or aggressively pruned content, personalization can never recover items that were omitted upstream. The doc should make this an explicit rule: Phase 1 rollups retain all content references in the window up to a deterministic cap, or prune only by deterministic objective rules, not by LLM judgment.
 
 5. **Some "window facts" are underspecified because the activity stream does not yet contain all the needed events.** Fields like `has_responses`, `response_count`, `comment_count`, and some `open_loops` logic imply comment/reply events that do not exist in `club_activity` yet. If those are derived from current-state joins instead, the same rollup can mean different things depending on when it is read. The plan should be explicit about which fields are true window-local facts versus current-state enrichments.
 
-6. **Current-state resolution can distort historical digests.** Resolving references against current entity state is the right move for redaction safety, but it means a digest for "what happened last week" may show a newer title/summary if the entity was edited after the rollup window. That may be acceptable, but it should be called out as a deliberate tradeoff: safety and freshness over perfect historical fidelity.
+6. **Current-state resolution can distort historical digests.** Resolving references against current content state is the right move for redaction safety, but it means a digest for "what happened last week" may show a newer title/summary if the content was edited after the rollup window. That may be acceptable, but it should be called out as a deliberate tradeoff: safety and freshness over perfect historical fidelity.
 
 7. **Cross-club social boosting based on DM existence in any club may create boundary weirdness.** It's useful, but it also means a private relationship signal from one club can influence ranking in another club where the member may not expect that connection to matter. Even if no DM content is exposed, this is still a product/privacy decision and not just a ranking detail.
 
