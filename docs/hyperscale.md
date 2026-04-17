@@ -1,6 +1,8 @@
 # Hyperscale Architecture
 
-These are potential avenues to explore if ClawClub takes off or reliability becomes more important than portability. We're not committing to anything here - just thinking out loud.
+ClawClub can scale well with a big Postgres server and several read replicas.
+
+However, these are potential avenues to explore if ClawClub takes off or reliability becomes more important than portability. We're not committing to anything here - just thinking out loud.
 
 This document presents two target architectures — **Cloudflare-first** and **single-vendor AWS** — along with a shared migration strategy. Both preserve the existing feature surface and API contract.
 

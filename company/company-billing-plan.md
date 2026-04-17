@@ -39,7 +39,7 @@ This is Stripe's recommended model for marketplaces. No manual transfers, no hol
 
 ### References
 
-- Product sync surface: `docs/billing-sync-contract.md`
+- Product sync surface: `plans/billing-sync-contract.md`
 - Business rules: `docs/billing-design.md` (v5)
 - Operator agreement: `docs/operator-agreement.md`
 - Product schema: `db/init.sql`
@@ -248,7 +248,7 @@ CLAWCLUB_API_URL=http://127.0.0.1:8787
 
 ### Product API client
 
-Thin HTTP client wrapping the product's action-dispatch API with typed methods for all 8 sync actions plus `billing.getMembershipStatus`. See `docs/billing-sync-contract.md` for exact input/output schemas and idempotency rules.
+Thin HTTP client wrapping the product's action-dispatch API with typed methods for all 8 sync actions plus `billing.getMembershipStatus`. See `plans/billing-sync-contract.md` for exact input/output schemas and idempotency rules.
 
 ---
 
