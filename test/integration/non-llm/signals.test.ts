@@ -152,6 +152,34 @@ describe('activity and notifications surfaces', () => {
     assert.equal(dbRows[0]?.acknowledged_state, 'processed');
   });
 
+  it('vouches.create wakes the recipient stream with notifications_dirty and appears in notifications.list', async () => {
+    const owner = await h.seedOwner('vouch-stream-club', 'Vouch Stream Club');
+    const target = await h.seedCompedMember(owner.club.id, 'Target Tess');
+    const stream = h.connectStream(target.token, { after: 'latest' });
+
+    try {
+      await stream.waitForEvents(1);
+      assert.equal(stream.events[0]?.event, 'ready');
+
+      await h.apiOk(owner.token, 'vouches.create', {
+        clubId: owner.club.id,
+        memberId: target.id,
+        reason: 'Consistently helps unblock members fast',
+      });
+
+      const baseline = stream.events.length;
+      await stream.waitForEvents(baseline + 1, 5000);
+      const dirty = stream.events.find((event) => event.event === 'notifications_dirty');
+      assert.ok(dirty, 'recipient stream should receive notifications_dirty after receiving a vouch');
+
+      const notifications = getNotifications(await h.apiOk(target.token, 'notifications.list', { limit: 20 }));
+      const item = notifications.items.find((entry) => entry.kind === 'vouch.received');
+      assert.ok(item, 'vouch.received should be present in notifications.list for the recipient');
+    } finally {
+      stream.close();
+    }
+  });
+
   it('notifications.acknowledge allows future materialized topics by default', async () => {
     const owner = await h.seedOwner('future-topic-club', 'Future Topic Club');
 
