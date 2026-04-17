@@ -101,6 +101,8 @@ Club admins review applications through:
 
 `clubadmin.applications.list/get` also carry `payment_pending` rows. Treat those as approved applicants who are still waiting on billing, not as accessible members.
 
+Watch the state-filter input shape: `clubadmin.applications.list` takes `statuses` (array only). The member-facing `clubs.applications.list` takes `status` (accepts either a single state or an array). Check `/api/schema` for the exact field before calling — do not reuse the shape from the other action.
+
 The derived notification for a newly submitted application is `application.submitted`. Use its `ref.membershipId` directly with `clubadmin.applications.get`.
 
 Members receive a materialized `vouch.received` notification when someone vouches for them. Relay `payload.message` verbatim, then acknowledge it with `notifications.acknowledge`.
@@ -142,10 +144,14 @@ If submit returns `needs_revision`, the response includes `feedback` and `attemp
 | `needs_revision` | Patch only the gaps from `feedback`, keep the same `membershipId`, and retry |
 | `challenge_expired` (410) | Meaning: the 24-hour submission window on the applying membership elapsed. Start a fresh join/application flow. |
 | `attempts_exhausted` | Meaning: the applying membership used all submit attempts. Start a fresh join/application flow. |
-| `invalid_proof` (400) | This comes from anonymous cold `clubs.join`, not submit. Re-solve the PoW and retry `clubs.join`. |
+| `invalid_challenge` (422) | Anonymous cold `clubs.join` received a malformed, tampered, or wrong-club `challengeBlob`. Call `clubs.prepareJoin` again for the intended club and retry. |
+| `invalid_proof` (422) | Anonymous cold `clubs.join` received a nonce that does not satisfy the challenge difficulty. Re-solve the PoW and retry `clubs.join` before the challenge expires. |
+| `challenge_already_used` (409) | The supplied `challengeBlob` + nonce was already redeemed by a prior successful `clubs.join`. Challenges are single-use. Call `clubs.prepareJoin` for a fresh challenge and solve it again. |
 | `gate_unavailable` (503) | Infrastructure problem, not a content problem. Retry the same submit a few times with the same membership. If the outage persists, surface it to the user and pause. |
 | `invalid_invitation_code` (400) | Ask for a new invitation code or omit it and proceed through PoW |
 | `contact_email_required` (422) | Anonymous caller omitted `email`. Supply it and retry `clubs.join`. |
+| `invalid_input` (422, authenticated cross-join) | Authenticated caller passed `email`. Retry without `email`; the server reuses the contact email on the authenticated member record. |
+| `rate_limited` (429) | Anonymous `clubs.prepareJoin` and `clubs.join` share a per-IP bucket (default 10 calls per hour per action). Stop retrying — the window is an hour and quick retries will not succeed. Tell the human the request was rate-limited and wait. If they are testing from a shared address, the bucket may have been consumed by another caller on the same IP. |
 
 **Solving the PoW**
 
@@ -357,11 +363,12 @@ Do not call `notifications.list` while `actor.onboardingPending` is true. Use th
 
 ### `clubs.onboard`
 
-Use this exactly once when `session.getContext` says `actor.onboardingPending: true`. It completes the onboarding ceremony for a newly active member and returns either:
-- `{ alreadyOnboarded: true }` for the idempotent no-op path, or
-- a welcome envelope with `member`, `club`, and `welcome`
+Use this exactly once when `session.getContext` says `actor.onboardingPending: true`. It completes the onboarding ceremony for a newly active member and returns one of:
+- a welcome envelope with `member`, `club`, and `welcome` — the normal case; relay the `welcome` payload verbatim
+- `{ alreadyOnboarded: true }` — the idempotent no-op path on retry
+- `{ alreadyOnboarded: false, orphaned: true }` — defensive branch for a member with no accessible memberships at onboarding time (race or data-consistency edge). Treat this as a transient; re-poll `session.getContext` before deciding what to do next.
 
-Relay the `welcome` payload verbatim. While onboarding is pending, this action plus `session.getContext` are the only authenticated actions that will succeed.
+While onboarding is pending, this action plus `session.getContext` are the only authenticated actions that will succeed.
 
 ### Apply to join a club
 

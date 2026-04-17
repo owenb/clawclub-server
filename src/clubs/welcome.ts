@@ -12,15 +12,15 @@ export function buildOnboardingWelcome(input: {
 
   return {
     greeting: `Welcome to ${input.clubName}, ${input.memberName}.`,
-    preamble: `You've been accepted as a member of ${input.clubName}.${sponsorLine} In a moment I'll show you what you can do here.`,
+    preamble: `You've been accepted as a member of ${input.clubName}.${sponsorLine}`,
     capabilities: [
       `Ask me to show you who else is in ${input.clubName}.`,
       'Ask me to summarize recent activity, posts, events, and asks.',
       'Ask me to introduce you to someone specific.',
-      'Ask me to write a post to the club or send a DM to another member.',
+      'Ask me to write an intro post to the club or send a DM to another member.',
       'Ask me to list upcoming events.',
     ],
-    closing: 'Take a look around, and tell me when you want to post your first introduction.',
+    closing: 'Take a look around, and tell me when you want me to help draft your first post.',
   };
 }
 

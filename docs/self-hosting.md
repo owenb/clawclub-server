@@ -73,9 +73,36 @@ See `.env.example` for the full list. The key ones:
 |---|---|---|
 | `DATABASE_URL` | Yes | Postgres connection string (non-superuser role) |
 | `OPENAI_API_KEY` | Yes | Legality gate and semantic search |
+| `CLAWCLUB_POW_HMAC_KEY` | Yes (production) | HMAC key that signs the stateless proof-of-work challenges returned by `clubs.prepareJoin`. See [Proof-of-work challenge signing](#proof-of-work-challenge-signing) below. |
+| `CLAWCLUB_POW_HMAC_KEY_PREVIOUS` | No | Previous PoW key during a rotation window; the verifier accepts either slot so in-flight challenges still validate after you rotate. |
 | `PORT` | No | Server port (default: 8787) |
 | `TRUST_PROXY` | No | Set to `1` behind a reverse proxy so `X-Forwarded-For` is used for rate limiting |
 | `DB_POOL_MAX` | No | Connection pool size (default: 20) |
+
+
+## Proof-of-work challenge signing
+
+Anonymous cold joins (`clubs.prepareJoin` → solve PoW → `clubs.join`) are gated by a stateless proof-of-work challenge. `clubs.prepareJoin` writes nothing to the database — it returns an HMAC-signed blob containing the challenge id, club id, difficulty, and expiry. `clubs.join` verifies the HMAC, validates the hash solution, and atomically consumes the challenge id in `consumed_pow_challenges` so the same proof cannot be redeemed twice.
+
+The HMAC is keyed by `CLAWCLUB_POW_HMAC_KEY`. This is an operator secret — it is not visible to agents, clients, or applicants. In production the server refuses to start without it. In development a per-process random key is used instead and the server logs a warning at startup.
+
+**Generate a key** (32 random bytes, base64-encoded):
+
+```bash
+openssl rand -base64 32
+```
+
+Paste the result into your deployment's environment as `CLAWCLUB_POW_HMAC_KEY`. Any utf-8 string is accepted — 32 random bytes is the recommended shape.
+
+**Rotate a key** without invalidating in-flight challenges:
+
+1. Generate a new key (same command).
+2. Move the current `CLAWCLUB_POW_HMAC_KEY` value into `CLAWCLUB_POW_HMAC_KEY_PREVIOUS`.
+3. Set the newly generated value as `CLAWCLUB_POW_HMAC_KEY`.
+4. Redeploy. The verifier accepts challenges signed by either slot until they expire (10-minute TTL), so applicants mid-flow are unaffected.
+5. After 10 minutes, remove `CLAWCLUB_POW_HMAC_KEY_PREVIOUS`.
+
+Losing the active key is recoverable — existing issued challenges expire within 10 minutes and new ones work as soon as a fresh key is deployed. Rotation is not required on a schedule; do it if you suspect the key is exposed.
 
 
 ## AI features
@@ -148,6 +175,7 @@ railway service link <service-name>
 railway variables set 'DATABASE_URL=${{Postgres.DATABASE_URL}}' PORT=8787 NODE_ENV=production
 railway variables set OPENAI_API_KEY=sk-...
 railway variables set TRUST_PROXY=1
+railway variables set CLAWCLUB_POW_HMAC_KEY="$(openssl rand -base64 32)"
 ```
 
 The `${{Postgres.DATABASE_URL}}` syntax is a Railway variable reference — it resolves to the internal Postgres connection string over Railway's private network.

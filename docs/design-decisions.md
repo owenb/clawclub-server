@@ -162,6 +162,7 @@ Examples:
   - anonymous cold callers first request a stateless PoW challenge with `clubs.prepareJoin`, then call `clubs.join` with `clubSlug`, `email`, `challengeBlob`, and a solved nonce
   - authenticated callers provide `clubSlug`, reuse their existing member identity, and must not send `email`
   - invitation-backed callers provide `invitationCode` and skip PoW entirely
+- `clubs.prepareJoin` writes nothing to the database: the challenge is an HMAC-signed blob (`CLAWCLUB_POW_HMAC_KEY`) carrying challenge id, club id, difficulty, and expiry; the receiving `clubs.join` re-verifies the HMAC, validates the hash solution, and atomically consumes the challenge id in `consumed_pow_challenges` to prevent replay. The key has an optional `CLAWCLUB_POW_HMAC_KEY_PREVIOUS` sibling so rotation does not invalidate in-flight challenges (10-minute TTL).
 - `clubs.applications.submit` is always the submit step, and no longer verifies PoW; the bearer minted at anonymous join time is the receipt that proof-of-cost was already paid
 - invitations are the sponsor primitive
   - an existing member issues an invitation with `invitations.issue`; the plaintext code is returned exactly once

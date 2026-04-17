@@ -17,7 +17,7 @@ test('buildOnboardingWelcome returns the full ceremony payload with sponsor-awar
   assert.match(welcome.preamble, /Amy helped bring you in\./);
   assert.equal(welcome.capabilities.length, 5);
   assert.ok(welcome.capabilities.every((line) => line.startsWith('Ask me')));
-  assert.match(welcome.closing, /post your first introduction/i);
+  assert.match(welcome.closing, /draft your first post/i);
 });
 
 test('buildOnboardingWelcome omits sponsor copy when none is provided', () => {

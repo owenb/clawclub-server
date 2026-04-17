@@ -99,12 +99,18 @@ create index member_authenticators_member_idx on public.member_authenticators (m
 create unique index member_authenticators_pubkey_idx on public.member_authenticators (public_key);
 ```
 
-A member row requires at least one authenticator that is either `active` or `pending_admission`. The state transitions are:
+**Invariant, scoped precisely.** Every member must have at least one *usable credential* — not necessarily an authenticator row. During the migration window "usable credential" means EITHER (a) a non-revoked bearer in `member_bearer_tokens` OR (b) an `active`/`pending_admission` row in `member_authenticators`. Pre-cutover members satisfy (a); post-cutover members created via `clubs.join` signed-auth satisfy (b); members who enroll an authenticator against their bearer satisfy both. This is the invariant the dispatch layer actually enforces.
 
-- `clubs.join` (new applicant) → insert `pending_admission`.
+Once bearer deprecation lands (future workstream), the invariant narrows to (b) only and the `member_bearer_tokens` table goes away. Until then, keeping the invariant split between two tables is the correct and necessary shape — see §6.3.
+
+The authenticator-row state transitions are:
+
+- `clubs.join` (new applicant via signed auth) → insert `pending_admission`.
 - `clubadmin.memberships.setStatus(active)` OR billing `payment_pending → active` → flip the applicant's `pending_admission` row to `active`. This is the Phase B analogue of the Phase-A token mint — except nothing is minted, just a state flip.
-- Existing member enrolls a new authenticator (a fresh agent on a new device) → insert a new `active` row via `members.enrollAuthenticator` (§4.6).
-- Admin-driven recovery for a member with no usable keys → see §4.7.
+- Existing bearer-holding member enrolls their first authenticator → insert an `active` row via `members.enrollAuthenticator` (§4.6) under dual-auth.
+- Existing member enrolls a new authenticator (fresh agent on a new device) → insert a new `active` row via `members.enrollAuthenticator` (§4.6).
+- Admin-driven recovery for a member with no usable credentials → see §4.7.
+- Admin creates a new member directly (no `clubs.join` path) → see §4.12.
 - Member-initiated revoke → set `revoked_at`, move to `revoked`.
 
 **Why multi-authenticator from day one**: single-pubkey-per-member regresses from today's multi-bearer-token ergonomics. Cheap to design in now, painful to retrofit.
@@ -295,6 +301,24 @@ The existing `/stream` endpoint (SSE activity / notifications / invalidation) to
 - Do not issue a short-lived "stream session token" minted from the signed handshake. That re-introduces a server-minted credential the client has to manage, which is exactly what Phase B is trying to eliminate. Passive revalidation against the authenticator row is sufficient.
 - Do not skip the periodic revalidation. Without it, a revoked authenticator could keep its stream open indefinitely — which is strictly worse than bearer behavior today.
 
+### 4.12. Admin-created members — `superadmin.members.create`
+
+Today's `superadmin.members.createWithAccessToken` (`src/schemas/superadmin.ts`, backed by `createMemberDirect` at `src/identity/memberships.ts`) mints a bearer for a brand-new admin-created member and returns it in the response envelope. Under §2.3 the server no longer issues reusable secrets, so this action MUST change shape. The plan makes it explicit rather than leaving it to implementer interpretation.
+
+**Rename and reshape** (not backwards-compatible — in line with the project's API-break freedom):
+
+- **New action:** `superadmin.members.create`. Old `superadmin.members.createWithAccessToken` is removed; no shim.
+- **Input:** `{ publicName, email?, publicKey? }`. The `publicKey` is a base64url-encoded 32-byte Ed25519 public key.
+- **Output, two shapes, determined by whether `publicKey` was supplied:**
+  - If `publicKey` WAS supplied: `{ member, authenticatorId }`. Server inserts an `active` `member_authenticators` row (`created_via = 'seed_bootstrap'`) atomically with the new `members` row. No credential is returned in the envelope — the admin already has the public key, and the private-key holder is whoever generated it (typically the member's own agent during onboarding).
+  - If `publicKey` was omitted: `{ member, grantCode }` where `grantCode` is a one-shot re-enrollment grant (the same primitive as §4.7). The admin hands the `grantCode` to the new member out of band; their agent generates a keypair and calls `members.enrollAuthenticatorFromGrant` to bind it. The grant is consumed at that moment. Until enrollment, the member has no usable credential — this is fine because no action reads "admin has created this member but they have not enrolled yet" as a live-access state. It is a 24h window, same TTL as §4.7.
+- **Repository path:** `createMemberDirect` is rewritten. Both output shapes happen inside one transaction (member row + authenticator row, OR member row + grant row). Never both simultaneously, never neither.
+- **Bearer output removed unconditionally.** No code path in `superadmin.members.create` mints, hashes, or returns a bearer. During the migration window this is a one-off exception to "existing admin tooling keeps working via bearers" — because this specific tool was the way admins *created* bearers, and the whole point of Phase B is that new identities are not bearer-backed.
+
+**Seed-data consequence.** `db/seeds/dev.sql` currently creates members and gives them bearer rows so the canned dev tokens in `CLAUDE.md` work. Under Phase B, seed members get an `active` `member_authenticators` row instead, with a deterministic public key derived from member id (see §13.2 pin). The seed-only bearer rows can be dropped in the same commit.
+
+**Legacy bearer-holders are unaffected.** This change applies to new admin-created members only. Bearer holders created pre-cutover keep their bearer; bearer holders still pending their first authenticator enrollment use the dual-auth `members.enrollAuthenticator` path (§4.6).
+
 ---
 
 ## 5. The paid-club problem — dissolved
@@ -357,7 +381,7 @@ Notes:
 
 **Existing members keep their bearer tokens until they enroll.** The `member_bearer_tokens` table stays. The bearer auth path (§4.3 step 3) stays in the dispatch layer. An existing member uses their existing bearer to call `members.enrollAuthenticator` — which accepts dual-auth during the migration window per §4.6 — and binds their first Ed25519 authenticator. After that, they can use either credential.
 
-**New members never receive bearers.** `clubs.join` inserts a `member_authenticators` row instead of a `member_bearer_tokens` row. The mint-at-admission code path from pow-at-join is replaced by the state-flip described in §4.9.
+**New members never receive bearers.** `clubs.join` inserts a `member_authenticators` row instead of a `member_bearer_tokens` row. The mint-at-admission code path from pow-at-join is replaced by the state-flip described in §4.9. Admin-created new members are handled by the reshaped `superadmin.members.create` — see §4.12 — which also does not issue bearers.
 
 **Legacy bearer deprecation is a future workstream, not this one.** Keep the coexistence model for however long makes sense. The `clubadmin.authenticators.createReEnrollmentGrant` primitive is available throughout, so a member who loses their bearer (the old-world stranded-bearer problem) can be rescued by admin granting them a re-enrollment code — they then enroll an Ed25519 authenticator and never use bearers again.
 
@@ -579,34 +603,59 @@ When authorized, push triggers Railway auto-deploy. Monitor:
 
 ### 12.3. Rollback
 
-**Forward-fix is the preferred path.** The Phase B migration is additive (two new tables, no drops, no data rewrites of existing rows), so the usual "revert leaves a dropped table" problem from pow-at-join does not apply here. A `git revert` + push leaves `member_authenticators` and `re_enrollment_grants` in place but unused — harmless. Legacy bearer auth is unaffected because the bearer path was never removed, only joined by the signed-auth path.
+**Forward-fix is the preferred path.** The Phase B migration is structurally additive at the DB layer (two new tables, no drops, no rewrites of existing rows). That does NOT make rollback behaviorally clean — the behavior gap is the important half of the story.
 
-Specifically:
+**The stranded-member problem.** Every member created after cutover joined via the signed-auth `clubs.join` path. By design, no bearer row was ever minted for them — their credential lives only in `member_authenticators`. Reverted code has no signed-auth support in `src/dispatch.ts`, `src/server.ts`, or `src/identity/auth.ts`, so those members cannot authenticate. They are stranded until an admin takes an explicit recovery action.
 
-- **Reverted code reads nothing it doesn't find.** Both new tables exist post-migration. The reverted server won't touch them.
-- **Legacy bearers keep working.** The dispatch-layer signed-auth path is additive; bearer handling is unchanged.
-- **`clubs.join`'s `memberToken` removal is the one breaking change** agents might notice. A reverted server re-emits `memberToken` for anonymous joins. That's fine — re-emission matches what the reverted server expects.
+**Quantifying the gap before reverting.** The exact SQL to identify stranded members:
 
-The `/stream` signed-auth handshake is the subtlest rollback concern. A reverted server won't recognize `X-Signature` headers on `/stream`; clients already connected via signed auth will disconnect. They should reconnect using bearer. The SDK handles this automatically if both credentials are available; if not, the client's next action call will cleanly fall back.
+```sql
+select m.id, m.public_name, m.state, m.onboarded_at
+from members m
+where not exists (
+  select 1 from member_bearer_tokens t
+  where t.member_id = m.id and t.revoked_at is null
+)
+order by m.created_at desc;
+```
 
-Pre-deploy ritual: snapshot the prod DB before applying the migration, keep it 24 hours past deploy. Same discipline as pow-at-join.
+This is the count that defines the blast radius of a revert. If it is zero or near-zero (rollback within the first minutes of cutover, before any cold-joiner got in), revert is cheap. If it is non-trivial, a revert means manually reintroducing a bearer for every stranded member, with no way for the affected members themselves to self-serve recovery against the reverted server.
+
+**Recovery path on a reverted server.**
+
+1. Admin queries the SQL above to get the stranded list.
+2. For each stranded member, admin calls `superadmin.members.createBearerForStrandedMember` — a one-shot recovery action that must be added to the reverted code path as part of the revert. This action: reads the member row, mints a bearer via `buildBearerToken`, inserts into `member_bearer_tokens`, and returns the plaintext bearer exactly once.
+3. Admin delivers the bearer to the member out of band (email, whatever channel they have).
+4. Stranded member's agent accepts the bearer and resumes operation.
+
+This recovery path is NOT in the current reverted code. Whoever ships the revert must also ship this rescue action in the same revert commit. The plan flags this up front so the rescue action is not an afterthought improvised at 3am.
+
+**The less-bad alternative: forward-fix.** The strong preference is to find and fix whatever drove the revert consideration in the forward direction — patch the bug, ship a new commit, keep post-cutover members on their Ed25519 credentials. The additive migration means forward-fix has no schema complications to work around.
+
+**The subtler `/stream` concern remains:** a reverted server won't recognize `X-Signature` headers; clients already connected via signed auth will disconnect. If those clients are bearer-backed (legacy members), they reconnect cleanly. If they are post-cutover signed-auth-only members, they can't reconnect at all until the rescue action above runs.
+
+**Pre-deploy ritual:** snapshot the prod DB before applying the migration, keep it 24 hours past deploy. Same discipline as pow-at-join. For Phase B specifically, also snapshot `member_authenticators` and `member_bearer_tokens` contents immediately before any revert so the stranded-member rescue can be audited afterward.
 
 ---
 
 ## 13. Open questions
 
-1. **SDK languages beyond TS/Python.** Go, Rust, Ruby? Decide at ship time based on anticipated self-hoster adoption.
-2. **Seed-data bootstrap keys.** Dev-DB seeding needs to produce valid Ed25519 keypairs for the canned test members. Use deterministic keys per member-id so tests are reproducible; document in `db/seeds/dev.sql` that these are test-only keys and should never be used for real members.
-3. **Bearer deprecation timeline.** Not this phase. Flag for a future cycle — needs telemetry on bearer usage before we decide when to kill it.
+1. **SDK languages beyond TS/Python.** Go, Rust, Ruby? Decide at ship time based on anticipated self-hoster adoption. Out of scope for this phase.
+2. **Bearer deprecation timeline.** Not this phase. Flag for a future cycle — needs telemetry on bearer usage before we decide when to kill it.
 
 **Resolved (pinned):**
 
+- ~~SDK repository location.~~ TS/JS SDK lives in `src/sdk/` inside this repo, exposed as a subpath export (`clawclub/sdk`) via `package.json` exports, shipped on the same npm publish cycle as the server. No sibling repo, no monorepo split for day one. The rationale: server and SDK must stay in exact lockstep on canonical-string shape, timestamp-skew tolerance, and error-code names — splitting them into separate repos on day one is premature and creates version-drift risk for something that has one authoritative source. Python SDK is a follow-up workstream that can live in a sibling directory (`sdk-python/`) or a separate repo at that point. This pin lives at §4.10.
+- ~~Seed-data bootstrap keys.~~ Dev-DB seeding produces Ed25519 keypairs deterministically from member id via `sha256("clawclub-dev-seed:" + memberId)` (first 32 bytes as the Ed25519 seed). `db/seeds/dev.sql` is rewritten to insert one `active` `member_authenticators` row per seeded member, with the derived public key. Legacy bearer rows for seeded members are dropped in the same commit. The `CLAUDE.md` "Test data" block is updated: instead of a `cc_live_*` bearer per seed member, it lists the member id and notes that the SDK's dev helper (e.g. `clawclubSdk.testKeypair(memberId)`) derives the private key on demand. A glaring comment in `db/seeds/dev.sql` marks these keys as DEV-ONLY and forbids reuse in any real deployment. Integration tests derive the same keys through the SDK, not by duplicating the derivation formula.
+- ~~Integration harness shape.~~ The existing bearer-centric helpers in `test/integration/harness.ts` (around `seedMember`, `createToken`) gain sibling helpers: `seedMemberWithAuthenticator(publicName)` returns `{ memberId, privateKey }` seeded with the deterministic keypair above, and `signedRequest({ authenticatorId, privateKey, method, path, body })` wraps the canonical-string + signature shape for tests. The bearer helpers stay — they exercise the bearer path, which remains valid during the migration window and is itself a load-bearing invariant the tests must protect. Signed-auth tests use the new helpers; bearer tests use the existing ones; migration-window tests exercise both. The harness changes are additive; no existing test file changes unless it is the one being ported.
 - ~~Re-enrollment grant TTL.~~ 24h.
 - ~~Re-enrollment grant scope.~~ Member-wide, not per-club. See §6.2.
 - ~~Bootstrap contradiction for `members.enrollAuthenticator`.~~ Dual-auth during migration window, signed-only after bearer deprecation. See §4.6.
 - ~~`/stream` signed-auth design.~~ Signed handshake at connect; passive authenticator-row revalidation thereafter. See §4.11.
 - ~~Durable key storage in the SDK.~~ First-class deliverable, host-type-specific defaults. See §4.10.
 - ~~`public_key` length check.~~ DB-level constraint: exactly 32 bytes. See §6.2.
+- ~~`superadmin.members.createWithAccessToken` fate.~~ Renamed to `superadmin.members.create`, reshaped to optionally accept a `publicKey` (inserts an active authenticator) OR issue a re-enrollment grant code for out-of-band delivery. No bearer is ever returned. See §4.12.
+- ~~Credential invariant during migration.~~ Every member has at least one usable credential, where "usable" means non-revoked bearer OR active/pending_admission authenticator. Scoped to the migration window; narrows to authenticator-only once bearer deprecation lands. See §4.1.
 
 ---
 
@@ -633,6 +682,11 @@ Pre-deploy ritual: snapshot the prod DB before applying the migration, keep it 2
 | `/stream` signed handshake + passive authenticator revalidation | SSE needs the same revocation story bearers have today. Replaying the handshake signature forever is wrong; re-reading the authenticator row is right. |
 | SDK is a first-class deliverable, not an afterthought | Without durable key storage in the default SDK, re-enrollment stops being a rare recovery flow and becomes the default cold-restart path. That would make §2.3 worse than today's bearer flow. |
 | `public_key` = exactly 32 bytes at the DB layer | Check constraint catches malformed inserts at the lowest level. Cheaper than runtime validation in every repository method. |
+| `superadmin.members.createWithAccessToken` replaced by `superadmin.members.create` | The old action literally mints a bearer in the response envelope; that contradicts §2.3's "no reusable secrets delivered." Renaming + reshaping makes the change explicit, aligned with project convention of API-break freedom, and removes the ambiguity of "does pow-at-join-era admin tooling still hand out bearers under Phase B." |
+| SDK lives inside this repo at `src/sdk/` | Server and SDK must agree byte-for-byte on canonical-string shape, skew tolerance, and error-code names. Splitting into a separate repo for day one is premature. A monorepo split is an option later when/if the SDK grows non-trivial independent lifecycle. |
+| Seed keys are deterministic from member id | Dev tests must be reproducible across DB resets; hardcoding random bearers in `CLAUDE.md` is already awkward and would be impossible to maintain for signed auth. Deterministic derivation is the obvious answer. |
+| Credential invariant scoped to "usable credential" not "authenticator row" | Line 102's earlier wording contradicted §6.3's migration story. The scoped wording keeps both true during the migration window. |
+| Rollback section names stranded-member rescue as its own deliverable | A revert is NOT behaviorally clean even though the migration is structurally additive. If the stranded-member rescue action isn't pre-written, a revert is a crisis. Better to name it in the plan. |
 
 ---
 
@@ -651,7 +705,11 @@ Pre-deploy ritual: snapshot the prod DB before applying the migration, keep it 2
 - [ ] `clubadmin.authenticators.createReEnrollmentGrant` implemented.
 - [ ] Reference client SDK (TS/JS) published with default `KeyStore` implementations for Node/CLI and browser. Python follow-up queued.
 - [ ] SDK compliance test: generate → persist → restart → sign → verify cycles for each default `KeyStore`.
-- [ ] `createMemberDirect` and seed-data paths updated to create `member_authenticators` rows for every new member.
+- [ ] `superadmin.members.create` replaces `superadmin.members.createWithAccessToken` per §4.12 (optional `publicKey` input; returns `authenticatorId` OR `grantCode`, never a bearer).
+- [ ] `createMemberDirect` rewritten to produce either an active authenticator (when `publicKey` supplied) or a re-enrollment grant (when omitted), never a bearer.
+- [ ] `db/seeds/dev.sql` rewritten: seeded members get `active` `member_authenticators` rows with deterministic keys per §13.2, and `CLAUDE.md`'s "Test data" block is rewritten to match.
+- [ ] `test/integration/harness.ts` gains `seedMemberWithAuthenticator` and `signedRequest` helpers; existing bearer helpers stay. Bearer-centric tests unchanged; new signed-auth tests use the new helpers.
+- [ ] Stranded-member rescue action (`superadmin.members.createBearerForStrandedMember`) is pre-written and sitting in a revert-ready branch, per §12.3. Not deployed, not in the main code path, but written and committed somewhere an on-call person can find at 3am.
 - [ ] SKILL.md and `docs/design-decisions.md` updated in the same commit.
 - [ ] Integration tests pass, including bearer coexistence, `/stream` signed auth, re-enrollment flows, and SDK `KeyStore` defaults.
 - [ ] Manual live-server dry run passes.
