@@ -100,6 +100,20 @@ alter table public.contents
   rename constraint entities_club_fkey to contents_club_fkey;
 alter table public.contents
   rename constraint entities_content_thread_same_club_fkey to contents_thread_same_club_fkey;
+alter table public.contents
+  rename constraint entities_id_not_null to contents_id_not_null;
+alter table public.contents
+  rename constraint entities_club_id_not_null to contents_club_id_not_null;
+alter table public.contents
+  rename constraint entities_kind_not_null to contents_kind_not_null;
+alter table public.contents
+  rename constraint entities_author_member_id_not_null to contents_author_member_id_not_null;
+alter table public.contents
+  rename constraint entities_content_thread_id_not_null to contents_thread_id_not_null;
+alter table public.contents
+  rename constraint entities_created_at_not_null to contents_created_at_not_null;
+alter table public.contents
+  rename constraint entities_metadata_not_null to contents_metadata_not_null;
 
 alter table public.content_versions
   rename constraint entity_versions_pkey to content_versions_pkey;
@@ -115,6 +129,18 @@ alter table public.content_versions
   rename constraint entity_versions_expiry_check to content_versions_expiry_check;
 alter table public.content_versions
   rename constraint entity_versions_version_no_check to content_versions_version_no_check;
+alter table public.content_versions
+  rename constraint entity_versions_id_not_null to content_versions_id_not_null;
+alter table public.content_versions
+  rename constraint entity_versions_entity_id_not_null to content_versions_content_id_not_null;
+alter table public.content_versions
+  rename constraint entity_versions_version_no_not_null to content_versions_version_no_not_null;
+alter table public.content_versions
+  rename constraint entity_versions_state_not_null to content_versions_state_not_null;
+alter table public.content_versions
+  rename constraint entity_versions_effective_at_not_null to content_versions_effective_at_not_null;
+alter table public.content_versions
+  rename constraint entity_versions_created_at_not_null to content_versions_created_at_not_null;
 
 alter table public.content_embeddings
   rename constraint entity_embeddings_pkey to content_embeddings_pkey;
@@ -124,6 +150,32 @@ alter table public.content_embeddings
   rename constraint entity_embeddings_entity_fkey to content_embeddings_content_fkey;
 alter table public.content_embeddings
   rename constraint entity_embeddings_version_fkey to content_embeddings_version_fkey;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_id_not_null to content_embeddings_id_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_entity_id_not_null to content_embeddings_content_id_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_entity_version_id_not_null to content_embeddings_content_version_id_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_model_not_null to content_embeddings_model_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_dimensions_not_null to content_embeddings_dimensions_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_source_version_not_null to content_embeddings_source_version_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_chunk_index_not_null to content_embeddings_chunk_index_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_source_text_not_null to content_embeddings_source_text_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_source_hash_not_null to content_embeddings_source_hash_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_embedding_not_null to content_embeddings_embedding_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_metadata_not_null to content_embeddings_metadata_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_created_at_not_null to content_embeddings_created_at_not_null;
+alter table public.content_embeddings
+  rename constraint entity_embeddings_updated_at_not_null to content_embeddings_updated_at_not_null;
 
 alter table public.content_version_mentions
   rename constraint entity_version_mentions_pkey to content_version_mentions_pkey;
@@ -135,6 +187,20 @@ alter table public.content_version_mentions
   rename constraint entity_version_mentions_member_fkey to content_version_mentions_member_fkey;
 alter table public.content_version_mentions
   rename constraint entity_version_mentions_version_fkey to content_version_mentions_version_fkey;
+alter table public.content_version_mentions
+  rename constraint entity_version_mentions_entity_version_id_not_null to content_version_mentions_content_version_id_not_null;
+alter table public.content_version_mentions
+  rename constraint entity_version_mentions_field_not_null to content_version_mentions_field_not_null;
+alter table public.content_version_mentions
+  rename constraint entity_version_mentions_start_offset_not_null to content_version_mentions_start_offset_not_null;
+alter table public.content_version_mentions
+  rename constraint entity_version_mentions_end_offset_not_null to content_version_mentions_end_offset_not_null;
+alter table public.content_version_mentions
+  rename constraint entity_version_mentions_mentioned_member_id_not_null to content_version_mentions_mentioned_member_id_not_null;
+alter table public.content_version_mentions
+  rename constraint entity_version_mentions_authored_label_not_null to content_version_mentions_authored_label_not_null;
+alter table public.content_version_mentions
+  rename constraint entity_version_mentions_created_at_not_null to content_version_mentions_created_at_not_null;
 
 alter table public.club_activity
   rename constraint club_activity_entity_fkey to club_activity_content_fkey;
@@ -155,9 +221,13 @@ alter table public.event_rsvps
   rename constraint event_rsvps_event_fkey to event_rsvps_event_content_fkey;
 alter table public.event_rsvps
   rename constraint event_rsvps_event_membership_version_unique to event_rsvps_event_content_membership_version_unique;
+alter table public.event_rsvps
+  rename constraint event_rsvps_event_entity_id_not_null to event_rsvps_event_content_id_not_null;
 
 alter table public.event_version_details
   rename constraint event_version_details_version_fkey to event_version_details_content_version_fkey;
+alter table public.event_version_details
+  rename constraint event_version_details_entity_version_id_not_null to event_version_details_content_version_id_not_null;
 
 alter table public.member_notifications
   rename constraint member_notifications_entity_fkey to member_notifications_content_fkey;

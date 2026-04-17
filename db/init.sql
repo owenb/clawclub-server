@@ -996,19 +996,19 @@ CREATE TABLE public.consumed_pow_challenges (
 --
 
 CREATE TABLE public.content_embeddings (
-    id public.short_id DEFAULT public.new_id() CONSTRAINT entity_embeddings_id_not_null NOT NULL,
-    content_id public.short_id CONSTRAINT entity_embeddings_entity_id_not_null NOT NULL,
-    content_version_id public.short_id CONSTRAINT entity_embeddings_entity_version_id_not_null NOT NULL,
-    model text CONSTRAINT entity_embeddings_model_not_null NOT NULL,
-    dimensions integer CONSTRAINT entity_embeddings_dimensions_not_null NOT NULL,
-    source_version text CONSTRAINT entity_embeddings_source_version_not_null NOT NULL,
-    chunk_index integer DEFAULT 0 CONSTRAINT entity_embeddings_chunk_index_not_null NOT NULL,
-    source_text text CONSTRAINT entity_embeddings_source_text_not_null NOT NULL,
-    source_hash text CONSTRAINT entity_embeddings_source_hash_not_null NOT NULL,
-    embedding public.vector(1536) CONSTRAINT entity_embeddings_embedding_not_null NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb CONSTRAINT entity_embeddings_metadata_not_null NOT NULL,
-    created_at timestamp with time zone DEFAULT now() CONSTRAINT entity_embeddings_created_at_not_null NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() CONSTRAINT entity_embeddings_updated_at_not_null NOT NULL,
+    id public.short_id DEFAULT public.new_id() CONSTRAINT content_embeddings_id_not_null NOT NULL,
+    content_id public.short_id CONSTRAINT content_embeddings_content_id_not_null NOT NULL,
+    content_version_id public.short_id CONSTRAINT content_embeddings_content_version_id_not_null NOT NULL,
+    model text CONSTRAINT content_embeddings_model_not_null NOT NULL,
+    dimensions integer CONSTRAINT content_embeddings_dimensions_not_null NOT NULL,
+    source_version text CONSTRAINT content_embeddings_source_version_not_null NOT NULL,
+    chunk_index integer DEFAULT 0 CONSTRAINT content_embeddings_chunk_index_not_null NOT NULL,
+    source_text text CONSTRAINT content_embeddings_source_text_not_null NOT NULL,
+    source_hash text CONSTRAINT content_embeddings_source_hash_not_null NOT NULL,
+    embedding public.vector(1536) CONSTRAINT content_embeddings_embedding_not_null NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb CONSTRAINT content_embeddings_metadata_not_null NOT NULL,
+    created_at timestamp with time zone DEFAULT now() CONSTRAINT content_embeddings_created_at_not_null NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() CONSTRAINT content_embeddings_updated_at_not_null NOT NULL,
     CONSTRAINT entity_embeddings_dimensions_check CHECK ((dimensions > 0))
 );
 
@@ -1032,13 +1032,13 @@ CREATE TABLE public.content_threads (
 --
 
 CREATE TABLE public.content_version_mentions (
-    content_version_id public.short_id CONSTRAINT entity_version_mentions_entity_version_id_not_null NOT NULL,
-    field text CONSTRAINT entity_version_mentions_field_not_null NOT NULL,
-    start_offset integer CONSTRAINT entity_version_mentions_start_offset_not_null NOT NULL,
-    end_offset integer CONSTRAINT entity_version_mentions_end_offset_not_null NOT NULL,
-    mentioned_member_id public.short_id CONSTRAINT entity_version_mentions_mentioned_member_id_not_null NOT NULL,
-    authored_label text CONSTRAINT entity_version_mentions_authored_label_not_null NOT NULL,
-    created_at timestamp with time zone DEFAULT now() CONSTRAINT entity_version_mentions_created_at_not_null NOT NULL,
+    content_version_id public.short_id CONSTRAINT content_version_mentions_content_version_id_not_null NOT NULL,
+    field text CONSTRAINT content_version_mentions_field_not_null NOT NULL,
+    start_offset integer CONSTRAINT content_version_mentions_start_offset_not_null NOT NULL,
+    end_offset integer CONSTRAINT content_version_mentions_end_offset_not_null NOT NULL,
+    mentioned_member_id public.short_id CONSTRAINT content_version_mentions_mentioned_member_id_not_null NOT NULL,
+    authored_label text CONSTRAINT content_version_mentions_authored_label_not_null NOT NULL,
+    created_at timestamp with time zone DEFAULT now() CONSTRAINT content_version_mentions_created_at_not_null NOT NULL,
     CONSTRAINT content_version_mentions_field_check CHECK ((field = ANY (ARRAY['title'::text, 'summary'::text, 'body'::text]))),
     CONSTRAINT content_version_mentions_offset_check CHECK (((start_offset >= 0) AND (end_offset > start_offset)))
 );
@@ -1049,18 +1049,18 @@ CREATE TABLE public.content_version_mentions (
 --
 
 CREATE TABLE public.content_versions (
-    id public.short_id DEFAULT public.new_id() CONSTRAINT entity_versions_id_not_null NOT NULL,
-    content_id public.short_id CONSTRAINT entity_versions_entity_id_not_null NOT NULL,
-    version_no integer CONSTRAINT entity_versions_version_no_not_null NOT NULL,
-    state public.content_state DEFAULT 'published'::public.content_state CONSTRAINT entity_versions_state_not_null NOT NULL,
+    id public.short_id DEFAULT public.new_id() CONSTRAINT content_versions_id_not_null NOT NULL,
+    content_id public.short_id CONSTRAINT content_versions_content_id_not_null NOT NULL,
+    version_no integer CONSTRAINT content_versions_version_no_not_null NOT NULL,
+    state public.content_state DEFAULT 'published'::public.content_state CONSTRAINT content_versions_state_not_null NOT NULL,
     title text,
     summary text,
     body text,
-    effective_at timestamp with time zone DEFAULT now() CONSTRAINT entity_versions_effective_at_not_null NOT NULL,
+    effective_at timestamp with time zone DEFAULT now() CONSTRAINT content_versions_effective_at_not_null NOT NULL,
     expires_at timestamp with time zone,
     reason text,
     supersedes_version_id public.short_id,
-    created_at timestamp with time zone DEFAULT now() CONSTRAINT entity_versions_created_at_not_null NOT NULL,
+    created_at timestamp with time zone DEFAULT now() CONSTRAINT content_versions_created_at_not_null NOT NULL,
     created_by_member_id public.short_id,
     CONSTRAINT content_versions_expiry_check CHECK (((expires_at IS NULL) OR (expires_at >= effective_at))),
     CONSTRAINT content_versions_version_no_check CHECK ((version_no > 0))
@@ -1072,17 +1072,17 @@ CREATE TABLE public.content_versions (
 --
 
 CREATE TABLE public.contents (
-    id public.short_id DEFAULT public.new_id() CONSTRAINT entities_id_not_null NOT NULL,
-    club_id public.short_id CONSTRAINT entities_club_id_not_null NOT NULL,
-    kind public.content_kind CONSTRAINT entities_kind_not_null NOT NULL,
-    author_member_id public.short_id CONSTRAINT entities_author_member_id_not_null NOT NULL,
+    id public.short_id DEFAULT public.new_id() CONSTRAINT contents_id_not_null NOT NULL,
+    club_id public.short_id CONSTRAINT contents_club_id_not_null NOT NULL,
+    kind public.content_kind CONSTRAINT contents_kind_not_null NOT NULL,
+    author_member_id public.short_id CONSTRAINT contents_author_member_id_not_null NOT NULL,
     open_loop boolean,
-    thread_id public.short_id CONSTRAINT entities_content_thread_id_not_null NOT NULL,
+    thread_id public.short_id CONSTRAINT contents_thread_id_not_null NOT NULL,
     client_key text,
-    created_at timestamp with time zone DEFAULT now() CONSTRAINT entities_created_at_not_null NOT NULL,
+    created_at timestamp with time zone DEFAULT now() CONSTRAINT contents_created_at_not_null NOT NULL,
     archived_at timestamp with time zone,
     deleted_at timestamp with time zone,
-    metadata jsonb DEFAULT '{}'::jsonb CONSTRAINT entities_metadata_not_null NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb CONSTRAINT contents_metadata_not_null NOT NULL,
     CONSTRAINT contents_open_loop_kind_check CHECK ((((kind = ANY (ARRAY['ask'::public.content_kind, 'gift'::public.content_kind, 'service'::public.content_kind, 'opportunity'::public.content_kind])) AND (open_loop IS NOT NULL)) OR ((kind <> ALL (ARRAY['ask'::public.content_kind, 'gift'::public.content_kind, 'service'::public.content_kind, 'opportunity'::public.content_kind])) AND (open_loop IS NULL))))
 );
 
@@ -1136,7 +1136,7 @@ CREATE VIEW public.current_content_versions AS
 
 CREATE TABLE public.event_rsvps (
     id public.short_id DEFAULT public.new_id() NOT NULL,
-    event_content_id public.short_id CONSTRAINT event_rsvps_event_entity_id_not_null NOT NULL,
+    event_content_id public.short_id CONSTRAINT event_rsvps_event_content_id_not_null NOT NULL,
     membership_id public.short_id NOT NULL,
     response public.rsvp_state NOT NULL,
     note text,
@@ -1172,7 +1172,7 @@ CREATE VIEW public.current_event_rsvps AS
 --
 
 CREATE TABLE public.event_version_details (
-    content_version_id public.short_id CONSTRAINT event_version_details_entity_version_id_not_null NOT NULL,
+    content_version_id public.short_id CONSTRAINT event_version_details_content_version_id_not_null NOT NULL,
     location text,
     starts_at timestamp with time zone,
     ends_at timestamp with time zone,
