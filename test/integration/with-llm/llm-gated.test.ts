@@ -157,10 +157,10 @@ describe('Vouching (LLM-gated)', () => {
   });
 });
 
-// ── Entity Update Fan-out (gated: content.create) ──────────────────────────
+// ── Content Update Fan-out (gated: content.create) ─────────────────────────
 
-describe('entity update fan-out (LLM-gated)', () => {
-  it('club members get entity updates after content is created', async () => {
+describe('content update fan-out (LLM-gated)', () => {
+  it('club members get content updates after content is created', async () => {
     const owner = await h.seedOwner('llm-upd-club-2', 'LLM UpdClub2');
     const author = await h.seedCompedMember(owner.club.id, 'Alice ContentAuthor');
     const viewer = await h.seedCompedMember(owner.club.id, 'Bob ContentViewer');
@@ -179,11 +179,11 @@ describe('entity update fan-out (LLM-gated)', () => {
     const result = await h.apiOk(viewer.token, 'activity.list', { clubId: owner.club.id, after: seedAfter });
     const items = (result.data as Record<string, unknown>).items as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(items), 'activity.items should be an array');
-    const entityUpdate = items.find((u) =>
-      typeof u.topic === 'string' && u.topic.startsWith('entity.'),
+    const contentUpdate = items.find((u) =>
+      typeof u.topic === 'string' && u.topic.startsWith('content.'),
     );
-    assert.ok(entityUpdate, 'viewer should have an entity activity event after post creation');
-    assert.ok(entityUpdate.entityId ?? entityUpdate.payload, 'update should carry entity context');
+    assert.ok(contentUpdate, 'viewer should have a content activity event after post creation');
+    assert.ok(contentUpdate.contentId ?? contentUpdate.payload, 'update should carry content context');
   });
 });
 
@@ -223,13 +223,13 @@ describe('superadmin.content (LLM-gated)', () => {
       body: 'Managing a distributed team of eight engineers across four time zones taught us that async communication is not optional. We adopted written RFCs for every decision, recorded all meetings, and moved standups to written updates. Productivity improved measurably in the first quarter.',
     });
     const createData = createResult.data as Record<string, unknown>;
-    const entity = createData.entity as Record<string, unknown>;
-    const entityId = entity.entityId as string;
+    const content = createData.content as Record<string, unknown>;
+    const contentId = content.id as string;
 
-    const result = await h.apiOk(admin.token, 'clubadmin.content.remove', { clubId: ownerCtx.club.id, entityId, reason: 'Content policy violation' });
+    const result = await h.apiOk(admin.token, 'clubadmin.content.remove', { clubId: ownerCtx.club.id, id: contentId, reason: 'Content policy violation' });
     const data = result.data as Record<string, unknown>;
-    const removedEntity = data.entity as Record<string, unknown>;
-    assert.equal(removedEntity.entityId, entityId);
+    const removedContent = data.content as Record<string, unknown>;
+    assert.equal(removedContent.id, contentId);
   });
 });
 

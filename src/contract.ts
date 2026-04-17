@@ -384,8 +384,8 @@ export type ActivityEvent = {
   clubId: string;
   topic: string;
   payload: Record<string, unknown>;
-  entityId: string | null;
-  entityVersionId: string | null;
+  contentId: string | null;
+  contentVersionId: string | null;
   audience: 'members' | 'clubadmins' | 'owners';
   createdAt: string;
   createdByMemberId: string | null;
@@ -399,7 +399,7 @@ export type NotificationItem = {
   ref: {
     membershipId?: string;
     matchId?: string;
-    entityId?: string;
+    contentId?: string;
   };
   payload: Record<string, unknown>;
   createdAt: string;
@@ -410,7 +410,7 @@ export type NotificationItem = {
 export type NotificationReceipt = {
   notificationId: string;
   recipientMemberId: string;
-  entityId: string | null;
+  contentId: string | null;
   clubId: string | null;
   state: UpdateReceiptState;
   suppressionReason: string | null;
@@ -515,8 +515,8 @@ export type ProfileForGate = {
   links: ClubProfileLink[];
 };
 
-export type EntityKind = 'post' | 'opportunity' | 'service' | 'ask' | 'gift' | 'event';
-export type EntityState = 'draft' | 'published' | 'removed';
+export type ContentKind = 'post' | 'opportunity' | 'service' | 'ask' | 'gift' | 'event';
+export type ContentState = 'draft' | 'published' | 'removed';
 
 export type EventFields = {
   location: string | null;
@@ -544,11 +544,11 @@ export type EventRsvpSummary = {
   attendees: EventRsvpAttendee[];
 };
 
-export type ContentEntity = {
-  entityId: string;
-  contentThreadId: string;
+export type Content = {
+  id: string;
+  threadId: string;
   clubId: string;
-  kind: EntityKind;
+  kind: ContentKind;
   openLoop: boolean | null;
   author: {
     memberId: string;
@@ -557,7 +557,7 @@ export type ContentEntity = {
   };
   version: {
     versionNo: number;
-    state: EntityState;
+    state: ContentState;
     title: string | null;
     summary: string | null;
     body: string | null;
@@ -575,38 +575,23 @@ export type ContentEntity = {
   createdAt: string;
 };
 
-export type ContentEntitySearchResult = ContentEntity & {
+export type ContentSearchResult = Content & {
   score: number;
 };
 
-export type EntitySummary = ContentEntity;
-export type EventSummary = ContentEntity;
-
-export type ContentThreadSummary = {
-  threadId: string;
-  clubId: string;
-  firstEntity: ContentEntity;
-  thread: {
-    entityCount: number;
-    lastActivityAt: string;
-  };
-};
-
 export type ContentThread = {
-  threadId: string;
+  id: string;
   clubId: string;
-  entities: ContentEntity[];
-  entityCount: number;
+  firstContent: Content;
+  contentCount: number;
   lastActivityAt: string;
-  hasMore: boolean;
-  nextCursor: string | null;
 };
 
-export type CreateEntityInput = {
+export type CreateContentInput = {
   authorMemberId: string;
   clubId?: string;
   threadId?: string;
-  kind: EntityKind;
+  kind: ContentKind;
   title: string | null;
   summary: string | null;
   body: string | null;
@@ -620,12 +605,12 @@ export type ListEventsInput = {
   clubIds: string[];
   limit: number;
   query?: string;
-  cursor?: { startsAt: string; entityId: string } | null;
+  cursor?: { startsAt: string; contentId: string } | null;
 };
 
 export type RsvpEventInput = {
   actorMemberId: string;
-  eventEntityId: string;
+  eventId: string;
   response: EventRsvpState;
   note?: string | null;
   clientKey?: string | null;
@@ -635,14 +620,23 @@ export type RsvpEventInput = {
   }>;
 };
 
-export type ListEntitiesInput = {
+export type ListContentInput = {
   actorMemberId: string;
   clubIds: string[];
-  kinds: EntityKind[];
+  kinds: ContentKind[];
   limit: number;
   query?: string;
   includeClosed: boolean;
   cursor?: { lastActivityAt: string; threadId: string } | null;
+};
+
+export type ReadContentInput = {
+  actorMemberId: string;
+  accessibleMemberships: Array<{
+    membershipId: string;
+    clubId: string;
+  }>;
+  id: string;
 };
 
 export type ReadContentThreadInput = {
@@ -652,17 +646,17 @@ export type ReadContentThreadInput = {
     clubId: string;
   }>;
   accessibleClubIds: string[];
-  entityId?: string;
+  contentId?: string;
   threadId?: string;
   includeClosed: boolean;
   limit: number;
-  cursor?: { createdAt: string; entityId: string } | null;
+  cursor?: { createdAt: string; contentId: string } | null;
 };
 
-export type RemoveEntityInput = {
+export type RemoveContentInput = {
   actorMemberId: string;
   accessibleClubIds: string[];
-  entityId: string;
+  id: string;
   reason?: string | null;
   skipAuthCheck?: boolean;
   skipNotification?: boolean;
@@ -807,10 +801,10 @@ export type SendDirectMessageInput = {
   clientKey?: string | null;
 };
 
-export type UpdateEntityInput = {
+export type UpdateContentInput = {
   actorMemberId: string;
   accessibleClubIds: string[];
-  entityId: string;
+  id: string;
   patch: {
     title?: string | null;
     summary?: string | null;
@@ -820,8 +814,8 @@ export type UpdateEntityInput = {
   };
 };
 
-export type EntityForGate = {
-  entityKind: 'post' | 'ask' | 'gift' | 'service' | 'opportunity' | 'event';
+export type ContentForGate = {
+  contentKind: 'post' | 'ask' | 'gift' | 'service' | 'opportunity' | 'event';
   isReply: boolean;
   title: string | null;
   summary: string | null;
@@ -834,10 +828,10 @@ export type EntityForGate = {
   } | null;
 };
 
-export type SetEntityLoopInput = {
+export type SetContentLoopInput = {
   actorMemberId: string;
   accessibleClubIds: string[];
-  entityId: string;
+  id: string;
 };
 
 export type CreateVouchInput = {
@@ -860,7 +854,7 @@ export type AdminOverview = {
   totalMembers: number;
   activeMembers: number;
   totalClubs: number;
-  totalEntities: number;
+  totalContent: number;
   totalMessages: number;
   pendingApplications: number;
   recentMembers: Array<{
@@ -904,23 +898,23 @@ export type AdminClubStats = {
   name: string;
   archivedAt: string | null;
   memberCounts: Record<string, number>;
-  entityCount: number;
+  contentCount: number;
   messageCount: number;
 };
 
 export type AdminContentSummary = {
-  entityId: string;
-  contentThreadId: string;
+  id: string;
+  threadId: string;
   clubId: string;
   clubName: string;
-  kind: EntityKind;
+  kind: ContentKind;
   author: {
     memberId: string;
     publicName: string;
   };
   title: string | null;
   titleMentions: MentionSpan[];
-  state: EntityState;
+  state: ContentState;
   createdAt: string;
 };
 
@@ -966,7 +960,7 @@ export type AdminDiagnostics = {
       }>;
       retryErrorSample: Array<{
         jobId: string;
-        subjectKind: 'member_club_profile_version' | 'entity_version';
+        subjectKind: 'member_club_profile_version' | 'content_version';
         model: string;
         attemptCount: number;
         lastError: string;
@@ -980,7 +974,7 @@ export type AdminDiagnostics = {
         membershipScanAt: AdminWorkerCursor<string>;
         backstopSweepAt: AdminWorkerCursor<string>;
       };
-      entityPublicationBacklog: {
+      contentPublicationBacklog: {
         pendingCount: number | null;
         oldestPendingAgeSeconds: number | null;
       };
@@ -1096,7 +1090,7 @@ export type Repository = {
     actorMemberId: string;
     clubId: string;
   }): Promise<ProfileForGate | null>;
-  preflightCreateEntityMentions?(input: {
+  preflightCreateContentMentions?(input: {
     actorMemberId: string;
     actorClubIds: string[];
     clubId?: string;
@@ -1106,31 +1100,32 @@ export type Repository = {
     body: string | null;
     clientKey?: string | null;
   }): Promise<void>;
-  preflightUpdateEntityMentions?(input: {
+  preflightUpdateContentMentions?(input: {
     actorMemberId: string;
     actorClubIds: string[];
-    entityId: string;
+    id: string;
     patch: {
       title?: string | null;
       summary?: string | null;
       body?: string | null;
     };
   }): Promise<void>;
-  createEntity(input: CreateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }>>;
-  updateEntity(input: UpdateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
-  loadEntityForGate?(input: {
+  createContent(input: CreateContentInput): Promise<WithIncluded<{ content: Content }>>;
+  readContent?(input: ReadContentInput): Promise<WithIncluded<{ content: Content }> | null>;
+  updateContent(input: UpdateContentInput): Promise<WithIncluded<{ content: Content }> | null>;
+  loadContentForGate?(input: {
     actorMemberId: string;
-    entityId: string;
+    id: string;
     accessibleClubIds: string[];
-  }): Promise<EntityForGate | null>;
-  closeEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
-  reopenEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
-  removeEntity?(input: RemoveEntityInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
-  listEntities(input: ListEntitiesInput): Promise<WithIncluded<Paginated<ContentThreadSummary>>>;
-  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: ContentThreadSummary; entities: ContentEntity[]; hasMore: boolean; nextCursor: string | null }> | null>;
-  listEvents(input: ListEventsInput): Promise<WithIncluded<Paginated<ContentEntity>>>;
-  rsvpEvent(input: RsvpEventInput): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
-  cancelEventRsvp(input: { actorMemberId: string; eventEntityId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ entity: ContentEntity }> | null>;
+  }): Promise<ContentForGate | null>;
+  closeContentLoop(input: SetContentLoopInput): Promise<WithIncluded<{ content: Content }> | null>;
+  reopenContentLoop(input: SetContentLoopInput): Promise<WithIncluded<{ content: Content }> | null>;
+  removeContent?(input: RemoveContentInput): Promise<WithIncluded<{ content: Content }> | null>;
+  listContent(input: ListContentInput): Promise<WithIncluded<Paginated<ContentThread>>>;
+  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: ContentThread; contents: Content[]; hasMore: boolean; nextCursor: string | null }> | null>;
+  listEvents(input: ListEventsInput): Promise<WithIncluded<Paginated<Content>>>;
+  rsvpEvent(input: RsvpEventInput): Promise<WithIncluded<{ event: Content }> | null>;
+  cancelEventRsvp(input: { actorMemberId: string; eventId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ event: Content }> | null>;
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
@@ -1205,7 +1200,7 @@ export type Repository = {
   adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<SuperadminMemberSummary>>;
   adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<SuperadminMemberDetail | null>;
   adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
-  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: EntityKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<WithIncluded<Paginated<AdminContentSummary>>>;
+  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: ContentKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<WithIncluded<Paginated<AdminContentSummary>>>;
   adminListThreads?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminThreadSummary>>;
   adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<WithIncluded<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] }> | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
@@ -1258,14 +1253,14 @@ export type Repository = {
     cursor?: { distance: string; memberId: string } | null;
   }): Promise<Paginated<MemberSearchResult>>;
 
-  findEntitiesViaEmbedding(input: {
+  findContentViaEmbedding(input: {
     actorMemberId: string;
     clubIds: string[];
     queryEmbedding: string;
     kinds?: string[];
     limit: number;
-    cursor?: { distance: string; entityId: string } | null;
-  }): Promise<WithIncluded<Paginated<ContentEntitySearchResult>>>;
+    cursor?: { distance: string; contentId: string } | null;
+  }): Promise<WithIncluded<Paginated<ContentSearchResult>>>;
 };
 
 export type LogLlmUsageInput = {

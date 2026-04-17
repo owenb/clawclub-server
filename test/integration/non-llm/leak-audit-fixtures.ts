@@ -20,7 +20,8 @@ export const LEAK_AUDIT_FIXTURES: Record<string, LeakAuditFixture> = {
     note: 'This is the actor’s own application surface, so application content is legitimate here when rows exist. Scoping is covered in test/integration/non-llm/applications-self.test.ts.',
     skipResponseWalk: true,
   },
-  'content.getThread': { buildInput: (ctx) => ({ threadId: ctx.contentThreadId, limit: 20 }) },
+  'content.get': { buildInput: (ctx) => ({ id: ctx.contentId }) },
+  'content.getThread': { buildInput: (ctx) => ({ threadId: ctx.threadId, limit: 20 }) },
   'content.list': { buildInput: (ctx) => ({ clubId: ctx.testClub.id, limit: 20 }) },
   'content.searchBySemanticSimilarity': {
     buildInput: (ctx) => ({ clubId: ctx.testClub.id, query: 'community builder', limit: 20 }),

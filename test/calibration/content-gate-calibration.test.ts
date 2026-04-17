@@ -71,12 +71,12 @@ function ownerName(id: number): string {
   return `Content Gate Club ${id}`;
 }
 
-function entityIdFrom(result: Record<string, unknown>): string {
-  return ((result.data as Record<string, unknown>).entity as Record<string, unknown>).entityId as string;
+function contentIdFrom(result: Record<string, unknown>): string {
+  return ((result.data as Record<string, unknown>).content as Record<string, unknown>).id as string;
 }
 
 function threadIdFrom(result: Record<string, unknown>): string {
-  return ((result.data as Record<string, unknown>).entity as Record<string, unknown>).contentThreadId as string;
+  return ((result.data as Record<string, unknown>).content as Record<string, unknown>).threadId as string;
 }
 
 async function seedThread(owner: Awaited<ReturnType<TestHarness['seedOwner']>>, title = 'Thread subject'): Promise<string> {
@@ -98,7 +98,7 @@ async function expectContentCreatePass(
     clubId: owner.club.id,
     ...input,
   });
-  assert.ok(entityIdFrom(result));
+  assert.ok(contentIdFrom(result));
 }
 
 async function expectContentCreateReject(
@@ -122,7 +122,7 @@ async function expectReplyPass(id: number, body: string): Promise<void> {
     kind: 'post',
     body,
   });
-  assert.ok(entityIdFrom(result));
+  assert.ok(contentIdFrom(result));
 }
 
 async function expectReplyReject(
@@ -218,7 +218,7 @@ async function expectInvitationReject(
   assertActionableFeedback(err);
 }
 
-describe('content gate pass cases — content entities (top-level)', () => {
+describe('content gate pass cases — content contents (top-level)', () => {
   const cases: Array<{ id: number; name: string; input: Record<string, unknown> }> = [
     {
       id: 1,
@@ -364,7 +364,7 @@ describe('content gate pass cases — content entities (top-level)', () => {
   }
 });
 
-describe('content gate pass cases — content entities (replies)', () => {
+describe('content gate pass cases — content contents (replies)', () => {
   const cases = [
     [16, '16. passes a short concrete reply', 'I can intro you to our ops lead who moved us off Zendesk last quarter. DM me.'],
     [17, '17. passes a longer substantive reply', 'We ran the same experiment last quarter. The win came from shortening the signup flow and delaying the firmographic questions until after the first success moment. Happy to share screenshots if useful.'],
@@ -563,7 +563,7 @@ describe('content gate pass cases — invitations', () => {
   }
 });
 
-describe('content gate low-quality reject cases — content entities (top-level)', () => {
+describe('content gate low-quality reject cases — content contents (top-level)', () => {
   const cases: Array<{ id: number; name: string; input: Record<string, unknown> }> = [
     { id: 37, name: '37. rejects a post with title only', input: { kind: 'post', title: 'Quick thought' } },
     { id: 38, name: '38. rejects a post with one-word filler', input: { kind: 'post', title: 'Note', body: 'Whatever.' } },
@@ -993,7 +993,7 @@ describe('content gate merge-path regressions', () => {
       body: 'We launched the new import flow yesterday. The main lesson was that validation errors must appear before the upload completes or users assume the file worked.',
     });
     const err = await h.apiErr(owner.token, 'content.update', {
-      entityId: entityIdFrom(created),
+      id: contentIdFrom(created),
       body: 'More details later.',
     }, 'low_quality_content');
     assertActionableFeedback(err);
@@ -1008,10 +1008,10 @@ describe('content gate merge-path regressions', () => {
       body: 'Checklist for the rollout: rehearse the lock profile on staging, cap the backfill batch size to keep replica lag under a minute, announce the maintenance window clearly, and keep a rollback query ready before you touch production.',
     });
     const updated = await h.apiOk(owner.token, 'content.update', {
-      entityId: entityIdFrom(created),
+      id: contentIdFrom(created),
       title: 'Database migration checklist',
     });
-    assert.ok(entityIdFrom(updated));
+    assert.ok(contentIdFrom(updated));
   });
 
   it('90. passes a content.update patch on an existing reply with short concrete body', async () => {
@@ -1023,10 +1023,10 @@ describe('content gate merge-path regressions', () => {
       body: 'I can review the migration SQL this evening and flag lock risks before you run it.',
     });
     const updated = await h.apiOk(owner.token, 'content.update', {
-      entityId: entityIdFrom(reply),
+      id: contentIdFrom(reply),
       body: 'I can review the SQL after dinner, flag lock risks, and send inline notes by 9pm.',
     });
-    assert.ok(entityIdFrom(updated));
+    assert.ok(contentIdFrom(updated));
   });
 
   it('91. rejects a content.update patch on an existing reply that becomes filler', async () => {
@@ -1038,7 +1038,7 @@ describe('content gate merge-path regressions', () => {
       body: 'I can take first pass on the launch-email draft tonight and flag the weak CTA and subject line.',
     });
     const err = await h.apiErr(owner.token, 'content.update', {
-      entityId: entityIdFrom(reply),
+      id: contentIdFrom(reply),
       body: 'cool',
     }, 'low_quality_content');
     assertActionableFeedback(err);

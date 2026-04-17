@@ -13,16 +13,16 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-function entity(result: Record<string, unknown>): Record<string, unknown> {
-  return (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+function content(result: Record<string, unknown>): Record<string, unknown> {
+  return (result.data as Record<string, unknown>).content as Record<string, unknown>;
 }
 
 function included(result: Record<string, unknown>): Record<string, Record<string, unknown>> {
   return ((result.data as Record<string, unknown>).included as Record<string, unknown>).membersById as Record<string, Record<string, unknown>>;
 }
 
-function versionMentions(entityResult: Record<string, unknown>): Record<string, Array<Record<string, unknown>>> {
-  return ((entityResult.version as Record<string, unknown>).mentions as Record<string, Array<Record<string, unknown>>>);
+function versionMentions(contentResult: Record<string, unknown>): Record<string, Array<Record<string, unknown>>> {
+  return ((contentResult.version as Record<string, unknown>).mentions as Record<string, Array<Record<string, unknown>>>);
 }
 
 function mentionSpan(label: string, memberId: string): string {
@@ -41,7 +41,7 @@ describe('content mentions', () => {
       title: `Thanks ${mentionSpan('Kilian Valdman', kilian.id)}`,
       body: `I debated with ${mentionSpan('Kilian Valdman', kilian.id)} whether we should build a frontend.`,
     });
-    const root = entity(rootResult);
+    const root = content(rootResult);
     const rootMentions = versionMentions(root);
     assert.equal(rootMentions.title.length, 1);
     assert.equal(rootMentions.body.length, 1);
@@ -57,11 +57,11 @@ describe('content mentions', () => {
     });
 
     const thread = await h.apiOk(author.token, 'content.getThread', {
-      threadId: root.contentThreadId as string,
+      threadId: root.threadId as string,
       limit: 20,
     });
-    const firstEntity = ((thread.data as Record<string, unknown>).thread as Record<string, unknown>).firstEntity as Record<string, unknown>;
-    assert.equal(versionMentions(firstEntity).title[0]?.authoredLabel, 'Kilian Valdman');
+    const firstContent = ((thread.data as Record<string, unknown>).thread as Record<string, unknown>).firstContent as Record<string, unknown>;
+    assert.equal(versionMentions(firstContent).title[0]?.authoredLabel, 'Kilian Valdman');
     assert.equal(included(thread)[kilian.id]?.displayName, 'Kilian (renamed)');
   });
 
@@ -92,8 +92,8 @@ describe('content mentions', () => {
       kind: 'post',
       body: `Tagging ${mentionSpan('Outsider', outsider.id)}.`,
     });
-    const createdEntity = entity(result);
-    assert.equal(versionMentions(createdEntity).body[0]?.memberId, outsider.id);
+    const createdContent = content(result);
+    assert.equal(versionMentions(createdContent).body[0]?.memberId, outsider.id);
   });
 
   it('enforces mention caps on create', async () => {
@@ -130,22 +130,22 @@ describe('content mentions', () => {
       body: 'No mentions here.',
     });
     const reply = await h.apiOk(author.token, 'content.create', {
-      threadId: (entity(root).contentThreadId as string),
+      threadId: (content(root).threadId as string),
       kind: 'post',
       title: `Reply to ${mentionSpan('Remove Target', target.id)}`,
       body: `This reply mentions ${mentionSpan('Remove Target', target.id)}.`,
     });
 
     await h.apiOk(author.token, 'content.remove', {
-      entityId: entity(reply).entityId as string,
+      id: content(reply).id as string,
     });
 
     const thread = await h.apiOk(author.token, 'content.getThread', {
-      threadId: entity(root).contentThreadId as string,
+      threadId: content(root).threadId as string,
       limit: 20,
     });
-    const removedReply = (((thread.data as Record<string, unknown>).entities as Array<Record<string, unknown>>)
-      .find((row) => row.entityId === entity(reply).entityId) as Record<string, unknown>);
+    const removedReply = (((thread.data as Record<string, unknown>).contents as Array<Record<string, unknown>>)
+      .find((row) => row.id === content(reply).id) as Record<string, unknown>);
     assert.deepEqual(versionMentions(removedReply), { title: [], summary: [], body: [] });
     assert.deepEqual(included(thread), {});
   });

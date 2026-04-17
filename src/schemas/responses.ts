@@ -13,7 +13,7 @@
 import { z } from 'zod';
 import { profileLink } from './fields.ts';
 import {
-  entityKind, entityState, membershipState, membershipRole,
+  contentKind, contentState, membershipState, membershipRole,
   eventRsvpState, updateReceiptState, messageRole,
 } from './fields.ts';
 
@@ -325,7 +325,7 @@ export const memberProfileEnvelope = z.object({
   profiles: z.array(clubProfile),
 });
 
-// ── Entities ─────────────────────────────────────────────
+// ── Content ─────────────────────────────────────────────
 
 export const contentAuthorRef = z.object({
   memberId: z.string(),
@@ -342,16 +342,16 @@ export const eventRsvpAttendee = z.object({
   createdAt: z.string(),
 });
 
-export const contentEntity = z.object({
-  entityId: z.string(),
-  contentThreadId: z.string(),
+export const content = z.object({
+  id: z.string(),
+  threadId: z.string(),
   clubId: z.string(),
-  kind: entityKind,
+  kind: contentKind,
   openLoop: z.boolean().nullable(),
   author: contentAuthorRef,
   version: z.object({
     versionNo: z.number(),
-    state: entityState,
+    state: contentState,
     title: z.string().nullable(),
     summary: z.string().nullable(),
     body: z.string().nullable(),
@@ -387,32 +387,17 @@ export const contentEntity = z.object({
   createdAt: z.string(),
 });
 
-export const contentEntitySearchResult = contentEntity.extend({
+export const contentSearchResult = content.extend({
   score: z.number(),
 });
 
-export const contentThreadSummary = z.object({
-  threadId: z.string(),
-  clubId: z.string(),
-  firstEntity: contentEntity,
-  thread: z.object({
-    entityCount: z.number(),
-    lastActivityAt: z.string(),
-  }),
-});
-
 export const contentThread = z.object({
-  threadId: z.string(),
+  id: z.string(),
   clubId: z.string(),
-  entities: z.array(contentEntity),
-  entityCount: z.number(),
+  firstContent: content,
+  contentCount: z.number(),
   lastActivityAt: z.string(),
-  hasMore: z.boolean(),
-  nextCursor: z.string().nullable(),
 });
-
-export const entitySummary = contentEntity;
-export const eventSummary = contentEntity;
 
 // ── Messages ─────────────────────────────────────────────
 
@@ -501,8 +486,8 @@ export const activityEvent = z.object({
   clubId: z.string(),
   topic: z.string(),
   payload: z.record(z.string(), z.unknown()),
-  entityId: z.string().nullable(),
-  entityVersionId: z.string().nullable(),
+  contentId: z.string().nullable(),
+  contentVersionId: z.string().nullable(),
   audience: z.enum(['members', 'clubadmins', 'owners']),
   createdAt: z.string(),
   createdByMemberId: z.string().nullable(),
@@ -516,7 +501,7 @@ export const notificationItem = z.object({
   ref: z.object({
     membershipId: z.string().optional(),
     matchId: z.string().optional(),
-    entityId: z.string().optional(),
+    contentId: z.string().optional(),
   }),
   payload: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
@@ -527,7 +512,7 @@ export const notificationItem = z.object({
 export const notificationReceipt = z.object({
   notificationId: z.string(),
   recipientMemberId: z.string(),
-  entityId: z.string().nullable(),
+  contentId: z.string().nullable(),
   clubId: z.string().nullable(),
   state: updateReceiptState,
   suppressionReason: z.string().nullable(),
@@ -572,7 +557,7 @@ export const adminOverview = z.object({
   totalMembers: z.number(),
   activeMembers: z.number(),
   totalClubs: z.number(),
-  totalEntities: z.number(),
+  totalContent: z.number(),
   totalMessages: z.number(),
   pendingApplications: z.number(),
   recentMembers: z.array(z.object({
@@ -616,20 +601,20 @@ export const adminClubStats = z.object({
   name: z.string(),
   archivedAt: z.string().nullable(),
   memberCounts: z.record(z.string(), z.number()),
-  entityCount: z.number(),
+  contentCount: z.number(),
   messageCount: z.number(),
 });
 
 export const adminContentSummary = z.object({
-  entityId: z.string(),
-  contentThreadId: z.string(),
+  id: z.string(),
+  threadId: z.string(),
   clubId: z.string(),
   clubName: z.string(),
-  kind: entityKind,
+  kind: contentKind,
   author: memberRef,
   title: z.string().nullable(),
   titleMentions: z.array(mentionSpan),
-  state: entityState,
+  state: contentState,
   createdAt: z.string(),
 });
 
@@ -672,7 +657,7 @@ export const adminDiagnostics = z.object({
       })),
       retryErrorSample: z.array(z.object({
         jobId: z.string(),
-        subjectKind: z.enum(['member_club_profile_version', 'entity_version']),
+        subjectKind: z.enum(['member_club_profile_version', 'content_version']),
         model: z.string(),
         attemptCount: z.number(),
         lastError: z.string(),
@@ -686,7 +671,7 @@ export const adminDiagnostics = z.object({
         membershipScanAt: adminWorkerCursor(z.string()),
         backstopSweepAt: adminWorkerCursor(z.string()),
       }),
-      entityPublicationBacklog: z.object({
+      contentPublicationBacklog: z.object({
         pendingCount: z.number().nullable(),
         oldestPendingAgeSeconds: z.number().nullable(),
       }),

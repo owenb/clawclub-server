@@ -1,9 +1,9 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
-import { getNotifications, makeVector, seedEntityWithEmbedding, seedProfileEmbedding } from '../helpers.ts';
+import { getNotifications, makeVector, seedContentWithEmbedding, seedProfileEmbedding } from '../helpers.ts';
 import {
-  processEntityTriggers,
+  processContentTriggers,
   processProfileTriggers,
   processIntroRecompute,
   deliverMatches,
@@ -29,12 +29,12 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-/** Publish an activity entry for an entity (simulates entity creation). */
-async function publishActivity(clubId: string, entityId: string, authorMemberId: string): Promise<void> {
+/** Publish an activity entry for content (simulates content creation). */
+async function publishActivity(clubId: string, contentId: string, authorMemberId: string): Promise<void> {
   await h.sqlClubs(
-    `insert into club_activity (club_id, entity_id, topic, created_by_member_id)
-     values ($1, $2, 'entity.version.published', $3)`,
-    [clubId, entityId, authorMemberId],
+    `insert into club_activity (club_id, content_id, topic, created_by_member_id)
+     values ($1, $2, 'content.version.published', $3)`,
+    [clubId, contentId, authorMemberId],
   );
 }
 
@@ -58,7 +58,7 @@ async function getMatches(memberId: string): Promise<Array<Record<string, unknow
 
 describe('synchronicity worker', () => {
 
-  describe('entity-triggered matching', () => {
+  describe('content-triggered matching', () => {
     it('ask publication creates ask_to_member matches and delivers signals', async () => {
       const owner = await h.seedOwner('sw-ask1', 'SW Ask1');
       const alice = await h.seedCompedMember(owner.club.id, 'Alice SW1');
@@ -68,14 +68,14 @@ describe('synchronicity worker', () => {
 
       // Seed the worker's activity cursor first
       const pools = workerPools();
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       // Now publish an ask with a similar embedding
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
 
-      // Run entity triggers → creates matches
-      const matchCount = await processEntityTriggers(pools);
+      // Run content triggers → creates matches
+      const matchCount = await processContentTriggers(pools);
       assert.ok(matchCount >= 1, 'should create at least one match');
 
       // Run delivery → creates signals
@@ -89,27 +89,27 @@ describe('synchronicity worker', () => {
 
       const payload = askSignals[0].payload as Record<string, unknown>;
       assert.equal(payload.kind, 'synchronicity.ask_to_member');
-      assert.equal(payload.askEntityId, askId);
+      assert.equal(payload.askContentId, askId);
     });
 
     it('service publication creates offer_to_ask matches', async () => {
       const owner = await h.seedOwner('sw-offer1', 'SW Offer1');
 
       // Owner has an existing ask
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
 
       // Another member publishes a service with similar embedding
       const bob = await h.seedCompedMember(owner.club.id, 'Bob SW1');
-      const serviceId = await seedEntityWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+      const serviceId = await seedContentWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, serviceId, bob.id);
 
       const pools = workerPools();
       // Seed the activity cursor first (skip existing activity)
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
       // Publish the service activity after seeding
       await publishActivity(owner.club.id, serviceId, bob.id);
       // Process the new activity
-      // Note: we need to re-publish because the first processEntityTriggers consumed the one we already posted
+      // Note: we need to re-publish because the first processContentTriggers consumed the one we already posted
       // Actually the first call seeded + consumed. Let's just verify matches exist.
 
       const matches = await getMatches(owner.id);
@@ -118,11 +118,11 @@ describe('synchronicity worker', () => {
       if (offerMatches.length === 0) {
         // Need another activity entry since we consumed the first one
         await h.sqlClubs(
-          `insert into club_activity (club_id, entity_id, topic, created_by_member_id)
-           values ($1, $2, 'entity.version.published', $3)`,
+          `insert into club_activity (club_id, content_id, topic, created_by_member_id)
+           values ($1, $2, 'content.version.published', $3)`,
           [owner.club.id, serviceId, bob.id],
         );
-        await processEntityTriggers(pools);
+        await processContentTriggers(pools);
       }
 
       const matchesAfter = await getMatches(owner.id);
@@ -140,15 +140,15 @@ describe('synchronicity worker', () => {
       const owner = await h.seedOwner('sw-gift1', 'SW Gift1');
       const giver = await h.seedCompedMember(owner.club.id, 'Gift Giver');
 
-      await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
-      const giftId = await seedEntityWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
+      const giftId = await seedContentWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, giftId, giver.id);
 
-      const matchCount = await processEntityTriggers(pools);
+      const matchCount = await processContentTriggers(pools);
       assert.ok(matchCount >= 1, 'gift should create offer_to_ask matches');
 
       await deliverMatches(pools);
@@ -161,15 +161,15 @@ describe('synchronicity worker', () => {
       const owner = await h.seedOwner('sw-gift-closed', 'SW Gift Closed');
       const giver = await h.seedCompedMember(owner.club.id, 'Closed Gift Giver');
 
-      await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
-      const giftId = await seedEntityWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
+      await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const giftId = await seedContentWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
-      await h.apiOk(giver.token, 'content.closeLoop', { entityId: giftId });
+      await h.apiOk(giver.token, 'content.closeLoop', { id: giftId });
       await publishActivity(owner.club.id, giftId, giver.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       const matches = await getMatches(owner.id);
       const giftMatches = matches.filter(m => m.match_kind === 'offer_to_ask' && m.source_id === giftId);
@@ -180,20 +180,20 @@ describe('synchronicity worker', () => {
       const owner = await h.seedOwner('sw-gift-delivery-close', 'SW Gift Delivery Close');
       const giver = await h.seedCompedMember(owner.club.id, 'Delivery Giver');
 
-      await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
-      const giftId = await seedEntityWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
+      await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const giftId = await seedContentWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
       await publishActivity(owner.club.id, giftId, giver.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       const pendingBeforeClose = (await getMatches(owner.id)).find(
         m => m.match_kind === 'offer_to_ask' && m.source_id === giftId,
       );
       assert.equal(pendingBeforeClose?.state, 'pending');
 
-      await h.apiOk(giver.token, 'content.closeLoop', { entityId: giftId });
+      await h.apiOk(giver.token, 'content.closeLoop', { id: giftId });
       await deliverMatches(pools);
 
       const matchAfterDelivery = (await getMatches(owner.id)).find(
@@ -211,23 +211,23 @@ describe('synchronicity worker', () => {
       const owner = await h.seedOwner('sw-gift-reopen', 'SW Gift Reopen');
       const giver = await h.seedCompedMember(owner.club.id, 'Reopen Giver');
 
-      await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
-      const giftId = await seedEntityWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
+      await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const giftId = await seedContentWithEmbedding(h, owner.club.id, giver.id, 'gift', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
       await publishActivity(owner.club.id, giftId, giver.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
       await deliverMatches(pools);
 
       const firstSignals = await getSignals(owner.id);
       assert.equal(firstSignals.filter(s => s.topic === 'synchronicity.offer_to_ask').length, 1);
 
-      await h.apiOk(giver.token, 'content.closeLoop', { entityId: giftId });
-      await h.apiOk(giver.token, 'content.reopenLoop', { entityId: giftId });
+      await h.apiOk(giver.token, 'content.closeLoop', { id: giftId });
+      await h.apiOk(giver.token, 'content.reopenLoop', { id: giftId });
 
       await publishActivity(owner.club.id, giftId, giver.id);
-      const rematchCount = await processEntityTriggers(pools);
+      const rematchCount = await processContentTriggers(pools);
       assert.ok(rematchCount >= 1, 'reopened gift should be able to create a fresh match');
 
       await deliverMatches(pools);
@@ -241,11 +241,11 @@ describe('synchronicity worker', () => {
       const alice = await h.seedCompedMember(owner.club.id, 'Alice Post1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
-      const postId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'post', makeVector([0.95, 0.05, 0]));
+      const postId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'post', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, postId, owner.id);
 
       const pools = workerPools();
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       const matches = await getMatches(alice.id);
       assert.equal(matches.length, 0, 'posts should not create matches');
@@ -411,27 +411,27 @@ describe('synchronicity worker', () => {
       assert.equal(delivered2, 0, 'should not deliver more intros this week');
     });
 
-    it('entity-removed invalidates pending matches at delivery', async () => {
+    it('content removal invalidates pending matches at delivery', async () => {
       const owner = await h.seedOwner('sw-invalid1', 'SW Invalid1');
       const alice = await h.seedCompedMember(owner.club.id, 'Alice Invalid1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       // Publish an ask and create activity
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
 
       const pools = workerPools();
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
-      // Remove the entity before delivery
+      // Remove the content before delivery
       await h.sqlClubs(
-        `update entity_versions set state = 'removed' where entity_id = $1`,
+        `update content_versions set state = 'removed' where content_id = $1`,
         [askId],
       );
 
       // Delivery should expire the match
       const delivered = await deliverMatches(pools);
-      assert.equal(delivered, 0, 'should not deliver match for removed entity');
+      assert.equal(delivered, 0, 'should not deliver match for removed content');
 
       const matches = await getMatches(alice.id);
       const askMatches = matches.filter(m => m.match_kind === 'ask_to_member' && m.source_id === askId);
@@ -450,12 +450,12 @@ describe('synchronicity worker', () => {
       const cursor = initial.nextAfter;
 
       // Publish ask with embedding
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
 
       // Run full pipeline
       const pools = workerPools();
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
       await deliverMatches(pools);
 
       const poll = getNotifications(await h.apiOk(alice.token, 'notifications.list', { after: cursor, limit: 50 }));
@@ -463,7 +463,7 @@ describe('synchronicity worker', () => {
 
       assert.ok(signalItems.length >= 1, 'Alice should see ask_to_member in notifications.list');
       const payload = signalItems[0].payload as Record<string, unknown>;
-      assert.equal(payload.askEntityId, askId);
+      assert.equal(payload.askContentId, askId);
     });
   });
 
@@ -474,11 +474,11 @@ describe('synchronicity worker', () => {
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       // Deliver once
       await deliverMatches(pools);
@@ -512,21 +512,21 @@ describe('synchronicity worker', () => {
   });
 
   describe('offer_to_ask payload', () => {
-    it('offer_to_ask notification includes yourAskEntityId', async () => {
+    it('offer_to_ask notification includes yourAskContentId', async () => {
       const owner = await h.seedOwner('sw-offpay1', 'SW OffPay1');
       const bob = await h.seedCompedMember(owner.club.id, 'Bob OffPay1');
 
       // Owner has an ask
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
 
       // Bob publishes a service that matches the ask
-      const serviceId = await seedEntityWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+      const serviceId = await seedContentWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
       await publishActivity(owner.club.id, serviceId, bob.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
       await deliverMatches(pools);
 
       const signals = await getSignals(owner.id);
@@ -535,8 +535,8 @@ describe('synchronicity worker', () => {
 
       const payload = offerSignals[0].payload as Record<string, unknown>;
       assert.equal(payload.kind, 'synchronicity.offer_to_ask');
-      assert.equal(payload.offerEntityId, serviceId);
-      assert.equal(payload.yourAskEntityId, askId, 'should include the matched ask entity ID');
+      assert.equal(payload.offerContentId, serviceId);
+      assert.equal(payload.yourAskContentId, askId, 'should include the matched ask content ID');
     });
   });
 
@@ -605,13 +605,13 @@ describe('synchronicity worker', () => {
       const owner = await h.seedOwner('sw-selfmatch', 'SW SelfMatch');
 
       // Owner posts both an ask and a service with similar embeddings
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
-      const serviceId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'service', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'service', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
       await publishActivity(owner.club.id, serviceId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       // Owner should NOT have an offer_to_ask match targeting themselves
       const matches = await getMatches(owner.id);
@@ -627,11 +627,11 @@ describe('synchronicity worker', () => {
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       // Verify match was created with expires_at
       const matches = await getMatches(alice.id);
@@ -655,7 +655,7 @@ describe('synchronicity worker', () => {
       assert.equal(matchAfter?.state, 'expired', 'TTL-expired match must not be delivered');
 
       const signals = await getSignals(alice.id);
-      const askSignals = signals.filter(s => s.topic === 'synchronicity.ask_to_member' && (s.payload as Record<string, unknown>).askEntityId === askId);
+      const askSignals = signals.filter(s => s.topic === 'synchronicity.ask_to_member' && (s.payload as Record<string, unknown>).askContentId === askId);
       assert.equal(askSignals.length, 0, 'no signal should exist for TTL-expired match');
     });
 
@@ -665,29 +665,29 @@ describe('synchronicity worker', () => {
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
       // Create ask v1
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       const matchesBefore = await getMatches(alice.id);
       const matchBefore = matchesBefore.find(m => m.match_kind === 'ask_to_member' && m.source_id === askId);
       assert.ok(matchBefore, 'match v1 should exist');
       assert.equal(matchBefore.state, 'pending');
 
-      // "Edit" the ask: create a new version (simulates entity update)
+      // "Edit" the ask: create a new version (simulates content update)
       await h.sqlClubs(
-        `insert into entity_versions (entity_id, version_no, state, title, summary)
+        `insert into content_versions (content_id, version_no, state, title, summary)
          values ($1, 2, 'published', 'edited ask', 'different content now')`,
         [askId],
       );
 
       // Publish the edit as a new activity entry
       await publishActivity(owner.club.id, askId, owner.id);
-      // Process triggers — this should expire old pending matches for this entity
-      await processEntityTriggers(pools);
+      // Process triggers — this should expire old pending matches for this content
+      await processContentTriggers(pools);
 
       // The old match should now be expired
       const matchAfter = (await getMatches(alice.id)).find(m => m.id === matchBefore.id);
@@ -699,14 +699,14 @@ describe('synchronicity worker', () => {
       const bob = await h.seedCompedMember(owner.club.id, 'Bob Drift2');
 
       // Owner has an ask, Bob publishes a matching service
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
-      const serviceId = await seedEntityWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedContentWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
       await publishActivity(owner.club.id, serviceId, bob.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       const matchesBefore = await getMatches(owner.id);
       const matchBefore = matchesBefore.find(m => m.match_kind === 'offer_to_ask');
@@ -714,43 +714,43 @@ describe('synchronicity worker', () => {
 
       // "Edit" the service
       await h.sqlClubs(
-        `insert into entity_versions (entity_id, version_no, state, title, summary)
+        `insert into content_versions (content_id, version_no, state, title, summary)
          values ($1, 2, 'published', 'edited service', 'different offering now')`,
         [serviceId],
       );
 
       await publishActivity(owner.club.id, serviceId, bob.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       const matchAfter = (await getMatches(owner.id)).find(m => m.id === matchBefore.id);
       assert.equal(matchAfter?.state, 'expired', 'old offer match must be expired on re-publish');
     });
 
-    it('removed entity never appears in a signal payload', async () => {
+    it('removed content never appears in a signal payload', async () => {
       const owner = await h.seedOwner('sw-removed1', 'SW Removed1');
       const alice = await h.seedCompedMember(owner.club.id, 'Alice Removed1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
-      // Remove the entity before delivery
+      // Remove the content before delivery
       await h.sqlClubs(
-        `update entity_versions set state = 'removed' where entity_id = $1`,
+        `update content_versions set state = 'removed' where content_id = $1`,
         [askId],
       );
 
       await deliverMatches(pools);
 
-      // No signal should reference the removed entity
+      // No signal should reference the removed content
       const signals = await getSignals(alice.id);
       for (const s of signals) {
         const payload = s.payload as Record<string, unknown>;
-        assert.notEqual(payload.askEntityId, askId, 'removed entity must not appear in signal payload');
+        assert.notEqual(payload.askContentId, askId, 'removed content must not appear in signal payload');
       }
     });
 
@@ -794,14 +794,14 @@ describe('synchronicity worker', () => {
       const bob = await h.seedCompedMember(owner.club.id, 'Bob AskDrift1');
 
       // Owner has an ask, Bob publishes a matching service
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
-      const serviceId = await seedEntityWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedContentWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
       await publishActivity(owner.club.id, serviceId, bob.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       // Verify offer_to_ask match exists
       const matchesBefore = await getMatches(owner.id);
@@ -811,13 +811,13 @@ describe('synchronicity worker', () => {
 
       // Now edit the ASK (new version)
       await h.sqlClubs(
-        `insert into entity_versions (entity_id, version_no, state, title, summary)
+        `insert into content_versions (content_id, version_no, state, title, summary)
          values ($1, 2, 'published', 'edited ask', 'totally different need now')`,
         [askId],
       );
       // Re-publish the ask
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       // The old offer_to_ask match should be expired
       const matchAfter = (await getMatches(owner.id)).find(m => m.id === matchBefore.id);
@@ -899,11 +899,11 @@ describe('synchronicity worker', () => {
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       // Artificially age the match beyond the freshness cutoff but within TTL
       await h.sqlClubs(
@@ -920,33 +920,33 @@ describe('synchronicity worker', () => {
       assert.equal(match?.state, 'expired', 'match older than freshness cutoff must not deliver');
     });
 
-    it('removed entity content does not surface through delivered signal', async () => {
+    it('removed content does not surface through delivered signal', async () => {
       const owner = await h.seedOwner('sw-removesig1', 'SW RemoveSig1');
       const alice = await h.seedCompedMember(owner.club.id, 'Alice RemoveSig1');
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
       const initial = getNotifications(await h.apiOk(alice.token, 'notifications.list', { limit: 50 }));
       const cursor = initial.nextAfter;
 
       // Create and deliver an ask signal
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
       await deliverMatches(pools);
 
-      // Now remove the entity AFTER signal delivery but BEFORE read
+      // Now remove the content AFTER signal delivery but BEFORE read
       await h.sqlClubs(
-        `update entity_versions set state = 'removed' where entity_id = $1`,
+        `update content_versions set state = 'removed' where content_id = $1`,
         [askId],
       );
 
       const poll = getNotifications(await h.apiOk(alice.token, 'notifications.list', { after: cursor, limit: 50 }));
-      const entitySignals = poll.items.filter((u) => u.ref.entityId === askId);
-      assert.equal(entitySignals.length, 0,
-        'notification for removed entity must not appear in notifications.list');
+      const contentSignals = poll.items.filter((u) => u.ref.contentId === askId);
+      assert.equal(contentSignals.length, 0,
+        'notification for removed content must not appear in notifications.list');
     });
 
     it('pending ask_to_member expires when recipient profile changes', async () => {
@@ -955,13 +955,13 @@ describe('synchronicity worker', () => {
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
       await processProfileTriggers(pools); // seed profile cursor
 
       // Create ask match for alice
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       const matchBefore = (await getMatches(alice.id)).find(m => m.match_kind === 'ask_to_member');
       assert.ok(matchBefore, 'ask_to_member match should exist');
@@ -1016,11 +1016,11 @@ describe('synchronicity worker', () => {
       await seedProfileEmbedding(h, alice.id, makeVector([1, 0, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       // Remove Alice's access: revoke membership state + end subscription
       const membershipRows = await h.sql<{ id: string }>(
@@ -1057,13 +1057,13 @@ describe('synchronicity worker', () => {
       // Bob publishes a matching service
       const bob = await h.seedCompedMember(owner.club.id, 'Bob NoAccess2');
 
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, alice.id, 'ask', makeVector([1, 0, 0]));
-      const serviceId = await seedEntityWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, alice.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedContentWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
       await publishActivity(owner.club.id, serviceId, bob.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       // Revoke Alice's access before delivery
       const membershipRows = await h.sql<{ id: string }>(
@@ -1117,12 +1117,12 @@ describe('synchronicity worker', () => {
 
       // Now her current_profiles.id is v2, but her embedding is for v1
       // Publish an ask — Alice should NOT be matched because her embedding is stale
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
       await publishActivity(owner.club.id, askId, owner.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
 
       const matches = await getMatches(alice.id);
       const askMatches = matches.filter(m => m.match_kind === 'ask_to_member' && m.source_id === askId);
@@ -1176,17 +1176,17 @@ describe('synchronicity worker', () => {
       const bob = await h.seedCompedMember(owner.club.id, 'Bob AskRemove1');
 
       // Owner posts an ask, Bob posts a matching service
-      const askId = await seedEntityWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
-      const serviceId = await seedEntityWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
+      const askId = await seedContentWithEmbedding(h, owner.club.id, owner.id, 'ask', makeVector([1, 0, 0]));
+      const serviceId = await seedContentWithEmbedding(h, owner.club.id, bob.id, 'service', makeVector([0.95, 0.05, 0]));
 
       const pools = workerPools();
-      await processEntityTriggers(pools); // seed cursor
+      await processContentTriggers(pools); // seed cursor
 
       const initial = getNotifications(await h.apiOk(owner.token, 'notifications.list', { limit: 50 }));
       const cursor = initial.nextAfter;
 
       await publishActivity(owner.club.id, serviceId, bob.id);
-      await processEntityTriggers(pools);
+      await processContentTriggers(pools);
       await deliverMatches(pools);
 
       // Verify signal was delivered
@@ -1198,7 +1198,7 @@ describe('synchronicity worker', () => {
 
       // Now remove the matched ASK (not the offer)
       await h.sqlClubs(
-        `update entity_versions set state = 'removed' where entity_id = $1`,
+        `update content_versions set state = 'removed' where content_id = $1`,
         [askId],
       );
 

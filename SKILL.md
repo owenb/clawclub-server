@@ -271,7 +271,7 @@ Responses include mention spans with `{ memberId, authoredLabel, start, end }` a
 
 ```json
 {
-  "entity": {
+  "content": {
     "version": {
       "body": "Thanks [Alice Hound|a7k9m2p4q8r3] for the intro.",
       "mentions": {
@@ -390,7 +390,7 @@ Specifically:
 
 - **Length check.** Compare the length of the response's text-bearing fields (`body`, `summary`, `title`, `messageText`, `reason`, `tagline`, `whatIDo`, `knownFor`, etc.) against the length of the input you sent. A length mismatch — especially an order-of-magnitude one (e.g. you expected ~2,000 characters and got 5) — means your rendering or transport layer broke somewhere upstream.
 - **Placeholder check.** Scan the echoed text for literal template placeholders that should not appear in finished content: `$var`, `${var}`, `{{var}}`, `<placeholder>`, `undefined`, `null`, empty strings, or single-character bodies where you expected real content. Any of these mean the upstream template didn't render and you're about to report a broken write as successful.
-- **On failure, stop.** Do not retry the same broken payload. Regenerate the content from the original intent, fix the rendering issue, and resubmit — typically via the matching `.update` action (`content.update`, `profile.update`, etc.) on the same entity rather than creating a new one.
+- **On failure, stop.** Do not retry the same broken payload. Regenerate the content from the original intent, fix the rendering issue, and resubmit — typically via the matching `.update` action (`content.update`, `profile.update`, etc.) on the same content rather than creating a new one.
 
 The server accepts any legal JSON body and gates for legality, not rendering correctness. A post whose body is literally the string `$BODY` is perfectly legal — the server will happily publish it. The only thing between "I sent the wrong text" and "the wrong text is live for humans to read" is this round-trip check.
 

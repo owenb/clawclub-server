@@ -7,7 +7,7 @@ describe('renderArtifact', () => {
     assert.equal(
       renderArtifact({
         kind: 'content',
-        entityKind: 'opportunity',
+        contentKind: 'opportunity',
         isReply: false,
         title: 'Need a part-time operator',
         summary: null,
@@ -15,7 +15,7 @@ describe('renderArtifact', () => {
       }),
       [
         'kind: content',
-        'entityKind: opportunity',
+        'contentKind: opportunity',
         'title: Need a part-time operator',
         'summary: (none)',
         'body: Three days a week, remote-friendly.',

@@ -1,7 +1,7 @@
 /**
  * Synchronicity worker: the first feature worker on the signal/match stack.
  *
- * Detects triggers (entity publications, profile changes, new memberships),
+ * Detects triggers (content publications, profile changes, new memberships),
  * computes matches using embedding similarity queries, and delivers
  * matches as member signals through the standard update feed.
  *
@@ -20,7 +20,7 @@
 import type { Pool, PoolClient } from 'pg';
 import { acquireExclusiveWorkerLock, createPools, runWorkerLoop, runWorkerOnce, type WorkerPools } from './runner.ts';
 import {
-  findMembersMatchingEntity,
+  findMembersMatchingContent,
   findSimilarMembers,
   findAskMatchingOffer,
   findExistingThreadPairs,
@@ -46,7 +46,7 @@ const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 
 // ── Per-kind match TTLs ──
-// No pending match should live forever. Short TTLs for entity matches
+// No pending match should live forever. Short TTLs for content matches
 // (asks and offers lose relevance quickly), longer for introductions
 // (people don't change as fast as content).
 const MATCH_TTL_MS: Record<string, number> = {
@@ -145,33 +145,33 @@ async function completeRecomputeEntry(pool: Pool, entryId: string): Promise<void
 }
 
 /**
- * Expire all pending entity-sourced matches for a given source entity.
- * Called when an entity emits a new entity.version.published (edit/update),
+ * Expire all pending content-sourced matches for a given source content item.
+ * Called when a content item emits a new content.version.published (edit/update),
  * so stale matches based on the old version don't get delivered.
  */
-async function expirePendingMatchesForSource(pool: Pool, sourceEntityId: string): Promise<void> {
+async function expirePendingMatchesForSource(pool: Pool, sourceContentId: string): Promise<void> {
   await pool.query(
     `update signal_background_matches
      set state = 'expired'
      where source_id = $1 and state = 'pending'
        and match_kind in ('ask_to_member', 'offer_to_ask')`,
-    [sourceEntityId],
+    [sourceContentId],
   );
 }
 
 /**
- * Expire pending offer_to_ask matches that reference a specific ask entity.
+ * Expire pending offer_to_ask matches that reference a specific ask content item.
  * Called when an ask is re-published (edited), so offer matches scored
  * against the old ask version don't deliver with stale semantics.
  */
-async function expirePendingMatchesReferencingAsk(pool: Pool, askEntityId: string): Promise<void> {
+async function expirePendingMatchesReferencingAsk(pool: Pool, askContentId: string): Promise<void> {
   await pool.query(
     `update signal_background_matches
      set state = 'expired'
      where state = 'pending'
        and match_kind = 'offer_to_ask'
-       and payload->>'matchedAskEntityId' = $1`,
-    [askEntityId],
+       and payload->>'matchedAskContentId' = $1`,
+    [askContentId],
   );
 }
 
@@ -193,14 +193,14 @@ async function expirePendingMatchesForProfileChange(pool: Pool, memberId: string
   );
 }
 
-// ── Entity-triggered matching ─────────────────────────────
+// ── Content-triggered matching ────────────────────────────
 
 /**
- * Process new entity publications from club_activity.
+ * Process new content publications from club_activity.
  * - ask -> find members who can help (ask_to_member)
  * - gift/service/opportunity -> find asks it fulfils (offer_to_ask)
  */
-async function processEntityTriggers(pools: WorkerPools): Promise<number> {
+async function processContentTriggers(pools: WorkerPools): Promise<number> {
   const lastSeq = await getState(pools.db, 'activity_seq');
   const afterSeq = lastSeq ? parseInt(lastSeq, 10) : null;
 
@@ -214,12 +214,12 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
   }
 
   const result = await pools.db.query<{
-    seq: string; club_id: string; entity_id: string | null;
+    seq: string; club_id: string; content_id: string | null;
     created_by_member_id: string | null;
   }>(
-    `select seq::text as seq, club_id, entity_id, created_by_member_id
+    `select seq::text as seq, club_id, content_id, created_by_member_id
      from club_activity
-     where seq > $1 and topic = 'entity.version.published'
+     where seq > $1 and topic = 'content.version.published'
      order by seq asc limit 50`,
     [afterSeq],
   );
@@ -229,10 +229,10 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
   let matchCount = 0;
 
   for (const row of result.rows) {
-    if (!row.entity_id) continue;
+    if (!row.content_id) continue;
 
-    // Look up entity kind and current version
-    const entityResult = await pools.db.query<{
+    // Look up content kind and current version
+    const contentResult = await pools.db.query<{
       kind: string; author_member_id: string; current_version_id: string; open_loop: boolean | null; is_thread_subject: boolean;
     }>(
       `select e.kind::text as kind,
@@ -241,8 +241,8 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
               e.open_loop,
               not exists (
                 select 1
-                from entities earlier
-                where earlier.content_thread_id = e.content_thread_id
+                from contents earlier
+                where earlier.thread_id = e.thread_id
                   and earlier.archived_at is null
                   and earlier.deleted_at is null
                   and (
@@ -250,16 +250,16 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
                     or (earlier.created_at = e.created_at and earlier.id < e.id)
                   )
               ) as is_thread_subject
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
-       where e.id = $1 and e.deleted_at is null and cev.state = 'published'`,
-      [row.entity_id],
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
+      where e.id = $1 and e.deleted_at is null and cev.state = 'published'`,
+      [row.content_id],
     );
-    const entity = entityResult.rows[0];
-    if (!entity) continue;
-    if (!entity.is_thread_subject) continue;
-    if (entity.open_loop === false) continue;
-    const kind = entity.kind;
+    const content = contentResult.rows[0];
+    if (!content) continue;
+    if (!content.is_thread_subject) continue;
+    if (content.open_loop === false) continue;
+    const kind = content.kind;
 
     const authorId = row.created_by_member_id;
     if (!authorId) continue;
@@ -268,31 +268,31 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
       // Expire pending matches from a previous version of this ask (ask_to_member),
       // and also expire pending offer_to_ask matches that reference this ask,
       // since the ask content has changed and the match may no longer be valid.
-      await expirePendingMatchesForSource(pools.db, row.entity_id);
-      await expirePendingMatchesReferencingAsk(pools.db, row.entity_id);
+      await expirePendingMatchesForSource(pools.db, row.content_id);
+      await expirePendingMatchesReferencingAsk(pools.db, row.content_id);
 
-      const candidates = await findMembersMatchingEntity(
-        pools.db, row.entity_id, row.club_id, authorId, MATCH_CANDIDATES_LIMIT,
+      const candidates = await findMembersMatchingContent(
+        pools.db, row.content_id, row.club_id, authorId, MATCH_CANDIDATES_LIMIT,
       );
       for (const c of candidates) {
         if (c.distance > SIMILARITY_THRESHOLD) continue;
         const id = await createMatch(pools.db, {
           clubId: row.club_id,
           matchKind: 'ask_to_member',
-          sourceId: row.entity_id,
+          sourceId: row.content_id,
           targetMemberId: c.memberId,
           score: c.distance,
           expiresAt: matchExpiresAt('ask_to_member'),
-          payload: { sourceVersionId: entity.current_version_id },
+          payload: { sourceVersionId: content.current_version_id },
         });
         if (id) matchCount++;
       }
     } else if (kind === 'service' || kind === 'opportunity' || kind === 'gift') {
       // Expire any pending matches from a previous version of this offer
-      await expirePendingMatchesForSource(pools.db, row.entity_id);
+      await expirePendingMatchesForSource(pools.db, row.content_id);
 
       const candidates = await findAskMatchingOffer(
-        pools.db, row.entity_id, row.club_id, MATCH_CANDIDATES_LIMIT,
+        pools.db, row.content_id, row.club_id, MATCH_CANDIDATES_LIMIT,
         authorId, // exclude self-matches: ask author == offer author
       );
       for (const c of candidates) {
@@ -300,14 +300,14 @@ async function processEntityTriggers(pools: WorkerPools): Promise<number> {
         const id = await createMatch(pools.db, {
           clubId: row.club_id,
           matchKind: 'offer_to_ask',
-          sourceId: row.entity_id,
+          sourceId: row.content_id,
           targetMemberId: c.authorMemberId,
           score: c.distance,
           expiresAt: matchExpiresAt('offer_to_ask'),
           payload: {
-            matchedAskEntityId: c.entityId,
-            matchedAskVersionId: c.entityVersionId,
-            sourceVersionId: entity.current_version_id,
+            matchedAskContentId: c.contentId,
+            matchedAskVersionId: c.contentVersionId,
+            sourceVersionId: content.current_version_id,
           },
         });
         if (id) matchCount++;
@@ -690,7 +690,7 @@ async function deliverOneMatch(
       }
     }
 
-    // For entity matches: verify recipient is still accessible in this club
+    // For content matches: verify recipient is still accessible in this club
     if (match.match_kind === 'ask_to_member' || match.match_kind === 'offer_to_ask') {
       const recipientAccessible = await pools.db.query<{ exists: boolean }>(
         `select exists(
@@ -706,25 +706,25 @@ async function deliverOneMatch(
     }
 
     if (match.match_kind === 'ask_to_member') {
-      const valid = await isEntityPublished(client, match.source_id);
-      const stillOpen = await isEntityLoopOpen(client, match.source_id);
+      const valid = await isContentPublished(client, match.source_id);
+      const stillOpen = await isContentLoopOpen(client, match.source_id);
       if (!valid || !stillOpen) { await expireAndCommit(client, match.id); return 'expired'; }
 
-      const drifted = await hasEntityVersionDrifted(client, match.source_id, match.payload as Record<string, unknown>);
+      const drifted = await hasContentVersionDrifted(client, match.source_id, match.payload as Record<string, unknown>);
       if (drifted) { await expireAndCommit(client, match.id); return 'expired'; }
     }
 
     if (match.match_kind === 'offer_to_ask') {
       const payload = match.payload as Record<string, unknown>;
-      const matchedAskId = payload.matchedAskEntityId as string | undefined;
-      const offerValid = await isEntityPublished(client, match.source_id);
-      const askValid = matchedAskId ? await isEntityPublished(client, matchedAskId) : false;
-      const offerOpen = await isEntityLoopOpen(client, match.source_id);
-      const askOpen = matchedAskId ? await isEntityLoopOpen(client, matchedAskId) : false;
+      const matchedAskId = payload.matchedAskContentId as string | undefined;
+      const offerValid = await isContentPublished(client, match.source_id);
+      const askValid = matchedAskId ? await isContentPublished(client, matchedAskId) : false;
+      const offerOpen = await isContentLoopOpen(client, match.source_id);
+      const askOpen = matchedAskId ? await isContentLoopOpen(client, matchedAskId) : false;
       if (!offerValid || !askValid || !offerOpen || !askOpen) { await expireAndCommit(client, match.id); return 'expired'; }
 
       // Version drift: check both the offer and the matched ask
-      const offerDrifted = await hasEntityVersionDrifted(client, match.source_id, payload);
+      const offerDrifted = await hasContentVersionDrifted(client, match.source_id, payload);
       if (offerDrifted) { await expireAndCommit(client, match.id); return 'expired'; }
 
       if (matchedAskId) {
@@ -748,7 +748,7 @@ async function deliverOneMatch(
     // ── Insert signal + transition match atomically ──
     // ON CONFLICT DO NOTHING on match_id: idempotent on crash-retry.
     const signalResult = await client.query<{ id: string }>(
-      `insert into member_notifications (club_id, recipient_member_id, topic, payload, entity_id, match_id)
+      `insert into member_notifications (club_id, recipient_member_id, topic, payload, content_id, match_id)
        values ($1, $2, $3, $4::jsonb, $5, $6)
        on conflict ((match_id)) where match_id is not null do nothing
        returning id`,
@@ -807,22 +807,22 @@ async function expireAndCommit(client: PoolClient, matchId: string): Promise<voi
 }
 
 /**
- * Check if the current published version of an entity differs from the
+ * Check if the current published version of a content item differs from the
  * version that was used when the match was computed. If the payload has
  * no sourceVersionId, we cannot verify — treat as drifted (conservative).
  */
-async function hasEntityVersionDrifted(
+async function hasContentVersionDrifted(
   queryable: Pool | PoolClient,
-  entityId: string,
+  contentId: string,
   matchPayload: Record<string, unknown>,
 ): Promise<boolean> {
   const recordedVersionId = matchPayload.sourceVersionId as string | undefined;
   if (!recordedVersionId) return true; // no version recorded — assume stale
 
   const result = await queryable.query<{ id: string }>(
-    `select cev.id from current_entity_versions cev
-     where cev.entity_id = $1 and cev.state = 'published'`,
-    [entityId],
+    `select cev.id from current_content_versions cev
+     where cev.content_id = $1 and cev.state = 'published'`,
+    [contentId],
   );
   const currentVersionId = result.rows[0]?.id;
   return currentVersionId !== recordedVersionId;
@@ -835,16 +835,16 @@ async function hasEntityVersionDrifted(
  */
 async function hasAskVersionDrifted(
   queryable: Pool | PoolClient,
-  askEntityId: string,
+  askContentId: string,
   matchPayload: Record<string, unknown>,
 ): Promise<boolean> {
   const recordedVersionId = matchPayload.matchedAskVersionId as string | undefined;
   if (!recordedVersionId) return true; // no version recorded — assume stale
 
   const result = await queryable.query<{ id: string }>(
-    `select cev.id from current_entity_versions cev
-     where cev.entity_id = $1 and cev.state = 'published'`,
-    [askEntityId],
+    `select cev.id from current_content_versions cev
+     where cev.content_id = $1 and cev.state = 'published'`,
+    [askContentId],
   );
   const currentVersionId = result.rows[0]?.id;
   return currentVersionId !== recordedVersionId;
@@ -855,31 +855,31 @@ async function buildSignalPayload(
   match: { matchKind: string; sourceId: string; targetMemberId: string; clubId: string; score: number; payload: Record<string, unknown> },
 ): Promise<Record<string, unknown>> {
   // Signal payloads are ID-first: stable identifiers + score + author identity.
-  // No denormalized entity titles or summaries — agents fetch current details
-  // via entity IDs. This prevents removed/edited entity content from leaking
+  // No denormalized content titles or summaries — agents fetch current details
+  // via content IDs. This prevents removed/edited content from leaking
   // through stale signal payloads.
 
   if (match.matchKind === 'ask_to_member') {
-    const entity = await loadEntityInfo(pools.db, match.sourceId);
-    const author = entity ? await loadMemberInfo(pools.db, entity.authorMemberId) : null;
+    const content = await loadContentInfo(pools.db, match.sourceId);
+    const author = content ? await loadMemberInfo(pools.db, content.authorMemberId) : null;
     return {
       kind: 'synchronicity.ask_to_member',
-      askEntityId: match.sourceId,
+      askContentId: match.sourceId,
       askAuthor: author ? { memberId: author.memberId, publicName: author.publicName } : null,
       matchScore: match.score,
     };
   }
 
   if (match.matchKind === 'offer_to_ask') {
-    const offerEntity = await loadEntityInfo(pools.db, match.sourceId);
-    const offerAuthor = offerEntity ? await loadMemberInfo(pools.db, offerEntity.authorMemberId) : null;
-    const matchedAskEntityId = match.payload.matchedAskEntityId as string | undefined;
+    const offerContent = await loadContentInfo(pools.db, match.sourceId);
+    const offerAuthor = offerContent ? await loadMemberInfo(pools.db, offerContent.authorMemberId) : null;
+    const matchedAskContentId = match.payload.matchedAskContentId as string | undefined;
 
     return {
       kind: 'synchronicity.offer_to_ask',
-      offerEntityId: match.sourceId,
+      offerContentId: match.sourceId,
       offerAuthor: offerAuthor ? { memberId: offerAuthor.memberId, publicName: offerAuthor.publicName } : null,
-      yourAskEntityId: matchedAskEntityId ?? null,
+      yourAskContentId: matchedAskContentId ?? null,
       matchScore: match.score,
     };
   }
@@ -900,35 +900,35 @@ async function buildSignalPayload(
   };
 }
 
-async function isEntityPublished(queryable: Pool | PoolClient, entityId: string): Promise<boolean> {
+async function isContentPublished(queryable: Pool | PoolClient, contentId: string): Promise<boolean> {
   const result = await queryable.query<{ state: string }>(
-    `select cev.state from current_entity_versions cev
-     join entities e on e.id = cev.entity_id
+    `select cev.state from current_content_versions cev
+     join contents e on e.id = cev.content_id
      where e.id = $1 and e.deleted_at is null`,
-    [entityId],
+    [contentId],
   );
   return result.rows[0]?.state === 'published';
 }
 
-async function isEntityLoopOpen(queryable: Pool | PoolClient, entityId: string): Promise<boolean> {
+async function isContentLoopOpen(queryable: Pool | PoolClient, contentId: string): Promise<boolean> {
   const result = await queryable.query<{ open_loop: boolean | null }>(
-    `select open_loop from entities where id = $1 and deleted_at is null`,
-    [entityId],
+    `select open_loop from contents where id = $1 and deleted_at is null`,
+    [contentId],
   );
   return result.rows[0]?.open_loop === true;
 }
 
-async function loadEntityInfo(pool: Pool, entityId: string): Promise<{
+async function loadContentInfo(pool: Pool, contentId: string): Promise<{
   title: string | null; summary: string | null; kind: string; authorMemberId: string;
 } | null> {
   const result = await pool.query<{
     title: string | null; summary: string | null; kind: string; author_member_id: string;
   }>(
     `select cev.title, cev.summary, e.kind::text as kind, e.author_member_id
-     from current_entity_versions cev
-     join entities e on e.id = cev.entity_id
+     from current_content_versions cev
+     join contents e on e.id = cev.content_id
      where e.id = $1 and cev.state = 'published'`,
-    [entityId],
+    [contentId],
   );
   return result.rows[0] ? {
     title: result.rows[0].title,
@@ -990,8 +990,8 @@ async function processBackstopSweep(pools: WorkerPools): Promise<number> {
 async function processSynchronicity(pools: WorkerPools): Promise<number> {
   let total = 0;
 
-  // 1. Entity-triggered matching (reactive)
-  total += await processEntityTriggers(pools);
+  // 1. Content-triggered matching (reactive)
+  total += await processContentTriggers(pools);
 
   // 2. Profile embedding triggers → enqueue intro recompute (reactive)
   total += await processProfileTriggers(pools);
@@ -1044,4 +1044,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
 }
 
-export { processSynchronicity, processEntityTriggers, processProfileTriggers, processMemberAccessibilityTriggers, processIntroRecompute, processBackstopSweep, deliverMatches };
+export { processSynchronicity, processContentTriggers, processProfileTriggers, processMemberAccessibilityTriggers, processIntroRecompute, processBackstopSweep, deliverMatches };

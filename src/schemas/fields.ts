@@ -12,11 +12,11 @@ import { SLUG_REGEX } from '../identity/slugs.ts';
 
 // ── Enums ────────────────────────────────────────────────
 
-export const entityKind = z.enum(['post', 'opportunity', 'service', 'ask', 'gift', 'event']);
-export type EntityKind = z.infer<typeof entityKind>;
+export const contentKind = z.enum(['post', 'opportunity', 'service', 'ask', 'gift', 'event']);
+export type ContentKind = z.infer<typeof contentKind>;
 
-export const entityState = z.enum(['draft', 'published', 'removed']);
-export type EntityState = z.infer<typeof entityState>;
+export const contentState = z.enum(['draft', 'published', 'removed']);
+export type ContentState = z.infer<typeof contentState>;
 
 export const membershipState = z.enum([
   'applying',
@@ -265,15 +265,15 @@ export const parseEmail = safeString.pipe(z.string().trim().min(1).max(500))
   .refine(s => s.includes('@'), 'Must look like an email address');
 
 /**
- * Wire: entity kinds array filter
+ * Wire: content kinds array filter
  */
-export const wireEntityKinds = z.array(entityKind).min(1).optional()
-  .describe('Filter by entity kind. Defaults to all kinds.');
+export const wireContentKinds = z.array(contentKind).min(1).optional()
+  .describe('Filter by content kind. Defaults to all kinds.');
 
 /**
  * Parse: defaults to all kinds, deduplicates.
  */
-export const parseEntityKinds = z.array(entityKind).min(1)
+export const parseContentKinds = z.array(contentKind).min(1)
   .optional()
   .default(['post', 'opportunity', 'service', 'ask', 'gift', 'event'])
   .transform(kinds => [...new Set(kinds)]);

@@ -18,7 +18,7 @@ import {
   wireLimit, parseLimit,
   wireCursor, parseCursor,
   wireSlug, parseSlug,
-  entityKind,
+  contentKind,
   membershipRole, membershipCreateInitialStatus,
 } from './fields.ts';
 import {
@@ -481,7 +481,7 @@ const superadminClubsUpdate: ActionDefinition = {
 
 type SuperadminContentListInput = {
   clubId?: string;
-  kind?: z.infer<typeof entityKind>;
+  kind?: z.infer<typeof contentKind>;
   limit: number;
   cursor: string | null;
 };
@@ -498,7 +498,7 @@ const superadminContentList: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.optional().describe('Filter by club'),
-      kind: entityKind.optional().describe('Filter by entity kind'),
+      kind: contentKind.optional().describe('Filter by content kind'),
       limit: wireLimit,
       cursor: wireCursor,
     }),
@@ -513,7 +513,7 @@ const superadminContentList: ActionDefinition = {
   parse: {
     input: z.object({
       clubId: parseRequiredString.optional(),
-      kind: entityKind.optional().catch(undefined),
+      kind: contentKind.optional().catch(undefined),
       limit: parseLimit,
       cursor: parseCursor,
     }),

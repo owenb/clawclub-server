@@ -15,9 +15,9 @@ export type SimilarityResult = {
   distance: number;
 };
 
-export type EntityMatchResult = {
-  entityId: string;
-  entityVersionId: string;
+export type ContentMatchResult = {
+  contentId: string;
+  contentVersionId: string;
   authorMemberId: string;
   distance: number;
 };
@@ -25,25 +25,25 @@ export type EntityMatchResult = {
 // ── Helpers ───────────────────────────────────────────────
 
 /**
- * Load the embedding vector for an entity's CURRENT published version.
+ * Load the embedding vector for a content item's current published version.
  * Returns null if no embedding exists for the current version.
  *
- * Only uses embeddings whose entity_version_id matches the current
- * published version. If the entity has been edited but the new
+ * Only uses embeddings whose content_version_id matches the current
+ * published version. If the content has been edited but the new
  * embedding isn't ready yet, returns null — preferring to skip
  * over matching on stale semantics.
  */
-async function loadEntityVector(pool: Pool, entityId: string): Promise<string | null> {
+async function loadContentVector(pool: Pool, contentId: string): Promise<string | null> {
   const result = await pool.query<{ embedding: string }>(
     `select eea.embedding::text as embedding
-     from entity_embeddings eea
-     join current_entity_versions cev
-       on cev.entity_id = eea.entity_id
-       and cev.id = eea.entity_version_id
+     from content_embeddings eea
+     join current_content_versions cev
+       on cev.content_id = eea.content_id
+       and cev.id = eea.content_version_id
        and cev.state = 'published'
-     where eea.entity_id = $1
+     where eea.content_id = $1
      limit 1`,
-    [entityId],
+    [contentId],
   );
   return result.rows[0]?.embedding ?? null;
 }
@@ -76,18 +76,18 @@ async function loadProfileVector(pool: Pool, memberId: string, clubId: string): 
 // ── Public API ────────────────────────────────────────────
 
 /**
- * Find members whose profiles are semantically similar to an entity.
+ * Find members whose profiles are semantically similar to a content item.
  *
  * Use case: "who might be able to help with this ask?"
  */
-export async function findMembersMatchingEntity(
+export async function findMembersMatchingContent(
   pool: Pool,
-  entityId: string,
+  contentId: string,
   clubId: string,
   excludeMemberId: string,
   limit: number,
 ): Promise<SimilarityResult[]> {
-  const vector = await loadEntityVector(pool, entityId);
+  const vector = await loadContentVector(pool, contentId);
   if (!vector) return [];
 
   // Only match against embeddings for the current profile version.
@@ -152,34 +152,34 @@ export async function findSimilarMembers(
 }
 
 /**
- * Find existing ask entities that a new offer (gift/service/opportunity) could fulfil.
+ * Find existing ask contents that a new offer (gift/service/opportunity) could fulfil.
  *
  * Use case: "does this new service match any existing asks?"
  * Returns the ask's author_member_id so the caller knows who to signal.
  */
 export async function findAskMatchingOffer(
   pool: Pool,
-  offerEntityId: string,
+  offerContentId: string,
   clubId: string,
   limit: number,
   excludeAuthorId?: string,
-): Promise<EntityMatchResult[]> {
-  const vector = await loadEntityVector(pool, offerEntityId);
+): Promise<ContentMatchResult[]> {
+  const vector = await loadContentVector(pool, offerContentId);
   if (!vector) return [];
 
   const result = await pool.query<{
-    entity_id: string; entity_version_id: string; author_member_id: string; distance: number;
+    content_id: string; content_version_id: string; author_member_id: string; distance: number;
   }>(
-    `select eea.entity_id,
-            cev.id as entity_version_id,
+    `select eea.content_id,
+            cev.id as content_version_id,
             e.author_member_id,
             min(eea.embedding <=> $1::vector) as distance
-     from entity_embeddings eea
-     join current_entity_versions cev
-       on cev.entity_id = eea.entity_id
-       and cev.id = eea.entity_version_id
+     from content_embeddings eea
+     join current_content_versions cev
+       on cev.content_id = eea.content_id
+       and cev.id = eea.content_version_id
        and cev.state = 'published'
-     join entities e on e.id = eea.entity_id
+     join contents e on e.id = eea.content_id
      where e.club_id = $2
        and e.kind = 'ask'
        and e.id <> $3
@@ -187,15 +187,15 @@ export async function findAskMatchingOffer(
        and e.open_loop = true
        and (cev.expires_at is null or cev.expires_at > now())
        and ($5::text is null or e.author_member_id <> $5)
-     group by eea.entity_id, cev.id, e.author_member_id
+     group by eea.content_id, cev.id, e.author_member_id
      order by distance asc
      limit $4`,
-    [vector, clubId, offerEntityId, limit, excludeAuthorId ?? null],
+    [vector, clubId, offerContentId, limit, excludeAuthorId ?? null],
   );
 
   return result.rows.map(r => ({
-    entityId: r.entity_id,
-    entityVersionId: r.entity_version_id,
+    contentId: r.content_id,
+    contentVersionId: r.content_version_id,
     authorMemberId: r.author_member_id,
     distance: r.distance,
   }));

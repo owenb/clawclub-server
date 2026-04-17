@@ -9,14 +9,14 @@ import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   wirePatchString, parsePatchString,
-  wireEntityKinds, parseEntityKinds,
-  entityKind,
+  wireContentKinds, parseContentKinds,
+  contentKind,
   wireCursor, parseCursor, decodeCursor,
   wireLimitOf, parseLimitOf,
   wireEventFieldsCreate, parseEventFieldsCreate,
   wireEventFieldsPatch, parseEventFieldsPatch,
 } from './fields.ts';
-import { contentEntity, contentEntitySearchResult, contentThreadSummary, includedBundle, membershipSummary } from './responses.ts';
+import { content, contentSearchResult, contentThread, includedBundle, membershipSummary } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult, type LlmGateBuildContext } from './registry.ts';
 
 type EventInput = {
@@ -103,7 +103,7 @@ function parseIsoDate(value: string, fieldName: string): Date {
 }
 
 function validateCreatePayload(input: {
-  kind: z.infer<typeof entityKind>;
+  kind: z.infer<typeof contentKind>;
   title: string | null;
   summary: string | null;
   body: string | null;
@@ -155,7 +155,7 @@ function validateUpdateEventPatch(event?: Partial<EventInput> | null): void {
 type CreateInput = {
   clubId?: string;
   threadId?: string;
-  kind: z.infer<typeof entityKind>;
+  kind: z.infer<typeof contentKind>;
   title: string | null;
   summary: string | null;
   body: string | null;
@@ -180,7 +180,7 @@ async function buildCreateArtifact(input: CreateInput): Promise<GatedArtifact> {
 
   return {
     kind: 'content',
-    entityKind: input.kind,
+    contentKind: input.kind,
     isReply: Boolean(input.threadId),
     title: input.title,
     summary: input.summary,
@@ -188,7 +188,7 @@ async function buildCreateArtifact(input: CreateInput): Promise<GatedArtifact> {
   };
 }
 
-const entitiesCreate: ActionDefinition = {
+const contentsCreate: ActionDefinition = {
   action: 'content.create',
   domain: 'content',
   description: 'Create public content or respond inside an existing content thread.',
@@ -204,7 +204,7 @@ const entitiesCreate: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.optional().describe('Required when starting a new thread. Ignored when threadId is provided.'),
       threadId: wireRequiredString.optional().describe('Existing content thread to respond to. Omit to start a new thread.'),
-      kind: entityKind.describe('Content kind'),
+      kind: contentKind.describe('Content kind'),
       title: wireOptionalString.describe('Title'),
       summary: wireOptionalString.describe('Summary'),
       body: wireOptionalString.describe('Body text'),
@@ -212,14 +212,14 @@ const entitiesCreate: ActionDefinition = {
       clientKey: wireOptionalString.describe('Idempotency key scoped per member.'),
       event: wireEventFieldsCreate.describe('Required when kind=event.'),
     }),
-    output: z.object({ entity: contentEntity, included: includedBundle }),
+    output: z.object({ content, included: includedBundle }),
   },
 
   parse: {
     input: z.object({
       clubId: parseRequiredString.optional(),
       threadId: parseRequiredString.optional(),
-      kind: entityKind,
+      kind: contentKind,
       title: parseTrimmedNullableString.default(null),
       summary: parseTrimmedNullableString.default(null),
       body: parseTrimmedNullableString.default(null),
@@ -240,7 +240,7 @@ const entitiesCreate: ActionDefinition = {
     if (!parsed.threadId && !parsed.clubId) {
       throw new AppError(400, 'invalid_input', 'clubId is required when starting a new thread');
     }
-    await ctx.repository.preflightCreateEntityMentions?.({
+    await ctx.repository.preflightCreateContentMentions?.({
       actorMemberId: ctx.actor.member.id,
       actorClubIds: ctx.actor.memberships.map((membership) => membership.clubId),
       clubId: parsed.clubId,
@@ -276,17 +276,17 @@ const entitiesCreate: ActionDefinition = {
       ...(parsed.event ? { event: parsed.event } : {}),
     };
 
-    const result = await ctx.repository.createEntity(createInput);
+    const result = await ctx.repository.createContent(createInput);
 
     return {
       data: result,
-      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
+      requestScope: { requestedClubId: result.content.clubId, activeClubIds: [result.content.clubId] },
     };
   },
 };
 
 type UpdateInput = {
-  entityId: string;
+  id: string;
   title?: string | null;
   summary?: string | null;
   body?: string | null;
@@ -295,20 +295,20 @@ type UpdateInput = {
 };
 
 async function buildUpdateArtifact(input: UpdateInput, ctx: LlmGateBuildContext): Promise<GatedArtifact> {
-  const current = await ctx.repository.loadEntityForGate?.({
+  const current = await ctx.repository.loadContentForGate?.({
     actorMemberId: ctx.actor.member.id,
-    entityId: input.entityId,
+    id: input.id,
     accessibleClubIds: ctx.actor.memberships.map((membership) => membership.clubId),
   });
   if (!current) {
-    throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+    throw new AppError(404, 'not_found', 'Content not found inside the actor scope');
   }
 
   const title = input.title !== undefined ? input.title : current.title;
   const summary = input.summary !== undefined ? input.summary : current.summary;
   const body = input.body !== undefined ? input.body : current.body;
 
-  if (current.entityKind === 'event') {
+  if (current.contentKind === 'event') {
     return {
       kind: 'event',
       title,
@@ -323,7 +323,7 @@ async function buildUpdateArtifact(input: UpdateInput, ctx: LlmGateBuildContext)
 
   return {
     kind: 'content',
-    entityKind: current.entityKind,
+    contentKind: current.contentKind,
     isReply: current.isReply,
     title,
     summary,
@@ -331,10 +331,10 @@ async function buildUpdateArtifact(input: UpdateInput, ctx: LlmGateBuildContext)
   };
 }
 
-const entitiesUpdate: ActionDefinition = {
+const contentsUpdate: ActionDefinition = {
   action: 'content.update',
   domain: 'content',
-  description: 'Update an existing content entity (author only).',
+  description: 'Update existing public content (author only).',
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Only the original author may update. At least one field must change.',
@@ -342,26 +342,26 @@ const entitiesUpdate: ActionDefinition = {
 
   wire: {
     input: z.object({
-      entityId: wireRequiredString.describe('Entity to update'),
+      id: wireRequiredString.describe('Content to update'),
       title: wirePatchString.describe('New title'),
       summary: wirePatchString.describe('New summary'),
       body: wirePatchString.describe('New body text'),
       expiresAt: wirePatchString.describe('New expiration timestamp'),
-      event: wireEventFieldsPatch.describe('Event patch fields (only valid for event entities)'),
+      event: wireEventFieldsPatch.describe('Event patch fields (only valid for event contents)'),
     }),
-    output: z.object({ entity: contentEntity, included: includedBundle }),
+    output: z.object({ content, included: includedBundle }),
   },
 
   parse: {
     input: z.object({
-      entityId: parseRequiredString,
+      id: parseRequiredString,
       title: parsePatchString,
       summary: parsePatchString,
       body: parsePatchString,
       expiresAt: parsePatchString,
       event: parseEventFieldsPatch,
     }).refine(input => {
-      const { entityId: _entityId, ...patch } = input;
+      const { id: _id, ...patch } = input;
       return Object.values(patch).some(value => value !== undefined);
     }, 'content.update requires at least one field to change'),
   },
@@ -374,10 +374,10 @@ const entitiesUpdate: ActionDefinition = {
   preGate: async (input, ctx) => {
     const parsed = input as UpdateInput;
     validateUpdateEventPatch(parsed.event);
-    await ctx.repository.preflightUpdateEntityMentions?.({
+    await ctx.repository.preflightUpdateContentMentions?.({
       actorMemberId: ctx.actor.member.id,
       actorClubIds: ctx.actor.memberships.map((membership) => membership.clubId),
-      entityId: parsed.entityId,
+      id: parsed.id,
       patch: {
         title: parsed.title,
         summary: parsed.summary,
@@ -387,7 +387,7 @@ const entitiesUpdate: ActionDefinition = {
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { entityId, ...patchFields } = input as UpdateInput;
+    const { id, ...patchFields } = input as UpdateInput;
     validateUpdateEventPatch(patchFields.event);
 
     const patch: Record<string, unknown> = {};
@@ -397,10 +397,10 @@ const entitiesUpdate: ActionDefinition = {
       }
     }
 
-    const result = await ctx.repository.updateEntity({
+    const result = await ctx.repository.updateContent({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
-      entityId,
+      id,
       patch: patch as {
         title?: string | null;
         summary?: string | null;
@@ -411,65 +411,107 @@ const entitiesUpdate: ActionDefinition = {
     });
 
     if (!result) {
-      throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+      throw new AppError(404, 'not_found', 'Content not found inside the actor scope');
     }
 
     return {
       data: result,
-      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
+      requestScope: { requestedClubId: result.content.clubId, activeClubIds: [result.content.clubId] },
     };
   },
 };
 
-const entitiesRemove: ActionDefinition = {
-  action: 'content.remove',
+const contentGet: ActionDefinition = {
+  action: 'content.get',
   domain: 'content',
-  description: 'Remove an entity inside a public content thread (author only).',
+  description: 'Read a single public content item by id.',
   auth: 'member',
-  safety: 'mutating',
-  authorizationNote: 'Only the original author may remove their own entity.',
+  safety: 'read_only',
 
   wire: {
     input: z.object({
-      entityId: wireRequiredString.describe('Entity to remove'),
-      reason: wireOptionalString.describe('Reason for removal (optional)'),
+      id: wireRequiredString.describe('Content id'),
     }),
-    output: z.object({ entity: contentEntity, included: includedBundle }),
+    output: z.object({ content, included: includedBundle }),
   },
 
   parse: {
     input: z.object({
-      entityId: parseRequiredString,
-      reason: parseTrimmedNullableString.default(null),
+      id: parseRequiredString,
     }),
   },
 
-  requiredCapability: 'removeEntity',
-
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { entityId, reason } = input as { entityId: string; reason: string | null };
-    ctx.requireCapability('removeEntity');
-
-    const result = await ctx.repository.removeEntity!({
+    const { id } = input as { id: string };
+    const result = await ctx.repository.readContent?.({
       actorMemberId: ctx.actor.member.id,
-      accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
-      entityId,
-      reason,
+      accessibleMemberships: ctx.actor.memberships.map(membership => ({
+        membershipId: membership.membershipId,
+        clubId: membership.clubId,
+      })),
+      id,
     });
 
     if (!result) {
-      throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+      throw new AppError(404, 'not_found', 'Content not found inside the actor scope');
     }
 
     return {
       data: result,
-      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
+      requestScope: { requestedClubId: result.content.clubId, activeClubIds: [result.content.clubId] },
+    };
+  },
+};
+
+const contentsRemove: ActionDefinition = {
+  action: 'content.remove',
+  domain: 'content',
+  description: 'Remove content inside a public content thread (author only).',
+  auth: 'member',
+  safety: 'mutating',
+  authorizationNote: 'Only the original author may remove their own content.',
+
+  wire: {
+    input: z.object({
+      id: wireRequiredString.describe('Content to remove'),
+      reason: wireOptionalString.describe('Reason for removal (optional)'),
+    }),
+    output: z.object({ content, included: includedBundle }),
+  },
+
+  parse: {
+    input: z.object({
+      id: parseRequiredString,
+      reason: parseTrimmedNullableString.default(null),
+    }),
+  },
+
+  requiredCapability: 'removeContent',
+
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { id, reason } = input as { id: string; reason: string | null };
+    ctx.requireCapability('removeContent');
+
+    const result = await ctx.repository.removeContent!({
+      actorMemberId: ctx.actor.member.id,
+      accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
+      id,
+      reason,
+    });
+
+    if (!result) {
+      throw new AppError(404, 'not_found', 'Content not found inside the actor scope');
+    }
+
+    return {
+      data: result,
+      requestScope: { requestedClubId: result.content.clubId, activeClubIds: [result.content.clubId] },
     };
   },
 };
 
 type GetThreadInput = {
-  entityId?: string;
+  contentId?: string;
   threadId?: string;
   includeClosed: boolean;
   limit: number;
@@ -479,21 +521,21 @@ type GetThreadInput = {
 const contentGetThread: ActionDefinition = {
   action: 'content.getThread',
   domain: 'content',
-  description: 'Read a public content thread by thread ID or any entity ID inside it.',
+  description: 'Read a public content thread by thread ID or any content ID inside it.',
   auth: 'member',
   safety: 'read_only',
 
   wire: {
     input: z.object({
-      entityId: wireRequiredString.optional().describe('Any entity ID inside the target thread'),
+      contentId: wireRequiredString.optional().describe('Any content id inside the target thread'),
       threadId: wireRequiredString.optional().describe('Thread ID to read directly'),
       includeClosed: z.boolean().optional().describe('Include closed asks, gifts, services, and opportunities in thread reads'),
       limit: wireLimitOf(50),
       cursor: wireCursor,
     }),
     output: z.object({
-      thread: contentThreadSummary,
-      entities: z.array(contentEntity),
+      thread: contentThread,
+      contents: z.array(content),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
       included: includedBundle,
@@ -502,23 +544,23 @@ const contentGetThread: ActionDefinition = {
 
   parse: {
     input: z.object({
-      entityId: parseRequiredString.optional(),
+      contentId: parseRequiredString.optional(),
       threadId: parseRequiredString.optional(),
       includeClosed: z.boolean().optional().default(false),
       limit: parseLimitOf(20, 50),
       cursor: parseCursor,
     }).refine(
-      input => !!input.entityId !== !!input.threadId,
-      'Provide exactly one of entityId or threadId',
+      input => !!input.contentId !== !!input.threadId,
+      'Provide exactly one of contentId or threadId',
     ),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { entityId, threadId, includeClosed, limit, cursor: rawCursor } = input as GetThreadInput;
+    const { contentId, threadId, includeClosed, limit, cursor: rawCursor } = input as GetThreadInput;
     const cursor = rawCursor
       ? (() => {
-        const [createdAt, entityCursorId] = decodeCursor(rawCursor, 2);
-        return { createdAt, entityId: entityCursorId };
+        const [createdAt, cursorContentId] = decodeCursor(rawCursor, 2);
+        return { createdAt, contentId: cursorContentId };
       })()
       : null;
 
@@ -529,7 +571,7 @@ const contentGetThread: ActionDefinition = {
         clubId: m.clubId,
       })),
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
-      entityId,
+      contentId,
       threadId,
       includeClosed,
       limit,
@@ -549,14 +591,14 @@ const contentGetThread: ActionDefinition = {
 
 type ListInput = {
   clubId?: string;
-  kinds: z.infer<typeof entityKind>[];
+  kinds: z.infer<typeof contentKind>[];
   query?: string | null;
   includeClosed: boolean;
   limit: number;
   cursor: string | null;
 };
 
-const entitiesList: ActionDefinition = {
+const contentsList: ActionDefinition = {
   action: 'content.list',
   domain: 'content',
   description: 'List public content threads ordered by thread activity.',
@@ -566,19 +608,19 @@ const entitiesList: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
-      kinds: wireEntityKinds,
-      query: wireOptionalString.describe('Search first-entity text'),
-      includeClosed: z.boolean().optional().describe('Include closed first-entity asks, gifts, services, and opportunities'),
+      kinds: wireContentKinds,
+      query: wireOptionalString.describe('Search first-content text'),
+      includeClosed: z.boolean().optional().describe('Include closed first-content asks, gifts, services, and opportunities'),
       limit: wireLimitOf(20),
       cursor: wireCursor,
     }),
     output: z.object({
       query: z.string().nullable(),
-      kinds: z.array(entityKind),
+      kinds: z.array(contentKind),
       includeClosed: z.boolean(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-      results: z.array(contentThreadSummary),
+      results: z.array(contentThread),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
       included: includedBundle,
@@ -588,7 +630,7 @@ const entitiesList: ActionDefinition = {
   parse: {
     input: z.object({
       clubId: parseRequiredString.optional(),
-      kinds: parseEntityKinds,
+      kinds: parseContentKinds,
       query: parseTrimmedNullableString,
       includeClosed: z.boolean().optional().default(false),
       limit: parseLimitOf(20, 20),
@@ -607,7 +649,7 @@ const entitiesList: ActionDefinition = {
       })()
       : null;
 
-    const result = await ctx.repository.listEntities({
+    const result = await ctx.repository.listContent({
       actorMemberId: ctx.actor.member.id,
       clubIds,
       kinds,
@@ -637,7 +679,7 @@ const entitiesList: ActionDefinition = {
   },
 };
 
-type EntitiesFindViaEmbeddingInput = {
+type ContentFindViaEmbeddingInput = {
   query: string;
   clubId?: string;
   kinds?: string[];
@@ -645,10 +687,10 @@ type EntitiesFindViaEmbeddingInput = {
   cursor: string | null;
 };
 
-const entitiesFindViaEmbedding: ActionDefinition = {
+const contentsFindViaEmbedding: ActionDefinition = {
   action: 'content.searchBySemanticSimilarity',
   domain: 'content',
-  description: 'Find public content entities by semantic similarity.',
+  description: 'Find public content contents by semantic similarity.',
   auth: 'member',
   safety: 'read_only',
 
@@ -656,7 +698,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
     input: z.object({
       query: z.string().max(1000).describe('Natural-language search query (max 1000 chars)'),
       clubId: wireRequiredString.optional().describe('Restrict to one club'),
-      kinds: z.array(entityKind).optional().describe('Filter by content kinds'),
+      kinds: z.array(contentKind).optional().describe('Filter by content kinds'),
       limit: wireLimitOf(20),
       cursor: wireCursor,
     }),
@@ -664,7 +706,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
       query: z.string(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-      results: z.array(contentEntitySearchResult),
+      results: z.array(contentSearchResult),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
       included: includedBundle,
@@ -675,18 +717,18 @@ const entitiesFindViaEmbedding: ActionDefinition = {
     input: z.object({
       query: z.string().trim().min(1).max(1000),
       clubId: parseRequiredString.optional(),
-      kinds: z.array(entityKind).optional(),
+      kinds: z.array(contentKind).optional(),
       limit: parseLimitOf(20, 20),
       cursor: parseCursor,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { query, clubId, kinds, limit, cursor: rawCursor } = input as EntitiesFindViaEmbeddingInput;
+    const { query, clubId, kinds, limit, cursor: rawCursor } = input as ContentFindViaEmbeddingInput;
     const { EMBEDDING_PROFILES, embedQueryText, isEmbeddingStubEnabled } = await import('../ai.ts');
     const { AppError: AppErr } = await import('../contract.ts');
 
-    const profile = EMBEDDING_PROFILES.entity;
+    const profile = EMBEDDING_PROFILES.content;
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey && !isEmbeddingStubEnabled()) {
       ctx.repository.logLlmUsage?.({
@@ -719,7 +761,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
     try {
       const result = await embedQueryText({
         value: query,
-        profile: 'entity',
+        profile: 'content',
       });
       embedding = result.embedding;
       usageTokens = result.usageTokens;
@@ -760,12 +802,12 @@ const entitiesFindViaEmbedding: ActionDefinition = {
     const queryVector = `[${embedding.join(',')}]`;
     const cursor = rawCursor
       ? (() => {
-        const [distance, entityId] = decodeCursor(rawCursor, 2);
-        return { distance, entityId };
+        const [distance, contentId] = decodeCursor(rawCursor, 2);
+        return { distance, contentId };
       })()
       : null;
 
-    const result = await ctx.repository.findEntitiesViaEmbedding({
+    const result = await ctx.repository.findContentViaEmbedding({
       actorMemberId: ctx.actor.member.id,
       clubIds,
       queryEmbedding: queryVector,
@@ -791,7 +833,7 @@ const entitiesFindViaEmbedding: ActionDefinition = {
   },
 };
 
-const entitiesCloseLoop: ActionDefinition = {
+const contentsCloseLoop: ActionDefinition = {
   action: 'content.closeLoop',
   domain: 'content',
   description: 'Close an open ask, gift, service, or opportunity (author only).',
@@ -801,37 +843,37 @@ const entitiesCloseLoop: ActionDefinition = {
 
   wire: {
     input: z.object({
-      entityId: wireRequiredString.describe('Entity to close'),
+      id: wireRequiredString.describe('Content to close'),
     }),
-    output: z.object({ entity: contentEntity, included: includedBundle }),
+    output: z.object({ content, included: includedBundle }),
   },
 
   parse: {
     input: z.object({
-      entityId: parseRequiredString,
+      id: parseRequiredString,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { entityId } = input as { entityId: string };
-    const result = await ctx.repository.closeEntityLoop({
+    const { id } = input as { id: string };
+    const result = await ctx.repository.closeContentLoop({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
-      entityId,
+      id,
     });
 
     if (!result) {
-      throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+      throw new AppError(404, 'not_found', 'Content not found inside the actor scope');
     }
 
     return {
       data: result,
-      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
+      requestScope: { requestedClubId: result.content.clubId, activeClubIds: [result.content.clubId] },
     };
   },
 };
 
-const entitiesReopenLoop: ActionDefinition = {
+const contentsReopenLoop: ActionDefinition = {
   action: 'content.reopenLoop',
   domain: 'content',
   description: 'Reopen a previously closed ask, gift, service, or opportunity (author only).',
@@ -841,43 +883,44 @@ const entitiesReopenLoop: ActionDefinition = {
 
   wire: {
     input: z.object({
-      entityId: wireRequiredString.describe('Entity to reopen'),
+      id: wireRequiredString.describe('Content to reopen'),
     }),
-    output: z.object({ entity: contentEntity, included: includedBundle }),
+    output: z.object({ content, included: includedBundle }),
   },
 
   parse: {
     input: z.object({
-      entityId: parseRequiredString,
+      id: parseRequiredString,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { entityId } = input as { entityId: string };
-    const result = await ctx.repository.reopenEntityLoop({
+    const { id } = input as { id: string };
+    const result = await ctx.repository.reopenContentLoop({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: ctx.actor.memberships.map(m => m.clubId),
-      entityId,
+      id,
     });
 
     if (!result) {
-      throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+      throw new AppError(404, 'not_found', 'Content not found inside the actor scope');
     }
 
     return {
       data: result,
-      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
+      requestScope: { requestedClubId: result.content.clubId, activeClubIds: [result.content.clubId] },
     };
   },
 };
 
 registerActions([
-  entitiesCreate,
-  entitiesUpdate,
-  entitiesRemove,
+  contentsCreate,
+  contentGet,
+  contentsUpdate,
+  contentsRemove,
   contentGetThread,
-  entitiesList,
-  entitiesFindViaEmbedding,
-  entitiesCloseLoop,
-  entitiesReopenLoop,
+  contentsList,
+  contentsFindViaEmbedding,
+  contentsCloseLoop,
+  contentsReopenLoop,
 ]);

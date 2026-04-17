@@ -4,16 +4,17 @@
 
 import type { Pool } from 'pg';
 import type {
-  ContentEntity,
-  EntityForGate,
-  ContentThreadSummary,
-  CreateEntityInput,
+  Content,
+  ContentForGate,
+  ContentThread,
+  CreateContentInput,
   EventFields,
   IncludedBundle,
-  ListEntitiesInput,
+  ListContentInput,
+  ReadContentInput,
   ReadContentThreadInput,
-  SetEntityLoopInput,
-  UpdateEntityInput,
+  SetContentLoopInput,
+  UpdateContentInput,
   WithIncluded,
 } from '../contract.ts';
 import { AppError } from '../contract.ts';
@@ -36,17 +37,17 @@ import {
   type ContentMentionsByField,
 } from '../mentions.ts';
 
-type ContentEntityRow = {
+type ContentRow = {
   ord?: number;
-  entity_id: string;
-  content_thread_id: string;
+  content_id: string;
+  thread_id: string;
   club_id: string;
-  kind: ContentEntity['kind'];
+  kind: Content['kind'];
   open_loop: boolean | null;
   author_member_id: string;
   author_public_name: string;
   author_display_name: string;
-  entity_version_id: string;
+  content_version_id: string;
   version_no: number;
   state: string;
   title: string | null;
@@ -55,7 +56,7 @@ type ContentEntityRow = {
   effective_at: string;
   expires_at: string | null;
   version_created_at: string;
-  entity_created_at: string;
+  content_created_at: string;
   location: string | null;
   starts_at: string | null;
   ends_at: string | null;
@@ -80,16 +81,16 @@ type ContentEntityRow = {
 type ThreadSummaryRow = {
   thread_id: string;
   club_id: string;
-  first_entity_id: string;
-  entity_count: number;
+  first_content_id: string;
+  content_count: number;
   last_activity_at: string;
 };
 
 type CurrentEntityForUpdateRow = {
-  entity_id: string;
+  content_id: string;
   club_id: string;
-  content_thread_id: string;
-  kind: ContentEntity['kind'];
+  thread_id: string;
+  kind: Content['kind'];
   is_reply?: boolean;
   author_member_id: string;
   version_id: string;
@@ -106,8 +107,8 @@ type CurrentEntityForUpdateRow = {
   capacity: number | null;
 };
 
-type EntityForGateRow = {
-  entity_kind: EntityForGate['entityKind'];
+type ContentForGateRow = {
+  content_kind: ContentForGate['contentKind'];
   is_reply: boolean;
   title: string | null;
   summary: string | null;
@@ -121,7 +122,7 @@ type EntityForGateRow = {
 type ExistingClientKeyRow = {
   id: string;
   club_id: string;
-  content_thread_id: string;
+  thread_id: string;
   kind: string;
   title: string | null;
   summary: string | null;
@@ -140,15 +141,15 @@ const LOOPABLE_KINDS = new Set(['ask', 'gift', 'service', 'opportunity']);
 
 const CONTENT_ENTITY_SELECT = `
   requested.ord,
-  e.id as entity_id,
-  e.content_thread_id,
+  e.id as content_id,
+  e.thread_id,
   e.club_id,
   e.kind::text as kind,
   e.open_loop,
   e.author_member_id,
   m.public_name as author_public_name,
   m.display_name as author_display_name,
-  cev.id as entity_version_id,
+  cev.id as content_version_id,
   cev.version_no,
   cev.state::text as state,
   cev.title,
@@ -157,7 +158,7 @@ const CONTENT_ENTITY_SELECT = `
   cev.effective_at::text as effective_at,
   cev.expires_at::text as expires_at,
   cev.created_at::text as version_created_at,
-  e.created_at::text as entity_created_at,
+  e.created_at::text as content_created_at,
   evd.location,
   evd.starts_at::text as starts_at,
   evd.ends_at::text as ends_at,
@@ -209,7 +210,7 @@ function eventFieldsEqual(row: ExistingClientKeyRow | CurrentEntityForUpdateRow,
     && (row.capacity ?? null) === normalized.capacity;
 }
 
-function initialOpenLoopForKind(kind: CreateEntityInput['kind']): boolean | null {
+function initialOpenLoopForKind(kind: CreateContentInput['kind']): boolean | null {
   return LOOPABLE_KINDS.has(kind) ? true : null;
 }
 
@@ -225,7 +226,7 @@ function parseIsoDate(value: string | null, fieldName: string): Date | null {
 function validateResolvedEventFields(event: EventFields | null): EventFields | null {
   if (!event) return null;
   if (!event.location || !event.startsAt) {
-    throw new AppError(400, 'invalid_input', 'Event entities require both event.location and event.startsAt');
+    throw new AppError(400, 'invalid_input', 'Event contents require both event.location and event.startsAt');
   }
   const startsAt = parseIsoDate(event.startsAt, 'event.startsAt');
   const endsAt = parseIsoDate(event.endsAt, 'event.endsAt');
@@ -238,11 +239,11 @@ function validateResolvedEventFields(event: EventFields | null): EventFields | n
   return event;
 }
 
-function mapContentEntityRow(row: ContentEntityRow): ContentEntity {
+function mapContentRow(row: ContentRow): Content {
   const isRemoved = row.state === 'removed';
   return {
-    entityId: row.entity_id,
-    contentThreadId: row.content_thread_id,
+    id: row.content_id,
+    threadId: row.thread_id,
     clubId: row.club_id,
     kind: row.kind,
     openLoop: row.open_loop,
@@ -253,7 +254,7 @@ function mapContentEntityRow(row: ContentEntityRow): ContentEntity {
     },
     version: {
       versionNo: row.version_no,
-      state: row.state as ContentEntity['version']['state'],
+      state: row.state as Content['version']['state'],
       title: isRemoved ? '[redacted]' : row.title,
       summary: isRemoved ? '[redacted]' : row.summary,
       body: isRemoved ? '[redacted]' : row.body,
@@ -291,16 +292,16 @@ function mapContentEntityRow(row: ContentEntityRow): ContentEntity {
           createdAt: attendee.createdAt,
         })),
       },
-    createdAt: row.entity_created_at,
+    createdAt: row.content_created_at,
   };
 }
 
-function withContentMentions(entity: ContentEntity, mentions?: ContentMentionsByField): ContentEntity {
+function withContentMentions(content: Content, mentions?: ContentMentionsByField): Content {
   return {
-    ...entity,
+    ...content,
     version: {
-      ...entity.version,
-      mentions: entity.version.state === 'removed'
+      ...content.version,
+      mentions: content.version.state === 'removed'
         ? emptyContentMentions()
         : (mentions ?? emptyContentMentions()),
     },
@@ -308,10 +309,10 @@ function withContentMentions(entity: ContentEntity, mentions?: ContentMentionsBy
 }
 
 async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): Promise<void> {
-  const profile = EMBEDDING_PROFILES.entity;
+  const profile = EMBEDDING_PROFILES.content;
   await client.query(
     `insert into ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
-     values ('entity_version', $1, $2, $3, $4)
+     values ('content_version', $1, $2, $3, $4)
      on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
     [subjectVersionId, profile.model, profile.dimensions, profile.sourceVersion],
   );
@@ -380,30 +381,30 @@ async function createThreadTarget(client: DbClient, memberId: string, clubId: st
 
 async function readContentRowsByIds(
   client: DbClient,
-  entityIds: string[],
+  contentIds: string[],
   viewerMembershipIds: string[],
   options: { includeExpired?: boolean } = {},
-): Promise<ContentEntityRow[]> {
-  if (entityIds.length === 0) return [];
+): Promise<ContentRow[]> {
+  if (contentIds.length === 0) return [];
 
-  const result = await client.query<ContentEntityRow>(
+  const result = await client.query<ContentRow>(
     `with requested as (
-       select entity_id, ord::int
-       from unnest($1::text[]) with ordinality as requested(entity_id, ord)
+       select content_id, ord::int
+       from unnest($1::text[]) with ordinality as requested(content_id, ord)
      ),
      base as (
        select ${CONTENT_ENTITY_SELECT}
        from requested
-       join entities e on e.id = requested.entity_id
-       join current_entity_versions cev on cev.entity_id = e.id
+       join contents e on e.id = requested.content_id
+       join current_content_versions cev on cev.content_id = e.id
        join members m on m.id = e.author_member_id
-       left join event_version_details evd on evd.entity_version_id = cev.id
+       left join event_version_details evd on evd.content_version_id = cev.id
        where e.archived_at is null
          and e.deleted_at is null
          and ($2::boolean or cev.expires_at is null or cev.expires_at > now())
      ),
      attendee_rows as (
-       select cer.event_entity_id,
+       select cer.event_content_id,
               cer.membership_id,
               cer.created_by_member_id as member_id,
               am.public_name,
@@ -411,12 +412,12 @@ async function readContentRowsByIds(
               cer.note,
               cer.created_at::text as created_at
        from current_event_rsvps cer
-       join requested on requested.entity_id = cer.event_entity_id
+       join requested on requested.content_id = cer.event_content_id
        join members am on am.id = cer.created_by_member_id
        where cer.response::text <> 'cancelled'
      ),
      attendee_agg as (
-       select event_entity_id,
+       select event_content_id,
               jsonb_agg(jsonb_build_object(
                 'membershipId', membership_id,
                 'memberId', member_id,
@@ -430,19 +431,19 @@ async function readContentRowsByIds(
               count(*) filter (where response = 'no')::int as no_count,
               count(*) filter (where response = 'waitlist')::int as waitlist_count
        from attendee_rows
-       group by event_entity_id
+       group by event_content_id
      ),
      viewer_rsvp as (
-       select distinct on (cer.event_entity_id)
-              cer.event_entity_id,
+       select distinct on (cer.event_content_id)
+              cer.event_content_id,
               case
                 when cer.response::text = 'cancelled' then null
                 else cer.response::text
               end as viewer_response
        from current_event_rsvps cer
-       where cer.event_entity_id = any($1::text[])
+       where cer.event_content_id = any($1::text[])
          and cer.membership_id = any($3::text[])
-       order by cer.event_entity_id, cer.version_no desc, cer.created_at desc
+       order by cer.event_content_id, cer.version_no desc, cer.created_at desc
      )
      select base.*,
             viewer_rsvp.viewer_response,
@@ -452,79 +453,105 @@ async function readContentRowsByIds(
             coalesce(attendee_agg.waitlist_count, 0) as waitlist_count,
             attendee_agg.attendees
      from base
-     left join attendee_agg on attendee_agg.event_entity_id = base.entity_id
-     left join viewer_rsvp on viewer_rsvp.event_entity_id = base.entity_id
+     left join attendee_agg on attendee_agg.event_content_id = base.content_id
+     left join viewer_rsvp on viewer_rsvp.event_content_id = base.content_id
      order by base.ord asc`,
-    [entityIds, options.includeExpired ?? false, viewerMembershipIds],
+    [contentIds, options.includeExpired ?? false, viewerMembershipIds],
   );
 
   return result.rows;
 }
 
-export async function readContentEntitiesByIds(
+export async function readContentsByIds(
   client: DbClient,
-  entityIds: string[],
+  contentIds: string[],
   viewerMembershipIds: string[],
   options: { includeExpired?: boolean } = {},
-): Promise<ContentEntity[]> {
-  const result = await readContentEntitiesBundleByIds(client, entityIds, viewerMembershipIds, options);
-  return result.entities;
+): Promise<Content[]> {
+  const result = await readContentsBundleByIds(client, contentIds, viewerMembershipIds, options);
+  return result.contents;
 }
 
-export async function readContentEntitiesBundleByIds(
+export async function readContentsBundleByIds(
   client: DbClient,
-  entityIds: string[],
+  contentIds: string[],
   viewerMembershipIds: string[],
   options: { includeExpired?: boolean } = {},
-): Promise<{ entities: ContentEntity[]; included: IncludedBundle }> {
-  const rows = await readContentRowsByIds(client, entityIds, viewerMembershipIds, options);
+): Promise<{ contents: Content[]; included: IncludedBundle }> {
+  const rows = await readContentRowsByIds(client, contentIds, viewerMembershipIds, options);
   if (rows.length === 0) {
-    return { entities: [], included: emptyIncludedBundle() };
+    return { contents: [], included: emptyIncludedBundle() };
   }
 
-  const mapped = rows.map(mapContentEntityRow);
+  const mapped = rows.map(mapContentRow);
   const { mentionsByVersionId, included } = await loadEntityVersionMentions(
     client,
-    rows.map((row) => row.entity_version_id),
+    rows.map((row) => row.content_version_id),
   );
 
-  const entities = mapped.map((entity, index) =>
-    withContentMentions(entity, mentionsByVersionId.get(rows[index]!.entity_version_id)));
+  const contents = mapped.map((content, index) =>
+    withContentMentions(content, mentionsByVersionId.get(rows[index]!.content_version_id)));
 
-  return { entities, included };
+  return { contents, included };
 }
 
-export async function readContentEntity(
+async function readContentById(
   client: DbClient,
-  entityId: string,
+  id: string,
   viewerMembershipIds: string[],
   options: { includeExpired?: boolean } = {},
-): Promise<ContentEntity | null> {
-  const result = await readContentEntityBundle(client, entityId, viewerMembershipIds, options);
-  return result.entity;
+): Promise<Content | null> {
+  const result = await readContentBundle(client, id, viewerMembershipIds, options);
+  return result.content;
 }
 
-export async function readContentEntityBundle(
+export async function readContentBundle(
   client: DbClient,
-  entityId: string,
+  id: string,
   viewerMembershipIds: string[],
   options: { includeExpired?: boolean } = {},
-): Promise<WithIncluded<{ entity: ContentEntity | null }>> {
-  const { entities, included } = await readContentEntitiesBundleByIds(client, [entityId], viewerMembershipIds, options);
+): Promise<WithIncluded<{ content: Content | null }>> {
+  const { contents, included } = await readContentsBundleByIds(client, [id], viewerMembershipIds, options);
   return {
-    entity: entities[0] ?? null,
+    content: contents[0] ?? null,
     included,
   };
 }
 
-async function insertEventVersionDetails(client: DbClient, entityVersionId: string, event: EventFields | null): Promise<void> {
+export async function readContent(
+  pool: Pool,
+  input: ReadContentInput,
+): Promise<WithIncluded<{ content: Content }> | null> {
+  return withTransaction(pool, async (client) => {
+    const accessibleClubIds = [...new Set(input.accessibleMemberships.map((membership) => membership.clubId))];
+    const target = await client.query<{ club_id: string }>(
+      `select club_id
+       from contents
+       where id = $1
+         and archived_at is null
+         and deleted_at is null
+         and club_id = any($2::text[])
+       limit 1`,
+      [input.id, accessibleClubIds],
+    );
+    const clubId = target.rows[0]?.club_id;
+    if (!clubId) return null;
+    const viewerMembershipIds = input.accessibleMemberships
+      .filter((membership) => membership.clubId === clubId)
+      .map((membership) => membership.membershipId);
+    const result = await readContentBundle(client, input.id, viewerMembershipIds, { includeExpired: false });
+    return result.content ? { content: result.content, included: result.included } : null;
+  });
+}
+
+async function insertEventVersionDetails(client: DbClient, contentVersionId: string, event: EventFields | null): Promise<void> {
   if (!event) return;
   await client.query(
     `insert into event_version_details (
-       entity_version_id, location, starts_at, ends_at, timezone, recurrence_rule, capacity
+       content_version_id, location, starts_at, ends_at, timezone, recurrence_rule, capacity
      ) values ($1, $2, $3, $4, $5, $6, $7)`,
     [
-      entityVersionId,
+      contentVersionId,
       event.location,
       event.startsAt,
       event.endsAt,
@@ -540,7 +567,7 @@ async function readExistingClientKeyRow(client: DbClient, memberId: string, clie
     `select
        e.id,
        e.club_id,
-       e.content_thread_id,
+       e.thread_id,
        e.kind::text as kind,
        cev.title,
        cev.summary,
@@ -554,8 +581,8 @@ async function readExistingClientKeyRow(client: DbClient, memberId: string, clie
        evd.capacity,
        not exists (
          select 1
-         from entities earlier
-         where earlier.content_thread_id = e.content_thread_id
+         from contents earlier
+         where earlier.thread_id = e.thread_id
            and earlier.archived_at is null
            and earlier.deleted_at is null
            and (
@@ -563,9 +590,9 @@ async function readExistingClientKeyRow(client: DbClient, memberId: string, clie
              or (earlier.created_at = e.created_at and earlier.id < e.id)
            )
        ) as is_thread_subject
-     from entities e
-     join current_entity_versions cev on cev.entity_id = e.id
-     left join event_version_details evd on evd.entity_version_id = cev.id
+     from contents e
+     join current_content_versions cev on cev.content_id = e.id
+     left join event_version_details evd on evd.content_version_id = cev.id
      where e.author_member_id = $1
        and e.client_key = $2
        and e.archived_at is null
@@ -575,7 +602,7 @@ async function readExistingClientKeyRow(client: DbClient, memberId: string, clie
   return result.rows[0] ?? null;
 }
 
-export async function createEntity(pool: Pool, input: CreateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }>> {
+export async function createContent(pool: Pool, input: CreateContentInput): Promise<WithIncluded<{ content: Content }>> {
   return withTransaction(pool, async (client) => {
     if (!input.threadId && !input.clubId) {
       throw new AppError(400, 'invalid_input', 'clubId is required when starting a new thread');
@@ -593,7 +620,7 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
       const existing = await readExistingClientKeyRow(client, input.authorMemberId, input.clientKey);
       if (existing) {
         const sameThread = input.threadId
-          ? existing.content_thread_id === existingThreadTarget?.threadId
+          ? existing.thread_id === existingThreadTarget?.threadId
           : existing.is_thread_subject;
         const samePayload =
           existing.club_id === (existingThreadTarget?.clubId ?? input.clubId) &&
@@ -606,7 +633,7 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
 
         if (!sameThread || !samePayload) {
           throw new AppError(409, 'client_key_conflict',
-            'This clientKey was already used with a different payload. Use a unique key per entity.');
+            'This clientKey was already used with a different payload. Use a unique key per content.');
         }
 
         const viewerMembershipIds = await getViewerMembershipIds(
@@ -614,8 +641,8 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
           input.authorMemberId,
           existingThreadTarget?.clubId ?? input.clubId,
         );
-        const replay = await readContentEntityBundle(client, existing.id, viewerMembershipIds, { includeExpired: true });
-        if (replay.entity) return { entity: replay.entity, included: replay.included };
+        const replay = await readContentBundle(client, existing.id, viewerMembershipIds, { includeExpired: true });
+        if (replay.content) return { content: replay.content, included: replay.included };
       }
     }
 
@@ -627,8 +654,8 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
     const target = existingThreadTarget
       ?? await createThreadTarget(client, input.authorMemberId, targetClubId);
 
-    const entityResult = await client.query<{ id: string; created_at: string }>(
-      `insert into entities (club_id, kind, author_member_id, open_loop, content_thread_id, client_key)
+    const contentResult = await client.query<{ id: string; created_at: string }>(
+      `insert into contents (club_id, kind, author_member_id, open_loop, thread_id, client_key)
        values ($1, $2, $3, $4, $5, $6)
        returning id, created_at::text as created_at`,
       [
@@ -640,18 +667,18 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
         input.clientKey ?? null,
       ],
     );
-    const entity = entityResult.rows[0];
-    if (!entity) {
-      throw new AppError(500, 'missing_row', 'Created entity row was not returned');
+    const content = contentResult.rows[0];
+    if (!content) {
+      throw new AppError(500, 'missing_row', 'Created content row was not returned');
     }
 
     const versionResult = await client.query<{ id: string }>(
-      `insert into entity_versions (
-         entity_id, version_no, state, title, summary, body, expires_at, created_by_member_id
+      `insert into content_versions (
+         content_id, version_no, state, title, summary, body, expires_at, created_by_member_id
        ) values ($1, 1, 'published', $2, $3, $4, $5, $6)
        returning id`,
       [
-        entity.id,
+        content.id,
         input.title,
         input.summary,
         input.body,
@@ -661,7 +688,7 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
     );
     const version = versionResult.rows[0];
     if (!version) {
-      throw new AppError(500, 'missing_row', 'Created entity version row was not returned');
+      throw new AppError(500, 'missing_row', 'Created content version row was not returned');
     }
 
     if (input.kind === 'event') {
@@ -675,36 +702,36 @@ export async function createEntity(pool: Pool, input: CreateEntityInput): Promis
         `update content_threads
          set last_activity_at = greatest(last_activity_at, $2::timestamptz)
          where id = $1`,
-        [target.threadId, entity.created_at],
+        [target.threadId, content.created_at],
       );
     }
 
     await appendClubActivity(client, {
       clubId: target.clubId,
-      entityId: entity.id,
-      entityVersionId: version.id,
-      topic: 'entity.version.published',
+      contentId: content.id,
+      contentVersionId: version.id,
+      topic: 'content.version.published',
       createdByMemberId: input.authorMemberId,
     });
 
     await enqueueEmbeddingJob(client, version.id);
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.authorMemberId, target.clubId);
-    const summary = await readContentEntityBundle(client, entity.id, viewerMembershipIds, { includeExpired: true });
-    if (!summary.entity) {
-      throw new AppError(500, 'missing_row', 'Created entity could not be reloaded');
+    const summary = await readContentBundle(client, content.id, viewerMembershipIds, { includeExpired: true });
+    if (!summary.content) {
+      throw new AppError(500, 'missing_row', 'Created content could not be reloaded');
     }
-    return { entity: summary.entity, included: summary.included };
+    return { content: summary.content, included: summary.included };
   });
 }
 
-export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
+export async function updateContent(pool: Pool, input: UpdateContentInput): Promise<WithIncluded<{ content: Content }> | null> {
   return withTransaction(pool, async (client) => {
     const currentResult = await client.query<CurrentEntityForUpdateRow>(
       `select
-         e.id as entity_id,
+         e.id as content_id,
          e.club_id,
-         e.content_thread_id,
+         e.thread_id,
          e.kind::text as kind,
          e.author_member_id,
          cev.id as version_id,
@@ -719,22 +746,22 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
          evd.timezone,
          evd.recurrence_rule,
          evd.capacity
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
-       left join event_version_details evd on evd.entity_version_id = cev.id
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
+       left join event_version_details evd on evd.content_version_id = cev.id
        where e.id = $1
          and e.club_id = any($2::text[])
          and e.author_member_id = $3
          and e.archived_at is null
          and e.deleted_at is null
          and cev.state = 'published'`,
-      [input.entityId, input.accessibleClubIds, input.actorMemberId],
+      [input.id, input.accessibleClubIds, input.actorMemberId],
     );
     const current = currentResult.rows[0];
     if (!current) return null;
 
     if (input.patch.event !== undefined && current.kind !== 'event') {
-      throw new AppError(400, 'invalid_input', 'event fields may only be updated on event entities');
+      throw new AppError(400, 'invalid_input', 'event fields may only be updated on event contents');
     }
 
     const nextCommon = {
@@ -780,12 +807,12 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
     applyContentMentionLimitsForUpdate(mergedMentions, changedFieldSpanCount);
 
     const versionResult = await client.query<{ id: string }>(
-      `insert into entity_versions (
-         entity_id, version_no, state, title, summary, body, expires_at, supersedes_version_id, created_by_member_id
+      `insert into content_versions (
+         content_id, version_no, state, title, summary, body, expires_at, supersedes_version_id, created_by_member_id
        ) values ($1, $2, 'published', $3, $4, $5, $6, $7, $8)
        returning id`,
       [
-        current.entity_id,
+        current.content_id,
         current.version_no + 1,
         nextCommon.title,
         nextCommon.summary,
@@ -797,7 +824,7 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
     );
     const version = versionResult.rows[0];
     if (!version) {
-      throw new AppError(500, 'missing_row', 'Updated entity version row was not returned');
+      throw new AppError(500, 'missing_row', 'Updated content version row was not returned');
     }
 
     await copyEntityVersionMentions(client, current.version_id, version.id, unchangedMentionFields);
@@ -817,32 +844,32 @@ export async function updateEntity(pool: Pool, input: UpdateEntityInput): Promis
 
     await appendClubActivity(client, {
       clubId: current.club_id,
-      entityId: current.entity_id,
-      entityVersionId: version.id,
-      topic: 'entity.version.published',
+      contentId: current.content_id,
+      contentVersionId: version.id,
+      topic: 'content.version.published',
       createdByMemberId: input.actorMemberId,
     });
 
     await enqueueEmbeddingJob(client, version.id);
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, current.club_id);
-    const summary = await readContentEntityBundle(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
-    return summary.entity ? { entity: summary.entity, included: summary.included } : null;
+    const summary = await readContentBundle(client, current.content_id, viewerMembershipIds, { includeExpired: true });
+    return summary.content ? { content: summary.content, included: summary.included } : null;
   });
 }
 
-export async function loadEntityForGate(pool: Pool, input: {
+export async function loadContentForGate(pool: Pool, input: {
   actorMemberId: string;
-  entityId: string;
+  id: string;
   accessibleClubIds: string[];
-}): Promise<EntityForGate | null> {
-  const result = await pool.query<EntityForGateRow>(
+}): Promise<ContentForGate | null> {
+  const result = await pool.query<ContentForGateRow>(
     `select
-       e.kind::text as entity_kind,
+       e.kind::text as content_kind,
        exists (
          select 1
-         from entities earlier
-         where earlier.content_thread_id = e.content_thread_id
+                from contents earlier
+         where earlier.thread_id = e.thread_id
            and earlier.archived_at is null
            and earlier.deleted_at is null
            and (
@@ -857,9 +884,9 @@ export async function loadEntityForGate(pool: Pool, input: {
        evd.starts_at::text as starts_at,
        evd.ends_at::text as ends_at,
        evd.timezone
-     from entities e
-     join current_entity_versions cev on cev.entity_id = e.id
-     left join event_version_details evd on evd.entity_version_id = cev.id
+     from contents e
+     join current_content_versions cev on cev.content_id = e.id
+     left join event_version_details evd on evd.content_version_id = cev.id
      where e.id = $1
        and e.club_id = any($2::text[])
        and e.author_member_id = $3
@@ -867,19 +894,19 @@ export async function loadEntityForGate(pool: Pool, input: {
        and e.deleted_at is null
        and cev.state = 'published'
      limit 1`,
-    [input.entityId, input.accessibleClubIds, input.actorMemberId],
+    [input.id, input.accessibleClubIds, input.actorMemberId],
   );
 
   const row = result.rows[0];
   if (!row) return null;
 
   return {
-    entityKind: row.entity_kind,
+    contentKind: row.content_kind,
     isReply: row.is_reply,
     title: row.title,
     summary: row.summary,
     body: row.body,
-    event: row.entity_kind === 'event' && row.location && row.starts_at
+    event: row.content_kind === 'event' && row.location && row.starts_at
       ? {
         location: row.location,
         startsAt: row.starts_at,
@@ -890,16 +917,16 @@ export async function loadEntityForGate(pool: Pool, input: {
   };
 }
 
-export async function removeEntity(pool: Pool, input: {
-  entityId: string;
-  clubIds: string[];
+export async function removeContent(pool: Pool, input: {
+  id: string;
+  accessibleClubIds: string[];
   actorMemberId: string;
   reason?: string | null;
   skipAuthCheck?: boolean;
-}): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
+}): Promise<WithIncluded<{ content: Content }> | null> {
   return withTransaction(pool, async (client) => {
     const currentResult = await client.query<{
-      entity_id: string;
+      content_id: string;
       club_id: string;
       author_member_id: string;
       version_id: string;
@@ -907,19 +934,19 @@ export async function removeEntity(pool: Pool, input: {
       state: string;
     }>(
       `select
-         e.id as entity_id,
+         e.id as content_id,
          e.club_id,
          e.author_member_id,
          cev.id as version_id,
          cev.version_no,
          cev.state::text as state
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
        where e.id = $1
          and e.club_id = any($2::text[])
          and e.archived_at is null
          and e.deleted_at is null`,
-      [input.entityId, input.clubIds],
+      [input.id, input.accessibleClubIds],
     );
     const current = currentResult.rows[0];
     if (!current) return null;
@@ -931,53 +958,53 @@ export async function removeEntity(pool: Pool, input: {
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, current.club_id);
 
     if (current.state === 'removed') {
-      const existing = await readContentEntityBundle(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
-      return existing.entity ? { entity: existing.entity, included: existing.included } : null;
+      const existing = await readContentBundle(client, current.content_id, viewerMembershipIds, { includeExpired: true });
+      return existing.content ? { content: existing.content, included: existing.included } : null;
     }
 
     const removeResult = await client.query<{ id: string }>(
-      `insert into entity_versions (
-         entity_id, version_no, state, reason, supersedes_version_id, created_by_member_id
+      `insert into content_versions (
+         content_id, version_no, state, reason, supersedes_version_id, created_by_member_id
        ) values ($1, $2, 'removed', $3, $4, $5)
        returning id`,
-      [current.entity_id, current.version_no + 1, input.reason ?? null, current.version_id, input.actorMemberId],
+      [current.content_id, current.version_no + 1, input.reason ?? null, current.version_id, input.actorMemberId],
     );
     const removeVersion = removeResult.rows[0];
     if (removeVersion) {
       await appendClubActivity(client, {
         clubId: current.club_id,
-        entityId: current.entity_id,
-        entityVersionId: removeVersion.id,
-        topic: 'entity.removed',
+        contentId: current.content_id,
+        contentVersionId: removeVersion.id,
+        topic: 'content.removed',
         createdByMemberId: input.actorMemberId,
       });
     }
 
-    const summary = await readContentEntityBundle(client, current.entity_id, viewerMembershipIds, { includeExpired: true });
-    return summary.entity ? { entity: summary.entity, included: summary.included } : null;
+    const summary = await readContentBundle(client, current.content_id, viewerMembershipIds, { includeExpired: true });
+    return summary.content ? { content: summary.content, included: summary.included } : null;
   });
 }
 
-async function setEntityLoopState(
+async function setContentLoopState(
   pool: Pool,
-  input: SetEntityLoopInput,
+  input: SetContentLoopInput,
   nextOpenLoop: boolean,
-): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
+): Promise<WithIncluded<{ content: Content }> | null> {
   return withTransaction(pool, async (client) => {
-    const updateResult = await client.query<{ entity_id: string; club_id: string }>(
-      `update entities e
+    const updateResult = await client.query<{ content_id: string; club_id: string }>(
+      `update contents e
        set open_loop = $4
-       from current_entity_versions cev
+       from current_content_versions cev
        where e.id = $1
          and e.club_id = any($2::text[])
          and e.author_member_id = $3
          and e.archived_at is null
          and e.deleted_at is null
          and e.open_loop is not null
-         and cev.entity_id = e.id
+         and cev.content_id = e.id
          and cev.state = 'published'
-       returning e.id as entity_id, e.club_id`,
-      [input.entityId, input.accessibleClubIds, input.actorMemberId, nextOpenLoop],
+       returning e.id as content_id, e.club_id`,
+      [input.id, input.accessibleClubIds, input.actorMemberId, nextOpenLoop],
     );
 
     const row = updateResult.rows[0];
@@ -988,7 +1015,7 @@ async function setEntityLoopState(
         `delete from signal_background_matches
          where source_id = $1
            and match_kind in ('ask_to_member', 'offer_to_ask')`,
-        [row.entity_id],
+        [row.content_id],
       );
     } else {
       await client.query(
@@ -997,25 +1024,25 @@ async function setEntityLoopState(
          where source_id = $1
            and state = 'pending'
            and match_kind in ('ask_to_member', 'offer_to_ask')`,
-        [row.entity_id],
+        [row.content_id],
       );
     }
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, row.club_id);
-    const summary = await readContentEntityBundle(client, row.entity_id, viewerMembershipIds, { includeExpired: true });
-    return summary.entity ? { entity: summary.entity, included: summary.included } : null;
+    const summary = await readContentBundle(client, row.content_id, viewerMembershipIds, { includeExpired: true });
+    return summary.content ? { content: summary.content, included: summary.included } : null;
   });
 }
 
-export async function closeEntityLoop(pool: Pool, input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
-  return setEntityLoopState(pool, input, false);
+export async function closeContentLoop(pool: Pool, input: SetContentLoopInput): Promise<WithIncluded<{ content: Content }> | null> {
+  return setContentLoopState(pool, input, false);
 }
 
-export async function reopenEntityLoop(pool: Pool, input: SetEntityLoopInput): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
-  return setEntityLoopState(pool, input, true);
+export async function reopenContentLoop(pool: Pool, input: SetContentLoopInput): Promise<WithIncluded<{ content: Content }> | null> {
+  return setContentLoopState(pool, input, true);
 }
 
-export type PaginatedThreads = WithIncluded<{ results: ContentThreadSummary[]; hasMore: boolean; nextCursor: string | null }>;
+export type PaginatedThreads = WithIncluded<{ results: ContentThread[]; hasMore: boolean; nextCursor: string | null }>;
 
 async function loadThreadSummaryRows(
   client: DbClient,
@@ -1043,10 +1070,10 @@ async function loadThreadSummaryRows(
            or (ct.last_activity_at = $6 and ct.id < $7))
      ),
      thread_counts as (
-       select e.content_thread_id, count(*)::int as entity_count
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
-       join thread_scope ts on ts.id = e.content_thread_id
+       select e.thread_id, count(*)::int as content_count
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
+       join thread_scope ts on ts.id = e.thread_id
        where e.archived_at is null
          and e.deleted_at is null
          and (
@@ -1062,12 +1089,12 @@ async function loadThreadSummaryRows(
              )
            )
          )
-       group by e.content_thread_id
+       group by e.thread_id
      ),
-     first_entities as (
-       select distinct on (e.content_thread_id)
-              e.content_thread_id as thread_id,
-              e.id as entity_id,
+     first_contents as (
+       select distinct on (e.thread_id)
+              e.thread_id as thread_id,
+              e.id as content_id,
               e.kind::text as kind,
               e.open_loop,
               e.author_member_id,
@@ -1075,18 +1102,18 @@ async function loadThreadSummaryRows(
               cev.title,
               cev.summary,
               cev.body
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
-       join thread_scope ts on ts.id = e.content_thread_id
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
+       join thread_scope ts on ts.id = e.thread_id
        where e.archived_at is null
          and e.deleted_at is null
-       order by e.content_thread_id, e.created_at asc, e.id asc
+       order by e.thread_id, e.created_at asc, e.id asc
      ),
      visible_threads as (
-       select distinct e.content_thread_id
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
-       join thread_scope ts on ts.id = e.content_thread_id
+       select distinct e.thread_id
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
+       join thread_scope ts on ts.id = e.thread_id
        where e.archived_at is null
          and e.deleted_at is null
          and cev.state = 'published'
@@ -1100,17 +1127,17 @@ async function loadThreadSummaryRows(
      select
        ts.id as thread_id,
        ts.club_id,
-       fe.entity_id as first_entity_id,
-       tc.entity_count,
+       fe.content_id as first_content_id,
+       tc.content_count,
        ts.last_activity_at::text as last_activity_at
      from thread_scope ts
-     join thread_counts tc on tc.content_thread_id = ts.id
-     join first_entities fe on fe.thread_id = ts.id
+     join thread_counts tc on tc.thread_id = ts.id
+     join first_contents fe on fe.thread_id = ts.id
      where fe.kind = any($2::text[])
        and exists (
          select 1
          from visible_threads vt
-         where vt.content_thread_id = ts.id
+         where vt.thread_id = ts.id
        )
        and not (
          fe.state <> 'removed'
@@ -1141,7 +1168,7 @@ async function loadThreadSummaryRows(
   return result.rows;
 }
 
-export async function listEntities(pool: Pool, input: ListEntitiesInput): Promise<PaginatedThreads> {
+export async function listContent(pool: Pool, input: ListContentInput): Promise<PaginatedThreads> {
   if (input.clubIds.length === 0) {
     return { results: [], hasMore: false, nextCursor: null, included: emptyIncludedBundle() };
   }
@@ -1163,36 +1190,34 @@ export async function listEntities(pool: Pool, input: ListEntitiesInput): Promis
 
   return withTransaction(pool, async (client) => {
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId);
-    const firstEntityBundle = await readContentEntitiesBundleByIds(
+    const firstContentBundle = await readContentsBundleByIds(
       client,
-      pageRows.map(row => row.first_entity_id),
+      pageRows.map(row => row.first_content_id),
       viewerMembershipIds,
       { includeExpired: true },
     );
-    const firstEntityById = new Map(firstEntityBundle.entities.map(entity => [entity.entityId, entity]));
+    const firstContentById = new Map(firstContentBundle.contents.map(content => [content.id, content]));
 
     const results = pageRows
       .map((row) => {
-        const firstEntity = firstEntityById.get(row.first_entity_id);
-        if (!firstEntity) return null;
+        const firstContent = firstContentById.get(row.first_content_id);
+        if (!firstContent) return null;
         return {
-          threadId: row.thread_id,
+          id: row.thread_id,
           clubId: row.club_id,
-          firstEntity,
-          thread: {
-            entityCount: Number(row.entity_count),
-            lastActivityAt: row.last_activity_at,
-          },
-        } satisfies ContentThreadSummary;
+          firstContent,
+          contentCount: Number(row.content_count),
+          lastActivityAt: row.last_activity_at,
+        } satisfies ContentThread;
       })
-      .filter((row): row is ContentThreadSummary => row !== null);
+      .filter((row): row is ContentThread => row !== null);
 
     const lastRow = results.length > 0 ? pageRows[results.length - 1] : null;
     const nextCursor = hasMore && lastRow
       ? encodeCursor([lastRow.last_activity_at, lastRow.thread_id])
       : null;
 
-    return { results, hasMore, nextCursor, included: firstEntityBundle.included };
+    return { results, hasMore, nextCursor, included: firstContentBundle.included };
   });
 }
 
@@ -1204,25 +1229,25 @@ async function loadThreadHeader(
 ): Promise<ThreadSummaryRow | null> {
   const result = await client.query<ThreadSummaryRow>(
     `with first_entity as (
-       select distinct on (e.content_thread_id)
-              e.content_thread_id as thread_id,
-              e.id as entity_id,
+       select distinct on (e.thread_id)
+              e.thread_id as thread_id,
+              e.id as content_id,
               e.kind::text as kind,
               e.open_loop,
               e.author_member_id,
               cev.state::text as state
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
-       where e.content_thread_id = $1
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
+       where e.thread_id = $1
          and e.archived_at is null
          and e.deleted_at is null
-       order by e.content_thread_id, e.created_at asc, e.id asc
+       order by e.thread_id, e.created_at asc, e.id asc
      ),
      thread_counts as (
-       select e.content_thread_id, count(*)::int as entity_count
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
-       where e.content_thread_id = $1
+       select e.thread_id, count(*)::int as content_count
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
+       where e.thread_id = $1
          and e.archived_at is null
          and e.deleted_at is null
          and (
@@ -1238,13 +1263,13 @@ async function loadThreadHeader(
              )
            )
          )
-       group by e.content_thread_id
+       group by e.thread_id
      ),
      visible_thread as (
        select 1
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
-       where e.content_thread_id = $1
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
+       where e.thread_id = $1
          and e.archived_at is null
          and e.deleted_at is null
          and cev.state = 'published'
@@ -1260,12 +1285,12 @@ async function loadThreadHeader(
      select
        ct.id as thread_id,
        ct.club_id,
-       first_entity.entity_id as first_entity_id,
-       thread_counts.entity_count,
+       first_entity.content_id as first_content_id,
+       thread_counts.content_count,
        ct.last_activity_at::text as last_activity_at
      from content_threads ct
      join first_entity on first_entity.thread_id = ct.id
-     join thread_counts on thread_counts.content_thread_id = ct.id
+     join thread_counts on thread_counts.thread_id = ct.id
      where ct.id = $1
        and ct.archived_at is null
        and exists (select 1 from visible_thread)
@@ -1284,7 +1309,7 @@ async function loadThreadHeader(
 export async function readContentThread(
   pool: Pool,
   input: ReadContentThreadInput,
-): Promise<WithIncluded<{ thread: ContentThreadSummary; entities: ContentEntity[]; hasMore: boolean; nextCursor: string | null }> | null> {
+): Promise<WithIncluded<{ thread: ContentThread; contents: Content[]; hasMore: boolean; nextCursor: string | null }> | null> {
   return withTransaction(pool, async (client) => {
     const resolvedThreadId = input.threadId
       ? (await client.query<{ id: string }>(
@@ -1295,15 +1320,15 @@ export async function readContentThread(
            and club_id = any($2::text[])`,
         [input.threadId, input.accessibleClubIds],
       )).rows[0]?.id
-      : (await client.query<{ content_thread_id: string }>(
-        `select e.content_thread_id
-         from entities e
+      : (await client.query<{ thread_id: string }>(
+        `select e.thread_id
+         from contents e
          where e.id = $1
            and e.archived_at is null
            and e.deleted_at is null
            and e.club_id = any($2::text[])`,
-        [input.entityId ?? null, input.accessibleClubIds],
-      )).rows[0]?.content_thread_id;
+        [input.contentId ?? null, input.accessibleClubIds],
+      )).rows[0]?.thread_id;
 
     if (!resolvedThreadId) return null;
 
@@ -1314,14 +1339,14 @@ export async function readContentThread(
       .filter(membership => membership.clubId === threadRow.club_id)
       .map(membership => membership.membershipId);
 
-    const firstEntityBundle = await readContentEntityBundle(client, threadRow.first_entity_id, viewerMembershipIds, { includeExpired: true });
-    if (!firstEntityBundle.entity) return null;
+    const firstContentBundle = await readContentBundle(client, threadRow.first_content_id, viewerMembershipIds, { includeExpired: true });
+    if (!firstContentBundle.content) return null;
 
-    const pageResult = await client.query<{ entity_id: string; created_at: string }>(
-      `select e.id as entity_id, e.created_at::text as created_at
-       from entities e
-       join current_entity_versions cev on cev.entity_id = e.id
-       where e.content_thread_id = $1
+    const pageResult = await client.query<{ content_id: string; created_at: string }>(
+      `select e.id as content_id, e.created_at::text as created_at
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
+       where e.thread_id = $1
          and e.archived_at is null
          and e.deleted_at is null
          and (
@@ -1346,56 +1371,54 @@ export async function readContentThread(
         resolvedThreadId,
         input.actorMemberId,
         input.cursor?.createdAt ?? null,
-        input.cursor?.entityId ?? null,
+        input.cursor?.contentId ?? null,
         input.includeClosed,
         input.limit + 1,
       ],
     );
 
     const hasMore = pageResult.rows.length > input.limit;
-    const entityPage = hasMore ? pageResult.rows.slice(0, input.limit) : pageResult.rows;
-    const pageEntityIds = [...entityPage].reverse().map(row => row.entity_id);
-    const entityBundle = await readContentEntitiesBundleByIds(client, pageEntityIds, viewerMembershipIds, { includeExpired: false });
+    const pageRows = hasMore ? pageResult.rows.slice(0, input.limit) : pageResult.rows;
+    const pageContentIds = [...pageRows].reverse().map(row => row.content_id);
+    const contentBundle = await readContentsBundleByIds(client, pageContentIds, viewerMembershipIds, { includeExpired: false });
 
-    const oldest = entityPage[entityPage.length - 1];
+    const oldest = pageRows[pageRows.length - 1];
     const nextCursor = hasMore && oldest
-      ? encodeCursor([oldest.created_at, oldest.entity_id])
+      ? encodeCursor([oldest.created_at, oldest.content_id])
       : null;
 
     return {
       thread: {
-        threadId: threadRow.thread_id,
+        id: threadRow.thread_id,
         clubId: threadRow.club_id,
-        firstEntity: firstEntityBundle.entity,
-        thread: {
-          entityCount: Number(threadRow.entity_count),
-          lastActivityAt: threadRow.last_activity_at,
-        },
+        firstContent: firstContentBundle.content,
+        contentCount: Number(threadRow.content_count),
+        lastActivityAt: threadRow.last_activity_at,
       },
-      entities: entityBundle.entities,
+      contents: contentBundle.contents,
       hasMore,
       nextCursor,
-      included: mergeIncludedBundles(firstEntityBundle.included, entityBundle.included),
+      included: mergeIncludedBundles(firstContentBundle.included, contentBundle.included),
     };
   });
 }
 
 export async function appendClubActivity(client: DbClient, input: {
   clubId: string;
-  entityId?: string;
-  entityVersionId?: string;
+  contentId?: string;
+  contentVersionId?: string;
   topic: string;
   createdByMemberId: string | null;
   payload?: Record<string, unknown>;
   audience?: 'members' | 'clubadmins' | 'owners';
 }): Promise<void> {
   await client.query(
-    `insert into club_activity (club_id, entity_id, entity_version_id, topic, payload, created_by_member_id, audience)
+    `insert into club_activity (club_id, content_id, content_version_id, topic, payload, created_by_member_id, audience)
      values ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
     [
       input.clubId,
-      input.entityId ?? null,
-      input.entityVersionId ?? null,
+      input.contentId ?? null,
+      input.contentVersionId ?? null,
       input.topic,
       JSON.stringify(input.payload ?? {}),
       input.createdByMemberId,

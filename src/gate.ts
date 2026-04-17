@@ -13,7 +13,7 @@ export type ProfileLink = z.infer<typeof parseProfileLink>;
 
 export type ContentArtifact = {
   kind: 'content';
-  entityKind: 'post' | 'ask' | 'gift' | 'service' | 'opportunity';
+  contentKind: 'post' | 'ask' | 'gift' | 'service' | 'opportunity';
   isReply: boolean;
   title: string | null;
   summary: string | null;
@@ -284,7 +284,7 @@ export function renderArtifact(artifact: GatedArtifact): string {
     case 'content':
       return [
         'kind: content',
-        `entityKind: ${artifact.entityKind}`,
+        `contentKind: ${artifact.contentKind}`,
         renderField('title', artifact.title),
         renderField('summary', artifact.summary),
         renderField('body', artifact.body),

@@ -281,18 +281,18 @@
                 "clubId": {
                   "type": "string"
                 },
+                "contentId": {
+                  "nullable": true,
+                  "type": "string"
+                },
+                "contentVersionId": {
+                  "nullable": true,
+                  "type": "string"
+                },
                 "createdAt": {
                   "type": "string"
                 },
                 "createdByMemberId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "entityId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "entityVersionId": {
                   "nullable": true,
                   "type": "string"
                 },
@@ -313,8 +313,8 @@
                 "clubId",
                 "topic",
                 "payload",
-                "entityId",
-                "entityVersionId",
+                "contentId",
+                "contentVersionId",
                 "audience",
                 "createdAt",
                 "createdByMemberId"
@@ -1160,7 +1160,7 @@
               "clubId": {
                 "type": "string"
               },
-              "entityCount": {
+              "contentCount": {
                 "type": "number"
               },
               "memberCounts": {
@@ -1185,7 +1185,7 @@
               "name",
               "archivedAt",
               "memberCounts",
-              "entityCount",
+              "contentCount",
               "messageCount"
             ],
             "type": "object"
@@ -1204,18 +1204,18 @@
     {
       "action": "clubadmin.content.remove",
       "auth": "clubadmin",
-      "authorizationNote": "Club admin may remove any entity in their club. Reason is required for moderation audit trail.",
-      "description": "Remove any entity in the specified club (moderation).",
+      "authorizationNote": "Club admin may remove any content in their club. Reason is required for moderation audit trail.",
+      "description": "Remove any content in the specified club (moderation).",
       "domain": "clubadmin",
       "input": {
         "additionalProperties": false,
         "properties": {
           "clubId": {
-            "description": "Club the entity belongs to",
+            "description": "Club the content belongs to",
             "type": "string"
           },
-          "entityId": {
-            "description": "Entity to remove",
+          "id": {
+            "description": "Content to remove",
             "type": "string"
           },
           "reason": {
@@ -1225,7 +1225,7 @@
         },
         "required": [
           "clubId",
-          "entityId",
+          "id",
           "reason"
         ],
         "type": "object"
@@ -1233,7 +1233,7 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entity": {
+          "content": {
             "additionalProperties": false,
             "properties": {
               "author": {
@@ -1259,13 +1259,7 @@
               "clubId": {
                 "type": "string"
               },
-              "contentThreadId": {
-                "type": "string"
-              },
               "createdAt": {
-                "type": "string"
-              },
-              "entityId": {
                 "type": "string"
               },
               "event": {
@@ -1306,6 +1300,9 @@
                   "capacity"
                 ],
                 "type": "object"
+              },
+              "id": {
+                "type": "string"
               },
               "kind": {
                 "enum": [
@@ -1409,6 +1406,9 @@
                   "attendees"
                 ],
                 "type": "object"
+              },
+              "threadId": {
+                "type": "string"
               },
               "version": {
                 "additionalProperties": false,
@@ -1555,8 +1555,8 @@
               }
             },
             "required": [
-              "entityId",
-              "contentThreadId",
+              "id",
+              "threadId",
               "clubId",
               "kind",
               "openLoop",
@@ -1602,7 +1602,7 @@
           }
         },
         "required": [
-          "entity",
+          "content",
           "included"
         ],
         "type": "object"
@@ -3929,20 +3929,20 @@
       "input": {
         "additionalProperties": false,
         "properties": {
-          "entityId": {
-            "description": "Entity to close",
+          "id": {
+            "description": "Content to close",
             "type": "string"
           }
         },
         "required": [
-          "entityId"
+          "id"
         ],
         "type": "object"
       },
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entity": {
+          "content": {
             "additionalProperties": false,
             "properties": {
               "author": {
@@ -3968,13 +3968,7 @@
               "clubId": {
                 "type": "string"
               },
-              "contentThreadId": {
-                "type": "string"
-              },
               "createdAt": {
-                "type": "string"
-              },
-              "entityId": {
                 "type": "string"
               },
               "event": {
@@ -4015,6 +4009,9 @@
                   "capacity"
                 ],
                 "type": "object"
+              },
+              "id": {
+                "type": "string"
               },
               "kind": {
                 "enum": [
@@ -4118,6 +4115,9 @@
                   "attendees"
                 ],
                 "type": "object"
+              },
+              "threadId": {
+                "type": "string"
               },
               "version": {
                 "additionalProperties": false,
@@ -4264,8 +4264,8 @@
               }
             },
             "required": [
-              "entityId",
-              "contentThreadId",
+              "id",
+              "threadId",
               "clubId",
               "kind",
               "openLoop",
@@ -4311,7 +4311,7 @@
           }
         },
         "required": [
-          "entity",
+          "content",
           "included"
         ],
         "type": "object"
@@ -4470,7 +4470,7 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entity": {
+          "content": {
             "additionalProperties": false,
             "properties": {
               "author": {
@@ -4496,13 +4496,7 @@
               "clubId": {
                 "type": "string"
               },
-              "contentThreadId": {
-                "type": "string"
-              },
               "createdAt": {
-                "type": "string"
-              },
-              "entityId": {
                 "type": "string"
               },
               "event": {
@@ -4543,6 +4537,9 @@
                   "capacity"
                 ],
                 "type": "object"
+              },
+              "id": {
+                "type": "string"
               },
               "kind": {
                 "enum": [
@@ -4646,6 +4643,9 @@
                   "attendees"
                 ],
                 "type": "object"
+              },
+              "threadId": {
+                "type": "string"
               },
               "version": {
                 "additionalProperties": false,
@@ -4792,8 +4792,8 @@
               }
             },
             "required": [
-              "entityId",
-              "contentThreadId",
+              "id",
+              "threadId",
               "clubId",
               "kind",
               "openLoop",
@@ -4839,7 +4839,7 @@
           }
         },
         "required": [
-          "entity",
+          "content",
           "included"
         ],
         "type": "object"
@@ -4847,20 +4847,417 @@
       "safety": "mutating"
     },
     {
-      "action": "content.getThread",
+      "action": "content.get",
       "auth": "member",
-      "description": "Read a public content thread by thread ID or any entity ID inside it.",
+      "description": "Read a single public content item by id.",
       "domain": "content",
       "input": {
         "additionalProperties": false,
         "properties": {
+          "id": {
+            "description": "Content id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "additionalProperties": false,
+            "properties": {
+              "author": {
+                "additionalProperties": false,
+                "properties": {
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "displayName"
+                ],
+                "type": "object"
+              },
+              "clubId": {
+                "type": "string"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "event": {
+                "additionalProperties": false,
+                "nullable": true,
+                "properties": {
+                  "capacity": {
+                    "nullable": true,
+                    "type": "number"
+                  },
+                  "endsAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "location": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "recurrenceRule": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "startsAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "timezone": {
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "location",
+                  "startsAt",
+                  "endsAt",
+                  "timezone",
+                  "recurrenceRule",
+                  "capacity"
+                ],
+                "type": "object"
+              },
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "post",
+                  "opportunity",
+                  "service",
+                  "ask",
+                  "gift",
+                  "event"
+                ],
+                "type": "string"
+              },
+              "openLoop": {
+                "nullable": true,
+                "type": "boolean"
+              },
+              "rsvps": {
+                "additionalProperties": false,
+                "nullable": true,
+                "properties": {
+                  "attendees": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "createdAt": {
+                          "type": "string"
+                        },
+                        "memberId": {
+                          "type": "string"
+                        },
+                        "membershipId": {
+                          "type": "string"
+                        },
+                        "note": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "publicName": {
+                          "type": "string"
+                        },
+                        "response": {
+                          "enum": [
+                            "yes",
+                            "maybe",
+                            "no",
+                            "waitlist"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "membershipId",
+                        "memberId",
+                        "publicName",
+                        "response",
+                        "note",
+                        "createdAt"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "counts": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "maybe": {
+                        "type": "number"
+                      },
+                      "no": {
+                        "type": "number"
+                      },
+                      "waitlist": {
+                        "type": "number"
+                      },
+                      "yes": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "yes",
+                      "maybe",
+                      "no",
+                      "waitlist"
+                    ],
+                    "type": "object"
+                  },
+                  "viewerResponse": {
+                    "enum": [
+                      "yes",
+                      "maybe",
+                      "no",
+                      "waitlist"
+                    ],
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "viewerResponse",
+                  "counts",
+                  "attendees"
+                ],
+                "type": "object"
+              },
+              "threadId": {
+                "type": "string"
+              },
+              "version": {
+                "additionalProperties": false,
+                "description": "Body is always present on non-removed content. Title and summary may be null. For a short display label, prefer title, then summary, then a truncated excerpt of body.",
+                "properties": {
+                  "body": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  },
+                  "effectiveAt": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "mentions": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "body": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredLabel": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredLabel",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "summary": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredLabel": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredLabel",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "title": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "authoredLabel": {
+                              "type": "string"
+                            },
+                            "end": {
+                              "type": "number"
+                            },
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "start": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "authoredLabel",
+                            "start",
+                            "end"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "title",
+                      "summary",
+                      "body"
+                    ],
+                    "type": "object"
+                  },
+                  "state": {
+                    "enum": [
+                      "draft",
+                      "published",
+                      "removed"
+                    ],
+                    "type": "string"
+                  },
+                  "summary": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "title": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "versionNo": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "versionNo",
+                  "state",
+                  "title",
+                  "summary",
+                  "body",
+                  "effectiveAt",
+                  "expiresAt",
+                  "createdAt",
+                  "mentions"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "id",
+              "threadId",
+              "clubId",
+              "kind",
+              "openLoop",
+              "author",
+              "version",
+              "event",
+              "rsvps",
+              "createdAt"
+            ],
+            "type": "object"
+          },
+          "included": {
+            "additionalProperties": false,
+            "properties": {
+              "membersById": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName",
+                    "displayName"
+                  ],
+                  "type": "object"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "membersById"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "content",
+          "included"
+        ],
+        "type": "object"
+      },
+      "safety": "read_only"
+    },
+    {
+      "action": "content.getThread",
+      "auth": "member",
+      "description": "Read a public content thread by thread ID or any content ID inside it.",
+      "domain": "content",
+      "input": {
+        "additionalProperties": false,
+        "properties": {
+          "contentId": {
+            "description": "Any content id inside the target thread",
+            "type": "string"
+          },
           "cursor": {
             "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
             "nullable": true,
-            "type": "string"
-          },
-          "entityId": {
-            "description": "Any entity ID inside the target thread",
             "type": "string"
           },
           "includeClosed": {
@@ -4883,7 +5280,7 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entities": {
+          "contents": {
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -4910,13 +5307,7 @@
                 "clubId": {
                   "type": "string"
                 },
-                "contentThreadId": {
-                  "type": "string"
-                },
                 "createdAt": {
-                  "type": "string"
-                },
-                "entityId": {
                   "type": "string"
                 },
                 "event": {
@@ -4957,6 +5348,9 @@
                     "capacity"
                   ],
                   "type": "object"
+                },
+                "id": {
+                  "type": "string"
                 },
                 "kind": {
                   "enum": [
@@ -5060,6 +5454,9 @@
                     "attendees"
                   ],
                   "type": "object"
+                },
+                "threadId": {
+                  "type": "string"
                 },
                 "version": {
                   "additionalProperties": false,
@@ -5206,8 +5603,8 @@
                 }
               },
               "required": [
-                "entityId",
-                "contentThreadId",
+                "id",
+                "threadId",
                 "clubId",
                 "kind",
                 "openLoop",
@@ -5266,7 +5663,10 @@
               "clubId": {
                 "type": "string"
               },
-              "firstEntity": {
+              "contentCount": {
+                "type": "number"
+              },
+              "firstContent": {
                 "additionalProperties": false,
                 "properties": {
                   "author": {
@@ -5292,13 +5692,7 @@
                   "clubId": {
                     "type": "string"
                   },
-                  "contentThreadId": {
-                    "type": "string"
-                  },
                   "createdAt": {
-                    "type": "string"
-                  },
-                  "entityId": {
                     "type": "string"
                   },
                   "event": {
@@ -5339,6 +5733,9 @@
                       "capacity"
                     ],
                     "type": "object"
+                  },
+                  "id": {
+                    "type": "string"
                   },
                   "kind": {
                     "enum": [
@@ -5442,6 +5839,9 @@
                       "attendees"
                     ],
                     "type": "object"
+                  },
+                  "threadId": {
+                    "type": "string"
                   },
                   "version": {
                     "additionalProperties": false,
@@ -5588,8 +5988,8 @@
                   }
                 },
                 "required": [
-                  "entityId",
-                  "contentThreadId",
+                  "id",
+                  "threadId",
                   "clubId",
                   "kind",
                   "openLoop",
@@ -5601,38 +6001,26 @@
                 ],
                 "type": "object"
               },
-              "thread": {
-                "additionalProperties": false,
-                "properties": {
-                  "entityCount": {
-                    "type": "number"
-                  },
-                  "lastActivityAt": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "entityCount",
-                  "lastActivityAt"
-                ],
-                "type": "object"
+              "id": {
+                "type": "string"
               },
-              "threadId": {
+              "lastActivityAt": {
                 "type": "string"
               }
             },
             "required": [
-              "threadId",
+              "id",
               "clubId",
-              "firstEntity",
-              "thread"
+              "firstContent",
+              "contentCount",
+              "lastActivityAt"
             ],
             "type": "object"
           }
         },
         "required": [
           "thread",
-          "entities",
+          "contents",
           "hasMore",
           "nextCursor",
           "included"
@@ -5659,11 +6047,11 @@
             "type": "string"
           },
           "includeClosed": {
-            "description": "Include closed first-entity asks, gifts, services, and opportunities",
+            "description": "Include closed first-content asks, gifts, services, and opportunities",
             "type": "boolean"
           },
           "kinds": {
-            "description": "Filter by entity kind. Defaults to all kinds.",
+            "description": "Filter by content kind. Defaults to all kinds.",
             "items": {
               "enum": [
                 "post",
@@ -5685,7 +6073,7 @@
             "type": "integer"
           },
           "query": {
-            "description": "Search first-entity text",
+            "description": "Search first-content text",
             "maxLength": 250000,
             "nullable": true,
             "type": "string"
@@ -5828,7 +6216,10 @@
                 "clubId": {
                   "type": "string"
                 },
-                "firstEntity": {
+                "contentCount": {
+                  "type": "number"
+                },
+                "firstContent": {
                   "additionalProperties": false,
                   "properties": {
                     "author": {
@@ -5854,13 +6245,7 @@
                     "clubId": {
                       "type": "string"
                     },
-                    "contentThreadId": {
-                      "type": "string"
-                    },
                     "createdAt": {
-                      "type": "string"
-                    },
-                    "entityId": {
                       "type": "string"
                     },
                     "event": {
@@ -5901,6 +6286,9 @@
                         "capacity"
                       ],
                       "type": "object"
+                    },
+                    "id": {
+                      "type": "string"
                     },
                     "kind": {
                       "enum": [
@@ -6004,6 +6392,9 @@
                         "attendees"
                       ],
                       "type": "object"
+                    },
+                    "threadId": {
+                      "type": "string"
                     },
                     "version": {
                       "additionalProperties": false,
@@ -6150,8 +6541,8 @@
                     }
                   },
                   "required": [
-                    "entityId",
-                    "contentThreadId",
+                    "id",
+                    "threadId",
                     "clubId",
                     "kind",
                     "openLoop",
@@ -6163,31 +6554,19 @@
                   ],
                   "type": "object"
                 },
-                "thread": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "entityCount": {
-                      "type": "number"
-                    },
-                    "lastActivityAt": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "entityCount",
-                    "lastActivityAt"
-                  ],
-                  "type": "object"
+                "id": {
+                  "type": "string"
                 },
-                "threadId": {
+                "lastActivityAt": {
                   "type": "string"
                 }
               },
               "required": [
-                "threadId",
+                "id",
                 "clubId",
-                "firstEntity",
-                "thread"
+                "firstContent",
+                "contentCount",
+                "lastActivityAt"
               ],
               "type": "object"
             },
@@ -6212,14 +6591,14 @@
     {
       "action": "content.remove",
       "auth": "member",
-      "authorizationNote": "Only the original author may remove their own entity.",
-      "description": "Remove an entity inside a public content thread (author only).",
+      "authorizationNote": "Only the original author may remove their own content.",
+      "description": "Remove content inside a public content thread (author only).",
       "domain": "content",
       "input": {
         "additionalProperties": false,
         "properties": {
-          "entityId": {
-            "description": "Entity to remove",
+          "id": {
+            "description": "Content to remove",
             "type": "string"
           },
           "reason": {
@@ -6230,14 +6609,14 @@
           }
         },
         "required": [
-          "entityId"
+          "id"
         ],
         "type": "object"
       },
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entity": {
+          "content": {
             "additionalProperties": false,
             "properties": {
               "author": {
@@ -6263,13 +6642,7 @@
               "clubId": {
                 "type": "string"
               },
-              "contentThreadId": {
-                "type": "string"
-              },
               "createdAt": {
-                "type": "string"
-              },
-              "entityId": {
                 "type": "string"
               },
               "event": {
@@ -6310,6 +6683,9 @@
                   "capacity"
                 ],
                 "type": "object"
+              },
+              "id": {
+                "type": "string"
               },
               "kind": {
                 "enum": [
@@ -6413,6 +6789,9 @@
                   "attendees"
                 ],
                 "type": "object"
+              },
+              "threadId": {
+                "type": "string"
               },
               "version": {
                 "additionalProperties": false,
@@ -6559,8 +6938,8 @@
               }
             },
             "required": [
-              "entityId",
-              "contentThreadId",
+              "id",
+              "threadId",
               "clubId",
               "kind",
               "openLoop",
@@ -6606,7 +6985,7 @@
           }
         },
         "required": [
-          "entity",
+          "content",
           "included"
         ],
         "type": "object"
@@ -6622,20 +7001,20 @@
       "input": {
         "additionalProperties": false,
         "properties": {
-          "entityId": {
-            "description": "Entity to reopen",
+          "id": {
+            "description": "Content to reopen",
             "type": "string"
           }
         },
         "required": [
-          "entityId"
+          "id"
         ],
         "type": "object"
       },
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entity": {
+          "content": {
             "additionalProperties": false,
             "properties": {
               "author": {
@@ -6661,13 +7040,7 @@
               "clubId": {
                 "type": "string"
               },
-              "contentThreadId": {
-                "type": "string"
-              },
               "createdAt": {
-                "type": "string"
-              },
-              "entityId": {
                 "type": "string"
               },
               "event": {
@@ -6708,6 +7081,9 @@
                   "capacity"
                 ],
                 "type": "object"
+              },
+              "id": {
+                "type": "string"
               },
               "kind": {
                 "enum": [
@@ -6811,6 +7187,9 @@
                   "attendees"
                 ],
                 "type": "object"
+              },
+              "threadId": {
+                "type": "string"
               },
               "version": {
                 "additionalProperties": false,
@@ -6957,8 +7336,8 @@
               }
             },
             "required": [
-              "entityId",
-              "contentThreadId",
+              "id",
+              "threadId",
               "clubId",
               "kind",
               "openLoop",
@@ -7004,7 +7383,7 @@
           }
         },
         "required": [
-          "entity",
+          "content",
           "included"
         ],
         "type": "object"
@@ -7014,7 +7393,7 @@
     {
       "action": "content.searchBySemanticSimilarity",
       "auth": "member",
-      "description": "Find public content entities by semantic similarity.",
+      "description": "Find public content contents by semantic similarity.",
       "domain": "content",
       "input": {
         "additionalProperties": false,
@@ -7197,13 +7576,7 @@
                 "clubId": {
                   "type": "string"
                 },
-                "contentThreadId": {
-                  "type": "string"
-                },
                 "createdAt": {
-                  "type": "string"
-                },
-                "entityId": {
                   "type": "string"
                 },
                 "event": {
@@ -7244,6 +7617,9 @@
                     "capacity"
                   ],
                   "type": "object"
+                },
+                "id": {
+                  "type": "string"
                 },
                 "kind": {
                   "enum": [
@@ -7350,6 +7726,9 @@
                 },
                 "score": {
                   "type": "number"
+                },
+                "threadId": {
+                  "type": "string"
                 },
                 "version": {
                   "additionalProperties": false,
@@ -7496,8 +7875,8 @@
                 }
               },
               "required": [
-                "entityId",
-                "contentThreadId",
+                "id",
+                "threadId",
                 "clubId",
                 "kind",
                 "openLoop",
@@ -7557,7 +7936,7 @@
           "recovery": "Retry after a short delay. If the problem persists, surface the outage to the user."
         }
       ],
-      "description": "Update an existing content entity (author only).",
+      "description": "Update existing public content (author only).",
       "domain": "content",
       "input": {
         "additionalProperties": false,
@@ -7568,13 +7947,9 @@
             "nullable": true,
             "type": "string"
           },
-          "entityId": {
-            "description": "Entity to update",
-            "type": "string"
-          },
           "event": {
             "additionalProperties": false,
-            "description": "Event patch fields (only valid for event entities)",
+            "description": "Event patch fields (only valid for event contents)",
             "properties": {
               "capacity": {
                 "description": "Optional attendee cap. Null to clear.",
@@ -7622,6 +7997,10 @@
             "nullable": true,
             "type": "string"
           },
+          "id": {
+            "description": "Content to update",
+            "type": "string"
+          },
           "summary": {
             "description": "New summary",
             "maxLength": 250000,
@@ -7636,14 +8015,14 @@
           }
         },
         "required": [
-          "entityId"
+          "id"
         ],
         "type": "object"
       },
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entity": {
+          "content": {
             "additionalProperties": false,
             "properties": {
               "author": {
@@ -7669,13 +8048,7 @@
               "clubId": {
                 "type": "string"
               },
-              "contentThreadId": {
-                "type": "string"
-              },
               "createdAt": {
-                "type": "string"
-              },
-              "entityId": {
                 "type": "string"
               },
               "event": {
@@ -7716,6 +8089,9 @@
                   "capacity"
                 ],
                 "type": "object"
+              },
+              "id": {
+                "type": "string"
               },
               "kind": {
                 "enum": [
@@ -7819,6 +8195,9 @@
                   "attendees"
                 ],
                 "type": "object"
+              },
+              "threadId": {
+                "type": "string"
               },
               "version": {
                 "additionalProperties": false,
@@ -7965,8 +8344,8 @@
               }
             },
             "required": [
-              "entityId",
-              "contentThreadId",
+              "id",
+              "threadId",
               "clubId",
               "kind",
               "openLoop",
@@ -8012,7 +8391,7 @@
           }
         },
         "required": [
-          "entity",
+          "content",
           "included"
         ],
         "type": "object"
@@ -8027,20 +8406,20 @@
       "input": {
         "additionalProperties": false,
         "properties": {
-          "eventEntityId": {
-            "description": "Event entity ID",
+          "eventId": {
+            "description": "Event content ID",
             "type": "string"
           }
         },
         "required": [
-          "eventEntityId"
+          "eventId"
         ],
         "type": "object"
       },
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entity": {
+          "event": {
             "additionalProperties": false,
             "properties": {
               "author": {
@@ -8066,13 +8445,7 @@
               "clubId": {
                 "type": "string"
               },
-              "contentThreadId": {
-                "type": "string"
-              },
               "createdAt": {
-                "type": "string"
-              },
-              "entityId": {
                 "type": "string"
               },
               "event": {
@@ -8113,6 +8486,9 @@
                   "capacity"
                 ],
                 "type": "object"
+              },
+              "id": {
+                "type": "string"
               },
               "kind": {
                 "enum": [
@@ -8216,6 +8592,9 @@
                   "attendees"
                 ],
                 "type": "object"
+              },
+              "threadId": {
+                "type": "string"
               },
               "version": {
                 "additionalProperties": false,
@@ -8362,8 +8741,8 @@
               }
             },
             "required": [
-              "entityId",
-              "contentThreadId",
+              "id",
+              "threadId",
               "clubId",
               "kind",
               "openLoop",
@@ -8409,7 +8788,7 @@
           }
         },
         "required": [
-          "entity",
+          "event",
           "included"
         ],
         "type": "object"
@@ -8586,13 +8965,7 @@
                 "clubId": {
                   "type": "string"
                 },
-                "contentThreadId": {
-                  "type": "string"
-                },
                 "createdAt": {
-                  "type": "string"
-                },
-                "entityId": {
                   "type": "string"
                 },
                 "event": {
@@ -8633,6 +9006,9 @@
                     "capacity"
                   ],
                   "type": "object"
+                },
+                "id": {
+                  "type": "string"
                 },
                 "kind": {
                   "enum": [
@@ -8736,6 +9112,9 @@
                     "attendees"
                   ],
                   "type": "object"
+                },
+                "threadId": {
+                  "type": "string"
                 },
                 "version": {
                   "additionalProperties": false,
@@ -8882,8 +9261,8 @@
                 }
               },
               "required": [
-                "entityId",
-                "contentThreadId",
+                "id",
+                "threadId",
                 "clubId",
                 "kind",
                 "openLoop",
@@ -8914,13 +9293,13 @@
     {
       "action": "events.rsvp",
       "auth": "member",
-      "description": "RSVP to a specific event entity.",
+      "description": "RSVP to a specific event.",
       "domain": "events",
       "input": {
         "additionalProperties": false,
         "properties": {
-          "eventEntityId": {
-            "description": "Event entity ID",
+          "eventId": {
+            "description": "Event content ID",
             "type": "string"
           },
           "note": {
@@ -8941,7 +9320,7 @@
           }
         },
         "required": [
-          "eventEntityId",
+          "eventId",
           "response"
         ],
         "type": "object"
@@ -8949,7 +9328,7 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "entity": {
+          "event": {
             "additionalProperties": false,
             "properties": {
               "author": {
@@ -8975,13 +9354,7 @@
               "clubId": {
                 "type": "string"
               },
-              "contentThreadId": {
-                "type": "string"
-              },
               "createdAt": {
-                "type": "string"
-              },
-              "entityId": {
                 "type": "string"
               },
               "event": {
@@ -9022,6 +9395,9 @@
                   "capacity"
                 ],
                 "type": "object"
+              },
+              "id": {
+                "type": "string"
               },
               "kind": {
                 "enum": [
@@ -9125,6 +9501,9 @@
                   "attendees"
                 ],
                 "type": "object"
+              },
+              "threadId": {
+                "type": "string"
               },
               "version": {
                 "additionalProperties": false,
@@ -9271,8 +9650,8 @@
               }
             },
             "required": [
-              "entityId",
-              "contentThreadId",
+              "id",
+              "threadId",
               "clubId",
               "kind",
               "openLoop",
@@ -9318,7 +9697,7 @@
           }
         },
         "required": [
-          "entity",
+          "event",
           "included"
         ],
         "type": "object"
@@ -11440,14 +11819,14 @@
                   "nullable": true,
                   "type": "string"
                 },
+                "contentId": {
+                  "nullable": true,
+                  "type": "string"
+                },
                 "createdAt": {
                   "type": "string"
                 },
                 "createdByMemberId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "entityId": {
                   "nullable": true,
                   "type": "string"
                 },
@@ -11475,7 +11854,7 @@
               "required": [
                 "notificationId",
                 "recipientMemberId",
-                "entityId",
+                "contentId",
                 "clubId",
                 "state",
                 "suppressionReason",
@@ -11561,7 +11940,7 @@
                 "ref": {
                   "additionalProperties": false,
                   "properties": {
-                    "entityId": {
+                    "contentId": {
                       "type": "string"
                     },
                     "matchId": {
@@ -13210,7 +13589,7 @@
             "type": "string"
           },
           "kind": {
-            "description": "Filter by entity kind",
+            "description": "Filter by content kind",
             "enum": [
               "post",
               "opportunity",
@@ -13259,13 +13638,10 @@
                 "clubName": {
                   "type": "string"
                 },
-                "contentThreadId": {
-                  "type": "string"
-                },
                 "createdAt": {
                   "type": "string"
                 },
-                "entityId": {
+                "id": {
                   "type": "string"
                 },
                 "kind": {
@@ -13285,6 +13661,9 @@
                     "published",
                     "removed"
                   ],
+                  "type": "string"
+                },
+                "threadId": {
                   "type": "string"
                 },
                 "title": {
@@ -13320,8 +13699,8 @@
                 }
               },
               "required": [
-                "entityId",
-                "contentThreadId",
+                "id",
+                "threadId",
                 "clubId",
                 "clubName",
                 "kind",
@@ -13509,7 +13888,7 @@
                             "subjectKind": {
                               "enum": [
                                 "member_club_profile_version",
-                                "entity_version"
+                                "content_version"
                               ],
                               "type": "string"
                             }
@@ -13538,6 +13917,24 @@
                   "synchronicity": {
                     "additionalProperties": false,
                     "properties": {
+                      "contentPublicationBacklog": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "oldestPendingAgeSeconds": {
+                            "nullable": true,
+                            "type": "number"
+                          },
+                          "pendingCount": {
+                            "nullable": true,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "pendingCount",
+                          "oldestPendingAgeSeconds"
+                        ],
+                        "type": "object"
+                      },
                       "cursors": {
                         "additionalProperties": false,
                         "properties": {
@@ -13642,24 +14039,6 @@
                         ],
                         "type": "object"
                       },
-                      "entityPublicationBacklog": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "oldestPendingAgeSeconds": {
-                            "nullable": true,
-                            "type": "number"
-                          },
-                          "pendingCount": {
-                            "nullable": true,
-                            "type": "number"
-                          }
-                        },
-                        "required": [
-                          "pendingCount",
-                          "oldestPendingAgeSeconds"
-                        ],
-                        "type": "object"
-                      },
                       "pendingMatchesCount": {
                         "type": "number"
                       },
@@ -13686,7 +14065,7 @@
                     },
                     "required": [
                       "cursors",
-                      "entityPublicationBacklog",
+                      "contentPublicationBacklog",
                       "recomputeQueue",
                       "pendingMatchesCount"
                     ],
@@ -14630,7 +15009,7 @@
               "totalClubs": {
                 "type": "number"
               },
-              "totalEntities": {
+              "totalContent": {
                 "type": "number"
               },
               "totalMembers": {
@@ -14644,7 +15023,7 @@
               "totalMembers",
               "activeMembers",
               "totalClubs",
-              "totalEntities",
+              "totalContent",
               "totalMessages",
               "pendingApplications",
               "recentMembers"
@@ -15085,7 +15464,7 @@
                         },
                         "ref": {
                           "properties": {
-                            "entityId": {
+                            "contentId": {
                               "type": "string"
                             },
                             "matchId": {
@@ -15256,18 +15635,18 @@
             "clubId": {
               "type": "string"
             },
+            "contentId": {
+              "nullable": true,
+              "type": "string"
+            },
+            "contentVersionId": {
+              "nullable": true,
+              "type": "string"
+            },
             "createdAt": {
               "type": "string"
             },
             "createdByMemberId": {
-              "nullable": true,
-              "type": "string"
-            },
-            "entityId": {
-              "nullable": true,
-              "type": "string"
-            },
-            "entityVersionId": {
               "nullable": true,
               "type": "string"
             },
@@ -15288,8 +15667,8 @@
             "clubId",
             "topic",
             "payload",
-            "entityId",
-            "entityVersionId",
+            "contentId",
+            "contentVersionId",
             "audience",
             "createdAt",
             "createdByMemberId"
@@ -15583,7 +15962,7 @@
                   },
                   "ref": {
                     "properties": {
-                      "entityId": {
+                      "contentId": {
                         "type": "string"
                       },
                       "matchId": {
@@ -15727,6 +16106,6 @@
       }
     ]
   },
-  "version": "0.2.88",
-  "schemaHash": "5e7a7349261a412b"
+  "version": "0.2.92",
+  "schemaHash": "814771414cf877ca"
 }

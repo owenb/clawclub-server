@@ -115,8 +115,8 @@ export type LeakAuditContext = {
   applicant: SeededMember & { membership: SeededMembership };
   otherClub: SeededClub;
   ownApplicationMembership: SeededMembership;
-  contentThreadId: string;
-  contentEntityId: string;
+  threadId: string;
+  contentId: string;
   dmThreadId: string;
   invitation: SeededInvitation;
 };
@@ -1081,7 +1081,7 @@ export class TestHarness {
       title: 'Leak audit thread',
       body: 'Leak audit content body',
     });
-    const entity = ((content.data as Record<string, unknown>).entity ?? {}) as Record<string, unknown>;
+    const contentItem = ((content.data as Record<string, unknown>).content ?? {}) as Record<string, unknown>;
     const message = await this.apiOk(regularMember.token, 'messages.send', {
       recipientMemberId: otherMember.id,
       messageText: 'Leak audit DM',
@@ -1104,8 +1104,8 @@ export class TestHarness {
       applicant,
       otherClub: otherClubOwner.club,
       ownApplicationMembership,
-      contentThreadId: String(entity.contentThreadId),
-      contentEntityId: String(entity.entityId),
+      threadId: String(contentItem.threadId),
+      contentId: String(contentItem.id),
       dmThreadId: String(messageData.threadId),
       invitation,
     };

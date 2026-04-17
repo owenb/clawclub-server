@@ -71,7 +71,7 @@ export async function joinAnonymouslyWithPow(
 
 const LOOPABLE_KINDS = new Set(['ask', 'gift', 'service', 'opportunity']);
 
-export async function seedPublishedEntity(
+export async function seedPublishedContent(
   h: TestHarness,
   input: {
     clubId: string;
@@ -90,14 +90,14 @@ export async function seedPublishedEntity(
       capacity?: number | null;
     } | null;
   },
-): Promise<{ threadId: string; entityId: string; entityVersionId: string }> {
+): Promise<{ threadId: string; id: string; contentVersionId: string }> {
   const openLoop = input.openLoop
     ?? (LOOPABLE_KINDS.has(input.kind) ? true : null);
 
   const [row] = await h.sqlClubs<{
     thread_id: string;
-    entity_id: string;
-    entity_version_id: string;
+    content_id: string;
+    content_version_id: string;
   }>(
      `with thread as (
        insert into content_threads (club_id, created_by_member_id)
@@ -105,19 +105,19 @@ export async function seedPublishedEntity(
        returning id
      ),
      ent as (
-       insert into entities (club_id, kind, author_member_id, open_loop, content_thread_id)
+       insert into contents (club_id, kind, author_member_id, open_loop, thread_id)
        select
          $1,
-         $2::entity_kind,
+         $2::content_kind,
          $3,
          $4,
          thread.id
        from thread
-       returning id, content_thread_id
+       returning id, thread_id
      ),
      ver as (
-       insert into entity_versions (
-         entity_id, version_no, state, title, summary, body, created_by_member_id
+       insert into content_versions (
+         content_id, version_no, state, title, summary, body, created_by_member_id
        )
        select
          ent.id,
@@ -131,9 +131,9 @@ export async function seedPublishedEntity(
        returning id
      )
      select
-       ent.content_thread_id as thread_id,
-       ent.id as entity_id,
-       ver.id as entity_version_id
+       ent.thread_id as thread_id,
+       ent.id as content_id,
+       ver.id as content_version_id
      from ent
      cross join ver`,
     [
@@ -141,7 +141,7 @@ export async function seedPublishedEntity(
       input.kind,
       input.authorMemberId,
       openLoop,
-      input.title ?? 'seeded entity',
+      input.title ?? 'seeded content',
       input.summary ?? null,
       input.body ?? null,
     ],
@@ -153,10 +153,10 @@ export async function seedPublishedEntity(
       ?? new Date(new Date(startsAt).getTime() + 2 * 60 * 60 * 1000).toISOString();
     await h.sqlClubs(
       `insert into event_version_details (
-         entity_version_id, location, starts_at, ends_at, timezone, recurrence_rule, capacity
+         content_version_id, location, starts_at, ends_at, timezone, recurrence_rule, capacity
        ) values ($1, $2, $3, $4, $5, $6, $7)`,
       [
-        row.entity_version_id,
+        row.content_version_id,
         input.event?.location ?? 'Online',
         startsAt,
         endsAt,
@@ -169,8 +169,8 @@ export async function seedPublishedEntity(
 
   return {
     threadId: row.thread_id,
-    entityId: row.entity_id,
-    entityVersionId: row.entity_version_id,
+    id: row.content_id,
+    contentVersionId: row.content_version_id,
   };
 }
 
@@ -225,31 +225,31 @@ export async function seedProfileEmbedding(h: TestHarness, memberId: string, vec
   }
 }
 
-export async function seedEntityWithEmbedding(
+export async function seedContentWithEmbedding(
   h: TestHarness,
   clubId: string,
   authorMemberId: string,
   kind: string,
   vector: string,
 ): Promise<string> {
-  const seeded = await seedPublishedEntity(h, {
+  const seeded = await seedPublishedContent(h, {
     clubId,
     authorMemberId,
     kind,
-    title: 'test entity',
+    title: 'test content',
     summary: 'test summary',
   });
-  const entityId = seeded.entityId;
-  const entityVersionId = seeded.entityVersionId;
+  const contentId = seeded.id;
+  const contentVersionId = seeded.contentVersionId;
 
   await h.sqlClubs(
-    `insert into entity_embeddings
-       (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
+    `insert into content_embeddings
+       (content_id, content_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
      values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
-     on conflict (entity_id, model, dimensions, source_version, chunk_index)
+     on conflict (content_id, model, dimensions, source_version, chunk_index)
      do update set embedding = excluded.embedding, updated_at = now()`,
-    [entityId, entityVersionId, vector],
+    [contentId, contentVersionId, vector],
   );
 
-  return entityId;
+  return contentId;
 }

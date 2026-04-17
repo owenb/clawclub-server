@@ -1,7 +1,7 @@
 /**
  * Embedding worker: processes queued embedding jobs asynchronously.
  *
- * Uses a single database pool for all embedding jobs (profiles + entities).
+ * Uses a single database pool for all embedding jobs (profiles + contents).
  *
  * Usage:
  *   node --experimental-strip-types src/workers/embedding.ts          # loop mode
@@ -9,7 +9,7 @@
  */
 import type { Pool } from 'pg';
 import { EMBEDDING_PROFILES, embedManyDocuments, isEmbeddingStubEnabled } from '../ai.ts';
-import { buildProfileSourceText, buildEntitySourceText, buildEventSourceText, computeSourceHash } from '../embedding-source.ts';
+import { buildProfileSourceText, buildContentSourceText, buildEventSourceText, computeSourceHash } from '../embedding-source.ts';
 import { createPools, runWorkerLoop, runWorkerOnce, type WorkerPools } from './runner.ts';
 
 const BATCH_SIZE = 20;
@@ -18,7 +18,7 @@ const MAX_ATTEMPTS = 5;
 
 type EmbeddingJob = {
   id: string;
-  subject_kind: 'member_club_profile_version' | 'entity_version';
+  subject_kind: 'member_club_profile_version' | 'content_version';
   subject_version_id: string;
   model: string;
   dimensions: number;
@@ -44,7 +44,7 @@ type ProfileVersionRow = {
 
 type EntityVersionRow = {
   id: string;
-  entity_id: string;
+  content_id: string;
   kind: string;
   title: string | null;
   summary: string | null;
@@ -102,17 +102,17 @@ async function loadProfileVersion(pool: Pool, versionId: string): Promise<Profil
 
 async function loadEntityVersion(pool: Pool, versionId: string): Promise<EntityVersionRow | null> {
   const result = await pool.query<EntityVersionRow>(
-    `select ev.id, ev.entity_id, e.kind::text as kind,
+    `select ev.id, ev.content_id, e.kind::text as kind,
             ev.title, ev.summary, ev.body,
             evd.location,
             evd.starts_at::text as starts_at, evd.ends_at::text as ends_at,
             evd.timezone, evd.recurrence_rule,
             (ev.state = 'published' and ev.version_no = (
-              select max(version_no) from entity_versions where entity_id = ev.entity_id
+              select max(version_no) from content_versions where content_id = ev.content_id
             )) as is_current_published
-     from entity_versions ev
-     join entities e on e.id = ev.entity_id
-     left join event_version_details evd on evd.entity_version_id = ev.id
+     from content_versions ev
+     join contents e on e.id = ev.content_id
+     left join event_version_details evd on evd.content_version_id = ev.id
      where ev.id = $1`,
     [versionId],
   );
@@ -184,7 +184,7 @@ function buildSourceText(job: EmbeddingJob, row: ProfileVersionRow | EntityVersi
     });
   }
 
-  return buildEntitySourceText({
+  return buildContentSourceText({
     kind: e.kind, title: e.title, summary: e.summary, body: e.body,
   });
 }
@@ -210,7 +210,7 @@ async function processPlane(
       : await loadEntityVersion(pool, job.subject_version_id);
 
     if (!row || (job.subject_kind === 'member_club_profile_version' && !(row as ProfileVersionRow).is_current)
-        || (job.subject_kind === 'entity_version' && !(row as EntityVersionRow).is_current_published)) {
+        || (job.subject_kind === 'content_version' && !(row as EntityVersionRow).is_current_published)) {
       staleJobIds.push(job.id);
       continue;
     }
@@ -235,7 +235,7 @@ async function processPlane(
   try {
     const result = await embedManyDocuments({
       values: prepared.map(p => p.sourceText),
-      profile: subjectKind === 'member_club_profile_version' ? 'member_profile' : 'entity',
+      profile: subjectKind === 'member_club_profile_version' ? 'member_profile' : 'content',
     });
     embeddings = result.embeddings;
     usageTokens = result.usageTokens;
@@ -295,23 +295,23 @@ async function insertProfileArtifact(pool: Pool, job: EmbeddingJob, sourceText: 
 }
 
 async function insertEntityArtifact(pool: Pool, job: EmbeddingJob, sourceText: string, sourceHash: string, vectorStr: string): Promise<void> {
-  const entityResult = await pool.query<{ entity_id: string }>(
-    `select entity_id from entity_versions where id = $1`,
+  const contentResult = await pool.query<{ content_id: string }>(
+    `select content_id from content_versions where id = $1`,
     [job.subject_version_id],
   );
-  const entityId = entityResult.rows[0]?.entity_id;
-  if (!entityId) throw new Error(`No entity found for version ${job.subject_version_id}`);
+  const contentId = contentResult.rows[0]?.content_id;
+  if (!contentId) throw new Error(`No content found for version ${job.subject_version_id}`);
 
   await pool.query(
-    `insert into entity_embeddings (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding, metadata)
+    `insert into content_embeddings (content_id, content_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding, metadata)
      values ($1, $2, $3, $4, $5, 0, $6, $7, $8::vector, '{}'::jsonb)
-     on conflict (entity_id, model, dimensions, source_version, chunk_index) do update
-       set entity_version_id = excluded.entity_version_id,
+     on conflict (content_id, model, dimensions, source_version, chunk_index) do update
+       set content_version_id = excluded.content_version_id,
            source_text = excluded.source_text,
            source_hash = excluded.source_hash,
            embedding = excluded.embedding,
            updated_at = now()`,
-    [entityId, job.subject_version_id, job.model, job.dimensions, job.source_version, sourceText, sourceHash, vectorStr],
+    [contentId, job.subject_version_id, job.model, job.dimensions, job.source_version, sourceText, sourceHash, vectorStr],
   );
 }
 
@@ -324,13 +324,13 @@ async function processEmbeddings(pools: WorkerPools): Promise<number> {
     'member_club_profile_version',
     insertProfileArtifact,
   );
-  const entityCount = await processPlane(
+  const contentCount = await processPlane(
     pools.db,
-    'entities',
-    'entity_version',
+    'contents',
+    'content_version',
     insertEntityArtifact,
   );
-  return profileCount + entityCount;
+  return profileCount + contentCount;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

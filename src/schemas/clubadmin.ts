@@ -25,7 +25,7 @@ import {
   adminApplicationSummary,
   adminClubStats,
   adminMemberSummary,
-  contentEntity, includedBundle, messageRemovalResult,
+  content, includedBundle, messageRemovalResult,
   membershipSummary,
   membershipAdminSummary,
 } from './responses.ts';
@@ -549,54 +549,54 @@ const clubadminClubsStats: ActionDefinition = {
 
 // ── clubadmin.content.remove ─────────────────────────────
 
-const clubadminEntitiesRemove: ActionDefinition = {
+const clubadminContentRemove: ActionDefinition = {
   action: 'clubadmin.content.remove',
   domain: 'clubadmin',
-  description: 'Remove any entity in the specified club (moderation).',
+  description: 'Remove any content in the specified club (moderation).',
   auth: 'clubadmin',
   safety: 'mutating',
-  authorizationNote: 'Club admin may remove any entity in their club. Reason is required for moderation audit trail.',
+  authorizationNote: 'Club admin may remove any content in their club. Reason is required for moderation audit trail.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
 
-  requiredCapability: 'removeEntity',
+  requiredCapability: 'removeContent',
 
   wire: {
     input: z.object({
-      clubId: wireRequiredString.describe('Club the entity belongs to'),
-      entityId: wireRequiredString.describe('Entity to remove'),
+      clubId: wireRequiredString.describe('Club the content belongs to'),
+      id: wireRequiredString.describe('Content to remove'),
       reason: wireRequiredString.describe('Reason for removal (required for moderation)'),
     }),
-    output: z.object({ entity: contentEntity, included: includedBundle }),
+    output: z.object({ content, included: includedBundle }),
   },
 
   parse: {
     input: z.object({
       clubId: parseRequiredString,
-      entityId: parseRequiredString,
+      id: parseRequiredString,
       reason: parseRequiredString,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, entityId, reason } = input as { clubId: string; entityId: string; reason: string };
+    const { clubId, id, reason } = input as { clubId: string; id: string; reason: string };
     ctx.requireClubAdmin(clubId);
-    ctx.requireCapability('removeEntity');
+    ctx.requireCapability('removeContent');
 
-    const result = await ctx.repository.removeEntity!({
+    const result = await ctx.repository.removeContent!({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: [clubId],
-      entityId,
+      id,
       reason,
       skipAuthCheck: true,
     });
 
     if (!result) {
-      throw new AppError(404, 'not_found', 'Entity not found in the specified club');
+      throw new AppError(404, 'not_found', 'Content not found in the specified club');
     }
 
     return {
       data: result,
-      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
+      requestScope: { requestedClubId: result.content.clubId, activeClubIds: [result.content.clubId] },
     };
   },
 };
@@ -609,5 +609,5 @@ registerActions([
   clubadminMembershipsCreate, clubadminMembershipsTransition,
   clubadminMembersGet, clubadminApplicationsGet,
   clubadminClubsStats,
-  clubadminEntitiesRemove,
+  clubadminContentRemove,
 ]);

@@ -176,7 +176,7 @@ describe('activity and notifications surfaces', () => {
 
     await h.sqlClubs(
       `insert into club_activity (club_id, topic, payload, created_by_member_id)
-       values ($1, 'entity.version.published', '{}'::jsonb, $2)`,
+       values ($1, 'content.version.published', '{}'::jsonb, $2)`,
       [owner.club.id, owner.id],
     );
 
@@ -186,13 +186,13 @@ describe('activity and notifications surfaces', () => {
 
     await h.sqlClubs(
       `insert into club_activity (club_id, topic, payload, created_by_member_id)
-       values ($1, 'entity.version.published', '{"title":"after latest"}'::jsonb, $2)`,
+       values ($1, 'content.version.published', '{"title":"after latest"}'::jsonb, $2)`,
       [owner.club.id, owner.id],
     );
 
     const poll = getActivity(await h.apiOk(owner.token, 'activity.list', { after: latest.nextAfter }));
     assert.equal(poll.items.length, 1);
-    assert.equal(poll.items[0]?.topic, 'entity.version.published');
+    assert.equal(poll.items[0]?.topic, 'content.version.published');
     assert.equal((poll.items[0]?.payload as Record<string, unknown>).title, 'after latest');
   });
 

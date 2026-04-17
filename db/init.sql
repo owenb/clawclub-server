@@ -1,6 +1,11 @@
--- ClawClub unified database schema
--- Single database, single schema, no RLS.
--- NOTE: Do NOT wrap in BEGIN/COMMIT — apply with --single-transaction.
+--
+-- PostgreSQL database dump
+--
+
+\restrict blaeVzRIg0NynEtuSijkR2Wr9DJl9nEfdgkcxAdf1JOzpVwwG90zhaQuF171v4I
+
+-- Dumped from database version 18.3 (Homebrew)
+-- Dumped by pg_dump version 18.3 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -12,31 +17,34 @@ SELECT pg_catalog.set_config('search_path', '', false);
 SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
-SET default_tablespace = '';
-SET default_table_access_method = heap;
 SET row_security = off;
 
--- ============================================================
--- Extensions (require superuser)
--- ============================================================
+--
+-- Name: public; Type: SCHEMA; Schema: -; Owner: -
+--
+
+-- *not* creating schema, since initdb creates it
+
+
+--
+-- Name: vector; Type: EXTENSION; Schema: -; Owner: -
+--
 
 CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 
--- ============================================================
--- Schema ownership
--- ============================================================
+
 --
--- From this point on, every object is created as clawclub_app so that
--- the same role that runs the app can also run migrations against its
--- own objects (ALTER TYPE, ALTER TABLE, DROP VIEW, etc. all require
--- ownership). The clawclub_app role must already exist — run
--- scripts/provision-app-role.sh before db/init.sql.
+-- Name: EXTENSION vector; Type: COMMENT; Schema: -; Owner: -
 --
--- SET SESSION AUTHORIZATION requires the connecting role to be a
--- superuser. That is fine: db/init.sql is a one-time bootstrap step
--- that already needs admin credentials for CREATE EXTENSION above.
+
+COMMENT ON EXTENSION vector IS 'vector data type and ivfflat and hnsw access methods';
 
 SET SESSION AUTHORIZATION clawclub_app;
+
+
+--
+-- Name: assignment_state; Type: TYPE; Schema: public; Owner: -
+--
 
 CREATE TYPE public.assignment_state AS ENUM (
     'active',
@@ -67,6 +75,45 @@ CREATE TYPE public.club_activity_audience AS ENUM (
 
 
 --
+-- Name: content_gate_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.content_gate_status AS ENUM (
+    'passed',
+    'rejected_illegal',
+    'rejected_quality',
+    'rejected_malformed',
+    'skipped',
+    'failed'
+);
+
+
+--
+-- Name: content_kind; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.content_kind AS ENUM (
+    'post',
+    'opportunity',
+    'service',
+    'ask',
+    'gift',
+    'event'
+);
+
+
+--
+-- Name: content_state; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.content_state AS ENUM (
+    'draft',
+    'published',
+    'removed'
+);
+
+
+--
 -- Name: edge_kind; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -75,33 +122,6 @@ CREATE TYPE public.edge_kind AS ENUM (
     'about',
     'related_to',
     'mentions'
-);
-
-
---
--- Name: entity_kind; Type: TYPE; Schema: public; Owner: -
---
-
-CREATE TYPE public.entity_kind AS ENUM (
-    'post',
-    'opportunity',
-    'service',
-    'ask',
-    'gift',
-    'event',
-    'complaint',
-    'migration_canary'
-);
-
-
---
--- Name: entity_state; Type: TYPE; Schema: public; Owner: -
---
-
-CREATE TYPE public.entity_state AS ENUM (
-    'draft',
-    'published',
-    'removed'
 );
 
 
@@ -166,20 +186,6 @@ CREATE TYPE public.message_role AS ENUM (
     'member',
     'agent',
     'system'
-);
-
-
---
--- Name: content_gate_status; Type: TYPE; Schema: public; Owner: -
---
-
-CREATE TYPE public.content_gate_status AS ENUM (
-    'passed',
-    'rejected_illegal',
-    'rejected_quality',
-    'rejected_malformed',
-    'skipped',
-    'failed'
 );
 
 
@@ -415,7 +421,7 @@ begin
     output := output || substr(alphabet, 1 + floor(random() * length(alphabet))::integer, 1);
   end loop;
 
-  return output::short_id;
+  return output::public.short_id;
 end;
 $$;
 
@@ -826,7 +832,7 @@ CREATE TABLE public.ai_embedding_jobs (
     last_error text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT ai_embedding_jobs_dimensions_check CHECK ((dimensions > 0)),
-    CONSTRAINT ai_embedding_jobs_subject_kind_check CHECK ((subject_kind = ANY (ARRAY['member_club_profile_version'::text, 'entity_version'::text])))
+    CONSTRAINT ai_embedding_jobs_subject_kind_check CHECK ((subject_kind = ANY (ARRAY['member_club_profile_version'::text, 'content_version'::text])))
 );
 
 
@@ -853,16 +859,6 @@ CREATE TABLE public.ai_llm_usage_log (
 );
 
 
--- Name: consumed_pow_challenges; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.consumed_pow_challenges (
-    challenge_id text NOT NULL,
-    consumed_at timestamp with time zone DEFAULT now() NOT NULL,
-    club_id public.short_id NOT NULL
-);
-
-
 --
 -- Name: club_activity; Type: TABLE; Schema: public; Owner: -
 --
@@ -874,8 +870,8 @@ CREATE TABLE public.club_activity (
     topic text NOT NULL,
     audience public.club_activity_audience DEFAULT 'members'::public.club_activity_audience NOT NULL,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    entity_id public.short_id,
-    entity_version_id public.short_id,
+    content_id public.short_id,
+    content_version_id public.short_id,
     created_by_member_id public.short_id,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT club_activity_topic_check CHECK ((length(btrim(topic)) > 0))
@@ -917,20 +913,20 @@ CREATE TABLE public.club_edges (
     club_id public.short_id,
     kind public.edge_kind NOT NULL,
     from_member_id public.short_id,
-    from_entity_id public.short_id,
-    from_entity_version_id public.short_id,
+    from_content_id public.short_id,
+    from_content_version_id public.short_id,
     to_member_id public.short_id,
-    to_entity_id public.short_id,
-    to_entity_version_id public.short_id,
+    to_content_id public.short_id,
+    to_content_version_id public.short_id,
     reason text,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     client_key text,
     created_by_member_id public.short_id,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     archived_at timestamp with time zone,
-    CONSTRAINT club_edges_from_check CHECK ((((((from_member_id IS NOT NULL))::integer + ((from_entity_id IS NOT NULL))::integer) + ((from_entity_version_id IS NOT NULL))::integer) = 1)),
+    CONSTRAINT club_edges_from_check CHECK ((((((from_member_id IS NOT NULL))::integer + ((from_content_id IS NOT NULL))::integer) + ((from_content_version_id IS NOT NULL))::integer) = 1)),
     CONSTRAINT club_edges_no_self_vouch CHECK (((kind <> 'vouched_for'::public.edge_kind) OR ((from_member_id)::text <> (to_member_id)::text))),
-    CONSTRAINT club_edges_to_check CHECK ((((((to_member_id IS NOT NULL))::integer + ((to_entity_id IS NOT NULL))::integer) + ((to_entity_version_id IS NOT NULL))::integer) = 1)),
+    CONSTRAINT club_edges_to_check CHECK ((((((to_member_id IS NOT NULL))::integer + ((to_content_id IS NOT NULL))::integer) + ((to_content_version_id IS NOT NULL))::integer) = 1)),
     CONSTRAINT club_edges_vouch_check CHECK (((kind <> 'vouched_for'::public.edge_kind) OR ((from_member_id IS NOT NULL) AND (to_member_id IS NOT NULL) AND (reason IS NOT NULL))))
 );
 
@@ -985,6 +981,39 @@ CREATE TABLE public.clubs (
 
 
 --
+-- Name: consumed_pow_challenges; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.consumed_pow_challenges (
+    challenge_id text NOT NULL,
+    consumed_at timestamp with time zone DEFAULT now() NOT NULL,
+    club_id public.short_id NOT NULL
+);
+
+
+--
+-- Name: content_embeddings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.content_embeddings (
+    id public.short_id DEFAULT public.new_id() CONSTRAINT entity_embeddings_id_not_null NOT NULL,
+    content_id public.short_id CONSTRAINT entity_embeddings_entity_id_not_null NOT NULL,
+    content_version_id public.short_id CONSTRAINT entity_embeddings_entity_version_id_not_null NOT NULL,
+    model text CONSTRAINT entity_embeddings_model_not_null NOT NULL,
+    dimensions integer CONSTRAINT entity_embeddings_dimensions_not_null NOT NULL,
+    source_version text CONSTRAINT entity_embeddings_source_version_not_null NOT NULL,
+    chunk_index integer DEFAULT 0 CONSTRAINT entity_embeddings_chunk_index_not_null NOT NULL,
+    source_text text CONSTRAINT entity_embeddings_source_text_not_null NOT NULL,
+    source_hash text CONSTRAINT entity_embeddings_source_hash_not_null NOT NULL,
+    embedding public.vector(1536) CONSTRAINT entity_embeddings_embedding_not_null NOT NULL,
+    metadata jsonb DEFAULT '{}'::jsonb CONSTRAINT entity_embeddings_metadata_not_null NOT NULL,
+    created_at timestamp with time zone DEFAULT now() CONSTRAINT entity_embeddings_created_at_not_null NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() CONSTRAINT entity_embeddings_updated_at_not_null NOT NULL,
+    CONSTRAINT entity_embeddings_dimensions_check CHECK ((dimensions > 0))
+);
+
+
+--
 -- Name: content_threads; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -995,6 +1024,66 @@ CREATE TABLE public.content_threads (
     last_activity_at timestamp with time zone DEFAULT now() NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     archived_at timestamp with time zone
+);
+
+
+--
+-- Name: content_version_mentions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.content_version_mentions (
+    content_version_id public.short_id CONSTRAINT entity_version_mentions_entity_version_id_not_null NOT NULL,
+    field text CONSTRAINT entity_version_mentions_field_not_null NOT NULL,
+    start_offset integer CONSTRAINT entity_version_mentions_start_offset_not_null NOT NULL,
+    end_offset integer CONSTRAINT entity_version_mentions_end_offset_not_null NOT NULL,
+    mentioned_member_id public.short_id CONSTRAINT entity_version_mentions_mentioned_member_id_not_null NOT NULL,
+    authored_label text CONSTRAINT entity_version_mentions_authored_label_not_null NOT NULL,
+    created_at timestamp with time zone DEFAULT now() CONSTRAINT entity_version_mentions_created_at_not_null NOT NULL,
+    CONSTRAINT content_version_mentions_field_check CHECK ((field = ANY (ARRAY['title'::text, 'summary'::text, 'body'::text]))),
+    CONSTRAINT content_version_mentions_offset_check CHECK (((start_offset >= 0) AND (end_offset > start_offset)))
+);
+
+
+--
+-- Name: content_versions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.content_versions (
+    id public.short_id DEFAULT public.new_id() CONSTRAINT entity_versions_id_not_null NOT NULL,
+    content_id public.short_id CONSTRAINT entity_versions_entity_id_not_null NOT NULL,
+    version_no integer CONSTRAINT entity_versions_version_no_not_null NOT NULL,
+    state public.content_state DEFAULT 'published'::public.content_state CONSTRAINT entity_versions_state_not_null NOT NULL,
+    title text,
+    summary text,
+    body text,
+    effective_at timestamp with time zone DEFAULT now() CONSTRAINT entity_versions_effective_at_not_null NOT NULL,
+    expires_at timestamp with time zone,
+    reason text,
+    supersedes_version_id public.short_id,
+    created_at timestamp with time zone DEFAULT now() CONSTRAINT entity_versions_created_at_not_null NOT NULL,
+    created_by_member_id public.short_id,
+    CONSTRAINT content_versions_expiry_check CHECK (((expires_at IS NULL) OR (expires_at >= effective_at))),
+    CONSTRAINT content_versions_version_no_check CHECK ((version_no > 0))
+);
+
+
+--
+-- Name: contents; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.contents (
+    id public.short_id DEFAULT public.new_id() CONSTRAINT entities_id_not_null NOT NULL,
+    club_id public.short_id CONSTRAINT entities_club_id_not_null NOT NULL,
+    kind public.content_kind CONSTRAINT entities_kind_not_null NOT NULL,
+    author_member_id public.short_id CONSTRAINT entities_author_member_id_not_null NOT NULL,
+    open_loop boolean,
+    thread_id public.short_id CONSTRAINT entities_content_thread_id_not_null NOT NULL,
+    client_key text,
+    created_at timestamp with time zone DEFAULT now() CONSTRAINT entities_created_at_not_null NOT NULL,
+    archived_at timestamp with time zone,
+    deleted_at timestamp with time zone,
+    metadata jsonb DEFAULT '{}'::jsonb CONSTRAINT entities_metadata_not_null NOT NULL,
+    CONSTRAINT contents_open_loop_kind_check CHECK ((((kind = ANY (ARRAY['ask'::public.content_kind, 'gift'::public.content_kind, 'service'::public.content_kind, 'opportunity'::public.content_kind])) AND (open_loop IS NOT NULL)) OR ((kind <> ALL (ARRAY['ask'::public.content_kind, 'gift'::public.content_kind, 'service'::public.content_kind, 'opportunity'::public.content_kind])) AND (open_loop IS NULL))))
 );
 
 
@@ -1020,35 +1109,12 @@ CREATE VIEW public.current_club_versions AS
 
 
 --
--- Name: entity_versions; Type: TABLE; Schema: public; Owner: -
+-- Name: current_content_versions; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE TABLE public.entity_versions (
-    id public.short_id DEFAULT public.new_id() NOT NULL,
-    entity_id public.short_id NOT NULL,
-    version_no integer NOT NULL,
-    state public.entity_state DEFAULT 'published'::public.entity_state NOT NULL,
-    title text,
-    summary text,
-    body text,
-    effective_at timestamp with time zone DEFAULT now() NOT NULL,
-    expires_at timestamp with time zone,
-    reason text,
-    supersedes_version_id public.short_id,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    created_by_member_id public.short_id,
-    CONSTRAINT entity_versions_expiry_check CHECK (((expires_at IS NULL) OR (expires_at >= effective_at))),
-    CONSTRAINT entity_versions_version_no_check CHECK ((version_no > 0))
-);
-
-
---
--- Name: current_entity_versions; Type: VIEW; Schema: public; Owner: -
---
-
-CREATE VIEW public.current_entity_versions AS
- SELECT DISTINCT ON (entity_id) id,
-    entity_id,
+CREATE VIEW public.current_content_versions AS
+ SELECT DISTINCT ON (content_id) id,
+    content_id,
     version_no,
     state,
     title,
@@ -1060,8 +1126,8 @@ CREATE VIEW public.current_entity_versions AS
     supersedes_version_id,
     created_at,
     created_by_member_id
-   FROM public.entity_versions
-  ORDER BY entity_id, version_no DESC, created_at DESC;
+   FROM public.content_versions
+  ORDER BY content_id, version_no DESC, created_at DESC;
 
 
 --
@@ -1070,7 +1136,7 @@ CREATE VIEW public.current_entity_versions AS
 
 CREATE TABLE public.event_rsvps (
     id public.short_id DEFAULT public.new_id() NOT NULL,
-    event_entity_id public.short_id NOT NULL,
+    event_content_id public.short_id CONSTRAINT event_rsvps_event_entity_id_not_null NOT NULL,
     membership_id public.short_id NOT NULL,
     response public.rsvp_state NOT NULL,
     note text,
@@ -1087,8 +1153,8 @@ CREATE TABLE public.event_rsvps (
 --
 
 CREATE VIEW public.current_event_rsvps AS
- SELECT DISTINCT ON (event_entity_id, membership_id) id,
-    event_entity_id,
+ SELECT DISTINCT ON (event_content_id, membership_id) id,
+    event_content_id,
     membership_id,
     response,
     note,
@@ -1098,7 +1164,7 @@ CREATE VIEW public.current_event_rsvps AS
     created_at,
     created_by_member_id
    FROM public.event_rsvps
-  ORDER BY event_entity_id, membership_id, version_no DESC, created_at DESC;
+  ORDER BY event_content_id, membership_id, version_no DESC, created_at DESC;
 
 
 --
@@ -1106,7 +1172,7 @@ CREATE VIEW public.current_event_rsvps AS
 --
 
 CREATE TABLE public.event_version_details (
-    entity_version_id public.short_id NOT NULL,
+    content_version_id public.short_id CONSTRAINT event_version_details_entity_version_id_not_null NOT NULL,
     location text,
     starts_at timestamp with time zone,
     ends_at timestamp with time zone,
@@ -1123,27 +1189,27 @@ CREATE TABLE public.event_version_details (
 --
 
 CREATE VIEW public.current_event_versions AS
- SELECT cev.id,
-    cev.entity_id,
-    cev.version_no,
-    cev.state,
-    cev.title,
-    cev.summary,
-    cev.body,
-    cev.effective_at,
-    cev.expires_at,
-    cev.reason,
-    cev.supersedes_version_id,
-    cev.created_at,
-    cev.created_by_member_id,
+ SELECT ccv.id,
+    ccv.content_id,
+    ccv.version_no,
+    ccv.state,
+    ccv.title,
+    ccv.summary,
+    ccv.body,
+    ccv.effective_at,
+    ccv.expires_at,
+    ccv.reason,
+    ccv.supersedes_version_id,
+    ccv.created_at,
+    ccv.created_by_member_id,
     evd.location,
     evd.starts_at,
     evd.ends_at,
     evd.timezone,
     evd.recurrence_rule,
     evd.capacity
-   FROM (public.current_entity_versions cev
-     JOIN public.event_version_details evd ON (((evd.entity_version_id)::text = (cev.id)::text)));
+   FROM (public.current_content_versions ccv
+     JOIN public.event_version_details evd ON (((evd.content_version_id)::text = (ccv.id)::text)));
 
 
 --
@@ -1329,72 +1395,13 @@ CREATE TABLE public.dm_threads (
     id public.short_id DEFAULT public.new_id() NOT NULL,
     kind public.thread_kind NOT NULL,
     created_by_member_id public.short_id,
-    subject_entity_id public.short_id,
+    subject_content_id public.short_id,
     member_a_id public.short_id,
     member_b_id public.short_id,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     archived_at timestamp with time zone,
     CONSTRAINT dm_threads_direct_pair_check CHECK (((kind <> 'direct'::public.thread_kind) OR ((member_a_id IS NOT NULL) AND (member_b_id IS NOT NULL) AND ((member_a_id)::text < (member_b_id)::text))))
-);
-
-
---
--- Name: entities; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.entities (
-    id public.short_id DEFAULT public.new_id() NOT NULL,
-    club_id public.short_id NOT NULL,
-    kind public.entity_kind NOT NULL,
-    author_member_id public.short_id NOT NULL,
-    open_loop boolean,
-    content_thread_id public.short_id NOT NULL,
-    client_key text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    archived_at timestamp with time zone,
-    deleted_at timestamp with time zone,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    CONSTRAINT entities_open_loop_kind_check CHECK ((((kind = ANY (ARRAY['ask'::public.entity_kind, 'gift'::public.entity_kind, 'service'::public.entity_kind, 'opportunity'::public.entity_kind])) AND (open_loop IS NOT NULL)) OR ((kind <> ALL (ARRAY['ask'::public.entity_kind, 'gift'::public.entity_kind, 'service'::public.entity_kind, 'opportunity'::public.entity_kind])) AND (open_loop IS NULL))))
-);
-
-
---
--- Name: entity_embeddings; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.entity_embeddings (
-    id public.short_id DEFAULT public.new_id() NOT NULL,
-    entity_id public.short_id NOT NULL,
-    entity_version_id public.short_id NOT NULL,
-    model text NOT NULL,
-    dimensions integer NOT NULL,
-    source_version text NOT NULL,
-    chunk_index integer DEFAULT 0 NOT NULL,
-    source_text text NOT NULL,
-    source_hash text NOT NULL,
-    embedding public.vector(1536) NOT NULL,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT entity_embeddings_dimensions_check CHECK ((dimensions > 0))
-);
-
-
---
--- Name: entity_version_mentions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.entity_version_mentions (
-    entity_version_id public.short_id NOT NULL,
-    field text NOT NULL,
-    start_offset integer NOT NULL,
-    end_offset integer NOT NULL,
-    mentioned_member_id public.short_id NOT NULL,
-    authored_label text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT entity_version_mentions_field_check CHECK ((field = ANY (ARRAY['title'::text, 'summary'::text, 'body'::text]))),
-    CONSTRAINT entity_version_mentions_offset_check CHECK (((start_offset >= 0) AND (end_offset > start_offset)))
 );
 
 
@@ -1422,12 +1429,12 @@ CREATE TABLE public.invitations (
 
 
 --
--- Name: published_entity_versions; Type: VIEW; Schema: public; Owner: -
+-- Name: published_content_versions; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.published_entity_versions AS
+CREATE VIEW public.published_content_versions AS
  SELECT id,
-    entity_id,
+    content_id,
     version_no,
     state,
     title,
@@ -1439,35 +1446,35 @@ CREATE VIEW public.published_entity_versions AS
     supersedes_version_id,
     created_at,
     created_by_member_id
-   FROM public.current_entity_versions
-  WHERE (state = 'published'::public.entity_state);
+   FROM public.current_content_versions
+  WHERE (state = 'published'::public.content_state);
 
 
 --
--- Name: live_entities; Type: VIEW; Schema: public; Owner: -
+-- Name: live_content; Type: VIEW; Schema: public; Owner: -
 --
 
-CREATE VIEW public.live_entities AS
- SELECT e.id AS entity_id,
-    e.club_id,
-    e.kind,
-    e.open_loop,
-    e.author_member_id,
-    e.content_thread_id,
-    e.created_at AS entity_created_at,
-    pev.id AS entity_version_id,
-    pev.version_no,
-    pev.state,
-    pev.title,
-    pev.summary,
-    pev.body,
-    pev.effective_at,
-    pev.expires_at,
-    pev.created_at AS version_created_at,
-    pev.created_by_member_id
-   FROM (public.entities e
-     JOIN public.published_entity_versions pev ON (((pev.entity_id)::text = (e.id)::text)))
-  WHERE ((e.archived_at IS NULL) AND (e.deleted_at IS NULL) AND ((pev.expires_at IS NULL) OR (pev.expires_at > now())));
+CREATE VIEW public.live_content AS
+ SELECT c.id AS content_id,
+    c.club_id,
+    c.kind,
+    c.open_loop,
+    c.author_member_id,
+    c.thread_id,
+    c.created_at AS content_created_at,
+    pcv.id AS content_version_id,
+    pcv.version_no,
+    pcv.state,
+    pcv.title,
+    pcv.summary,
+    pcv.body,
+    pcv.effective_at,
+    pcv.expires_at,
+    pcv.created_at AS version_created_at,
+    pcv.created_by_member_id
+   FROM (public.contents c
+     JOIN public.published_content_versions pcv ON (((pcv.content_id)::text = (c.id)::text)))
+  WHERE ((c.archived_at IS NULL) AND (c.deleted_at IS NULL) AND ((pcv.expires_at IS NULL) OR (pcv.expires_at > now())));
 
 
 --
@@ -1475,32 +1482,32 @@ CREATE VIEW public.live_entities AS
 --
 
 CREATE VIEW public.live_events AS
- SELECT le.entity_id,
-    le.club_id,
-    le.kind,
-    le.open_loop,
-    le.author_member_id,
-    le.content_thread_id,
-    le.entity_created_at,
-    le.entity_version_id,
-    le.version_no,
-    le.state,
-    le.title,
-    le.summary,
-    le.body,
-    le.effective_at,
-    le.expires_at,
-    le.version_created_at,
-    le.created_by_member_id,
+ SELECT lc.content_id,
+    lc.club_id,
+    lc.kind,
+    lc.open_loop,
+    lc.author_member_id,
+    lc.thread_id,
+    lc.content_created_at,
+    lc.content_version_id,
+    lc.version_no,
+    lc.state,
+    lc.title,
+    lc.summary,
+    lc.body,
+    lc.effective_at,
+    lc.expires_at,
+    lc.version_created_at,
+    lc.created_by_member_id,
     evd.location,
     evd.starts_at,
     evd.ends_at,
     evd.timezone,
     evd.recurrence_rule,
     evd.capacity
-   FROM (public.live_entities le
-     JOIN public.event_version_details evd ON (((evd.entity_version_id)::text = (le.entity_version_id)::text)))
-  WHERE (le.kind = 'event'::public.entity_kind);
+   FROM (public.live_content lc
+     JOIN public.event_version_details evd ON (((evd.content_version_id)::text = (lc.content_version_id)::text)))
+  WHERE (lc.kind = 'event'::public.content_kind);
 
 
 --
@@ -1531,7 +1538,7 @@ CREATE TABLE public.member_notifications (
     seq bigint NOT NULL,
     topic text NOT NULL,
     payload jsonb DEFAULT '{}'::jsonb NOT NULL,
-    entity_id public.short_id,
+    content_id public.short_id,
     match_id public.short_id,
     acknowledged_state text,
     acknowledged_at timestamp with time zone,
@@ -1710,13 +1717,6 @@ ALTER TABLE ONLY public.ai_llm_usage_log
     ADD CONSTRAINT ai_llm_usage_log_pkey PRIMARY KEY (id);
 
 
--- Name: consumed_pow_challenges consumed_pow_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.consumed_pow_challenges
-    ADD CONSTRAINT consumed_pow_challenges_pkey PRIMARY KEY (challenge_id);
-
-
 --
 -- Name: club_activity_cursors club_activity_cursors_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
@@ -1814,11 +1814,67 @@ ALTER TABLE ONLY public.clubs
 
 
 --
+-- Name: consumed_pow_challenges consumed_pow_challenges_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.consumed_pow_challenges
+    ADD CONSTRAINT consumed_pow_challenges_pkey PRIMARY KEY (challenge_id);
+
+
+--
+-- Name: content_embeddings content_embeddings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_embeddings
+    ADD CONSTRAINT content_embeddings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: content_embeddings content_embeddings_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_embeddings
+    ADD CONSTRAINT content_embeddings_unique UNIQUE (content_id, model, dimensions, source_version, chunk_index);
+
+
+--
 -- Name: content_threads content_threads_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.content_threads
     ADD CONSTRAINT content_threads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: content_version_mentions content_version_mentions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_version_mentions
+    ADD CONSTRAINT content_version_mentions_pkey PRIMARY KEY (content_version_id, field, start_offset);
+
+
+--
+-- Name: content_versions content_versions_content_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_versions
+    ADD CONSTRAINT content_versions_content_version_unique UNIQUE (content_id, version_no);
+
+
+--
+-- Name: content_versions content_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_versions
+    ADD CONSTRAINT content_versions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: contents contents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contents
+    ADD CONSTRAINT contents_pkey PRIMARY KEY (id);
 
 
 --
@@ -1886,59 +1942,11 @@ ALTER TABLE ONLY public.dm_threads
 
 
 --
--- Name: entities entities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entities
-    ADD CONSTRAINT entities_pkey PRIMARY KEY (id);
-
-
---
--- Name: entity_embeddings entity_embeddings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_embeddings
-    ADD CONSTRAINT entity_embeddings_pkey PRIMARY KEY (id);
-
-
---
--- Name: entity_embeddings entity_embeddings_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_embeddings
-    ADD CONSTRAINT entity_embeddings_unique UNIQUE (entity_id, model, dimensions, source_version, chunk_index);
-
-
---
--- Name: entity_version_mentions entity_version_mentions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_version_mentions
-    ADD CONSTRAINT entity_version_mentions_pkey PRIMARY KEY (entity_version_id, field, start_offset);
-
-
---
--- Name: entity_versions entity_versions_entity_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_versions
-    ADD CONSTRAINT entity_versions_entity_version_unique UNIQUE (entity_id, version_no);
-
-
---
--- Name: entity_versions entity_versions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_versions
-    ADD CONSTRAINT entity_versions_pkey PRIMARY KEY (id);
-
-
---
--- Name: event_rsvps event_rsvps_event_membership_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: event_rsvps event_rsvps_event_content_membership_version_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.event_rsvps
-    ADD CONSTRAINT event_rsvps_event_membership_version_unique UNIQUE (event_entity_id, membership_id, version_no);
+    ADD CONSTRAINT event_rsvps_event_content_membership_version_unique UNIQUE (event_content_id, membership_id, version_no);
 
 
 --
@@ -1954,7 +1962,7 @@ ALTER TABLE ONLY public.event_rsvps
 --
 
 ALTER TABLE ONLY public.event_version_details
-    ADD CONSTRAINT event_version_details_pkey PRIMARY KEY (entity_version_id);
+    ADD CONSTRAINT event_version_details_pkey PRIMARY KEY (content_version_id);
 
 
 --
@@ -2146,12 +2154,6 @@ CREATE INDEX ai_llm_usage_log_club_created_idx ON public.ai_llm_usage_log USING 
 CREATE INDEX ai_llm_usage_log_member_created_idx ON public.ai_llm_usage_log USING btree (member_id, created_at DESC);
 
 
--- Name: consumed_pow_challenges_consumed_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX consumed_pow_challenges_consumed_idx ON public.consumed_pow_challenges USING btree (consumed_at);
-
-
 --
 -- Name: club_activity_club_seq_idx; Type: INDEX; Schema: public; Owner: -
 --
@@ -2181,10 +2183,10 @@ CREATE UNIQUE INDEX club_edges_idempotent_idx ON public.club_edges USING btree (
 
 
 --
--- Name: club_edges_to_entity_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: club_edges_to_content_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX club_edges_to_entity_idx ON public.club_edges USING btree (to_entity_id, kind, created_at DESC);
+CREATE INDEX club_edges_to_content_idx ON public.club_edges USING btree (to_content_id, kind, created_at DESC);
 
 
 --
@@ -2272,6 +2274,27 @@ CREATE INDEX club_versions_club_idx ON public.club_versions USING btree (club_id
 
 
 --
+-- Name: consumed_pow_challenges_consumed_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX consumed_pow_challenges_consumed_idx ON public.consumed_pow_challenges USING btree (consumed_at);
+
+
+--
+-- Name: content_embeddings_content_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX content_embeddings_content_idx ON public.content_embeddings USING btree (content_id);
+
+
+--
+-- Name: content_embeddings_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX content_embeddings_version_idx ON public.content_embeddings USING btree (content_version_id);
+
+
+--
 -- Name: content_threads_club_activity_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2283,6 +2306,69 @@ CREATE INDEX content_threads_club_activity_idx ON public.content_threads USING b
 --
 
 CREATE UNIQUE INDEX content_threads_id_club_idx ON public.content_threads USING btree (id, club_id);
+
+
+--
+-- Name: content_version_mentions_member_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX content_version_mentions_member_created_idx ON public.content_version_mentions USING btree (mentioned_member_id, created_at DESC);
+
+
+--
+-- Name: content_versions_content_version_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX content_versions_content_version_idx ON public.content_versions USING btree (content_id, version_no DESC);
+
+
+--
+-- Name: content_versions_effective_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX content_versions_effective_idx ON public.content_versions USING btree (effective_at DESC);
+
+
+--
+-- Name: content_versions_expires_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX content_versions_expires_idx ON public.content_versions USING btree (expires_at);
+
+
+--
+-- Name: contents_author_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX contents_author_idx ON public.contents USING btree (author_member_id, created_at DESC);
+
+
+--
+-- Name: contents_club_kind_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX contents_club_kind_idx ON public.contents USING btree (club_id, kind, created_at DESC);
+
+
+--
+-- Name: contents_idempotent_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX contents_idempotent_idx ON public.contents USING btree (author_member_id, client_key) WHERE (client_key IS NOT NULL);
+
+
+--
+-- Name: contents_live_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX contents_live_idx ON public.contents USING btree (club_id, kind) WHERE ((archived_at IS NULL) AND (deleted_at IS NULL));
+
+
+--
+-- Name: contents_thread_created_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX contents_thread_created_idx ON public.contents USING btree (thread_id, created_at, id) WHERE ((archived_at IS NULL) AND (deleted_at IS NULL));
 
 
 --
@@ -2370,93 +2456,17 @@ CREATE UNIQUE INDEX dm_threads_direct_pair_unique_idx ON public.dm_threads USING
 
 
 --
--- Name: entities_author_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: event_rsvps_event_content_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX entities_author_idx ON public.entities USING btree (author_member_id, created_at DESC);
-
-
---
--- Name: entities_club_kind_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entities_club_kind_idx ON public.entities USING btree (club_id, kind, created_at DESC);
+CREATE INDEX event_rsvps_event_content_idx ON public.event_rsvps USING btree (event_content_id, response);
 
 
 --
--- Name: entities_idempotent_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: event_rsvps_event_content_membership_version_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX entities_idempotent_idx ON public.entities USING btree (author_member_id, client_key) WHERE (client_key IS NOT NULL);
-
-
---
--- Name: entities_live_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entities_live_idx ON public.entities USING btree (club_id, kind) WHERE ((archived_at IS NULL) AND (deleted_at IS NULL));
-
---
--- Name: entities_thread_created_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entities_thread_created_idx ON public.entities USING btree (content_thread_id, created_at, id) WHERE ((archived_at IS NULL) AND (deleted_at IS NULL));
-
-
---
--- Name: entity_embeddings_entity_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entity_embeddings_entity_idx ON public.entity_embeddings USING btree (entity_id);
-
-
---
--- Name: entity_embeddings_version_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entity_embeddings_version_idx ON public.entity_embeddings USING btree (entity_version_id);
-
-
---
--- Name: entity_version_mentions_member_created_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entity_version_mentions_member_created_idx ON public.entity_version_mentions USING btree (mentioned_member_id, created_at DESC);
-
-
---
--- Name: entity_versions_effective_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entity_versions_effective_idx ON public.entity_versions USING btree (effective_at DESC);
-
-
---
--- Name: entity_versions_entity_version_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entity_versions_entity_version_idx ON public.entity_versions USING btree (entity_id, version_no DESC);
-
-
---
--- Name: entity_versions_expires_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX entity_versions_expires_idx ON public.entity_versions USING btree (expires_at);
-
-
---
--- Name: event_rsvps_event_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX event_rsvps_event_idx ON public.event_rsvps USING btree (event_entity_id, response);
-
-
---
--- Name: event_rsvps_event_membership_version_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX event_rsvps_event_membership_version_idx ON public.event_rsvps USING btree (event_entity_id, membership_id, version_no DESC, created_at DESC);
+CREATE INDEX event_rsvps_event_content_membership_version_idx ON public.event_rsvps USING btree (event_content_id, membership_id, version_no DESC, created_at DESC);
 
 
 --
@@ -2748,19 +2758,20 @@ ALTER TABLE ONLY public.ai_llm_usage_log
     ADD CONSTRAINT ai_llm_usage_log_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
 
 
--- Name: consumed_pow_challenges consumed_pow_challenges_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.consumed_pow_challenges
-    ADD CONSTRAINT consumed_pow_challenges_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id) ON DELETE CASCADE;
-
-
 --
 -- Name: club_activity club_activity_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.club_activity
     ADD CONSTRAINT club_activity_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: club_activity club_activity_content_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.club_activity
+    ADD CONSTRAINT club_activity_content_fkey FOREIGN KEY (content_id) REFERENCES public.contents(id);
 
 
 --
@@ -2788,14 +2799,6 @@ ALTER TABLE ONLY public.club_activity_cursors
 
 
 --
--- Name: club_activity club_activity_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.club_activity
-    ADD CONSTRAINT club_activity_entity_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id);
-
-
---
 -- Name: club_edges club_edges_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2812,19 +2815,19 @@ ALTER TABLE ONLY public.club_edges
 
 
 --
--- Name: club_edges club_edges_from_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: club_edges club_edges_from_content_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.club_edges
-    ADD CONSTRAINT club_edges_from_entity_fkey FOREIGN KEY (from_entity_id) REFERENCES public.entities(id);
+    ADD CONSTRAINT club_edges_from_content_fkey FOREIGN KEY (from_content_id) REFERENCES public.contents(id);
 
 
 --
--- Name: club_edges club_edges_from_entity_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: club_edges club_edges_from_content_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.club_edges
-    ADD CONSTRAINT club_edges_from_entity_version_fkey FOREIGN KEY (from_entity_version_id) REFERENCES public.entity_versions(id);
+    ADD CONSTRAINT club_edges_from_content_version_fkey FOREIGN KEY (from_content_version_id) REFERENCES public.content_versions(id);
 
 
 --
@@ -2836,19 +2839,19 @@ ALTER TABLE ONLY public.club_edges
 
 
 --
--- Name: club_edges club_edges_to_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: club_edges club_edges_to_content_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.club_edges
-    ADD CONSTRAINT club_edges_to_entity_fkey FOREIGN KEY (to_entity_id) REFERENCES public.entities(id);
+    ADD CONSTRAINT club_edges_to_content_fkey FOREIGN KEY (to_content_id) REFERENCES public.contents(id);
 
 
 --
--- Name: club_edges club_edges_to_entity_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: club_edges club_edges_to_content_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.club_edges
-    ADD CONSTRAINT club_edges_to_entity_version_fkey FOREIGN KEY (to_entity_version_id) REFERENCES public.entity_versions(id);
+    ADD CONSTRAINT club_edges_to_content_version_fkey FOREIGN KEY (to_content_version_id) REFERENCES public.content_versions(id);
 
 
 --
@@ -2980,6 +2983,30 @@ ALTER TABLE ONLY public.clubs
 
 
 --
+-- Name: consumed_pow_challenges consumed_pow_challenges_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.consumed_pow_challenges
+    ADD CONSTRAINT consumed_pow_challenges_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: content_embeddings content_embeddings_content_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_embeddings
+    ADD CONSTRAINT content_embeddings_content_fkey FOREIGN KEY (content_id) REFERENCES public.contents(id);
+
+
+--
+-- Name: content_embeddings content_embeddings_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_embeddings
+    ADD CONSTRAINT content_embeddings_version_fkey FOREIGN KEY (content_version_id) REFERENCES public.content_versions(id) ON DELETE CASCADE;
+
+
+--
 -- Name: content_threads content_threads_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2993,6 +3020,70 @@ ALTER TABLE ONLY public.content_threads
 
 ALTER TABLE ONLY public.content_threads
     ADD CONSTRAINT content_threads_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: content_version_mentions content_version_mentions_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_version_mentions
+    ADD CONSTRAINT content_version_mentions_member_fkey FOREIGN KEY (mentioned_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: content_version_mentions content_version_mentions_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_version_mentions
+    ADD CONSTRAINT content_version_mentions_version_fkey FOREIGN KEY (content_version_id) REFERENCES public.content_versions(id);
+
+
+--
+-- Name: content_versions content_versions_content_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_versions
+    ADD CONSTRAINT content_versions_content_fkey FOREIGN KEY (content_id) REFERENCES public.contents(id);
+
+
+--
+-- Name: content_versions content_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_versions
+    ADD CONSTRAINT content_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: content_versions content_versions_supersedes_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.content_versions
+    ADD CONSTRAINT content_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES public.content_versions(id);
+
+
+--
+-- Name: contents contents_author_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contents
+    ADD CONSTRAINT contents_author_fkey FOREIGN KEY (author_member_id) REFERENCES public.members(id);
+
+
+--
+-- Name: contents contents_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contents
+    ADD CONSTRAINT contents_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
+
+
+--
+-- Name: contents contents_thread_same_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.contents
+    ADD CONSTRAINT contents_thread_same_club_fkey FOREIGN KEY (thread_id, club_id) REFERENCES public.content_threads(id, club_id);
 
 
 --
@@ -3116,90 +3207,11 @@ ALTER TABLE ONLY public.dm_threads
 
 
 --
--- Name: dm_threads dm_threads_subject_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: dm_threads dm_threads_subject_content_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.dm_threads
-    ADD CONSTRAINT dm_threads_subject_entity_fkey FOREIGN KEY (subject_entity_id) REFERENCES public.entities(id);
-
-
---
--- Name: entities entities_author_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entities
-    ADD CONSTRAINT entities_author_fkey FOREIGN KEY (author_member_id) REFERENCES public.members(id);
-
-
---
--- Name: entities entities_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entities
-    ADD CONSTRAINT entities_club_fkey FOREIGN KEY (club_id) REFERENCES public.clubs(id);
-
-
---
--- Name: entities entities_content_thread_same_club_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entities
-    ADD CONSTRAINT entities_content_thread_same_club_fkey FOREIGN KEY (content_thread_id, club_id) REFERENCES public.content_threads(id, club_id);
-
---
--- Name: entity_embeddings entity_embeddings_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_embeddings
-    ADD CONSTRAINT entity_embeddings_entity_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id);
-
-
---
--- Name: entity_embeddings entity_embeddings_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_embeddings
-    ADD CONSTRAINT entity_embeddings_version_fkey FOREIGN KEY (entity_version_id) REFERENCES public.entity_versions(id) ON DELETE CASCADE;
-
-
---
--- Name: entity_version_mentions entity_version_mentions_member_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_version_mentions
-    ADD CONSTRAINT entity_version_mentions_member_fkey FOREIGN KEY (mentioned_member_id) REFERENCES public.members(id);
-
-
---
--- Name: entity_version_mentions entity_version_mentions_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_version_mentions
-    ADD CONSTRAINT entity_version_mentions_version_fkey FOREIGN KEY (entity_version_id) REFERENCES public.entity_versions(id);
-
-
---
--- Name: entity_versions entity_versions_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_versions
-    ADD CONSTRAINT entity_versions_created_by_fkey FOREIGN KEY (created_by_member_id) REFERENCES public.members(id);
-
-
---
--- Name: entity_versions entity_versions_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_versions
-    ADD CONSTRAINT entity_versions_entity_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id);
-
-
---
--- Name: entity_versions entity_versions_supersedes_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.entity_versions
-    ADD CONSTRAINT entity_versions_supersedes_fkey FOREIGN KEY (supersedes_version_id) REFERENCES public.entity_versions(id);
+    ADD CONSTRAINT dm_threads_subject_content_fkey FOREIGN KEY (subject_content_id) REFERENCES public.contents(id);
 
 
 --
@@ -3211,11 +3223,11 @@ ALTER TABLE ONLY public.event_rsvps
 
 
 --
--- Name: event_rsvps event_rsvps_event_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: event_rsvps event_rsvps_event_content_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.event_rsvps
-    ADD CONSTRAINT event_rsvps_event_fkey FOREIGN KEY (event_entity_id) REFERENCES public.entities(id);
+    ADD CONSTRAINT event_rsvps_event_content_fkey FOREIGN KEY (event_content_id) REFERENCES public.contents(id);
 
 
 --
@@ -3235,11 +3247,11 @@ ALTER TABLE ONLY public.event_rsvps
 
 
 --
--- Name: event_version_details event_version_details_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: event_version_details event_version_details_content_version_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.event_version_details
-    ADD CONSTRAINT event_version_details_version_fkey FOREIGN KEY (entity_version_id) REFERENCES public.entity_versions(id);
+    ADD CONSTRAINT event_version_details_content_version_fkey FOREIGN KEY (content_version_id) REFERENCES public.content_versions(id);
 
 
 --
@@ -3339,11 +3351,11 @@ ALTER TABLE ONLY public.member_notifications
 
 
 --
--- Name: member_notifications member_notifications_entity_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: member_notifications member_notifications_content_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.member_notifications
-    ADD CONSTRAINT member_notifications_entity_fkey FOREIGN KEY (entity_id) REFERENCES public.entities(id);
+    ADD CONSTRAINT member_notifications_content_fkey FOREIGN KEY (content_id) REFERENCES public.contents(id);
 
 
 --
@@ -3435,38 +3447,39 @@ ALTER TABLE ONLY public.signal_recompute_queue
 
 
 --
-
--- ============================================================
--- Seed data applied by shipped migrations
--- ============================================================
-
--- pg_dump sets search_path to '' at the top of this file. Restore it so
--- unqualified type references in default-value functions (e.g. new_id() →
--- short_id) resolve correctly during INSERT.
-SET search_path TO public;
-
--- From 009_global_content_quota_default.sql
-INSERT INTO public.quota_policies (scope, club_id, action_name, max_per_day)
-SELECT 'global', NULL, 'content.create', 50
-WHERE NOT EXISTS (
-  SELECT 1 FROM public.quota_policies WHERE scope = 'global' AND action_name = 'content.create'
-);
-
--- ============================================================
--- Schema migration ledger
--- ============================================================
+-- Name: schema_migrations data; Type: TABLE DATA; Schema: public; Owner: -
+--
 
 INSERT INTO public.schema_migrations (filename) VALUES
-  ('0001_init.sql'),
-  ('003_test_canary.sql'),
-  ('004_club_scoped_profiles.sql'),
-  ('005_unified_threaded_public_content.sql'),
-  ('006_mentions.sql'),
-  ('007_member_notifications_stream.sql'),
-  ('008_unified_club_join.sql'),
-  ('009_global_content_quota_default.sql'),
-  ('010_rename_application_generated_profile_source.sql'),
-  ('011_delete_handles.sql'),
-  ('012_kill_untyped_json_surface.sql'),
-  ('013_comp_owners_and_remove_clubadmin_bypass.sql'),
-  ('014_content_gate_redesign.sql');
+    ('003_test_canary.sql'),
+    ('004_club_scoped_profiles.sql'),
+    ('005_unified_threaded_public_content.sql'),
+    ('006_mentions.sql'),
+    ('007_member_notifications_stream.sql'),
+    ('008_unified_club_join.sql'),
+    ('009_global_content_quota_default.sql'),
+    ('010_rename_application_generated_profile_source.sql'),
+    ('011_delete_handles.sql'),
+    ('012_kill_untyped_json_surface.sql'),
+    ('013_comp_owners_and_remove_clubadmin_bypass.sql'),
+    ('014_content_gate_redesign.sql'),
+    ('015_onboarding_ceremony.sql'),
+    ('016_pow_at_join.sql'),
+    ('017_rename_entities_to_contents.sql');
+
+
+--
+-- Name: quota_policies data; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+INSERT INTO public.quota_policies (scope, club_id, action_name, max_per_day) VALUES
+    ('global', NULL, 'content.create', 50);
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+RESET SESSION AUTHORIZATION;
+
+\unrestrict blaeVzRIg0NynEtuSijkR2Wr9DJl9nEfdgkcxAdf1JOzpVwwG90zhaQuF171v4I

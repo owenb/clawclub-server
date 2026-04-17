@@ -1,7 +1,7 @@
 /**
  * Action registry: the central contract for all API actions.
  *
- * Each action is defined in a domain module (session.ts, entities.ts, etc.)
+ * Each action is defined in a domain module (session.ts, content.ts, etc.)
  * and assembled here into a single registry. The registry is the single
  * source of truth for:
  *   - Action metadata (description, auth, safety)
@@ -48,7 +48,7 @@ export type RepositoryCapability =
   | 'archiveClub'
   | 'assignClubOwner'
   | 'updateClub'
-  | 'removeEntity'
+  | 'removeContent'
   | 'removeEvent'
   | 'removeMessage'
   | 'adminCreateMember'

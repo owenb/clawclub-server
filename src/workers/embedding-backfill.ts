@@ -14,7 +14,7 @@ import { createPools, closePools, installWorkerProcessHandlers, type WorkerPools
 
 async function backfill(pools: WorkerPools): Promise<void> {
   const profileConfig = EMBEDDING_PROFILES.member_profile;
-  const entityConfig = EMBEDDING_PROFILES.entity;
+  const contentConfig = EMBEDDING_PROFILES.content;
 
   // Enqueue current profile versions that lack artifacts
   const profileResult = await pools.db.query<{ id: string }>(
@@ -38,28 +38,28 @@ async function backfill(pools: WorkerPools): Promise<void> {
   }
   console.log(`Enqueued ${profileResult.rows.length} profile embedding jobs`);
 
-  // Enqueue current published entity versions that lack artifacts
-  const entityResult = await pools.db.query<{ id: string }>(
-    `select cev.id from current_entity_versions cev
-     join entities e on e.id = cev.entity_id
+  // Enqueue current published content versions that lack artifacts
+  const contentResult = await pools.db.query<{ id: string }>(
+    `select cev.id from current_content_versions cev
+     join contents e on e.id = cev.content_id
      where cev.state = 'published' and e.deleted_at is null
        and not exists (
-         select 1 from entity_embeddings eea
-         where eea.entity_id = e.id
+         select 1 from content_embeddings eea
+         where eea.content_id = e.id
            and eea.model = $1 and eea.dimensions = $2 and eea.source_version = $3
        )`,
-    [entityConfig.model, entityConfig.dimensions, entityConfig.sourceVersion],
+    [contentConfig.model, contentConfig.dimensions, contentConfig.sourceVersion],
   );
 
-  for (const row of entityResult.rows) {
+  for (const row of contentResult.rows) {
     await pools.db.query(
       `insert into ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
-       values ('entity_version', $1, $2, $3, $4)
+       values ('content_version', $1, $2, $3, $4)
        on conflict (subject_kind, subject_version_id, model, dimensions, source_version) do nothing`,
-      [row.id, entityConfig.model, entityConfig.dimensions, entityConfig.sourceVersion],
+      [row.id, contentConfig.model, contentConfig.dimensions, contentConfig.sourceVersion],
     );
   }
-  console.log(`Enqueued ${entityResult.rows.length} entity/event embedding jobs`);
+  console.log(`Enqueued ${contentResult.rows.length} content/event embedding jobs`);
 }
 
 // ── Main ────────────────────────────────────────────────

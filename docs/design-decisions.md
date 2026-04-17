@@ -43,27 +43,27 @@ Approved action namespaces (canonical list in `src/schemas/*.ts`, exposed via `G
 
 Terminology boundary:
 - the public API uses `content.*` for all public content creation, updates, removal, thread reads, and thread feeds
-- events share the same entity/version/thread model as every other public content kind
+- events share the same content/content-version/thread model as every other public content kind
 - `events.*` survives only for the event-specific read and RSVP surfaces: `events.list`, `events.rsvp`, `events.cancelRsvp`
 
 ## Public content model
 
-- every public entity belongs to a `content_threads` row; there are no threadless public entities
+- every public content belongs to a `content_threads` row; there are no threadless public contents
 - threads are structural containers, not a separate user-authored object type
-- there is no reply/comment kind; replies are ordinary entities appended to a thread
+- there is no reply/comment kind; replies are ordinary contents appended to a thread
 - any public kind can appear at any position in a thread, including `event`
-- `content.list` is a thread feed ordered by thread activity, not a flat entity feed
-- the first entity is the thread subject for feed summarization and lexical filtering
+- `content.list` is a thread feed ordered by thread activity, not a flat content feed
+- the first content is the thread subject for feed summarization and lexical filtering
 - `content.getThread` is the canonical read path for full public-thread context, with optional `includeClosed` for closed-loop reads
-- removed entities are redacted in thread reads instead of being physically hidden from thread history
-- expired first entities may still appear in thread summaries even when omitted from the paginated entity body
+- removed contents are redacted in thread reads instead of being physically hidden from thread history
+- expired first contents may still appear in thread summaries even when omitted from the paginated content body
 - event discovery remains separate: `events.list` is a flat upcoming-events surface ordered by event start time, not by thread activity
 
 ## Mentions
 
 Public content (`title`, `summary`, `body`) and direct messages (`messageText`) support inline `[Display Name|memberId]` mentions. The bracket+pipe format references the member by their stable `short_id` directly — there is no separate handle namespace, no scope or state validation at write time, and no cross-table lookup.
 
-At write time the server parses the text with one regex everywhere: `[label|id]` where `id` matches the 12-character `short_id` alphabet (`[23456789abcdefghjkmnpqrstuvwxyz]`) and the label disallows `[`, `]`, `|`, and CR/LF so each mention stays on a single line and `text.slice(start, end)` always yields the original token. The label must be non-empty and have no outer whitespace, so the persisted `authored_label` matches the span text exactly. Each parsed candidate is checked for `members.id` existence — that is the entire validation. Mentioning a banned member, a pending applicant, or a member in a club the author cannot see is allowed by design: the agent already had the id, and notifications route by club membership separately. If any id in the text fails to exist, the write is rejected with `invalid_mentions` and the literal offending ids are echoed back. Caps apply at write time: 25 unique mentioned members and 100 spans per content version or DM message. Resolved mentions are persisted as rows keyed on the exact `entity_versions.id` (or `dm_messages.id`) — never on the entity or thread — so updates that create a new version get a fresh mention set, and unchanged-field carry-forward on `content.update` is by design.
+At write time the server parses the text with one regex everywhere: `[label|id]` where `id` matches the 12-character `short_id` alphabet (`[23456789abcdefghjkmnpqrstuvwxyz]`) and the label disallows `[`, `]`, `|`, and CR/LF so each mention stays on a single line and `text.slice(start, end)` always yields the original token. The label must be non-empty and have no outer whitespace, so the persisted `authored_label` matches the span text exactly. Each parsed candidate is checked for `members.id` existence — that is the entire validation. Mentioning a banned member, a pending applicant, or a member in a club the author cannot see is allowed by design: the agent already had the id, and notifications route by club membership separately. If any id in the text fails to exist, the write is rejected with `invalid_mentions` and the literal offending ids are echoed back. Caps apply at write time: 25 unique mentioned members and 100 spans per content version or DM message. Resolved mentions are persisted as rows keyed on the exact `content_versions.id` (or `dm_messages.id`) — never on the content or thread — so updates that create a new version get a fresh mention set, and unchanged-field carry-forward on `content.update` is by design.
 
 For `content.create` and `content.update` the resolver runs in a `preGate` hook ahead of the LLM content gate, so a typoed id never burns an LLM call. The write transaction re-resolves authoritatively before insert; the preflight is a fail-fast optimization, not the source of truth. `messages.send` does not have a content gate today, so its mention validation runs inside the same transaction as the message insert, after the `clientKey` replay short-circuit.
 
@@ -90,7 +90,7 @@ At read time every action that returns text-bearing content or messages also ret
 
 Removed content and removed DMs return empty mention spans uniformly across member, clubadmin, and superadmin reads — the underlying mention rows are preserved on disk for audit and forensics, but the read path filters them out for any item whose state is `removed`.
 
-The `included` envelope is a generic normalization container, not mentions-specific. V1 only populates `included.membersById`; future surfaces that need to hydrate cross-referenced entities (clubs, events, etc.) should extend the same bundle rather than inventing parallel normalization fields.
+The `included` envelope is a generic normalization container, not mentions-specific. V1 only populates `included.membersById`; future surfaces that need to hydrate cross-referenced contents (clubs, events, etc.) should extend the same bundle rather than inventing parallel normalization fields.
 
 ## Security and permissions
 
@@ -124,7 +124,7 @@ The default rule is:
 
 This applies to:
 - profile versions
-- entity versions
+- content versions
 - membership state versions
 - club versions
 - messaging history
@@ -139,7 +139,7 @@ For important mutable state, use one of two shapes:
 2. append-only event table + current view
 
 Examples:
-- profiles, entities, membership state, club versions: shape 1
+- profiles, contents, membership state, club versions: shape 1
 - messages, RSVPs, club activity, inbox entries: shape 2
 
 ## Identity and IDs
@@ -157,7 +157,7 @@ Examples:
 - one active vouch per (actor, target) pair per club, enforced by partial unique index
 - self-vouching prevented by DB CHECK constraint
 - vouches surface in `vouches.list` (any member), `members.list/get`, and `clubadmin.members.list/get`
-- membership applications are states on `club_memberships`, not a separate admissions entity
+- membership applications are states on `club_memberships`, not a separate admissions content type
 - there is one public join action, plus one anonymous preparation step:
   - anonymous cold callers first request a stateless PoW challenge with `clubs.prepareJoin`, then call `clubs.join` with `clubSlug`, `email`, `challengeBlob`, and a solved nonce
   - authenticated callers provide `clubSlug`, reuse their existing member identity, and must not send `email`
@@ -183,15 +183,15 @@ Examples:
 ## Search and discovery
 
 - primary public content kinds are `post`, `ask`, `service`, `opportunity`, `gift`, and `event`
-- expired entities auto-hide
+- expired contents auto-hide
 - three search/discovery actions with explicit retrieval modes:
   - `members.searchByFullText`: PostgreSQL full-text search (tsvector/tsquery) with public-name prefix boosting
   - `members.searchBySemanticSimilarity`: semantic search via OpenAI embedding similarity
-  - `content.searchBySemanticSimilarity`: semantic entity search via OpenAI embedding similarity, returning entity rows with numeric similarity scores
-- no full-text search on arbitrary entities beyond the thread-subject feed query; `content.searchBySemanticSimilarity` is the entity-level discovery surface
+  - `content.searchBySemanticSimilarity`: semantic content search via OpenAI embedding similarity, returning content rows with numeric similarity scores
+- no full-text search on arbitrary contents beyond the thread-subject feed query; `content.searchBySemanticSimilarity` is the content-level discovery surface
 - lexical and semantic search are separate actions; no hybrid fallback
 - embedding infrastructure is separate from domain data:
-  - artifacts stored in dedicated tables (`member_profile_embeddings`, `entity_embeddings`)
+  - artifacts stored in dedicated tables (`member_profile_embeddings`, `content_embeddings`)
   - async job queue (`ai_embedding_jobs`) with lease-based claiming
   - code-configured embedding profiles in `src/ai.ts` (model, dimensions, source version)
   - worker processes jobs independently; write path succeeds even if embeddings are unavailable
@@ -220,7 +220,7 @@ Rules:
 - `notifications.acknowledge` durably stores `processed` / `suppressed` state for materialized notifications
 - club-wide activity is never explicitly acknowledged
 - activity audience filtering (`members`, `clubadmins`, `owners`) restricts visibility by role
-- entity-backed notifications are filtered at read time: if the referenced entity is no longer published, the notification is suppressed from the worklist
+- content-backed notifications are filtered at read time: if the referenced content is no longer published, the notification is suppressed from the worklist
 
 The authenticated response envelope piggybacks the head of the notification queue on every response as `sharedContext.notifications` plus `sharedContext.notificationsTruncated`. The stream `ready` frame carries the same head seed. `notifications_dirty` is invalidation-only; clients re-read via `notifications.list` or the next authenticated response.
 
@@ -259,7 +259,7 @@ Background workers live in `src/workers/` with shared lifecycle infrastructure:
 - adding a new worker is: implement `process(pools) -> number`, call `runWorkerLoop`
 
 Workers:
-- `embedding.ts` — processes embedding jobs (profiles and entities)
+- `embedding.ts` — processes embedding jobs (profiles and contents)
 - `embedding-backfill.ts` — enqueues missing embedding jobs
 - `synchronicity.ts` — computes and delivers synchronicity matches (see below)
 
@@ -269,7 +269,7 @@ The synchronicity worker computes member-targeted recommendations using embeddin
 
 Architecture:
 - all matching is pgvector cosine similarity over pre-computed embeddings — zero LLM calls in the matching loop
-- similarity helpers load a source embedding and query for matches across profiles and entities
+- similarity helpers load a source embedding and query for matches across profiles and contents
 - `signal_background_matches` tracks match lifecycle: pending → delivered/expired, with deduplication via unique constraint on `(match_kind, source_id, target_member_id)`
 - delivery is transactional per match (FOR UPDATE + signal insert + state transition in one transaction), with `pg_advisory_xact_lock` on the recipient for serialized throttle enforcement
 
@@ -280,22 +280,22 @@ Match types:
 - `event_to_member` — an event suggestion matches a member profile or current activity context
 
 Trigger model:
-- entity-triggered matching is reactive: new entity publications in `club_activity` trigger immediate matching
-- only thread-subject entities (position 1 in a public thread) generate entity-triggered matches
+- content-triggered matching is reactive: new content publications in `club_activity` trigger immediate matching
+- only thread-subject contents (position 1 in a public thread) generate content-triggered matches
 - introduction matching uses a debounced dirty-set: triggers mark `(member_id, club_id)` for recomputation via `signal_recompute_queue`, never send signals directly
 - introduction triggers: profile embedding completion, member accessibility changes (membership + subscription), periodic backstop sweep
 - new members get a warm-up delay before intro recompute
 
 Quality and trust:
-- per-kind TTLs: 5 days for entity matches, 21 days for introductions — no match lives forever
+- per-kind TTLs: 5 days for content matches, 21 days for introductions — no match lives forever
 - freshness guard: matches older than 3 days are expired regardless of TTL (prevents stale drip after outages)
 - profile staleness gate: delayed embedding completions (profile change > 3 days old) are skipped rather than triggering catch-up intro waves
-- entity version drift detection: source entity version recorded at match time, verified at delivery; entity edits expire pending matches proactively
+- content version drift detection: source content version recorded at match time, verified at delivery; content edits expire pending matches proactively
 - offer_to_ask tracks both offer version and matched ask version; either drifting expires the match
 - only current-version profile embeddings are used in similarity queries; members whose profile has advanced but whose new embedding isn't ready yet are skipped
 - self-match suppression: a member's own asks are excluded from offer matching
 - recipient accessibility verified at delivery for all match types
-- read-time filtering suppresses notifications whose referenced entity (including matched ask for offer_to_ask) is no longer published
+- read-time filtering suppresses notifications whose referenced content (including matched ask for offer_to_ask) is no longer published
 - per-kind delivery throttling: introductions capped at 2/week, general notifications at 3/day
 - best-first delivery: lowest cosine distance first within the throttle budget
 - pending matches stay pending if throttled; they are not dropped
@@ -382,7 +382,7 @@ Already landed (see `GET /api/schema` for the public list, or `src/schemas/*.ts`
 - `quotas.getUsage`: per-club daily write quota usage and limits
 - idempotency keys (`clientKey`) on content.create, messages.send, and vouches.create
 - per-club daily write quotas on content.create
-- append-only membership/application/entity history
+- append-only membership/application/content history
 - SSE and polling over split activity / notifications / messaging surfaces
 - transport validation: top-level keys outside `action`/`input` are rejected
 - one full auto-generated `/api/schema` contract

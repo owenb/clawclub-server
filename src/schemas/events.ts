@@ -10,7 +10,7 @@ import {
   wireCursor, parseCursor, decodeCursor,
   wireLimitOf, parseLimitOf,
 } from './fields.ts';
-import { contentEntity, includedBundle, membershipSummary } from './responses.ts';
+import { content, includedBundle, membershipSummary } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 type EventListInput = {
@@ -38,7 +38,7 @@ const eventsList: ActionDefinition = {
       query: z.string().nullable(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-      results: z.array(contentEntity),
+      results: z.array(content),
       hasMore: z.boolean(),
       nextCursor: z.string().nullable(),
       included: includedBundle,
@@ -60,8 +60,8 @@ const eventsList: ActionDefinition = {
     const clubIds = clubScope.map(c => c.clubId);
     const cursor = rawCursor
       ? (() => {
-        const [startsAt, entityId] = decodeCursor(rawCursor, 2);
-        return { startsAt, entityId };
+        const [startsAt, contentId] = decodeCursor(rawCursor, 2);
+        return { startsAt, contentId };
       })()
       : null;
 
@@ -89,7 +89,7 @@ const eventsList: ActionDefinition = {
 };
 
 type RsvpInput = {
-  eventEntityId: string;
+  eventId: string;
   response: 'yes' | 'maybe' | 'no' | 'waitlist';
   note?: string | null;
 };
@@ -97,33 +97,33 @@ type RsvpInput = {
 const eventsRsvp: ActionDefinition = {
   action: 'events.rsvp',
   domain: 'events',
-  description: 'RSVP to a specific event entity.',
+  description: 'RSVP to a specific event.',
   auth: 'member',
   safety: 'mutating',
 
   wire: {
     input: z.object({
-      eventEntityId: wireRequiredString.describe('Event entity ID'),
+      eventId: wireRequiredString.describe('Event content ID'),
       response: eventRsvpState.describe('RSVP response'),
       note: wireOptionalString.describe('Optional note'),
     }),
-    output: z.object({ entity: contentEntity, included: includedBundle }),
+    output: z.object({ event: content, included: includedBundle }),
   },
 
   parse: {
     input: z.object({
-      eventEntityId: parseRequiredString,
+      eventId: parseRequiredString,
       response: eventRsvpState,
       note: parseTrimmedNullableString,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { eventEntityId, response, note } = input as RsvpInput;
+    const { eventId, response, note } = input as RsvpInput;
 
     const result = await ctx.repository.rsvpEvent({
       actorMemberId: ctx.actor.member.id,
-      eventEntityId,
+      eventId,
       response,
       note,
       accessibleMemberships: ctx.actor.memberships.map(m => ({
@@ -138,7 +138,7 @@ const eventsRsvp: ActionDefinition = {
 
     return {
       data: result,
-      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
+      requestScope: { requestedClubId: result.event.clubId, activeClubIds: [result.event.clubId] },
     };
   },
 };
@@ -152,23 +152,23 @@ const eventsCancelRsvp: ActionDefinition = {
 
   wire: {
     input: z.object({
-      eventEntityId: wireRequiredString.describe('Event entity ID'),
+      eventId: wireRequiredString.describe('Event content ID'),
     }),
-    output: z.object({ entity: contentEntity, included: includedBundle }),
+    output: z.object({ event: content, included: includedBundle }),
   },
 
   parse: {
     input: z.object({
-      eventEntityId: parseRequiredString,
+      eventId: parseRequiredString,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { eventEntityId } = input as { eventEntityId: string };
+    const { eventId } = input as { eventId: string };
 
     const result = await ctx.repository.cancelEventRsvp({
       actorMemberId: ctx.actor.member.id,
-      eventEntityId,
+      eventId,
       accessibleMemberships: ctx.actor.memberships.map(m => ({
         membershipId: m.membershipId,
         clubId: m.clubId,
@@ -181,7 +181,7 @@ const eventsCancelRsvp: ActionDefinition = {
 
     return {
       data: result,
-      requestScope: { requestedClubId: result.entity.clubId, activeClubIds: [result.entity.clubId] },
+      requestScope: { requestedClubId: result.event.clubId, activeClubIds: [result.event.clubId] },
     };
   },
 };

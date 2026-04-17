@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
-import { seedPublishedEntity } from '../helpers.ts';
+import { seedPublishedContent } from '../helpers.ts';
 
 let h: TestHarness;
 
@@ -613,7 +613,7 @@ describe('superadmin.platform.getOverview', () => {
     assert.ok(typeof overview.totalMembers === 'number');
     assert.ok(typeof overview.activeMembers === 'number');
     assert.ok(typeof overview.totalClubs === 'number');
-    assert.ok(typeof overview.totalEntities === 'number');
+    assert.ok(typeof overview.totalContent === 'number');
     assert.ok(typeof overview.totalMessages === 'number');
     assert.ok(typeof overview.pendingApplications === 'number');
     assert.ok(Array.isArray(overview.recentMembers));
@@ -714,7 +714,7 @@ describe('clubadmin.clubs.getStatistics', () => {
     const stats = data.stats as Record<string, unknown>;
     assert.equal(stats.clubId, ownerCtx.club.id);
     assert.equal(stats.slug, 'stats-club');
-    assert.ok(typeof stats.entityCount === 'number');
+    assert.ok(typeof stats.contentCount === 'number');
     assert.ok(typeof stats.messageCount === 'number');
     assert.ok(stats.memberCounts !== null && typeof stats.memberCounts === 'object');
   });
@@ -1318,19 +1318,19 @@ describe('quotas.getUsage', () => {
   it('posts and events both consume the unified content.create quota', async () => {
     const ownerCtx = await h.seedOwner('quota-kind-isolation', 'Quota Kind Club');
 
-    await seedPublishedEntity(h, {
+    await seedPublishedContent(h, {
       clubId: ownerCtx.club.id,
       authorMemberId: ownerCtx.id,
       kind: 'post',
       title: 'Post 1',
     });
-    await seedPublishedEntity(h, {
+    await seedPublishedContent(h, {
       clubId: ownerCtx.club.id,
       authorMemberId: ownerCtx.id,
       kind: 'post',
       title: 'Post 2',
     });
-    await seedPublishedEntity(h, {
+    await seedPublishedContent(h, {
       clubId: ownerCtx.club.id,
       authorMemberId: ownerCtx.id,
       kind: 'event',
@@ -1357,7 +1357,7 @@ describe('quotas.getUsage', () => {
     );
     const member = await h.seedCompedMember(ownerCtx.club.id, 'Quota Event Member');
 
-    await seedPublishedEntity(h, {
+    await seedPublishedContent(h, {
       clubId: ownerCtx.club.id,
       authorMemberId: member.id,
       kind: 'event',
@@ -1383,7 +1383,7 @@ describe('quotas.getUsage', () => {
       [ownerCtx.club.id],
     );
 
-    await seedPublishedEntity(h, {
+    await seedPublishedContent(h, {
       clubId: ownerCtx.club.id,
       authorMemberId: ownerCtx.id,
       kind: 'event',
@@ -1414,7 +1414,7 @@ describe('quotas.getUsage', () => {
 
     // Create 2 posts (the limit for a normal member)
     for (let i = 0; i < 2; i++) {
-      await seedPublishedEntity(h, {
+      await seedPublishedContent(h, {
         clubId: ownerCtx.club.id,
         authorMemberId: member.id,
         kind: 'post',
@@ -1441,7 +1441,7 @@ describe('quotas.getUsage', () => {
 
     // Create 3 posts as owner (within owner's 6 limit, above member's 2 limit)
     for (let i = 0; i < 3; i++) {
-      await seedPublishedEntity(h, {
+      await seedPublishedContent(h, {
         clubId: ownerCtx.club.id,
         authorMemberId: ownerCtx.id,
         kind: 'post',

@@ -6,7 +6,7 @@ describe('pickPrompt', () => {
   it('selects the top-level content prompt for non-replies', () => {
     assert.match(pickPrompt({
       kind: 'content',
-      entityKind: 'post',
+      contentKind: 'post',
       isReply: false,
       title: 'Title',
       summary: null,
@@ -17,7 +17,7 @@ describe('pickPrompt', () => {
   it('selects the reply prompt for replies', () => {
     assert.match(pickPrompt({
       kind: 'content',
-      entityKind: 'post',
+      contentKind: 'post',
       isReply: true,
       title: null,
       summary: null,

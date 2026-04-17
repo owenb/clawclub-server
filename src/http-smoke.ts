@@ -304,21 +304,21 @@ export async function runHttpSmoke(): Promise<{
     }, {
       'clawclub-schema-seen': schemaHash,
     });
-    const createdEntity = created.data?.entity as Record<string, unknown> | undefined;
-    const createdEntityId = createdEntity?.entityId as string | undefined;
-    assert.ok(createdEntityId, 'content.create should return an entityId');
+    const createdContent = created.data?.content as Record<string, unknown> | undefined;
+    const createdContentId = createdContent?.id as string | undefined;
+    assert.ok(createdContentId, 'content.create should return an id');
 
-    const entities = await postAction(baseUrl, token.bearerToken, 'content.list', {
+    const contents = await postAction(baseUrl, token.bearerToken, 'content.list', {
       clubId,
       limit: 20,
     }, {
       'clawclub-schema-seen': schemaHash,
     });
-    const entityResults = entities.data?.results as Array<Record<string, unknown>> | undefined;
+    const entityResults = contents.data?.results as Array<Record<string, unknown>> | undefined;
     assert.ok(Array.isArray(entityResults), 'content.list should return a results array');
     const listedEntity = entityResults
-      ?.map((thread) => thread.firstEntity as Record<string, unknown>)
-      .find((entity) => entity.entityId === createdEntityId);
+      ?.map((thread) => thread.firstContent as Record<string, unknown>)
+      .find((content) => content.id === createdContentId);
     assert.ok(listedEntity, 'content.list should include the created post');
 
     const events = await postAction(baseUrl, token.bearerToken, 'events.list', {

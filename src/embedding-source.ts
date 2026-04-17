@@ -66,16 +66,16 @@ export function buildProfileSourceText(input: ProfileSourceInput): string {
   return finalise(parts);
 }
 
-// ── Entity source ───────────────────────────────────────
+// ── Content source ──────────────────────────────────────
 
-export type EntitySourceInput = {
+export type ContentSourceInput = {
   kind: string;
   title: string | null;
   summary: string | null;
   body: string | null;
 };
 
-export function buildEntitySourceText(input: EntitySourceInput): string {
+export function buildContentSourceText(input: ContentSourceInput): string {
   const parts: string[] = [];
   addSection(parts, 'Kind', input.kind);
   addSection(parts, 'Title', input.title);

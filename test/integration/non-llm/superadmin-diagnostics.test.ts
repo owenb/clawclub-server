@@ -2,7 +2,7 @@ import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { EMBEDDING_PROFILES } from '../../../src/ai.ts';
 import { TestHarness } from '../harness.ts';
-import { seedPublishedEntity } from '../helpers.ts';
+import { seedPublishedContent } from '../helpers.ts';
 
 let h: TestHarness;
 
@@ -60,7 +60,7 @@ describe('superadmin.diagnostics.getHealth', () => {
     assert.deepEqual(embedding.byModel, []);
     assert.deepEqual(embedding.retryErrorSample, []);
     const synchronicity = workers.synchronicity as Record<string, unknown>;
-    assert.deepEqual(synchronicity.entityPublicationBacklog, {
+    assert.deepEqual(synchronicity.contentPublicationBacklog, {
       pendingCount: null,
       oldestPendingAgeSeconds: null,
     });
@@ -79,22 +79,22 @@ describe('superadmin.diagnostics.getHealth', () => {
     assert.ok(Math.abs(Date.parse(diagnostics.collectedAt as string) - Date.now()) < 60_000);
   });
 
-  it('keeps entity backlog null when activity_seq is missing even if activity exists', async () => {
+  it('keeps content backlog null when activity_seq is missing even if activity exists', async () => {
     const admin = await h.seedSuperadmin('Admin Diag Null Cursor');
     const owner = await h.seedOwner('diag-null-cursor', 'Diag Null Cursor');
 
     await h.sqlClubs(
       `insert into club_activity (club_id, topic)
        values
-         ($1, 'entity.version.published'),
-         ($1, 'entity.version.published'),
-         ($1, 'entity.version.published')`,
+         ($1, 'content.version.published'),
+         ($1, 'content.version.published'),
+         ($1, 'content.version.published')`,
       [owner.club.id],
     );
 
     const diagnostics = await getDiagnostics(admin.token);
     const backlog = ((diagnostics.workers as Record<string, unknown>).synchronicity as Record<string, unknown>)
-      .entityPublicationBacklog as Record<string, unknown>;
+      .contentPublicationBacklog as Record<string, unknown>;
     assert.equal(backlog.pendingCount, null);
     assert.equal(backlog.oldestPendingAgeSeconds, null);
   });
@@ -103,11 +103,11 @@ describe('superadmin.diagnostics.getHealth', () => {
     const admin = await h.seedSuperadmin('Admin Diag Embeddings');
     const owner = await h.seedOwner('diag-embedding-club', 'Diag Embedding Club');
     const profileVersionId = await currentProfileVersionId(owner.id);
-    const seededEntity = await seedPublishedEntity(h, {
+    const seededEntity = await seedPublishedContent(h, {
       clubId: owner.club.id,
       authorMemberId: owner.id,
       kind: 'post',
-      title: 'Diagnostics entity',
+      title: 'Diagnostics content',
     });
     const longError = 'x'.repeat(1000);
 
@@ -116,27 +116,27 @@ describe('superadmin.diagnostics.getHealth', () => {
          (subject_kind, subject_version_id, model, dimensions, source_version, attempt_count, next_attempt_at, created_at)
        values
          ('member_club_profile_version', $1, $2, $3, 'diag_claimable', 0, now() - interval '1 minute', now() - interval '1 minute'),
-         ('entity_version', $4, $5, $6, 'diag_scheduled', 2, now() + interval '5 minutes', now()),
+         ('content_version', $4, $5, $6, 'diag_scheduled', 2, now() + interval '5 minutes', now()),
          ('member_club_profile_version', $1, $2, $3, 'diag_capped', 5, now() - interval '1 minute', now())`,
       [
         profileVersionId,
         EMBEDDING_PROFILES.member_profile.model,
         EMBEDDING_PROFILES.member_profile.dimensions,
-        seededEntity.entityVersionId,
-        EMBEDDING_PROFILES.entity.model,
-        EMBEDDING_PROFILES.entity.dimensions,
+        seededEntity.contentVersionId,
+        EMBEDDING_PROFILES.content.model,
+        EMBEDDING_PROFILES.content.dimensions,
       ],
     );
     await h.sqlClubs(
       `insert into ai_embedding_jobs
          (subject_kind, subject_version_id, model, dimensions, source_version, attempt_count, next_attempt_at, last_error)
        values
-         ('entity_version', $1, $2, $3, 'diag_retry', 4, now() + interval '1 minute', $4),
-         ('entity_version', $1, 'text-embedding-legacy', 768, 'diag_legacy', 2, now() + interval '10 minutes', 'legacy retry')`,
+         ('content_version', $1, $2, $3, 'diag_retry', 4, now() + interval '1 minute', $4),
+         ('content_version', $1, 'text-embedding-legacy', 768, 'diag_legacy', 2, now() + interval '10 minutes', 'legacy retry')`,
       [
-        seededEntity.entityVersionId,
-        EMBEDDING_PROFILES.entity.model,
-        EMBEDDING_PROFILES.entity.dimensions,
+        seededEntity.contentVersionId,
+        EMBEDDING_PROFILES.content.model,
+        EMBEDDING_PROFILES.content.dimensions,
         longError,
       ],
     );
@@ -154,12 +154,12 @@ describe('superadmin.diagnostics.getHealth', () => {
 
     const byModel = embedding.byModel as Array<Record<string, unknown>>;
     const currentRow = byModel.find((row) =>
-      row.model === EMBEDDING_PROFILES.entity.model
-      && row.dimensions === EMBEDDING_PROFILES.entity.dimensions,
+      row.model === EMBEDDING_PROFILES.content.model
+      && row.dimensions === EMBEDDING_PROFILES.content.dimensions,
     );
     assert.deepEqual(currentRow, {
-      model: EMBEDDING_PROFILES.entity.model,
-      dimensions: EMBEDDING_PROFILES.entity.dimensions,
+      model: EMBEDDING_PROFILES.content.model,
+      dimensions: EMBEDDING_PROFILES.content.dimensions,
       claimable: 1,
       scheduledFuture: 2,
       atOrOverMaxAttempts: 1,
@@ -218,7 +218,7 @@ describe('superadmin.diagnostics.getHealth', () => {
     assert.ok(!('profileArtifactMemberId' in cursors));
   });
 
-  it('counts only entity publication backlog rows past the cursor', async () => {
+  it('counts only content publication backlog rows past the cursor', async () => {
     const admin = await h.seedSuperadmin('Admin Diag Backlog');
     const owner = await h.seedOwner('diag-backlog', 'Diag Backlog');
     const [baseRow] = await h.sqlClubs<{ max_seq: string }>(
@@ -232,7 +232,7 @@ describe('superadmin.diagnostics.getHealth', () => {
     );
     await h.sqlClubs(
       `insert into club_activity (club_id, topic, created_at)
-       select $1, 'entity.version.published', now() - interval '1 minute'
+       select $1, 'content.version.published', now() - interval '1 minute'
        from generate_series(1, 5)
        union all
        select $1, 'profile.updated', now() - interval '1 minute'
@@ -242,7 +242,7 @@ describe('superadmin.diagnostics.getHealth', () => {
 
     const diagnostics = await getDiagnostics(admin.token);
     const backlog = ((diagnostics.workers as Record<string, unknown>).synchronicity as Record<string, unknown>)
-      .entityPublicationBacklog as Record<string, unknown>;
+      .contentPublicationBacklog as Record<string, unknown>;
     assert.equal(backlog.pendingCount, 5);
     assert.ok((backlog.oldestPendingAgeSeconds as number) >= 60);
   });

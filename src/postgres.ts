@@ -12,7 +12,7 @@ import {
   type AdminDiagnostics,
   type SuperadminMemberSummary,
   type Repository,
-  type EntitySummary,
+  type Content,
   type MembershipVouchSummary,
   type PublicMemberSummary,
   type IncludedBundle,
@@ -115,7 +115,7 @@ async function listMaterializedNotifications(pool: Pool, input: {
     club_id: string | null;
     topic: string;
     payload: Record<string, unknown>;
-    entity_id: string | null;
+    content_id: string | null;
     match_id: string | null;
     acknowledged_state: 'processed' | 'suppressed' | null;
     created_at: string;
@@ -124,7 +124,7 @@ async function listMaterializedNotifications(pool: Pool, input: {
             mn.club_id,
             mn.topic,
             mn.payload,
-            mn.entity_id,
+            mn.content_id,
             mn.match_id,
             mn.acknowledged_state,
             mn.created_at::text as created_at
@@ -144,18 +144,18 @@ async function listMaterializedNotifications(pool: Pool, input: {
          )
        )
        and (
-         mn.entity_id is null
+         mn.content_id is null
          or exists (
-           select 1 from current_entity_versions cev
-           where cev.entity_id = mn.entity_id and cev.state = 'published'
+           select 1 from current_content_versions cev
+           where cev.content_id = mn.content_id and cev.state = 'published'
          )
        )
        and (
          mn.topic <> 'synchronicity.offer_to_ask'
-         or mn.payload->>'yourAskEntityId' is null
+         or mn.payload->>'yourAskContentId' is null
          or exists (
-           select 1 from current_entity_versions cev
-           where cev.entity_id = mn.payload->>'yourAskEntityId' and cev.state = 'published'
+           select 1 from current_content_versions cev
+           where cev.content_id = mn.payload->>'yourAskContentId' and cev.state = 'published'
          )
        )
      order by mn.created_at asc, mn.topic asc, mn.id asc
@@ -179,7 +179,7 @@ async function listMaterializedNotifications(pool: Pool, input: {
       clubId: row.club_id,
       ref: {
         ...(row.match_id ? { matchId: row.match_id } : {}),
-        ...(row.entity_id ? { entityId: row.entity_id } : {}),
+        ...(row.content_id ? { contentId: row.content_id } : {}),
       },
       payload: row.payload,
       createdAt: row.created_at,
@@ -695,8 +695,8 @@ export function createRepository(pool: Pool): Repository {
     updateMemberIdentity: (input) => identity.updateMemberIdentity(input),
     updateClubProfile: (input) => identity.updateClubProfile(input),
     loadProfileForGate: (input) => identity.loadProfileForGate(input),
-    preflightCreateEntityMentions: (input) => preflightContentCreateMentions(pool, input),
-    preflightUpdateEntityMentions: (input) => preflightContentUpdateMentions(pool, input),
+    preflightCreateContentMentions: (input) => preflightContentCreateMentions(pool, input),
+    preflightUpdateContentMentions: (input) => preflightContentUpdateMentions(pool, input),
 
     // ── Tokens ─────────────────────────────────────────────
     listBearerTokens: (input) => identity.listBearerTokens(input),
@@ -708,7 +708,7 @@ export function createRepository(pool: Pool): Repository {
     findMembersViaEmbedding: (input) => identity.findMembersViaEmbedding(input),
 
     // ── Entities ──────────────────────────────────────────
-    async createEntity(input) {
+    async createContent(input) {
       const actor = await identity.readActor(input.authorMemberId);
       const accessibleClubIds = actor?.memberships.map((membership) => membership.clubId) ?? [];
       const quotaClubId = input.clubId
@@ -728,28 +728,30 @@ export function createRepository(pool: Pool): Repository {
       const membership = actor?.memberships.find((m) => m.clubId === quotaClubId);
       const actorInfo = { role: membership?.role ?? 'member' as const, isOwner: membership?.isOwner ?? false };
       await clubs.enforceQuota(input.authorMemberId, quotaClubId, 'content.create', actorInfo);
-      return clubs.createEntity(input);
+      return clubs.createContent(input);
     },
 
-    async updateEntity(input) {
-      return clubs.updateEntity(input);
+    readContent: (input) => clubs.readContent(input),
+
+    async updateContent(input) {
+      return clubs.updateContent(input);
     },
 
-    loadEntityForGate: (input) => clubs.loadEntityForGate(input),
+    loadContentForGate: (input) => clubs.loadContentForGate(input),
 
-    closeEntityLoop: (input) => clubs.closeEntityLoop(input),
+    closeContentLoop: (input) => clubs.closeContentLoop(input),
 
-    reopenEntityLoop: (input) => clubs.reopenEntityLoop(input),
+    reopenContentLoop: (input) => clubs.reopenContentLoop(input),
 
-    removeEntity: (input) => clubs.removeEntity({
-      entityId: input.entityId,
-      clubIds: input.accessibleClubIds,
+    removeContent: (input) => clubs.removeContent({
+      id: input.id,
+      accessibleClubIds: input.accessibleClubIds,
       actorMemberId: input.actorMemberId,
       reason: input.reason,
       skipAuthCheck: input.skipAuthCheck,
     }),
 
-    listEntities: (input) => clubs.listEntities(input),
+    listContent: (input) => clubs.listContent(input),
     readContentThread: (input) => clubs.readContentThread(input),
 
     // ── Events ──────────────────────────────────────────
@@ -1055,7 +1057,7 @@ export function createRepository(pool: Pool): Repository {
           recipient_member_id: string;
           club_id: string | null;
           topic: string;
-          entity_id: string | null;
+          content_id: string | null;
           acknowledged_at: string;
           acknowledged_state: 'processed' | 'suppressed';
           suppression_reason: string | null;
@@ -1071,7 +1073,7 @@ export function createRepository(pool: Pool): Repository {
                      recipient_member_id,
                      club_id,
                      topic,
-                     entity_id,
+                     content_id,
                      acknowledged_at::text as acknowledged_at,
                      acknowledged_state,
                      suppression_reason`,
@@ -1084,7 +1086,7 @@ export function createRepository(pool: Pool): Repository {
           receiptsById.set(notificationId, {
             notificationId,
             recipientMemberId: row.recipient_member_id,
-            entityId: row.entity_id,
+            contentId: row.content_id,
             clubId: row.club_id,
             state: row.acknowledged_state,
             suppressionReason: row.suppression_reason,
@@ -1118,19 +1120,19 @@ export function createRepository(pool: Pool): Repository {
     logLlmUsage: (input) => clubs.logLlmUsage(input),
 
     // ── Embeddings ─────────────────────────────────────────
-    findEntitiesViaEmbedding: (input) => clubs.findEntitiesViaEmbedding(input),
+    findContentViaEmbedding: (input) => clubs.findContentViaEmbedding(input),
 
     // ── Admin: member/membership creation ───────────────
     adminCreateMember: (input) => identity.createMemberDirect(input),
     adminCreateMembership: (input) => identity.createMembershipAsSuperadmin(input),
 
     // ── Admin ───────────────────────────────────────────
-    async adminGetOverview() {
-      const [totalMemberCount, activeMemberCount, clubCount, entityCount, messageCount, pendingApplicationCount] = await Promise.all([
+    async adminGetOverview(_input) {
+      const [totalMemberCount, activeMemberCount, clubCount, contentCount, messageCount, pendingApplicationCount] = await Promise.all([
         pool.query<{ count: string }>(`select count(*)::text as count from members`),
         pool.query<{ count: string }>(`select count(*)::text as count from members where state = 'active'`),
         pool.query<{ count: string }>(`select count(*)::text as count from clubs where archived_at is null`),
-        pool.query<{ count: string }>(`select count(*)::text as count from entities where deleted_at is null`),
+        pool.query<{ count: string }>(`select count(*)::text as count from contents where deleted_at is null`),
         pool.query<{ count: string }>(`select count(*)::text as count from dm_messages`),
         pool.query<{ count: string }>(
           `select count(*)::text as count
@@ -1151,7 +1153,7 @@ export function createRepository(pool: Pool): Repository {
         totalMembers: Number(totalMemberCount.rows[0]?.count ?? 0),
         activeMembers: Number(activeMemberCount.rows[0]?.count ?? 0),
         totalClubs: Number(clubCount.rows[0]?.count ?? 0),
-        totalEntities: Number(entityCount.rows[0]?.count ?? 0),
+        totalContent: Number(contentCount.rows[0]?.count ?? 0),
         totalMessages: Number(messageCount.rows[0]?.count ?? 0),
         pendingApplications: Number(pendingApplicationCount.rows[0]?.count ?? 0),
         recentMembers: recentMembers.rows.map((r) => ({
@@ -1288,7 +1290,7 @@ export function createRepository(pool: Pool): Repository {
     },
 
     async adminGetClubStats({ clubId }) {
-      const [clubResult, memberCounts, entityCount] = await Promise.all([
+      const [clubResult, memberCounts, contentCount] = await Promise.all([
         pool.query<{ club_id: string; slug: string; name: string; archived_at: string | null }>(
           `select id as club_id, slug, name, archived_at::text as archived_at from clubs where id = $1 limit 1`,
           [clubId],
@@ -1299,7 +1301,7 @@ export function createRepository(pool: Pool): Repository {
           [clubId],
         ),
         pool.query<{ count: string }>(
-          `select count(*)::text as count from entities where club_id = $1 and deleted_at is null`,
+          `select count(*)::text as count from contents where club_id = $1 and deleted_at is null`,
           [clubId],
         ),
       ]);
@@ -1325,7 +1327,7 @@ export function createRepository(pool: Pool): Repository {
       return {
         clubId: club.club_id, slug: club.slug, name: club.name, archivedAt: club.archived_at,
         memberCounts: Object.fromEntries(memberCounts.rows.map((r) => [r.status, Number(r.count)])),
-        entityCount: Number(entityCount.rows[0]?.count ?? 0),
+        contentCount: Number(contentCount.rows[0]?.count ?? 0),
         messageCount: Number(messageCount.rows[0]?.count ?? 0),
       };
     },
@@ -1333,17 +1335,17 @@ export function createRepository(pool: Pool): Repository {
     async adminListContent({ clubId, kind, limit, cursor }) {
       const fetchLimit = limit + 1;
       const result = await pool.query<{
-        entity_id: string; content_thread_id: string; club_id: string; club_name: string; kind: string;
+        content_id: string; thread_id: string; club_id: string; club_name: string; kind: string;
         author_member_id: string; author_public_name: string;
-        entity_version_id: string; title: string | null; state: string; created_at: string;
+        content_version_id: string; title: string | null; state: string; created_at: string;
       }>(
-        `select e.id as entity_id, e.content_thread_id, e.club_id, c.name as club_name,
+        `select e.id as content_id, e.thread_id, e.club_id, c.name as club_name,
                 e.kind::text as kind, e.author_member_id,
                 m.public_name as author_public_name,
-                cev.id as entity_version_id,
+                cev.id as content_version_id,
                 cev.title, cev.state::text as state, e.created_at::text as created_at
-         from entities e
-         join current_entity_versions cev on cev.entity_id = e.id
+         from contents e
+         join current_content_versions cev on cev.content_id = e.id
          join members m on m.id = e.author_member_id
          join clubs c on c.id = e.club_id
          where e.deleted_at is null
@@ -1358,23 +1360,23 @@ export function createRepository(pool: Pool): Repository {
       const pageRows = hasMore ? result.rows.slice(0, limit) : result.rows;
       const mentionBundle = await loadEntityVersionMentions(
         pool,
-        pageRows.map((row) => row.entity_version_id),
+        pageRows.map((row) => row.content_version_id),
       );
 
       const rows = pageRows.map((r) => {
         return {
-          entityId: r.entity_id, contentThreadId: r.content_thread_id, clubId: r.club_id, clubName: r.club_name,
+          id: r.content_id, threadId: r.thread_id, clubId: r.club_id, clubName: r.club_name,
           kind: r.kind as any, author: { memberId: r.author_member_id, publicName: r.author_public_name },
           title: r.state === 'removed' ? '[redacted]' : r.title,
           titleMentions: r.state === 'removed'
             ? []
-            : (mentionBundle.mentionsByVersionId.get(r.entity_version_id)?.title ?? []),
+            : (mentionBundle.mentionsByVersionId.get(r.content_version_id)?.title ?? []),
           state: r.state as any,
           createdAt: r.created_at,
         };
       });
       const last = rows[rows.length - 1];
-      const nextCursor = last ? paginationEncodeCursor([last.createdAt, last.entityId]) : null;
+      const nextCursor = last ? paginationEncodeCursor([last.createdAt, last.id]) : null;
       return { results: rows, hasMore, nextCursor, included: mentionBundle.included };
     },
 
@@ -1522,12 +1524,12 @@ export function createRepository(pool: Pool): Repository {
       const cursorMap = new Map(cursorResult.rows.map((row) => [row.state_key, row]));
       const activitySeqValue = cursorMap.get('activity_seq')?.state_value ?? null;
 
-      const entityBacklogQuery = activitySeqValue !== null
+      const contentBacklogQuery = activitySeqValue !== null
         ? pool.query<{ pending_count: string; oldest_pending_age_seconds: string | null }>(
             `select count(*)::text as pending_count,
                     extract(epoch from (now() - min(created_at)))::text as oldest_pending_age_seconds
              from club_activity
-             where topic = 'entity.version.published'
+             where topic = 'content.version.published'
                and seq > $1::bigint`,
             [activitySeqValue],
           )
@@ -1538,7 +1540,7 @@ export function createRepository(pool: Pool): Repository {
             }] as Array<{ pending_count: string | null; oldest_pending_age_seconds: string | null }>,
           });
 
-      const [migrationResult, memberCount, clubCount, tableCount, dbSize, queueCounts, byModelRows, oldestClaimable, retryErrorRows, entityBacklog, recomputeQueueCounts, pendingMatchesRow] = await Promise.all([
+      const [migrationResult, memberCount, clubCount, tableCount, dbSize, queueCounts, byModelRows, oldestClaimable, retryErrorRows, contentBacklog, recomputeQueueCounts, pendingMatchesRow] = await Promise.all([
         pool.query<{ count: string; latest: string | null }>(
           `select count(*)::text as count, max(filename) as latest from public.schema_migrations
            where exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'schema_migrations')`,
@@ -1577,7 +1579,7 @@ export function createRepository(pool: Pool): Repository {
         ),
         pool.query<{
           id: string;
-          subject_kind: 'member_club_profile_version' | 'entity_version';
+          subject_kind: 'member_club_profile_version' | 'content_version';
           model: string;
           attempt_count: number;
           last_error: string | null;
@@ -1594,7 +1596,7 @@ export function createRepository(pool: Pool): Repository {
            order by attempt_count desc, next_attempt_at asc
            limit 10`,
         ),
-        entityBacklogQuery,
+        contentBacklogQuery,
         pool.query<{ ready_count: string; in_flight_count: string; scheduled_count: string }>(
           `select
              count(*) filter (
@@ -1677,12 +1679,12 @@ export function createRepository(pool: Pool): Repository {
               membershipScanAt: cursorOf('membership_scan_at', (value) => value),
               backstopSweepAt: cursorOf('backstop_sweep_at', (value) => value),
             },
-            entityPublicationBacklog: {
-              pendingCount: entityBacklog.rows[0]?.pending_count != null
-                ? Number(entityBacklog.rows[0].pending_count)
+            contentPublicationBacklog: {
+              pendingCount: contentBacklog.rows[0]?.pending_count != null
+                ? Number(contentBacklog.rows[0].pending_count)
                 : null,
-              oldestPendingAgeSeconds: entityBacklog.rows[0]?.oldest_pending_age_seconds
-                ? Math.round(Number(entityBacklog.rows[0].oldest_pending_age_seconds))
+              oldestPendingAgeSeconds: contentBacklog.rows[0]?.oldest_pending_age_seconds
+                ? Math.round(Number(contentBacklog.rows[0].oldest_pending_age_seconds))
                 : null,
             },
             recomputeQueue: {

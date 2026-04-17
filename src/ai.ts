@@ -14,7 +14,7 @@ export const EMBEDDING_PROFILES = {
     // v2: handle field removed from profile embedding source (011_delete_handles)
     sourceVersion: 'v2' as const,
   },
-  entity: {
+  content: {
     model: 'text-embedding-3-small' as const,
     dimensions: 1536 as const,
     sourceVersion: 'v1' as const,

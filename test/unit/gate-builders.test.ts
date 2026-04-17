@@ -38,7 +38,7 @@ describe('gate builders', () => {
     }, makeGateContext());
     assert.deepEqual(artifact, {
       kind: 'content',
-      entityKind: 'post',
+      contentKind: 'post',
       isReply: false,
       title: 'Test',
       summary: null,
@@ -96,15 +96,15 @@ describe('gate builders', () => {
   it('merges a top-level content update and preserves isReply false', async () => {
     const action = getAction('content.update')!;
     const artifact = await action.llmGate!.buildArtifact({
-      entityId: 'entity-1',
+      id: 'content-1',
       title: undefined,
       summary: 'Updated summary',
       body: undefined,
       expiresAt: undefined,
       event: undefined,
     }, makeGateContext({
-      loadEntityForGate: async () => ({
-        entityKind: 'post',
+      loadContentForGate: async () => ({
+        contentKind: 'post',
         isReply: false,
         title: 'Original title',
         summary: null,
@@ -114,7 +114,7 @@ describe('gate builders', () => {
     }));
     assert.deepEqual(artifact, {
       kind: 'content',
-      entityKind: 'post',
+      contentKind: 'post',
       isReply: false,
       title: 'Original title',
       summary: 'Updated summary',
@@ -125,15 +125,15 @@ describe('gate builders', () => {
   it('merges an existing reply update and preserves isReply true', async () => {
     const action = getAction('content.update')!;
     const artifact = await action.llmGate!.buildArtifact({
-      entityId: 'entity-1',
+      id: 'content-1',
       title: undefined,
       summary: undefined,
       body: 'Still happy to help.',
       expiresAt: undefined,
       event: undefined,
     }, makeGateContext({
-      loadEntityForGate: async () => ({
-        entityKind: 'ask',
+      loadContentForGate: async () => ({
+        contentKind: 'ask',
         isReply: true,
         title: null,
         summary: null,
@@ -149,7 +149,7 @@ describe('gate builders', () => {
   it('merges an event update into an event artifact', async () => {
     const action = getAction('content.update')!;
     const artifact = await action.llmGate!.buildArtifact({
-      entityId: 'entity-1',
+      id: 'content-1',
       title: 'Updated breakfast',
       summary: undefined,
       body: undefined,
@@ -161,8 +161,8 @@ describe('gate builders', () => {
         timezone: 'Europe/London',
       },
     }, makeGateContext({
-      loadEntityForGate: async () => ({
-        entityKind: 'event',
+      loadContentForGate: async () => ({
+        contentKind: 'event',
         isReply: false,
         title: 'Breakfast',
         summary: 'Founders breakfast',
@@ -187,11 +187,11 @@ describe('gate builders', () => {
     });
   });
 
-  it('throws 404 on missing content.update entity', async () => {
+  it('throws 404 on missing content.update content', async () => {
     const action = getAction('content.update')!;
     await assert.rejects(
       () => action.llmGate!.buildArtifact({
-        entityId: 'missing',
+        id: 'missing',
       }, makeGateContext()),
       (error: unknown) => error instanceof AppError && error.statusCode === 404,
     );

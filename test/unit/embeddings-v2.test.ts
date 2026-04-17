@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildProfileSourceText, buildEntitySourceText, buildEventSourceText, computeSourceHash } from '../../src/embedding-source.ts';
+import { buildProfileSourceText, buildContentSourceText, buildEventSourceText, computeSourceHash } from '../../src/embedding-source.ts';
 import { EMBEDDING_PROFILES } from '../../src/ai.ts';
 
 // ── Source text determinism ─────────────────────────────
@@ -26,7 +26,7 @@ test('buildProfileSourceText produces deterministic output', () => {
   assert.ok(!a.includes('Handle'), 'Handle section must not appear (v2 source)');
 });
 
-test('buildEntitySourceText produces deterministic output', () => {
+test('buildContentSourceText produces deterministic output', () => {
   const input = {
     kind: 'post',
     title: 'Hello World',
@@ -34,8 +34,8 @@ test('buildEntitySourceText produces deterministic output', () => {
     body: 'Extended greeting content',
   };
 
-  const a = buildEntitySourceText(input);
-  const b = buildEntitySourceText(input);
+  const a = buildContentSourceText(input);
+  const b = buildContentSourceText(input);
   assert.equal(a, b);
   assert.ok(a.includes('Kind: post'));
   assert.ok(a.includes('Title: Hello World'));
@@ -79,13 +79,13 @@ test('computeSourceHash differs for different input', () => {
 
 test('EMBEDDING_PROFILES has expected structure', () => {
   assert.ok(EMBEDDING_PROFILES.member_profile);
-  assert.ok(EMBEDDING_PROFILES.entity);
+  assert.ok(EMBEDDING_PROFILES.content);
   assert.equal(EMBEDDING_PROFILES.member_profile.model, 'text-embedding-3-small');
   assert.equal(EMBEDDING_PROFILES.member_profile.dimensions, 1536);
   assert.equal(EMBEDDING_PROFILES.member_profile.sourceVersion, 'v2');
-  assert.equal(EMBEDDING_PROFILES.entity.model, 'text-embedding-3-small');
-  assert.equal(EMBEDDING_PROFILES.entity.dimensions, 1536);
-  assert.equal(EMBEDDING_PROFILES.entity.sourceVersion, 'v1');
+  assert.equal(EMBEDDING_PROFILES.content.model, 'text-embedding-3-small');
+  assert.equal(EMBEDDING_PROFILES.content.dimensions, 1536);
+  assert.equal(EMBEDDING_PROFILES.content.sourceVersion, 'v1');
 });
 
 // ── Profile response no longer has embedding ────────────
@@ -97,9 +97,9 @@ test('clubProfile response schema does not include embedding', async () => {
   assert.ok(!('embedding' in versionShape), 'version should not have embedding field');
 });
 
-test('entitySummary response schema does not include embedding', async () => {
-  const { entitySummary } = await import('../../src/schemas/responses.ts');
-  const shape = entitySummary.shape;
+test('content response schema does not include embedding', async () => {
+  const { content } = await import('../../src/schemas/responses.ts');
+  const shape = content.shape;
   const versionShape = shape.version.shape;
   assert.ok(!('embedding' in versionShape), 'version should not have embedding field');
 });
@@ -111,7 +111,7 @@ test('makeRepository includes new search methods', async () => {
   const repo = makeRepository();
   assert.equal(typeof repo.fullTextSearchMembers, 'function');
   assert.equal(typeof repo.findMembersViaEmbedding, 'function');
-  assert.equal(typeof repo.findEntitiesViaEmbedding, 'function');
+  assert.equal(typeof repo.findContentViaEmbedding, 'function');
 });
 
 // ── Action registration ────────────────────────────────

@@ -1,9 +1,9 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
-import { seedPublishedEntity } from '../helpers.ts';
+import { seedPublishedContent } from '../helpers.ts';
 import { EMBEDDING_PROFILES, embedManyDocuments } from '../../../src/ai.ts';
-import { buildEntitySourceText, buildProfileSourceText, computeSourceHash } from '../../../src/embedding-source.ts';
+import { buildContentSourceText, buildProfileSourceText, computeSourceHash } from '../../../src/embedding-source.ts';
 import { processEmbeddings } from '../../../src/workers/embedding.ts';
 import type { WorkerPools } from '../../../src/workers/runner.ts';
 
@@ -33,9 +33,9 @@ after(async () => {
 }, { timeout: 15_000 });
 
 describe('embedding worker', () => {
-  it('processes queued profile and entity jobs through the stub helper without an OpenAI key', async () => {
+  it('processes queued profile and content jobs through the stub helper without an OpenAI key', async () => {
     const owner = await h.seedOwner('embedding-worker-club', 'Embedding Worker Club');
-    const seededEntity = await seedPublishedEntity(h, {
+    const seededEntity = await seedPublishedContent(h, {
       clubId: owner.club.id,
       authorMemberId: owner.id,
       kind: 'post',
@@ -87,7 +87,7 @@ describe('embedding worker', () => {
       websiteUrl: profile.website_url,
       links: profile.links,
     });
-    const entitySourceText = buildEntitySourceText({
+    const contentSourceText = buildContentSourceText({
       kind: 'post',
       title: 'Reliable migration notes',
       summary: 'A summary of the rollout plan',
@@ -98,16 +98,16 @@ describe('embedding worker', () => {
       `insert into ai_embedding_jobs (subject_kind, subject_version_id, model, dimensions, source_version)
        values
          ('member_club_profile_version', $1, $2, $3, $4),
-         ('entity_version', $5, $6, $7, $8)`,
+         ('content_version', $5, $6, $7, $8)`,
       [
         profile.id,
         EMBEDDING_PROFILES.member_profile.model,
         EMBEDDING_PROFILES.member_profile.dimensions,
         EMBEDDING_PROFILES.member_profile.sourceVersion,
-        seededEntity.entityVersionId,
-        EMBEDDING_PROFILES.entity.model,
-        EMBEDDING_PROFILES.entity.dimensions,
-        EMBEDDING_PROFILES.entity.sourceVersion,
+        seededEntity.contentVersionId,
+        EMBEDDING_PROFILES.content.model,
+        EMBEDDING_PROFILES.content.dimensions,
+        EMBEDDING_PROFILES.content.sourceVersion,
       ],
     );
 
@@ -135,46 +135,46 @@ describe('embedding worker', () => {
        limit 1`,
       [profile.id],
     );
-    const [entityArtifact] = await h.sql<{
+    const [contentArtifact] = await h.sql<{
       source_text: string;
       source_hash: string;
       embedding: string;
     }>(
       `select source_text, source_hash, embedding::text as embedding
-       from entity_embeddings
-       where entity_version_id = $1
+       from content_embeddings
+       where content_version_id = $1
        limit 1`,
-      [seededEntity.entityVersionId],
+      [seededEntity.contentVersionId],
     );
     assert.ok(profileArtifact, 'profile artifact should be written');
-    assert.ok(entityArtifact, 'entity artifact should be written');
+    assert.ok(contentArtifact, 'content artifact should be written');
 
     const expectedProfile = await embedManyDocuments({
       values: [profileSourceText],
       profile: 'member_profile',
     });
-    const expectedEntity = await embedManyDocuments({
-      values: [entitySourceText],
-      profile: 'entity',
+    const expectedContent = await embedManyDocuments({
+      values: [contentSourceText],
+      profile: 'content',
     });
 
     assert.equal(profileArtifact.source_text, profileSourceText);
     assert.equal(profileArtifact.source_hash, computeSourceHash(profileSourceText));
-    assert.equal(entityArtifact.source_text, entitySourceText);
-    assert.equal(entityArtifact.source_hash, computeSourceHash(entitySourceText));
+    assert.equal(contentArtifact.source_text, contentSourceText);
+    assert.equal(contentArtifact.source_hash, computeSourceHash(contentSourceText));
 
     const storedProfileEmbedding = parseVector(profileArtifact.embedding);
-    const storedEntityEmbedding = parseVector(entityArtifact.embedding);
+    const storedContentEmbedding = parseVector(contentArtifact.embedding);
     assert.equal(storedProfileEmbedding.length, EMBEDDING_PROFILES.member_profile.dimensions);
-    assert.equal(storedEntityEmbedding.length, EMBEDDING_PROFILES.entity.dimensions);
+    assert.equal(storedContentEmbedding.length, EMBEDDING_PROFILES.content.dimensions);
     assertVectorsClose(storedProfileEmbedding, expectedProfile.embeddings[0]!);
-    assertVectorsClose(storedEntityEmbedding, expectedEntity.embeddings[0]!);
+    assertVectorsClose(storedContentEmbedding, expectedContent.embeddings[0]!);
 
     const pendingJobs = await h.sql<{ count: string }>(
       `select count(*)::text as count
        from ai_embedding_jobs
        where subject_version_id = any($1::text[])`,
-      [[profile.id, seededEntity.entityVersionId]],
+      [[profile.id, seededEntity.contentVersionId]],
     );
     assert.equal(Number(pendingJobs[0]?.count ?? '0'), 0);
   });

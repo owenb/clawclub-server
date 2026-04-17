@@ -133,7 +133,7 @@ describe('smoke', () => {
   });
 
   it('rejects top-level parameters outside input (content.list)', async () => {
-    const owner = await h.seedOwner('transport-entities', 'TransportEntities');
+    const owner = await h.seedOwner('transport-contents', 'TransportEntities');
     const { status, body } = await rawPost(h.port, owner.token, { action: 'content.list', clubId: owner.club.id });
     assert.equal(status, 400);
     assert.match((body.error as any).message, /top-level/i);

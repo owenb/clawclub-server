@@ -34,7 +34,7 @@ async function createEvent(token: string, clubId: string, overrides: Record<stri
     },
     ...overrides,
   });
-  return (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+  return (result.data as Record<string, unknown>).content as Record<string, unknown>;
 }
 
 describe('events', () => {
@@ -55,7 +55,7 @@ describe('events', () => {
     assert.match(err.message, /event\.endsAt/);
   });
 
-  it('content.create kind=event returns an event entity and events.list finds it', async () => {
+  it('content.create kind=event returns event content and events.list finds it', async () => {
     const owner = await h.seedOwner('evt-ok', 'EvtOk');
 
     const created = await createEvent(owner.token, owner.club.id, {
@@ -72,7 +72,7 @@ describe('events', () => {
     });
 
     assert.equal(created.kind, 'event');
-    assert.ok(created.contentThreadId);
+    assert.ok(created.threadId);
     const event = created.event as Record<string, unknown>;
     assert.equal(event.location, 'London');
     assert.equal(event.timezone, 'Europe/London');
@@ -93,7 +93,7 @@ describe('events', () => {
     });
 
     const results = (listed.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const match = results.find(result => result.entityId === created.entityId);
+    const match = results.find(result => result.id === created.id);
     assert.ok(match, 'events.list should include the created event');
     assert.equal(match?.kind, 'event');
   });
@@ -115,11 +115,11 @@ describe('events', () => {
     });
 
     const afterYes = await h.apiOk(attendee.token, 'events.rsvp', {
-      eventEntityId: created.entityId,
+      eventId: created.id,
       response: 'yes',
       note: 'Count me in',
     });
-    const yesEntity = (afterYes.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const yesEntity = (afterYes.data as Record<string, unknown>).event as Record<string, unknown>;
     assert.equal((yesEntity.rsvps as Record<string, unknown>).viewerResponse, 'yes');
     assert.deepEqual((yesEntity.rsvps as Record<string, unknown>).counts, {
       yes: 1,
@@ -130,9 +130,9 @@ describe('events', () => {
     assert.equal(((yesEntity.rsvps as Record<string, unknown>).attendees as Array<unknown>).length, 1);
 
     const afterCancel = await h.apiOk(attendee.token, 'events.cancelRsvp', {
-      eventEntityId: created.entityId,
+      eventId: created.id,
     });
-    const cancelledEntity = (afterCancel.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const cancelledEntity = (afterCancel.data as Record<string, unknown>).event as Record<string, unknown>;
     assert.equal((cancelledEntity.rsvps as Record<string, unknown>).viewerResponse, null);
     assert.deepEqual((cancelledEntity.rsvps as Record<string, unknown>).counts, {
       yes: 0,
@@ -145,7 +145,7 @@ describe('events', () => {
 });
 
 describe('content.create clientKey', () => {
-  it('same key + same payload returns the original entity', async () => {
+  it('same key + same payload returns the original content', async () => {
     const owner = await h.seedOwner('ck-content-ok', 'CKContentOK');
     const payload = {
       clubId: owner.club.id,
@@ -156,12 +156,12 @@ describe('content.create clientKey', () => {
     };
 
     const first = await h.apiOk(owner.token, 'content.create', payload);
-    const firstEntity = (first.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const firstContent = (first.data as Record<string, unknown>).content as Record<string, unknown>;
 
     const second = await h.apiOk(owner.token, 'content.create', payload);
-    const secondEntity = (second.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const secondContent = (second.data as Record<string, unknown>).content as Record<string, unknown>;
 
-    assert.equal(secondEntity.entityId, firstEntity.entityId, 'same clientKey + payload should return same entity');
+    assert.equal(secondContent.id, firstContent.id, 'same clientKey + payload should return the same content');
   });
 
   it('same key + different payload returns 409 client_key_conflict', async () => {
@@ -232,12 +232,12 @@ describe('content.create(kind=event) clientKey', () => {
     };
 
     const first = await h.apiOk(owner.token, 'content.create', payload);
-    const firstEvent = (first.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const firstEvent = (first.data as Record<string, unknown>).content as Record<string, unknown>;
 
     const second = await h.apiOk(owner.token, 'content.create', payload);
-    const secondEvent = (second.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const secondEvent = (second.data as Record<string, unknown>).content as Record<string, unknown>;
 
-    assert.equal(secondEvent.entityId, firstEvent.entityId, 'same clientKey + payload should return same event');
+    assert.equal(secondEvent.id, firstEvent.id, 'same clientKey + payload should return same event');
   });
 
   it('same key + different payload returns 409 client_key_conflict', async () => {

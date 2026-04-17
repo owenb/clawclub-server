@@ -53,7 +53,7 @@ export type LlmGateFn = (artifact: GatedArtifact) => Promise<GateVerdict>;
 import './schemas/session.ts';
 import './schemas/clubs.ts';
 import './schemas/invitations.ts';
-import './schemas/entities.ts';
+import './schemas/content.ts';
 import './schemas/events.ts';
 import './schemas/profile.ts';
 import './schemas/messages.ts';

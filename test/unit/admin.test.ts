@@ -199,7 +199,7 @@ test('admin.clubs.stats returns club statistics', async () => {
         name: 'Alpha',
         archivedAt: null,
         memberCounts: { active: 10, applying: 2 },
-        entityCount: 25,
+        contentCount: 25,
         messageCount: 100,
       };
     },
@@ -218,7 +218,7 @@ test('admin.clubs.stats returns club statistics', async () => {
     const { response, body } = await postAction(port, 'cc_live_admin', 'clubadmin.clubs.getStatistics', { clubId: 'club-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.data.stats.entityCount, 25);
+    assert.equal(body.data.stats.contentCount, 25);
     assert.deepEqual(body.data.stats.memberCounts, { active: 10, applying: 2 });
   } finally {
     await shutdown();
@@ -257,7 +257,7 @@ test('superadmin.diagnostics.getHealth returns system diagnostics', async () => 
             }],
             retryErrorSample: [{
               jobId: 'retryjob123456',
-              subjectKind: 'entity_version',
+              subjectKind: 'content_version',
               model: 'text-embedding-3-small',
               attemptCount: 4,
               lastError: 'transient provider failure',
@@ -271,7 +271,7 @@ test('superadmin.diagnostics.getHealth returns system diagnostics', async () => 
               membershipScanAt: { value: '2026-03-14T11:58:00Z', updatedAt: '2026-03-14T12:00:00Z', ageSeconds: 10 },
               backstopSweepAt: { value: '2026-03-13T12:00:00Z', updatedAt: '2026-03-14T12:00:00Z', ageSeconds: 10 },
             },
-            entityPublicationBacklog: {
+            contentPublicationBacklog: {
               pendingCount: 5,
               oldestPendingAgeSeconds: 120,
             },
@@ -305,7 +305,7 @@ test('superadmin.diagnostics.getHealth returns system diagnostics', async () => 
     assert.equal(body.data.diagnostics.tablesWithRls, 15);
     assert.equal(body.data.diagnostics.databaseSize, '24 MB');
     assert.equal(body.data.diagnostics.workers.embedding.queue.claimable, 2);
-    assert.equal(body.data.diagnostics.workers.synchronicity.entityPublicationBacklog.pendingCount, 5);
+    assert.equal(body.data.diagnostics.workers.synchronicity.contentPublicationBacklog.pendingCount, 5);
     assert.equal(body.data.diagnostics.collectedAt, '2026-03-14T12:00:00Z');
   } finally {
     await shutdown();
@@ -670,7 +670,7 @@ test('admin.content.list returns paginated content', async () => {
     async adminListContent({ limit }) {
       assert.equal(limit, 10);
       return { results: [{
-        entityId: 'entity-1',
+        id: 'content-1',
         clubId: 'club-1',
         clubSlug: 'alpha',
         kind: 'post' as const,

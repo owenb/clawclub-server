@@ -13,8 +13,8 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-function entity(result: Record<string, unknown>) {
-  return (result.data as Record<string, unknown>).entity as Record<string, unknown>;
+function content(result: Record<string, unknown>) {
+  return (result.data as Record<string, unknown>).content as Record<string, unknown>;
 }
 
 function threadData(result: Record<string, unknown>) {
@@ -22,7 +22,7 @@ function threadData(result: Record<string, unknown>) {
 }
 
 function threadEntities(result: Record<string, unknown>) {
-  return (threadData(result).entities as Array<Record<string, unknown>>);
+  return (threadData(result).contents as Array<Record<string, unknown>>);
 }
 
 async function createPost(
@@ -37,7 +37,7 @@ async function createPost(
     body: input.body,
     expiresAt: input.expiresAt ?? undefined,
   });
-  return entity(result);
+  return content(result);
 }
 
 async function createGift(token: string, clubId: string, title: string, body: string): Promise<Record<string, unknown>> {
@@ -47,11 +47,11 @@ async function createGift(token: string, clubId: string, title: string, body: st
     title,
     body,
   });
-  return entity(result);
+  return content(result);
 }
 
 describe('content.getThread', () => {
-  it('reads by entityId or threadId and paginates newest-first windows in chronological order', async () => {
+  it('reads by contentId or threadId and paginates newest-first windows in chronological order', async () => {
     const owner = await h.seedOwner('thread-read-page', 'Thread Read Page Club');
     const author = await h.seedCompedMember(owner.club.id, 'Thread Author');
 
@@ -61,39 +61,39 @@ describe('content.getThread', () => {
       body: 'Root body',
     });
     const reply1 = await createPost(author.token, {
-      threadId: root.contentThreadId as string,
+      threadId: root.threadId as string,
       body: 'Reply one',
     });
     const reply2 = await createPost(author.token, {
-      threadId: root.contentThreadId as string,
+      threadId: root.threadId as string,
       body: 'Reply two',
     });
 
     const firstPage = await h.apiOk(author.token, 'content.getThread', {
-      entityId: reply2.entityId,
+      contentId: reply2.id,
       limit: 2,
     });
     const firstPageData = threadData(firstPage as Record<string, unknown>);
     const firstPageThread = firstPageData.thread as Record<string, unknown>;
-    const firstPageIds = threadEntities(firstPage as Record<string, unknown>).map(row => row.entityId);
+    const firstPageIds = threadEntities(firstPage as Record<string, unknown>).map(row => row.id);
 
-    assert.equal(firstPageThread.threadId, root.contentThreadId);
-    assert.equal((firstPageThread.firstEntity as Record<string, unknown>).entityId, root.entityId);
-    assert.deepEqual(firstPageIds, [reply1.entityId, reply2.entityId]);
+    assert.equal(firstPageThread.id, root.threadId);
+    assert.equal((firstPageThread.firstContent as Record<string, unknown>).id, root.id);
+    assert.deepEqual(firstPageIds, [reply1.id, reply2.id]);
     assert.equal(firstPageData.hasMore, true);
     assert.ok(firstPageData.nextCursor);
 
     const secondPage = await h.apiOk(author.token, 'content.getThread', {
-      threadId: root.contentThreadId,
+      threadId: root.threadId,
       limit: 2,
       cursor: firstPageData.nextCursor,
     });
-    const secondPageIds = threadEntities(secondPage as Record<string, unknown>).map(row => row.entityId);
+    const secondPageIds = threadEntities(secondPage as Record<string, unknown>).map(row => row.id);
 
-    assert.deepEqual(secondPageIds, [root.entityId]);
+    assert.deepEqual(secondPageIds, [root.id]);
   });
 
-  it('keeps removed entities redacted inline but hides threads whose entire history is removed', async () => {
+  it('keeps removed contents redacted inline but hides threads whose entire history is removed', async () => {
     const owner = await h.seedOwner('thread-redact', 'Thread Redact Club');
     const author = await h.seedCompedMember(owner.club.id, 'Thread Remover');
 
@@ -103,28 +103,28 @@ describe('content.getThread', () => {
       body: 'Visible root',
     });
     const reply = await createPost(author.token, {
-      threadId: root.contentThreadId as string,
+      threadId: root.threadId as string,
       body: 'Reply to redact',
     });
 
-    await h.apiOk(author.token, 'content.remove', { entityId: reply.entityId });
+    await h.apiOk(author.token, 'content.remove', { id: reply.id });
 
     const visibleThread = await h.apiOk(author.token, 'content.getThread', {
-      threadId: root.contentThreadId,
+      threadId: root.threadId,
       limit: 20,
     });
     const redactedReply = threadEntities(visibleThread as Record<string, unknown>)
-      .find(row => row.entityId === reply.entityId);
+      .find(row => row.id === reply.id);
 
     assert.ok(redactedReply, 'removed reply should still occupy its slot');
     assert.equal((redactedReply!.version as Record<string, unknown>).state, 'removed');
     assert.equal((redactedReply!.version as Record<string, unknown>).title, '[redacted]');
     assert.equal((redactedReply!.version as Record<string, unknown>).body, '[redacted]');
 
-    await h.apiOk(author.token, 'content.remove', { entityId: root.entityId });
+    await h.apiOk(author.token, 'content.remove', { id: root.id });
 
     const err = await h.apiErr(author.token, 'content.getThread', {
-      threadId: root.contentThreadId,
+      threadId: root.threadId,
       limit: 20,
     });
     assert.equal(err.status, 404);
@@ -137,27 +137,27 @@ describe('content.getThread', () => {
     const viewer = await h.seedCompedMember(owner.club.id, 'Closed Viewer');
 
     const gift = await createGift(author.token, owner.club.id, 'Closed loop', 'No longer available');
-    await h.apiOk(author.token, 'content.closeLoop', { entityId: gift.entityId });
+    await h.apiOk(author.token, 'content.closeLoop', { id: gift.id });
 
     const hidden = await h.apiErr(viewer.token, 'content.getThread', {
-      threadId: gift.contentThreadId,
+      threadId: gift.threadId,
       limit: 20,
     });
     assert.equal(hidden.status, 404);
 
     const visible = await h.apiOk(viewer.token, 'content.getThread', {
-      threadId: gift.contentThreadId,
+      threadId: gift.threadId,
       includeClosed: true,
       limit: 20,
     });
     const visibleData = threadData(visible as Record<string, unknown>);
-    const visibleIds = threadEntities(visible as Record<string, unknown>).map(row => row.entityId);
+    const visibleIds = threadEntities(visible as Record<string, unknown>).map(row => row.id);
 
-    assert.equal(((visibleData.thread as Record<string, unknown>).firstEntity as Record<string, unknown>).entityId, gift.entityId);
-    assert.deepEqual(visibleIds, [gift.entityId]);
+    assert.equal(((visibleData.thread as Record<string, unknown>).firstContent as Record<string, unknown>).id, gift.id);
+    assert.deepEqual(visibleIds, [gift.id]);
   });
 
-  it('returns an expired firstEntity in the summary while omitting it from entities and counts only visible rows', async () => {
+  it('returns an expired firstContent in the summary while omitting it from contents and counts only visible rows', async () => {
     const owner = await h.seedOwner('thread-expired-summary', 'Thread Expired Summary Club');
     const author = await h.seedCompedMember(owner.club.id, 'Expired Author');
 
@@ -167,30 +167,30 @@ describe('content.getThread', () => {
       body: 'Old body',
     });
     await h.sql(
-      `update entity_versions
+      `update content_versions
        set effective_at = '2019-01-01T00:00:00Z',
            created_at = '2019-01-01T00:00:00Z',
            expires_at = '2020-01-01T00:00:00Z'
-       where entity_id = $1
+       where content_id = $1
          and version_no = 1`,
-      [expiredRoot.entityId],
+      [expiredRoot.id],
     );
     const reply = await createPost(author.token, {
-      threadId: expiredRoot.contentThreadId as string,
+      threadId: expiredRoot.threadId as string,
       body: 'Fresh reply',
     });
 
     const thread = await h.apiOk(author.token, 'content.getThread', {
-      threadId: expiredRoot.contentThreadId,
+      threadId: expiredRoot.threadId,
       limit: 20,
     });
     const data = threadData(thread as Record<string, unknown>);
     const summary = data.thread as Record<string, unknown>;
-    const ids = threadEntities(thread as Record<string, unknown>).map(row => row.entityId);
+    const ids = threadEntities(thread as Record<string, unknown>).map(row => row.id);
 
-    assert.equal((summary.firstEntity as Record<string, unknown>).entityId, expiredRoot.entityId);
-    assert.deepEqual(ids, [reply.entityId]);
-    assert.equal((summary.thread as Record<string, unknown>).entityCount, 1);
+    assert.equal((summary.firstContent as Record<string, unknown>).id, expiredRoot.id);
+    assert.deepEqual(ids, [reply.id]);
+    assert.equal(summary.contentCount, 1);
   });
 });
 
@@ -210,7 +210,7 @@ describe('content.create thread quota scoping', () => {
     });
 
     const err = await h.apiErr(outsider.token, 'content.create', {
-      threadId: threadRoot.contentThreadId,
+      threadId: threadRoot.threadId,
       kind: 'post',
       body: 'Unauthorized reply',
     });

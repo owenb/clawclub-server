@@ -24,7 +24,7 @@ type ExtractedContentMentions = {
 };
 
 type ContentMentionRow = {
-  entity_version_id: string;
+  content_version_id: string;
   field: ContentMentionField;
   start_offset: number;
   end_offset: number;
@@ -260,7 +260,7 @@ export async function resolveDirectMessageMentions(
 
 export async function insertEntityVersionMentions(
   client: DbClient,
-  entityVersionId: string,
+  contentVersionId: string,
   mentions: ContentMentionsByField,
 ): Promise<void> {
   const rows = [
@@ -276,13 +276,13 @@ export async function insertEntityVersionMentions(
 
   for (const row of rows) {
     values.push(`($${index}, $${index + 1}, $${index + 2}, $${index + 3}, $${index + 4}, $${index + 5})`);
-    params.push(entityVersionId, row.field, row.start, row.end, row.memberId, row.authoredLabel);
+    params.push(contentVersionId, row.field, row.start, row.end, row.memberId, row.authoredLabel);
     index += 6;
   }
 
   await client.query(
-    `insert into entity_version_mentions (
-       entity_version_id, field, start_offset, end_offset, mentioned_member_id, authored_label
+    `insert into content_version_mentions (
+       content_version_id, field, start_offset, end_offset, mentioned_member_id, authored_label
      ) values ${values.join(', ')}`,
     params,
   );
@@ -315,28 +315,28 @@ export async function insertDmMessageMentions(
 
 export async function loadEntityVersionMentions(
   client: DbClient,
-  entityVersionIds: string[],
+  contentVersionIds: string[],
 ): Promise<{ mentionsByVersionId: Map<string, ContentMentionsByField>; included: IncludedBundle }> {
   const mentionsByVersionId = new Map<string, ContentMentionsByField>();
-  if (entityVersionIds.length === 0) {
+  if (contentVersionIds.length === 0) {
     return { mentionsByVersionId, included: emptyIncludedBundle() };
   }
 
   const result = await client.query<ContentMentionRow>(
-    `select entity_version_id, field, start_offset, end_offset, mentioned_member_id, authored_label
-     from entity_version_mentions
-     where entity_version_id = any($1::text[])
-     order by entity_version_id, field, start_offset`,
-    [entityVersionIds],
+    `select content_version_id, field, start_offset, end_offset, mentioned_member_id, authored_label
+     from content_version_mentions
+     where content_version_id = any($1::text[])
+     order by content_version_id, field, start_offset`,
+    [contentVersionIds],
   );
 
   const memberIds = new Set<string>();
   for (const row of result.rows) {
     memberIds.add(row.mentioned_member_id);
-    if (!mentionsByVersionId.has(row.entity_version_id)) {
-      mentionsByVersionId.set(row.entity_version_id, emptyContentMentions());
+    if (!mentionsByVersionId.has(row.content_version_id)) {
+      mentionsByVersionId.set(row.content_version_id, emptyContentMentions());
     }
-    mentionsByVersionId.get(row.entity_version_id)![row.field].push({
+    mentionsByVersionId.get(row.content_version_id)![row.field].push({
       memberId: row.mentioned_member_id,
       authoredLabel: row.authored_label,
       start: row.start_offset,
@@ -352,10 +352,10 @@ export async function loadEntityVersionMentions(
 
 export async function loadEntityVersionMentionsForVersion(
   client: DbClient,
-  entityVersionId: string,
+  contentVersionId: string,
 ): Promise<ContentMentionsByField> {
-  const { mentionsByVersionId } = await loadEntityVersionMentions(client, [entityVersionId]);
-  return mentionsByVersionId.get(entityVersionId) ?? emptyContentMentions();
+  const { mentionsByVersionId } = await loadEntityVersionMentions(client, [contentVersionId]);
+  return mentionsByVersionId.get(contentVersionId) ?? emptyContentMentions();
 }
 
 export async function copyEntityVersionMentions(
@@ -367,8 +367,8 @@ export async function copyEntityVersionMentions(
   if (fields.length === 0) return;
 
   await client.query(
-    `insert into entity_version_mentions (
-       entity_version_id, field, start_offset, end_offset, mentioned_member_id, authored_label
+    `insert into content_version_mentions (
+       content_version_id, field, start_offset, end_offset, mentioned_member_id, authored_label
      )
      select
        $2,
@@ -377,8 +377,8 @@ export async function copyEntityVersionMentions(
        end_offset,
        mentioned_member_id,
        authored_label
-     from entity_version_mentions
-     where entity_version_id = $1
+     from content_version_mentions
+     where content_version_id = $1
        and field = any($3::text[])`,
     [oldVersionId, newVersionId, fields],
   );
@@ -472,7 +472,7 @@ export async function preflightContentCreateMentions(
   if (input.clientKey) {
     const existing = await pool.query<{ id: string }>(
       `select id
-       from entities
+       from contents
        where author_member_id = $1
          and client_key = $2
          and archived_at is null
@@ -493,7 +493,7 @@ export async function preflightContentUpdateMentions(
   input: {
     actorMemberId: string;
     actorClubIds: string[];
-    entityId: string;
+    id: string;
     patch: {
       title?: string | null;
       summary?: string | null;
@@ -509,20 +509,20 @@ export async function preflightContentUpdateMentions(
        cev.summary,
        cev.body,
        cev.id as version_id
-     from entities e
-     join current_entity_versions cev on cev.entity_id = e.id
+     from contents e
+     join current_content_versions cev on cev.content_id = e.id
      where e.id = $1
        and e.archived_at is null
        and e.deleted_at is null
        and cev.state = 'published'`,
-    [input.entityId],
+    [input.id],
   );
   const current = currentResult.rows[0];
   if (!current || current.author_member_id !== input.actorMemberId) {
-    throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+    throw new AppError(404, 'not_found', 'Content not found inside the actor scope');
   }
   if (!input.actorClubIds.includes(current.club_id)) {
-    throw new AppError(404, 'not_found', 'Entity not found inside the actor scope');
+    throw new AppError(404, 'not_found', 'Content not found inside the actor scope');
   }
 
   const changedFields: ContentMentionField[] = [];

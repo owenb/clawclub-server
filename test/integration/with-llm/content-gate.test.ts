@@ -64,12 +64,12 @@ function ownerName(id: number): string {
   return `Anchor Gate Club ${id}`;
 }
 
-function entityIdFrom(result: Record<string, unknown>): string {
-  return ((result.data as Record<string, unknown>).entity as Record<string, unknown>).entityId as string;
+function contentIdFrom(result: Record<string, unknown>): string {
+  return ((result.data as Record<string, unknown>).content as Record<string, unknown>).id as string;
 }
 
 function threadIdFrom(result: Record<string, unknown>): string {
-  return ((result.data as Record<string, unknown>).entity as Record<string, unknown>).contentThreadId as string;
+  return ((result.data as Record<string, unknown>).content as Record<string, unknown>).threadId as string;
 }
 
 async function seedThread(
@@ -94,7 +94,7 @@ describe('content gate anchor — clear-cut pass cases', () => {
       title: 'What changed after we moved support in-house',
       body: `We spent six months undoing a fully outsourced support model. The first thing we learned was that the delay between customer pain and product learning was killing us.\n\nOnce support sat next to product, we stopped debating which bugs mattered. The team heard the same issues all week, fixed the noisy ones first, and our escalation volume dropped.\n\nIf you are under fifty customers, I would keep support close to the builders. The time you save by outsourcing is usually lost again in slower product learning.`,
     });
-    assert.ok(entityIdFrom(result));
+    assert.ok(contentIdFrom(result));
   });
 
   it('2. passes a well-formed in-person event', async () => {
@@ -111,7 +111,7 @@ describe('content gate anchor — clear-cut pass cases', () => {
         timezone: 'Europe/London',
       },
     });
-    assert.ok(entityIdFrom(result));
+    assert.ok(contentIdFrom(result));
   });
 
   it('3. passes a substantive multi-field profile', async () => {
@@ -242,7 +242,7 @@ describe('content gate anchor — merge-path regressions', () => {
       body: 'We launched the new import flow yesterday. The main lesson was that validation errors must appear before the upload completes or users assume the file worked.',
     });
     const err = await h.apiErr(owner.token, 'content.update', {
-      entityId: entityIdFrom(created),
+      id: contentIdFrom(created),
       body: 'More details later.',
     }, 'low_quality_content');
     assertActionableFeedback(err);
@@ -257,10 +257,10 @@ describe('content gate anchor — merge-path regressions', () => {
       body: 'Checklist for the rollout: rehearse the lock profile on staging, cap the backfill batch size to keep replica lag under a minute, announce the maintenance window clearly, and keep a rollback query ready before you touch production.',
     });
     const updated = await h.apiOk(owner.token, 'content.update', {
-      entityId: entityIdFrom(created),
+      id: contentIdFrom(created),
       title: 'Database migration checklist',
     });
-    assert.ok(entityIdFrom(updated));
+    assert.ok(contentIdFrom(updated));
   });
 
   it('15. passes a content.update patch on an existing reply with short concrete body', async () => {
@@ -272,9 +272,9 @@ describe('content gate anchor — merge-path regressions', () => {
       body: 'I can review the migration SQL this evening and flag lock risks before you run it.',
     });
     const updated = await h.apiOk(owner.token, 'content.update', {
-      entityId: entityIdFrom(reply),
+      id: contentIdFrom(reply),
       body: 'I can review the SQL after dinner, flag lock risks, and send inline notes by 9pm.',
     });
-    assert.ok(entityIdFrom(updated));
+    assert.ok(contentIdFrom(updated));
   });
 });

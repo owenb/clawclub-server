@@ -147,6 +147,8 @@ These decisions are part of the plan and should not be casually reopened during 
 3. The rename is comprehensive across API, code, schema, tests, and docs.
 4. Historical migration files are not rewritten except when required to preserve current deployability; the rename lands as a new follow-up migration.
 5. The threaded behavior already shipped remains the product baseline; this plan is about naming clarity and schema cleanup, not rethinking threads.
+6. `content.get({id})` is in scope for this rename and must land in the same PR.
+7. `complaint` does not survive the rename. Existing `complaint` rows are migrated to `post`, the enum value is dropped, and the seed is updated accordingly.
 
 ## Target Vocabulary
 
@@ -356,6 +358,7 @@ Clients must not assume `thread.firstContent === contents[0]`.
 The goal is to make the wire format read naturally. Every content-related action output also carries an `included: IncludedBundle` sidecar (shipped via the handles-deletion work); the rename does not touch that sidecar shape.
 
 - `content.create` returns `{ content: Content, included: IncludedBundle }`
+- `content.get` returns `{ content: Content, included: IncludedBundle }`
 - `content.update` returns `{ content: Content, included: IncludedBundle }`
 - `content.remove` returns `{ content: Content, included: IncludedBundle }`
 - `content.closeLoop` returns `{ content: Content, included: IncludedBundle }`
@@ -369,6 +372,7 @@ The goal is to make the wire format read naturally. Every content-related action
 
 Input cleanup:
 
+- `content.get` takes `id`, not `entityId`
 - `content.update` takes `id`, not `entityId`
 - `content.remove` takes `id`, not `entityId`
 - `content.getThread` takes either `threadId` or `contentId`
@@ -417,33 +421,35 @@ Create a new migration after the threaded-content migration. Do **not** edit the
 
 1. Rename all active public-content tables, views, enums, and columns to `content*`.
 2. Rename dependent foreign keys and indexes.
-3. Preserve data exactly.
-4. Keep the migration transactional and safe under `scripts/migrate.sh`.
+3. Convert legacy `complaint` rows to `post` and drop the `complaint` enum value.
+4. Preserve data exactly aside from the deliberate `complaint` → `post` rewrite.
+5. Keep the migration transactional and safe under `scripts/migrate.sh`.
 
 ### Migration outline
 
 1. Drop or replace dependent views in dependency order.
-2. Rename enums:
+2. Rewrite legacy `complaint` rows to `post`, then recreate/rename the kind enum without the `complaint` value.
+3. Rename enums:
    - `entity_kind` → `content_kind`
    - `entity_state` → `content_state`
-3. Rename core tables:
+4. Rename core tables:
    - `entities` → `contents`
    - `entity_versions` → `content_versions`
    - `entity_embeddings` → `content_embeddings`
    - `entity_version_mentions` → `content_version_mentions`
-4. Rename columns across all dependent tables (including `member_notifications`, `club_activity`, `club_edges`, `event_rsvps`, `event_version_details`, `signal_background_matches`):
+5. Rename columns across all dependent tables (including `member_notifications`, `club_activity`, `club_edges`, `event_rsvps`, `event_version_details`, `signal_background_matches`):
    - `entity_id` → `content_id`
    - `entity_version_id` → `content_version_id`
    - `content_thread_id` → `thread_id`
    - other dependent foreign-key columns listed above
-5. Rename views:
+6. Rename views:
    - `current_entity_versions` → `current_content_versions`
    - `published_entity_versions` → `published_content_versions`
    - `live_entities` → `live_content`
    - any `current_event_versions` / `live_events` views rebuilt on the renamed base
-6. Recreate indexes and constraints with matching names.
-7. Update any SQL functions, triggers, or queue subject-kind values that still use `entity_version`.
-8. Verify seeds and helper SQL no longer mention `entity` for active public content.
+7. Recreate indexes and constraints with matching names.
+8. Update any SQL functions, triggers, or queue subject-kind values that still use `entity_version`.
+9. Verify seeds and helper SQL no longer mention `entity` for active public content and no longer seed `complaint`.
 
 ### Migration guardrails
 
@@ -542,6 +548,7 @@ Must update:
 
 Add explicit regression tests for:
 
+- `content.get` returns `{ content: Content, included: IncludedBundle }`
 - `content.getThread` response is flat: `thread.id`, `thread.firstContent`, `thread.contentCount`, `thread.lastActivityAt` on the thread object; `contents`, `hasMore`, `nextCursor`, `included` at the top level
 - `content.list` results are flat `ContentThread[]` (no separate `ContentThreadSummary` wrapper)
 - `content.create`, `content.update`, `content.remove`, `content.closeLoop`, `content.reopenLoop` return `{ content: Content, included: IncludedBundle }`
@@ -560,6 +567,9 @@ Run these before writing a single line of the rename migration. They exist to ca
 2. Grep the repo for `entity_id`, `entity_version_id`, `entityId`, `entityVersionId`, `ContentEntity`, `entity_kind`, `entity_state`, `entity_version_mentions`, `parent_entity_id`, `firstEntity`, `entityCount`, `contentThreadId`, `eventEntityId`. Every match should be covered by a row in the rename map below. If any match is uncovered, add it before starting.
 3. Establish the baseline: `npx tsc --noEmit`, `npm run test:unit`, `npm run test:integration:non-llm` must all pass on the branch tip before the rename starts. If they don't, fix first.
 4. Regenerate `test/snapshots/api-schema.json` from the current `main` and commit that regeneration separately if it has drifted — the rename should produce a clean diff from a clean base, not a rename diff tangled with other drift.
+5. Audit stored SQL function and trigger bodies before writing the migration. Query `pg_proc.prosrc` directly (for example against `public` functions only) and also grep the dumped schema for references to `entities`, `entity_versions`, `entity_kind`, `entity_state`, `entity_id`, `entity_version_id`, `entity_version_mentions`, and `event_entity_id`. Postgres will not save you from stale function bodies that still query the old names after `ALTER ... RENAME`.
+6. Audit `complaint` before writing the migration. The expected end state for this plan is: convert any existing `kind = 'complaint'` rows to `post`, then remove `complaint` from the renamed enum. If the audit unexpectedly finds a live supported surface, stop and reconcile the plan before continuing.
+7. Secure a quiet window on the hot paths: `db/migrations/*`, `db/init.sql`, `src/contract.ts`, `src/postgres.ts`, `src/clubs/*`, `src/schemas/*`, `src/workers/*`, `src/mentions.ts`, `src/gate.ts`, `src/embedding-source.ts`, `src/dispatch.ts`, `test/integration/*`, `test/snapshots/api-schema.json`, `SKILL.md`, and `docs/design-decisions.md`. This rename should land in one uninterrupted sitting, not across overlapping concurrent edits.
 
 ## Implementation Order
 
@@ -568,13 +578,13 @@ The rename lands as migration **017** (the next unused number after `016_pow_at_
 1. Write the rename migration first (`db/migrations/017_rename_entities_to_contents.sql`).
 2. Test the migration against the current deployed schema using `reset-dev.sh` and `scripts/migrate.sh`.
 3. Verify the migrated database manually — inspect table names, enum names, view definitions, and spot-check column renames on every table listed in the "Known dependent tables" checklist.
-4. Only then update `db/init.sql` to the target schema. Because `init.sql` is now `pg_dump` output, regenerate it from the migrated scratch DB rather than hand-editing: `pg_dump --schema-only --no-owner --no-privileges <scratch_db> > db/init.sql`, then diff against the previous `init.sql` to sanity-check that only the renamed surface changed.
+4. Only then update `db/init.sql` to the target schema. Because `init.sql` is now `pg_dump` output, regenerate it from the migrated scratch DB rather than hand-editing: `pg_dump --schema-only --no-owner --no-privileges <scratch_db> > db/init.sql`. Run the dump twice and confirm the second output matches the first. Review the result structurally (table-by-table / view-by-view), not as a blind 3500-line diff.
 5. Update `db/seeds/dev.sql`.
 6. Refactor contract/types/schemas in `src/contract.ts`, `src/schemas/*.ts`.
 7. Refactor domain code and workers (`src/clubs/entities.ts` → `content.ts`, `src/postgres.ts`, `src/workers/*`, `src/mentions.ts`).
 8. Update tests and regenerate `test/snapshots/api-schema.json`.
 9. Update `SKILL.md` and `docs/design-decisions.md`.
-10. Run the full test suite (`npm run check`, `npm run test:unit`, `npm run test:integration:non-llm`, and at least one pass of `npm run test:integration:with-llm`).
+10. Run the full test suite (`npm run check`, `npm run test:unit`, `npm run test:integration:non-llm`, and two passes of `npm run test:integration:with-llm` if credentials are available). Inspect the `ai_llm_usage_log` rows produced by the LLM-backed tests to confirm the gate still writes sane `artifact_kind` values and did not drift silently under the rename.
 
 ## Post-execution verification
 
@@ -583,14 +593,8 @@ Do these before opening the PR. They are the last chance to catch a partial land
 1. **Grep for leftover entity names.** After the rename lands locally, search the repo for `entity_id`, `entity_version_id`, `entityId`, `entityVersionId`, `ContentEntity`, `EntityKind`, `EntityState`, `entity_kind`, `entity_state`, `parent_entity_id`, `firstEntity`, `entityCount`, `contentThreadId`, `eventEntityId`, `createEntity`, `updateEntity`, `removeEntity`, `ListEntitiesInput`, `CreateEntityInput`, `UpdateEntityInput`, `RemoveEntityInput`, `entity_version_mentions`, `current_entity_versions`, `published_entity_versions`, `live_entities`. Every remaining hit must be either in `db/migrations/00*-01*.sql` (historical, frozen), in `plans/` archived planning docs, or on an explicit allowlist. No survivors in active code, active tests, active docs, or current migrations.
 2. **Schema snapshot diff review.** Read `test/snapshots/api-schema.json`'s diff line-by-line. That diff IS the public contract change. Confirm that every removal corresponds to a planned rename and every addition corresponds to its paired new name. No stray additions, no unexpected removals.
 3. **Integration test green.** `npm run test:integration:non-llm` and `npm run test:integration:with-llm` both pass. The with-llm pass is load-bearing because content.create / content.update routes through the legality gate — a rename that silently breaks the gate surface will only show up here.
-4. **Manual smoke test.** Start the dev server, call `content.create`, `content.getThread`, `content.update`, `content.remove`, `events.list`, `events.rsvp`, `activity.list`, `notifications.list` against the new schema. Confirm the wire field names are all new.
+4. **Manual smoke test.** Start the dev server, call `content.create`, `content.get`, `content.getThread`, `content.update`, `content.remove`, `events.list`, `events.rsvp`, `activity.list`, `notifications.list` against the new schema. Confirm the wire field names are all new.
 5. **Version bump present.** `package.json` patch version must be incremented.
-
-## Adjacent improvements worth bundling
-
-These are not strictly part of the rename, but the rename PR is the cheapest moment to land them because they touch the same action schemas and the same types. Treat each as a "land if easy, defer cleanly if not" item — do not block the rename on them.
-
-1. **Add `content.get({id}) → { content: Content, included: IncludedBundle }`.** The current API has no singular-read for a content item. If an agent receives a `contentId` from a notification or a search result and wants the current state of just that one item, the only path today is `content.getThread`, which fetches the whole thread. A `content.get` action closes that gap. It is ~15 lines: accept `id`, call the existing repository helper, return `{ content, included }`.
 
 ## Risks
 

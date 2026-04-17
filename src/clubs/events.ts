@@ -1,13 +1,13 @@
 /**
- * Clubs domain — event-specific read and RSVP actions on top of unified content entities.
+ * Clubs domain — event-specific read and RSVP actions on top of unified content contents.
  */
 
 import type { Pool } from 'pg';
-import type { ContentEntity, EventRsvpState, WithIncluded } from '../contract.ts';
+import type { Content, EventRsvpState, WithIncluded } from '../contract.ts';
 import { withTransaction } from '../db.ts';
 import { AppError } from '../contract.ts';
 import { encodeCursor } from '../schemas/fields.ts';
-import { readContentEntitiesBundleByIds, readContentEntityBundle } from './entities.ts';
+import { readContentsBundleByIds, readContentBundle } from './content.ts';
 import { emptyIncludedBundle } from '../mentions.ts';
 
 async function viewerMembershipIdsForClubs(pool: Pool, actorMemberId: string, clubIds: string[]): Promise<string[]> {
@@ -23,19 +23,19 @@ async function viewerMembershipIdsForClubs(pool: Pool, actorMemberId: string, cl
 }
 
 type EventIdentity = {
-  entityId: string;
+  contentId: string;
   clubId: string;
 };
 
 async function resolveEventIdentity(
   pool: Pool,
-  eventEntityId: string,
+  eventId: string,
   clubIds: string[],
 ): Promise<EventIdentity | null> {
   const result = await pool.query<EventIdentity>(
-    `select e.id as "entityId", e.club_id as "clubId"
-     from entities e
-     join current_entity_versions cev on cev.entity_id = e.id
+    `select e.id as "contentId", e.club_id as "clubId"
+     from contents e
+     join current_content_versions cev on cev.content_id = e.id
      where e.id = $1
        and e.kind = 'event'
        and e.club_id = any($2::text[])
@@ -43,7 +43,7 @@ async function resolveEventIdentity(
        and e.deleted_at is null
        and cev.state = 'published'
        and (cev.expires_at is null or cev.expires_at > now())`,
-    [eventEntityId, clubIds],
+    [eventId, clubIds],
   );
   return result.rows[0] ?? null;
 }
@@ -53,19 +53,19 @@ export async function listEvents(pool: Pool, input: {
   clubIds: string[];
   limit: number;
   query?: string;
-  cursor?: { startsAt: string; entityId: string } | null;
-}): Promise<WithIncluded<{ results: ContentEntity[]; hasMore: boolean; nextCursor: string | null }>> {
+  cursor?: { startsAt: string; contentId: string } | null;
+}): Promise<WithIncluded<{ results: Content[]; hasMore: boolean; nextCursor: string | null }>> {
   if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null, included: emptyIncludedBundle() };
 
   const trimmedQuery = input.query?.trim().slice(0, 120) || null;
   const likePattern = trimmedQuery ? `%${trimmedQuery.replace(/[%_\\]/g, '\\$&')}%` : null;
   const fetchLimit = input.limit + 1;
 
-  const identityRows = await pool.query<{ entity_id: string; starts_at: string }>(
-    `select e.id as entity_id, evd.starts_at::text as starts_at
-     from entities e
-     join current_entity_versions cev on cev.entity_id = e.id
-     join event_version_details evd on evd.entity_version_id = cev.id
+  const identityRows = await pool.query<{ content_id: string; starts_at: string }>(
+    `select e.id as content_id, evd.starts_at::text as starts_at
+     from contents e
+     join current_content_versions cev on cev.content_id = e.id
+     join event_version_details evd on evd.content_version_id = cev.id
      where e.kind = 'event'
        and e.club_id = any($1::text[])
        and e.archived_at is null
@@ -87,7 +87,7 @@ export async function listEvents(pool: Pool, input: {
       trimmedQuery,
       likePattern,
       input.cursor?.startsAt ?? null,
-      input.cursor?.entityId ?? null,
+      input.cursor?.contentId ?? null,
       fetchLimit,
     ],
   );
@@ -101,18 +101,18 @@ export async function listEvents(pool: Pool, input: {
   const viewerMembershipIds = await viewerMembershipIdsForClubs(pool, input.actorMemberId, input.clubIds);
 
   return withTransaction(pool, async (client) => {
-    const bundle = await readContentEntitiesBundleByIds(
+    const bundle = await readContentsBundleByIds(
       client,
-      pageRows.map(row => row.entity_id),
+      pageRows.map(row => row.content_id),
       viewerMembershipIds,
       { includeExpired: false },
     );
 
     const last = pageRows[pageRows.length - 1];
     return {
-      results: bundle.entities,
+      results: bundle.contents,
       hasMore,
-      nextCursor: hasMore && last ? encodeCursor([last.starts_at, last.entity_id]) : null,
+      nextCursor: hasMore && last ? encodeCursor([last.starts_at, last.content_id]) : null,
       included: bundle.included,
     };
   });
@@ -120,13 +120,13 @@ export async function listEvents(pool: Pool, input: {
 
 export async function rsvpEvent(pool: Pool, input: {
   actorMemberId: string;
-  eventEntityId: string;
+  eventId: string;
   response: EventRsvpState;
   note?: string | null;
   accessibleMemberships: Array<{ membershipId: string; clubId: string }>;
-}): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
+}): Promise<WithIncluded<{ event: Content }> | null> {
   const clubIds = input.accessibleMemberships.map(membership => membership.clubId);
-  const event = await resolveEventIdentity(pool, input.eventEntityId, clubIds);
+  const event = await resolveEventIdentity(pool, input.eventId, clubIds);
   if (!event) return null;
 
   const membership = input.accessibleMemberships.find(item => item.clubId === event.clubId);
@@ -136,10 +136,10 @@ export async function rsvpEvent(pool: Pool, input: {
     const currentRsvp = await client.query<{ version_no: number; id: string }>(
       `select version_no, id
        from current_event_rsvps
-       where event_entity_id = $1
+       where event_content_id = $1
          and membership_id = $2
        limit 1`,
-      [input.eventEntityId, membership.membershipId],
+      [input.eventId, membership.membershipId],
     );
 
     const versionNo = currentRsvp.rows[0] ? currentRsvp.rows[0].version_no + 1 : 1;
@@ -147,10 +147,10 @@ export async function rsvpEvent(pool: Pool, input: {
 
     await client.query(
       `insert into event_rsvps (
-         event_entity_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id
+         event_content_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id
        ) values ($1, $2, $3, $4, $5, $6, $7)`,
       [
-        input.eventEntityId,
+        input.eventId,
         membership.membershipId,
         input.response,
         input.note ?? null,
@@ -160,18 +160,18 @@ export async function rsvpEvent(pool: Pool, input: {
       ],
     );
 
-    const result = await readContentEntityBundle(client, input.eventEntityId, [membership.membershipId], { includeExpired: false });
-    return result.entity ? { entity: result.entity, included: result.included } : null;
+    const result = await readContentBundle(client, input.eventId, [membership.membershipId], { includeExpired: false });
+    return result.content ? { event: result.content, included: result.included } : null;
   });
 }
 
 export async function cancelEventRsvp(pool: Pool, input: {
   actorMemberId: string;
-  eventEntityId: string;
+  eventId: string;
   accessibleMemberships: Array<{ membershipId: string; clubId: string }>;
-}): Promise<WithIncluded<{ entity: ContentEntity }> | null> {
+}): Promise<WithIncluded<{ event: Content }> | null> {
   const clubIds = input.accessibleMemberships.map(membership => membership.clubId);
-  const event = await resolveEventIdentity(pool, input.eventEntityId, clubIds);
+  const event = await resolveEventIdentity(pool, input.eventId, clubIds);
   if (!event) return null;
 
   const membership = input.accessibleMemberships.find(item => item.clubId === event.clubId);
@@ -181,23 +181,23 @@ export async function cancelEventRsvp(pool: Pool, input: {
     const currentRsvp = await client.query<{ version_no: number; id: string; response: string }>(
       `select version_no, id, response::text as response
        from current_event_rsvps
-       where event_entity_id = $1
+       where event_content_id = $1
          and membership_id = $2
        limit 1`,
-      [input.eventEntityId, membership.membershipId],
+      [input.eventId, membership.membershipId],
     );
 
     if (!currentRsvp.rows[0] || currentRsvp.rows[0].response === 'cancelled') {
-      const result = await readContentEntityBundle(client, input.eventEntityId, [membership.membershipId], { includeExpired: false });
-      return result.entity ? { entity: result.entity, included: result.included } : null;
+      const result = await readContentBundle(client, input.eventId, [membership.membershipId], { includeExpired: false });
+      return result.content ? { event: result.content, included: result.included } : null;
     }
 
     await client.query(
       `insert into event_rsvps (
-         event_entity_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id
+         event_content_id, membership_id, response, note, version_no, supersedes_rsvp_id, created_by_member_id
        ) values ($1, $2, 'cancelled', null, $3, $4, $5)`,
       [
-        input.eventEntityId,
+        input.eventId,
         membership.membershipId,
         currentRsvp.rows[0].version_no + 1,
         currentRsvp.rows[0].id,
@@ -205,7 +205,7 @@ export async function cancelEventRsvp(pool: Pool, input: {
       ],
     );
 
-    const result = await readContentEntityBundle(client, input.eventEntityId, [membership.membershipId], { includeExpired: false });
-    return result.entity ? { entity: result.entity, included: result.included } : null;
+    const result = await readContentBundle(client, input.eventId, [membership.membershipId], { includeExpired: false });
+    return result.content ? { event: result.content, included: result.included } : null;
   });
 }

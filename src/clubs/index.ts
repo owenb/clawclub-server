@@ -1,18 +1,19 @@
 /**
- * Clubs domain — entities, events, activity, vouches, quotas, LLM, embeddings.
+ * Clubs domain — contents, events, activity, vouches, quotas, LLM, embeddings.
  */
 
 import type { Pool } from 'pg';
 import type {
-  ContentEntitySearchResult,
-  CreateEntityInput,
-  EntityForGate,
-  EntitySummary,
+  ContentSearchResult,
+  CreateContentInput,
+  ContentForGate,
+  Content,
   IncludedBundle,
-  ListEntitiesInput,
+  ListContentInput,
   ReadContentThreadInput,
-  SetEntityLoopInput,
-  UpdateEntityInput,
+  ReadContentInput,
+  SetContentLoopInput,
+  UpdateContentInput,
   MembershipVouchSummary,
   QuotaAllowance,
   LogLlmUsageInput,
@@ -22,10 +23,10 @@ import { AppError } from '../contract.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { encodeCursor } from '../schemas/fields.ts';
 import { emptyIncludedBundle } from '../mentions.ts';
-import * as entities from './entities.ts';
+import * as contents from './content.ts';
 import * as events from './events.ts';
 
-export { appendClubActivity } from './entities.ts';
+export { appendClubActivity } from './content.ts';
 
 // ── Vouches ─────────────────────────────────────────────────
 
@@ -200,7 +201,7 @@ export async function batchListVouches(pool: Pool, input: {
 // ── Quotas ──────────────────────────────────────────────────
 
 /**
- * Mapping from quota action name to the entity kinds it covers.
+ * Mapping from quota action name to the content kinds it covers.
  * This is the single source of truth for both enforcement and reporting.
  * Actions not in this map are not supported for quota counting.
  */
@@ -267,7 +268,7 @@ export async function enforceQuota(client: DbClient, memberId: string, clubId: s
   const effectiveMax = base * effectiveMultiplier(actorInfo);
 
   const countResult = await client.query<{ count: string }>(
-    `select count(*)::text as count from entities
+    `select count(*)::text as count from contents
      where author_member_id = $1 and club_id = $2
        and kind::text = any($3::text[])
        and created_at >= date_trunc('day', now() at time zone 'UTC')`,
@@ -344,7 +345,7 @@ export async function getQuotaStatus(pool: Pool, input: {
       if (!kinds) continue;
 
       const countResult = await pool.query<{ count: string }>(
-        `select count(*)::text as count from entities
+        `select count(*)::text as count from contents
          where author_member_id = $1 and club_id = $2
            and kind::text = any($3::text[])
            and created_at >= date_trunc('day', now() at time zone 'UTC')`,
@@ -400,8 +401,8 @@ export async function listClubActivity(pool: Pool, input: {
   activityId: string;
   seq: number;
   clubId: string;
-  entityId: string | null;
-  entityVersionId: string | null;
+  contentId: string | null;
+  contentVersionId: string | null;
   topic: string;
   payload: Record<string, unknown>;
   createdByMemberId: string | null;
@@ -424,11 +425,11 @@ export async function listClubActivity(pool: Pool, input: {
   }
 
   const result = await pool.query<{
-    id: string; seq: string; club_id: string; entity_id: string | null; entity_version_id: string | null;
+    id: string; seq: string; club_id: string; content_id: string | null; content_version_id: string | null;
     topic: string; payload: Record<string, unknown>; created_by_member_id: string | null;
     created_at: string; audience: string;
   }>(
-    `select id, seq::text as seq, club_id, entity_id, entity_version_id, topic, payload,
+    `select id, seq::text as seq, club_id, content_id, content_version_id, topic, payload,
             created_by_member_id, created_at::text as created_at, audience
      from club_activity ca
      where ca.club_id = any($1::text[]) and ca.seq > $2
@@ -438,11 +439,11 @@ export async function listClubActivity(pool: Pool, input: {
          or (ca.audience = 'owners' and ca.club_id = any($5::text[]))
        )
        and (
-         ca.entity_id is null
-         or ca.topic = 'entity.removed'
+         ca.content_id is null
+         or ca.topic = 'content.removed'
          or not exists (
-           select 1 from current_entity_versions cev
-           where cev.entity_id = ca.entity_id and cev.state = 'removed'
+           select 1 from current_content_versions cev
+           where cev.content_id = ca.content_id and cev.state = 'removed'
          )
        )
      order by ca.seq asc limit $3`,
@@ -453,8 +454,8 @@ export async function listClubActivity(pool: Pool, input: {
     activityId: row.id,
     seq: parseActivitySeq(row.seq),
     clubId: row.club_id,
-    entityId: row.entity_id,
-    entityVersionId: row.entity_version_id,
+    contentId: row.content_id,
+    contentVersionId: row.content_version_id,
     topic: row.topic,
     payload: row.payload,
     createdByMemberId: row.created_by_member_id,
@@ -466,35 +467,35 @@ export async function listClubActivity(pool: Pool, input: {
   return { items, nextAfterSeq: lastSeq };
 }
 
-// ── Entity embedding search ─────────────────────────────────
+// ── Content embedding search ────────────────────────────────
 
-export type PaginatedEntitySearch = {
-  results: ContentEntitySearchResult[];
+export type PaginatedContentSearch = {
+  results: ContentSearchResult[];
   hasMore: boolean;
   nextCursor: string | null;
   included: IncludedBundle;
 };
 
-export async function findEntitiesViaEmbedding(pool: Pool, input: {
+export async function findContentViaEmbedding(pool: Pool, input: {
   actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number;
-  cursor?: { distance: string; entityId: string } | null;
-}): Promise<PaginatedEntitySearch> {
+  cursor?: { distance: string; contentId: string } | null;
+}): Promise<PaginatedContentSearch> {
   if (input.clubIds.length === 0) {
     return { results: [], hasMore: false, nextCursor: null, included: emptyIncludedBundle() };
   }
 
   const fetchLimit = input.limit + 1;
   const cursorDist = input.cursor ? parseFloat(input.cursor.distance) : null;
-  const cursorId = input.cursor?.entityId ?? null;
+  const cursorId = input.cursor?.contentId ?? null;
 
-  const result = await pool.query<{ entity_id: string; _distance: number }>(
-    `select e.id as entity_id,
+  const result = await pool.query<{ content_id: string; _distance: number }>(
+    `select e.id as content_id,
             (select min(eea.embedding <=> $2::vector)
-             from entity_embeddings eea
-             where eea.entity_id = e.id and eea.entity_version_id = cev.id
+             from content_embeddings eea
+             where eea.content_id = e.id and eea.content_version_id = cev.id
             ) as _distance
-     from entities e
-     join current_entity_versions cev on cev.entity_id = e.id
+     from contents e
+     join current_content_versions cev on cev.content_id = e.id
      where e.club_id = any($1::text[])
        and e.archived_at is null
        and e.deleted_at is null
@@ -503,12 +504,12 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
        and (cev.expires_at is null or cev.expires_at > now())
        and ($3::text[] is null or e.kind::text = any($3))
        and exists (
-         select 1 from entity_embeddings eea
-         where eea.entity_id = e.id and eea.entity_version_id = cev.id
+         select 1 from content_embeddings eea
+         where eea.content_id = e.id and eea.content_version_id = cev.id
        )
        and ($5::float8 is null
-         or (select min(eea.embedding <=> $2::vector) from entity_embeddings eea where eea.entity_id = e.id and eea.entity_version_id = cev.id) > $5
-         or ((select min(eea.embedding <=> $2::vector) from entity_embeddings eea where eea.entity_id = e.id and eea.entity_version_id = cev.id) = $5 and e.id > $6))
+         or (select min(eea.embedding <=> $2::vector) from content_embeddings eea where eea.content_id = e.id and eea.content_version_id = cev.id) > $5
+         or ((select min(eea.embedding <=> $2::vector) from content_embeddings eea where eea.content_id = e.id and eea.content_version_id = cev.id) = $5 and e.id > $6))
      order by _distance asc, e.id asc
      limit $4`,
     [input.clubIds, input.queryEmbedding, input.kinds ?? null, fetchLimit, cursorDist, cursorId],
@@ -525,23 +526,23 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
          and club_id = any($2::text[])`,
       [input.actorMemberId, input.clubIds],
     );
-    return entities.readContentEntitiesBundleByIds(
+    return contents.readContentsBundleByIds(
       client,
-      pageRows.map(row => row.entity_id),
+      pageRows.map(row => row.content_id),
       viewerMembershipIds.rows.map(row => row.membership_id),
       { includeExpired: false },
     );
   });
 
-  const scoreByEntityId = new Map(pageRows.map((row) => [row.entity_id, row._distance]));
-  const rows = contentRows.entities.map((entity) => ({
-    ...entity,
-    score: scoreByEntityId.get(entity.entityId) ?? Number.POSITIVE_INFINITY,
+  const scoreByContentId = new Map(pageRows.map((row) => [row.content_id, row._distance]));
+  const rows = contentRows.contents.map((content) => ({
+    ...content,
+    score: scoreByContentId.get(content.id) ?? Number.POSITIVE_INFINITY,
   }));
 
   const lastRow = pageRows.length > 0 ? pageRows[pageRows.length - 1] : null;
   const nextCursor = hasMore && lastRow
-    ? encodeCursor([String(lastRow._distance), lastRow.entity_id])
+    ? encodeCursor([String(lastRow._distance), lastRow.content_id])
     : null;
 
   return { results: rows, hasMore, nextCursor, included: contentRows.included };
@@ -550,14 +551,15 @@ export async function findEntitiesViaEmbedding(pool: Pool, input: {
 // ── Clubs Repository type ───────────────────────────────────
 
 export type ClubsRepository = {
-  createEntity(input: CreateEntityInput): Promise<WithIncluded<{ entity: EntitySummary }>>;
-  updateEntity(input: UpdateEntityInput): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
-  loadEntityForGate(input: { actorMemberId: string; entityId: string; accessibleClubIds: string[] }): Promise<EntityForGate | null>;
-  closeEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
-  reopenEntityLoop(input: SetEntityLoopInput): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
-  removeEntity(input: { entityId: string; clubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean }): Promise<WithIncluded<{ entity: EntitySummary }> | null>;
-  listEntities(input: ListEntitiesInput): Promise<import('./entities.ts').PaginatedThreads>;
-  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: import('../contract.ts').ContentThreadSummary; entities: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null }> | null>;
+  createContent(input: CreateContentInput): Promise<WithIncluded<{ content: Content }>>;
+  readContent(input: ReadContentInput): Promise<WithIncluded<{ content: Content }> | null>;
+  updateContent(input: UpdateContentInput): Promise<WithIncluded<{ content: Content }> | null>;
+  loadContentForGate(input: { actorMemberId: string; id: string; accessibleClubIds: string[] }): Promise<ContentForGate | null>;
+  closeContentLoop(input: SetContentLoopInput): Promise<WithIncluded<{ content: Content }> | null>;
+  reopenContentLoop(input: SetContentLoopInput): Promise<WithIncluded<{ content: Content }> | null>;
+  removeContent(input: { id: string; accessibleClubIds: string[]; actorMemberId: string; reason?: string | null; skipAuthCheck?: boolean }): Promise<WithIncluded<{ content: Content }> | null>;
+  listContent(input: ListContentInput): Promise<import('./content.ts').PaginatedThreads>;
+  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: import('../contract.ts').ContentThread; contents: import('../contract.ts').Content[]; hasMore: boolean; nextCursor: string | null }> | null>;
 
   createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; reason: string; metadata: Record<string, unknown>; createdAt: string; createdByMemberId: string | null } | null>;
   listVouches(input: { clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<PaginatedVouches>;
@@ -571,8 +573,8 @@ export type ClubsRepository = {
     activityId: string;
     seq: number;
     clubId: string;
-    entityId: string | null;
-    entityVersionId: string | null;
+    contentId: string | null;
+    contentVersionId: string | null;
     topic: string;
     payload: Record<string, unknown>;
     createdByMemberId: string | null;
@@ -580,23 +582,24 @@ export type ClubsRepository = {
     audience: 'members' | 'clubadmins' | 'owners';
   }>; nextAfterSeq: number | null }>;
 
-  findEntitiesViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; entityId: string } | null }): Promise<PaginatedEntitySearch>;
+  findContentViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; contentId: string } | null }): Promise<PaginatedContentSearch>;
 
-  listEvents(input: { actorMemberId: string; clubIds: string[]; limit: number; query?: string; cursor?: { startsAt: string; entityId: string } | null }): Promise<WithIncluded<{ results: import('../contract.ts').ContentEntity[]; hasMore: boolean; nextCursor: string | null }>>;
-  rsvpEvent(input: { actorMemberId: string; eventEntityId: string; response: import('../contract.ts').EventRsvpState; note?: string | null; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ entity: import('../contract.ts').ContentEntity }> | null>;
-  cancelEventRsvp(input: { actorMemberId: string; eventEntityId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ entity: import('../contract.ts').ContentEntity }> | null>;
+  listEvents(input: { actorMemberId: string; clubIds: string[]; limit: number; query?: string; cursor?: { startsAt: string; contentId: string } | null }): Promise<WithIncluded<{ results: import('../contract.ts').Content[]; hasMore: boolean; nextCursor: string | null }>>;
+  rsvpEvent(input: { actorMemberId: string; eventId: string; response: import('../contract.ts').EventRsvpState; note?: string | null; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ event: import('../contract.ts').Content }> | null>;
+  cancelEventRsvp(input: { actorMemberId: string; eventId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ event: import('../contract.ts').Content }> | null>;
 };
 
 export function createClubsRepository(pool: Pool): ClubsRepository {
   return {
-    createEntity: (input) => entities.createEntity(pool, input),
-    updateEntity: (input) => entities.updateEntity(pool, input),
-    loadEntityForGate: (input) => entities.loadEntityForGate(pool, input),
-    closeEntityLoop: (input) => entities.closeEntityLoop(pool, input),
-    reopenEntityLoop: (input) => entities.reopenEntityLoop(pool, input),
-    removeEntity: (input) => entities.removeEntity(pool, input),
-    listEntities: (input) => entities.listEntities(pool, input),
-    readContentThread: (input) => entities.readContentThread(pool, input),
+    createContent: (input) => contents.createContent(pool, input),
+    readContent: (input) => contents.readContent(pool, input),
+    updateContent: (input) => contents.updateContent(pool, input),
+    loadContentForGate: (input) => contents.loadContentForGate(pool, input),
+    closeContentLoop: (input) => contents.closeContentLoop(pool, input),
+    reopenContentLoop: (input) => contents.reopenContentLoop(pool, input),
+    removeContent: (input) => contents.removeContent(pool, input),
+    listContent: (input) => contents.listContent(pool, input),
+    readContentThread: (input) => contents.readContentThread(pool, input),
 
     createVouch: (input) => createVouch(pool, input),
     listVouches: (input) => listVouches(pool, input),
@@ -614,7 +617,7 @@ export function createClubsRepository(pool: Pool): ClubsRepository {
 
     listClubActivity: (input) => listClubActivity(pool, input),
 
-    findEntitiesViaEmbedding: (input) => findEntitiesViaEmbedding(pool, input),
+    findContentViaEmbedding: (input) => findContentViaEmbedding(pool, input),
 
     // Events
     listEvents: (input) => events.listEvents(pool, input),

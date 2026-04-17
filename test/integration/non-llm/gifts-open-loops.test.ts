@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { TestHarness } from '../harness.ts';
 import { makeVector } from '../helpers.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
-import { findEntitiesViaEmbedding } from '../../../src/clubs/index.ts';
+import { findContentViaEmbedding } from '../../../src/clubs/index.ts';
 
 let h: TestHarness;
 
@@ -15,20 +15,20 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-async function seedEntityEmbedding(entityId: string, entityVersionId: string, vector: string): Promise<void> {
+async function seedContentEmbedding(id: string, contentVersionId: string, vector: string): Promise<void> {
   await h.sql(
-    `insert into entity_embeddings
-       (entity_id, entity_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
+    `insert into content_embeddings
+       (content_id, content_version_id, model, dimensions, source_version, chunk_index, source_text, source_hash, embedding)
      values ($1, $2, 'text-embedding-3-small', 1536, 'v1', 0, 'test', 'test', $3::vector)
-     on conflict (entity_id, model, dimensions, source_version, chunk_index)
+     on conflict (content_id, model, dimensions, source_version, chunk_index)
      do update set embedding = excluded.embedding, updated_at = now()`,
-    [entityId, entityVersionId, vector],
+    [id, contentVersionId, vector],
   );
 }
 
-function listedFirstEntityIds(result: Record<string, unknown>): string[] {
+function listedFirstContentIds(result: Record<string, unknown>): string[] {
   const threads = (result.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-  return threads.map((thread) => ((thread.firstEntity as Record<string, unknown>).entityId as string));
+  return threads.map((thread) => ((thread.firstContent as Record<string, unknown>).id as string));
 }
 
 describe('gifts and open loops', () => {
@@ -42,7 +42,7 @@ describe('gifts and open loops', () => {
       title: 'Free code review sessions',
       body: 'I will spend an hour reviewing architecture and code for early-stage teams in the club.',
     });
-    const gift = (giftResult.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const gift = (giftResult.data as Record<string, unknown>).content as Record<string, unknown>;
     assert.equal(gift.kind, 'gift');
     assert.equal(gift.openLoop, true);
 
@@ -52,7 +52,7 @@ describe('gifts and open loops', () => {
       title: 'What changed in our backend this month',
       body: 'A short update on reliability work and the monitoring changes that paid off.',
     });
-    const post = (postResult.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const post = (postResult.data as Record<string, unknown>).content as Record<string, unknown>;
     assert.equal(post.kind, 'post');
     assert.equal(post.openLoop, null);
   });
@@ -67,14 +67,14 @@ describe('gifts and open loops', () => {
            values ($1, $2)
            returning id
          )
-         insert into entities (club_id, kind, author_member_id, open_loop, content_thread_id)
+         insert into contents (club_id, kind, author_member_id, open_loop, thread_id)
          select $1, 'ask', $2, null, thread.id
          from thread`,
         [owner.club.id, owner.id],
       ),
       (err: unknown) => {
         const pgErr = err as { code?: string; constraint?: string };
-        return pgErr.code === '23514' && pgErr.constraint === 'entities_open_loop_kind_check';
+        return pgErr.code === '23514' && pgErr.constraint === 'contents_open_loop_kind_check';
       },
     );
 
@@ -85,14 +85,14 @@ describe('gifts and open loops', () => {
            values ($1, $2)
            returning id
          )
-         insert into entities (club_id, kind, author_member_id, open_loop, content_thread_id)
+         insert into contents (club_id, kind, author_member_id, open_loop, thread_id)
          select $1, 'post', $2, true, thread.id
          from thread`,
         [owner.club.id, owner.id],
       ),
       (err: unknown) => {
         const pgErr = err as { code?: string; constraint?: string };
-        return pgErr.code === '23514' && pgErr.constraint === 'entities_open_loop_kind_check';
+        return pgErr.code === '23514' && pgErr.constraint === 'contents_open_loop_kind_check';
       },
     );
   });
@@ -108,7 +108,7 @@ describe('gifts and open loops', () => {
       title: 'Warm introductions for founders',
       body: 'Happy to make introductions to operators and early-stage investors when there is a real fit.',
     });
-    const gift = (giftResult.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const gift = (giftResult.data as Record<string, unknown>).content as Record<string, unknown>;
 
     const postResult = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -116,50 +116,50 @@ describe('gifts and open loops', () => {
       title: 'Club dinner notes',
       body: 'A quick write-up from last night so people who missed it can catch up.',
     });
-    const post = (postResult.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const post = (postResult.data as Record<string, unknown>).content as Record<string, unknown>;
 
     const closedOnce = await h.apiOk(author.token, 'content.closeLoop', {
-      entityId: gift.entityId,
+      id: gift.id,
     });
     const closedTwice = await h.apiOk(author.token, 'content.closeLoop', {
-      entityId: gift.entityId,
+      id: gift.id,
     });
-    assert.equal(((closedOnce.data as Record<string, unknown>).entity as Record<string, unknown>).openLoop, false);
-    assert.equal(((closedTwice.data as Record<string, unknown>).entity as Record<string, unknown>).openLoop, false);
+    assert.equal(((closedOnce.data as Record<string, unknown>).content as Record<string, unknown>).openLoop, false);
+    assert.equal(((closedTwice.data as Record<string, unknown>).content as Record<string, unknown>).openLoop, false);
 
     const authorDefaultList = await h.apiOk(author.token, 'content.list', {
       clubId: owner.club.id,
     });
-    const defaultIds = listedFirstEntityIds(authorDefaultList as Record<string, unknown>);
-    assert.equal(defaultIds.includes(gift.entityId as string), false);
-    assert.equal(defaultIds.includes(post.entityId as string), true);
+    const defaultIds = listedFirstContentIds(authorDefaultList as Record<string, unknown>);
+    assert.equal(defaultIds.includes(gift.id as string), false);
+    assert.equal(defaultIds.includes(post.id as string), true);
 
     const authorClosedList = await h.apiOk(author.token, 'content.list', {
       clubId: owner.club.id,
       includeClosed: true,
     });
-    const closedIds = listedFirstEntityIds(authorClosedList as Record<string, unknown>);
-    assert.equal(closedIds.includes(gift.entityId as string), true);
-    assert.equal(closedIds.includes(post.entityId as string), true);
+    const closedIds = listedFirstContentIds(authorClosedList as Record<string, unknown>);
+    assert.equal(closedIds.includes(gift.id as string), true);
+    assert.equal(closedIds.includes(post.id as string), true);
 
     const viewerClosedList = await h.apiOk(viewer.token, 'content.list', {
       clubId: owner.club.id,
       includeClosed: true,
     });
-    const viewerIds = listedFirstEntityIds(viewerClosedList as Record<string, unknown>);
-    assert.equal(viewerIds.includes(gift.entityId as string), false);
-    assert.equal(viewerIds.includes(post.entityId as string), true);
+    const viewerIds = listedFirstContentIds(viewerClosedList as Record<string, unknown>);
+    assert.equal(viewerIds.includes(gift.id as string), false);
+    assert.equal(viewerIds.includes(post.id as string), true);
 
     const reopened = await h.apiOk(author.token, 'content.reopenLoop', {
-      entityId: gift.entityId,
+      id: gift.id,
     });
-    assert.equal(((reopened.data as Record<string, unknown>).entity as Record<string, unknown>).openLoop, true);
+    assert.equal(((reopened.data as Record<string, unknown>).content as Record<string, unknown>).openLoop, true);
 
     const reopenedList = await h.apiOk(author.token, 'content.list', {
       clubId: owner.club.id,
     });
-    const reopenedIds = listedFirstEntityIds(reopenedList as Record<string, unknown>);
-    assert.equal(reopenedIds.includes(gift.entityId as string), true);
+    const reopenedIds = listedFirstContentIds(reopenedList as Record<string, unknown>);
+    assert.equal(reopenedIds.includes(gift.id as string), true);
   });
 
   it('closeLoop returns 404 for posts, removed gifts, and another member’s gift', async () => {
@@ -173,10 +173,10 @@ describe('gifts and open loops', () => {
       title: 'A normal post',
       body: 'This should not have loop semantics at all.',
     });
-    const post = (postResult.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const post = (postResult.data as Record<string, unknown>).content as Record<string, unknown>;
 
     const postErr = await h.apiErr(author.token, 'content.closeLoop', {
-      entityId: post.entityId,
+      id: post.id,
     });
     assert.equal(postErr.code, 'not_found');
 
@@ -186,11 +186,11 @@ describe('gifts and open loops', () => {
       title: 'One-time office hours',
       body: 'I can do one office-hours block this week for anyone debugging a launch.',
     });
-    const removedGift = (removedGiftResult.data as Record<string, unknown>).entity as Record<string, unknown>;
-    await h.apiOk(author.token, 'content.remove', { entityId: removedGift.entityId });
+    const removedGift = (removedGiftResult.data as Record<string, unknown>).content as Record<string, unknown>;
+    await h.apiOk(author.token, 'content.remove', { id: removedGift.id });
 
     const removedErr = await h.apiErr(author.token, 'content.closeLoop', {
-      entityId: removedGift.entityId,
+      id: removedGift.id,
     });
     assert.equal(removedErr.code, 'not_found');
 
@@ -200,10 +200,10 @@ describe('gifts and open loops', () => {
       title: 'Hiring review help',
       body: 'I can review hiring scorecards and interview loops for early-stage teams.',
     });
-    const foreignGift = (foreignGiftResult.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const foreignGift = (foreignGiftResult.data as Record<string, unknown>).content as Record<string, unknown>;
 
     const foreignErr = await h.apiErr(viewer.token, 'content.closeLoop', {
-      entityId: foreignGift.entityId,
+      id: foreignGift.id,
     });
     assert.equal(foreignErr.code, 'not_found');
   });
@@ -219,16 +219,16 @@ describe('gifts and open loops', () => {
       title: 'Architecture teardown sessions',
       body: 'I will review a backend architecture with you and leave annotated recommendations.',
     });
-    const gift = (giftResult.data as Record<string, unknown>).entity as Record<string, unknown>;
+    const gift = (giftResult.data as Record<string, unknown>).content as Record<string, unknown>;
     const versionRows = await h.sql<{ id: string }>(
       `select id
-       from current_entity_versions
-       where entity_id = $1`,
-      [gift.entityId as string],
+       from current_content_versions
+       where content_id = $1`,
+      [gift.id as string],
     );
-    await seedEntityEmbedding(gift.entityId as string, versionRows[0].id, makeVector([1, 0, 0]));
+    await seedContentEmbedding(gift.id as string, versionRows[0].id, makeVector([1, 0, 0]));
 
-    const openResults = await findEntitiesViaEmbedding(h.pools.super, {
+    const openResults = await findContentViaEmbedding(h.pools.super, {
       actorMemberId: viewer.id,
       clubIds: [owner.club.id],
       queryEmbedding: makeVector([1, 0, 0]),
@@ -236,13 +236,13 @@ describe('gifts and open loops', () => {
       limit: 10,
       cursor: null,
     });
-    assert.equal(openResults.results.some((entity) => entity.entityId === gift.entityId), true);
+    assert.equal(openResults.results.some((content) => content.id === gift.id), true);
 
     await h.apiOk(author.token, 'content.closeLoop', {
-      entityId: gift.entityId,
+      id: gift.id,
     });
 
-    const closedResults = await findEntitiesViaEmbedding(h.pools.super, {
+    const closedResults = await findContentViaEmbedding(h.pools.super, {
       actorMemberId: viewer.id,
       clubIds: [owner.club.id],
       queryEmbedding: makeVector([1, 0, 0]),
@@ -250,6 +250,6 @@ describe('gifts and open loops', () => {
       limit: 10,
       cursor: null,
     });
-    assert.equal(closedResults.results.some((entity) => entity.entityId === gift.entityId), false);
+    assert.equal(closedResults.results.some((content) => content.id === gift.id), false);
   });
 });

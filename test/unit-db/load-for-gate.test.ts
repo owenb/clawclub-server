@@ -2,9 +2,9 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRepository } from '../../src/postgres.ts';
 import type { Repository } from '../../src/contract.ts';
-import { timestampsEqual } from '../../src/clubs/entities.ts';
+import { timestampsEqual } from '../../src/clubs/content.ts';
 import { TestHarness } from '../integration/harness.ts';
-import { seedPublishedEntity } from '../integration/helpers.ts';
+import { seedPublishedContent } from '../integration/helpers.ts';
 
 let h: TestHarness;
 let repository: Repository;
@@ -18,10 +18,10 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-describe('loadEntityForGate', () => {
-  it('returns the current published entity for the author inside scope', async () => {
-    const owner = await h.seedOwner('load-gate-entity-1', 'Load Gate Entity 1');
-    const entity = await seedPublishedEntity(h, {
+describe('loadContentForGate', () => {
+  it('returns the current published content for the author inside scope', async () => {
+    const owner = await h.seedOwner('load-gate-content-1', 'Load Gate Content 1');
+    const content = await seedPublishedContent(h, {
       clubId: owner.club.id,
       authorMemberId: owner.id,
       kind: 'post',
@@ -30,14 +30,14 @@ describe('loadEntityForGate', () => {
       body: 'Original body',
     });
 
-    const loaded = await repository.loadEntityForGate?.({
+    const loaded = await repository.loadContentForGate?.({
       actorMemberId: owner.id,
-      entityId: entity.entityId,
+      id: content.id,
       accessibleClubIds: [owner.club.id],
     });
 
     assert.deepEqual(loaded, {
-      entityKind: 'post',
+      contentKind: 'post',
       isReply: false,
       title: 'Original title',
       summary: 'Original summary',
@@ -46,9 +46,9 @@ describe('loadEntityForGate', () => {
     });
   });
 
-  it('preserves reply semantics for an entity later in a thread', async () => {
-    const owner = await h.seedOwner('load-gate-entity-2', 'Load Gate Entity 2');
-    const thread = await seedPublishedEntity(h, {
+  it('preserves reply semantics for content later in a thread', async () => {
+    const owner = await h.seedOwner('load-gate-content-2', 'Load Gate Content 2');
+    const thread = await seedPublishedContent(h, {
       clubId: owner.club.id,
       authorMemberId: owner.id,
       kind: 'ask',
@@ -56,33 +56,33 @@ describe('loadEntityForGate', () => {
       body: 'Looking for a quick second pair of eyes.',
     });
 
-    const [reply] = await h.sqlClubs<{ entity_id: string }>(
+    const [reply] = await h.sqlClubs<{ content_id: string }>(
       `with ent as (
-         insert into entities (club_id, kind, author_member_id, open_loop, content_thread_id)
+         insert into contents (club_id, kind, author_member_id, open_loop, thread_id)
          values ($1, 'post', $2, null, $3)
          returning id
        )
-       insert into entity_versions (entity_id, version_no, state, body, created_by_member_id)
+       insert into content_versions (content_id, version_no, state, body, created_by_member_id)
        select ent.id, 1, 'published', $4, $2
        from ent
-       returning entity_id`,
+       returning content_id`,
       [owner.club.id, owner.id, thread.threadId, 'I can look at it this afternoon.'],
     );
 
-    const loaded = await repository.loadEntityForGate?.({
+    const loaded = await repository.loadContentForGate?.({
       actorMemberId: owner.id,
-      entityId: reply.entity_id,
+      id: reply.content_id,
       accessibleClubIds: [owner.club.id],
     });
 
-    assert.equal(loaded?.entityKind, 'post');
+    assert.equal(loaded?.contentKind, 'post');
     assert.equal(loaded?.isReply, true);
     assert.equal(loaded?.body, 'I can look at it this afternoon.');
   });
 
-  it('returns event fields for an event entity', async () => {
-    const owner = await h.seedOwner('load-gate-entity-3', 'Load Gate Entity 3');
-    const event = await seedPublishedEntity(h, {
+  it('returns event fields for event content', async () => {
+    const owner = await h.seedOwner('load-gate-content-3', 'Load Gate Content 3');
+    const event = await seedPublishedContent(h, {
       clubId: owner.club.id,
       authorMemberId: owner.id,
       kind: 'event',
@@ -96,13 +96,13 @@ describe('loadEntityForGate', () => {
       },
     });
 
-    const loaded = await repository.loadEntityForGate?.({
+    const loaded = await repository.loadContentForGate?.({
       actorMemberId: owner.id,
-      entityId: event.entityId,
+      id: event.id,
       accessibleClubIds: [owner.club.id],
     });
 
-    assert.equal(loaded?.entityKind, 'event');
+    assert.equal(loaded?.contentKind, 'event');
     assert.equal(loaded?.isReply, false);
     assert.equal(loaded?.title, 'Working session');
     assert.equal(loaded?.summary, 'Small working session');
@@ -113,10 +113,10 @@ describe('loadEntityForGate', () => {
     assert.ok(timestampsEqual(loaded?.event?.endsAt, '2026-05-20T19:30:00Z'));
   });
 
-  it('returns null when the entity is outside the actor scope or not authored by the actor', async () => {
-    const owner = await h.seedOwner('load-gate-entity-4', 'Load Gate Entity 4');
+  it('returns null when the content is outside the actor scope or not authored by the actor', async () => {
+    const owner = await h.seedOwner('load-gate-content-4', 'Load Gate Content 4');
     const other = await h.seedCompedMember(owner.club.id, 'Other Author');
-    const entity = await seedPublishedEntity(h, {
+    const content = await seedPublishedContent(h, {
       clubId: owner.club.id,
       authorMemberId: other.id,
       kind: 'post',
@@ -124,14 +124,14 @@ describe('loadEntityForGate', () => {
       body: 'Not yours.',
     });
 
-    const inaccessible = await repository.loadEntityForGate?.({
+    const inaccessible = await repository.loadContentForGate?.({
       actorMemberId: owner.id,
-      entityId: entity.entityId,
+      id: content.id,
       accessibleClubIds: [owner.club.id],
     });
-    const wrongClub = await repository.loadEntityForGate?.({
+    const wrongClub = await repository.loadContentForGate?.({
       actorMemberId: other.id,
-      entityId: entity.entityId,
+      id: content.id,
       accessibleClubIds: [],
     });
 

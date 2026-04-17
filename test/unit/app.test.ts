@@ -6,16 +6,16 @@ import {
   AppError,
   type ActorContext,
   type AuthResult,
-  type CreateEntityInput,
+  type CreateContentInput,
   type BearerTokenSummary,
   type CreatedBearerToken,
   type DirectMessageSummary,
   type DirectMessageInboxSummary,
   type DirectMessageThreadSummary,
-  type EntitySummary,
-  type EventSummary,
+  type Content,
+  type Content,
   type IncludedBundle,
-  type ListEntitiesInput,
+  type ListContentInput,
   type ListEventsInput,
   type AdminApplicationSummary,
   type AdminMemberSummary,
@@ -25,7 +25,7 @@ import {
   type JoinClubResult,
   type PublicMemberSummary,
   type RsvpEventInput,
-  type UpdateEntityInput,
+  type UpdateContentInput,
   type MemberSearchResult,
   type NotificationItem,
   type NotificationReceipt,
@@ -109,7 +109,7 @@ function makeNotificationItem(overrides: Partial<NotificationItem> = {}): Notifi
     cursor: overrides.cursor ?? encodeNotificationCursor(createdAt, notificationId),
     kind: 'synchronicity.ask_to_member',
     clubId: 'club-1',
-    ref: { matchId: 'match-1', entityId: 'entity-1' },
+    ref: { matchId: 'match-1', contentId: 'content-1' },
     payload: { hello: 'world' },
     createdAt,
     acknowledgeable: true,
@@ -122,7 +122,7 @@ function makeNotificationReceipt(overrides: Partial<NotificationReceipt> = {}): 
   return {
     notificationId: 'synchronicity.ask_to_member:notification-1',
     recipientMemberId: 'member-1',
-    entityId: 'entity-1',
+    contentId: 'content-1',
     clubId: 'club-1',
     state: 'processed',
     suppressionReason: null,
@@ -207,8 +207,8 @@ function makeDeliverySummary(overrides: Partial<DeliverySummary> = {}): Delivery
     payload: { kind: 'dm', threadId: 'thread-1' },
     status: 'sent',
     attemptCount: 1,
-    entityId: null,
-    entityVersionId: null,
+    contentId: null,
+    contentVersionId: null,
     dmMessageId: 'message-1',
     scheduledAt: '2026-03-12T00:02:00Z',
     sentAt: '2026-03-12T00:03:00Z',
@@ -545,10 +545,10 @@ function makeProfile(memberId = 'member-1', clubIds = ['club-1']): MemberProfile
   };
 }
 
-function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
+function makeEntity(overrides: Partial<Content> = {}): Content {
   return {
-    entityId: 'entity-1',
-    contentThreadId: 'thread-1',
+    id: 'content-1',
+    threadId: 'thread-1',
     clubId: 'club-1',
     kind: 'post',
     openLoop: null,
@@ -577,10 +577,10 @@ function makeEntity(overrides: Partial<EntitySummary> = {}): EntitySummary {
   };
 }
 
-function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
+function makeEvent(overrides: Partial<Content> = {}): Content {
   return {
-    entityId: 'event-1',
-    contentThreadId: 'thread-1',
+    id: 'event-1',
+    threadId: 'thread-1',
     clubId: 'club-1',
     kind: 'event',
     openLoop: null,
@@ -624,13 +624,11 @@ function makeEvent(overrides: Partial<EventSummary> = {}): EventSummary {
 
 function makeThreadSummary(overrides: Record<string, unknown> = {}) {
   return {
-    threadId: 'thread-1',
+    id: 'thread-1',
     clubId: 'club-1',
-    firstEntity: makeEntity(),
-    thread: {
-      entityCount: 1,
-      lastActivityAt: '2026-03-12T00:00:00Z',
-    },
+    firstContent: makeEntity(),
+    contentCount: 1,
+    lastActivityAt: '2026-03-12T00:00:00Z',
     ...overrides,
   };
 }
@@ -759,11 +757,11 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async createContent() {
+      return withIncluded({ content: makeEntity() });
     },
-    async updateEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async updateContent() {
+      return withIncluded({ content: makeEntity() });
     },
     async createEvent() {
       return makeEvent();
@@ -772,7 +770,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
-      return withIncluded({ entity: makeEvent() });
+      return withIncluded({ event: makeEvent() });
     },
     async listBearerTokens() {
       return [makeBearerTokenSummary()];
@@ -800,7 +798,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
         nextCursor: null,
       });
     },
-    async listEntities() {
+    async listContent() {
       return withIncluded({ results: [makeThreadSummary()], hasMore: false, nextCursor: null });
     },
   };
@@ -1375,11 +1373,11 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async createContent() {
+      return withIncluded({ content: makeEntity() });
     },
-    async updateEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async updateContent() {
+      return withIncluded({ content: makeEntity() });
     },
     async createEvent() {
       return makeEvent();
@@ -1425,7 +1423,7 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -1477,11 +1475,11 @@ test('members.list returns active members with flattened public member summaries
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async createContent() {
+      return withIncluded({ content: makeEntity() });
     },
-    async updateEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async updateContent() {
+      return withIncluded({ content: makeEntity() });
     },
     async createEvent() {
       return makeEvent();
@@ -1490,7 +1488,7 @@ test('members.list returns active members with flattened public member summaries
       return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
-      return withIncluded({ entity: makeEvent() });
+      return withIncluded({ event: makeEvent() });
     },
     async listBearerTokens() {
       return [makeBearerTokenSummary()];
@@ -1527,7 +1525,7 @@ test('members.list returns active members with flattened public member summaries
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -1578,14 +1576,11 @@ test('profile.list defaults to the actor member id', async () => {
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
-      return makeEntity();
+    async createContent() {
+      return withIncluded({ content: makeEntity() });
     },
-    async updateEntity() {
-      return makeEntity();
-    },
-    async createEvent() {
-      return makeEvent();
+    async updateContent() {
+      return withIncluded({ content: makeEntity() });
     },
     async listEvents() {
       return { results: [makeEvent()], hasMore: false, nextCursor: null };
@@ -1628,7 +1623,7 @@ test('profile.list defaults to the actor member id', async () => {
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -1681,10 +1676,10 @@ test('profile.update normalizes nullable strings for club-scoped fields', async 
         }],
       };
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -1731,7 +1726,7 @@ test('profile.update normalizes nullable strings for club-scoped fields', async 
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -1759,7 +1754,7 @@ test('profile.update normalizes nullable strings for club-scoped fields', async 
 });
 
 test('content.create uses one shared flow for post/ask/service/opportunity kinds', async () => {
-  let capturedInput: CreateEntityInput | null = null;
+  let capturedInput: CreateContentInput | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1774,9 +1769,9 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
     async getMemberProfile() {
       return makeProfile();
     },
-    async loadEntityForGate() {
+    async loadContentForGate() {
       return {
-        entityKind: 'post' as const,
+        contentKind: 'post' as const,
         isReply: false,
         title: 'Old title',
         summary: 'Old summary',
@@ -1787,10 +1782,10 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity(input) {
+    async createContent(input) {
       capturedInput = input;
       return withIncluded({
-        entity: {
+        content: {
           ...makeEntity(),
           clubId: input.clubId,
           kind: input.kind,
@@ -1804,7 +1799,7 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
         },
       });
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -1851,7 +1846,7 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
@@ -1885,11 +1880,11 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
   assert.equal(result.action, 'content.create');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
-  assert.equal(result.data.entity.kind, 'service');
+  assert.equal(result.data.content.kind, 'service');
 });
 
-test('content.update appends a new version on the shared entity surface', async () => {
-  let capturedInput: UpdateEntityInput | null = null;
+test('content.update appends a new version on the shared content surface', async () => {
+  let capturedInput: UpdateContentInput | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -1904,9 +1899,9 @@ test('content.update appends a new version on the shared entity surface', async 
     async getMemberProfile() {
       return makeProfile();
     },
-    async loadEntityForGate() {
+    async loadContentForGate() {
       return {
-        entityKind: 'post' as const,
+        contentKind: 'post' as const,
         isReply: false,
         title: 'Old title',
         summary: 'Old summary',
@@ -1917,14 +1912,13 @@ test('content.update appends a new version on the shared entity surface', async 
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async createContent() {
+      return withIncluded({ content: makeEntity() });
     },
-    async updateEntity(input) {
+    async updateContent(input) {
       capturedInput = input;
       return withIncluded({
-        entity: makeEntity({
-          entityVersionId: 'entity-version-2',
+        content: makeEntity({
           clubId: 'club-2',
           version: {
             ...makeEntity().version,
@@ -1954,7 +1948,7 @@ test('content.update appends a new version on the shared entity surface', async 
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -1964,7 +1958,7 @@ test('content.update appends a new version on the shared entity surface', async 
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'content.update',
     payload: {
-      entityId: 'entity-1',
+      id: 'content-1',
       title: 'Hello again',
       summary: '  ',
     },
@@ -1973,7 +1967,7 @@ test('content.update appends a new version on the shared entity surface', async 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
     accessibleClubIds: ['club-1', 'club-2'],
-    entityId: 'entity-1',
+    id: 'content-1',
     patch: {
       title: 'Hello again',
       summary: null,
@@ -1982,12 +1976,11 @@ test('content.update appends a new version on the shared entity surface', async 
   assert.equal(result.action, 'content.update');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
-  assert.equal(result.data.entity.entityVersionId, 'entity-version-2');
-  assert.equal(result.data.entity.version.versionNo, 2);
+  assert.equal(result.data.content.version.versionNo, 2);
 });
 
-test('content.remove appends a removed version on the shared entity surface', async () => {
-  let capturedInput: { actorMemberId: string; accessibleClubIds: string[]; entityId: string; reason?: string | null } | null = null;
+test('content.remove appends a removed version on the shared content surface', async () => {
+  let capturedInput: { actorMemberId: string; accessibleClubIds: string[]; id: string; reason?: string | null } | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -2005,17 +1998,16 @@ test('content.remove appends a removed version on the shared entity surface', as
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async createContent() {
+      return withIncluded({ content: makeEntity() });
     },
-    async updateEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async updateContent() {
+      return withIncluded({ content: makeEntity() });
     },
-    async removeEntity(input) {
+    async removeContent(input) {
       capturedInput = input;
       return withIncluded({
-        entity: makeEntity({
-          entityVersionId: 'entity-version-3',
+        content: makeEntity({
           clubId: 'club-2',
           version: {
             ...makeEntity().version,
@@ -2045,7 +2037,7 @@ test('content.remove appends a removed version on the shared entity surface', as
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -2055,22 +2047,21 @@ test('content.remove appends a removed version on the shared entity surface', as
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'content.remove',
     payload: {
-      entityId: 'entity-1',
+      id: 'content-1',
     },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
     accessibleClubIds: ['club-1', 'club-2'],
-    entityId: 'entity-1',
+    id: 'content-1',
     reason: null,
   });
   assert.equal(result.action, 'content.remove');
   assert.equal(result.actor.requestScope.requestedClubId, 'club-2');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-2']);
-  assert.equal(result.data.entity.entityVersionId, 'entity-version-3');
-  assert.equal(result.data.entity.version.versionNo, 3);
-  assert.equal(result.data.entity.version.state, 'removed');
+  assert.equal(result.data.content.version.versionNo, 3);
+  assert.equal(result.data.content.version.state, 'removed');
 });
 
 test('content.update rejects empty patches', async () => {
@@ -2082,7 +2073,7 @@ test('content.update rejects empty patches', async () => {
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'content.update',
         payload: {
-          entityId: 'entity-1',
+          id: 'content-1',
         },
       }),
     (error: unknown) => {
@@ -2111,10 +2102,10 @@ test('content.update rejects non-author updates', async () => {
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return null;
     },
     async sendDirectMessage() {
@@ -2134,7 +2125,7 @@ test('content.update rejects non-author updates', async () => {
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -2147,7 +2138,7 @@ test('content.update rejects non-author updates', async () => {
         bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
         action: 'content.update',
         payload: {
-          entityId: 'entity-1',
+          id: 'content-1',
           body: 'Nope',
         },
       }),
@@ -2179,16 +2170,16 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async createContent() {
+      return withIncluded({ content: makeEntity() });
     },
-    async updateEntity() {
-      return withIncluded({ entity: makeEntity() });
+    async updateContent() {
+      return withIncluded({ content: makeEntity() });
     },
-    async createEntity(input) {
+    async createContent(input) {
       capturedInput = input as Record<string, unknown>;
       return withIncluded({
-        entity: makeEvent({
+        content: makeEvent({
           clubId: input.clubId ?? 'club-2',
           version: { ...makeEvent().version, title: input.title },
           event: { ...makeEvent().event!, capacity: input.event?.capacity ?? null },
@@ -2199,7 +2190,7 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
       return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
-      return withIncluded({ entity: makeEvent() });
+      return withIncluded({ event: makeEvent() });
     },
     async listBearerTokens() {
       return [makeBearerTokenSummary()];
@@ -2236,7 +2227,7 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
@@ -2281,7 +2272,7 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
     },
   });
   assert.equal(result.action, 'content.create');
-  assert.equal(result.data.entity.clubId, 'club-2');
+  assert.equal(result.data.content.clubId, 'club-2');
 });
 
 test('events.list stays inside accessible scope and forwards optional query', async () => {
@@ -2303,10 +2294,10 @@ test('events.list stays inside accessible scope and forwards optional query', as
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -2354,7 +2345,7 @@ test('events.list stays inside accessible scope and forwards optional query', as
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -2396,10 +2387,10 @@ test('events.rsvp uses the actor membership in the event club', async () => {
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -2411,7 +2402,7 @@ test('events.rsvp uses the actor membership in the event club', async () => {
     async rsvpEvent(input) {
       capturedInput = input;
       return withIncluded({
-        entity: makeEvent({
+        event: makeEvent({
           clubId: 'club-2',
           rsvps: {
             viewerResponse: 'yes',
@@ -2447,7 +2438,7 @@ test('events.rsvp uses the actor membership in the event club', async () => {
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -2456,12 +2447,12 @@ test('events.rsvp uses the actor membership in the event club', async () => {
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'events.rsvp',
-    payload: { eventEntityId: 'event-1', response: 'yes', note: 'I am in' },
+    payload: { eventId: 'event-1', response: 'yes', note: 'I am in' },
   });
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
-    eventEntityId: 'event-1',
+    eventId: 'event-1',
     response: 'yes',
     note: 'I am in',
     accessibleMemberships: [
@@ -2470,11 +2461,11 @@ test('events.rsvp uses the actor membership in the event club', async () => {
     ],
   });
   assert.equal(result.action, 'events.rsvp');
-  assert.equal(result.data.entity.rsvps.viewerResponse, 'yes');
+  assert.equal(result.data.event.rsvps.viewerResponse, 'yes');
 });
 
 test('content.list can span accessible clubs and filter by kinds with optional query', async () => {
-  let capturedInput: ListEntitiesInput | null = null;
+  let capturedInput: ListContentInput | null = null;
 
   const repository: Repository = {
     async authenticateBearerToken() {
@@ -2492,10 +2483,10 @@ test('content.list can span accessible clubs and filter by kinds with optional q
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -2507,9 +2498,9 @@ test('content.list can span accessible clubs and filter by kinds with optional q
     async rsvpEvent() {
       return makeEvent();
     },
-    async listEntities(input) {
+    async listContent(input) {
       capturedInput = input;
-      return { results: [makeThreadSummary({ firstEntity: { ...makeEntity(), kind: 'ask' } })], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ firstContent: { ...makeEntity(), kind: 'ask' } })], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2535,7 +2526,7 @@ test('content.list can span accessible clubs and filter by kinds with optional q
   });
   assert.equal(result.action, 'content.list');
   assert.equal(result.data.query, 'backend');
-  assert.equal(result.data.results[0]?.firstEntity.kind, 'ask');
+  assert.equal(result.data.results[0]?.firstContent.kind, 'ask');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-1', 'club-2']);
 });
 
@@ -2609,10 +2600,10 @@ test('profile.list returns 404 when the target member is outside shared scope', 
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -2659,7 +2650,7 @@ test('profile.list returns 404 when the target member is outside shared scope', 
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -2703,10 +2694,10 @@ test('messages.send picks a shared club, appends the request scope, and returns 
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -2754,7 +2745,7 @@ test('messages.send picks a shared club, appends the request scope, and returns 
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
@@ -2800,10 +2791,10 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -2850,7 +2841,7 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
@@ -2897,10 +2888,10 @@ test('messages.getInbox stays inside accessible scope and returns inbox summarie
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -2945,7 +2936,7 @@ test('messages.getInbox stays inside accessible scope and returns inbox summarie
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -2989,10 +2980,10 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -3046,7 +3037,7 @@ test('messages.getInbox with unreadOnly returns thread-focused unread summaries 
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -3090,10 +3081,10 @@ test('messages.getThread scopes thread access server-side and returns DM entries
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -3151,7 +3142,7 @@ test('messages.getThread scopes thread access server-side and returns DM entries
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -3208,10 +3199,10 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -3262,7 +3253,7 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
     async getQuotaStatus() { return []; },
@@ -3309,10 +3300,10 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -3360,7 +3351,7 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
         nextCursor: null,
       };
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -3513,10 +3504,10 @@ test('messages.getThread returns 404 when the thread is outside actor scope', as
     async updateClubProfile() {
       return makeProfile();
     },
-    async createEntity() {
+    async createContent() {
       return makeEntity();
     },
-    async updateEntity() {
+    async updateContent() {
       return makeEntity();
     },
     async createEvent() {
@@ -3555,7 +3546,7 @@ test('messages.getThread returns 404 when the thread is outside actor scope', as
     async readDirectMessageThread() {
       return null;
     },
-    async listEntities() {
+    async listContent() {
       return { results: [makeEntity()], hasMore: false, nextCursor: null };
     },
   };
@@ -3660,7 +3651,7 @@ test('dispatcher runs preGate after parse and before the llm gate', async () => 
       async buildArtifact(input) {
         return {
           kind: 'content',
-          entityKind: 'post',
+          contentKind: 'post',
           isReply: false,
           title: null,
           summary: null,
