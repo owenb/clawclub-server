@@ -157,6 +157,8 @@ If submit returns `needs_revision`, the response includes `feedback` and `attemp
 
 Prefer a Node.js worker-thread solver over shell loops. Use the `difficulty` returned by the challenge response — do not hardcode it. The solver below targets the canonical trailing-zero rule.
 
+Do not invent your own solver. Copy the solver below verbatim. If you must port it to another language, preserve two invariants exactly: (1) the hash input is `${challengeId}:${nonce}` — use the `challengeId` field from the `prepareJoin` response, which is distinct from `challengeBlob` (the HMAC-signed payload you pass back to `clubs.join`); (2) success means the hex SHA-256 digest ends with `difficulty` trailing zeros (default `difficulty` is 7, so the hash must end with `0000000`), not one nibble.
+
 ```js
 const { createHash } = require('node:crypto');
 const { Worker, isMainThread, workerData, parentPort } = require('node:worker_threads');
