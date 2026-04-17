@@ -62,6 +62,12 @@ The admissions-era surfaces have been deleted entirely and replaced by applicati
 
 **Migration 014 (content gate redesign)** renamed `ai_llm_usage_log.gate_name` → `artifact_kind`, rewrote the gate status enum, and added a `feedback` column. No entity-naming impact.
 
+**Migration 015 (onboarding ceremony, `plans/onboarding-ceremony.md`)** added `members.onboarded_at` and `clubs.welcome_template`, plus the `clubs.onboard` action and the two new notification topics `invitation.accepted` / `membership.activated`. Touches members/memberships/notifications only. No entity-naming impact.
+
+**Migration 016 (PoW-at-join, `plans/pow-at-join.md`)** moved proof-of-work before anonymous identity creation. Added `consumed_pow_challenges` table and `club_memberships.submit_attempt_count` / `submit_window_expires_at` columns. Dropped the now-redundant `application_pow_challenges` table. Restructured the anonymous `clubs.join` flow into a two-call shape (`clubs.prepareJoin` + `clubs.join`). No entity-naming impact — all changes live in the identity / application / credential domain.
+
+**`plans/credential-redesign.md` (Phase B, not yet shipped)** proposes replacing bearer tokens with Ed25519 public-key identity. Depends on migrations 015 and 016 landing first. Out of scope for the rename: it touches the auth boundary, not content. If it lands before the rename does, check that it doesn't introduce any entity-named surfaces — a grep should confirm.
+
 **Admin / member read surfaces split (commit `353a652`, no migration)** introduced `publicMemberSummary`, `adminMemberSummary`, `adminApplicationSummary` wire shapes; rewrote `clubadmin.memberships.*` into `clubadmin.members.*` + `clubadmin.applications.*`; added `members.get`; added a `vouch.received` notification topic. A grep of `src/schemas/clubadmin.ts`, `src/schemas/clubowner.ts`, `src/schemas/superadmin.ts`, `src/clubs/welcome.ts`, and the new member/application summary shapes in `responses.ts` finds zero new entity references. Nothing new is pulled into rename scope.
 
 **New `included: IncludedBundle` response sidecar** ships on every content-related action output (`content.create`, `content.update`, `content.remove`, `content.closeLoop`, `content.reopenLoop`, `content.getThread`, `content.list`, `content.searchBySemanticSimilarity`, `events.list`, `events.rsvp`, `events.cancelRsvp`). Shape is `{membersById: Record<string, includedMember>}` — carries resolved member references so that mention spans (which now encode `memberId` instead of handle) can be rendered without round-trips. This sidecar is NOT entity-named and needs no rename, but every action's target output in this plan's "Action contract adjustments" section now also carries it.
@@ -479,7 +485,9 @@ Specific work:
 Rename and refactor:
 
 - `src/clubs/entities.ts` → `src/clubs/content.ts`
-- repository interfaces from `createEntity`, `updateEntity`, `removeEntity`, `readContentEntity` to `createContent`, `updateContent`, `removeContent`, `readContent`
+- repository interfaces from `createEntity`, `updateEntity`, `removeEntity`, `closeEntityLoop`, `reopenEntityLoop`, `readContentEntity`, `readContentEntityBundle`, `readContentEntitiesBundleByIds` to `createContent`, `updateContent`, `removeContent`, `closeContentLoop`, `reopenContentLoop`, `readContent`, `readContentBundle`, `readContentsBundleByIds`
+- local variable names like `firstEntityBundle`, `entityBundle`, `pageEntityIds` also flip to content equivalents during the pass
+- `WithIncluded<T>` generic type stays — it is a response-envelope utility, not entity-named. Every repository return that currently looks like `WithIncluded<{ entity: ContentEntity }>` becomes `WithIncluded<{ content: Content }>` purely through the `ContentEntity → Content` and `entity → content` field renames.
 - `src/mentions.ts` — update SQL against the renamed `content_version_mentions` table and rename internal `entity_version_id` references to `content_version_id`
 
 Keep behavior the same unless the new wire shape naturally collapses duplicate mapping code.
@@ -548,16 +556,16 @@ Add explicit regression tests for:
 
 Run these before writing a single line of the rename migration. They exist to catch new `entity_*` surfaces that have landed between when this plan was last updated and when execution begins — the codebase is actively changing under concurrent feature work.
 
-1. `git log --oneline main -- db/migrations src/schemas src/clubs src/identity src/workers src/mentions.ts src/notifications-core.ts | head -20` — confirm no migration after the one named at the end of the "Surfaces added since this plan was first drafted" section has touched entity-shaped schema. If anything new has landed, reconcile the rename map against it before continuing.
+1. `git log --oneline main -- db/migrations src/schemas src/clubs src/identity src/workers src/mentions.ts src/notifications-core.ts | head -20` — confirm no migration after `016_pow_at_join.sql` (the one named at the end of the "Surfaces added since this plan was first drafted" section) has touched entity-shaped schema. If anything new has landed, reconcile the rename map against it before continuing.
 2. Grep the repo for `entity_id`, `entity_version_id`, `entityId`, `entityVersionId`, `ContentEntity`, `entity_kind`, `entity_state`, `entity_version_mentions`, `parent_entity_id`, `firstEntity`, `entityCount`, `contentThreadId`, `eventEntityId`. Every match should be covered by a row in the rename map below. If any match is uncovered, add it before starting.
 3. Establish the baseline: `npx tsc --noEmit`, `npm run test:unit`, `npm run test:integration:non-llm` must all pass on the branch tip before the rename starts. If they don't, fix first.
 4. Regenerate `test/snapshots/api-schema.json` from the current `main` and commit that regeneration separately if it has drifted — the rename should produce a clean diff from a clean base, not a rename diff tangled with other drift.
 
 ## Implementation Order
 
-The rename lands as migration **015** (the next unused number after `014_content_gate_redesign.sql`). Bump `package.json` patch version (e.g. `0.2.70` → `0.2.71`) at commit time per CLAUDE.md.
+The rename lands as migration **017** (the next unused number after `016_pow_at_join.sql`; migrations 015 and 016 shipped on 2026-04-16 and 2026-04-17 respectively). Bump `package.json` patch version at commit time per CLAUDE.md.
 
-1. Write the rename migration first (`db/migrations/015_rename_entities_to_contents.sql`).
+1. Write the rename migration first (`db/migrations/017_rename_entities_to_contents.sql`).
 2. Test the migration against the current deployed schema using `reset-dev.sh` and `scripts/migrate.sh`.
 3. Verify the migrated database manually — inspect table names, enum names, view definitions, and spot-check column renames on every table listed in the "Known dependent tables" checklist.
 4. Only then update `db/init.sql` to the target schema. Because `init.sql` is now `pg_dump` output, regenerate it from the migrated scratch DB rather than hand-editing: `pg_dump --schema-only --no-owner --no-privileges <scratch_db> > db/init.sql`, then diff against the previous `init.sql` to sanity-check that only the renamed surface changed.
