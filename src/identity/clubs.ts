@@ -218,7 +218,8 @@ async function countOwnedClubs(client: DbClient, ownerMemberId: string): Promise
   const result = await client.query<{ owned_count: number }>(
     `select count(*)::int as owned_count
      from clubs
-     where owner_member_id = $1`,
+     where owner_member_id = $1
+       and archived_at is null`,
     [ownerMemberId],
   );
   return result.rows[0]?.owned_count ?? 0;
@@ -287,6 +288,7 @@ export async function loadClubForGate(pool: Pool, input: { clubId: string }): Pr
     admission_policy: string | null;
     uses_free_allowance: boolean;
     member_cap: number | null;
+    archived_at: string | null;
   }>(
     `select
         id as club_id,
@@ -294,7 +296,8 @@ export async function loadClubForGate(pool: Pool, input: { clubId: string }): Pr
         summary,
         admission_policy,
         uses_free_allowance,
-        member_cap
+        member_cap,
+        archived_at::text as archived_at
      from clubs
      where id = $1
      limit 1`,
@@ -309,6 +312,7 @@ export async function loadClubForGate(pool: Pool, input: { clubId: string }): Pr
     admissionPolicy: row.admission_policy,
     usesFreeAllowance: row.uses_free_allowance,
     memberCap: row.member_cap,
+    archivedAt: row.archived_at,
   };
 }
 
@@ -434,11 +438,18 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
 
 export async function archiveClub(pool: Pool, input: ArchiveClubInput): Promise<ClubSummary | null> {
   return withTransaction(pool, async (client) => {
-    const result = await client.query<{ club_id: string }>(
-      `update clubs set archived_at = coalesce(archived_at, now()) where id = $1 returning id as club_id`,
+    const result = await client.query<{ archived_at: string | null }>(
+      `select archived_at::text as archived_at
+       from clubs
+       where id = $1
+       for update`,
       [input.clubId],
     );
     if (!result.rows[0]) return null;
+    if (result.rows[0].archived_at !== null) {
+      throw new AppError('club_archived', 'Club is already archived.');
+    }
+    await client.query(`update clubs set archived_at = now() where id = $1`, [input.clubId]);
     return readClub(client, input.clubId);
   });
 }
@@ -583,9 +594,11 @@ export async function updateClub(pool: Pool, input: UpdateClubInput): Promise<Cl
       admission_policy: string | null;
       uses_free_allowance: boolean;
       member_cap: number | null;
+      archived_at: string | null;
     }>(
       `select
           c.id as club_id,
+          c.archived_at::text as archived_at,
           cv.id as current_version_id,
           cv.version_no as current_version_no,
           cv.owner_member_id,
@@ -604,6 +617,9 @@ export async function updateClub(pool: Pool, input: UpdateClubInput): Promise<Cl
 
     const current = currentResult.rows[0];
     if (!current) return null;
+    if (current.archived_at !== null) {
+      throw new AppError('club_archived', 'Club is archived.');
+    }
 
     const { patch } = input;
     const merged = {

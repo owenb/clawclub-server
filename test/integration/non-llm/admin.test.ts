@@ -374,17 +374,15 @@ describe('superadmin.clubs.archive', () => {
     assert.ok(archived.archivedAt !== null, 'archivedAt should be set after archiving');
   });
 
-  it('archiving is idempotent (preserves original archivedAt)', async () => {
+  it('rejects archiving an already archived club', async () => {
     const admin = await h.seedSuperadmin('Admin DoubleArchive');
     const { club } = await h.seedOwner('double-archive-club', 'Double Archive Club');
 
-    const first = await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
-    const firstArchivedAt = ((first.data as Record<string, unknown>).club as Record<string, unknown>).archivedAt;
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
 
-    const second = await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
-    const secondArchivedAt = ((second.data as Record<string, unknown>).club as Record<string, unknown>).archivedAt;
-
-    assert.equal(firstArchivedAt, secondArchivedAt, 'archivedAt should not change on second archive');
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
+    assert.equal(err.status, 409);
+    assert.equal(err.code, 'club_archived');
   });
 
   it('rejects missing clubId', async () => {

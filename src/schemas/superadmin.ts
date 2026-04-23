@@ -76,6 +76,9 @@ async function loadClubForUpdateGate(
   if (!club) {
     throw new AppError('club_not_found', 'Club not found.');
   }
+  if (club.archivedAt !== null) {
+    throw new AppError('club_archived', 'Club is archived.');
+  }
   return club;
 }
 
@@ -537,6 +540,13 @@ const superadminClubsArchive: ActionDefinition = {
   description: 'Archive a club (superadmin only).',
   auth: 'superadmin',
   safety: 'mutating',
+  businessErrors: [
+    {
+      code: 'club_archived',
+      meaning: 'The club is already archived.',
+      recovery: 'Use superadmin.clubs.remove to remove the archived club, or leave it archived.',
+    },
+  ],
 
   requiredCapability: 'archiveClub',
 
@@ -639,6 +649,13 @@ const superadminClubsUpdate: ActionDefinition = {
   description: 'Update mutable fields on a club (superadmin only).',
   auth: 'superadmin',
   safety: 'mutating',
+  businessErrors: [
+    {
+      code: 'club_archived',
+      meaning: 'The club is archived and cannot be updated.',
+      recovery: 'Restore the club before changing it.',
+    },
+  ],
 
   requiredCapability: 'updateClub',
 

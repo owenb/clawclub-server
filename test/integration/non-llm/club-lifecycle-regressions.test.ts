@@ -186,6 +186,22 @@ describe('superadmin club-cap updates', () => {
     assert.equal(gateCalls, 0, 'semantic no-op text updates should skip the gate entirely');
   });
 
+  it('rejects archived club updates before running the gate', async () => {
+    const admin = await h.seedSuperadmin('Lifecycle Archived Update Admin');
+    const owner = await h.seedOwner('archived-update-club', 'Archived Update Club');
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: owner.club.id });
+
+    gateCalls = 0;
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.update', {
+      clientKey: randomUUID(),
+      clubId: owner.club.id,
+      summary: 'This text should never be sent to the gate because the club is archived.',
+    });
+    assert.equal(err.status, 409);
+    assert.equal(err.code, 'club_archived');
+    assert.equal(gateCalls, 0, 'archived clubs should be rejected before the LLM gate');
+  });
+
   it('rejects lowering the cap below the current active member count', async () => {
     const admin = await h.seedSuperadmin('Lifecycle Cap Admin');
     const owner = await h.seedMember('Lifecycle Cap Count Owner');

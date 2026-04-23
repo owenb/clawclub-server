@@ -247,6 +247,7 @@ export type ClubForGate = {
   admissionPolicy: string | null;
   usesFreeAllowance: boolean;
   memberCap: number | null;
+  archivedAt: string | null;
 };
 
 export type RemoveClubInput = {

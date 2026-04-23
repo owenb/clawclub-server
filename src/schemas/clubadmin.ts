@@ -87,6 +87,9 @@ async function loadClubForUpdateGate(
   if (!club) {
     throw new AppError('club_not_found', 'Club not found.');
   }
+  if (club.archivedAt !== null) {
+    throw new AppError('club_archived', 'Club is archived.');
+  }
   return club;
 }
 
@@ -545,7 +548,14 @@ const clubadminClubsUpdate: ActionDefinition = {
   authorizationNote: 'Requires clubadmin auth on the surface, then narrows to the club owner or a superadmin before mutation.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   requiredCapability: 'updateClub',
-  businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
+  businessErrors: [
+    CLUBADMIN_FORBIDDEN_ERROR,
+    {
+      code: 'club_archived',
+      meaning: 'The club is archived and cannot be updated.',
+      recovery: 'Restore the club before changing its text.',
+    },
+  ],
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to update.')),

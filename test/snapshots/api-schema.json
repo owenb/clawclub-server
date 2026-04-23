@@ -1778,6 +1778,11 @@
           "code": "forbidden",
           "meaning": "Caller is not a clubadmin in the requested club.",
           "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+        },
+        {
+          "code": "club_archived",
+          "meaning": "The club is archived and cannot be updated.",
+          "recovery": "Restore the club before changing its text."
         }
       ],
       "description": "Update club text as the club owner or a superadmin.",
@@ -13450,6 +13455,13 @@
     {
       "action": "superadmin.clubs.archive",
       "auth": "superadmin",
+      "businessErrors": [
+        {
+          "code": "club_archived",
+          "meaning": "The club is already archived.",
+          "recovery": "Use superadmin.clubs.remove to remove the archived club, or leave it archived."
+        }
+      ],
       "description": "Archive a club (superadmin only).",
       "domain": "superadmin",
       "input": {
@@ -14485,6 +14497,13 @@
     {
       "action": "superadmin.clubs.update",
       "auth": "superadmin",
+      "businessErrors": [
+        {
+          "code": "club_archived",
+          "meaning": "The club is archived and cannot be updated.",
+          "recovery": "Restore the club before changing it."
+        }
+      ],
       "description": "Update mutable fields on a club (superadmin only).",
       "domain": "superadmin",
       "input": {
@@ -18897,6 +18916,6 @@
       }
     ]
   },
-  "version": "0.1.6",
-  "schemaHash": "e760278c56846a6f"
+  "version": "0.1.13",
+  "schemaHash": "f30abf50d0e3e155"
 }

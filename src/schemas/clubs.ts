@@ -126,7 +126,7 @@ const clubsCreate: ActionDefinition = {
       }
 
       const ownedClubs = existingClubs.filter((club) =>
-        club.owner.memberId === ctx.actor.member.id
+        club.owner.memberId === ctx.actor.member.id && club.archivedAt === null
       ).length;
       if (ownedClubs >= getConfig().policy.clubs.maxClubsPerMember) {
         throw new AppError('owner_club_limit_reached', 'This member already owns the maximum number of clubs they may create themselves.');

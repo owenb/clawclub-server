@@ -63,6 +63,33 @@ describe('clubs.create', () => {
     assert.equal(err.code, 'owner_club_limit_reached');
   });
 
+  it('allows a replacement self-serve club after the prior owned club is archived', async () => {
+    const member = await h.seedMember('Archived Free Club Owner');
+    const admin = await h.seedSuperadmin('Archived Free Club Admin');
+
+    const first = await h.apiOk(member.token, 'clubs.create', {
+      clientKey: randomUUID(),
+      slug: 'archived-free-club',
+      name: 'Archived Free Club',
+      summary: 'First free club that will be archived.',
+      admissionPolicy: 'Tell us what you build and link one recent project.',
+    });
+    const firstClubId = String((((first.data as Record<string, unknown>).club as Record<string, unknown>).clubId));
+
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: firstClubId });
+
+    const second = await h.apiOk(member.token, 'clubs.create', {
+      clientKey: randomUUID(),
+      slug: 'replacement-free-club',
+      name: 'Replacement Free Club',
+      summary: 'A replacement free club after archival.',
+      admissionPolicy: 'Tell us what you build and link one recent project.',
+    });
+    const secondClub = (second.data as Record<string, unknown>).club as Record<string, unknown>;
+    assert.equal(secondClub.slug, 'replacement-free-club');
+    assert.equal(secondClub.usesFreeAllowance, true);
+  });
+
   it('still rejects a second self-serve club after the first club is upgraded out of the free allowance', async () => {
     const member = await h.seedMember('Upgraded Single Club Owner');
     const admin = await h.seedSuperadmin('Free Upgrade Admin');
