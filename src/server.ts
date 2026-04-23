@@ -755,6 +755,10 @@ export function createServer(options: {
         request.socket?.setTimeout(0);
         response.socket?.setTimeout(0);
 
+        for (const item of activitySeed.items) {
+          writeSseEvent(response, 'activity', item, item.seq);
+        }
+
         writeSseEvent(response, 'ready', {
           member: {
             id: auth.actor.member.id,
