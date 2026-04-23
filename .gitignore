@@ -1,0 +1,21 @@
+node_modules/
+.env
+.env.local
+clawclub.config.jsonc
+automation/runs/
+automation/*.lock
+deploy.sh
+backups/
+*.dump
+.claude/
+
+# OS metadata
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# Editor temp files
+*.swp
+*.swo
+*~

@@ -1,0 +1,571 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "configVersion": {
+      "type": "number",
+      "const": 1
+    },
+    "policy": {
+      "default": {
+        "applications": {
+          "maxInFlightPerMember": 3
+        },
+        "invitations": {
+          "openPerSponsorPerClub": 3
+        },
+        "accessTokens": {
+          "maxActivePerMember": 10
+        },
+        "clubs": {
+          "maxClubsPerMember": 1,
+          "freeClubMemberCap": 5,
+          "removedClubRetentionDays": 30
+        },
+        "quotas": {
+          "windowMultipliers": {
+            "week": 4.5,
+            "month": 18
+          },
+          "actions": {
+            "content.create": {
+              "dailyMax": 50,
+              "roleMultipliers": {
+                "member": 1,
+                "clubadmin": 3,
+                "clubOwner": 3
+              },
+              "clubOverrides": {}
+            },
+            "messages.send": {
+              "dailyMax": 50
+            },
+            "embedding.query": {
+              "dailyMax": 100
+            },
+            "clubs.apply": {
+              "dailyMax": 10
+            },
+            "clubs.create": {
+              "dailyMax": 5
+            },
+            "llm.outputTokens": {
+              "dailyMax": 10000
+            }
+          },
+          "llm": {
+            "gateMaxOutputTokens": 64,
+            "clubSpendBudget": {
+              "dailyMaxCents": 100
+            }
+          }
+        },
+        "pow": {
+          "registrationDifficulty": 7,
+          "challengeTtlMs": 3600000
+        },
+        "transport": {
+          "maxStreamsPerMember": 5
+        },
+        "features": {}
+      },
+      "type": "object",
+      "properties": {
+        "applications": {
+          "default": {
+            "maxInFlightPerMember": 3
+          },
+          "type": "object",
+          "properties": {
+            "maxInFlightPerMember": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "maxInFlightPerMember"
+          ],
+          "additionalProperties": false
+        },
+        "invitations": {
+          "default": {
+            "openPerSponsorPerClub": 3
+          },
+          "type": "object",
+          "properties": {
+            "openPerSponsorPerClub": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "openPerSponsorPerClub"
+          ],
+          "additionalProperties": false
+        },
+        "accessTokens": {
+          "default": {
+            "maxActivePerMember": 10
+          },
+          "type": "object",
+          "properties": {
+            "maxActivePerMember": {
+              "default": 10,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "maxActivePerMember"
+          ],
+          "additionalProperties": false
+        },
+        "clubs": {
+          "default": {
+            "maxClubsPerMember": 1,
+            "freeClubMemberCap": 5,
+            "removedClubRetentionDays": 30
+          },
+          "type": "object",
+          "properties": {
+            "maxClubsPerMember": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "freeClubMemberCap": {
+              "default": 5,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "removedClubRetentionDays": {
+              "default": 30,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "maxClubsPerMember",
+            "freeClubMemberCap",
+            "removedClubRetentionDays"
+          ],
+          "additionalProperties": false
+        },
+        "quotas": {
+          "default": {
+            "windowMultipliers": {
+              "week": 4.5,
+              "month": 18
+            },
+            "actions": {
+              "content.create": {
+                "dailyMax": 50,
+                "roleMultipliers": {
+                  "member": 1,
+                  "clubadmin": 3,
+                  "clubOwner": 3
+                },
+                "clubOverrides": {}
+              },
+              "messages.send": {
+                "dailyMax": 50
+              },
+              "embedding.query": {
+                "dailyMax": 100
+              },
+              "clubs.apply": {
+                "dailyMax": 10
+              },
+              "clubs.create": {
+                "dailyMax": 5
+              },
+              "llm.outputTokens": {
+                "dailyMax": 10000
+              }
+            },
+            "llm": {
+              "gateMaxOutputTokens": 64,
+              "clubSpendBudget": {
+                "dailyMaxCents": 100
+              }
+            }
+          },
+          "type": "object",
+          "properties": {
+            "windowMultipliers": {
+              "default": {
+                "week": 4.5,
+                "month": 18
+              },
+              "type": "object",
+              "properties": {
+                "week": {
+                  "default": 4.5,
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "month": {
+                  "default": 18,
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              },
+              "required": [
+                "week",
+                "month"
+              ],
+              "additionalProperties": false
+            },
+            "actions": {
+              "default": {
+                "content.create": {
+                  "dailyMax": 50,
+                  "roleMultipliers": {
+                    "member": 1,
+                    "clubadmin": 3,
+                    "clubOwner": 3
+                  },
+                  "clubOverrides": {}
+                },
+                "messages.send": {
+                  "dailyMax": 50
+                },
+                "embedding.query": {
+                  "dailyMax": 100
+                },
+                "clubs.apply": {
+                  "dailyMax": 10
+                },
+                "clubs.create": {
+                  "dailyMax": 5
+                },
+                "llm.outputTokens": {
+                  "dailyMax": 10000
+                }
+              },
+              "type": "object",
+              "properties": {
+                "content.create": {
+                  "default": {
+                    "dailyMax": 50,
+                    "roleMultipliers": {
+                      "member": 1,
+                      "clubadmin": 3,
+                      "clubOwner": 3
+                    },
+                    "clubOverrides": {}
+                  },
+                  "type": "object",
+                  "properties": {
+                    "dailyMax": {
+                      "default": 50,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "roleMultipliers": {
+                      "default": {
+                        "member": 1,
+                        "clubadmin": 3,
+                        "clubOwner": 3
+                      },
+                      "type": "object",
+                      "properties": {
+                        "member": {
+                          "default": 1,
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "clubadmin": {
+                          "default": 3,
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "clubOwner": {
+                          "default": 3,
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "member",
+                        "clubadmin",
+                        "clubOwner"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "clubOverrides": {
+                      "default": {},
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                      },
+                      "additionalProperties": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      }
+                    }
+                  },
+                  "required": [
+                    "dailyMax",
+                    "roleMultipliers",
+                    "clubOverrides"
+                  ],
+                  "additionalProperties": false
+                },
+                "messages.send": {
+                  "default": {
+                    "dailyMax": 50
+                  },
+                  "type": "object",
+                  "properties": {
+                    "dailyMax": {
+                      "default": 50,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "dailyMax"
+                  ],
+                  "additionalProperties": false
+                },
+                "embedding.query": {
+                  "default": {
+                    "dailyMax": 100
+                  },
+                  "type": "object",
+                  "properties": {
+                    "dailyMax": {
+                      "default": 100,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "dailyMax"
+                  ],
+                  "additionalProperties": false
+                },
+                "clubs.apply": {
+                  "default": {
+                    "dailyMax": 10
+                  },
+                  "type": "object",
+                  "properties": {
+                    "dailyMax": {
+                      "default": 10,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "dailyMax"
+                  ],
+                  "additionalProperties": false
+                },
+                "clubs.create": {
+                  "default": {
+                    "dailyMax": 5
+                  },
+                  "type": "object",
+                  "properties": {
+                    "dailyMax": {
+                      "default": 5,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "dailyMax"
+                  ],
+                  "additionalProperties": false
+                },
+                "llm.outputTokens": {
+                  "default": {
+                    "dailyMax": 10000
+                  },
+                  "type": "object",
+                  "properties": {
+                    "dailyMax": {
+                      "default": 10000,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "dailyMax"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "content.create",
+                "messages.send",
+                "embedding.query",
+                "clubs.apply",
+                "clubs.create",
+                "llm.outputTokens"
+              ],
+              "additionalProperties": false
+            },
+            "llm": {
+              "default": {
+                "gateMaxOutputTokens": 64,
+                "clubSpendBudget": {
+                  "dailyMaxCents": 100
+                }
+              },
+              "type": "object",
+              "properties": {
+                "gateMaxOutputTokens": {
+                  "default": 64,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "clubSpendBudget": {
+                  "default": {
+                    "dailyMaxCents": 100
+                  },
+                  "type": "object",
+                  "properties": {
+                    "dailyMaxCents": {
+                      "default": 100,
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "dailyMaxCents"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "gateMaxOutputTokens",
+                "clubSpendBudget"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "windowMultipliers",
+            "actions",
+            "llm"
+          ],
+          "additionalProperties": false
+        },
+        "pow": {
+          "default": {
+            "registrationDifficulty": 7,
+            "challengeTtlMs": 3600000
+          },
+          "type": "object",
+          "properties": {
+            "registrationDifficulty": {
+              "default": 7,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "challengeTtlMs": {
+              "default": 3600000,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "registrationDifficulty",
+            "challengeTtlMs"
+          ],
+          "additionalProperties": false
+        },
+        "transport": {
+          "default": {
+            "maxStreamsPerMember": 5
+          },
+          "type": "object",
+          "properties": {
+            "maxStreamsPerMember": {
+              "default": 5,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "maxStreamsPerMember"
+          ],
+          "additionalProperties": false
+        },
+        "features": {
+          "default": {},
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "applications",
+        "invitations",
+        "accessTokens",
+        "clubs",
+        "quotas",
+        "pow",
+        "transport",
+        "features"
+      ],
+      "additionalProperties": false
+    },
+    "runtime": {
+      "default": {
+        "workers": {}
+      },
+      "type": "object",
+      "properties": {
+        "workers": {
+          "default": {},
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "workers"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "configVersion",
+    "policy",
+    "runtime"
+  ],
+  "additionalProperties": false
+}

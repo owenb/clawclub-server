@@ -1,0 +1,72 @@
+{
+  "$schema": "./clawclub.config.schema.json",
+  "configVersion": 1,
+  "policy": {
+    "applications": {
+      "maxInFlightPerMember": 3
+    },
+    "invitations": {
+      "openPerSponsorPerClub": 3
+    },
+    "accessTokens": {
+      "maxActivePerMember": 10
+    },
+    "clubs": {
+      "maxClubsPerMember": 1,
+      "freeClubMemberCap": 5,
+      "removedClubRetentionDays": 30
+    },
+    "quotas": {
+      "windowMultipliers": {
+        "week": 4.5,
+        "month": 18
+      },
+      "actions": {
+        "content.create": {
+          "dailyMax": 50,
+          "roleMultipliers": {
+            "member": 1,
+            "clubadmin": 3,
+            "clubOwner": 3
+          },
+          "clubOverrides": {
+            // Example:
+            // "dogclub": 25
+          }
+        },
+        "messages.send": {
+          "dailyMax": 50
+        },
+        "embedding.query": {
+          "dailyMax": 100
+        },
+        "clubs.apply": {
+          "dailyMax": 10
+        },
+        "clubs.create": {
+          "dailyMax": 5
+        },
+        "llm.outputTokens": {
+          "dailyMax": 10000
+        }
+      },
+      "llm": {
+        "gateMaxOutputTokens": 64,
+        "clubSpendBudget": {
+          "dailyMaxCents": 100
+        }
+      }
+    },
+    "pow": {
+      "registrationDifficulty": 7,
+      "challengeTtlMs": 3600000
+    },
+    "transport": {
+      "maxStreamsPerMember": 5
+    },
+    "features": {}
+  },
+  "runtime": {
+    "workers": {}
+  }
+}

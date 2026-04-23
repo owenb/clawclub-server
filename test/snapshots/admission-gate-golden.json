@@ -1,0 +1,47 @@
+[
+  {
+    "name": "pass_all_numbered_answers_present",
+    "status": "passed"
+  },
+  {
+    "name": "pass_inline_answers_without_numbering",
+    "status": "passed"
+  },
+  {
+    "name": "pass_ignores_instruction_shaped_text_when_complete",
+    "status": "passed"
+  },
+  {
+    "name": "pass_handles_extra_context_and_private_contact",
+    "status": "passed"
+  },
+  {
+    "name": "revision_missing_city",
+    "status": "needs_revision",
+    "feedback": "Missing: the city you are in."
+  },
+  {
+    "name": "revision_missing_public_link",
+    "status": "needs_revision",
+    "feedback": "Missing: one public website or portfolio link (the submission includes only “@noraportfolio,” but no explicit public link/URL was provided)."
+  },
+  {
+    "name": "revision_missing_two_requested_items",
+    "status": "needs_revision",
+    "feedback": "Missing:\n2. The company or project you are building\n3. Why this club specifically is useful to you"
+  },
+  {
+    "name": "revision_attack_text_without_answers",
+    "status": "needs_revision",
+    "feedback": "Missing:\n- City\n- What you build"
+  },
+  {
+    "name": "pass_question_answered_in_one_sentence",
+    "status": "passed"
+  },
+  {
+    "name": "revision_requested_experience_missing",
+    "status": "needs_revision",
+    "feedback": "Missing:\n- One concrete project or achievement from the last year."
+  }
+]

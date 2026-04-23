@@ -1,0 +1,322 @@
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { TestHarness } from '../harness.ts';
+import { registerWithPow } from '../helpers.ts';
+
+const TEST_DIFFICULTY = '1';
+const COLD_DIFFICULTY_ENV = 'CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY';
+
+let h: TestHarness;
+let previousColdDifficulty: string | undefined;
+
+async function setAdmissionPolicy(clubId: string, policy: string): Promise<void> {
+  await h.sql(
+    `insert into club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
+     select c.id, c.owner_member_id, c.name, c.summary, $2,
+            coalesce((select max(version_no) from club_versions where club_id = $1), 0) + 1,
+            c.owner_member_id
+     from clubs c where c.id = $1`,
+    [clubId, policy],
+  );
+}
+
+async function getCurrentClubProfile(memberId: string, clubId: string): Promise<Record<string, unknown>> {
+  const rows = await h.sql<Record<string, unknown>>(
+    `select id, member_id, club_id, summary, tagline, what_i_do, known_for, services_summary,
+            website_url, links, generation_source, version_no
+     from current_member_club_profiles
+     where member_id = $1 and club_id = $2`,
+    [memberId, clubId],
+  );
+  assert.equal(rows.length, 1, 'expected one current club profile');
+  return rows[0]!;
+}
+
+async function countProfileVersions(memberId: string, clubId: string): Promise<number> {
+  const rows = await h.sql<{ count: string }>(
+    `select count(*)::text as count
+     from member_club_profile_versions
+     where member_id = $1 and club_id = $2`,
+    [memberId, clubId],
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function readGeneratedProfileDraft(applicationId: string): Promise<Record<string, unknown> | null> {
+  const rows = await h.sql<{ generated_profile_draft: Record<string, unknown> | null }>(
+    `select generated_profile_draft
+     from club_applications
+     where id = $1`,
+    [applicationId],
+  );
+  return rows[0]?.generated_profile_draft ?? null;
+}
+
+async function registerAndApplyCold(input: {
+  clubSlug: string;
+  email: string;
+  name: string;
+  socials: string;
+  application: string;
+  registerClientKey: string;
+  applyClientKey: string;
+}): Promise<{ memberToken: string; memberId: string; applicationId: string }> {
+  const registration = await registerWithPow(h, {
+    name: input.name,
+    email: input.email,
+    clientKey: input.registerClientKey,
+  });
+
+  const applyBody = await h.apiOk(registration.bearerToken, 'clubs.apply', {
+    clubSlug: input.clubSlug,
+    clientKey: input.applyClientKey,
+    draft: {
+      name: input.name,
+      socials: input.socials,
+      application: input.application,
+    },
+  });
+
+  const data = applyBody.data as Record<string, unknown>;
+  const application = data.application as Record<string, unknown>;
+  const phase = application.phase as string;
+  assert.ok(
+    phase === 'awaiting_review' || phase === 'revision_required',
+    `expected a live application phase, got ${phase}`,
+  );
+
+  return {
+    memberToken: registration.bearerToken,
+    memberId: registration.memberId,
+    applicationId: application.applicationId as string,
+  };
+}
+
+async function applyToClubWithExistingMember(input: {
+  actorToken: string;
+  clubSlug: string;
+  name: string;
+  socials: string;
+  application: string;
+  clientKey: string;
+}): Promise<{ applicationId: string }> {
+  const applyBody = await h.apiOk(input.actorToken, 'clubs.apply', {
+    clubSlug: input.clubSlug,
+    clientKey: input.clientKey,
+    draft: {
+      name: input.name,
+      socials: input.socials,
+      application: input.application,
+    },
+  });
+  const data = applyBody.data as Record<string, unknown>;
+  const phase = ((data.application as Record<string, unknown>).phase as string);
+  assert.ok(
+    phase === 'awaiting_review' || phase === 'revision_required',
+    `expected a live application phase, got ${phase}`,
+  );
+  return {
+    applicationId: ((data.application as Record<string, unknown>).applicationId as string),
+  };
+}
+
+before(async () => {
+  previousColdDifficulty = process.env[COLD_DIFFICULTY_ENV];
+  process.env[COLD_DIFFICULTY_ENV] = TEST_DIFFICULTY;
+  h = await TestHarness.start({ embeddingStub: false });
+}, { timeout: 60_000 });
+
+after(async () => {
+  await h?.stop();
+  if (previousColdDifficulty === undefined) {
+    delete process.env[COLD_DIFFICULTY_ENV];
+  } else {
+    process.env[COLD_DIFFICULTY_ENV] = previousColdDifficulty;
+  }
+}, { timeout: 15_000 });
+
+describe('application profile generation (LLM)', () => {
+  it('cold acceptance generates a club profile, strips private contact info, and exposes it via members.get without onboarding', async () => {
+    const owner = await h.seedOwner('llm-profile-gen-1', 'LLM Profile Gen 1');
+    await setAdmissionPolicy(
+      owner.club.id,
+      [
+        'Please answer these questions directly:',
+        '1. What is your professional specialty?',
+        '2. What work do you do in that specialty?',
+        '3. Share one public website or link we can use on your profile.',
+      ].join('\n'),
+    );
+
+    const { memberToken, memberId, applicationId } = await registerAndApplyCold({
+      clubSlug: owner.club.slug,
+      email: 'alicia.trainer@example.com',
+      name: 'Alicia Trainer',
+      socials: 'https://instagram.com/alicia.trainer',
+      application: [
+        '1. My professional specialty is dog training and canine behaviour work.',
+        '2. I have spent 10 years training rescue dogs, running workshops for anxious owners, and publishing case notes from that work.',
+        '3. Public website: https://dogtrainer.example.com. Private contact: alicia.private@example.com.',
+      ].join('\n'),
+      registerClientKey: 'llm-profile-gen-1-register',
+      applyClientKey: 'llm-profile-gen-1-apply',
+    });
+
+    const decideBody = await h.apiOk(owner.token, 'clubadmin.applications.decide', {
+      clubId: owner.club.id,
+      applicationId,
+      decision: 'accept',
+      adminNote: 'Approved after review.',
+      clientKey: 'llm-profile-gen-1-accept',
+    });
+    const accepted = (((decideBody.data as Record<string, unknown>).application as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+
+    assert.ok(accepted.activatedMembershipId, 'acceptance should return the activated membership');
+
+    const currentProfile = await getCurrentClubProfile(memberId, owner.club.id);
+    const summary = String(currentProfile.summary ?? '');
+    const websiteUrl = currentProfile.website_url as string | null;
+    const flattened = JSON.stringify(currentProfile);
+
+    assert.equal(currentProfile.generation_source, 'application_generated');
+    assert.ok(summary.length > 0, 'summary should be non-empty');
+    assert.ok(!flattened.includes('alicia.private@example.com'), 'private email must not leak into generated profile');
+    assert.equal(websiteUrl, 'https://dogtrainer.example.com');
+
+    const memberBody = await h.apiOk(memberToken, 'members.get', {
+      clubId: owner.club.id,
+      memberId,
+    });
+    const member = ((memberBody.data as Record<string, unknown>).member ?? {}) as Record<string, unknown>;
+    assert.equal(member.memberId, memberId);
+    assert.equal(member.summary, currentProfile.summary);
+  });
+
+  it('sparse but valid application text still produces a profile row without leaking private contact info', async () => {
+    const owner = await h.seedOwner('llm-profile-gen-2', 'LLM Profile Gen 2');
+    await setAdmissionPolicy(
+      owner.club.id,
+      'Please answer this directly in one sentence: How do you contribute to the community?',
+    );
+
+    const { memberId, applicationId } = await registerAndApplyCold({
+      clubSlug: owner.club.slug,
+      email: 'sparse@example.com',
+      name: 'Sparse Applicant',
+      socials: '@sparse',
+      application: 'How do you contribute to the community? I contribute to the community by organizing dog-walk meetups in Bristol and helping new members get oriented.',
+      registerClientKey: 'llm-profile-gen-2-register',
+      applyClientKey: 'llm-profile-gen-2-apply',
+    });
+
+    await h.apiOk(owner.token, 'clubadmin.applications.decide', {
+      clubId: owner.club.id,
+      applicationId,
+      decision: 'accept',
+      adminNote: 'Approved after review.',
+      clientKey: 'llm-profile-gen-2-accept',
+    });
+
+    const currentProfile = await getCurrentClubProfile(memberId, owner.club.id);
+    const flattened = JSON.stringify(currentProfile);
+
+    assert.equal(currentProfile.generation_source, 'application_generated');
+    assert.ok(!flattened.includes('sparse@example.com'));
+    assert.ok('summary' in currentProfile, 'profile row should exist even for sparse input');
+  });
+
+  it('applying to a second club generates a new club-specific profile without mutating the old club profile', async () => {
+    const ownerA = await h.seedOwner('llm-cross-profile-a', 'LLM Cross Profile A');
+    const ownerB = await h.seedOwner('llm-cross-profile-b', 'LLM Cross Profile B');
+    await setAdmissionPolicy(
+      ownerB.club.id,
+      [
+        'Please answer these questions directly:',
+        '1. What role do you play in cat rescue or feline community work?',
+        '2. What concrete work do you do there?',
+      ].join('\n'),
+    );
+
+    const member = await h.seedCompedMember(ownerA.club.id, 'Ada MultiClub');
+
+    await h.sql(
+      `insert into member_club_profile_versions (
+         membership_id, member_id, club_id, version_no, tagline, summary, created_by_member_id, generation_source
+       ) values ($1, $2, $3, 2, 'Dog trainer', 'Dog-club profile about rescue dogs and canine behaviour.', $2, 'manual')`,
+      [member.membership.id, member.id, ownerA.club.id],
+    );
+
+    const { applicationId } = await applyToClubWithExistingMember({
+      actorToken: member.token,
+      clubSlug: ownerB.club.slug,
+      name: 'Ada MultiClub',
+      socials: 'https://instagram.com/adacats',
+      application: [
+        '1. My role is cat-rescue logistics lead and volunteer mentor.',
+        '2. I run weekend foster coordination in South London and mentor volunteers on intake triage and adoption handoffs.',
+      ].join('\n'),
+      clientKey: 'llm-cross-profile-apply',
+    });
+
+    await h.apiOk(ownerB.token, 'clubadmin.applications.decide', {
+      clubId: ownerB.club.id,
+      applicationId,
+      decision: 'accept',
+      adminNote: 'Strong fit for CatClub.',
+      clientKey: 'llm-cross-profile-accept',
+    });
+
+    const oldClubProfile = await getCurrentClubProfile(member.id, ownerA.club.id);
+    const newClubProfile = await getCurrentClubProfile(member.id, ownerB.club.id);
+    const memberRow = await h.sql<{ display_name: string }>(
+      `select display_name from members where id = $1`,
+      [member.id],
+    );
+
+    assert.equal(oldClubProfile.summary, 'Dog-club profile about rescue dogs and canine behaviour.');
+    assert.equal(newClubProfile.generation_source, 'application_generated');
+    assert.notEqual(newClubProfile.summary, oldClubProfile.summary);
+    assert.equal(memberRow[0]?.display_name, 'Ada MultiClub');
+  });
+
+  it('stores the generated draft on the application before acceptance and materializes it on activation', async () => {
+    const owner = await h.seedOwner('llm-profile-draft-club', 'LLM Profile Draft Club');
+    await setAdmissionPolicy(
+      owner.club.id,
+      [
+        'Please answer these questions directly:',
+        '1. What operational work do you run?',
+        '2. What community systems do you operate?',
+      ].join('\n'),
+    );
+
+    const { memberId, applicationId } = await registerAndApplyCold({
+      clubSlug: owner.club.slug,
+      email: 'drafty@example.com',
+      name: 'Drafty Operator',
+      socials: '@drafty',
+      application: [
+        '1. I run volunteer onboarding, event logistics, and member support operations.',
+        '2. I operate the onboarding and support systems for a local builders network.',
+      ].join('\n'),
+      registerClientKey: 'llm-profile-draft-register',
+      applyClientKey: 'llm-profile-draft-apply',
+    });
+
+    const draftBeforeAcceptance = await readGeneratedProfileDraft(applicationId);
+    assert.ok(draftBeforeAcceptance, 'generated_profile_draft should be present after application submit');
+    assert.equal(await countProfileVersions(memberId, owner.club.id), 0, 'profile versions should not exist before acceptance');
+
+    await h.apiOk(owner.token, 'clubadmin.applications.decide', {
+      clubId: owner.club.id,
+      applicationId,
+      decision: 'accept',
+      adminNote: 'Accepted after review.',
+      clientKey: 'llm-profile-draft-accept',
+    });
+
+    assert.equal(await countProfileVersions(memberId, owner.club.id), 1, 'acceptance should materialize the first club profile version');
+    const currentProfile = await getCurrentClubProfile(memberId, owner.club.id);
+    assert.equal(currentProfile.generation_source, 'application_generated');
+  });
+});

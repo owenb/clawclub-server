@@ -1,0 +1,46 @@
+{
+  "name": "clawclub",
+  "private": true,
+  "version": "0.1.6",
+  "description": "Open source software for agent-native private member networks",
+  "type": "module",
+  "scripts": {
+    "db:init": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 --single-transaction -f db/init.sql",
+    "db:migrate": "./scripts/migrate.sh",
+    "db:provision:app-role": "./scripts/provision-app-role.sh",
+    "db:provision:producer-role": "./scripts/provision-producer-role.sh",
+    "db:reset-dev": "./scripts/reset-dev.sh",
+    "add-member": "./scripts/add-member.sh",
+    "api:start": "node --experimental-strip-types --env-file-if-exists=.env --env-file-if-exists=.env.local src/server.ts",
+    "api:token": "node --experimental-strip-types src/token-cli.ts",
+    "api:http:smoke": "node --experimental-strip-types src/http-smoke.ts",
+    "test": "npm run test:all",
+    "test:all": "npm run check && npm run test:unit && DATABASE_URL=postgresql://localhost/postgres npm run test:unit:db && npm run test:integration",
+    "test:unit": "node --experimental-strip-types --test test/unit/*.test.ts",
+    "test:unit:db": "node --experimental-strip-types --test test/unit-db/*.test.ts",
+    "test:integration:non-llm": "node --experimental-strip-types --test test/integration/non-llm/*.test.ts",
+    "test:integration:with-llm": "set -a && . ./.env.local && set +a && node --experimental-strip-types --test test/integration/with-llm/*.test.ts",
+    "test:integration:all": "npm run test:integration:non-llm && npm run test:integration:with-llm",
+    "test:integration": "npm run test:integration:all",
+    "test:calibration": "set -a && . ./.env.local && set +a && node --experimental-strip-types --test test/calibration/*.test.ts",
+    "worker:embedding": "node --experimental-strip-types src/workers/embedding.ts",
+    "worker:embedding:once": "node --experimental-strip-types src/workers/embedding.ts --once",
+    "worker:embedding:backfill": "node --experimental-strip-types src/workers/embedding-backfill.ts",
+    "config:check": "node --experimental-strip-types scripts/check-config.ts",
+    "config:schema": "node --experimental-strip-types scripts/regen-config-schema.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "~2.0.101",
+    "ai": "~5.0.161",
+    "jsonc-parser": "^3.3.1",
+    "pg": "^8.20.0",
+    "zod": "^4.3.6",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/pg": "^8.20.0",
+    "typescript": "^6.0.2"
+  }
+}

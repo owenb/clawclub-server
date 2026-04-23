@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${DATABASE_URL:?DATABASE_URL must be set}"
+
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+begin;
+
+insert into members (public_name, display_name, state)
+values ('Pressure Owner', 'Pressure Owner', 'active')
+returning id as owner_id \gset
+
+insert into members (public_name, display_name, state)
+values ('Pressure Sponsor', 'Pressure Sponsor', 'active')
+returning id as sponsor_id \gset
+
+insert into members (public_name, display_name, state)
+values ('Pressure Member', 'Pressure Member', 'active')
+returning id as member_id \gset
+
+insert into members (public_name, display_name, state)
+values ('Pressure Lapsed', 'Pressure Lapsed', 'active')
+returning id as lapsed_id \gset
+
+insert into clubs (slug, name, owner_member_id, summary)
+values ('pressure-club', 'Pressure Club', :'owner_id', 'Schema pressure test')
+returning id as club_id \gset
+
+insert into club_versions (club_id, owner_member_id, name, summary, admission_policy, version_no, created_by_member_id)
+values (:'club_id', :'owner_id', 'Pressure Club', 'Schema pressure test', null, 1, :'owner_id');
+
+insert into club_memberships (
+  club_id,
+  member_id,
+  role,
+  sponsor_member_id,
+  status,
+  joined_at,
+  accepted_covenant_at,
+  is_comped,
+  comped_at,
+  comped_by_member_id
+)
+values
+  (:'club_id', :'owner_id', 'clubadmin', null, 'active', now(), now(), true, now(), :'owner_id'),
+  (:'club_id', :'sponsor_id', 'member', :'owner_id', 'active', now(), now(), false, null, null),
+  (:'club_id', :'member_id', 'member', :'sponsor_id', 'active', now(), now(), false, null, null),
+  (:'club_id', :'lapsed_id', 'member', :'owner_id', 'active', now(), now(), false, null, null)
+returning id, member_id;
+
+select id from club_memberships where club_id = :'club_id' and member_id = :'member_id' \gset
+\set member_membership_id :id
+select id from club_memberships where club_id = :'club_id' and member_id = :'lapsed_id' \gset
+\set lapsed_membership_id :id
+
+insert into club_membership_state_versions (membership_id, status, version_no, created_by_member_id)
+select id, 'active', 1, member_id
+from club_memberships
+where club_id = :'club_id';
+
+insert into club_subscriptions (membership_id, payer_member_id, status, amount, current_period_end)
+values
+  (:'member_membership_id', :'sponsor_id', 'active', 0, now() + interval '14 days'),
+  (:'lapsed_membership_id', :'owner_id', 'active', 0, now() - interval '1 day');
+
+insert into content_threads (club_id, created_by_member_id)
+values (:'club_id', :'member_id')
+returning id as event_thread_id \gset
+
+insert into contents (club_id, kind, author_member_id, thread_id)
+values (:'club_id', 'event', :'member_id', :'event_thread_id')
+returning id as event_content_id \gset
+
+insert into content_versions (content_id, version_no, title, created_by_member_id)
+values (:'event_content_id', 1, 'Pressure Dinner', :'member_id')
+returning id as event_content_version_id \gset
+
+insert into event_version_details (content_version_id, starts_at, ends_at, timezone)
+values (:'event_content_version_id', now() + interval '2 days', now() + interval '2 days 2 hours', 'UTC');
+
+insert into event_rsvps (event_content_id, membership_id, version_no, response, note, created_by_member_id)
+values (:'event_content_id', :'member_membership_id', 1, 'maybe', 'Need to confirm', :'member_id')
+returning id as rsvp_v1_id \gset
+
+insert into event_rsvps (event_content_id, membership_id, version_no, response, note, supersedes_rsvp_id, created_by_member_id)
+values (:'event_content_id', :'member_membership_id', 2, 'yes', 'Confirmed', :'rsvp_v1_id', :'member_id');
+
+create or replace function pg_temp.assert_club_hardening(
+  p_club_id short_id,
+  p_event_content_id short_id,
+  p_membership_id short_id,
+  p_owner_id short_id
+)
+returns void
+language plpgsql
+as $$
+declare
+  accessible_count integer;
+  latest_rsvp rsvp_state;
+begin
+  select count(*)
+  into accessible_count
+  from accessible_club_memberships
+  where club_id = p_club_id;
+
+  if accessible_count <> 2 then
+    raise exception 'expected 2 accessible memberships, got %', accessible_count;
+  end if;
+
+  select response
+  into latest_rsvp
+  from current_event_rsvps
+  where event_content_id = p_event_content_id
+    and membership_id = p_membership_id;
+
+  if latest_rsvp <> 'yes' then
+    raise exception 'expected latest RSVP to be yes, got %', latest_rsvp;
+  end if;
+
+  begin
+    update club_memberships
+    set sponsor_member_id = p_owner_id
+    where id = p_membership_id;
+
+    raise exception 'expected sponsor immutability update to fail';
+  exception
+    when others then
+      if position('sponsor_member_id is immutable' in sqlerrm) = 0 then
+        raise;
+      end if;
+  end;
+end
+$$;
+
+select pg_temp.assert_club_hardening(:'club_id', :'event_content_id', :'member_membership_id', :'owner_id');
+
+select
+  (select count(*) from accessible_club_memberships where club_id = :'club_id') as accessible_memberships,
+  (select response from current_event_rsvps where event_content_id = :'event_content_id' and membership_id = :'member_membership_id') as latest_rsvp;
+
+rollback;
+SQL
