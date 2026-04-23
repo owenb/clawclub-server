@@ -1,6 +1,15 @@
 import { createHash } from 'node:crypto';
 import type { TestHarness } from './harness.ts';
 
+let discoverIpCounter = 0;
+
+function nextDiscoverClientIp(): string {
+  discoverIpCounter = (discoverIpCounter + 1) % 65_536;
+  const third = Math.floor(discoverIpCounter / 256);
+  const fourth = discoverIpCounter % 256;
+  return `198.18.${third}.${fourth}`;
+}
+
 export function activeMemberships(sessionBody: Record<string, unknown>): Array<Record<string, unknown>> {
   const actor = sessionBody.actor as Record<string, unknown>;
   return (actor.activeMemberships ?? []) as Array<Record<string, unknown>>;
@@ -83,7 +92,9 @@ export async function prepareAccountRegistration(
   h: TestHarness,
   _clientKey = 'register-discover',
 ): Promise<{ challengeBlob: string; challengeId: string; difficulty: number; expiresAt: string }> {
-  const body = await h.apiOk(null, 'accounts.register', { mode: 'discover' });
+  const body = await h.apiOk(null, 'accounts.register', { mode: 'discover' }, {
+    headers: { 'x-forwarded-for': nextDiscoverClientIp() },
+  });
   const data = body.data as Record<string, unknown>;
   const challenge = data.challenge as Record<string, unknown>;
   return {

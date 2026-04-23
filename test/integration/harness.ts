@@ -123,6 +123,10 @@ export type SeededInvitation = {
   revokedAt: string | null;
 };
 
+type ApiOptions = {
+  headers?: Record<string, string>;
+};
+
 export type LeakAuditContext = {
   testClub: SeededClub;
   regularMember: SeededMember & { membership: SeededMembership };
@@ -998,10 +1002,12 @@ export class TestHarness {
     token: string | null,
     action: string,
     input: Record<string, unknown> = {},
+    options: ApiOptions = {},
   ): Promise<{ status: number; body: Record<string, unknown> }> {
     const body = JSON.stringify({ action, input });
     const headers: Record<string, string> = {
       'content-type': 'application/json',
+      ...(options.headers ?? {}),
     };
     if (token) {
       headers['authorization'] = `Bearer ${token}`;
@@ -1141,8 +1147,9 @@ export class TestHarness {
     token: string | null,
     action: string,
     input: Record<string, unknown> = {},
+    options: ApiOptions = {},
   ): Promise<Record<string, unknown>> {
-    const { status, body } = await this.api(token, action, input);
+    const { status, body } = await this.api(token, action, input, options);
     if (status !== 200 || !body.ok) {
       throw new Error(
         `Expected OK from ${action} but got ${status}: ${JSON.stringify(body.error ?? body)}`,
@@ -1156,8 +1163,9 @@ export class TestHarness {
     action: string,
     input: Record<string, unknown> = {},
     expectedCode?: string,
+    options: ApiOptions = {},
   ): Promise<{ status: number; code: string; message: string }> {
-    const { status, body } = await this.api(token, action, input);
+    const { status, body } = await this.api(token, action, input, options);
     if (body.ok) {
       throw new Error(`Expected error from ${action} but got OK: ${JSON.stringify(body)}`);
     }
