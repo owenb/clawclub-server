@@ -28,6 +28,8 @@ import { canonicalizeTimestampFields } from './timestamps.ts';
 export { DEFAULT_SERVER_LIMITS } from './config/defaults.ts';
 
 const EXPOSED_RESPONSE_HEADERS = 'ClawClub-Version, ClawClub-Schema-Hash';
+const REGISTRATION_DISCOVER_RATE_LIMIT = 20;
+const REGISTRATION_DISCOVER_RATE_LIMIT_WINDOW_MS = 60_000;
 const STALE_CLIENT_MESSAGE = [
   'The ClawClub API schema has changed since your agent last fetched it. Your cached schema is out of date, which can cause invalid_input errors and missing capabilities. To recover, do the following and then retry this request:',
   '',
@@ -445,6 +447,20 @@ type RequestMetadataCarrier = http.IncomingMessage & {
   clawclubMemberId?: string;
 };
 
+type RegistrationDiscoverRateLimitEntry = {
+  count: number;
+  windowStart: number;
+};
+
+function isRegistrationDiscoverRequest(body: Record<string, unknown>): boolean {
+  const input = body.input;
+  return body.action === 'accounts.register'
+    && input !== null
+    && typeof input === 'object'
+    && !Array.isArray(input)
+    && (input as Record<string, unknown>).mode === 'discover';
+}
+
 function getClientIp(request: http.IncomingMessage): string {
   const forwarded = request.headers['x-forwarded-for'];
   if (typeof forwarded === 'string') {
@@ -558,6 +574,8 @@ export function createServer(options: {
   const updatesNotifier = options.updatesNotifier
     ?? (dbUrl ? createPostgresMemberUpdateNotifier(dbUrl) : createTimeoutOnlyNotifier());
   const activeStreams = new Map<string, StreamHandle[]>();
+  // TODO(#scale): replace this process-local guard before running multiple API instances.
+  const registrationDiscoverRateLimits = new Map<string, RegistrationDiscoverRateLimitEntry>();
   const streamScopeRefreshMs = options.streamScopeRefreshMs ?? 60_000;
   const dispatcher = buildDispatcher({ repository, llmGate: options.llmGate });
   const sockets = new Set<net.Socket>();
@@ -1057,6 +1075,29 @@ export function createServer(options: {
         throw err;
       }
 
+      if (isRegistrationDiscoverRequest(body)) {
+        const now = Date.now();
+        const key = getForwardedClientIp(request) ?? request.socket.remoteAddress ?? 'unknown';
+        const current = registrationDiscoverRateLimits.get(key);
+        const entry = !current || current.windowStart <= now - REGISTRATION_DISCOVER_RATE_LIMIT_WINDOW_MS
+          ? { count: 0, windowStart: now }
+          : current;
+        entry.count += 1;
+        registrationDiscoverRateLimits.set(key, entry);
+        if (entry.count > REGISTRATION_DISCOVER_RATE_LIMIT) {
+          writeJson(request, response, 429, {
+            ok: false,
+            error: {
+              code: 'rate_limited',
+              message: 'Too many registration discover requests from this IP. Retry after 60 seconds.',
+            },
+          }, {
+            extraHeaders: { 'retry-after': '60' },
+          });
+          return;
+        }
+      }
+
       // Unified dispatch: auth, parse, legality gate, execute, envelope assembly
       // are all handled inside the dispatcher based on the action contract.
       const result = await dispatcher.dispatch({
@@ -1177,7 +1218,14 @@ export function createServer(options: {
     ensurePowChallengeConfig();
   })();
 
-  return { server, shutdown, ready };
+  return {
+    server,
+    shutdown,
+    ready,
+    __resetRateLimitForTests: () => {
+      registrationDiscoverRateLimits.clear();
+    },
+  };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

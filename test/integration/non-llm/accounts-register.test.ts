@@ -1,5 +1,6 @@
-import { after, before, describe, it } from 'node:test';
+import { after, before, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { TestHarness } from '../harness.ts';
 import { findPowNonce, prepareAccountRegistration, registerWithPow } from '../helpers.ts';
 
@@ -12,6 +13,46 @@ before(async () => {
 after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
+
+beforeEach(() => {
+  h.__resetRateLimitForTests();
+});
+
+function rawPostWithHeaders(
+  port: number,
+  jsonBody: Record<string, unknown>,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; body: Record<string, unknown>; headers: http.IncomingHttpHeaders }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: '/api',
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...headers,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          try {
+            const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+            resolve({ status: res.statusCode ?? 0, body, headers: res.headers });
+          } catch (error) {
+            reject(error);
+          }
+        });
+      },
+    );
+    req.on('error', reject);
+    req.write(JSON.stringify(jsonBody));
+    req.end();
+  });
+}
 
 describe('accounts.register', () => {
   it('discovers a PoW challenge and registers a zero-membership bearer holder', async () => {
@@ -123,6 +164,27 @@ describe('accounts.register', () => {
     });
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden');
+  });
+
+  it('rate-limits unauthenticated discover calls by validated client IP', async () => {
+    const results: Array<{ status: number; body: Record<string, unknown>; headers: http.IncomingHttpHeaders }> = [];
+    for (let i = 0; i < 25; i += 1) {
+      results.push(await rawPostWithHeaders(
+        h.port,
+        { action: 'accounts.register', input: { mode: 'discover' } },
+        { 'x-forwarded-for': '203.0.113.44' },
+      ));
+    }
+
+    const successes = results.filter((result) => result.status === 200);
+    const limited = results.filter((result) => result.status === 429);
+    assert.equal(successes.length, 20);
+    assert.equal(limited.length, 5);
+    for (const result of limited) {
+      assert.equal(result.headers['retry-after'], '60');
+      assert.equal(result.body.ok, false);
+      assert.equal(((result.body.error as Record<string, unknown>).code), 'rate_limited');
+    }
   });
 });
 

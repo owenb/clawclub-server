@@ -189,6 +189,7 @@ export class TestHarness {
   private dbName: string;
   private httpServer: ReturnType<typeof createServer>['server'];
   private shutdown: () => Promise<void>;
+  private resetRateLimitForTests: () => void;
   port: number;
   private previousEmbeddingStub: string | undefined;
   private previousPowDifficulty: string | undefined;
@@ -198,6 +199,7 @@ export class TestHarness {
     dbName: string,
     httpServer: ReturnType<typeof createServer>['server'],
     shutdown: () => Promise<void>,
+    resetRateLimitForTests: () => void,
     port: number,
     previousEmbeddingStub: string | undefined,
     previousPowDifficulty: string | undefined,
@@ -206,6 +208,7 @@ export class TestHarness {
     this.dbName = dbName;
     this.httpServer = httpServer;
     this.shutdown = shutdown;
+    this.resetRateLimitForTests = resetRateLimitForTests;
     this.port = port;
     this.previousEmbeddingStub = previousEmbeddingStub;
     this.previousPowDifficulty = previousPowDifficulty;
@@ -306,6 +309,7 @@ export class TestHarness {
       dbName,
       serverInstance.server,
       serverInstance.shutdown,
+      serverInstance.__resetRateLimitForTests,
       port,
       previousEmbeddingStub,
       previousPowDifficulty,
@@ -338,6 +342,10 @@ export class TestHarness {
       }
       resetConfigForTests();
     }
+  }
+
+  __resetRateLimitForTests(): void {
+    this.resetRateLimitForTests();
   }
 
   // ── SQL helper (run as superuser) ──
