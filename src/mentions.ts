@@ -182,13 +182,40 @@ function uniqueMemberIdsInOrder(mentions: ExtractedMention[]): string[] {
   return ids;
 }
 
-function toMentionSpans(mentions: ExtractedMention[]): MentionSpan[] {
-  return mentions.map((mention) => ({
-    memberId: mention.memberId,
-    authoredLabel: mention.authoredLabel,
-    start: mention.start,
-    end: mention.end,
-  }));
+function toCanonicalMentionSpans(
+  mentions: Array<Pick<MentionSpan, 'memberId' | 'start' | 'end'>>,
+  included: IncludedBundle,
+): MentionSpan[] {
+  const spans: MentionSpan[] = [];
+  for (const mention of mentions) {
+    const member = included.membersById[mention.memberId];
+    if (!member) continue;
+    spans.push({
+      memberId: mention.memberId,
+      authoredLabel: member.publicName,
+      start: mention.start,
+      end: mention.end,
+    });
+  }
+  return spans;
+}
+
+function canonicaliseMentionLabels(mentions: MentionSpan[], included: IncludedBundle): void {
+  for (const mention of mentions) {
+    const member = included.membersById[mention.memberId];
+    if (member) {
+      mention.authoredLabel = member.publicName;
+    }
+  }
+}
+
+function canonicaliseContentMentionLabels(
+  mentions: ContentMentionsByField,
+  included: IncludedBundle,
+): void {
+  canonicaliseMentionLabels(mentions.title, included);
+  canonicaliseMentionLabels(mentions.summary, included);
+  canonicaliseMentionLabels(mentions.body, included);
 }
 
 export async function loadIncludedMembers(client: DbClient, memberIds: string[]): Promise<IncludedBundle> {
@@ -243,21 +270,22 @@ export async function resolvePublicContentMentions(
   const allMentions = [...extracted.title, ...extracted.summary, ...extracted.body];
   const ids = uniqueMemberIdsInOrder(allMentions);
   const allowedMemberIds = await loadContentScopedMemberIds(client, ids, writerScope);
+  const included = await loadIncludedMembers(client, [...allowedMemberIds]);
 
   const mentions = {
-    title: toMentionSpans(extracted.title.filter((mention) => allowedMemberIds.has(mention.memberId))),
-    summary: toMentionSpans(extracted.summary.filter((mention) => allowedMemberIds.has(mention.memberId))),
-    body: toMentionSpans(extracted.body.filter((mention) => allowedMemberIds.has(mention.memberId))),
+    title: toCanonicalMentionSpans(extracted.title.filter((mention) => allowedMemberIds.has(mention.memberId)), included),
+    summary: toCanonicalMentionSpans(extracted.summary.filter((mention) => allowedMemberIds.has(mention.memberId)), included),
+    body: toCanonicalMentionSpans(extracted.body.filter((mention) => allowedMemberIds.has(mention.memberId)), included),
   } satisfies ContentMentionsByField;
 
-  const uniqueMembers = allowedMemberIds.size;
+  const uniqueMembers = new Set([...mentions.title, ...mentions.summary, ...mentions.body].map((mention) => mention.memberId)).size;
   const spanCount = mentions.title.length + mentions.summary.length + mentions.body.length;
   assertMentionLimits(uniqueMembers, spanCount, 'content');
   return mentions;
 }
 
 export async function resolveDirectMessageMentions(
-  _client: DbClient,
+  client: DbClient,
   messageText: string,
   scope: DmMentionWriteScope,
 ): Promise<MentionSpan[]> {
@@ -265,7 +293,9 @@ export async function resolveDirectMessageMentions(
   if (extracted.length === 0) return [];
 
   const allowedParticipantIds = new Set(scope.threadParticipantIds);
-  const mentions = toMentionSpans(extracted.filter((mention) => allowedParticipantIds.has(mention.memberId)));
+  const allowedMentions = extracted.filter((mention) => allowedParticipantIds.has(mention.memberId));
+  const included = await loadIncludedMembers(client, uniqueMemberIdsInOrder(allowedMentions));
+  const mentions = toCanonicalMentionSpans(allowedMentions, included);
   assertMentionLimits(new Set(mentions.map((mention) => mention.memberId)).size, mentions.length, 'message');
   return mentions;
 }
@@ -366,10 +396,12 @@ export async function loadEntityVersionMentions(
     });
   }
 
-  return {
-    mentionsByVersionId,
-    included: await loadIncludedMembers(client, [...memberIds]),
-  };
+  const included = await loadIncludedMembers(client, [...memberIds]);
+  for (const mentions of mentionsByVersionId.values()) {
+    canonicaliseContentMentionLabels(mentions, included);
+  }
+
+  return { mentionsByVersionId, included };
 }
 
 export async function loadEntityVersionMentionsForVersion(
@@ -445,10 +477,12 @@ export async function loadDmMentions(
     });
   }
 
-  return {
-    mentionsByMessageId,
-    included: await loadIncludedMembers(client, [...memberIds]),
-  };
+  const included = await loadIncludedMembers(client, [...memberIds]);
+  for (const mentions of mentionsByMessageId.values()) {
+    canonicaliseMentionLabels(mentions, included);
+  }
+
+  return { mentionsByMessageId, included };
 }
 
 export function applyContentMentionLimitsForUpdate(

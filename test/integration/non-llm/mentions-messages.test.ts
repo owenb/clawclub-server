@@ -72,6 +72,53 @@ describe('message mentions', () => {
     assert.match(String(sentMessage.messageText), new RegExp(bogusId));
   });
 
+  it('canonicalises caller-supplied DM mention labels to the member publicName on write', async () => {
+    const owner = await h.seedOwner('dm-canon-write-club', 'DM Canon Write Club');
+    const alice = await h.seedCompedMember(owner.club.id, 'DM Canon Alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'DM Canon Bob');
+
+    const result = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: `Looping in ${mentionSpan('Wrong Label', bob.id)}.`,
+    });
+    const sentMessage = message(result);
+    const mentions = sentMessage.mentions as Array<Record<string, unknown>>;
+
+    assert.equal(mentions.length, 1);
+    assert.equal(mentions[0]?.memberId, bob.id);
+    assert.equal(mentions[0]?.authoredLabel, bob.publicName);
+  });
+
+  it('canonicalises persisted spoofed DM mention labels on read', async () => {
+    const owner = await h.seedOwner('dm-canon-read-club', 'DM Canon Read Club');
+    const alice = await h.seedCompedMember(owner.club.id, 'DM Canon Read Alice');
+    const bob = await h.seedCompedMember(owner.club.id, 'DM Canon Read Bob');
+
+    const result = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: `Looping in ${mentionSpan('DM Canon Read Bob', bob.id)}.`,
+    });
+    const sentMessage = message(result);
+    const messageId = sentMessage.messageId as string;
+    const threadId = sentMessage.threadId as string;
+
+    await h.sql(
+      `update dm_message_mentions
+          set authored_label = 'Spoofed DM Label'
+        where message_id = $1`,
+      [messageId],
+    );
+
+    const readResult = await h.apiOk(alice.token, 'messages.get', { threadId });
+    const messages = (((readResult.data as Record<string, unknown>).messages as Record<string, unknown>).results) as Array<Record<string, unknown>>;
+    const readMessage = messages.find((row) => row.messageId === messageId) as Record<string, unknown>;
+    const mentions = readMessage.mentions as Array<Record<string, unknown>>;
+
+    assert.equal(mentions.length, 1);
+    assert.equal(mentions[0]?.memberId, bob.id);
+    assert.equal(mentions[0]?.authoredLabel, bob.publicName);
+  });
+
   it('scopes DM mentions to the thread participants only', async () => {
     const owner = await h.seedOwner('dm-scope-club', 'DM Scope Club');
     const alice = await h.seedCompedMember(owner.club.id, 'Scope Alice');

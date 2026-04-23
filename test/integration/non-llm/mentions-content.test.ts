@@ -81,6 +81,56 @@ describe('content mentions', () => {
     assert.match(String((createdContent.version as Record<string, unknown>).body), new RegExp(bogusId));
   });
 
+  it('canonicalises caller-supplied mention labels to the member publicName on write', async () => {
+    const owner = await h.seedOwner('mention-canon-write-club', 'Mention Canon Write Club');
+    const author = await h.seedCompedMember(owner.club.id, 'Canon Content Author');
+    const target = await h.seedCompedMember(owner.club.id, 'Canon Content Target');
+
+    const result = await h.apiOk(author.token, 'content.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      body: `Tagging ${mentionSpan('Wrong Label', target.id)}.`,
+    });
+    const createdContent = content(result);
+    const mentions = versionMentions(createdContent).body;
+
+    assert.equal(mentions.length, 1);
+    assert.equal(mentions[0]?.memberId, target.id);
+    assert.equal(mentions[0]?.authoredLabel, target.publicName);
+  });
+
+  it('canonicalises persisted spoofed mention labels on read', async () => {
+    const owner = await h.seedOwner('mention-canon-read-club', 'Mention Canon Read Club');
+    const author = await h.seedCompedMember(owner.club.id, 'Canon Read Author');
+    const target = await h.seedCompedMember(owner.club.id, 'Canon Read Target');
+
+    const result = await h.apiOk(author.token, 'content.create', {
+      clubId: owner.club.id,
+      kind: 'post',
+      body: `Tagging ${mentionSpan('Canon Read Target', target.id)}.`,
+    });
+    const createdContent = content(result);
+    const contentId = createdContent.id as string;
+    const threadId = createdContent.threadId as string;
+
+    await h.sql(
+      `update content_version_mentions cvm
+          set authored_label = 'Spoofed Content Label'
+         from content_versions cv
+        where cv.id = cvm.content_version_id
+          and cv.content_id = $1`,
+      [contentId],
+    );
+
+    const readResult = await h.apiOk(author.token, 'content.get', { threadId });
+    const firstContent = ((readResult.data as Record<string, unknown>).thread as Record<string, unknown>).firstContent as Record<string, unknown>;
+    const mentions = versionMentions(firstContent).body;
+
+    assert.equal(mentions.length, 1);
+    assert.equal(mentions[0]?.memberId, target.id);
+    assert.equal(mentions[0]?.authoredLabel, target.publicName);
+  });
+
   it('omits mentions for members outside the writer scope', async () => {
     const owner = await h.seedOwner('mention-scope-club', 'Mention Scope Club');
     const author = await h.seedCompedMember(owner.club.id, 'Scope Author');
