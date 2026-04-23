@@ -44,13 +44,13 @@ export type MessageRole = z.infer<typeof messageRole>;
 
 // ── Shared transforms ───────────────────────────────────
 
-/** Strip null bytes that Postgres rejects with "invalid byte sequence for encoding UTF8: 0x00" */
-function stripNullBytes(s: string): string {
-  return s.replace(/\0/g, '');
-}
+const FORBIDDEN_STRING_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
-/** Zod string base with null bytes stripped. Use as the starting point for all parse string schemas. */
-const safeString = z.string().transform(stripNullBytes);
+/** Zod string base that rejects terminal controls and invalid UTF-16 before storage. */
+const safeString = z.string().refine(
+  (value) => !FORBIDDEN_STRING_CHARS.test(value),
+  { message: 'Text contains forbidden control characters or invalid UTF-8' },
+);
 const OPAQUE_STRING_MAX_CHARS = 100_000;
 export const CLAWCLUB_TIMESTAMP_META = 'timestamp';
 

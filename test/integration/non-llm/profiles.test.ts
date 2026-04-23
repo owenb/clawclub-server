@@ -124,14 +124,15 @@ describe('member profiles', () => {
     assert.equal(err.code, 'invalid_input');
   });
 
-  it('accounts.updateIdentity strips null bytes from displayName', async () => {
+  it('accounts.updateIdentity rejects null bytes in displayName', async () => {
     const owner = await h.seedOwner('profiles-identity-nullbyte', 'ProfilesIdentityNullByte');
 
-    const result = await h.apiOk(owner.token, 'accounts.updateIdentity', {
+    const err = await h.apiErr(owner.token, 'accounts.updateIdentity', {
       displayName: 'Clean\u0000Name',
     });
-    const identity = result.data as Record<string, unknown>;
-    assert.equal(identity.displayName, 'CleanName');
+
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
   });
 
   it('members.updateProfile rejects non-http websiteUrl schemes', async () => {

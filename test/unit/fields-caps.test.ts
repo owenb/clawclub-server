@@ -26,6 +26,30 @@ test('parseRequiredString rejects opaque values above 100000 characters', () => 
   );
 });
 
+test('parseRequiredString rejects C0 controls and DEL while allowing tab newline carriage return', () => {
+  for (const value of ['bad\0text', 'bad\u0007text', 'bad\u001b[31mtext', 'bad\u007ftext']) {
+    assert.throws(
+      () => parseRequiredString.parse(value),
+      /forbidden control characters|invalid UTF-8/,
+      value,
+    );
+  }
+
+  assert.equal(parseRequiredString.parse('tab\tnewline\ncarriage\rreturn'), 'tab\tnewline\ncarriage\rreturn');
+});
+
+test('parseRequiredString rejects unpaired UTF-16 surrogates', () => {
+  for (const value of ['bad\uD800text', 'bad\uDC00text']) {
+    assert.throws(
+      () => parseRequiredString.parse(value),
+      /forbidden control characters|invalid UTF-8/,
+      value,
+    );
+  }
+
+  assert.equal(parseRequiredString.parse('paired 😀 text'), 'paired 😀 text');
+});
+
 test('parseOptionalRecord rejects records with more than 50 keys', () => {
   const value = Object.fromEntries(Array.from({ length: 51 }, (_, index) => [`key${index}`, index]));
   assert.throws(
