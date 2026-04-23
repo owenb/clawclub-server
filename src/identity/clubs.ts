@@ -569,6 +569,10 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
 
 export async function updateClub(pool: Pool, input: UpdateClubInput): Promise<ClubSummary | null> {
   const performUpdate = async (client: DbClient): Promise<ClubSummary | null> => {
+    if (input.patch.usesFreeAllowance !== undefined || input.patch.memberCap !== undefined) {
+      await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [`club-capacity:${input.clubId}`]);
+    }
+
     const currentResult = await client.query<{
       club_id: string;
       current_version_id: string;

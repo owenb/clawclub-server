@@ -228,6 +228,82 @@ describe('superadmin club-cap updates', () => {
     assert.equal(err.code, 'member_cap_below_current_count');
     assert.equal(gateCalls, 0, 'memberCap-only rejection should happen without running the gate');
   });
+
+  it('serializes free-allowance toggles against concurrent member creation', async () => {
+    const admin = await h.seedSuperadmin('Lifecycle Cap Race Admin');
+    const owner = await h.seedMember('Lifecycle Cap Race Owner');
+    const created = await h.apiOk(owner.token, 'clubs.create', {
+      clientKey: randomUUID(),
+      slug: 'member-cap-race-club',
+      name: 'Member Cap Race Club',
+      summary: 'A club used to verify cap updates serialize with joins.',
+      admissionPolicy: 'Tell us what you build and link one recent project.',
+    });
+    const clubId = String((((created.data as Record<string, unknown>).club as Record<string, unknown>).clubId));
+
+    await h.apiOk(admin.token, 'superadmin.clubs.update', {
+      clientKey: randomUUID(),
+      clubId,
+      usesFreeAllowance: false,
+      memberCap: 50,
+    });
+
+    for (let index = 0; index < 4; index += 1) {
+      const member = await h.seedMember(`Cap Race Member ${index}`);
+      await h.apiOk(admin.token, 'superadmin.memberships.create', {
+        clubId,
+        memberId: member.id,
+        initialStatus: 'active',
+      });
+    }
+
+    const overflow = await h.seedMember('Cap Race Overflow');
+    const [toggleResult, createResult] = await Promise.all([
+      h.api(admin.token, 'superadmin.clubs.update', {
+        clientKey: randomUUID(),
+        clubId,
+        usesFreeAllowance: true,
+      }),
+      h.api(admin.token, 'superadmin.memberships.create', {
+        clubId,
+        memberId: overflow.id,
+        initialStatus: 'active',
+      }),
+    ]);
+
+    const failures = [toggleResult, createResult].filter((result) => result.status !== 200);
+    assert.equal(failures.length, 1, 'exactly one side of the capacity race should lose');
+    const failureCode = String(((failures[0]?.body as Record<string, unknown>).error as Record<string, unknown>).code);
+    assert.ok(
+      failureCode === 'member_cap_reached' || failureCode === 'member_cap_below_current_count',
+      `unexpected race failure code: ${failureCode}`,
+    );
+
+    const [state] = await h.sql<{
+      uses_free_allowance: boolean;
+      member_cap: number | null;
+      active_count: string;
+    }>(
+      `select
+          cv.uses_free_allowance,
+          cv.member_cap,
+          (
+            select count(*)::text
+            from current_club_memberships cm
+            where cm.club_id = cv.club_id
+              and cm.status = 'active'
+              and cm.left_at is null
+          ) as active_count
+       from current_club_versions cv
+       where cv.club_id = $1`,
+      [clubId],
+    );
+    assert.ok(state, 'club version should still exist after the race');
+    const effectiveCap = state.uses_free_allowance ? 5 : state.member_cap;
+    if (effectiveCap !== null) {
+      assert.ok(Number(state.active_count) <= effectiveCap, 'final active count should respect the effective cap');
+    }
+  });
 });
 
 describe('removed club survivor guards', () => {
