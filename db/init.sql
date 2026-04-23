@@ -2989,6 +2989,7 @@ t	0	0	0	0	0	0	2026-04-21 01:00:00+01
 --
 
 COPY public.schema_migrations (filename, applied_at) FROM stdin;
+001_member_ephemeral_fk_cascade.sql	2026-04-23 22:59:00+01
 \.
 
 
@@ -4407,7 +4408,7 @@ ALTER TABLE ONLY public.club_activity_cursors
 --
 
 ALTER TABLE ONLY public.club_activity_cursors
-    ADD CONSTRAINT club_activity_cursors_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+    ADD CONSTRAINT club_activity_cursors_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id) ON DELETE CASCADE;
 
 
 --
@@ -5007,7 +5008,7 @@ ALTER TABLE ONLY public.invite_requests
 --
 
 ALTER TABLE ONLY public.member_bearer_tokens
-    ADD CONSTRAINT member_bearer_tokens_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+    ADD CONSTRAINT member_bearer_tokens_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id) ON DELETE CASCADE;
 
 
 --
@@ -5103,7 +5104,7 @@ ALTER TABLE ONLY public.member_profile_embeddings
 --
 
 ALTER TABLE ONLY public.member_profile_embeddings
-    ADD CONSTRAINT member_profile_embeddings_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id);
+    ADD CONSTRAINT member_profile_embeddings_member_fkey FOREIGN KEY (member_id) REFERENCES public.members(id) ON DELETE CASCADE;
 
 
 --
@@ -5201,4 +5202,3 @@ REVOKE ALL ON FUNCTION producer_contract.tail_activity(after_seq bigint, max_row
 --
 
 \unrestrict LMbNRhsTO7aZ6DUkSfA7AnUm6QpxisxIcFMDMZr1tNmZuIfgaUDQwOj3YeZrahe
-
