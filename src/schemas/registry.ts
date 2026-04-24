@@ -309,22 +309,55 @@ function normalizeRequiredCapabilities(action: Pick<ActionDefinition, 'requiredC
   return requiredCapabilities ? [...new Set(requiredCapabilities)] : undefined;
 }
 
-function strictActionInputSchema(schema: z.ZodType): z.ZodType {
-  if (!(schema instanceof z.ZodObject)) {
-    if (schema instanceof z.ZodDiscriminatedUnion) {
-      const discriminator = ((schema as unknown) as { _def: { discriminator: string } })._def.discriminator;
-      const strictOptions = ((schema as unknown) as { options: z.ZodObject[] }).options
-        .map((option) => option.strict());
-      return z.discriminatedUnion(discriminator, strictOptions as [z.ZodObject, ...z.ZodObject[]]);
+function cloneWithDef(schema: z.ZodTypeAny, patch: Record<string, unknown>): z.ZodTypeAny {
+  const cloned = ((schema as unknown) as {
+    _def: Record<string, unknown>;
+    clone: (def: Record<string, unknown>) => z.ZodTypeAny;
+  }).clone({
+    ...((schema as unknown) as { _def: Record<string, unknown> })._def,
+    ...patch,
+  });
+  return schema.description ? cloned.describe(schema.description) : cloned;
+}
+
+export function strictRecursive(schema: z.ZodTypeAny): z.ZodTypeAny {
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable || schema instanceof z.ZodDefault) {
+    return cloneWithDef(schema, {
+      innerType: strictRecursive(((schema as unknown) as { unwrap: () => z.ZodTypeAny }).unwrap()),
+    });
+  }
+  if (schema instanceof z.ZodArray) {
+    return cloneWithDef(schema, {
+      element: strictRecursive(((schema as unknown) as { element: z.ZodTypeAny }).element),
+    });
+  }
+  if (schema instanceof z.ZodObject) {
+    const shape: Record<string, z.ZodTypeAny> = {};
+    for (const [key, value] of Object.entries(schema.shape)) {
+      shape[key] = strictRecursive(value as z.ZodTypeAny);
     }
-    if (schema instanceof z.ZodUnion) {
-      const strictOptions = ((schema as unknown) as { options: z.ZodType[] }).options
-        .map((option) => option instanceof z.ZodObject ? option.strict() : option);
-      return z.union(strictOptions as [z.ZodType, z.ZodType, ...z.ZodType[]]);
-    }
+    const strictObject = cloneWithDef(schema, { shape }) as z.ZodObject;
+    const result = strictObject.strict();
+    return schema.description ? result.describe(schema.description) : result;
+  }
+  if (schema instanceof z.ZodDiscriminatedUnion || schema instanceof z.ZodUnion) {
+    return cloneWithDef(schema, {
+      options: ((schema as unknown) as { options: z.ZodTypeAny[] }).options
+        .map((option) => strictRecursive(option)),
+    });
+  }
+  return schema;
+}
+
+function applyStrictInputCanon(schema: z.ZodType): z.ZodType {
+  if (
+    !(schema instanceof z.ZodObject)
+    && !(schema instanceof z.ZodDiscriminatedUnion)
+    && !(schema instanceof z.ZodUnion)
+  ) {
     throw new Error(`Action input schema root must be ZodObject or object union, got ${schema.constructor.name}`);
   }
-  return schema.strict();
+  return strictRecursive(schema);
 }
 
 /**
@@ -349,11 +382,11 @@ export function registerActions(actions: ActionDefinition[]): void {
       requiredCapabilities,
       wire: {
         ...action.wire,
-        input: strictActionInputSchema(action.wire.input),
+        input: applyStrictInputCanon(action.wire.input),
       },
       parse: {
         ...action.parse,
-        input: strictActionInputSchema(action.parse.input),
+        input: applyStrictInputCanon(action.parse.input),
       },
     });
   }
@@ -384,6 +417,17 @@ export function parseActionInput<T>(def: ActionDefinition, payload: unknown): T 
     const discriminatorMessage = formatDiscriminatorMismatch(def.parse.input, err, payload);
     const path = err.path.length > 0 ? `${err.path.join('.')}: ` : '';
     const appErr = new AppError('invalid_input', discriminatorMessage ?? `${path}${err.message}`);
+    appErr.details = {
+      issues: result.error.issues.map((issue) => {
+        const issueRecord = issue as unknown as Record<string, unknown>;
+        return {
+          code: issue.code,
+          path: issue.path,
+          message: issue.message,
+          ...(Array.isArray(issueRecord.keys) ? { keys: issueRecord.keys } : {}),
+        };
+      }),
+    };
     appErr.requestTemplate = generateRequestTemplate(def);
     throw appErr;
   }
