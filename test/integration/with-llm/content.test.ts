@@ -245,7 +245,7 @@ describe('events', () => {
       eventId,
       response: 'yes',
     });
-    const rsvpedEvent = (rsvpResult.data as Record<string, unknown>).event as Record<string, unknown>;
+    const rsvpedEvent = (rsvpResult.data as Record<string, unknown>).content as Record<string, unknown>;
     const rsvps = rsvpedEvent.rsvps as Record<string, unknown>;
     assert.equal(rsvps.viewerResponse, 'yes');
     const counts = rsvps.counts as Record<string, number>;
