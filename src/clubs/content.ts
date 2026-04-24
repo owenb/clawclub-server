@@ -1488,7 +1488,7 @@ async function loadThreadSummaryRows(
          and (
            e.open_loop is null
            or e.open_loop = true
-           or ($5::boolean and e.author_member_id = $4)
+           or $5::boolean
          )
      )
      select

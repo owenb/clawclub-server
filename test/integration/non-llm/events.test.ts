@@ -332,10 +332,11 @@ describe('events', () => {
     assert.equal((details.content as Record<string, unknown>).id, post.id);
   });
 
-  it('concurrent last-seat RSVPs settle to one yes and one waitlist', async () => {
+  it('concurrent last-seat RSVPs settle cleanly to one yes and the rest waitlist', async () => {
     const owner = await h.seedOwner('evt-rsvp-race', 'EvtRsvpRace');
     const firstAttendee = await h.seedCompedMember(owner.club.id, 'Race First');
     const secondAttendee = await h.seedCompedMember(owner.club.id, 'Race Second');
+    const thirdAttendee = await h.seedCompedMember(owner.club.id, 'Race Third');
 
     const created = await createEvent(owner.token, owner.club.id, {
       title: 'Race Event',
@@ -350,22 +351,34 @@ describe('events', () => {
     });
 
     await withInsertDelay('event_rsvps', async () => {
-      const [first, second] = await Promise.all([
-        h.apiOk(firstAttendee.token, 'events.setRsvp', {
+      const responses = await Promise.all([
+        h.api(firstAttendee.token, 'events.setRsvp', {
           eventId: created.id,
           response: 'yes',
           note: 'Race first',
         }),
-        h.apiOk(secondAttendee.token, 'events.setRsvp', {
+        h.api(secondAttendee.token, 'events.setRsvp', {
           eventId: created.id,
           response: 'yes',
           note: 'Race second',
         }),
+        h.api(thirdAttendee.token, 'events.setRsvp', {
+          eventId: created.id,
+          response: 'yes',
+          note: 'Race third',
+        }),
       ]);
 
-      const firstResponse = (((first.data as Record<string, unknown>).content as Record<string, unknown>).rsvps as Record<string, unknown>).viewerResponse;
-      const secondResponse = (((second.data as Record<string, unknown>).content as Record<string, unknown>).rsvps as Record<string, unknown>).viewerResponse;
-      assert.deepEqual([firstResponse, secondResponse].sort(), ['waitlist', 'yes']);
+      assert.deepEqual(responses.map(response => response.status), [200, 200, 200]);
+      assert.deepEqual(responses.map(response => response.body.ok), [true, true, true]);
+
+      const viewerResponses = responses.map((response) => {
+        const data = response.body.data as Record<string, unknown>;
+        const content = data.content as Record<string, unknown>;
+        const rsvps = content.rsvps as Record<string, unknown>;
+        return rsvps.viewerResponse;
+      });
+      assert.deepEqual(viewerResponses.sort(), ['waitlist', 'waitlist', 'yes']);
     });
 
     const ownerView = await h.apiOk(owner.token, 'content.get', { contentId: created.id });
@@ -376,7 +389,7 @@ describe('events', () => {
       yes: 1,
       maybe: 0,
       no: 0,
-      waitlist: 1,
+      waitlist: 2,
     });
   });
 

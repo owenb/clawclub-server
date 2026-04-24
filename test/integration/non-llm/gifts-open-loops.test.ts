@@ -97,7 +97,7 @@ describe('gifts and open loops', () => {
     );
   });
 
-  it('closeLoop is idempotent, hidden by default, private with includeClosed, and reopen makes the loop visible again', async () => {
+  it('closeLoop is idempotent, hidden by default, visible with includeClosed, and reopen makes the loop visible again', async () => {
     const owner = await h.seedOwner('gift-close', 'Gift Close Club');
     const author = await h.seedCompedMember(owner.club.id, 'Loop Author');
     const viewer = await h.seedCompedMember(owner.club.id, 'Loop Viewer');
@@ -144,12 +144,19 @@ describe('gifts and open loops', () => {
     assert.equal(closedIds.includes(gift.id as string), true);
     assert.equal(closedIds.includes(post.id as string), true);
 
+    const viewerDefaultList = await h.apiOk(viewer.token, 'content.list', {
+      clubId: owner.club.id,
+    });
+    const viewerDefaultIds = listedFirstContentIds(viewerDefaultList as Record<string, unknown>);
+    assert.equal(viewerDefaultIds.includes(gift.id as string), false);
+    assert.equal(viewerDefaultIds.includes(post.id as string), true);
+
     const viewerClosedList = await h.apiOk(viewer.token, 'content.list', {
       clubId: owner.club.id,
       includeClosed: true,
     });
     const viewerIds = listedFirstContentIds(viewerClosedList as Record<string, unknown>);
-    assert.equal(viewerIds.includes(gift.id as string), false);
+    assert.equal(viewerIds.includes(gift.id as string), true);
     assert.equal(viewerIds.includes(post.id as string), true);
 
     const reopened = await h.apiOk(author.token, 'content.setLoopState', {

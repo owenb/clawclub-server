@@ -124,6 +124,18 @@ async function countLiveYesRsvps(client: DbClient, eventId: string): Promise<num
   return result.rows[0]?.yes_count ?? 0;
 }
 
+async function lockEventRsvpCapacityIfNeeded(
+  client: DbClient,
+  eventId: string,
+  input: {
+    requestedResponse: EventRsvpState;
+    capacity: number | null;
+  },
+): Promise<void> {
+  if (input.requestedResponse !== 'yes' || input.capacity === null) return;
+  await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [`event-rsvp-capacity:${eventId}`]);
+}
+
 function resolveStoredRsvpResponse(input: {
   requestedResponse: EventRsvpState;
   currentResponse: EventRsvpNotificationResponse | null;
@@ -325,6 +337,10 @@ export async function rsvpEvent(pool: Pool, input: {
 
       await assertEventRsvpWriteAvailable(client, input.eventId, membership.membershipId);
       assertEventRsvpsOpen(event);
+      await lockEventRsvpCapacityIfNeeded(client, input.eventId, {
+        requestedResponse: input.response,
+        capacity: event.capacity,
+      });
 
       const currentRsvp = await readCurrentEventRsvp(client, input.eventId, membership.membershipId);
       const storedResponse = resolveStoredRsvpResponse({
