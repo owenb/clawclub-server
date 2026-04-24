@@ -441,7 +441,7 @@ export const clubSummary = z.object({
   owner: z.object({
     memberId: z.string(),
     publicName: z.string(),
-      email: z.string().nullable(),
+    email: z.string().nullable(),
   }),
   version: versionBase.extend({
     status: z.enum(['active', 'archived']),
@@ -515,7 +515,7 @@ export const adminOverview = z.object({
   recentMembers: z.array(z.object({
     memberId: z.string(),
     publicName: z.string(),
-      createdAt: timestampString,
+    createdAt: timestampString,
   })),
 });
 
