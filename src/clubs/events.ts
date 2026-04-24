@@ -26,6 +26,7 @@ async function viewerMembershipIdsForClubs(pool: Pool, actorMemberId: string, cl
 type EventIdentity = {
   contentId: string;
   clubId: string;
+  kind: Content['kind'];
   authorMemberId: string;
   clubSlug: string;
   clubName: string;
@@ -45,6 +46,7 @@ async function resolveEventIdentity(
   const result = await db.query<EventIdentity>(
     `select e.id as "contentId",
             e.club_id as "clubId",
+            e.kind::text as "kind",
             e.author_member_id as "authorMemberId",
             c.slug as "clubSlug",
             c.name as "clubName",
@@ -59,7 +61,6 @@ async function resolveEventIdentity(
      join clubs c on c.id = e.club_id
      left join event_version_details evd on evd.content_version_id = cev.id
      where e.id = $1
-       and e.kind = 'event'
        and e.club_id = any($2::text[])
        and e.archived_at is null
        and e.deleted_at is null
@@ -68,6 +69,26 @@ async function resolveEventIdentity(
     [eventId, clubIds],
   );
   return result.rows[0] ?? null;
+}
+
+async function throwInvalidEventTarget(
+  client: DbClient,
+  input: {
+    event: EventIdentity;
+    actorMemberId: string;
+    membershipId: string;
+  },
+): Promise<never> {
+  const content = await readContentBundle(
+    client,
+    input.event.contentId,
+    [input.membershipId],
+    { memberId: input.actorMemberId },
+    { includeExpired: true },
+  );
+  throw new AppError('invalid_state', 'Content is not an event.', {
+    details: content.content ? { content: content.content, included: content.included } : undefined,
+  });
 }
 
 type EventRsvpNotificationResponse = EventRsvpState | 'cancelled';
@@ -294,6 +315,13 @@ export async function rsvpEvent(pool: Pool, input: {
 
       const membership = input.accessibleMemberships.find(item => item.clubId === event.clubId);
       if (!membership) return null;
+      if (event.kind !== 'event') {
+        await throwInvalidEventTarget(client, {
+          event,
+          actorMemberId: input.actorMemberId,
+          membershipId: membership.membershipId,
+        });
+      }
 
       await assertEventRsvpWriteAvailable(client, input.eventId, membership.membershipId);
       assertEventRsvpsOpen(event);
@@ -370,6 +398,13 @@ export async function cancelEventRsvp(pool: Pool, input: {
 
     const membership = input.accessibleMemberships.find(item => item.clubId === event.clubId);
     if (!membership) return null;
+    if (event.kind !== 'event') {
+      await throwInvalidEventTarget(client, {
+        event,
+        actorMemberId: input.actorMemberId,
+        membershipId: membership.membershipId,
+      });
+    }
 
     await assertEventRsvpWriteAvailable(client, input.eventId, membership.membershipId);
     assertEventRsvpsOpen(event);

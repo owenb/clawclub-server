@@ -98,15 +98,16 @@ describe('smoke', () => {
     assert.ok(contentCreateErrorCodes.has('quota_exceeded'), 'content.create should document quota_exceeded');
     assert.ok(contentCreateErrorCodes.has('illegal_content'), 'content.create should document illegal_content');
     assert.ok(contentCreateErrorCodes.has('gate_unavailable'), 'content.create should document gate_unavailable');
-    assert.equal(contentCreateErrorCodes.has('invalid_mentions'), false, 'content.create should not document invalid_mentions');
+    assert.ok(contentCreateErrorCodes.has('invalid_mentions'), 'content.create should document invalid_mentions');
 
     const contentUpdate = data.actions.find((a) => a.action === 'content.update');
     const contentUpdateErrorCodes = new Set(contentUpdate?.businessErrors?.map((error) => error.code) ?? []);
-    assert.equal(contentUpdateErrorCodes.has('invalid_mentions'), false, 'content.update should not document invalid_mentions');
+    assert.ok(contentUpdateErrorCodes.has('invalid_mentions'), 'content.update should document invalid_mentions');
+    assert.ok(contentUpdateErrorCodes.has('forbidden'), 'content.update should document forbidden');
 
     const messagesSendAction = data.actions.find((a) => a.action === 'messages.send');
     const messagesSendErrorCodes = new Set(messagesSendAction?.businessErrors?.map((error) => error.code) ?? []);
-    assert.equal(messagesSendErrorCodes.has('invalid_mentions'), false, 'messages.send should not document invalid_mentions');
+    assert.ok(messagesSendErrorCodes.has('invalid_mentions'), 'messages.send should document invalid_mentions');
 
     const accountsRegister = data.actions.find((a) => a.action === 'accounts.register');
     assert.ok(accountsRegister, 'accounts.register should exist');

@@ -159,11 +159,11 @@ const updatesAcknowledge: ActionDefinition = {
         z.object({
           kind: z.literal('notification'),
           notificationIds: z.array(z.string().min(1)).min(1),
-        }),
+        }).strict(),
         z.object({
           kind: z.literal('thread'),
           threadId: wireRequiredString.describe('Thread to mark as read'),
-        }),
+        }).strict(),
       ]),
     }),
     output: z.discriminatedUnion('kind', [
@@ -184,11 +184,11 @@ const updatesAcknowledge: ActionDefinition = {
         z.object({
           kind: z.literal('notification'),
           notificationIds: z.array(z.string().trim().min(1)).min(1).transform((ids) => [...new Set(ids)]),
-        }),
+        }).strict(),
         z.object({
           kind: z.literal('thread'),
           threadId: parseRequiredString,
-        }),
+        }).strict(),
       ]),
     }),
   },

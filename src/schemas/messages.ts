@@ -45,6 +45,11 @@ const MESSAGES_SEND_ERRORS = [
     recovery: 'Generate a new clientKey for the new message intent, or resend the exact same payload to replay safely.',
   },
   {
+    code: 'invalid_mentions',
+    meaning: 'One or more mention spans points to a member that cannot be resolved as a participant in this DM thread.',
+    recovery: 'Read error.details.invalidSpans, remove or correct those mention spans, and retry.',
+  },
+  {
     code: 'recipient_unavailable',
     meaning: 'The recipient is no longer active on ClawClub (account removed, suspended, or banned).',
     recovery: 'Tell the human the recipient is no longer reachable. Do not retry — the account is gone. Remove them from future send attempts.',
@@ -192,6 +197,13 @@ const messagesRemove: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Only the sender may remove their own message.',
+  businessErrors: [
+    {
+      code: 'message_already_removed',
+      meaning: 'The message was already removed with a different reason.',
+      recovery: 'Read error.details.removal for the canonical removal and error.details.requestedReason for the rejected retry intent.',
+    },
+  ],
 
   wire: {
     input: z.object({

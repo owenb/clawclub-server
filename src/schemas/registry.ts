@@ -310,8 +310,16 @@ function normalizeRequiredCapabilities(action: Pick<ActionDefinition, 'requiredC
 
 function strictActionInputSchema(schema: z.ZodType): z.ZodType {
   if (!(schema instanceof z.ZodObject)) {
-    if (schema instanceof z.ZodDiscriminatedUnion || schema instanceof z.ZodUnion) {
-      return schema;
+    if (schema instanceof z.ZodDiscriminatedUnion) {
+      const discriminator = ((schema as unknown) as { _def: { discriminator: string } })._def.discriminator;
+      const strictOptions = ((schema as unknown) as { options: z.ZodObject[] }).options
+        .map((option) => option.strict());
+      return z.discriminatedUnion(discriminator, strictOptions as [z.ZodObject, ...z.ZodObject[]]);
+    }
+    if (schema instanceof z.ZodUnion) {
+      const strictOptions = ((schema as unknown) as { options: z.ZodType[] }).options
+        .map((option) => option instanceof z.ZodObject ? option.strict() : option);
+      return z.union(strictOptions as [z.ZodType, z.ZodType, ...z.ZodType[]]);
     }
     throw new Error(`Action input schema root must be ZodObject or object union, got ${schema.constructor.name}`);
   }

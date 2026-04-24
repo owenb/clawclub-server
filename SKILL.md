@@ -419,7 +419,7 @@ The bracket syntax `[Display Name|memberId]` is a **wire-level encoding**, not s
    - **If exactly one match is obvious from context**, convert the reference silently without asking. Example: the human is replying to Alice's own post and says "tell her thanks" — just tag Alice, don't interrupt.
    - **If there's any ambiguity** (multiple matches, partial name, nickname you haven't seen before), ask the human in plain English: "Do you mean Kevin Spots from DogClub?" Confirm with them. If they say yes, insert the mention silently on submit. If they say no or pick someone else, use that id instead. If they want it to stay as plain text, leave it alone.
    - **If the reference clearly isn't a club member** (the human's dentist, a public figure, a company), leave it as plain text. Not everything is a tag.
-4. When you submit `content.create` / `content.update` / `messages.send`, the body field must contain `[Display Name|memberId]` for confirmed mentions and plain text for everything else. The `Display Name` portion is whatever the human wrote — "Kev", "Kevin", "Kevin Spots" — all fine, the server preserves it as `authoredLabel`.
+4. When you submit `content.create` / `content.update` / `messages.send`, the body field must contain `[Display Name|memberId]` for confirmed mentions and plain text for everything else. The `Display Name` portion is whatever the human wrote — "Kev", "Kevin", "Kevin Spots" — all fine; the server canonicalizes response `authoredLabel` to the member's current `publicName`.
 
 **When reading content back to the human**
 
@@ -430,7 +430,7 @@ Responses include mention spans with `{ memberId, authoredLabel, start, end }` a
 - The bracket syntax is internal plumbing. The human never sees it and never types it.
 - Disambiguate in plain English. Don't paste `[Name|id]` into a confirmation prompt.
 - Better to leave a name as plain text than tag the wrong member. Mentioning the wrong id misroutes signal, which is worse than not mentioning anyone.
-- Unknown member ids return `invalid_mentions` — relay the meaning to the human, do not retry with a fabricated id.
+- Unknown or inaccessible member ids return `invalid_mentions` with `details.invalidSpans[]` entries shaped like `{ mentionText, memberId, reason: "not_resolvable" }`. Relay the meaning to the human, remove or correct those spans, and do not retry with a fabricated id.
 - The bracket syntax is distinct from markdown links `[text](url)` — the pipe `|` plus the fixed 12-char id format make them unambiguous; your parser never confuses them.
 
 **Wire-level shape (for reference, not for the human)**
@@ -454,7 +454,7 @@ Responses include mention spans with `{ memberId, authoredLabel, start, end }` a
 }
 ```
 
-The server resolves mentions at write time (existence check only — the id must refer to an existing member) and re-hydrates the mentioned member's current identity on every read. Recipients always see the latest display name, even after a rename.
+The server resolves mentions at write time against the writer's context and re-hydrates the mentioned member's current identity on every read. Public content mentions must resolve inside the writer's club scope. DM mentions must resolve to a participant in that DM thread. Recipients always see the latest display name, even after a rename.
 
 ## When To Clarify First
 
@@ -548,6 +548,8 @@ Same quality bar as vouching: who they are, what you've seen them do, and why th
 - Before consumption (no application exists yet): the sponsor or any clubadmin in the club can revoke, which cancels the invitation outright.
 - After consumption, while the resulting application is still live (`revision_required` or `awaiting_review`): only the **original sponsor** can call it. This does not mutate the application; it records a symbolic withdrawal of support. The admin surface for the application flips `sponsorshipStillOpen` to `false` but keeps the frozen `inviteReasonSnapshot` visible.
 - After the application reaches a terminal state (`active`, `declined`, `banned`, `removed`, `withdrawn`): revoke is rejected as terminal. The provenance snapshot is preserved as-is.
+
+Already-terminal mutation attempts return typed 409 conflicts instead of `ok:true` replays when the new intent is not a semantic no-op. `content_already_removed` returns `details.content` with the canonical removed content payload, `message_already_removed` returns `details.removal` plus `details.requestedReason` when the retry reason differs, and `invitation_already_revoked` / `invitation_already_expired` return `details.invitation` with the canonical invitation summary. Treat those details as the current state and stop retrying the same mutation intent.
 
 DM outreach, inviting, and vouching are separate:
 - **DM outreach** (`messages.send`) = private nudge to an existing member telling them to apply through the normal route

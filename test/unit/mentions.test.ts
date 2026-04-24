@@ -16,6 +16,7 @@ test('extractMentionCandidates parses [Label|id] spans with offsets', () => {
   const start = text.indexOf(`[`);
   const end = text.indexOf(`]`) + 1;
   assert.deepEqual(mentions, [{
+    text: `[Kilian Valdman|${ALICE_ID}]`,
     authoredLabel: 'Kilian Valdman',
     memberId: ALICE_ID,
     start,
@@ -85,6 +86,7 @@ test('extractMentionCandidates uses UTF-16 offsets for non-ASCII text', () => {
   const start = text.indexOf('[');
   const end = text.indexOf(']') + 1;
   assert.deepEqual(mentions, [{
+    text: `[Alice|${ALICE_ID}]`,
     authoredLabel: 'Alice',
     memberId: ALICE_ID,
     start,

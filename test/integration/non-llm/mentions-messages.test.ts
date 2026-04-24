@@ -56,20 +56,27 @@ describe('message mentions', () => {
     assert.equal(included(threadAfterRename)[bob.id]?.displayName, 'Bob (renamed)');
   });
 
-  it('silently omits DM mentions with unknown member ids', async () => {
+  it('rejects DM mentions with unknown member ids', async () => {
     const owner = await h.seedOwner('dm-unknown-club', 'DM Unknown Club');
     const alice = await h.seedCompedMember(owner.club.id, 'Unknown Alice');
     const bob = await h.seedCompedMember(owner.club.id, 'Unknown Bob');
 
     const bogusId = 'zzzzzzzzzzzz';
-    const result = await h.apiOk(alice.token, 'messages.send', {
+    const result = await h.api(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
       messageText: `Trying to ping ${mentionSpan('Ghost', bogusId)} before activation.`,
     });
-    const sentMessage = message(result);
-    assert.deepEqual(sentMessage.mentions, []);
-    assert.deepEqual(included(result), {});
-    assert.match(String(sentMessage.messageText), new RegExp(bogusId));
+    assert.equal(result.status, 409);
+    assert.equal(result.body.ok, false);
+    const error = result.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invalid_mentions');
+    const details = error.details as Record<string, unknown>;
+    const invalidSpans = details.invalidSpans as Array<Record<string, unknown>>;
+    assert.deepEqual(invalidSpans, [{
+      mentionText: mentionSpan('Ghost', bogusId),
+      memberId: bogusId,
+      reason: 'not_resolvable',
+    }]);
   });
 
   it('canonicalises caller-supplied DM mention labels to the member publicName on write', async () => {
@@ -119,31 +126,34 @@ describe('message mentions', () => {
     assert.equal(mentions[0]?.authoredLabel, bob.publicName);
   });
 
-  it('scopes DM mentions to the thread participants only', async () => {
+  it('rejects DM mentions outside the thread participants', async () => {
     const owner = await h.seedOwner('dm-scope-club', 'DM Scope Club');
     const alice = await h.seedCompedMember(owner.club.id, 'Scope Alice');
     const bob = await h.seedCompedMember(owner.club.id, 'Scope Bob');
     const carol = await h.seedCompedMember(owner.club.id, 'Scope Carol');
 
-    const result = await h.apiOk(alice.token, 'messages.send', {
+    const result = await h.api(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
       messageText: `Trying to loop in ${mentionSpan('Scope Carol', carol.id)}.`,
     });
-    const sentMessage = message(result);
-    assert.deepEqual(sentMessage.mentions, []);
-    assert.deepEqual(included(result), {});
-    assert.match(String(sentMessage.messageText), new RegExp(carol.id));
+    assert.equal(result.status, 409);
+    assert.equal(result.body.ok, false);
+    const error = result.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invalid_mentions');
+    const details = error.details as Record<string, unknown>;
+    const invalidSpans = details.invalidSpans as Array<Record<string, unknown>>;
+    assert.equal(invalidSpans[0]?.memberId, carol.id);
+    assert.equal(invalidSpans[0]?.reason, 'not_resolvable');
   });
 
   it('suppresses mentions on removed messages', async () => {
     const owner = await h.seedOwner('dm-remove-mention-club', 'DM Remove Mention Club');
     const alice = await h.seedCompedMember(owner.club.id, 'Remove Alice');
     const bob = await h.seedCompedMember(owner.club.id, 'Remove Bob');
-    const carol = await h.seedCompedMember(owner.club.id, 'Remove Carol');
 
     const sendResult = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
-      messageText: `This is just for ${mentionSpan('Remove Carol', carol.id)}.`,
+      messageText: `This is just for ${mentionSpan('Remove Bob', bob.id)}.`,
     });
     const sentMessage = message(sendResult);
 
@@ -160,6 +170,5 @@ describe('message mentions', () => {
     assert.deepEqual(memberMessages[0]?.mentions, []);
     assert.equal(included(memberThread)[alice.id]?.memberId, alice.id);
     assert.equal(included(memberThread)[bob.id]?.memberId, bob.id);
-    assert.equal(included(memberThread)[carol.id], undefined);
   });
 });

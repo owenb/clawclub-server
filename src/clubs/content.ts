@@ -425,6 +425,25 @@ async function getViewerMembershipIds(client: DbClient, memberId: string, clubId
   return result.rows.map(row => row.membership_id);
 }
 
+async function buildContentErrorDetails(
+  client: DbClient,
+  input: {
+    contentId: string;
+    actorMemberId: string;
+    clubId: string;
+  },
+): Promise<WithIncluded<{ content: Content }> | undefined> {
+  const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, input.clubId);
+  const bundle = await readContentBundle(
+    client,
+    input.contentId,
+    viewerMembershipIds,
+    { memberId: input.actorMemberId },
+    { includeExpired: true },
+  );
+  return bundle.content ? { content: bundle.content, included: bundle.included } : undefined;
+}
+
 async function assertAuthorCanPostInClub(client: DbClient, memberId: string, clubId: string): Promise<void> {
   const result = await client.query<{ ok: boolean }>(
     `select exists(
@@ -925,14 +944,16 @@ export async function updateContent(pool: Pool, input: UpdateContentInput): Prom
        left join event_version_details evd on evd.content_version_id = cev.id
        where e.id = $1
          and e.club_id = any($2::text[])
-         and e.author_member_id = $3
          and e.archived_at is null
          and e.deleted_at is null
          and cev.state = 'published'`,
-      [input.id, input.accessibleClubIds, input.actorMemberId],
+      [input.id, input.accessibleClubIds],
     );
     const current = currentResult.rows[0];
     if (!current) return null;
+    if (current.author_member_id !== input.actorMemberId) {
+      throw new AppError('forbidden', 'Only the original author may update this content.');
+    }
 
     if (input.patch.event !== undefined && current.kind !== 'event') {
       throw new AppError('invalid_input', 'event fields may only be updated on event contents');
@@ -1229,7 +1250,7 @@ export async function removeContent(pool: Pool, input: {
 
     const isModeratorRemoval = input.moderatorRemoval !== undefined && input.moderatorRemoval !== null;
     if (!isModeratorRemoval && current.author_member_id !== input.actorMemberId) {
-      return null;
+      throw new AppError('forbidden', 'Only the original author may remove this content.');
     }
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, current.club_id);
@@ -1242,7 +1263,9 @@ export async function removeContent(pool: Pool, input: {
         { memberId: input.actorMemberId },
         { includeExpired: true },
       );
-      return existing.content ? { content: existing.content, included: existing.included } : null;
+      throw new AppError('content_already_removed', 'Content is already removed.', {
+        details: existing.content ? { content: existing.content, included: existing.included } : undefined,
+      });
     }
 
     let removeResult;
@@ -1313,24 +1336,47 @@ async function setContentLoopState(
   nextOpenLoop: boolean,
 ): Promise<WithIncluded<{ content: Content }> | null> {
   return withTransaction(pool, async (client) => {
-    const updateResult = await client.query<{ content_id: string; club_id: string }>(
-      `update contents e
-       set open_loop = $4
-       from current_content_versions cev
+    const currentResult = await client.query<{
+      content_id: string;
+      club_id: string;
+      author_member_id: string;
+      open_loop: boolean | null;
+    }>(
+      `select e.id as content_id,
+              e.club_id,
+              e.author_member_id,
+              e.open_loop
+       from contents e
+       join current_content_versions cev on cev.content_id = e.id
        where e.id = $1
          and e.club_id = any($2::text[])
-         and e.author_member_id = $3
          and e.archived_at is null
          and e.deleted_at is null
-         and e.open_loop is not null
-         and cev.content_id = e.id
-         and cev.state = 'published'
-       returning e.id as content_id, e.club_id`,
-      [input.id, input.accessibleClubIds, input.actorMemberId, nextOpenLoop],
+         and cev.state = 'published'`,
+      [input.id, input.accessibleClubIds],
     );
 
-    const row = updateResult.rows[0];
+    const row = currentResult.rows[0];
     if (!row) return null;
+    if (row.author_member_id !== input.actorMemberId) {
+      throw new AppError('forbidden', 'Only the original author may change this content loop state.');
+    }
+    if (row.open_loop === null) {
+      throw new AppError('invalid_state', 'Content is not loopable.', {
+        details: await buildContentErrorDetails(client, {
+          contentId: row.content_id,
+          actorMemberId: input.actorMemberId,
+          clubId: row.club_id,
+        }),
+      });
+    }
+
+    await client.query(
+      `update contents
+       set open_loop = $2
+       where id = $1`,
+      [row.content_id, nextOpenLoop],
+    );
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, row.club_id);
     const summary = await readContentBundle(

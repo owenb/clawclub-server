@@ -38,6 +38,16 @@ async function createEvent(token: string, clubId: string, overrides: Record<stri
   return (result.data as Record<string, unknown>).content as Record<string, unknown>;
 }
 
+async function createPost(token: string, clubId: string) {
+  const result = await h.apiOk(token, 'content.create', {
+    clubId,
+    kind: 'post',
+    title: 'Not an event',
+    body: 'This content is visible but cannot accept RSVPs.',
+  });
+  return (result.data as Record<string, unknown>).content as Record<string, unknown>;
+}
+
 async function withInsertDelay<T>(table: 'event_rsvps', run: () => Promise<T>): Promise<T> {
   const suffix = table.replace(/[^a-z0-9_]/g, '_');
   const functionName = `test_delay_${suffix}_insert`;
@@ -300,6 +310,24 @@ describe('events', () => {
     });
     assert.equal(err.status, 409);
     assert.equal(err.code, 'event_rsvp_closed');
+  });
+
+  it('events.setRsvp returns invalid_state for visible non-event content', async () => {
+    const owner = await h.seedOwner('evt-rsvp-non-event', 'Evt Rsvp Non Event');
+    const attendee = await h.seedCompedMember(owner.club.id, 'Non Event RSVP Attendee');
+    const post = await createPost(owner.token, owner.club.id);
+
+    const result = await h.api(attendee.token, 'events.setRsvp', {
+      eventId: post.id,
+      response: 'yes',
+    });
+
+    assert.equal(result.status, 409);
+    assert.equal(result.body.ok, false);
+    const error = result.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invalid_state');
+    const details = error.details as Record<string, unknown>;
+    assert.equal((details.content as Record<string, unknown>).id, post.id);
   });
 
   it('concurrent last-seat RSVPs settle to one yes and one waitlist', async () => {

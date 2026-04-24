@@ -462,7 +462,7 @@ test('createServer accepts unauthenticated accounts.register discover over POST 
       },
       body: JSON.stringify({
         action: 'accounts.register',
-        input: { mode: 'discover', clientKey: 'register-1' },
+        input: { mode: 'discover' },
       }),
     });
 
@@ -1003,7 +1003,7 @@ test('createServer accepts missing, empty, and matching ClawClub-Schema-Seen hea
         headers,
         body: JSON.stringify({
           action: 'accounts.register',
-          input: { mode: 'discover', clientKey: 'register-1' },
+          input: { mode: 'discover' },
         }),
       });
       const body = await response.json();

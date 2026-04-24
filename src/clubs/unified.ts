@@ -824,8 +824,15 @@ export async function revokeInvitation(pool: Pool, input: {
       );
       return updated.rows[0] ? mapInvitationSummary(updated.rows[0]) : mapInvitationSummary(invitation);
     }
-    if (invitation.revoked_at || invitation.expired_at || Date.parse(invitation.expires_at) <= Date.now()) {
-      return mapInvitationSummary(invitation);
+    if (invitation.revoked_at) {
+      throw new AppError('invitation_already_revoked', 'Invitation is already revoked.', {
+        details: { invitation: mapInvitationSummary(invitation) },
+      });
+    }
+    if (invitation.expired_at || Date.parse(invitation.expires_at) <= Date.now()) {
+      throw new AppError('invitation_already_expired', 'Invitation is already expired.', {
+        details: { invitation: mapInvitationSummary(invitation) },
+      });
     }
 
     const updated = await client.query<InvitationRow>(

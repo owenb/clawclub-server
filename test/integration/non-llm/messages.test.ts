@@ -624,6 +624,21 @@ describe('messages', () => {
     assert.equal(err.code, 'thread_not_found');
   });
 
+  it('updates.acknowledge rejects unknown fields inside the target union arm', async () => {
+    const owner = await h.seedOwner('msg-ack-strict', 'MsgAckStrict');
+
+    const err = await h.apiErr(owner.token, 'updates.acknowledge', {
+      target: {
+        kind: 'thread',
+        threadId: 'thread_missing',
+        unexpected: true,
+      },
+    });
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /Unrecognized key/i);
+  });
+
   it('duplicate clientKey sends return the original message without creating another row', async () => {
     const owner = await h.seedOwner('msg-client-key', 'MsgClientKey');
     const alice = await h.seedCompedMember(owner.club.id, 'Alice ClientKey');

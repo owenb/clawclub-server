@@ -67,6 +67,11 @@ const CONTENT_CREATE_ERRORS = [
     recovery: 'Generate a new clientKey for the new creation intent, or resend the exact same payload to replay safely.',
   },
   {
+    code: 'invalid_mentions',
+    meaning: 'One or more mention spans points to a member that cannot be resolved in the writer scope.',
+    recovery: 'Read error.details.invalidSpans, remove or correct those mention spans, and retry.',
+  },
+  {
     code: 'low_quality_content',
     meaning: 'The content gate rejected the submission for being too low-information or generic.',
     recovery: 'Relay the feedback to the user, add the missing concrete detail, and resubmit.',
@@ -93,6 +98,16 @@ const CONTENT_UPDATE_ERRORS = [
     code: 'client_key_conflict',
     meaning: 'The clientKey has already been used with a different content update payload.',
     recovery: 'Generate a fresh clientKey for a different update intent, or resend the exact same payload to replay safely.',
+  },
+  {
+    code: 'forbidden',
+    meaning: 'The content exists, but the caller is not allowed to update it.',
+    recovery: 'Only the original author can update content through content.update.',
+  },
+  {
+    code: 'invalid_mentions',
+    meaning: 'One or more changed mention spans points to a member that cannot be resolved in the writer scope.',
+    recovery: 'Read error.details.invalidSpans, remove or correct those mention spans, and retry.',
   },
   {
     code: 'low_quality_content',
@@ -562,6 +577,18 @@ const contentsRemove: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Only the original author may remove their own content.',
+  businessErrors: [
+    {
+      code: 'forbidden',
+      meaning: 'The content exists, but the caller is not the author.',
+      recovery: 'Do not retry as this actor. Ask the author or a club admin to remove the content.',
+    },
+    {
+      code: 'content_already_removed',
+      meaning: 'The content was already removed before this request.',
+      recovery: 'Read the canonical removed content in error.details.content and stop retrying the remove intent.',
+    },
+  ],
 
   wire: {
     input: z.object({
@@ -919,6 +946,18 @@ const contentSetLoopState: ActionDefinition = {
   auth: 'member',
   safety: 'mutating',
   authorizationNote: 'Only the original author may change the loop state of their own published loopable content.',
+  businessErrors: [
+    {
+      code: 'forbidden',
+      meaning: 'The content exists, but the caller is not the author.',
+      recovery: 'Do not retry as this actor. Ask the original author to change the loop state.',
+    },
+    {
+      code: 'invalid_state',
+      meaning: 'The content exists but is not a loopable kind.',
+      recovery: 'Only asks, gifts, services, and opportunities have open/closed loop state.',
+    },
+  ],
 
   wire: {
     input: z.object({

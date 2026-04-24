@@ -3118,6 +3118,11 @@
           "code": "invalid_state_transition",
           "meaning": "The requested membership status transition is not allowed from the current state.",
           "recovery": "Refresh the membership state and choose one of the legal next statuses for that current state."
+        },
+        {
+          "code": "invalid_state",
+          "meaning": "The requested role change is not valid for the membership current state.",
+          "recovery": "Role changes are only valid while the membership is active."
         }
       ],
       "description": "Update a member’s role and/or membership status inside one club.",
@@ -5446,6 +5451,11 @@
           "recovery": "Generate a new clientKey for the new creation intent, or resend the exact same payload to replay safely."
         },
         {
+          "code": "invalid_mentions",
+          "meaning": "One or more mention spans points to a member that cannot be resolved in the writer scope.",
+          "recovery": "Read error.details.invalidSpans, remove or correct those mention spans, and retry."
+        },
+        {
           "code": "low_quality_content",
           "meaning": "The content gate rejected the submission for being too low-information or generic.",
           "recovery": "Relay the feedback to the user, add the missing concrete detail, and resubmit."
@@ -7449,6 +7459,18 @@
       "action": "content.remove",
       "auth": "member",
       "authorizationNote": "Only the original author may remove their own content.",
+      "businessErrors": [
+        {
+          "code": "forbidden",
+          "meaning": "The content exists, but the caller is not the author.",
+          "recovery": "Do not retry as this actor. Ask the author or a club admin to remove the content."
+        },
+        {
+          "code": "content_already_removed",
+          "meaning": "The content was already removed before this request.",
+          "recovery": "Read the canonical removed content in error.details.content and stop retrying the remove intent."
+        }
+      ],
       "description": "Remove content inside a public content thread (author only).",
       "domain": "content",
       "input": {
@@ -8449,6 +8471,18 @@
       "action": "content.setLoopState",
       "auth": "member",
       "authorizationNote": "Only the original author may change the loop state of their own published loopable content.",
+      "businessErrors": [
+        {
+          "code": "forbidden",
+          "meaning": "The content exists, but the caller is not the author.",
+          "recovery": "Do not retry as this actor. Ask the original author to change the loop state."
+        },
+        {
+          "code": "invalid_state",
+          "meaning": "The content exists but is not a loopable kind.",
+          "recovery": "Only asks, gifts, services, and opportunities have open/closed loop state."
+        }
+      ],
       "description": "Open or close an ask, gift, service, or opportunity (author only).",
       "domain": "content",
       "input": {
@@ -8892,6 +8926,16 @@
           "code": "client_key_conflict",
           "meaning": "The clientKey has already been used with a different content update payload.",
           "recovery": "Generate a fresh clientKey for a different update intent, or resend the exact same payload to replay safely."
+        },
+        {
+          "code": "forbidden",
+          "meaning": "The content exists, but the caller is not allowed to update it.",
+          "recovery": "Only the original author can update content through content.update."
+        },
+        {
+          "code": "invalid_mentions",
+          "meaning": "One or more changed mention spans points to a member that cannot be resolved in the writer scope.",
+          "recovery": "Read error.details.invalidSpans, remove or correct those mention spans, and retry."
         },
         {
           "code": "low_quality_content",
@@ -9953,6 +9997,13 @@
     {
       "action": "events.setRsvp",
       "auth": "member",
+      "businessErrors": [
+        {
+          "code": "invalid_state",
+          "meaning": "The target content exists but is not an event.",
+          "recovery": "Use events.setRsvp only on content where kind=event."
+        }
+      ],
       "description": "Create, change, or clear the actor’s RSVP to a specific event. RSVP updates and cancellations close once the event starts and return event_rsvp_closed.",
       "domain": "events",
       "input": {
@@ -11198,6 +11249,16 @@
           "code": "invalid_state",
           "meaning": "This invitation can no longer be changed through revoke.",
           "recovery": "Treat terminal invitations as historical records. Live consumed invitations can only be withdrawn while their resulting application is still in revision_required or awaiting_review."
+        },
+        {
+          "code": "invitation_already_revoked",
+          "meaning": "The invitation was already revoked before this request.",
+          "recovery": "Read the canonical invitation in error.details.invitation and stop retrying the revoke intent."
+        },
+        {
+          "code": "invitation_already_expired",
+          "meaning": "The invitation was already expired before this request.",
+          "recovery": "Read the canonical invitation in error.details.invitation and issue a new invitation if appropriate."
         }
       ],
       "description": "Revoke one invitation issued by the caller or administered by the caller.",
@@ -12817,6 +12878,13 @@
       "action": "messages.remove",
       "auth": "member",
       "authorizationNote": "Only the sender may remove their own message.",
+      "businessErrors": [
+        {
+          "code": "message_already_removed",
+          "meaning": "The message was already removed with a different reason.",
+          "recovery": "Read error.details.removal for the canonical removal and error.details.requestedReason for the rejected retry intent."
+        }
+      ],
       "description": "Remove a DM (sender only).",
       "domain": "messages",
       "input": {
@@ -12889,6 +12957,11 @@
           "code": "client_key_conflict",
           "meaning": "The clientKey has already been used for a different conversation or message text.",
           "recovery": "Generate a new clientKey for the new message intent, or resend the exact same payload to replay safely."
+        },
+        {
+          "code": "invalid_mentions",
+          "meaning": "One or more mention spans points to a member that cannot be resolved as a participant in this DM thread.",
+          "recovery": "Read error.details.invalidSpans, remove or correct those mention spans, and retry."
         },
         {
           "code": "recipient_unavailable",
@@ -18917,5 +18990,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "f30abf50d0e3e155"
+  "schemaHash": "492881187c519a89"
 }

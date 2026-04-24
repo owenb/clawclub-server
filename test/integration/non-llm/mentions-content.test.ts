@@ -65,20 +65,27 @@ describe('content mentions', () => {
     assert.equal(included(thread)[kilian.id]?.displayName, 'Kilian (renamed)');
   });
 
-  it('silently omits mentions with unknown member ids', async () => {
+  it('rejects mentions with unknown member ids', async () => {
     const owner = await h.seedOwner('mention-unknown-club', 'Mention Unknown Club');
     const author = await h.seedCompedMember(owner.club.id, 'Unknown Author');
 
     const bogusId = 'zzzzzzzzzzzz'; // valid short_id format, does not exist
-    const result = await h.apiOk(author.token, 'content.create', {
+    const result = await h.api(author.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       body: `Pinging ${mentionSpan('Ghost', bogusId)} about something.`,
     });
-    const createdContent = content(result);
-    assert.deepEqual(versionMentions(createdContent).body, []);
-    assert.deepEqual(included(result), {});
-    assert.match(String((createdContent.version as Record<string, unknown>).body), new RegExp(bogusId));
+    assert.equal(result.status, 409);
+    assert.equal(result.body.ok, false);
+    const error = result.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invalid_mentions');
+    const details = error.details as Record<string, unknown>;
+    const invalidSpans = details.invalidSpans as Array<Record<string, unknown>>;
+    assert.deepEqual(invalidSpans, [{
+      mentionText: mentionSpan('Ghost', bogusId),
+      memberId: bogusId,
+      reason: 'not_resolvable',
+    }]);
   });
 
   it('canonicalises caller-supplied mention labels to the member publicName on write', async () => {
@@ -131,19 +138,24 @@ describe('content mentions', () => {
     assert.equal(mentions[0]?.authoredLabel, target.publicName);
   });
 
-  it('omits mentions for members outside the writer scope', async () => {
+  it('rejects mentions for members outside the writer scope', async () => {
     const owner = await h.seedOwner('mention-scope-club', 'Mention Scope Club');
     const author = await h.seedCompedMember(owner.club.id, 'Scope Author');
     const outsider = await h.seedMember('Outsider');
 
-    const result = await h.apiOk(author.token, 'content.create', {
+    const result = await h.api(author.token, 'content.create', {
       clubId: owner.club.id,
       kind: 'post',
       body: `Tagging ${mentionSpan('Outsider', outsider.id)}.`,
     });
-    const createdContent = content(result);
-    assert.deepEqual(versionMentions(createdContent).body, []);
-    assert.deepEqual(included(result), {});
+    assert.equal(result.status, 409);
+    assert.equal(result.body.ok, false);
+    const error = result.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invalid_mentions');
+    const details = error.details as Record<string, unknown>;
+    const invalidSpans = details.invalidSpans as Array<Record<string, unknown>>;
+    assert.equal(invalidSpans[0]?.memberId, outsider.id);
+    assert.equal(invalidSpans[0]?.reason, 'not_resolvable');
   });
 
   it('enforces mention caps on create', async () => {

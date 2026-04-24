@@ -312,6 +312,16 @@ const invitationsRevoke: ActionDefinition = {
       meaning: 'This invitation can no longer be changed through revoke.',
       recovery: 'Treat terminal invitations as historical records. Live consumed invitations can only be withdrawn while their resulting application is still in revision_required or awaiting_review.',
     },
+    {
+      code: 'invitation_already_revoked',
+      meaning: 'The invitation was already revoked before this request.',
+      recovery: 'Read the canonical invitation in error.details.invitation and stop retrying the revoke intent.',
+    },
+    {
+      code: 'invitation_already_expired',
+      meaning: 'The invitation was already expired before this request.',
+      recovery: 'Read the canonical invitation in error.details.invitation and issue a new invitation if appropriate.',
+    },
   ],
   wire: {
     input: z.object({

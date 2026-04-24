@@ -28,6 +28,7 @@ export type DmMentionReadScope =
   };
 
 type ExtractedMention = {
+  text: string;
   authoredLabel: string;
   memberId: string;
   start: number;
@@ -127,6 +128,7 @@ export function extractMentionCandidates(text: string | null | undefined): Extra
     if (label.trim().length === 0 || label !== label.trim()) continue;
 
     mentions.push({
+      text: match[0]!,
       authoredLabel: label,
       memberId,
       start,
@@ -200,6 +202,18 @@ function toCanonicalMentionSpans(
   return spans;
 }
 
+function throwInvalidMentions(mentions: ExtractedMention[]): never {
+  throw new AppError('invalid_mentions', 'One or more mentions could not be resolved in this context.', {
+    details: {
+      invalidSpans: mentions.map((mention) => ({
+        mentionText: mention.text,
+        memberId: mention.memberId,
+        reason: 'not_resolvable' as const,
+      })),
+    },
+  });
+}
+
 function canonicaliseMentionLabels(mentions: MentionSpan[], included: IncludedBundle): void {
   for (const mention of mentions) {
     const member = included.membersById[mention.memberId];
@@ -270,6 +284,10 @@ export async function resolvePublicContentMentions(
   const allMentions = [...extracted.title, ...extracted.summary, ...extracted.body];
   const ids = uniqueMemberIdsInOrder(allMentions);
   const allowedMemberIds = await loadContentScopedMemberIds(client, ids, writerScope);
+  const droppedMentions = allMentions.filter((mention) => !allowedMemberIds.has(mention.memberId));
+  if (droppedMentions.length > 0) {
+    throwInvalidMentions(droppedMentions);
+  }
   const included = await loadIncludedMembers(client, [...allowedMemberIds]);
 
   const mentions = {
@@ -294,6 +312,9 @@ export async function resolveDirectMessageMentions(
 
   const allowedParticipantIds = new Set(scope.threadParticipantIds);
   const allowedMentions = extracted.filter((mention) => allowedParticipantIds.has(mention.memberId));
+  if (allowedMentions.length !== extracted.length) {
+    throwInvalidMentions(extracted.filter((mention) => !allowedParticipantIds.has(mention.memberId)));
+  }
   const included = await loadIncludedMembers(client, uniqueMemberIdsInOrder(allowedMentions));
   const mentions = toCanonicalMentionSpans(allowedMentions, included);
   assertMentionLimits(new Set(mentions.map((mention) => mention.memberId)).size, mentions.length, 'message');
@@ -583,11 +604,11 @@ export async function preflightContentUpdateMentions(
     [input.id],
   );
   const current = currentResult.rows[0];
-  if (!current || current.author_member_id !== input.actorMemberId) {
+  if (!current || !input.actorClubIds.includes(current.club_id)) {
     throw new AppError('content_not_found', 'Content not found inside the actor scope');
   }
-  if (!input.actorClubIds.includes(current.club_id)) {
-    throw new AppError('content_not_found', 'Content not found inside the actor scope');
+  if (current.author_member_id !== input.actorMemberId) {
+    throw new AppError('forbidden', 'Only the original author may update this content.');
   }
 
   const changedFields: ContentMentionField[] = [];

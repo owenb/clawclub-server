@@ -94,6 +94,13 @@ const eventsSetRsvp: ActionDefinition = {
   description: 'Create, change, or clear the actor’s RSVP to a specific event. RSVP updates and cancellations close once the event starts and return event_rsvp_closed.',
   auth: 'member',
   safety: 'mutating',
+  businessErrors: [
+    {
+      code: 'invalid_state',
+      meaning: 'The target content exists but is not an event.',
+      recovery: 'Use events.setRsvp only on content where kind=event.',
+    },
+  ],
 
   wire: {
     input: z.object({

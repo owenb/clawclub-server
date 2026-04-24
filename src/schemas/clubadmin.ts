@@ -275,6 +275,11 @@ const clubadminMembersUpdate: ActionDefinition = {
       meaning: 'The requested membership status transition is not allowed from the current state.',
       recovery: 'Refresh the membership state and choose one of the legal next statuses for that current state.',
     },
+    {
+      code: 'invalid_state',
+      meaning: 'The requested role change is not valid for the membership current state.',
+      recovery: 'Role changes are only valid while the membership is active.',
+    },
   ],
 
   wire: {

@@ -165,7 +165,7 @@ describe('gifts and open loops', () => {
     assert.equal(reopenedIds.includes(gift.id as string), true);
   });
 
-  it('closeLoop returns 404 for posts, removed gifts, and another member’s gift', async () => {
+  it('closeLoop returns precise errors for posts, removed gifts, and another member’s gift', async () => {
     const owner = await h.seedOwner('gift-errors', 'Gift Errors Club');
     const author = await h.seedCompedMember(owner.club.id, 'Gift Owner');
     const viewer = await h.seedCompedMember(owner.club.id, 'Gift Viewer');
@@ -178,11 +178,16 @@ describe('gifts and open loops', () => {
     });
     const post = (postResult.data as Record<string, unknown>).content as Record<string, unknown>;
 
-    const postErr = await h.apiErr(author.token, 'content.setLoopState', {
+    const postErr = await h.api(author.token, 'content.setLoopState', {
       id: post.id,
       state: 'closed',
     });
-    assert.equal(postErr.code, 'content_not_found');
+    assert.equal(postErr.status, 409);
+    assert.equal(postErr.body.ok, false);
+    const postError = postErr.body.error as Record<string, unknown>;
+    assert.equal(postError.code, 'invalid_state');
+    const postDetails = postError.details as Record<string, unknown>;
+    assert.equal((postDetails.content as Record<string, unknown>).id, post.id);
 
     const removedGiftResult = await h.apiOk(author.token, 'content.create', {
       clubId: owner.club.id,
@@ -197,6 +202,7 @@ describe('gifts and open loops', () => {
       id: removedGift.id,
       state: 'closed',
     });
+    assert.equal(removedErr.status, 404);
     assert.equal(removedErr.code, 'content_not_found');
 
     const foreignGiftResult = await h.apiOk(author.token, 'content.create', {
@@ -211,7 +217,8 @@ describe('gifts and open loops', () => {
       id: foreignGift.id,
       state: 'closed',
     });
-    assert.equal(foreignErr.code, 'content_not_found');
+    assert.equal(foreignErr.status, 403);
+    assert.equal(foreignErr.code, 'forbidden');
   });
 
   it('closed loops are excluded from embedding search results', async () => {

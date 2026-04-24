@@ -278,6 +278,28 @@ describe('clubadmin.members.update', () => {
     assert.equal(block, undefined, 'cancelling a sponsor should not create an applicant block');
   });
 
+  it('rejects role patches on non-active memberships', async () => {
+    const owner = await h.seedOwner('role-non-active-club', 'Role Non Active Club');
+    const statuses = ['cancelled', 'removed', 'banned'] as const;
+
+    for (const status of statuses) {
+      const member = await h.seedCompedMember(owner.club.id, `Role ${status} Target`);
+      await h.apiOk(owner.token, 'clubadmin.members.update', {
+        clubId: owner.club.id,
+        memberId: member.id,
+        patch: { status, reason: `Move to ${status} before role patch.` },
+      });
+
+      const err = await h.apiErr(owner.token, 'clubadmin.members.update', {
+        clubId: owner.club.id,
+        memberId: member.id,
+        patch: { role: 'clubadmin' },
+      });
+      assert.equal(err.status, 409);
+      assert.equal(err.code, 'invalid_state');
+    }
+  });
+
   it('forbids a non-owner clubadmin from banning the club owner', async () => {
     const owner = await h.seedOwner('owner-ban-guard-club', 'Owner Ban Guard Club');
     const admin = await h.seedCompedMember(owner.club.id, 'Owner Ban Guard Admin');

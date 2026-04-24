@@ -1155,10 +1155,6 @@ export async function updateMembership(pool: Pool, input: UpdateMembershipInput)
       changed = true;
     };
 
-    if (input.patch.role && currentStatus === 'active') {
-      await applyRoleChange();
-    }
-
     if (input.patch.status && input.patch.status !== currentStatus) {
       await assertAdminStatusChangeAllowed(client, {
         clubId: membership.club_id,
@@ -1242,9 +1238,7 @@ export async function updateMembership(pool: Pool, input: UpdateMembershipInput)
       }
     }
 
-    if (input.patch.role && currentStatus === 'active') {
-      await applyRoleChange();
-    }
+    await applyRoleChange();
 
     const summary = await readMembershipSummary(client, membership.membership_id);
     if (!summary) return null;

@@ -13,18 +13,6 @@ after(async () => {
   await h?.stop();
 }, { timeout: 15_000 });
 
-function content(result: Record<string, unknown>): Record<string, unknown> {
-  return (result.data as Record<string, unknown>).content as Record<string, unknown>;
-}
-
-function included(result: Record<string, unknown>): Record<string, Record<string, unknown>> {
-  return ((result.data as Record<string, unknown>).included as Record<string, unknown>).membersById as Record<string, Record<string, unknown>>;
-}
-
-function versionMentions(contentResult: Record<string, unknown>): Record<string, Array<Record<string, unknown>>> {
-  return ((contentResult.version as Record<string, unknown>).mentions as Record<string, Array<Record<string, unknown>>>);
-}
-
 function mentionSpan(label: string, memberId: string): string {
   return `[${label}|${memberId}]`;
 }
@@ -37,7 +25,7 @@ describe('mention id probes', () => {
     const inaccessible = await h.seedCompedMember(clubY.club.id, 'Probe Inaccessible');
     const bogusId = 'zzzzzzzzzzzz';
 
-    const created = await h.apiOk(author.token, 'content.create', {
+    const result = await h.api(author.token, 'content.create', {
       clubId: clubX.club.id,
       kind: 'post',
       body: [
@@ -46,10 +34,21 @@ describe('mention id probes', () => {
       ].join(' '),
     });
 
-    const createdContent = content(created);
-    assert.deepEqual(versionMentions(createdContent).body, []);
-    assert.deepEqual(included(created), {});
-    assert.match(String((createdContent.version as Record<string, unknown>).body), new RegExp(inaccessible.id));
-    assert.match(String((createdContent.version as Record<string, unknown>).body), new RegExp(bogusId));
+    assert.equal(result.status, 409);
+    assert.equal(result.body.ok, false);
+    const error = result.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invalid_mentions');
+    const details = error.details as Record<string, unknown>;
+    const invalidSpans = details.invalidSpans as Array<Record<string, unknown>>;
+    assert.deepEqual(
+      invalidSpans.map((span) => ({
+        memberId: span.memberId,
+        reason: span.reason,
+      })),
+      [
+        { memberId: inaccessible.id, reason: 'not_resolvable' },
+        { memberId: bogusId, reason: 'not_resolvable' },
+      ],
+    );
   });
 });

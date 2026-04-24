@@ -675,12 +675,21 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         if (!skipAuthCheck && existing.rows[0].sender_member_id !== removedByMemberId) {
           return null;
         }
-        return {
+        const removal = {
           messageId: existing.rows[0].message_id,
           removedByMemberId: existing.rows[0].removed_by_member_id,
           reason: existing.rows[0].reason,
           removedAt: existing.rows[0].removed_at,
         };
+        if ((reason ?? null) === existing.rows[0].reason) {
+          return removal;
+        }
+        throw new AppError('message_already_removed', 'Message is already removed with a different reason.', {
+          details: {
+            removal,
+            requestedReason: reason ?? null,
+          },
+        });
       }
 
       // Verify the caller is the message sender (unless skipAuthCheck)

@@ -55,6 +55,16 @@ function rawPostWithHeaders(
 }
 
 describe('accounts.register', () => {
+  it('rejects unknown fields inside the discover union arm', async () => {
+    const err = await h.apiErr(null, 'accounts.register', {
+      mode: 'discover',
+      unexpected: true,
+    });
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+    assert.match(err.message, /Unrecognized key/i);
+  });
+
   it('discovers a PoW challenge and registers a zero-membership bearer holder', async () => {
     const challenge = await prepareAccountRegistration(h, 'register-discover-1');
     assert.ok(challenge.challengeBlob);

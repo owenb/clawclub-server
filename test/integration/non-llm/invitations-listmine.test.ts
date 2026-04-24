@@ -197,6 +197,46 @@ describe('invitations.list', () => {
       /^[A-HJ-KM-NP-TV-Z2-9]{4}-[A-HJ-KM-NP-TV-Z2-9]{4}$/,
     );
   });
+
+  it('revoke-then-revoke returns invitation_already_revoked with canonical invitation details', async () => {
+    const sponsor = await h.seedOwner('invite-revoke-conflict', 'Invite Revoke Conflict');
+    const invitation = await h.seedInvitation(sponsor.club.id, sponsor.id, 'already-revoked@example.com', {
+      candidateName: 'Already Revoked',
+      reason: 'Invitation used for revoke conflict coverage.',
+    });
+
+    await h.apiOk(sponsor.token, 'invitations.revoke', { invitationId: invitation.id });
+    const second = await h.api(sponsor.token, 'invitations.revoke', { invitationId: invitation.id });
+
+    assert.equal(second.status, 409);
+    assert.equal(second.body.ok, false);
+    const error = second.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invitation_already_revoked');
+    const details = error.details as Record<string, unknown>;
+    const current = details.invitation as Record<string, unknown>;
+    assert.equal(current.invitationId, invitation.id);
+    assert.equal(current.status, 'revoked');
+  });
+
+  it('revoke on an expired invitation returns invitation_already_expired', async () => {
+    const sponsor = await h.seedOwner('invite-expired-conflict', 'Invite Expired Conflict');
+    const invitation = await h.seedInvitation(sponsor.club.id, sponsor.id, 'already-expired@example.com', {
+      candidateName: 'Already Expired',
+      reason: 'Invitation used for expired conflict coverage.',
+      expiresAt: '2020-01-01T00:00:00Z',
+    });
+
+    const result = await h.api(sponsor.token, 'invitations.revoke', { invitationId: invitation.id });
+
+    assert.equal(result.status, 409);
+    assert.equal(result.body.ok, false);
+    const error = result.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invitation_already_expired');
+    const details = error.details as Record<string, unknown>;
+    const current = details.invitation as Record<string, unknown>;
+    assert.equal(current.invitationId, invitation.id);
+    assert.equal(current.status, 'expired');
+  });
 });
 
 describe('invitations.issue existing-member delivery', () => {

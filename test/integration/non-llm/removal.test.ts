@@ -94,17 +94,39 @@ describe('content.remove', () => {
 
     const post = await createPost(author.token, owner.club.id, 'Protected');
     const err = await h.apiErr(bystander.token, 'content.remove', { id: post.id });
-    assert.equal(err.status, 404);
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
   });
 
-  it('double remove is idempotent', async () => {
+  it('non-author cannot update a visible post', async () => {
+    const owner = await h.seedOwner('content-update-forbidden', 'Content Update Forbidden Club');
+    const author = await h.seedCompedMember(owner.club.id, 'Author Update Forbid');
+    const bystander = await h.seedCompedMember(owner.club.id, 'Bystander Update Forbid');
+
+    const post = await createPost(author.token, owner.club.id, 'Protected Update');
+    const err = await h.apiErr(bystander.token, 'content.update', {
+      id: post.id,
+      title: 'Bystander rewrite',
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
+  });
+
+  it('double remove returns content_already_removed with the canonical removed content', async () => {
     const owner = await h.seedOwner('content-remove-idempotent', 'Content Remove Idempotent Club');
     const author = await h.seedCompedMember(owner.club.id, 'Author Idempotent');
 
     const post = await createPost(author.token, owner.club.id, 'Idempotent');
     const first = await h.apiOk(author.token, 'content.remove', { id: post.id });
-    const second = await h.apiOk(author.token, 'content.remove', { id: post.id });
-    assert.equal(content(first).id, content(second).id);
+    const second = await h.api(author.token, 'content.remove', { id: post.id, reason: 'second try' });
+    assert.equal(second.status, 409);
+    assert.equal(second.body.ok, false);
+    const error = second.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'content_already_removed');
+    const details = error.details as Record<string, unknown>;
+    const current = details.content as Record<string, unknown>;
+    assert.equal(current.id, content(first).id);
+    assert.equal((current.version as Record<string, unknown>).status, 'removed');
   });
 
   it('removed contents cannot be updated back to published', async () => {
@@ -205,7 +227,7 @@ describe('messages.remove', () => {
     assert.equal(err.status, 404);
   });
 
-  it('double remove is idempotent', async () => {
+  it('double remove with the same reason is idempotent', async () => {
     const owner = await h.seedOwner('msg-remove-idempotent', 'Msg Remove Idempotent Club');
     const alice = await h.seedCompedMember(owner.club.id, 'Alice Idempotent');
     const bob = await h.seedCompedMember(owner.club.id, 'Bob Idempotent');
@@ -216,9 +238,37 @@ describe('messages.remove', () => {
     });
     const msg = (sendResult.data as Record<string, unknown>).message as Record<string, unknown>;
 
-    const first = await h.apiOk(alice.token, 'messages.remove', { messageId: msg.messageId as string });
-    const second = await h.apiOk(alice.token, 'messages.remove', { messageId: msg.messageId as string });
+    const first = await h.apiOk(alice.token, 'messages.remove', { messageId: msg.messageId as string, reason: 'same reason' });
+    const second = await h.apiOk(alice.token, 'messages.remove', { messageId: msg.messageId as string, reason: 'same reason' });
     assert.equal(removal(first).messageId, removal(second).messageId);
+  });
+
+  it('double remove with a different reason returns message_already_removed details', async () => {
+    const owner = await h.seedOwner('msg-remove-different-reason', 'Msg Remove Different Reason Club');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice Different Reason');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob Different Reason');
+
+    const sendResult = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Remove me with conflicting reasons',
+    });
+    const msg = (sendResult.data as Record<string, unknown>).message as Record<string, unknown>;
+
+    await h.apiOk(alice.token, 'messages.remove', { messageId: msg.messageId as string, reason: 'original reason' });
+    const second = await h.api(alice.token, 'messages.remove', {
+      messageId: msg.messageId as string,
+      reason: 'moderation override',
+    });
+
+    assert.equal(second.status, 409);
+    assert.equal(second.body.ok, false);
+    const error = second.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'message_already_removed');
+    const details = error.details as Record<string, unknown>;
+    const currentRemoval = details.removal as Record<string, unknown>;
+    assert.equal(currentRemoval.messageId, msg.messageId);
+    assert.equal(currentRemoval.reason, 'original reason');
+    assert.equal(details.requestedReason, 'moderation override');
   });
 
   it('removed message shows a placeholder to the recipient', async () => {
@@ -344,7 +394,8 @@ describe('event removal via unified content actions', () => {
 
     const eventEntity = await createEvent(author.token, owner.club.id, 'Not Yours');
     const err = await h.apiErr(other.token, 'content.remove', { id: eventEntity.id });
-    assert.equal(err.status, 404);
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden');
   });
 
   it('removed events reject new RSVPs', async () => {
