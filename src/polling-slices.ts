@@ -7,7 +7,7 @@ import type { HandlerContext } from './schemas/registry.ts';
 export type ActivitySliceInput = {
   clubId?: string;
   limit: number;
-  after: string | null;
+  cursor: string | null;
 };
 
 export type ActivitySliceResult = {
@@ -19,7 +19,7 @@ export type ActivitySliceResult = {
 
 export type NotificationsSliceInput = {
   limit: number;
-  after: string | null;
+  cursor: string | null;
 };
 
 export type NotificationsSliceResult = {
@@ -75,15 +75,15 @@ export async function runActivitySlice(
   input: ActivitySliceInput,
   options: { allowEmptyGlobalScope?: boolean } = {},
 ): Promise<ActivitySliceResult> {
-  const { clubId, limit, after } = input;
+  const { clubId, limit, cursor } = input;
   const scopedMemberships = resolveActivityMemberships(ctx, clubId, options.allowEmptyGlobalScope ?? false);
   const { clubIds, adminClubIds, ownerClubIds } = membershipScopes(scopedMemberships);
 
-  const afterSeq = after === 'latest'
+  const afterSeq = cursor === 'latest'
     ? null
-    : after === null
+    : cursor === null
       ? clubIds.length === 0 ? null : 0
-      : decodeActivityCursor(after);
+      : decodeActivityCursor(cursor);
 
   const result = await ctx.repository.listClubActivity({
     actorMemberId: ctx.actor.member.id,
@@ -109,17 +109,17 @@ export async function runNotificationsSlice(
   ctx: HandlerContext,
   input: NotificationsSliceInput,
 ): Promise<NotificationsSliceResult> {
-  const { limit, after } = input;
+  const { limit, cursor } = input;
   const { clubIds: accessibleClubIds, adminClubIds } = membershipScopes(ctx.actor.memberships);
 
-  const result = after === null && limit === NOTIFICATIONS_PAGE_SIZE
+  const result = cursor === null && limit === NOTIFICATIONS_PAGE_SIZE
     ? await ctx.getNotifications()
     : await ctx.repository.listNotifications({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds,
       adminClubIds,
       limit,
-      after,
+      after: cursor,
     });
 
   return {

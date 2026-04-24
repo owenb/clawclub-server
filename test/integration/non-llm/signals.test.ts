@@ -401,7 +401,7 @@ describe('activity and notifications surfaces', () => {
     assert.equal(receipts[0]?.notificationId, notificationId);
   });
 
-  it('updates.list activity.after=latest skips backlog and returns only later activity', async () => {
+  it('updates.list activity.cursor=latest skips backlog and returns only later activity', async () => {
     const owner = await h.seedOwner('activityclub', 'ActivityClub');
 
     await h.sqlClubs(

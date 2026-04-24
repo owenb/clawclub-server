@@ -209,7 +209,9 @@ test('invitations.list returns invitations for the authenticated member', async 
   const auth = makeAuthResult();
   const repository = makeRepository({
     async authenticateBearerToken() { return auth; },
-    async listIssuedInvitations() { return [sampleInvitation]; },
+    async listIssuedInvitations() {
+      return { results: [sampleInvitation], hasMore: false, nextCursor: null };
+    },
   });
 
   const dispatcher = buildDispatcher({ repository });
@@ -220,8 +222,8 @@ test('invitations.list returns invitations for the authenticated member', async 
   });
 
   assert.equal(result.action, 'invitations.list');
-  assert.equal(result.data.invitations.length, 1);
-  assert.equal(result.data.invitations[0].candidateName, 'Jane Doe');
+  assert.equal(result.data.results.length, 1);
+  assert.equal(result.data.results[0].candidateName, 'Jane Doe');
 });
 
 test('invitations.revoke returns the revoked invitation', async () => {

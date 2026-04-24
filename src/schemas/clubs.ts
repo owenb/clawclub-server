@@ -10,18 +10,15 @@ import {
   describePublicClubSlug,
   parseApplicationText,
   parseBoundedString,
-  parseCursor,
   parseHumanRequiredString,
-  parseLimitOf,
   parseSlug,
   paginatedOutput,
+  paginationFields,
   parseOptionalEmptyBoundedString,
   parseRequiredString,
   wireApplicationText,
   wireBoundedString,
-  wireCursor,
   wireHumanRequiredString,
-  wireLimitOf,
   wireOptionalEmptyBoundedString,
   wireRequiredString,
   wireSlug,
@@ -45,6 +42,8 @@ type ClubsCreateInput = {
   admissionPolicy: string;
 };
 
+const CLUB_APPLICATIONS_LIST_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
+
 function buildClubArtifact(input: {
   name: string;
   summary: string | null;
@@ -64,7 +63,7 @@ const clubsCreate: ActionDefinition = {
   description: 'Create a new club owned by the authenticated member.',
   auth: 'member',
   safety: 'mutating',
-  requiredCapabilities: ['createClub', 'listClubs', 'enforceClubsCreateQuota'],
+  requiredCapabilities: ['createClub', 'findClubBySlug', 'listClubs', 'enforceClubsCreateQuota'],
   refreshActorOnSuccess: true,
   businessErrors: [
     {
@@ -116,16 +115,22 @@ const clubsCreate: ActionDefinition = {
     }
 
     if (!replayHit) {
-      const existingClubs = await ctx.repository.listClubs!({
+      const slugMatch = await ctx.repository.findClubBySlug!({
         actorMemberId: ctx.actor.member.id,
-        includeArchived: true,
+        slug: parsed.slug,
       });
 
-      if (existingClubs.some((club) => club.slug === parsed.slug)) {
+      if (slugMatch) {
         throw new AppError('slug_conflict', 'A club with that slug already exists.');
       }
 
-      const ownedClubs = existingClubs.filter((club) =>
+      const existingClubs = await ctx.repository.listClubs!({
+        actorMemberId: ctx.actor.member.id,
+        includeArchived: true,
+        limit: 50,
+        cursor: null,
+      });
+      const ownedClubs = existingClubs.results.filter((club) =>
         club.owner.memberId === ctx.actor.member.id && club.archivedAt === null
       ).length;
       if (ownedClubs >= getConfig().policy.clubs.maxClubsPerMember) {
@@ -406,8 +411,7 @@ const clubsApplicationsList: ActionDefinition = {
   wire: {
     input: z.object({
       phases: z.array(applicationPhase).min(1).optional().describe('Optional application-phase filter. Defaults to awaiting_review + active. Include revision_required explicitly when you need saved drafts that are not yet in the admin queue.'),
-      limit: wireLimitOf(20),
-      cursor: wireCursor,
+      ...CLUB_APPLICATIONS_LIST_PAGINATION.wire,
     }),
     output: paginatedOutput(memberApplicationState).extend({
       limit: z.number(),
@@ -417,8 +421,7 @@ const clubsApplicationsList: ActionDefinition = {
   parse: {
     input: z.object({
       phases: z.array(applicationPhase).min(1).optional(),
-      limit: parseLimitOf(20, 20),
-      cursor: parseCursor,
+      ...CLUB_APPLICATIONS_LIST_PAGINATION.parse,
     }),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {

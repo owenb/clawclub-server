@@ -314,7 +314,7 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async listClubApplications() { return []; },
     async startMembershipCheckout() { return null; },
     async issueInvitation() { return null; },
-    async listIssuedInvitations() { return []; },
+    async listIssuedInvitations() { return { results: [], hasMore: false, nextCursor: null }; },
     async revokeInvitation() { return null; },
     async createMembership() { return null; },
     async transitionMembershipState() { return null; },

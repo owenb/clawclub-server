@@ -38,8 +38,8 @@ describe('superadmin.clubs.list', () => {
 
     const result = await h.apiOk(admin.token, 'superadmin.clubs.list', {});
     const clubs = result.data as Record<string, unknown>;
-    assert.ok(Array.isArray(clubs.clubs));
-    const clubList = clubs.clubs as Array<Record<string, unknown>>;
+    assert.ok(Array.isArray(clubs.results));
+    const clubList = clubs.results as Array<Record<string, unknown>>;
     const slugs = clubList.map((c) => c.slug);
     assert.ok(slugs.includes('list-club-a'));
     assert.ok(slugs.includes('list-club-b'));
@@ -52,11 +52,11 @@ describe('superadmin.clubs.list', () => {
 
     const withArchived = await h.apiOk(admin.token, 'superadmin.clubs.list', { includeArchived: true });
     const clubsData = withArchived.data as Record<string, unknown>;
-    const allClubs = clubsData.clubs as Array<Record<string, unknown>>;
+    const allClubs = clubsData.results as Array<Record<string, unknown>>;
     assert.ok(allClubs.some((c) => c.slug === 'to-list-archived'));
 
     const withoutArchived = await h.apiOk(admin.token, 'superadmin.clubs.list', {});
-    const activeClubs = (withoutArchived.data as Record<string, unknown>).clubs as Array<Record<string, unknown>>;
+    const activeClubs = (withoutArchived.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     assert.ok(!activeClubs.some((c) => c.slug === 'to-list-archived'));
   });
 
@@ -184,7 +184,7 @@ describe('superadmin.clubs.create', () => {
     });
 
     const list = await h.apiOk(admin.token, 'superadmin.clubs.list', {});
-    const clubs = (list.data as Record<string, unknown>).clubs as Array<Record<string, unknown>>;
+    const clubs = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     assert.ok(clubs.some((c) => c.slug === 'verify-listed'));
   });
 
@@ -1809,8 +1809,11 @@ describe('superadmin.messages.get', () => {
     const data = result.data as Record<string, unknown>;
     const thread = data.thread as Record<string, unknown>;
     assert.equal(thread.threadId, threadId);
-    const messages = data.messages as Array<Record<string, unknown>>;
+    const messagesPage = data.messages as Record<string, unknown>;
+    const messages = messagesPage.results as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(messages));
+    assert.equal(typeof messagesPage.hasMore, 'boolean');
+    assert.ok(Object.hasOwn(messagesPage, 'nextCursor'));
     assert.ok(messages.length >= 1);
     assert.ok(messages.some((m) => m.messageText === 'A message in a readable thread'));
   });
@@ -1929,6 +1932,41 @@ describe('accessTokens.create', () => {
     const actor = sessionResult.actor as Record<string, unknown>;
     const actorMember = actor.member as Record<string, unknown>;
     assert.equal(actorMember.id, member.id);
+  });
+
+  it('rejects past expiresAt and still accepts null expiresAt', async () => {
+    const ownerCtx = await h.seedOwner('token-expiry-club', 'Token Expiry Club');
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Token Expiry Member');
+
+    const pastErr = await h.apiErr(member.token, 'accessTokens.create', {
+      label: 'past-expiry',
+      expiresAt: '2020-01-01T00:00:00Z',
+    });
+    assert.equal(pastErr.status, 400);
+    assert.equal(pastErr.code, 'invalid_input');
+
+    const created = await h.apiOk(member.token, 'accessTokens.create', {
+      label: 'no-expiry',
+      expiresAt: null,
+    });
+    const token = (created.data as Record<string, unknown>).token as Record<string, unknown>;
+    assert.equal(token.expiresAt, null);
+  });
+
+  it('does not count expired bearer tokens against the active token quota', async () => {
+    const ownerCtx = await h.seedOwner('token-expired-quota-club', 'Token Expired Quota Club');
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Token Expired Quota Member');
+
+    await h.sql(
+      `insert into member_bearer_tokens (member_id, label, token_hash, expires_at)
+       select $1, 'expired-quota-' || g::text, $2 || g::text, now() - interval '1 day'
+       from generate_series(1, 10) g`,
+      [member.id, `expired-quota-${member.id}-`],
+    );
+
+    const created = await h.apiOk(member.token, 'accessTokens.create', { label: 'after-expired' });
+    const token = (created.data as Record<string, unknown>).token as Record<string, unknown>;
+    assert.equal(token.label, 'after-expired');
   });
 });
 

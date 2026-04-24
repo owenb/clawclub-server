@@ -261,7 +261,7 @@ describe('clubadmin.members.update', () => {
     });
 
     const listed = await h.apiOk(sponsor.token, 'invitations.list', {});
-    const invitations = ((listed.data as Record<string, unknown>).invitations ?? []) as Array<Record<string, unknown>>;
+    const invitations = ((listed.data as Record<string, unknown>).results ?? []) as Array<Record<string, unknown>>;
     const listedInvitation = invitations.find((row) => row.invitationId === invitation.id);
     assert.ok(listedInvitation, 'cancelled sponsor should still be able to inspect their historical invite record');
     assert.equal(listedInvitation?.status, 'revoked');

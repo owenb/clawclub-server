@@ -4,10 +4,7 @@ import {
   describeOptionalScopedClubId,
   wireRequiredString,
   parseRequiredString,
-  wireCursor,
-  parseCursor,
-  wireLimitOf,
-  parseLimitOf,
+  paginationFields,
   wireOptionalBoolean,
   paginatedOutput,
   timestampString,
@@ -18,6 +15,7 @@ import {
   notificationReceipt,
   directMessageInboxSummary,
   includedBundle,
+  membershipSummary,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 import { NOTIFICATIONS_PAGE_SIZE } from '../notifications-core.ts';
@@ -30,6 +28,10 @@ import {
   type InboxSliceInput,
   type NotificationsSliceInput,
 } from '../polling-slices.ts';
+
+const UPDATES_ACTIVITY_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
+const UPDATES_NOTIFICATIONS_PAGINATION = paginationFields({ defaultLimit: NOTIFICATIONS_PAGE_SIZE, maxLimit: NOTIFICATIONS_PAGE_SIZE });
+const UPDATES_INBOX_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
 
 type UpdatesListInput = {
   clubId?: string;
@@ -56,21 +58,21 @@ const updatesList: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club scope for the activity slice only. Notifications and inbox remain personal.')),
       activity: z.object({
-        limit: wireLimitOf(20),
-        after: wireCursor.describe('Opaque activity cursor from a previous response, or "latest" to seed from the current activity tip. Reuse the returned cursor even when hasMore is false.'),
+        ...UPDATES_ACTIVITY_PAGINATION.wire,
+        cursor: UPDATES_ACTIVITY_PAGINATION.wire.cursor.describe('Opaque activity cursor from a previous response, or "latest" to seed from the current activity tip. Reuse the returned cursor even when hasMore is false.'),
       }).optional(),
       notifications: z.object({
-        limit: wireLimitOf(NOTIFICATIONS_PAGE_SIZE),
-        after: wireCursor,
+        ...UPDATES_NOTIFICATIONS_PAGINATION.wire,
       }).optional(),
       inbox: z.object({
-        limit: wireLimitOf(20),
+        ...UPDATES_INBOX_PAGINATION.wire,
         unreadOnly: wireOptionalBoolean.describe('Only show threads with unread messages. Defaults to true on updates.list.'),
-        cursor: wireCursor,
       }).optional(),
     }),
     output: z.object({
       activity: paginatedOutput(activityEvent).extend({
+        limit: z.number(),
+        clubScope: z.array(membershipSummary),
         nextCursor: z.string().describe('Stable activity resume cursor. Always present; reuse it on the next poll even when hasMore is false.'),
       }),
       notifications: paginatedOutput(notificationItem),
@@ -87,17 +89,14 @@ const updatesList: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString.optional(),
       activity: z.object({
-        limit: parseLimitOf(20, 20),
-        after: parseCursor,
-      }).optional().default({ limit: 20, after: null }),
+        ...UPDATES_ACTIVITY_PAGINATION.parse,
+      }).optional().default({ limit: 20, cursor: null }),
       notifications: z.object({
-        limit: parseLimitOf(NOTIFICATIONS_PAGE_SIZE, NOTIFICATIONS_PAGE_SIZE),
-        after: parseCursor,
-      }).optional().default({ limit: NOTIFICATIONS_PAGE_SIZE, after: null }),
+        ...UPDATES_NOTIFICATIONS_PAGINATION.parse,
+      }).optional().default({ limit: NOTIFICATIONS_PAGE_SIZE, cursor: null }),
       inbox: z.object({
-        limit: parseLimitOf(20, 20),
+        ...UPDATES_INBOX_PAGINATION.parse,
         unreadOnly: z.boolean().optional().default(true),
-        cursor: parseCursor,
       }).optional().default({ limit: 20, unreadOnly: true, cursor: null }),
     }),
   },
@@ -119,6 +118,8 @@ const updatesList: ActionDefinition = {
     return {
       data: {
         activity: {
+          limit: activity.limit,
+          clubScope: clubId ? [ctx.requireAccessibleClub(clubId)] : ctx.actor.memberships,
           results: activityResult.results,
           hasMore: activityResult.hasMore,
           nextCursor: activityResult.nextCursor,

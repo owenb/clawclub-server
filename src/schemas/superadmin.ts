@@ -12,21 +12,21 @@
 import { z } from 'zod';
 import { requestScopeForClub, requestScopeForClubs } from '../actors.ts';
 import { AppError } from '../errors.ts';
-import { normalizeEmail } from '../email.ts';
 import { runCreateGateCheck } from '../gate-runner.ts';
 import {
   decodeOptionalCursor,
   describeOptionalScopedClubId,
   describeScopedClubId,
   paginatedOutput,
+  paginationFields,
   wireRequiredString, parseRequiredString,
   wireHumanRequiredString, parseHumanRequiredString,
+  wirePublicName, parsePublicName,
+  parseEmail,
   wireOptionalString, parseTrimmedNullableString,
   wireOptionalBoolean,
   wirePatchString, parsePatchString,
-  wireIsoDatetime, parseIsoDatetime,
-  wireLimit, parseLimit,
-  wireCursor, parseCursor,
+  wireIsoDatetime, parseFutureIsoDatetime,
   wireSlug, parseSlug,
   contentKind,
   membershipRole, membershipCreateInitialStatus,
@@ -57,6 +57,8 @@ import {
 const wireMemberCap = z.number().int().min(1).nullable().optional()
   .describe('Explicit member cap. Required when usesFreeAllowance is false.');
 const parseMemberCap = z.number().int().min(1).nullable().optional();
+const SUPERADMIN_DEFAULT_PAGINATION = paginationFields({ defaultLimit: 8, maxLimit: 20 });
+const SUPERADMIN_CLUBS_LIST_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 50 });
 const notificationProducerStatus = z.enum(['active', 'disabled']);
 const notificationDeliveryClass = z.enum(['transactional', 'informational', 'suggestion']);
 const notificationProducerTopicInput = z.object({
@@ -156,16 +158,14 @@ const superadminMembersList: ActionDefinition = {
 
   wire: {
     input: z.object({
-      limit: wireLimit,
-      cursor: wireCursor,
+      ...SUPERADMIN_DEFAULT_PAGINATION.wire,
     }),
     output: paginatedOutput(superadminMemberSummary),
   },
 
   parse: {
     input: z.object({
-      limit: parseLimit,
-      cursor: parseCursor,
+      ...SUPERADMIN_DEFAULT_PAGINATION.parse,
     }),
   },
 
@@ -321,6 +321,8 @@ const superadminDiagnosticsHealth: ActionDefinition = {
 
 type ClubsListInput = {
   includeArchived: boolean;
+  limit: number;
+  cursor: string | null;
 };
 
 const superadminClubsList: ActionDefinition = {
@@ -334,33 +336,34 @@ const superadminClubsList: ActionDefinition = {
   wire: {
     input: z.object({
       includeArchived: wireOptionalBoolean.describe('Include archived clubs'),
+      ...SUPERADMIN_CLUBS_LIST_PAGINATION.wire,
     }),
-    output: z.object({
+    output: paginatedOutput(clubSummary).extend({
       includeArchived: z.boolean(),
-      clubs: z.array(clubSummary),
     }),
   },
 
   parse: {
     input: z.object({
       includeArchived: z.boolean().optional().default(false),
+      ...SUPERADMIN_CLUBS_LIST_PAGINATION.parse,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const { includeArchived } = input as ClubsListInput;
+    const { includeArchived, limit, cursor: rawCursor } = input as ClubsListInput;
+    const cursor = decodeOptionalCursor(rawCursor, 3, ([archivedAt, name, clubId]) => ({ archivedAt, name, clubId }));
 
     const clubs = await ctx.repository.listClubs!({
       actorMemberId: ctx.actor.member.id,
       includeArchived,
+      limit,
+      cursor,
     });
 
     return {
-      data: {
-        includeArchived,
-        clubs,
-      },
+      data: paginatedResultData(clubs, { includeArchived }),
     };
   },
 };
@@ -424,7 +427,7 @@ const superadminClubsCreate: ActionDefinition = {
   safety: 'mutating',
   refreshActorOnSuccess: true,
 
-  requiredCapabilities: ['createClub', 'listClubs', 'adminGetMember'],
+  requiredCapabilities: ['createClub', 'findClubBySlug', 'adminGetMember'],
 
   wire: {
     input: z.object({
@@ -479,11 +482,11 @@ const superadminClubsCreate: ActionDefinition = {
     }
 
     if (!replayHit) {
-      const existingClubs = await ctx.repository.listClubs!({
+      const existingClub = await ctx.repository.findClubBySlug!({
         actorMemberId: ctx.actor.member.id,
-        includeArchived: true,
+        slug: parsed.slug,
       });
-      if (existingClubs.some((club) => club.slug === parsed.slug)) {
+      if (existingClub) {
         throw new AppError('slug_conflict', 'A club with that slug already exists.');
       }
 
@@ -837,16 +840,14 @@ const superadminRemovedClubsList: ActionDefinition = {
   requiredCapability: 'listRemovedClubs',
   wire: {
     input: z.object({
-      limit: wireLimit,
-      cursor: wireCursor,
+      ...SUPERADMIN_DEFAULT_PAGINATION.wire,
       clubSlug: wireOptionalString.describe('Optional slug filter for one removed club lineage.'),
     }),
     output: paginatedOutput(removedClubSummary),
   },
   parse: {
     input: z.object({
-      limit: parseLimit,
-      cursor: parseCursor,
+      ...SUPERADMIN_DEFAULT_PAGINATION.parse,
       clubSlug: parseTrimmedNullableString.transform((value) => value ?? undefined),
     }),
   },
@@ -944,8 +945,7 @@ const superadminContentList: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter.')),
       kind: contentKind.optional().describe('Filter by content kind'),
-      limit: wireLimit,
-      cursor: wireCursor,
+      ...SUPERADMIN_DEFAULT_PAGINATION.wire,
     }),
     output: paginatedOutputWithIncluded(adminContentSummary),
   },
@@ -954,8 +954,7 @@ const superadminContentList: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString.optional(),
       kind: contentKind.optional().catch(undefined),
-      limit: parseLimit,
-      cursor: parseCursor,
+      ...SUPERADMIN_DEFAULT_PAGINATION.parse,
     }),
   },
 
@@ -994,16 +993,14 @@ const superadminMessagesThreads: ActionDefinition = {
 
   wire: {
     input: z.object({
-      limit: wireLimit,
-      cursor: wireCursor,
+      ...SUPERADMIN_DEFAULT_PAGINATION.wire,
     }),
     output: paginatedOutput(adminThreadSummary),
   },
 
   parse: {
     input: z.object({
-      limit: parseLimit,
-      cursor: parseCursor,
+      ...SUPERADMIN_DEFAULT_PAGINATION.parse,
     }),
   },
 
@@ -1027,6 +1024,7 @@ const superadminMessagesThreads: ActionDefinition = {
 type SuperadminMessagesReadInput = {
   threadId: string;
   limit: number;
+  cursor: string | null;
 };
 
 const superadminMessagesRead: ActionDefinition = {
@@ -1041,11 +1039,11 @@ const superadminMessagesRead: ActionDefinition = {
   wire: {
     input: z.object({
       threadId: wireRequiredString.describe('Thread to read'),
-      limit: wireLimit,
+      ...SUPERADMIN_DEFAULT_PAGINATION.wire,
     }),
     output: z.object({
       thread: adminThreadSummary,
-      messages: z.array(directMessageEntry),
+      messages: paginatedOutput(directMessageEntry),
       included: includedBundle,
     }),
   },
@@ -1053,18 +1051,20 @@ const superadminMessagesRead: ActionDefinition = {
   parse: {
     input: z.object({
       threadId: parseRequiredString,
-      limit: parseLimit,
+      ...SUPERADMIN_DEFAULT_PAGINATION.parse,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const { threadId, limit } = input as SuperadminMessagesReadInput;
+    const { threadId, limit, cursor: rawCursor } = input as SuperadminMessagesReadInput;
+    const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, messageId]) => ({ createdAt, messageId }));
 
     const result = await ctx.repository.adminReadThread!({
       actorMemberId: ctx.actor.member.id,
       threadId,
       limit,
+      cursor,
     });
 
     if (!result) {
@@ -1214,7 +1214,7 @@ const superadminTokensCreate: ActionDefinition = {
     input: z.object({
       memberId: parseRequiredString.pipe(z.string().max(64, 'memberId must be at most 64 characters')),
       label: parseTrimmedNullableString.default(null),
-      expiresAt: parseIsoDatetime.nullable().optional().default(null),
+      expiresAt: parseFutureIsoDatetime.default(null),
       reason: parseTrimmedNullableString.default(null),
     }),
   },
@@ -1265,7 +1265,7 @@ const superadminMembersCreate: ActionDefinition = {
 
   wire: {
     input: z.object({
-      publicName: wireHumanRequiredString.describe('Display name for the new member'),
+      publicName: wirePublicName.describe('Display name for the new member'),
       email: wireOptionalString.describe('Optional private contact email'),
     }),
     output: z.object({
@@ -1276,13 +1276,10 @@ const superadminMembersCreate: ActionDefinition = {
 
   parse: {
     input: z.object({
-      publicName: parseHumanRequiredString,
-      email: parseTrimmedNullableString.default(null).transform(
-        value => value === null ? null : normalizeEmail(value),
-      ).refine(
-        val => val === null || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val),
-        'email must be a valid email address',
-      ),
+      publicName: parsePublicName,
+      email: parseTrimmedNullableString.default(null)
+        .refine((value) => value === null || parseEmail.safeParse(value).success, 'email must be a valid email address')
+        .transform(value => value === null ? null : parseEmail.parse(value)),
     }),
   },
 

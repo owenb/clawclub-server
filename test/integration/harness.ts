@@ -1296,7 +1296,7 @@ export class TestHarness {
   ): Promise<{ status: number; body: Record<string, unknown> }> {
     const activity: Record<string, unknown> = {};
     if (params.limit !== undefined) activity.limit = params.limit;
-    if (params.after !== undefined) activity.after = String(params.after);
+    if (params.after !== undefined) activity.cursor = String(params.after);
     return this.getUpdates(token, {
       ...(params.clubId !== undefined ? { clubId: params.clubId } : {}),
       activity,
@@ -1309,7 +1309,7 @@ export class TestHarness {
   ): Promise<{ status: number; body: Record<string, unknown> }> {
     const notifications: Record<string, unknown> = {};
     if (params.limit !== undefined) notifications.limit = params.limit;
-    if (params.after !== undefined) notifications.after = params.after;
+    if (params.after !== undefined) notifications.cursor = params.after;
     return this.getUpdates(token, { notifications });
   }
 
@@ -1328,8 +1328,8 @@ export class TestHarness {
     token: string,
     params: {
       clubId?: string;
-      activity?: { limit?: number; after?: string | null };
-      notifications?: { limit?: number; after?: string | null };
+      activity?: { limit?: number; cursor?: string | null };
+      notifications?: { limit?: number; cursor?: string | null };
       inbox?: { limit?: number; unreadOnly?: boolean; cursor?: string | null };
     } = {},
   ): Promise<{ status: number; body: Record<string, unknown> }> {

@@ -5,10 +5,10 @@ import type { NonApplicationArtifact } from '../gate.ts';
 import { applicationPhase, memberApplicationState } from './application-shapes.ts';
 import {
   APPLICATION_SOCIALS_DESCRIPTION,
+  decodeOptionalCursor,
   describeClientKey,
   describeOptionalScopedClubId,
   describeScopedClubId,
-  parseCursor,
   parseEmail,
   parseFullName,
   parseHumanRequiredString,
@@ -18,7 +18,8 @@ import {
   parseOptionalEmptyBoundedString,
   parseTrimmedNullableOpaqueString,
   parseTrimmedNullableString,
-  wireCursor,
+  paginatedOutput,
+  paginationFields,
   wireEmail,
   wireFullName,
   wireApplicationText,
@@ -32,8 +33,9 @@ import {
 import { invitationSummary } from './responses.ts';
 import { clubScopedResult, registerActions, type ActionDefinition, type ActionResult, type HandlerContext } from './registry.ts';
 
-const wireAsciiEmail = wireEmail.describe('ASCII email address. Server trims, lowercases, and validates @.');
+const wireAsciiEmail = wireEmail.describe('ASCII email address. Server trims, lowercases, and validates address shape.');
 const parseAsciiEmail = parseEmail.refine((value) => /^[\x00-\x7F]+$/.test(value), 'Email must use ASCII characters only');
+const INVITATIONS_LIST_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
 const invitationStatus = z.enum(['open', 'used', 'revoked', 'expired']);
 const wireInvitationCode = wireRequiredString.describe('Invitation code (XXXX-XXXX). Input is trimmed and upper-cased before lookup, so 7dk4-m9q2 and 7DK4-M9Q2 redeem the same invitation.');
 
@@ -267,28 +269,34 @@ const invitationsListMine: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for issued invitations.')),
       status: invitationStatus.optional().describe('Optional invitation status filter'),
-      cursor: wireCursor.describe('Reserved for future pagination; ignored in v1.'),
+      ...INVITATIONS_LIST_PAGINATION.wire,
     }),
-    output: z.object({
-      invitations: z.array(invitationSummary),
-    }),
+    output: paginatedOutput(invitationSummary),
   },
   parse: {
     input: z.object({
       clubId: parseTrimmedNullableString.transform((value) => value ?? undefined),
       status: invitationStatus.optional(),
-      cursor: parseCursor,
+      ...INVITATIONS_LIST_PAGINATION.parse,
     }),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, status } = input as { clubId?: string; status?: 'open' | 'used' | 'revoked' | 'expired' };
+    const { clubId, status, limit, cursor: rawCursor } = input as {
+      clubId?: string;
+      status?: 'open' | 'used' | 'revoked' | 'expired';
+      limit: number;
+      cursor: string | null;
+    };
+    const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, invitationId]) => ({ createdAt, invitationId }));
     const invitations = await ctx.repository.listIssuedInvitations!({
       actorMemberId: ctx.actor.member.id,
       clubId,
       status,
+      limit,
+      cursor,
     });
     return {
-      data: { invitations },
+      data: invitations,
       requestScope: requestScopeForClubs(clubId ?? null, clubId ? [clubId] : []),
     };
   },

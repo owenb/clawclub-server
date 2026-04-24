@@ -374,16 +374,18 @@ test('admin.accessTokens.revoke revokes a token for any member', async () => {
   }
 });
 
-// ── superadmin.clubs.list ──��──────────────────────────────
+// ── superadmin.clubs.list ───────────────────────────────
 
-test('superadmin.clubs.list returns clubs array', async () => {
+test('superadmin.clubs.list returns paginated clubs', async () => {
   const repository: Repository = {
     ...makeRepository(),
     async authenticateBearerToken(token) {
       return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
     },
     async listClubs({ includeArchived }) {
-      return [{
+      assert.equal(includeArchived, false);
+      return {
+        results: [{
         clubId: 'club-1',
         slug: 'alpha',
         name: 'Alpha',
@@ -392,7 +394,10 @@ test('superadmin.clubs.list returns clubs array', async () => {
         archivedAt: null,
         owner: { memberId: 'member-1', publicName: 'Alice', email: null },
         version: { no: 1, createdAt: '2026-03-14T10:00:00Z', creatorMemberId: 'member-1' },
-      }];
+        }],
+        hasMore: false,
+        nextCursor: null,
+      };
     },
   };
 
@@ -409,9 +414,9 @@ test('superadmin.clubs.list returns clubs array', async () => {
     const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.list', {});
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.data.clubs.length, 1);
-    assert.equal(body.data.clubs[0].slug, 'alpha');
-    assert.equal(body.data.clubs[0].owner.publicName, 'Alice');
+    assert.equal(body.data.results.length, 1);
+    assert.equal(body.data.results[0].slug, 'alpha');
+    assert.equal(body.data.results[0].owner.publicName, 'Alice');
   } finally {
     await shutdown();
   }
@@ -544,8 +549,8 @@ test('superadmin.clubs.create returns new club', async () => {
     async authenticateBearerToken(token) {
       return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
     },
-    async listClubs() {
-      return [];
+    async findClubBySlug() {
+      return null;
     },
     async adminGetMember() {
       return {
@@ -616,8 +621,8 @@ test('superadmin.clubs.create returns 404 for non-existent owner', async () => {
     async authenticateBearerToken(token) {
       return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
     },
-    async listClubs() {
-      return [];
+    async findClubBySlug() {
+      return null;
     },
     async adminGetMember() {
       return null;

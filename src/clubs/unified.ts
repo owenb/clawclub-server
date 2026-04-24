@@ -14,6 +14,7 @@ import { normalizeEmail } from '../email.ts';
 import { withIdempotency } from '../idempotency.ts';
 import { deliverCoreNotifications } from '../notification-substrate.ts';
 import { buildInvitationCode } from '../token.ts';
+import { encodeCursor } from '../schemas/fields.ts';
 
 const INVITATION_CODE_UNIQUE_CONSTRAINT = 'invite_codes_code_unique';
 const INVITATION_CODE_RETRY_LIMIT = 3;
@@ -718,7 +719,10 @@ export async function listIssuedInvitations(pool: Pool, input: {
   actorMemberId: string;
   clubId?: string;
   status?: InvitationStatus;
-}): Promise<InvitationSummary[]> {
+  limit: number;
+  cursor?: { createdAt: string; invitationId: string } | null;
+}): Promise<{ results: InvitationSummary[]; hasMore: boolean; nextCursor: string | null }> {
+  const fetchLimit = input.limit + 1;
   const result = await pool.query<InvitationRow>(
     `select
         ir.id as invitation_id,
@@ -757,12 +761,41 @@ export async function listIssuedInvitations(pool: Pool, input: {
       and live_app.phase in ('revision_required', 'awaiting_review')
      where ir.sponsor_member_id = $1
        and ($2::short_id is null or ir.club_id = $2)
-     order by ir.created_at desc, ir.id desc`,
-    [input.actorMemberId, input.clubId ?? null],
+       and (
+         $3::text is null
+         or (
+           case
+             when ir.revoked_at is not null then 'revoked'
+             when ir.used_at is not null then 'used'
+             when ir.expired_at is not null or ir.expires_at <= now() then 'expired'
+             else 'open'
+           end
+         ) = $3
+       )
+       and (
+         $4::timestamptz is null
+         or ir.created_at < $4
+         or (ir.created_at = $4 and ir.id < $5)
+       )
+     order by ir.created_at desc, ir.id desc
+     limit $6`,
+    [
+      input.actorMemberId,
+      input.clubId ?? null,
+      input.status ?? null,
+      input.cursor?.createdAt ?? null,
+      input.cursor?.invitationId ?? null,
+      fetchLimit,
+    ],
   );
-  return result.rows
-    .map((row) => mapInvitationSummary(row))
-    .filter((row) => input.status === undefined || row.status === input.status);
+  const hasMore = result.rows.length > input.limit;
+  const rows = hasMore ? result.rows.slice(0, input.limit) : result.rows;
+  const last = rows[rows.length - 1];
+  return {
+    results: rows.map((row) => mapInvitationSummary(row)),
+    hasMore,
+    nextCursor: hasMore && last ? encodeCursor([last.created_at, last.invitation_id]) : null,
+  };
 }
 
 export async function revokeInvitation(pool: Pool, input: {

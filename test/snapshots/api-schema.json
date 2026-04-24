@@ -307,7 +307,7 @@
                 "type": "string"
               },
               "email": {
-                "description": "ASCII email address. Server trims, lowercases, and validates @.",
+                "description": "ASCII email address. Server trims, lowercases, and validates address shape.",
                 "maxLength": 500,
                 "type": "string"
               },
@@ -320,7 +320,7 @@
               },
               "name": {
                 "description": "Public display name for the new account",
-                "maxLength": 500,
+                "maxLength": 120,
                 "type": "string"
               },
               "nonce": {
@@ -664,7 +664,7 @@
             "type": "string"
           },
           "newEmail": {
-            "description": "ASCII email address. Server trims, lowercases, and validates @.",
+            "description": "ASCII email address. Server trims, lowercases, and validates address shape.",
             "maxLength": 500,
             "type": "string"
           }
@@ -1334,9 +1334,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           },
           "phases": {
@@ -2718,9 +2718,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–50 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 50.",
+            "maximum": 50,
+            "minimum": 1,
             "type": "integer"
           },
           "roles": {
@@ -3683,9 +3683,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           },
           "phases": {
@@ -5301,6 +5301,7 @@
           },
           "slug": {
             "description": "URL-safe slug for the new club.",
+            "maxLength": 63,
             "type": "string"
           },
           "summary": {
@@ -6027,9 +6028,9 @@
             "type": "boolean"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–50 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 50.",
+            "maximum": 50,
+            "minimum": 1,
             "type": "integer"
           },
           "threadId": {
@@ -6901,9 +6902,9 @@
             "type": "array"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           },
           "query": {
@@ -7953,9 +7954,9 @@
             "type": "array"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           },
           "query": {
@@ -9485,9 +9486,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           },
           "query": {
@@ -10695,9 +10696,15 @@
             "type": "string"
           },
           "cursor": {
-            "description": "Reserved for future pagination; ignored in v1.",
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
             "nullable": true,
             "type": "string"
+          },
+          "limit": {
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
           },
           "status": {
             "description": "Optional invitation status filter",
@@ -10719,7 +10726,14 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "invitations": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
+          },
+          "results": {
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -10819,7 +10833,9 @@
           }
         },
         "required": [
-          "invitations"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -11629,9 +11645,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–50 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 50.",
+            "maximum": 50,
+            "minimum": 1,
             "type": "integer"
           }
         },
@@ -11916,9 +11932,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           },
           "query": {
@@ -12139,9 +12155,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           },
           "query": {
@@ -12616,9 +12632,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–50 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 50.",
+            "maximum": 50,
+            "minimum": 1,
             "type": "integer"
           },
           "threadId": {
@@ -13890,6 +13906,7 @@
           },
           "slug": {
             "description": "URL-safe slug for the club",
+            "maxLength": 63,
             "type": "string"
           },
           "summary": {
@@ -14337,9 +14354,20 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "includeArchived": {
             "description": "Include archived clubs",
             "type": "boolean"
+          },
+          "limit": {
+            "description": "Max results. Must be between 1 and 50.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
           }
         },
         "type": "object"
@@ -14347,7 +14375,17 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "clubs": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "includeArchived": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
+          },
+          "results": {
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -14465,14 +14503,13 @@
               "type": "object"
             },
             "type": "array"
-          },
-          "includeArchived": {
-            "type": "boolean"
           }
         },
         "required": [
-          "includeArchived",
-          "clubs"
+          "results",
+          "hasMore",
+          "nextCursor",
+          "includeArchived"
         ],
         "type": "object"
       },
@@ -14800,9 +14837,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           }
         },
@@ -15203,7 +15240,7 @@
           },
           "publicName": {
             "description": "Display name for the new member",
-            "maxLength": 2000,
+            "maxLength": 120,
             "type": "string"
           }
         },
@@ -15489,9 +15526,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           }
         },
@@ -15969,10 +16006,15 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           },
           "threadId": {
@@ -16022,85 +16064,103 @@
             "type": "object"
           },
           "messages": {
-            "items": {
-              "additionalProperties": false,
-              "properties": {
-                "createdAt": {
-                  "clawclubType": "timestamp",
-                  "type": "string"
-                },
-                "inReplyToMessageId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "mentions": {
-                  "items": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "authoredLabel": {
-                        "type": "string"
-                      },
-                      "end": {
-                        "type": "number"
-                      },
-                      "memberId": {
-                        "type": "string"
-                      },
-                      "start": {
-                        "type": "number"
-                      }
+            "additionalProperties": false,
+            "properties": {
+              "hasMore": {
+                "type": "boolean"
+              },
+              "nextCursor": {
+                "nullable": true,
+                "type": "string"
+              },
+              "results": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "createdAt": {
+                      "clawclubType": "timestamp",
+                      "type": "string"
                     },
-                    "required": [
-                      "memberId",
-                      "authoredLabel",
-                      "start",
-                      "end"
-                    ],
-                    "type": "object"
+                    "inReplyToMessageId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "mentions": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "authoredLabel": {
+                            "type": "string"
+                          },
+                          "end": {
+                            "type": "number"
+                          },
+                          "memberId": {
+                            "type": "string"
+                          },
+                          "start": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "memberId",
+                          "authoredLabel",
+                          "start",
+                          "end"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "messageId": {
+                      "type": "string"
+                    },
+                    "messageText": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "payload": {
+                      "additionalProperties": {},
+                      "type": "object"
+                    },
+                    "role": {
+                      "enum": [
+                        "member",
+                        "agent",
+                        "system"
+                      ],
+                      "type": "string"
+                    },
+                    "senderMemberId": {
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "threadId": {
+                      "type": "string"
+                    }
                   },
-                  "type": "array"
-                },
-                "messageId": {
-                  "type": "string"
-                },
-                "messageText": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "payload": {
-                  "additionalProperties": {},
+                  "required": [
+                    "messageId",
+                    "threadId",
+                    "senderMemberId",
+                    "role",
+                    "messageText",
+                    "mentions",
+                    "payload",
+                    "createdAt",
+                    "inReplyToMessageId"
+                  ],
                   "type": "object"
                 },
-                "role": {
-                  "enum": [
-                    "member",
-                    "agent",
-                    "system"
-                  ],
-                  "type": "string"
-                },
-                "senderMemberId": {
-                  "nullable": true,
-                  "type": "string"
-                },
-                "threadId": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "messageId",
-                "threadId",
-                "senderMemberId",
-                "role",
-                "messageText",
-                "mentions",
-                "payload",
-                "createdAt",
-                "inReplyToMessageId"
-              ],
-              "type": "object"
+                "type": "array"
+              }
             },
-            "type": "array"
+            "required": [
+              "results",
+              "hasMore",
+              "nextCursor"
+            ],
+            "type": "object"
           },
           "thread": {
             "additionalProperties": false,
@@ -16191,9 +16251,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           }
         },
@@ -16851,9 +16911,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results (default 8). Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           }
         },
@@ -17233,15 +17293,15 @@
           "activity": {
             "additionalProperties": false,
             "properties": {
-              "after": {
+              "cursor": {
                 "description": "Opaque activity cursor from a previous response, or \"latest\" to seed from the current activity tip. Reuse the returned cursor even when hasMore is false.",
                 "nullable": true,
                 "type": "string"
               },
               "limit": {
-                "description": "Max results. Clamped to 1–20 by the server.",
-                "maximum": 9007199254740991,
-                "minimum": -9007199254740991,
+                "description": "Max results. Must be between 1 and 20.",
+                "maximum": 20,
+                "minimum": 1,
                 "type": "integer"
               }
             },
@@ -17261,9 +17321,9 @@
                 "type": "string"
               },
               "limit": {
-                "description": "Max results. Clamped to 1–20 by the server.",
-                "maximum": 9007199254740991,
-                "minimum": -9007199254740991,
+                "description": "Max results. Must be between 1 and 20.",
+                "maximum": 20,
+                "minimum": 1,
                 "type": "integer"
               },
               "unreadOnly": {
@@ -17276,15 +17336,15 @@
           "notifications": {
             "additionalProperties": false,
             "properties": {
-              "after": {
+              "cursor": {
                 "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
                 "nullable": true,
                 "type": "string"
               },
               "limit": {
-                "description": "Max results. Clamped to 1–20 by the server.",
-                "maximum": 9007199254740991,
-                "minimum": -9007199254740991,
+                "description": "Max results. Must be between 1 and 20.",
+                "maximum": 20,
+                "minimum": 1,
                 "type": "integer"
               }
             },
@@ -17305,8 +17365,85 @@
           "activity": {
             "additionalProperties": false,
             "properties": {
+              "clubScope": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "isOwner": {
+                      "type": "boolean"
+                    },
+                    "joinedAt": {
+                      "clawclubType": "timestamp",
+                      "type": "string"
+                    },
+                    "membershipId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "enum": [
+                        "clubadmin",
+                        "member"
+                      ],
+                      "type": "string"
+                    },
+                    "slug": {
+                      "type": "string"
+                    },
+                    "sponsor": {
+                      "additionalProperties": false,
+                      "nullable": true,
+                      "properties": {
+                        "memberId": {
+                          "type": "string"
+                        },
+                        "publicName": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "memberId",
+                        "publicName"
+                      ],
+                      "type": "object"
+                    },
+                    "status": {
+                      "enum": [
+                        "active"
+                      ],
+                      "type": "string"
+                    },
+                    "summary": {
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "membershipId",
+                    "clubId",
+                    "slug",
+                    "name",
+                    "summary",
+                    "role",
+                    "isOwner",
+                    "status",
+                    "sponsor",
+                    "joinedAt"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "hasMore": {
                 "type": "boolean"
+              },
+              "limit": {
+                "type": "number"
               },
               "nextCursor": {
                 "description": "Stable activity resume cursor. Always present; reuse it on the next poll even when hasMore is false.",
@@ -17391,7 +17528,9 @@
             "required": [
               "results",
               "hasMore",
-              "nextCursor"
+              "nextCursor",
+              "limit",
+              "clubScope"
             ],
             "type": "object"
           },
@@ -17882,9 +18021,9 @@
             "type": "string"
           },
           "limit": {
-            "description": "Max results. Clamped to 1–20 by the server.",
-            "maximum": 9007199254740991,
-            "minimum": -9007199254740991,
+            "description": "Max results. Must be between 1 and 20.",
+            "maximum": 20,
+            "minimum": 1,
             "type": "integer"
           },
           "memberId": {
@@ -17898,8 +18037,85 @@
       "output": {
         "additionalProperties": false,
         "properties": {
+          "clubScope": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clubId": {
+                  "type": "string"
+                },
+                "isOwner": {
+                  "type": "boolean"
+                },
+                "joinedAt": {
+                  "clawclubType": "timestamp",
+                  "type": "string"
+                },
+                "membershipId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "enum": [
+                    "clubadmin",
+                    "member"
+                  ],
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string"
+                },
+                "sponsor": {
+                  "additionalProperties": false,
+                  "nullable": true,
+                  "properties": {
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName"
+                  ],
+                  "type": "object"
+                },
+                "status": {
+                  "enum": [
+                    "active"
+                  ],
+                  "type": "string"
+                },
+                "summary": {
+                  "nullable": true,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "membershipId",
+                "clubId",
+                "slug",
+                "name",
+                "summary",
+                "role",
+                "isOwner",
+                "status",
+                "sponsor",
+                "joinedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "hasMore": {
             "type": "boolean"
+          },
+          "limit": {
+            "type": "number"
           },
           "memberId": {
             "type": "string"
@@ -17977,7 +18193,9 @@
           "results",
           "hasMore",
           "nextCursor",
-          "memberId"
+          "memberId",
+          "limit",
+          "clubScope"
         ],
         "type": "object"
       },
@@ -19005,5 +19223,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "7ef9435461f164fc"
+  "schemaHash": "3f419c28e3b8e6ff"
 }

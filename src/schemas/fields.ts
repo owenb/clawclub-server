@@ -59,21 +59,15 @@ export const timestampString = z.string().meta({ clawclubType: CLAWCLUB_TIMESTAM
 // ── Scalar field builders ────────────────────────────────
 
 /**
- * Wire: limit is an optional integer.
- * The server clamps to 1–20 and defaults to 8.
- * Wire schema accepts any integer to match actual acceptance behavior.
+ * Wire: limit is an optional integer validated to the canonical 1–20 window.
  */
-export const wireLimit = z.number().int().optional()
-  .describe('Max results (default 8). Clamped to 1–20 by the server.');
+export const wireLimit = z.number().int().min(1).max(20).optional()
+  .describe('Max results (default 8). Must be between 1 and 20.');
 
 /**
- * Parse: clamps to 1–20, defaults to 8.
- * Matches current normalizeLimit() behavior.
+ * Parse: validates 1–20, defaults to 8.
  */
-export const parseLimit = z.number().int()
-  .optional()
-  .default(8)
-  .transform(n => Math.min(Math.max(n, 1), 20));
+export const parseLimit = z.number().int().min(1).max(20).optional().default(8);
 
 /** Wire: opaque pagination cursor from previous response */
 export const wireCursor = z.string().nullable().optional()
@@ -131,17 +125,24 @@ export function paginatedOutput<T extends z.ZodTypeAny>(itemSchema: T) {
  * Build a wire limit schema with a custom max.
  */
 export function wireLimitOf(max: number) {
-  return z.number().int().optional()
-    .describe(`Max results. Clamped to 1–${max} by the server.`);
+  return z.number().int().min(1).max(max).optional()
+    .describe(`Max results. Must be between 1 and ${max}.`);
 }
 
 /**
  * Build a parse limit schema with custom default and max.
  */
 export function parseLimitOf(defaultVal: number, max: number) {
-  return z.number().int().optional()
-    .default(defaultVal)
-    .transform((n: number) => Math.min(Math.max(n, 1), max));
+  return z.number().int().min(1).max(max).optional().default(defaultVal);
+}
+
+export function paginationFields(
+  { defaultLimit, maxLimit }: { defaultLimit: number; maxLimit: number },
+) {
+  return {
+    wire: { limit: wireLimitOf(maxLimit), cursor: wireCursor },
+    parse: { limit: parseLimitOf(defaultLimit, maxLimit), cursor: parseCursor },
+  } as const;
 }
 
 const SMALL_TEXT_MAX_CHARS = 2_000;
@@ -294,6 +295,14 @@ export const parseIsoDatetime = safeString.pipe(z.string().trim().min(1))
     'Must be a valid ISO 8601 datetime with a real-world UTC offset',
   );
 
+const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+
+export const parseFutureIsoDatetime = parseIsoDatetime
+  .refine((s) => Date.parse(s) > Date.now(), 'Must be in the future')
+  .refine((s) => Date.parse(s) <= Date.now() + FIVE_YEARS_MS, 'Must be within 5 years')
+  .nullable()
+  .optional();
+
 /** Wire: message text with a bounded max length */
 export const wireMessageText = z.string().max(LARGE_TEXT_MAX_CHARS)
   .describe(`Required, max ${LARGE_TEXT_MAX_CHARS.toLocaleString('en-GB')} characters. Server trims whitespace; whitespace-only strings are rejected.`);
@@ -376,20 +385,25 @@ export const parseFullName = safeString.pipe(z.string().trim().min(1).max(500))
     'Must be a full name (first and last name)',
   );
 
-/**
- * Wire: email address.
- * Server trims, lowercases, and validates contains @.
- */
-export const wireEmail = z.string().max(500)
-  .describe('Email address (must contain @, max 500 chars). Server trims and lowercases.');
+export const wirePublicName = z.string().max(120)
+  .describe('Public display name, max 120 chars. Server trims whitespace; whitespace-only strings are rejected.');
+
+export const parsePublicName = safeString.pipe(z.string().trim().min(1).max(120));
 
 /**
- * Parse: lowercases, validates contains @.
+ * Wire: email address.
+ * Server trims, lowercases, and validates address shape.
+ */
+export const wireEmail = z.string().max(500)
+  .describe('Email address (must look like name@example.com, max 500 chars). Server trims and lowercases.');
+
+/**
+ * Parse: lowercases, validates address shape.
  * Matches normalizeCandidateEmail() behavior.
  */
 export const parseEmail = safeString.pipe(z.string().trim().min(1).max(500))
   .transform(normalizeEmail)
-  .refine(s => s.includes('@'), 'Must look like an email address');
+  .refine(s => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s), 'Must look like an email address');
 
 /**
  * Wire: content kinds array filter
@@ -505,10 +519,11 @@ export const wireOptionalBoolean = z.boolean().optional()
  * Server trims and validates format after trimming.
  */
 export const wireSlug = z.string()
+  .max(63)
   .describe('URL-safe slug (lowercase alphanumeric with hyphens). Server trims and validates format.');
 
 /** Parse: validates slug format */
-export const parseSlug = safeString.pipe(z.string().trim())
+export const parseSlug = safeString.pipe(z.string().trim().max(63))
   .refine(
     s => SLUG_REGEX.test(s),
     'slug must use lowercase letters, numbers, and single hyphens',

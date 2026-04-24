@@ -105,7 +105,13 @@ export type IdentityRepository = {
   loadProfileForGate(input: { actorMemberId: string; clubId: string }): Promise<ProfileForGate | null>;
 
   // Clubs
-  listClubs(input: { actorMemberId: string; includeArchived: boolean }): Promise<ClubSummary[]>;
+  findClubBySlug(input: { actorMemberId: string; slug: string }): Promise<ClubSummary | null>;
+  listClubs(input: {
+    actorMemberId: string;
+    includeArchived: boolean;
+    limit: number;
+    cursor?: { archivedAt: string; name: string; clubId: string } | null;
+  }): Promise<{ results: ClubSummary[]; hasMore: boolean; nextCursor: string | null }>;
   createClub(input: CreateClubInput): Promise<ClubSummary | null>;
   archiveClub(input: ArchiveClubInput): Promise<ClubSummary | null>;
   assignClubOwner(input: AssignClubOwnerInput): Promise<ClubSummary | null>;
@@ -167,7 +173,8 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     loadProfileForGate: ({ actorMemberId, clubId }) => profiles.loadProfileForGate(pool, { actorMemberId, clubId }),
 
     // Clubs
-    listClubs: ({ includeArchived }) => clubs.listClubs(pool, includeArchived),
+    findClubBySlug: ({ slug }) => clubs.findClubBySlug(pool, slug),
+    listClubs: ({ includeArchived, limit, cursor }) => clubs.listClubs(pool, { includeArchived, limit, cursor }),
     createClub: (input) => clubs.createClub(pool, input),
     archiveClub: (input) => clubs.archiveClub(pool, input),
     assignClubOwner: (input) => clubs.assignClubOwner(pool, input),

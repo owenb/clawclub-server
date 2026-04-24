@@ -51,7 +51,7 @@ describe('invitations.list', () => {
     const listed = await h.apiOk(sponsor.token, 'invitations.list', {
       clubId: sponsor.club.id,
     });
-    const invitations = ((listed.data as Record<string, unknown>).invitations as Array<Record<string, unknown>>);
+    const invitations = ((listed.data as Record<string, unknown>).results as Array<Record<string, unknown>>);
     const listedInvitation = invitations.find((invitation) => invitation.invitationId === firstInvitation.invitationId);
     assert.equal(listedInvitation?.code, code);
   });
@@ -147,7 +147,7 @@ describe('invitations.list', () => {
     const body = await h.apiOk(sponsor.token, 'invitations.list', {
       clubId: sponsor.club.id,
     });
-    const invitations = ((body.data as Record<string, unknown>).invitations as Array<Record<string, unknown>>);
+    const invitations = ((body.data as Record<string, unknown>).results as Array<Record<string, unknown>>);
     const byId = new Map(invitations.map((invitation) => [invitation.invitationId as string, invitation]));
 
     assert.equal(byId.get(openInvitation.id)?.status, 'open');

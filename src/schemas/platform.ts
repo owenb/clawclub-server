@@ -8,7 +8,7 @@ import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   wireOptionalRecord, parseOptionalRecord,
-  wireIsoDatetime, parseIsoDatetime,
+  wireIsoDatetime, parseFutureIsoDatetime,
 } from './fields.ts';
 import {
   quotaAllowance, bearerTokenSummary, createdBearerToken,
@@ -108,7 +108,7 @@ const tokensCreate: ActionDefinition = {
   parse: {
     input: z.object({
       label: parseTrimmedNullableString.default(null),
-      expiresAt: parseIsoDatetime.nullable().optional().default(null),
+      expiresAt: parseFutureIsoDatetime.default(null),
       metadata: parseOptionalRecord,
     }),
   },

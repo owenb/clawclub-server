@@ -21,9 +21,9 @@ import {
   membershipRole,
   wireMembershipStates,
   type MembershipState,
-  wireCursor, parseCursor, decodeOptionalCursor,
+  decodeOptionalCursor,
   paginatedOutput,
-  wireLimitOf, parseLimitOf,
+  paginationFields,
 } from './fields.ts';
 import {
   adminClubStats,
@@ -52,6 +52,8 @@ const CLUBADMIN_FORBIDDEN_ERROR = {
 } as const;
 
 const MEMBER_STATUSES = ['active', 'cancelled'] as const;
+const CLUBADMIN_MEMBERS_PAGINATION = paginationFields({ defaultLimit: 50, maxLimit: 50 });
+const CLUBADMIN_APPLICATIONS_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
 
 const wireMembershipRoles = z.array(membershipRole).min(1).optional();
 const parseOptionalMembershipStates = z.array(membershipState).min(1)
@@ -139,8 +141,7 @@ const clubadminMembersList: ActionDefinition = {
       clubId: wireRequiredString.describe(describeScopedClubId('Club to list members for.')),
       statuses: wireMembershipStates.describe('Optional membership-state filter limited to active and cancelled'),
       roles: wireMembershipRoles.describe('Optional role filter limited to clubadmin/member'),
-      limit: wireLimitOf(50),
-      cursor: wireCursor,
+      ...CLUBADMIN_MEMBERS_PAGINATION.wire,
     }),
     output: paginatedOutput(adminMemberSummary).extend({
       limit: z.number(),
@@ -155,8 +156,7 @@ const clubadminMembersList: ActionDefinition = {
       clubId: parseRequiredString,
       statuses: parseOptionalMembershipStates,
       roles: parseMembershipRoles,
-      limit: parseLimitOf(50, 50),
-      cursor: parseCursor,
+      ...CLUBADMIN_MEMBERS_PAGINATION.parse,
     }),
   },
 
@@ -209,8 +209,7 @@ const clubadminApplicationsList: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to list applications for.')),
       phases: z.array(applicationPhase).min(1).optional().describe('Optional application-phase filter. Defaults to awaiting_review. Include revision_required explicitly to inspect drafts that are still with the applicant.'),
-      limit: wireLimitOf(20),
-      cursor: wireCursor,
+      ...CLUBADMIN_APPLICATIONS_PAGINATION.wire,
     }),
     output: paginatedOutput(adminApplicationState).extend({
       limit: z.number(),
@@ -223,8 +222,7 @@ const clubadminApplicationsList: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString,
       phases: parseApplicationPhases,
-      limit: parseLimitOf(20, 20),
-      cursor: parseCursor,
+      ...CLUBADMIN_APPLICATIONS_PAGINATION.parse,
     }),
   },
 

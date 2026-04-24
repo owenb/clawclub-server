@@ -462,11 +462,19 @@ describe('full superadmin provisioning workflow', () => {
     assert.equal(memberships[0].role, 'member');
 
     // 6. Verify: admin sees both members
-    const adminOverview = await h.apiOk(admin.token, 'superadmin.members.list', { limit: 100 });
-    const allMembers = (adminOverview.data as any).results as any[];
-    const memberIds = allMembers.map((m: any) => m.memberId);
-    assert.ok(memberIds.includes(ownerId), 'owner should appear in members list');
-    assert.ok(memberIds.includes(memberId), 'member should appear in members list');
+    const memberIds = new Set<string>();
+    let cursor: string | null = null;
+    for (let i = 0; i < 10; i += 1) {
+      const adminOverview = await h.apiOk(admin.token, 'superadmin.members.list', { limit: 20, cursor });
+      const data = adminOverview.data as { results: Array<{ memberId: string }>; nextCursor: string | null };
+      for (const row of data.results) {
+        memberIds.add(row.memberId);
+      }
+      cursor = data.nextCursor;
+      if (!cursor || (memberIds.has(ownerId) && memberIds.has(memberId))) break;
+    }
+    assert.ok(memberIds.has(ownerId), 'owner should appear in members list');
+    assert.ok(memberIds.has(memberId), 'member should appear in members list');
   });
 });
 
@@ -754,13 +762,26 @@ describe('superadmin.accessTokens.create', () => {
   it('date-only expiresAt (ISO 8601 date form) is accepted', async () => {
     const admin = await h.seedSuperadmin('DateOnlyMinter');
     const target = await h.seedMember('Date Only Target');
+    const dateOnly = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
     const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
       memberId: target.id,
-      expiresAt: '2099-12-31',
+      expiresAt: dateOnly,
     });
     const data = result.data as { token: { expiresAt: string | null } };
     assert.ok(data.token.expiresAt, 'date-only ISO 8601 must be accepted');
+  });
+
+  it('past expiresAt returns invalid_input', async () => {
+    const admin = await h.seedSuperadmin('PastExpiresAtMinter');
+    const target = await h.seedMember('Past ExpiresAt Target');
+
+    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+      memberId: target.id,
+      expiresAt: '2020-01-01T00:00:00Z',
+    });
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
   });
 
   it('oversized memberId (>64 chars) returns invalid_input, not 404', async () => {

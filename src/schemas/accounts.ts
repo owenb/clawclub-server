@@ -3,19 +3,19 @@ import { AppError } from '../repository.ts';
 import {
   describeClientKey,
   parseEmail,
-  parseFullName,
+  parsePublicName,
   parseBoundedString,
   parseRequiredString,
   timestampString,
   wireBoundedString,
   wireEmail,
-  wireFullName,
+  wirePublicName,
   wireRequiredString,
 } from './fields.ts';
 import { memberIdentity } from './responses.ts';
 import { registerActions, type ActionDefinition, type ActionResult, type ColdHandlerContext, type HandlerContext } from './registry.ts';
 
-const wireAsciiEmail = wireEmail.describe('ASCII email address. Server trims, lowercases, and validates @.');
+const wireAsciiEmail = wireEmail.describe('ASCII email address. Server trims, lowercases, and validates address shape.');
 const parseAsciiEmail = parseEmail.refine((value) => /^[\x00-\x7F]+$/.test(value), 'Email must use ASCII characters only');
 
 const registerChallenge = z.object({
@@ -129,7 +129,7 @@ const accountsRegister: ActionDefinition = {
       z.object({
         mode: z.literal('submit').describe('Second call: complete registration with the solved nonce.'),
         clientKey: wireRequiredString.describe(describeClientKey('Client-generated idempotency key for the registration submit step.')),
-        name: wireFullName.describe('Public display name for the new account'),
+        name: wirePublicName.describe('Public display name for the new account'),
         email: wireAsciiEmail,
         challengeBlob: wireRequiredString.describe('Challenge blob returned by accounts.register discover'),
         nonce: wireRequiredString.describe('Proof-of-work solution for the supplied challenge'),
@@ -145,7 +145,7 @@ const accountsRegister: ActionDefinition = {
       z.object({
         mode: z.literal('submit'),
         clientKey: parseRequiredString,
-        name: parseFullName,
+        name: parsePublicName,
         email: parseAsciiEmail,
         challengeBlob: parseRequiredString,
         nonce: parseRequiredString,

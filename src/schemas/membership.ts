@@ -19,9 +19,9 @@ import {
   wireBoundedString, parseBoundedString,
   wirePatchString, parsePatchString,
   wirePatchHttpUrl, parsePatchHttpUrl,
-  wireCursor, parseCursor, decodeOptionalCursor,
+  decodeOptionalCursor,
   paginatedOutput,
-  wireLimitOf, parseLimitOf,
+  paginationFields,
   profileLink, parseProfileLink,
 } from './fields.ts';
 import {
@@ -38,6 +38,11 @@ import {
 } from './registry.ts';
 import { logger } from '../logger.ts';
 import { outboundLlmSignal } from '../workers/environment.ts';
+
+const MEMBERS_FULL_TEXT_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
+const MEMBERS_LIST_PAGINATION = paginationFields({ defaultLimit: 50, maxLimit: 50 });
+const VOUCHES_LIST_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
+const MEMBERS_SEMANTIC_SEARCH_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
 
 // ── members.searchByFullText ──────────────────────────────
 
@@ -59,8 +64,7 @@ const membersFullTextSearch: ActionDefinition = {
     input: z.object({
       query: wireHumanRequiredString.describe('Search text'),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to search within.')),
-      limit: wireLimitOf(20),
-      cursor: wireCursor,
+      ...MEMBERS_FULL_TEXT_PAGINATION.wire,
     }),
     output: paginatedOutput(memberSearchResult).extend({
       query: z.string(),
@@ -73,8 +77,7 @@ const membersFullTextSearch: ActionDefinition = {
     input: z.object({
       query: parseHumanRequiredString,
       clubId: parseRequiredString,
-      limit: parseLimitOf(20, 20),
-      cursor: parseCursor,
+      ...MEMBERS_FULL_TEXT_PAGINATION.parse,
     }),
   },
 
@@ -115,8 +118,7 @@ const membersList: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to list members from.')),
-      limit: wireLimitOf(50),
-      cursor: wireCursor,
+      ...MEMBERS_LIST_PAGINATION.wire,
     }),
     output: paginatedOutput(publicMemberSummary).extend({
       limit: z.number(),
@@ -127,8 +129,7 @@ const membersList: ActionDefinition = {
   parse: {
     input: z.object({
       clubId: parseRequiredString,
-      limit: parseLimitOf(50, 50),
-      cursor: parseCursor,
+      ...MEMBERS_LIST_PAGINATION.parse,
     }),
   },
 
@@ -542,11 +543,12 @@ const vouchesList: ActionDefinition = {
     input: z.object({
       memberId: wireRequiredString.optional().describe('Member that is the subject of the vouches — i.e. vouches received (defaults to the calling member). Each result row already carries the creator as fromMemberId.'),
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for vouches.')),
-      limit: wireLimitOf(20),
-      cursor: wireCursor,
+      ...VOUCHES_LIST_PAGINATION.wire,
     }),
     output: paginatedOutput(vouchSummary).extend({
       memberId: z.string(),
+      limit: z.number(),
+      clubScope: z.array(membershipSummary),
     }),
   },
 
@@ -554,8 +556,7 @@ const vouchesList: ActionDefinition = {
     input: z.object({
       memberId: parseRequiredString.optional(),
       clubId: parseRequiredString.optional(),
-      limit: parseLimitOf(20, 20),
-      cursor: parseCursor,
+      ...VOUCHES_LIST_PAGINATION.parse,
     }),
   },
 
@@ -582,7 +583,14 @@ const vouchesList: ActionDefinition = {
     });
 
     return {
-      data: { memberId: targetMemberId, results: result.results, hasMore: result.hasMore, nextCursor: result.nextCursor },
+      data: {
+        memberId: targetMemberId,
+        limit,
+        clubScope: clubId ? [ctx.requireAccessibleClub(clubId)] : ctx.actor.memberships,
+        results: result.results,
+        hasMore: result.hasMore,
+        nextCursor: result.nextCursor,
+      },
       requestScope: requestScopeForClubs(clubId ?? null, clubIds),
     };
   },
@@ -615,8 +623,7 @@ const membersFindViaEmbedding: ActionDefinition = {
     input: z.object({
       query: z.string().max(1000).describe('Natural-language search query (max 1000 chars)'),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to search semantically within.')),
-      limit: wireLimitOf(20),
-      cursor: wireCursor,
+      ...MEMBERS_SEMANTIC_SEARCH_PAGINATION.wire,
     }),
     output: paginatedOutput(memberSearchResult).extend({
       query: z.string(),
@@ -629,8 +636,7 @@ const membersFindViaEmbedding: ActionDefinition = {
     input: z.object({
       query: z.string().trim().min(1).max(1000),
       clubId: parseRequiredString,
-      limit: parseLimitOf(20, 20),
-      cursor: parseCursor,
+      ...MEMBERS_SEMANTIC_SEARCH_PAGINATION.parse,
     }),
   },
 

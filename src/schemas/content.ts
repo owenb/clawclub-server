@@ -19,9 +19,9 @@ import {
   wireLargePatchString, parseLargePatchString,
   wireContentKinds, parseContentKinds,
   contentKind,
-  wireCursor, parseCursor, decodeOptionalCursor,
+  decodeOptionalCursor,
   paginatedOutput,
-  wireLimitOf, parseLimitOf,
+  paginationFields,
   wireEventFieldsCreate, parseEventFieldsCreate,
   wireEventFieldsPatch, parseEventFieldsPatch,
 } from './fields.ts';
@@ -92,6 +92,10 @@ const CONTENT_CREATE_ERRORS = [
     recovery: 'Retry after a short delay. If the problem persists, surface the outage to the user.',
   },
 ] as const;
+
+const CONTENT_GET_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 50 });
+const CONTENT_LIST_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
+const CONTENT_SEMANTIC_SEARCH_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
 
 const CONTENT_UPDATE_ERRORS = [
   {
@@ -645,8 +649,7 @@ const contentGetThread: ActionDefinition = {
       contentId: wireRequiredString.optional().describe('Any content id inside the target thread'),
       threadId: wireRequiredString.optional().describe('Thread ID to read directly'),
       includeClosed: z.boolean().optional().describe('Include closed asks, gifts, services, and opportunities in thread reads'),
-      limit: wireLimitOf(50),
-      cursor: wireCursor,
+      ...CONTENT_GET_PAGINATION.wire,
     }),
     output: z.object({
       thread: contentThread,
@@ -660,8 +663,7 @@ const contentGetThread: ActionDefinition = {
       contentId: parseRequiredString.optional(),
       threadId: parseRequiredString.optional(),
       includeClosed: z.boolean().optional().default(false),
-      limit: parseLimitOf(20, 50),
-      cursor: parseCursor,
+      ...CONTENT_GET_PAGINATION.parse,
     }).refine(
       input => !!input.contentId !== !!input.threadId,
       'Provide exactly one of contentId or threadId',
@@ -724,8 +726,7 @@ const contentsList: ActionDefinition = {
       kinds: wireContentKinds,
       query: wireOptionalString.describe('Search first-content text'),
       includeClosed: z.boolean().optional().describe('Include closed first-content asks, gifts, services, and opportunities'),
-      limit: wireLimitOf(20),
-      cursor: wireCursor,
+      ...CONTENT_LIST_PAGINATION.wire,
     }),
     output: paginatedOutputWithIncluded(contentThread, {
       query: z.string().nullable(),
@@ -742,8 +743,7 @@ const contentsList: ActionDefinition = {
       kinds: parseContentKinds,
       query: parseTrimmedNullableString,
       includeClosed: z.boolean().optional().default(false),
-      limit: parseLimitOf(20, 20),
-      cursor: parseCursor,
+      ...CONTENT_LIST_PAGINATION.parse,
     }),
   },
 
@@ -807,8 +807,7 @@ const contentsFindViaEmbedding: ActionDefinition = {
       query: z.string().max(1000).describe('Natural-language search query (max 1000 chars)'),
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for semantic content search.')),
       kinds: z.array(contentKind).optional().describe('Filter by content kinds'),
-      limit: wireLimitOf(20),
-      cursor: wireCursor,
+      ...CONTENT_SEMANTIC_SEARCH_PAGINATION.wire,
     }),
     output: paginatedOutputWithIncluded(contentSearchResult, {
       query: z.string(),
@@ -822,8 +821,7 @@ const contentsFindViaEmbedding: ActionDefinition = {
       query: z.string().trim().min(1).max(1000),
       clubId: parseRequiredString.optional(),
       kinds: z.array(contentKind).optional(),
-      limit: parseLimitOf(20, 20),
-      cursor: parseCursor,
+      ...CONTENT_SEMANTIC_SEARCH_PAGINATION.parse,
     }),
   },
 

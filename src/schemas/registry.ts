@@ -45,6 +45,7 @@ export type RepositoryCapability =
   | 'issueInvitation'
   | 'listIssuedInvitations'
   | 'revokeInvitation'
+  | 'findClubBySlug'
   | 'listClubs'
   | 'createClub'
   | 'archiveClub'

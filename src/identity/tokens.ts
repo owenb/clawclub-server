@@ -86,7 +86,11 @@ export async function createBearerToken(pool: Pool, input: CreateBearerTokenInpu
   return withTransaction(pool, async (client) => {
     const maxActiveTokens = getConfig().policy.accessTokens.maxActivePerMember;
     const countResult = await client.query<{ count: string }>(
-      `select count(*)::text as count from member_bearer_tokens where member_id = $1 and revoked_at is null`,
+      `select count(*)::text as count
+       from member_bearer_tokens
+       where member_id = $1
+         and revoked_at is null
+         and (expires_at is null or expires_at > now())`,
       [input.actorMemberId],
     );
     if (Number(countResult.rows[0]?.count ?? 0) >= maxActiveTokens) {

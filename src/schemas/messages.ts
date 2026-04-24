@@ -14,9 +14,9 @@ import {
   wireMessageText, parseMessageText,
   wireOptionalString, parseTrimmedNullableString,
   wireOptionalOpaqueString, parseTrimmedNullableOpaqueString,
-  wireCursor, parseCursor, decodeOptionalCursor,
+  decodeOptionalCursor,
   paginatedOutput,
-  wireLimitOf, parseLimitOf,
+  paginationFields,
 } from './fields.ts';
 import {
   directMessageSummary, directMessageThreadSummary,
@@ -125,6 +125,8 @@ type GetThreadInput = {
   cursor: string | null;
 };
 
+const MESSAGES_GET_PAGINATION = paginationFields({ defaultLimit: 50, maxLimit: 50 });
+
 const messagesGetThread: ActionDefinition = {
   action: 'messages.get',
   domain: 'messages',
@@ -135,8 +137,7 @@ const messagesGetThread: ActionDefinition = {
   wire: {
     input: z.object({
       threadId: wireRequiredString.describe('Thread ID to read'),
-      limit: wireLimitOf(50),
-      cursor: wireCursor,
+      ...MESSAGES_GET_PAGINATION.wire,
     }),
     output: z.object({
       thread: directMessageThreadSummary,
@@ -148,8 +149,7 @@ const messagesGetThread: ActionDefinition = {
   parse: {
     input: z.object({
       threadId: parseRequiredString,
-      limit: parseLimitOf(50, 50),
-      cursor: parseCursor,
+      ...MESSAGES_GET_PAGINATION.parse,
     }),
   },
 

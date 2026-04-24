@@ -9,9 +9,8 @@ import {
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   eventRsvpState,
-  wireCursor, parseCursor, decodeOptionalCursor,
-  paginatedOutput,
-  wireLimitOf, parseLimitOf,
+  decodeOptionalCursor,
+  paginationFields,
 } from './fields.ts';
 import { content, eventWithIncluded, membershipSummary, paginatedOutputWithIncluded } from './responses.ts';
 import { clubScopedResult, registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
@@ -22,6 +21,8 @@ type EventListInput = {
   limit: number;
   cursor: string | null;
 };
+
+const EVENTS_LIST_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
 
 const eventsList: ActionDefinition = {
   action: 'events.list',
@@ -34,8 +35,7 @@ const eventsList: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for events.')),
       query: wireOptionalString.describe('Search text'),
-      limit: wireLimitOf(20),
-      cursor: wireCursor,
+      ...EVENTS_LIST_PAGINATION.wire,
     }),
     output: paginatedOutputWithIncluded(content, {
       query: z.string().nullable(),
@@ -48,8 +48,7 @@ const eventsList: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString.optional(),
       query: parseTrimmedNullableString,
-      limit: parseLimitOf(20, 20),
-      cursor: parseCursor,
+      ...EVENTS_LIST_PAGINATION.parse,
     }),
   },
 

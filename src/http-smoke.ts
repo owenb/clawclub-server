@@ -228,7 +228,7 @@ export async function runHttpSmoke(): Promise<{
 
     const updates = await postAction(baseUrl, token.bearerToken, 'updates.list', {
       clubId,
-      activity: { after: 'latest', limit: 5 },
+      activity: { cursor: 'latest', limit: 5 },
       notifications: { limit: 5 },
       inbox: { limit: 5, unreadOnly: true },
     }, {

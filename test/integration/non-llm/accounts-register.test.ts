@@ -65,6 +65,19 @@ describe('accounts.register', () => {
     assert.match(err.message, /Unrecognized key/i);
   });
 
+  it('rejects malformed email addresses', async () => {
+    const err = await h.apiErr(null, 'accounts.register', {
+      mode: 'submit',
+      clientKey: 'register-bad-email',
+      name: 'Bad Email',
+      email: 'foo@bar@baz',
+      challengeBlob: 'unused-because-parse-fails',
+      nonce: 'unused-because-parse-fails',
+    });
+    assert.equal(err.status, 400);
+    assert.equal(err.code, 'invalid_input');
+  });
+
   it('discovers a PoW challenge and registers a zero-membership bearer holder', async () => {
     const challenge = await prepareAccountRegistration(h, 'register-discover-1');
     assert.ok(challenge.challengeBlob);

@@ -45,8 +45,11 @@ test('clubs.create refreshes actor membership context after a successful mutatio
         ? makeAuthResult({ memberships: [alphaMembership], clubIds: ['club-1'] })
         : makeAuthResult({ memberships: [alphaMembership, betaMembership], clubIds: ['club-1', 'club-2'] });
     },
+    async findClubBySlug() {
+      return null;
+    },
     async listClubs() {
-      return [];
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async enforceClubsCreateQuota() {},
     async createClub() {

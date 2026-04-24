@@ -576,13 +576,21 @@ export type Repository = {
     actorMemberId: string;
     clubId?: string;
     status?: InvitationStatus;
-  }): Promise<InvitationSummary[]>;
+    limit: number;
+    cursor?: { createdAt: string; invitationId: string } | null;
+  }): Promise<Paginated<InvitationSummary>>;
   revokeInvitation?(input: {
     actorMemberId: string;
     invitationId: string;
     adminClubIds?: string[];
   }): Promise<InvitationSummary | null>;
-  listClubs?(input: { actorMemberId: string; includeArchived: boolean }): Promise<ClubSummary[]>;
+  findClubBySlug?(input: { actorMemberId: string; slug: string }): Promise<ClubSummary | null>;
+  listClubs?(input: {
+    actorMemberId: string;
+    includeArchived: boolean;
+    limit: number;
+    cursor?: { archivedAt: string; name: string; clubId: string } | null;
+  }): Promise<Paginated<ClubSummary>>;
   createClub?(input: CreateClubInput): Promise<ClubSummary | null>;
   archiveClub?(input: ArchiveClubInput): Promise<ClubSummary | null>;
   assignClubOwner?(input: AssignClubOwnerInput): Promise<ClubSummary | null>;
@@ -764,7 +772,12 @@ export type Repository = {
   adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
   adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: ContentKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<WithIncluded<Paginated<AdminContentSummary>>>;
   adminListThreads?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminThreadSummary>>;
-  adminReadThread?(input: { actorMemberId: string; threadId: string; limit: number }): Promise<WithIncluded<{ thread: AdminThreadSummary; messages: DirectMessageEntry[] }> | null>;
+  adminReadThread?(input: {
+    actorMemberId: string;
+    threadId: string;
+    limit: number;
+    cursor?: { createdAt: string; messageId: string } | null;
+  }): Promise<WithIncluded<{ thread: AdminThreadSummary; messages: Paginated<DirectMessageEntry> }> | null>;
   adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
   adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
   adminCreateAccessToken?(input: {

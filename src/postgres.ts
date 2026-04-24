@@ -900,6 +900,7 @@ export function createRepository(
     },
 
     // ── Clubs ──────────────────────────────────────────────
+    findClubBySlug: (input) => identity.findClubBySlug(input),
     listClubs: (input) => identity.listClubs(input),
     createClub: (input) => identity.createClub(input),
     archiveClub: (input) => identity.archiveClub(input),
@@ -1675,7 +1676,7 @@ export function createRepository(
       return { results: rows, hasMore, nextCursor };
     },
 
-    async adminReadThread({ threadId, limit }) {
+    async adminReadThread({ threadId, limit, cursor }) {
       const thread = await pool.query<{
         thread_id: string;
         participants: Array<{ memberId: string; publicName: string }>;
@@ -1694,6 +1695,7 @@ export function createRepository(
       );
       if (!thread.rows[0]) return null;
 
+      const fetchLimit = limit + 1;
       const messages = await pool.query<{
         message_id: string; thread_id: string; sender_member_id: string | null;
         role: string; message_text: string | null; payload: Record<string, unknown> | null;
@@ -1708,11 +1710,19 @@ export function createRepository(
          from dm_messages m
          left join dm_message_removals rmv on rmv.message_id = m.id
          where m.thread_id = $1
-         order by m.created_at desc, m.id desc limit $2`,
-        [threadId, limit],
+           and (
+             $2::timestamptz is null
+             or m.created_at < $2
+             or (m.created_at = $2 and m.id < $3)
+           )
+         order by m.created_at desc, m.id desc limit $4`,
+        [threadId, cursor?.createdAt ?? null, cursor?.messageId ?? null, fetchLimit],
       );
 
       const latestMsg = messages.rows[0];
+      const hasMore = messages.rows.length > limit;
+      const pageRows = hasMore ? messages.rows.slice(0, limit) : messages.rows;
+      const lastRow = pageRows[pageRows.length - 1];
 
       const participantIds = thread.rows[0].participants.map(p => p.memberId);
       const threadSharedClubs = participantIds.length === 2
@@ -1720,7 +1730,7 @@ export function createRepository(
         : [];
       const mentionBundle = await loadDmMentions(
         pool,
-        messages.rows.filter((row) => !row.is_removed).map((row) => row.message_id),
+        pageRows.filter((row) => !row.is_removed).map((row) => row.message_id),
         { threadParticipantIds: participantIds },
       );
 
@@ -1732,14 +1742,18 @@ export function createRepository(
           messageCount: thread.rows[0].message_count,
           latestActivityAt: latestMsg?.created_at ?? '',
         },
-        messages: messages.rows.map((r) => ({
+        messages: {
+          results: pageRows.map((r) => ({
           messageId: r.message_id, threadId: r.thread_id, senderMemberId: r.sender_member_id,
           role: r.role as 'member' | 'agent' | 'system',
           messageText: r.message_text,
           mentions: r.is_removed ? [] : (mentionBundle.mentionsByMessageId.get(r.message_id) ?? []),
           payload: r.payload ?? {},
           createdAt: r.created_at, inReplyToMessageId: r.in_reply_to_message_id,
-        })).reverse(),
+          })).reverse(),
+          hasMore,
+          nextCursor: hasMore && lastRow ? paginationEncodeCursor([lastRow.created_at, lastRow.message_id]) : null,
+        },
         included: mentionBundle.included,
       };
     },

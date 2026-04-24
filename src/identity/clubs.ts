@@ -9,6 +9,7 @@ import type {
   ClubForGate,
   ClubSummary,
   CreateClubInput,
+  Paginated,
   RemoveClubInput,
   RemovedClubSummary,
   RestoreRemovedClubInput,
@@ -270,14 +271,54 @@ function coerceArchivePayload(payload: unknown): ArchivePayload {
   return payload as ArchivePayload;
 }
 
-export async function listClubs(pool: Pool, includeArchived: boolean): Promise<ClubSummary[]> {
+export async function findClubBySlug(pool: Pool, slug: string): Promise<ClubSummary | null> {
+  const result = await pool.query<ClubRow>(
+    `${SELECT_CLUB}
+     where c.slug = $1
+     limit 1`,
+    [slug],
+  );
+  return result.rows[0] ? mapRow(result.rows[0]) : null;
+}
+
+export async function listClubs(pool: Pool, input: {
+  includeArchived: boolean;
+  limit: number;
+  cursor?: { archivedAt: string; name: string; clubId: string } | null;
+}): Promise<Paginated<ClubSummary>> {
+  const fetchLimit = input.limit + 1;
   const result = await pool.query<ClubRow>(
     `${SELECT_CLUB}
      where ($1::boolean = true or c.archived_at is null)
-     order by c.archived_at asc nulls first, c.name asc, c.id asc`,
-    [includeArchived],
+       and (
+         $2::text is null
+         or coalesce(c.archived_at::text, '') > $2
+         or (
+           coalesce(c.archived_at::text, '') = $2
+           and (
+             c.name > $3
+             or (c.name = $3 and c.id > $4)
+           )
+         )
+       )
+     order by c.archived_at asc nulls first, c.name asc, c.id asc
+     limit $5`,
+    [
+      input.includeArchived,
+      input.cursor?.archivedAt ?? null,
+      input.cursor?.name ?? null,
+      input.cursor?.clubId ?? null,
+      fetchLimit,
+    ],
   );
-  return result.rows.map(mapRow);
+  const hasMore = result.rows.length > input.limit;
+  const rows = hasMore ? result.rows.slice(0, input.limit) : result.rows;
+  const last = rows[rows.length - 1];
+  return {
+    results: rows.map(mapRow),
+    hasMore,
+    nextCursor: hasMore && last ? encodeCursor([last.archived_at ?? '', last.name, last.club_id]) : null,
+  };
 }
 
 export async function loadClubForGate(pool: Pool, input: { clubId: string }): Promise<ClubForGate | null> {

@@ -656,8 +656,11 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
 
       return makeAuthResult();
     },
+    async findClubBySlug() {
+      return null;
+    },
     async listClubs() {
-      return [makeClub()];
+      return { results: [makeClub()], hasMore: false, nextCursor: null };
     },
     async createClub() {
       return makeClub();
@@ -1009,7 +1012,11 @@ test('superadmin.clubs.list requires superadmin and returns archived flag filter
     ...makeRepository(),
     async listClubs(input) {
       capturedInput = input as Record<string, unknown>;
-      return [makeClub({ archivedAt: '2026-03-12T01:00:00Z' })];
+      return {
+        results: [makeClub({ archivedAt: '2026-03-12T01:00:00Z' })],
+        hasMore: false,
+        nextCursor: null,
+      };
     },
   };
 
@@ -1023,8 +1030,10 @@ test('superadmin.clubs.list requires superadmin and returns archived flag filter
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
     includeArchived: true,
+    limit: 20,
+    cursor: null,
   });
-  assert.equal(result.data.clubs[0]?.archivedAt, '2026-03-12T01:00:00Z');
+  assert.equal(result.data.results[0]?.archivedAt, '2026-03-12T01:00:00Z');
 });
 
 test('superadmin.clubs.create derives superadmin ownership assignment server-side', async () => {
@@ -1032,8 +1041,8 @@ test('superadmin.clubs.create derives superadmin ownership assignment server-sid
 
   const repository: Repository = {
     ...makeRepository(),
-    async listClubs() {
-      return [];
+    async findClubBySlug() {
+      return null;
     },
     async adminGetMember() {
       return {
@@ -3488,7 +3497,7 @@ test('updates.list returns the paginated notification worklist when only notific
   const result = await dispatcher.dispatch({
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'updates.list',
-    payload: { notifications: { after: 'test-cursor', limit: 3 } },
+    payload: { notifications: { cursor: 'test-cursor', limit: 3 } },
   });
 
   assert.equal(capturedInputs.length, 1);
@@ -3579,8 +3588,8 @@ test('updates.list aggregates activity, notifications, and unread inbox in one r
     action: 'updates.list',
     payload: {
       clubId: 'club-2',
-      activity: { after: 'latest', limit: 5 },
-      notifications: { after: 'notif-cursor-1', limit: 3 },
+      activity: { cursor: 'latest', limit: 5 },
+      notifications: { cursor: 'notif-cursor-1', limit: 3 },
       inbox: { cursor: 'WyIyMDI2LTAzLTEyVDAwOjAwOjAwWiIsInRocmVhZC0xIl0', limit: 4, unreadOnly: true },
     },
   });
