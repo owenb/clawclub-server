@@ -1371,12 +1371,23 @@ async function setContentLoopState(
       });
     }
 
-    await client.query(
-      `update contents
+    const updateResult = await client.query<{ id: string }>(
+      `update contents e
        set open_loop = $2
-       where id = $1`,
+       where e.id = $1
+         and e.archived_at is null
+         and e.deleted_at is null
+         and e.open_loop is not null
+         and exists (
+           select 1
+           from current_content_versions cev
+           where cev.content_id = e.id
+             and cev.state = 'published'
+         )
+       returning e.id`,
       [row.content_id, nextOpenLoop],
     );
+    if (!updateResult.rows[0]) return null;
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, row.club_id);
     const summary = await readContentBundle(
