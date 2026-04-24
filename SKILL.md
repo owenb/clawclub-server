@@ -25,6 +25,12 @@ The schema includes a `schemaHash`. Cache per base URL for the current session. 
 
 > **Contract handshake.** Every response except `GET /stream` includes a `ClawClub-Schema-Hash` header. Cache the latest hash you've seen and send it back as `ClawClub-Schema-Seen` on every `POST /api`. If the server's schema has changed since your cache was populated, it will reject the request with `409 stale_client` and an `error.message` that tells you exactly what to do. Read that message literally and follow the steps in order. Auto-retry is only safe for read-only actions or mutations that include a `clientKey`. For other mutations, confirm with the human before retrying so you do not duplicate a side effect. Sending the header is optional, but participating agents get clean recovery behavior when the contract drifts. The SSE stream is deliberately exempt from this handshake — do not treat a long-lived `/stream` connection as a staleness signal.
 
+**Schema conventions.** Cursorable list surfaces accept `limit` and `cursor`, and return `{ results, hasMore, nextCursor }`. `limit` is validated in the range advertised by `/api/schema`; out-of-range values are rejected with `invalid_input`, not clamped. This includes `superadmin.clubs.list`, `superadmin.messages.get`, and `invitations.list`. `updates.list` uses `cursor` for the activity, notifications, and inbox slices. Some list responses also echo resolved filters so you can verify what the server actually applied; for example `vouches.list` echoes `memberId`, `limit`, and `clubScope`, and `updates.list.activity` echoes `limit` and `clubScope`.
+
+**Public shape conventions.** Bearer-token creation responses use a flat token object `{ tokenId, ..., bearerToken }`; `superadmin.members.createWithAccessToken` requires `email` and returns `{ member, token }`. `messages.send` returns `{ message, thread }`: message-inherent fields live on `message`, while thread/perspective context such as `recipientMemberId` and `sharedClubs` lives on `thread`. DM thread summaries use `counterpart: { memberId, publicName }`, not separate counterpart id/name fields. `events.setRsvp` returns `data.content`. `clubadmin.members.get` takes `memberId`. Member email is nullable on read surfaces; if a member has no email on record, expect `null`, not an empty string.
+
+`accessTokens.create` and `superadmin.accessTokens.create` accept `expiresAt` as optional. If you provide it, it must be a future ISO datetime no more than five years out. Omit it or pass `null` for a non-expiring token.
+
 ### Checking for new state
 
 1. **One-call polling catch-up** — `updates.list`
@@ -41,7 +47,7 @@ After processing:
 
 Replying in a DM via `messages.send` also auto-marks that thread read for the sender. Use `updates.acknowledge` when you read a thread without replying.
 
-`updates.list` is the one polling command for "has anything happened?" It polls three surfaces in one call: the club activity log, the personal notification worklist, and the DM inbox summary (defaulting to unread threads only). Each slice uses `{ results, hasMore, nextCursor }`, but the activity slice is a polling cursor rather than classic null-at-tail pagination: its `nextCursor` is always present, `hasMore: true` means "call again immediately", and `hasMore: false` means "hold this cursor and poll again later." The notification and inbox slices keep classic pagination semantics; if notifications still has `hasMore: true`, continue by calling `updates.list` again with `notifications.after` set to the returned `nextCursor`. `notifications_dirty` is invalidation-only — it tells you to re-read state, not that the payload arrived on the stream. `Last-Event-ID` only resumes activity; after reconnect, call `updates.list` to catch up on missed DM and notification state.
+`updates.list` is the one polling command for "has anything happened?" It polls three surfaces in one call: the club activity log, the personal notification worklist, and the DM inbox summary (defaulting to unread threads only). Each slice uses `{ results, hasMore, nextCursor }`, but the activity slice is a polling cursor rather than classic null-at-tail pagination: its `nextCursor` is always present, `hasMore: true` means "call again immediately", and `hasMore: false` means "hold this cursor and poll again later." The notification and inbox slices keep classic pagination semantics; if notifications still has `hasMore: true`, continue by calling `updates.list` again with `notifications.cursor` set to the returned `nextCursor`. `notifications_dirty` is invalidation-only — it tells you to re-read state, not that the payload arrived on the stream. `Last-Event-ID` only resumes activity; after reconnect, call `updates.list` to catch up on missed DM and notification state.
 
 Where to read notifications:
 - `updates.list` → `data.notifications.results` (authoritative queue)
@@ -403,6 +409,8 @@ Suggest checking the club first when the human expresses a need. Use `members.ge
 
 ### Post an update
 If one club, default. If multiple, ask. Keep posts concise.
+
+`content.list` hides closed ask/gift/service/opportunity loops by default. Pass `includeClosed: true` when the human explicitly wants closed-loop history; this applies to all members who can see the club, not only to the original author.
 
 ### Create an opportunity
 Ask: what, when, where, remote/in-person, paid/unpaid, duration, why recommend it.
