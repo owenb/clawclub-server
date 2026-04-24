@@ -47,6 +47,7 @@ ACTIVE_MEMBERS=(
 
 for name in "${ACTIVE_MEMBERS[@]}"; do
   tok=$(DATABASE_URL="postgresql://localhost/$DB_NAME" \
+    NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--disable-warning=ExperimentalWarning" \
     node --experimental-strip-types "$ROOT_DIR/src/token-cli.ts" create \
     --name "$name" --label localdev 2>&1 \
     | python3 -c "import sys,json; print(json.load(sys.stdin)['bearerToken'])")

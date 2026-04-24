@@ -1401,7 +1401,7 @@ CREATE TABLE public.members (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     display_name text NOT NULL,
-    email text NOT NULL,
+    email text,
     CONSTRAINT members_display_name_check CHECK ((length(btrim(display_name)) > 0)),
     CONSTRAINT members_public_name_check CHECK ((length(btrim(public_name)) > 0))
 );

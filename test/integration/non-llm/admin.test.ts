@@ -69,6 +69,19 @@ describe('superadmin.clubs.list', () => {
 });
 
 describe('superadmin.clubs.get', () => {
+  it('returns null when the owner has no email on record', async () => {
+    const admin = await h.seedSuperadmin('Admin Nullable Owner Email');
+    const owner = await h.seedOwner('nullable-owner-email', 'Nullable Owner Email');
+    await h.sql(`update members set email = null where id = $1`, [owner.id]);
+
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.get', {
+      clubId: owner.club.id,
+    });
+    const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
+    const ownerRef = club.owner as Record<string, unknown>;
+    assert.equal(ownerRef.email, null);
+  });
+
   it('returns club detail including AI spend usage and llm.outputTokens context', async () => {
     const admin = await h.seedSuperadmin('Admin Club Detail');
     const owner = await h.seedOwner('superadmin-club-detail', 'Superadmin Club Detail');
