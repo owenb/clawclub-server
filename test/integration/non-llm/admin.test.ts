@@ -118,8 +118,8 @@ describe('superadmin.clubs.get', () => {
     });
     const club = (result.data as Record<string, unknown>).club as Record<string, unknown>;
 
-    assert.equal((club.club as Record<string, unknown>).clubId, owner.club.id);
-    assert.equal((club.club as Record<string, unknown>).slug, owner.club.slug);
+    assert.equal(club.clubId, owner.club.id);
+    assert.equal(club.slug, owner.club.slug);
     const aiSpend = club.aiSpend as Record<string, unknown>;
     assert.deepEqual(aiSpend.budget, {
       dailyMaxCents: 100,
@@ -1919,12 +1919,11 @@ describe('accessTokens.create', () => {
 
     const createResult = await h.apiOk(member.token, 'accessTokens.create', { label: 'my-new-token' });
     const data = createResult.data as Record<string, unknown>;
-    const tokenSummary = data.token as Record<string, unknown>;
     const newBearerToken = data.bearerToken as string;
 
     assert.ok(typeof newBearerToken === 'string' && newBearerToken.length > 0);
-    assert.equal(tokenSummary.label, 'my-new-token');
-    assert.equal(tokenSummary.memberId, member.id);
+    assert.equal(data.label, 'my-new-token');
+    assert.equal(data.memberId, member.id);
 
     // Verify the new token actually works
     const sessionResult = await h.apiOk(newBearerToken, 'session.getContext', {});
@@ -1949,7 +1948,7 @@ describe('accessTokens.create', () => {
       label: 'no-expiry',
       expiresAt: null,
     });
-    const token = (created.data as Record<string, unknown>).token as Record<string, unknown>;
+    const token = created.data as Record<string, unknown>;
     assert.equal(token.expiresAt, null);
   });
 
@@ -1965,7 +1964,7 @@ describe('accessTokens.create', () => {
     );
 
     const created = await h.apiOk(member.token, 'accessTokens.create', { label: 'after-expired' });
-    const token = (created.data as Record<string, unknown>).token as Record<string, unknown>;
+    const token = created.data as Record<string, unknown>;
     assert.equal(token.label, 'after-expired');
   });
 });
@@ -1978,9 +1977,8 @@ describe('accessTokens.revoke', () => {
     // Create a second token to revoke
     const createResult = await h.apiOk(member.token, 'accessTokens.create', { label: 'to-revoke' });
     const data = createResult.data as Record<string, unknown>;
-    const tokenSummary = data.token as Record<string, unknown>;
     const tokenToRevoke = data.bearerToken as string;
-    const tokenId = tokenSummary.tokenId as string;
+    const tokenId = data.tokenId as string;
 
     // Confirm it works before revocation
     await h.apiOk(tokenToRevoke, 'session.getContext', {});

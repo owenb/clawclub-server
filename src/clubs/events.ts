@@ -306,7 +306,7 @@ export async function rsvpEvent(pool: Pool, input: {
   response: EventRsvpState;
   note?: string | null;
   accessibleMemberships: Array<{ membershipId: string; clubId: string }>;
-}): Promise<WithIncluded<{ event: Content }> | null> {
+}): Promise<WithIncluded<{ content: Content }> | null> {
   const clubIds = input.accessibleMemberships.map(membership => membership.clubId);
   try {
     return await withTransaction(pool, async (client) => {
@@ -375,7 +375,7 @@ export async function rsvpEvent(pool: Pool, input: {
         { memberId: input.actorMemberId },
         { includeExpired: false },
       );
-      return result.content ? { event: result.content, included: result.included } : null;
+      return result.content ? { content: result.content, included: result.included } : null;
     }, {
       isolationLevel: 'serializable',
       retrySerializationFailures: 2,
@@ -390,7 +390,7 @@ export async function cancelEventRsvp(pool: Pool, input: {
   actorMemberId: string;
   eventId: string;
   accessibleMemberships: Array<{ membershipId: string; clubId: string }>;
-}): Promise<WithIncluded<{ event: Content }> | null> {
+}): Promise<WithIncluded<{ content: Content }> | null> {
   const clubIds = input.accessibleMemberships.map(membership => membership.clubId);
   return withTransaction(pool, async (client) => {
     const event = await resolveEventIdentity(client, input.eventId, clubIds);
@@ -426,7 +426,7 @@ export async function cancelEventRsvp(pool: Pool, input: {
         { memberId: input.actorMemberId },
         { includeExpired: false },
       );
-      return result.content ? { event: result.content, included: result.included } : null;
+      return result.content ? { content: result.content, included: result.included } : null;
     }
 
     let insertResult;
@@ -466,6 +466,6 @@ export async function cancelEventRsvp(pool: Pool, input: {
       { memberId: input.actorMemberId },
       { includeExpired: false },
     );
-    return result.content ? { event: result.content, included: result.included } : null;
+    return result.content ? { content: result.content, included: result.included } : null;
   });
 }

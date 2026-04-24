@@ -143,7 +143,7 @@ const eventsSetRsvp: ActionDefinition = {
       throw new AppError('event_not_found', 'Event not found inside the actor scope');
     }
 
-    return clubScopedResult(result.event, result);
+    return clubScopedResult(result.content, result);
   },
 };
 

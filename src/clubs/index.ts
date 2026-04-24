@@ -561,8 +561,8 @@ export type ClubsRepository = {
   findContentViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; contentId: string } | null }): Promise<PaginatedContentSearch>;
 
   listEvents(input: { actorMemberId: string; clubIds: string[]; limit: number; query?: string; cursor?: { startsAt: string; contentId: string } | null }): Promise<WithIncluded<{ results: import('../repository.ts').Content[]; hasMore: boolean; nextCursor: string | null }>>;
-  rsvpEvent(input: { actorMemberId: string; eventId: string; response: import('../repository.ts').EventRsvpState; note?: string | null; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ event: import('../repository.ts').Content }> | null>;
-  cancelEventRsvp(input: { actorMemberId: string; eventId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ event: import('../repository.ts').Content }> | null>;
+  rsvpEvent(input: { actorMemberId: string; eventId: string; response: import('../repository.ts').EventRsvpState; note?: string | null; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ content: import('../repository.ts').Content }> | null>;
+  cancelEventRsvp(input: { actorMemberId: string; eventId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ content: import('../repository.ts').Content }> | null>;
 };
 
 export function createClubsRepository(pool: Pool): ClubsRepository {

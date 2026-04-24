@@ -33,58 +33,49 @@
           "bearerToken": {
             "type": "string"
           },
-          "token": {
-            "additionalProperties": false,
-            "properties": {
-              "createdAt": {
-                "clawclubType": "timestamp",
-                "type": "string"
-              },
-              "expiresAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "label": {
-                "nullable": true,
-                "type": "string"
-              },
-              "lastUsedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "memberId": {
-                "type": "string"
-              },
-              "metadata": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "revokedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "tokenId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "tokenId",
-              "memberId",
-              "label",
-              "createdAt",
-              "lastUsedAt",
-              "revokedAt",
-              "expiresAt",
-              "metadata"
-            ],
+          "createdAt": {
+            "clawclubType": "timestamp",
+            "type": "string"
+          },
+          "expiresAt": {
+            "clawclubType": "timestamp",
+            "nullable": true,
+            "type": "string"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "clawclubType": "timestamp",
+            "nullable": true,
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {},
             "type": "object"
+          },
+          "revokedAt": {
+            "clawclubType": "timestamp",
+            "nullable": true,
+            "type": "string"
+          },
+          "tokenId": {
+            "type": "string"
           }
         },
         "required": [
-          "token",
+          "tokenId",
+          "memberId",
+          "label",
+          "createdAt",
+          "lastUsedAt",
+          "revokedAt",
+          "expiresAt",
+          "metadata",
           "bearerToken"
         ],
         "type": "object"
@@ -2426,15 +2417,15 @@
             "maxLength": 100000,
             "type": "string"
           },
-          "membershipId": {
-            "description": "Membership to fetch",
+          "memberId": {
+            "description": "Member to fetch in the club",
             "maxLength": 100000,
             "type": "string"
           }
         },
         "required": [
           "clubId",
-          "membershipId"
+          "memberId"
         ],
         "type": "object"
       },
@@ -10052,7 +10043,7 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "event": {
+          "content": {
             "additionalProperties": false,
             "properties": {
               "author": {
@@ -10451,7 +10442,7 @@
           }
         },
         "required": [
-          "event",
+          "content",
           "included"
         ],
         "type": "object"
@@ -12701,10 +12692,6 @@
                       "clawclubType": "timestamp",
                       "type": "string"
                     },
-                    "inReplyToMessageId": {
-                      "nullable": true,
-                      "type": "string"
-                    },
                     "mentions": {
                       "items": {
                         "additionalProperties": false,
@@ -12767,8 +12754,7 @@
                     "messageText",
                     "mentions",
                     "payload",
-                    "createdAt",
-                    "inReplyToMessageId"
+                    "createdAt"
                   ],
                   "type": "object"
                 },
@@ -12785,11 +12771,21 @@
           "thread": {
             "additionalProperties": false,
             "properties": {
-              "counterpartMemberId": {
-                "type": "string"
-              },
-              "counterpartPublicName": {
-                "type": "string"
+              "counterpart": {
+                "additionalProperties": false,
+                "properties": {
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName"
+                ],
+                "type": "object"
               },
               "latestMessage": {
                 "additionalProperties": false,
@@ -12888,8 +12884,7 @@
             "required": [
               "threadId",
               "sharedClubs",
-              "counterpartMemberId",
-              "counterpartPublicName",
+              "counterpart",
               "latestMessage",
               "messageCount"
             ],
@@ -13109,12 +13104,45 @@
                 "type": "string"
               },
               "messageText": {
+                "nullable": true,
                 "type": "string"
               },
-              "recipientMemberId": {
+              "payload": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "role": {
+                "enum": [
+                  "member",
+                  "agent",
+                  "system"
+                ],
                 "type": "string"
               },
               "senderMemberId": {
+                "nullable": true,
+                "type": "string"
+              },
+              "threadId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "messageId",
+              "threadId",
+              "senderMemberId",
+              "role",
+              "messageText",
+              "mentions",
+              "payload",
+              "createdAt"
+            ],
+            "type": "object"
+          },
+          "thread": {
+            "additionalProperties": false,
+            "properties": {
+              "recipientMemberId": {
                 "type": "string"
               },
               "sharedClubs": {
@@ -13142,27 +13170,19 @@
               },
               "threadId": {
                 "type": "string"
-              },
-              "updateCount": {
-                "type": "number"
               }
             },
             "required": [
               "threadId",
-              "sharedClubs",
-              "senderMemberId",
               "recipientMemberId",
-              "messageId",
-              "messageText",
-              "mentions",
-              "createdAt",
-              "updateCount"
+              "sharedClubs"
             ],
             "type": "object"
           }
         },
         "required": [
           "message",
+          "thread",
           "included"
         ],
         "type": "object"
@@ -13331,58 +13351,49 @@
           "bearerToken": {
             "type": "string"
           },
-          "token": {
-            "additionalProperties": false,
-            "properties": {
-              "createdAt": {
-                "clawclubType": "timestamp",
-                "type": "string"
-              },
-              "expiresAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "label": {
-                "nullable": true,
-                "type": "string"
-              },
-              "lastUsedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "memberId": {
-                "type": "string"
-              },
-              "metadata": {
-                "additionalProperties": {},
-                "type": "object"
-              },
-              "revokedAt": {
-                "clawclubType": "timestamp",
-                "nullable": true,
-                "type": "string"
-              },
-              "tokenId": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "tokenId",
-              "memberId",
-              "label",
-              "createdAt",
-              "lastUsedAt",
-              "revokedAt",
-              "expiresAt",
-              "metadata"
-            ],
+          "createdAt": {
+            "clawclubType": "timestamp",
+            "type": "string"
+          },
+          "expiresAt": {
+            "clawclubType": "timestamp",
+            "nullable": true,
+            "type": "string"
+          },
+          "label": {
+            "nullable": true,
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "clawclubType": "timestamp",
+            "nullable": true,
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": {},
             "type": "object"
+          },
+          "revokedAt": {
+            "clawclubType": "timestamp",
+            "nullable": true,
+            "type": "string"
+          },
+          "tokenId": {
+            "type": "string"
           }
         },
         "required": [
-          "token",
+          "tokenId",
+          "memberId",
+          "label",
+          "createdAt",
+          "lastUsedAt",
+          "revokedAt",
+          "expiresAt",
+          "metadata",
           "bearerToken"
         ],
         "type": "object"
@@ -14080,6 +14091,10 @@
           "club": {
             "additionalProperties": false,
             "properties": {
+              "admissionPolicy": {
+                "nullable": true,
+                "type": "string"
+              },
               "aiSpend": {
                 "additionalProperties": false,
                 "properties": {
@@ -14138,121 +14153,13 @@
                 ],
                 "type": "object"
               },
-              "club": {
-                "additionalProperties": false,
-                "properties": {
-                  "admissionPolicy": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "archivedAt": {
-                    "clawclubType": "timestamp",
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "clubId": {
-                    "type": "string"
-                  },
-                  "memberCap": {
-                    "nullable": true,
-                    "type": "number"
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "owner": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "email": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "memberId": {
-                        "type": "string"
-                      },
-                      "publicName": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "memberId",
-                      "publicName",
-                      "email"
-                    ],
-                    "type": "object"
-                  },
-                  "slug": {
-                    "type": "string"
-                  },
-                  "summary": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "usesFreeAllowance": {
-                    "type": "boolean"
-                  },
-                  "version": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "createdAt": {
-                        "clawclubType": "timestamp",
-                        "type": "string"
-                      },
-                      "createdByMember": {
-                        "additionalProperties": false,
-                        "nullable": true,
-                        "properties": {
-                          "memberId": {
-                            "type": "string"
-                          },
-                          "publicName": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "memberId",
-                          "publicName"
-                        ],
-                        "type": "object"
-                      },
-                      "no": {
-                        "type": "number"
-                      },
-                      "reason": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "status": {
-                        "enum": [
-                          "active",
-                          "archived"
-                        ],
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "no",
-                      "status",
-                      "reason",
-                      "createdAt",
-                      "createdByMember"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "clubId",
-                  "slug",
-                  "name",
-                  "summary",
-                  "admissionPolicy",
-                  "usesFreeAllowance",
-                  "memberCap",
-                  "archivedAt",
-                  "owner",
-                  "version"
-                ],
-                "type": "object"
+              "archivedAt": {
+                "clawclubType": "timestamp",
+                "nullable": true,
+                "type": "string"
+              },
+              "clubId": {
+                "type": "string"
               },
               "contentCount": {
                 "type": "number"
@@ -14318,6 +14225,10 @@
                 ],
                 "type": "object"
               },
+              "memberCap": {
+                "nullable": true,
+                "type": "number"
+              },
               "memberCounts": {
                 "additionalProperties": {
                   "type": "number"
@@ -14326,10 +14237,101 @@
               },
               "messageCount": {
                 "type": "number"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner": {
+                "additionalProperties": false,
+                "properties": {
+                  "email": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "memberId": {
+                    "type": "string"
+                  },
+                  "publicName": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "memberId",
+                  "publicName",
+                  "email"
+                ],
+                "type": "object"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "summary": {
+                "nullable": true,
+                "type": "string"
+              },
+              "usesFreeAllowance": {
+                "type": "boolean"
+              },
+              "version": {
+                "additionalProperties": false,
+                "properties": {
+                  "createdAt": {
+                    "clawclubType": "timestamp",
+                    "type": "string"
+                  },
+                  "createdByMember": {
+                    "additionalProperties": false,
+                    "nullable": true,
+                    "properties": {
+                      "memberId": {
+                        "type": "string"
+                      },
+                      "publicName": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "memberId",
+                      "publicName"
+                    ],
+                    "type": "object"
+                  },
+                  "no": {
+                    "type": "number"
+                  },
+                  "reason": {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "active",
+                      "archived"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "no",
+                  "status",
+                  "reason",
+                  "createdAt",
+                  "createdByMember"
+                ],
+                "type": "object"
               }
             },
             "required": [
-              "club",
+              "clubId",
+              "slug",
+              "name",
+              "summary",
+              "admissionPolicy",
+              "usesFreeAllowance",
+              "memberCap",
+              "archivedAt",
+              "owner",
+              "version",
               "memberCounts",
               "contentCount",
               "messageCount",
@@ -15233,9 +15235,8 @@
         "additionalProperties": false,
         "properties": {
           "email": {
-            "description": "Optional private contact email",
-            "maxLength": 2000,
-            "nullable": true,
+            "description": "Private contact email for the new member",
+            "maxLength": 500,
             "type": "string"
           },
           "publicName": {
@@ -15245,17 +15246,14 @@
           }
         },
         "required": [
-          "publicName"
+          "publicName",
+          "email"
         ],
         "type": "object"
       },
       "output": {
         "additionalProperties": false,
         "properties": {
-          "bearerToken": {
-            "description": "clawclub_* bearer token for the new member",
-            "type": "string"
-          },
           "member": {
             "additionalProperties": false,
             "properties": {
@@ -15271,11 +15269,64 @@
               "publicName"
             ],
             "type": "object"
+          },
+          "token": {
+            "additionalProperties": false,
+            "properties": {
+              "bearerToken": {
+                "type": "string"
+              },
+              "createdAt": {
+                "clawclubType": "timestamp",
+                "type": "string"
+              },
+              "expiresAt": {
+                "clawclubType": "timestamp",
+                "nullable": true,
+                "type": "string"
+              },
+              "label": {
+                "nullable": true,
+                "type": "string"
+              },
+              "lastUsedAt": {
+                "clawclubType": "timestamp",
+                "nullable": true,
+                "type": "string"
+              },
+              "memberId": {
+                "type": "string"
+              },
+              "metadata": {
+                "additionalProperties": {},
+                "type": "object"
+              },
+              "revokedAt": {
+                "clawclubType": "timestamp",
+                "nullable": true,
+                "type": "string"
+              },
+              "tokenId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tokenId",
+              "memberId",
+              "label",
+              "createdAt",
+              "lastUsedAt",
+              "revokedAt",
+              "expiresAt",
+              "metadata",
+              "bearerToken"
+            ],
+            "type": "object"
           }
         },
         "required": [
           "member",
-          "bearerToken"
+          "token"
         ],
         "type": "object"
       },
@@ -16081,10 +16132,6 @@
                       "clawclubType": "timestamp",
                       "type": "string"
                     },
-                    "inReplyToMessageId": {
-                      "nullable": true,
-                      "type": "string"
-                    },
                     "mentions": {
                       "items": {
                         "additionalProperties": false,
@@ -16147,8 +16194,7 @@
                     "messageText",
                     "mentions",
                     "payload",
-                    "createdAt",
-                    "inReplyToMessageId"
+                    "createdAt"
                   ],
                   "type": "object"
                 },
@@ -17583,11 +17629,21 @@
                 "items": {
                   "additionalProperties": false,
                   "properties": {
-                    "counterpartMemberId": {
-                      "type": "string"
-                    },
-                    "counterpartPublicName": {
-                      "type": "string"
+                    "counterpart": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "memberId": {
+                          "type": "string"
+                        },
+                        "publicName": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "memberId",
+                        "publicName"
+                      ],
+                      "type": "object"
                     },
                     "latestMessage": {
                       "additionalProperties": false,
@@ -17712,8 +17768,7 @@
                   "required": [
                     "threadId",
                     "sharedClubs",
-                    "counterpartMemberId",
-                    "counterpartPublicName",
+                    "counterpart",
                     "latestMessage",
                     "messageCount",
                     "unread"
@@ -18807,10 +18862,6 @@
                     "clawclubType": "timestamp",
                     "type": "string"
                   },
-                  "inReplyToMessageId": {
-                    "nullable": true,
-                    "type": "string"
-                  },
                   "mentions": {
                     "items": {
                       "properties": {
@@ -18872,8 +18923,7 @@
                   "messageText",
                   "mentions",
                   "payload",
-                  "createdAt",
-                  "inReplyToMessageId"
+                  "createdAt"
                 ],
                 "type": "object"
               },
@@ -18881,11 +18931,20 @@
             },
             "thread": {
               "properties": {
-                "counterpartMemberId": {
-                  "type": "string"
-                },
-                "counterpartPublicName": {
-                  "type": "string"
+                "counterpart": {
+                  "properties": {
+                    "memberId": {
+                      "type": "string"
+                    },
+                    "publicName": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "memberId",
+                    "publicName"
+                  ],
+                  "type": "object"
                 },
                 "latestMessage": {
                   "properties": {
@@ -18981,8 +19040,7 @@
               "required": [
                 "threadId",
                 "sharedClubs",
-                "counterpartMemberId",
-                "counterpartPublicName",
+                "counterpart",
                 "latestMessage",
                 "messageCount"
               ],
@@ -19223,5 +19281,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "3f419c28e3b8e6ff"
+  "schemaHash": "54326d3900100566"
 }

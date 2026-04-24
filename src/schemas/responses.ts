@@ -271,21 +271,19 @@ export const contentThread = z.object({
 
 export const directMessageSummary = z.object({
   threadId: z.string(),
-  sharedClubs: z.array(sharedClubRef),
   senderMemberId: z.string(),
-  recipientMemberId: z.string(),
+  role: messageRole,
   messageId: z.string(),
   messageText: z.string(),
   mentions: z.array(mentionSpan),
+  payload: z.record(z.string(), z.unknown()),
   createdAt: timestampString,
-  updateCount: z.number(),
 });
 
 export const directMessageThreadSummary = z.object({
   threadId: z.string(),
   sharedClubs: z.array(sharedClubRef),
-  counterpartMemberId: z.string(),
-  counterpartPublicName: z.string(),
+  counterpart: memberRef,
   latestMessage: z.object({
     messageId: z.string(),
     senderMemberId: z.string().nullable(),
@@ -306,7 +304,12 @@ export const directMessageEntry = z.object({
   mentions: z.array(mentionSpan),
   payload: z.record(z.string(), z.unknown()),
   createdAt: timestampString,
-  inReplyToMessageId: z.string().nullable(),
+});
+
+export const directMessageSendThread = z.object({
+  threadId: z.string(),
+  recipientMemberId: z.string(),
+  sharedClubs: z.array(sharedClubRef),
 });
 
 export const directMessageInboxSummary = directMessageThreadSummary.extend({
@@ -331,8 +334,7 @@ export const bearerTokenSummary = z.object({
   metadata: z.record(z.string(), z.unknown()),
 });
 
-export const createdBearerToken = z.object({
-  token: bearerTokenSummary,
+export const createdBearerToken = bearerTokenSummary.extend({
   bearerToken: z.string(),
 });
 
@@ -566,8 +568,7 @@ export const clubLlmOutputUsageWindow = z.object({
   usedTokens: z.number(),
 });
 
-export const superadminClubDetail = z.object({
-  club: clubSummary,
+export const superadminClubDetail = clubSummary.extend({
   memberCounts: z.record(z.string(), z.number()),
   contentCount: z.number(),
   messageCount: z.number(),
@@ -667,8 +668,8 @@ export function paginatedOutputWithIncluded<T extends z.ZodTypeAny, U extends z.
 }
 
 export const contentWithIncluded = withIncluded({ content });
-export const eventWithIncluded = withIncluded({ event: content });
-export const directMessageWithIncluded = withIncluded({ message: directMessageSummary });
+export const eventWithIncluded = withIncluded({ content });
+export const directMessageWithIncluded = withIncluded({ message: directMessageEntry, thread: directMessageSendThread });
 
 export type MemberRef = z.infer<typeof memberRef>;
 export type SharedClubRef = z.infer<typeof sharedClubRef>;

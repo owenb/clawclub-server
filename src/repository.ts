@@ -637,7 +637,7 @@ export type Repository = {
   getAdminMember(input: {
     actorMemberId: string;
     clubId: string;
-    membershipId: string;
+    memberId: string;
   }): Promise<AdminMemberSummary | null>;
   buildMembershipSeedProfile?(input: {
     memberId: string;
@@ -693,8 +693,8 @@ export type Repository = {
   listContent(input: ListContentInput): Promise<WithIncluded<Paginated<ContentThread>>>;
   readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: ContentThread; contents: Content[]; hasMore: boolean; nextCursor: string | null }> | null>;
   listEvents(input: ListEventsInput): Promise<WithIncluded<Paginated<Content>>>;
-  rsvpEvent(input: RsvpEventInput): Promise<WithIncluded<{ event: Content }> | null>;
-  cancelEventRsvp(input: { actorMemberId: string; eventId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ event: Content }> | null>;
+  rsvpEvent(input: RsvpEventInput): Promise<WithIncluded<{ content: Content }> | null>;
+  cancelEventRsvp(input: { actorMemberId: string; eventId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ content: Content }> | null>;
   listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
@@ -717,7 +717,7 @@ export type Repository = {
     actorMemberId: string;
     notificationIds: string[];
   }): Promise<NotificationReceipt[]>;
-  sendDirectMessage(input: SendDirectMessageInput): Promise<WithIncluded<{ message: DirectMessageSummary }> | null>;
+  sendDirectMessage(input: SendDirectMessageInput): Promise<WithIncluded<{ message: DirectMessageEntry; thread: { threadId: string; recipientMemberId: string; sharedClubs: SharedClubRef[] } }> | null>;
   listDirectMessageThreads(input: { actorMemberId: string; limit: number }): Promise<DirectMessageThreadSummary[]>;
   listDirectMessageInbox(input: {
     actorMemberId: string;
@@ -750,7 +750,7 @@ export type Repository = {
 
   removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 
-  adminCreateMember?(input: { actorMemberId: string; publicName: string; email?: string | null }): Promise<{ memberId: string; publicName: string; bearerToken: string }>;
+  adminCreateMember?(input: { actorMemberId: string; publicName: string; email: string }): Promise<{ member: MemberRef; token: CreatedBearerToken }>;
   adminCreateMembership?(input: {
     actorMemberId: string;
     clubId: string;

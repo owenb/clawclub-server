@@ -79,7 +79,7 @@ export async function createBearerTokenInDb(client: DbClient, input: {
     throw new AppError('missing_row', 'Created bearer token row was not returned');
   }
 
-  return { token: mapRow(row), bearerToken: token.bearerToken };
+  return { ...mapRow(row), bearerToken: token.bearerToken };
 }
 
 export async function createBearerToken(pool: Pool, input: CreateBearerTokenInput): Promise<CreatedBearerToken> {

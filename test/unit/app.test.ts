@@ -171,7 +171,7 @@ function makeBearerTokenSummary(overrides: Partial<BearerTokenSummary> = {}): Be
 
 function makeCreatedBearerToken(overrides: Partial<CreatedBearerToken> = {}): CreatedBearerToken {
   return {
-    token: makeBearerTokenSummary(),
+    ...makeBearerTokenSummary(),
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     ...overrides,
   };
@@ -242,14 +242,13 @@ function makeClaimedDelivery(overrides: Partial<ClaimedDelivery> = {}): ClaimedD
 function makeDirectMessage(overrides: Partial<DirectMessageSummary> = {}): DirectMessageSummary {
   return {
     threadId: 'thread-1',
-    sharedClubs: [{ clubId: 'club-1', slug: 'alpha', name: 'Alpha' }],
     senderMemberId: 'member-1',
-    recipientMemberId: 'member-2',
+    role: 'member',
     messageId: 'message-1',
     messageText: 'Hello there',
     mentions: [],
+    payload: {},
     createdAt: '2026-03-12T00:03:00Z',
-    updateCount: 1,
     ...overrides,
   };
 }
@@ -258,8 +257,10 @@ function makeDirectMessageThread(overrides: Partial<DirectMessageThreadSummary> 
   return {
     threadId: 'thread-1',
     sharedClubs: [{ clubId: 'club-1', slug: 'alpha', name: 'Alpha' }],
-    counterpartMemberId: 'member-2',
-    counterpartPublicName: 'Member Two',
+    counterpart: {
+      memberId: 'member-2',
+      publicName: 'Member Two',
+    },
     latestMessage: {
       messageId: 'message-1',
       senderMemberId: 'member-2',
@@ -298,7 +299,6 @@ function makeDirectMessageTranscriptEntry(
     mentions: [],
     payload: {},
     createdAt: '2026-03-12T00:03:00Z',
-    inReplyToMessageId: null,
     ...overrides,
   };
 }
@@ -799,7 +799,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
-      return withIncluded({ event: makeEvent() });
+      return withIncluded({ content: makeEvent() });
     },
     async listBearerTokens() {
       return [makeBearerTokenSummary()];
@@ -1688,7 +1688,7 @@ test('members.list returns active members with flattened public member summaries
       return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
-      return withIncluded({ event: makeEvent() });
+      return withIncluded({ content: makeEvent() });
     },
     async listBearerTokens() {
       return [makeBearerTokenSummary()];
@@ -2400,7 +2400,7 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
       return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
-      return withIncluded({ event: makeEvent() });
+      return withIncluded({ content: makeEvent() });
     },
     async listBearerTokens() {
       return [makeBearerTokenSummary()];
@@ -2612,7 +2612,7 @@ test('events.setRsvp uses the actor membership in the event club', async () => {
     async rsvpEvent(input) {
       capturedInput = input;
       return withIncluded({
-        event: makeEvent({
+        content: makeEvent({
           clubId: 'club-2',
           rsvps: {
             viewerResponse: 'yes',
@@ -2671,7 +2671,7 @@ test('events.setRsvp uses the actor membership in the event club', async () => {
     ],
   });
   assert.equal(result.action, 'events.setRsvp');
-  assert.equal(result.data.event.rsvps.viewerResponse, 'yes');
+  assert.equal(result.data.content.rsvps.viewerResponse, 'yes');
 });
 
 test('content.list can span accessible clubs and filter by kinds with optional query', async () => {
@@ -2929,16 +2929,19 @@ test('messages.send picks a shared club, appends the request scope, and returns 
     async acknowledgeDelivery() {
       return makeDeliveryAcknowledgement();
     },
-    async sendDirectMessage(input) {
-      capturedInput = input as Record<string, unknown>;
-      return withIncluded({
-        message: makeDirectMessage({
-          recipientMemberId: 'member-9',
-          messageText: input.messageText,
-          updateCount: 2,
-        }),
-      });
-    },
+	    async sendDirectMessage(input) {
+	      capturedInput = input as Record<string, unknown>;
+	      return withIncluded({
+	        message: makeDirectMessage({
+	          messageText: input.messageText,
+	        }),
+	        thread: {
+	          threadId: 'thread-1',
+	          recipientMemberId: 'member-9',
+	          sharedClubs: [{ clubId: 'club-1', slug: 'alpha', name: 'Alpha' }],
+	        },
+	      });
+	    },
     async listDirectMessageThreads() {
       return [makeDirectMessageThread()];
     },
@@ -2976,11 +2979,11 @@ test('messages.send picks a shared club, appends the request scope, and returns 
     recipientMemberId: 'member-9',
     messageText: 'Hello from the club edge',
     clientKey: null,
-  });
-  assert.equal(result.action, 'messages.send');
-  assert.equal(result.data.message.updateCount, 2);
-  assert.equal(result.data.message.messageText, 'Hello from the club edge');
-});
+	  });
+	  assert.equal(result.action, 'messages.send');
+	  assert.equal(result.data.thread.recipientMemberId, 'member-9');
+	  assert.equal(result.data.message.messageText, 'Hello from the club edge');
+	});
 
 test('messages.send returns 404 when the recipient is outside shared scope', async () => {
   const repository: Repository = {
@@ -3107,7 +3110,7 @@ test('updates.list returns inbox summaries inside actor scope', async () => {
   assert.equal(result.action, 'updates.list');
   assert.equal(result.data.inbox.unreadOnly, false);
   assert.ok(Array.isArray(result.data.inbox.results[0]?.sharedClubs));
-  assert.equal(result.data.inbox.results[0]?.counterpartMemberId, 'member-2');
+  assert.equal(result.data.inbox.results[0]?.counterpart.memberId, 'member-2');
   assert.equal(result.data.inbox.results[0]?.unread.hasUnread, true);
 });
 
@@ -3227,7 +3230,6 @@ test('messages.get scopes thread access server-side and returns DM entries', asy
             createdAt: '2026-03-12T00:02:00Z',
             senderMemberId: 'member-1',
             messageText: 'Later',
-            inReplyToMessageId: 'message-1',
           }),
         ],
         hasMore: false,
@@ -3255,7 +3257,7 @@ test('messages.get scopes thread access server-side and returns DM entries', asy
   assert.equal(result.action, 'messages.get');
   assert.equal(result.data.thread.threadId, 'thread-1');
   assert.equal(result.data.messages.results.length, 2);
-  assert.equal(result.data.messages.results[1]?.inReplyToMessageId, 'message-1');
+  assert.equal(Object.hasOwn(result.data.messages.results[1] ?? {}, 'inReplyToMessageId'), false);
   assert.equal(result.data.messages.results[0]?.messageText, 'Earlier');
   assert.equal(result.data.messages.results[1]?.messageText, 'Later');
 });
@@ -3312,7 +3314,7 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
     async createBearerToken(input) {
       capturedInput = input as Record<string, unknown>;
       return makeCreatedBearerToken({
-        token: makeBearerTokenSummary({ tokenId: 'token-2', label: 'laptop', metadata: { device: 'mbp' } }),
+        ...makeBearerTokenSummary({ tokenId: 'token-2', label: 'laptop', metadata: { device: 'mbp' } }),
         bearerToken: 'cc_live_3456789abcde_3456789abcdefghjkmnpqrst',
       });
     },
@@ -3369,7 +3371,7 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
     metadata: { device: 'mbp' },
   });
   assert.equal(result.action, 'accessTokens.create');
-  assert.equal(result.data.token.tokenId, 'token-2');
+  assert.equal(result.data.tokenId, 'token-2');
   assert.equal(result.data.bearerToken, 'cc_live_3456789abcde_3456789abcdefghjkmnpqrst');
 });
 
@@ -3566,8 +3568,10 @@ test('updates.list aggregates activity, notifications, and unread inbox in one r
       captured.inbox.push(input as Record<string, unknown>);
       return {
         results: [makeDirectMessageInbox({
-          counterpartMemberId: 'member-2',
-          counterpartPublicName: 'Member Two',
+          counterpart: {
+            memberId: 'member-2',
+            publicName: 'Member Two',
+          },
           unread: {
             hasUnread: true,
             unreadMessageCount: 1,
@@ -3613,7 +3617,7 @@ test('updates.list aggregates activity, notifications, and unread inbox in one r
   assert.equal(result.action, 'updates.list');
   assert.equal(result.data.activity.results[0]?.topic, 'test.updates.activity');
   assert.equal(result.data.notifications.results[0]?.notificationId, 'notification-9');
-  assert.equal(result.data.inbox.results[0]?.counterpartMemberId, 'member-2');
+  assert.equal(result.data.inbox.results[0]?.counterpart.memberId, 'member-2');
   assert.equal(result.data.inbox.unreadOnly, true);
 });
 

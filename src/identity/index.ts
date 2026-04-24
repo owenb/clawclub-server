@@ -18,6 +18,7 @@ import type {
   ProfileForGate,
   MemberProfileEnvelope,
   MemberIdentity,
+  MemberRef,
   MemberSearchResult,
   MembershipAdminSummary,
   MembershipState,
@@ -77,13 +78,13 @@ export type IdentityRepository = {
     roles?: Array<'clubadmin' | 'member'> | null;
     cursor?: { joinedAt: string; membershipId: string } | null;
   }): Promise<{ results: AdminMemberSummary[]; hasMore: boolean; nextCursor: string | null }>;
-  getAdminMember(input: { actorMemberId: string; clubId: string; membershipId: string }): Promise<AdminMemberSummary | null>;
+  getAdminMember(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<AdminMemberSummary | null>;
   buildMembershipSeedProfile(input: { memberId: string; clubId: string }): Promise<ClubProfileFields>;
   promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
   demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
 
   // Superadmin member/membership creation
-  createMemberDirect(input: { actorMemberId: string; publicName: string; email?: string | null }): Promise<{ memberId: string; publicName: string; bearerToken: string }>;
+  createMemberDirect(input: { actorMemberId: string; publicName: string; email: string }): Promise<{ member: MemberRef; token: CreatedBearerToken }>;
   removeMember(input: import('../repository.ts').RemoveMemberInput): Promise<import('../repository.ts').RemovedMemberSummary | null>;
   createMembershipAsSuperadmin(input: {
     actorMemberId: string;
@@ -157,7 +158,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     listMembers: ({ clubId, limit, cursor }) => memberships.listMembers(pool, { clubId, limit, cursor }),
     getMember: ({ clubId, memberId }) => memberships.getMember(pool, { clubId, memberId }),
     listAdminMembers: ({ clubId, limit, statuses, roles, cursor }) => memberships.listAdminMembers(pool, { clubId, limit, statuses, roles, cursor }),
-    getAdminMember: ({ clubId, membershipId }) => memberships.getAdminMember(pool, { clubId, membershipId }),
+    getAdminMember: ({ clubId, memberId }) => memberships.getAdminMember(pool, { clubId, memberId }),
     buildMembershipSeedProfile: ({ memberId, clubId }) => profiles.buildMembershipSeedProfile(pool, { memberId, clubId }),
     promoteMemberToAdmin: (input) => memberships.promoteMemberToAdmin(pool, input),
     demoteMemberFromAdmin: (input) => memberships.demoteMemberFromAdmin(pool, input),

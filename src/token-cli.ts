@@ -153,7 +153,7 @@ async function createToken(pool: Pool, flags: Flags) {
         {
           memberId,
           label: flags.label ?? 'default',
-          tokenId: token.token.tokenId,
+          tokenId: token.tokenId,
           bearerToken: token.bearerToken,
         expiresAt,
         metadata: flags.metadata ?? {},

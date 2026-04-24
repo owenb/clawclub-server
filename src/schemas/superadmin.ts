@@ -22,7 +22,7 @@ import {
   wireRequiredString, parseRequiredString,
   wireHumanRequiredString, parseHumanRequiredString,
   wirePublicName, parsePublicName,
-  parseEmail,
+  wireEmail, parseEmail,
   wireOptionalString, parseTrimmedNullableString,
   wireOptionalBoolean,
   wirePatchString, parsePatchString,
@@ -1244,7 +1244,7 @@ const superadminTokensCreate: ActionDefinition = {
 
 type SuperadminMembersCreateInput = {
   publicName: string;
-  email?: string | null;
+  email: string;
 };
 
 const superadminMembersCreate: ActionDefinition = {
@@ -1266,20 +1266,18 @@ const superadminMembersCreate: ActionDefinition = {
   wire: {
     input: z.object({
       publicName: wirePublicName.describe('Display name for the new member'),
-      email: wireOptionalString.describe('Optional private contact email'),
+      email: wireEmail.describe('Private contact email for the new member'),
     }),
     output: z.object({
       member: memberRef,
-      bearerToken: z.string().describe('clawclub_* bearer token for the new member'),
+      token: createdBearerToken,
     }),
   },
 
   parse: {
     input: z.object({
       publicName: parsePublicName,
-      email: parseTrimmedNullableString.default(null)
-        .refine((value) => value === null || parseEmail.safeParse(value).success, 'email must be a valid email address')
-        .transform(value => value === null ? null : parseEmail.parse(value)),
+      email: parseEmail,
     }),
   },
 
@@ -1293,15 +1291,7 @@ const superadminMembersCreate: ActionDefinition = {
       email,
     });
 
-    return {
-      data: {
-        member: {
-          memberId: result.memberId,
-          publicName: result.publicName,
-        },
-        bearerToken: result.bearerToken,
-      },
-    };
+    return { data: result };
   },
 };
 

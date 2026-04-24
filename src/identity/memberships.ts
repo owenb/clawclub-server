@@ -11,6 +11,8 @@ import {
   type ClubProfileFields,
   type ClubProfileLink,
   type CreateMembershipInput,
+  type CreatedBearerToken,
+  type MemberRef,
   type MembershipAdminSummary,
   type MembershipState,
   type MembershipSummary,
@@ -935,7 +937,7 @@ export async function listAdminMembers(pool: Pool, input: {
 
 export async function getAdminMember(pool: Pool, input: {
   clubId: string;
-  membershipId: string;
+  memberId: string;
 }): Promise<AdminMemberSummary | null> {
   const result = await pool.query<AdminMemberRow>(
     `select
@@ -971,9 +973,9 @@ export async function getAdminMember(pool: Pool, input: {
      left join members sponsor on sponsor.id = cm.sponsor_member_id
      left join members state_creator on state_creator.id = cm.state_created_by_member_id
      where cm.club_id = $1
-       and cm.id = $2
+       and cm.member_id = $2
      limit 1`,
-    [input.clubId, input.membershipId],
+    [input.clubId, input.memberId],
   );
   return result.rows[0] ? mapAdminMemberRow(result.rows[0]) : null;
 }
@@ -1300,14 +1302,14 @@ export { applyActivationFanout };
 
 /**
  * Create a member record directly (superadmin bypass, no application flow).
- * Returns the new member ID and a bearer token.
+ * Returns the new member ref and a bearer token.
  */
 export async function createMemberDirect(pool: Pool, input: {
   actorMemberId: string;
   publicName: string;
-  email?: string | null;
-}): Promise<{ memberId: string; publicName: string; bearerToken: string }> {
-  const fallbackEmail = normalizeEmail(input.email ?? `superadmin+${Date.now().toString(36)}@unknown.local`);
+  email: string;
+}): Promise<{ member: MemberRef; token: CreatedBearerToken }> {
+  const email = normalizeEmail(input.email);
 
   return withTransaction(pool, async (client) => {
     let memberResult;
@@ -1316,7 +1318,7 @@ export async function createMemberDirect(pool: Pool, input: {
         `insert into members (public_name, display_name, email, state)
          values ($1, $2, $3, 'active')
          returning id`,
-        [input.publicName, input.publicName, fallbackEmail],
+        [input.publicName, input.publicName, email],
       );
     } catch (error) {
       if (isMembersEmailUniqueViolation(error)) {
@@ -1336,9 +1338,11 @@ export async function createMemberDirect(pool: Pool, input: {
     });
 
     return {
-      memberId,
-      publicName: input.publicName,
-      bearerToken: token.bearerToken,
+      member: {
+        memberId,
+        publicName: input.publicName,
+      },
+      token,
     };
   });
 }

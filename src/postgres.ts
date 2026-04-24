@@ -384,7 +384,6 @@ async function listInboxFramesSince(pool: Pool, input: {
     message_text: string | null;
     payload: Record<string, unknown> | null;
     created_at: string;
-    in_reply_to_message_id: string | null;
   }>(
     `select m.id as message_id,
             m.thread_id,
@@ -392,8 +391,7 @@ async function listInboxFramesSince(pool: Pool, input: {
             m.role::text as role,
             m.message_text,
             m.payload,
-            m.created_at::text as created_at,
-            m.in_reply_to_message_id
+            m.created_at::text as created_at
      from dm_messages m
      where m.id = any($1::text[])`,
     [messageIds],
@@ -472,7 +470,6 @@ async function listInboxFramesSince(pool: Pool, input: {
       mentions: messageMentions.mentionsByMessageId.get(row.message_id) ?? [],
       payload: row.payload ?? {},
       createdAt: row.created_at,
-      inReplyToMessageId: row.in_reply_to_message_id,
     };
     return [row.message_id, message];
   }));
@@ -501,8 +498,10 @@ async function listInboxFramesSince(pool: Pool, input: {
     const thread = {
       threadId: row.thread_id,
       sharedClubs: sharedClubsMap.get(row.counterpart_member_id) ?? [],
-      counterpartMemberId: row.counterpart_member_id,
-      counterpartPublicName: row.counterpart_public_name,
+      counterpart: {
+        memberId: row.counterpart_member_id,
+        publicName: row.counterpart_public_name,
+      },
       latestMessage: {
         messageId: row.latest_message_id,
         senderMemberId: row.latest_sender_member_id,
@@ -527,7 +526,7 @@ async function listInboxFramesSince(pool: Pool, input: {
     }
 
     const participantBundle: IncludedBundle = {
-      membersById: [input.actorMemberId, thread.counterpartMemberId].reduce<Record<string, IncludedMember>>((acc, memberId) => {
+      membersById: [input.actorMemberId, thread.counterpart.memberId].reduce<Record<string, IncludedMember>>((acc, memberId) => {
         const member = participantIncluded.membersById[memberId];
         if (member) {
           acc[memberId] = member;
@@ -803,34 +802,32 @@ export function createRepository(
     const llmOutputMaxes = deriveQuotaWindowMaxes(getConfig().policy.quotas.actions[QUOTA_ACTIONS.llmOutputTokens].dailyMax);
 
     return {
-      club: {
-        clubId: club.club_id,
-        slug: club.slug,
-        name: club.name,
-        summary: club.summary,
-        admissionPolicy: club.admission_policy,
-        usesFreeAllowance: club.uses_free_allowance,
-        memberCap: club.uses_free_allowance
-          ? getConfig().policy.clubs.freeClubMemberCap
-          : club.member_cap,
-        archivedAt: club.archived_at,
-        owner: {
-          memberId: club.owner_member_id,
-          publicName: club.owner_public_name,
-          email: club.owner_email,
-        },
-        version: {
-          no: Number(club.version_no),
-          status: club.archived_at === null ? 'active' : 'archived',
-          reason: null,
-          createdAt: club.version_created_at,
-          createdByMember: club.version_created_by_member_id
-            ? {
-              memberId: club.version_created_by_member_id,
-              publicName: club.version_created_by_member_public_name as string,
-            }
-            : null,
-        },
+      clubId: club.club_id,
+      slug: club.slug,
+      name: club.name,
+      summary: club.summary,
+      admissionPolicy: club.admission_policy,
+      usesFreeAllowance: club.uses_free_allowance,
+      memberCap: club.uses_free_allowance
+        ? getConfig().policy.clubs.freeClubMemberCap
+        : club.member_cap,
+      archivedAt: club.archived_at,
+      owner: {
+        memberId: club.owner_member_id,
+        publicName: club.owner_public_name,
+        email: club.owner_email,
+      },
+      version: {
+        no: Number(club.version_no),
+        status: club.archived_at === null ? 'active' : 'archived',
+        reason: null,
+        createdAt: club.version_created_at,
+        createdByMember: club.version_created_by_member_id
+          ? {
+            memberId: club.version_created_by_member_id,
+            publicName: club.version_created_by_member_public_name as string,
+          }
+          : null,
       },
       memberCounts: Object.fromEntries(memberCounts.rows.map((row) => [row.status, Number(row.count)])),
       contentCount: Number(contentCount.rows[0]?.count ?? 0),
@@ -1118,15 +1115,19 @@ export function createRepository(
 
       return {
         message: {
-          threadId: msg.message.threadId,
-          sharedClubs,
-          senderMemberId: msg.message.senderMemberId,
-          recipientMemberId: msg.message.recipientMemberId,
           messageId: msg.message.messageId,
+          threadId: msg.message.threadId,
+          senderMemberId: msg.message.senderMemberId,
+          role: 'member',
           messageText: msg.message.messageText,
           mentions: msg.message.mentions,
+          payload: {},
           createdAt: msg.message.createdAt,
-          updateCount: 1,
+        },
+        thread: {
+          threadId: msg.message.threadId,
+          recipientMemberId: msg.message.recipientMemberId,
+          sharedClubs,
         },
         included: msg.included,
       };
@@ -1140,8 +1141,10 @@ export function createRepository(
       return threads.map((t) => ({
         threadId: t.threadId,
         sharedClubs: sharedClubsMap.get(t.counterpartMemberId) ?? [],
-        counterpartMemberId: t.counterpartMemberId,
-        counterpartPublicName: t.counterpartPublicName,
+        counterpart: {
+          memberId: t.counterpartMemberId,
+          publicName: t.counterpartPublicName,
+        },
         latestMessage: t.latestMessage,
         messageCount: t.messageCount,
       }));
@@ -1162,8 +1165,10 @@ export function createRepository(
         results: entries.map((e) => ({
           threadId: e.threadId,
           sharedClubs: sharedClubsMap.get(e.counterpartMemberId) ?? [],
-          counterpartMemberId: e.counterpartMemberId,
-          counterpartPublicName: e.counterpartPublicName,
+          counterpart: {
+            memberId: e.counterpartMemberId,
+            publicName: e.counterpartPublicName,
+          },
           latestMessage: e.latestMessage,
           messageCount: e.messageCount,
           unread: {
@@ -1194,8 +1199,10 @@ export function createRepository(
         thread: {
           threadId: result.thread.threadId,
           sharedClubs,
-          counterpartMemberId: result.thread.counterpartMemberId,
-          counterpartPublicName: result.thread.counterpartPublicName,
+          counterpart: {
+            memberId: result.thread.counterpartMemberId,
+            publicName: result.thread.counterpartPublicName,
+          },
           latestMessage: result.thread.latestMessage,
           messageCount: result.thread.messageCount,
         },
@@ -1552,10 +1559,10 @@ export function createRepository(
       const detail = await loadSuperadminClubDetail(clubId);
       if (!detail) return null;
       return {
-        clubId: detail.club.clubId,
-        slug: detail.club.slug,
-        name: detail.club.name,
-        archivedAt: detail.club.archivedAt,
+        clubId: detail.clubId,
+        slug: detail.slug,
+        name: detail.name,
+        archivedAt: detail.archivedAt,
         memberCounts: detail.memberCounts,
         contentCount: detail.contentCount,
         messageCount: detail.messageCount,
@@ -1699,13 +1706,13 @@ export function createRepository(
       const messages = await pool.query<{
         message_id: string; thread_id: string; sender_member_id: string | null;
         role: string; message_text: string | null; payload: Record<string, unknown> | null;
-        created_at: string; in_reply_to_message_id: string | null; is_removed: boolean;
+        created_at: string; is_removed: boolean;
       }>(
         `select m.id as message_id, m.thread_id, m.sender_member_id,
                 m.role::text as role,
                 case when rmv.message_id is not null then '[Message removed]' else m.message_text end as message_text,
                 case when rmv.message_id is not null then null else m.payload end as payload,
-                m.created_at::text as created_at, m.in_reply_to_message_id,
+                m.created_at::text as created_at,
                 (rmv.message_id is not null) as is_removed
          from dm_messages m
          left join dm_message_removals rmv on rmv.message_id = m.id
@@ -1749,7 +1756,7 @@ export function createRepository(
           messageText: r.message_text,
           mentions: r.is_removed ? [] : (mentionBundle.mentionsByMessageId.get(r.message_id) ?? []),
           payload: r.payload ?? {},
-          createdAt: r.created_at, inReplyToMessageId: r.in_reply_to_message_id,
+          createdAt: r.created_at,
           })).reverse(),
           hasMore,
           nextCursor: hasMore && lastRow ? paginationEncodeCursor([lastRow.created_at, lastRow.message_id]) : null,

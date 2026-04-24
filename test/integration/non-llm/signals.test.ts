@@ -610,7 +610,8 @@ describe('activity and notifications surfaces', () => {
     assert.ok(notificationItems.some((item) => item.topic === 'test.updates.notification'));
     assert.ok(inboxResults.some((thread) => {
       const unread = thread.unread as Record<string, unknown>;
-      return thread.counterpartMemberId === owner.id && unread.hasUnread === true;
+      const counterpart = thread.counterpart as Record<string, unknown>;
+      return counterpart.memberId === owner.id && unread.hasUnread === true;
     }));
     assert.equal(inbox.unreadOnly, true);
     assert.equal(

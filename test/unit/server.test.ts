@@ -754,6 +754,30 @@ test('createServer closes the socket after a payload_too_large response', async 
     });
 
     const rawResponse = await new Promise<string>((resolve, reject) => {
+      let settled = false;
+      const finish = (value: string) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
+      const maybeFinishAfterSocketError = (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ECONNRESET' && error.code !== 'EPIPE') {
+          fail(error);
+          return;
+        }
+        setTimeout(() => {
+          if (response.length > 0) {
+            finish(response);
+            return;
+          }
+          fail(error);
+        }, 10);
+      };
       const socket = net.createConnection({ host: '127.0.0.1', port }, () => {
         socket.write([
           'POST /api HTTP/1.1',
@@ -762,20 +786,21 @@ test('createServer closes the socket after a payload_too_large response', async 
           `Content-Length: ${Buffer.byteLength(body, 'utf8')}`,
           '',
           body,
-        ].join('\r\n'));
+        ].join('\r\n'), (error) => {
+          if (error) maybeFinishAfterSocketError(error as NodeJS.ErrnoException);
+        });
       });
       let response = '';
       socket.setEncoding('utf8');
       socket.on('data', (chunk) => {
         response += chunk;
       });
-      socket.on('end', () => resolve(response));
+      socket.on('end', () => finish(response));
+      socket.on('close', () => {
+        if (response.length > 0) finish(response);
+      });
       socket.on('error', (error: NodeJS.ErrnoException) => {
-        if ((error.code === 'ECONNRESET' || error.code === 'EPIPE') && response.length > 0) {
-          resolve(response);
-          return;
-        }
-        reject(error);
+        maybeFinishAfterSocketError(error);
       });
     });
 

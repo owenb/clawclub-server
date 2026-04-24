@@ -62,7 +62,6 @@ export type MessageEntry = {
   mentions: MentionSpan[];
   payload: Record<string, unknown>;
   createdAt: string;
-  inReplyToMessageId: string | null;
 };
 
 export type MessageRemovalResult = {
@@ -594,14 +593,13 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
       const messagesResult = await pool.query<{
         message_id: string; thread_id: string; sender_member_id: string | null;
         role: string; message_text: string | null; payload: Record<string, unknown> | null;
-        created_at: string; in_reply_to_message_id: string | null; is_removed: boolean;
+        created_at: string; is_removed: boolean;
       }>(
         `select m.id as message_id, m.thread_id, m.sender_member_id,
                 m.role::text as role,
                 case when rmv.message_id is not null then '[Message removed]' else m.message_text end as message_text,
                 case when rmv.message_id is not null then null else m.payload end as payload,
                 m.created_at::text as created_at,
-                m.in_reply_to_message_id,
                 (rmv.message_id is not null) as is_removed
          from dm_messages m
          left join dm_message_removals rmv on rmv.message_id = m.id
@@ -639,7 +637,6 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         mentions: row.is_removed ? [] : (pageMentions.mentionsByMessageId.get(row.message_id) ?? []),
         payload: row.payload ?? {},
         createdAt: row.created_at,
-        inReplyToMessageId: row.in_reply_to_message_id,
       })).reverse();
 
       return {

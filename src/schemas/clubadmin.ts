@@ -352,7 +352,7 @@ const clubadminMembersGet: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club the membership belongs to.')),
-      membershipId: wireRequiredString.describe('Membership to fetch'),
+      memberId: wireRequiredString.describe('Member to fetch in the club'),
     }),
     output: z.object({
       club: z.object({
@@ -367,19 +367,19 @@ const clubadminMembersGet: ActionDefinition = {
   parse: {
     input: z.object({
       clubId: parseRequiredString,
-      membershipId: parseRequiredString,
+      memberId: parseRequiredString,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, membershipId } = input as { clubId: string; membershipId: string };
+    const { clubId, memberId } = input as { clubId: string; memberId: string };
     const club = ctx.requireAccessibleClub(clubId);
     ctx.requireClubAdmin(clubId);
 
     const member = await ctx.repository.getAdminMember({
       actorMemberId: ctx.actor.member.id,
       clubId,
-      membershipId,
+      memberId,
     });
 
     if (member) {

@@ -5,6 +5,13 @@ import { TestHarness } from '../harness.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
 
 let h: TestHarness;
+let provisionEmailCounter = 0;
+
+function provisionEmail(label: string): string {
+  provisionEmailCounter += 1;
+  const local = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'member';
+  return `${local}-${provisionEmailCounter}@provisioning.test`;
+}
 
 before(async () => {
   h = await TestHarness.start({ llmGate: passthroughGate });
@@ -21,23 +28,30 @@ describe('superadmin.members.createWithAccessToken', () => {
     const admin = await h.seedSuperadmin('Provisioner');
     const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'New Person',
+      email: provisionEmail('New Person'),
     });
-    const data = result.data as { member: { memberId: string; publicName: string }; bearerToken: string };
+    const data = result.data as {
+      member: { memberId: string; publicName: string };
+      token: { tokenId: string; memberId: string; bearerToken: string };
+    };
 
     assert.ok(data.member.memberId, 'should return memberId');
     assert.equal(data.member.publicName, 'New Person');
-    assert.ok(data.bearerToken.startsWith('clawclub_'), 'should return clawclub_ token');
+    assert.ok(data.token.tokenId, 'should return tokenId');
+    assert.equal(data.token.memberId, data.member.memberId);
+    assert.ok(data.token.bearerToken.startsWith('clawclub_'), 'should return clawclub_ token');
   });
 
   it('created member can authenticate and call session.getContext', async () => {
     const admin = await h.seedSuperadmin('Provisioner2');
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Auth Test Member',
+      email: provisionEmail('Auth Test Member'),
     });
-    const data = createResult.data as { member: { memberId: string }; bearerToken: string };
+    const data = createResult.data as { member: { memberId: string }; token: { bearerToken: string } };
 
     // Use the new token to authenticate
-    const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
+    const session = await h.apiOk(data.token.bearerToken, 'session.getContext', {});
     const actor = session.actor as { member: { id: string; publicName: string } };
     assert.equal(actor.member.id, data.member.memberId);
     assert.equal(actor.member.publicName, 'Auth Test Member');
@@ -47,9 +61,10 @@ describe('superadmin.members.createWithAccessToken', () => {
     const admin = await h.seedSuperadmin('Provisioner2b');
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Legacy Prefix Member',
+      email: provisionEmail('Legacy Prefix Member'),
     });
-    const data = createResult.data as { member: { memberId: string }; bearerToken: string };
-    const legacyToken = data.bearerToken.replace(/^clawclub_/, 'cc_live_');
+    const data = createResult.data as { member: { memberId: string }; token: { bearerToken: string } };
+    const legacyToken = data.token.bearerToken.replace(/^clawclub_/, 'cc_live_');
 
     const session = await h.apiOk(legacyToken, 'session.getContext', {});
     const actor = session.actor as { member: { id: string; publicName: string } };
@@ -61,15 +76,16 @@ describe('superadmin.members.createWithAccessToken', () => {
     const admin = await h.seedSuperadmin('Provisioner3');
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'No Club Member',
+      email: provisionEmail('No Club Member'),
     });
-    const data = createResult.data as { bearerToken: string };
+    const data = createResult.data as { token: { bearerToken: string } };
 
-    const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
+    const session = await h.apiOk(data.token.bearerToken, 'session.getContext', {});
     const actor = session.actor as { activeMemberships: unknown[] };
     assert.equal(actor.activeMemberships.length, 0);
   });
 
-  it('accepts optional email', async () => {
+  it('normalizes required email', async () => {
     const admin = await h.seedSuperadmin('Provisioner5');
     const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Email Person',
@@ -120,10 +136,20 @@ describe('superadmin.members.createWithAccessToken', () => {
     assert.equal(err.code, 'invalid_input');
   });
 
+  it('rejects null email', async () => {
+    const admin = await h.seedSuperadmin('Provisioner-null-email');
+    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
+      publicName: 'Null Email',
+      email: null,
+    });
+    assert.equal(err.code, 'invalid_input');
+  });
+
   it('rejects empty publicName', async () => {
     const admin = await h.seedSuperadmin('Provisioner7');
     const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: '   ',
+      email: provisionEmail('empty public name'),
     });
     assert.equal(err.code, 'invalid_input');
   });
@@ -132,6 +158,7 @@ describe('superadmin.members.createWithAccessToken', () => {
     const owner = await h.seedOwner('prov-club', 'ProvClub');
     const err = await h.apiErr(owner.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Unauthorized',
+      email: provisionEmail('Unauthorized'),
     });
     assert.equal(err.status, 403);
   });
@@ -147,6 +174,7 @@ describe('superadmin.memberships.create', () => {
     // Create a fresh member
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Club Joiner',
+      email: provisionEmail('Club Joiner'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
@@ -170,6 +198,7 @@ describe('superadmin.memberships.create', () => {
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'New Admin',
+      email: provisionEmail('New Admin'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
@@ -190,9 +219,10 @@ describe('superadmin.memberships.create', () => {
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Interactive Member',
+      email: provisionEmail('Interactive Member'),
     });
     const { memberId } = (createResult.data as any).member;
-    const memberToken = (createResult.data as any).bearerToken;
+    const memberToken = (createResult.data as any).token.bearerToken;
 
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
       clubId: owner.club.id,
@@ -215,6 +245,7 @@ describe('superadmin.memberships.create', () => {
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Sponsored Member',
+      email: provisionEmail('Sponsored Member'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
@@ -233,6 +264,7 @@ describe('superadmin.memberships.create', () => {
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Ghost Sponsor Target',
+      email: provisionEmail('Ghost Sponsor Target'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
@@ -254,6 +286,7 @@ describe('superadmin.memberships.create', () => {
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Cross Target',
+      email: provisionEmail('Cross Target'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
@@ -272,6 +305,7 @@ describe('superadmin.memberships.create', () => {
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Self Sponsor Target',
+      email: provisionEmail('Self Sponsor Target'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
@@ -312,6 +346,7 @@ describe('superadmin.memberships.create', () => {
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Double Joiner',
+      email: provisionEmail('Double Joiner'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
@@ -344,6 +379,7 @@ describe('superadmin.memberships.create', () => {
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Submitted Member',
+      email: provisionEmail('Submitted Member'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
@@ -366,10 +402,11 @@ describe('superadmin.clubs.create owner membership', () => {
     // Create a member to be the owner
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'New Owner',
+      email: provisionEmail('New Owner'),
     });
     const ownerData = (createResult.data as any);
     const ownerId = ownerData.member.memberId;
-    const ownerToken = ownerData.bearerToken;
+    const ownerToken = ownerData.token.bearerToken;
 
     // Create a club with that owner
     const clubResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
@@ -395,9 +432,10 @@ describe('superadmin.clubs.create owner membership', () => {
 
     const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'Active Owner',
+      email: provisionEmail('Active Owner'),
     });
     const ownerId = (createResult.data as any).member.memberId;
-    const ownerToken = (createResult.data as any).bearerToken;
+    const ownerToken = (createResult.data as any).token.bearerToken;
 
     const clubResult = await h.apiOk(admin.token, 'superadmin.clubs.create', {
       clientKey: randomUUID(),
@@ -444,9 +482,10 @@ describe('full superadmin provisioning workflow', () => {
     // 3. Create a regular member
     const memberResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
       publicName: 'E2E Member',
+      email: provisionEmail('E2E Member'),
     });
     const memberId = (memberResult.data as any).member.memberId;
-    const memberToken = (memberResult.data as any).bearerToken;
+    const memberToken = (memberResult.data as any).token.bearerToken;
 
     // 4. Add member to club
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
@@ -494,12 +533,15 @@ describe('superadmin.accessTokens.create', () => {
       memberId: target.id,
     });
     const data = result.data as {
-      token: { tokenId: string; memberId: string; label: string | null; metadata: Record<string, unknown> };
+      tokenId: string;
+      memberId: string;
+      label: string | null;
+      metadata: Record<string, unknown>;
       bearerToken: string;
     };
 
-    assert.equal(data.token.memberId, target.id, 'minted token must belong to the target member, not the minter');
-    assert.notEqual(data.token.memberId, admin.id, 'minted token must NOT belong to the superadmin');
+    assert.equal(data.memberId, target.id, 'minted token must belong to the target member, not the minter');
+    assert.notEqual(data.memberId, admin.id, 'minted token must NOT belong to the superadmin');
     assert.ok(data.bearerToken.startsWith('clawclub_'), 'plaintext bearer token must be returned');
     assert.notEqual(data.bearerToken, admin.token, 'minted token must be distinct from the minting superadmin token');
     assert.notEqual(data.bearerToken, target.id, 'bearer token must not be the member id');
@@ -551,8 +593,8 @@ describe('superadmin.accessTokens.create', () => {
       memberId: target.id,
       reason: 'integration test audit trail',
     });
-    const data = result.data as { token: { metadata: Record<string, unknown> } };
-    const metadata = data.token.metadata;
+    const data = result.data as { metadata: Record<string, unknown> };
+    const metadata = data.metadata;
 
     assert.equal(metadata.mintedBy, admin.id, 'metadata.mintedBy must equal the superadmin member id');
     assert.equal(metadata.mintedVia, 'superadmin.accessTokens.create', 'metadata.mintedVia must identify the action');
@@ -567,8 +609,8 @@ describe('superadmin.accessTokens.create', () => {
     const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
       memberId: target.id,
     });
-    const data = result.data as { token: { label: string | null } };
-    assert.equal(data.token.label, 'admin-minted');
+    const data = result.data as { label: string | null };
+    assert.equal(data.label, 'admin-minted');
   });
 
   it('custom label is honoured', async () => {
@@ -579,8 +621,8 @@ describe('superadmin.accessTokens.create', () => {
       memberId: target.id,
       label: 'recovery after lost device',
     });
-    const data = result.data as { token: { label: string | null } };
-    assert.equal(data.token.label, 'recovery after lost device');
+    const data = result.data as { label: string | null };
+    assert.equal(data.label, 'recovery after lost device');
   });
 
   it('target member keeps their existing tokens — minting is additive, not replacing', async () => {
@@ -751,8 +793,8 @@ describe('superadmin.accessTokens.create', () => {
       memberId: target.id,
       expiresAt: expiry,
     });
-    const data = result.data as { token: { expiresAt: string | null }; bearerToken: string };
-    assert.ok(data.token.expiresAt, 'expiresAt must be persisted on the returned token summary');
+    const data = result.data as { expiresAt: string | null; bearerToken: string };
+    assert.ok(data.expiresAt, 'expiresAt must be persisted on the returned token summary');
 
     // And the token should still authenticate right now (it hasn't expired yet)
     const session = await h.apiOk(data.bearerToken, 'session.getContext', {});
@@ -768,8 +810,8 @@ describe('superadmin.accessTokens.create', () => {
       memberId: target.id,
       expiresAt: dateOnly,
     });
-    const data = result.data as { token: { expiresAt: string | null } };
-    assert.ok(data.token.expiresAt, 'date-only ISO 8601 must be accepted');
+    const data = result.data as { expiresAt: string | null };
+    assert.ok(data.expiresAt, 'date-only ISO 8601 must be accepted');
   });
 
   it('past expiresAt returns invalid_input', async () => {

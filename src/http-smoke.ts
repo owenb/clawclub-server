@@ -95,7 +95,7 @@ async function mintBearerToken(pool: Pool, memberId: string, label: string): Pro
     metadata: {},
   }));
 
-  return { tokenId: token.token.tokenId, bearerToken: token.bearerToken };
+  return { tokenId: token.tokenId, bearerToken: token.bearerToken };
 }
 
 async function revokeBearerToken(pool: Pool, tokenId: string): Promise<void> {

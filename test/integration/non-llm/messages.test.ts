@@ -32,12 +32,19 @@ describe('messages', () => {
       recipientMemberId: bob.id,
       messageText: 'Hello Bob!',
     });
-    const message = (result.data as Record<string, unknown>).message as Record<string, unknown>;
+    const data = result.data as Record<string, unknown>;
+    const message = data.message as Record<string, unknown>;
+    const thread = data.thread as Record<string, unknown>;
     assert.ok(message.threadId, 'sent message should have a threadId');
     assert.ok(message.messageId, 'sent message should have a messageId');
     assert.equal(message.senderMemberId, alice.id);
-    assert.equal(message.recipientMemberId, bob.id);
+    assert.equal(thread.recipientMemberId, bob.id);
     assert.equal(message.messageText, 'Hello Bob!');
+    assert.equal(Object.hasOwn(message, 'recipientMemberId'), false);
+    assert.equal(Object.hasOwn(message, 'sharedClubs'), false);
+    assert.equal(Object.hasOwn(message, 'updateCount'), false);
+    assert.equal(Object.hasOwn(message, 'inReplyToMessageId'), false);
+    assert.ok(Array.isArray(thread.sharedClubs));
   });
 
   it('sender sees the thread in the updates.list inbox slice', async () => {
@@ -56,7 +63,7 @@ describe('messages', () => {
     const results = inbox.results;
     const found = results.find((t) => t.threadId === threadId);
     assert.ok(found, 'sender should see the thread in their inbox');
-    assert.equal(found.counterpartMemberId, bob.id);
+    assert.equal((found.counterpart as Record<string, unknown>).memberId, bob.id);
   });
 
   it('recipient sees the thread in the updates.list inbox slice', async () => {
@@ -75,7 +82,7 @@ describe('messages', () => {
     const results = inbox.results;
     const found = results.find((t) => t.threadId === threadId);
     assert.ok(found, 'recipient should see the thread in their inbox');
-    assert.equal(found.counterpartMemberId, alice.id);
+    assert.equal((found.counterpart as Record<string, unknown>).memberId, alice.id);
 
     const unread = found.unread as Record<string, unknown>;
     assert.ok(unread, 'inbox thread should have an unread block');
@@ -102,7 +109,7 @@ describe('messages', () => {
     const thread = data.thread as Record<string, unknown>;
     assert.ok(thread, 'messages.get should return a thread summary');
     assert.equal(thread.threadId, threadId);
-    assert.equal(thread.counterpartMemberId, bob.id);
+    assert.equal((thread.counterpart as Record<string, unknown>).memberId, bob.id);
     assert.ok(thread.messageCount, 'thread should have a messageCount');
 
     const messages = (data.messages as Record<string, unknown>).results as Array<Record<string, unknown>>;
@@ -112,6 +119,8 @@ describe('messages', () => {
     assert.ok(msg, 'the sent message should appear in the thread');
     assert.equal(msg.senderMemberId, alice.id);
     assert.equal(msg.messageText, 'First message in thread.');
+    assert.equal(Object.hasOwn(msg, 'updateCount'), false);
+    assert.equal(Object.hasOwn(msg, 'inReplyToMessageId'), false);
   });
 
   it('messages.get hydrates participant member refs even without mentions', async () => {
@@ -140,7 +149,7 @@ describe('messages', () => {
     assert.equal(included[alice.id]?.publicName, alice.publicName);
     assert.equal(included[bob.id]?.memberId, bob.id);
     assert.equal(included[bob.id]?.publicName, bob.publicName);
-    assert.equal((thread.counterpartMemberId as string), bob.id);
+    assert.equal(((thread.counterpart as Record<string, unknown>).memberId as string), bob.id);
     assert.ok(
       messages.every((message) => {
         const senderMemberId = message.senderMemberId as string | null;
@@ -166,7 +175,7 @@ describe('messages', () => {
     const results = list.results;
     const found = results.find((t) => t.threadId === threadId);
     assert.ok(found, 'thread should appear in the updates.list inbox slice');
-    assert.equal(found.counterpartMemberId, bob.id);
+    assert.equal((found.counterpart as Record<string, unknown>).memberId, bob.id);
 
     const latestMessage = found.latestMessage as Record<string, unknown>;
     assert.ok(latestMessage, 'thread should have latestMessage');
@@ -191,7 +200,7 @@ describe('messages', () => {
     const included = (inbox.included.membersById ?? {}) as Record<string, Record<string, unknown>>;
     assert.equal(included[alice.id]?.memberId, alice.id);
     assert.equal(included[bob.id]?.memberId, bob.id);
-    assert.equal((found?.counterpartMemberId as string), bob.id);
+    assert.equal(((found?.counterpart as Record<string, unknown> | undefined)?.memberId as string), bob.id);
 
     const latestMessage = (found?.latestMessage ?? {}) as Record<string, unknown>;
     const latestSenderId = latestMessage.senderMemberId as string | null | undefined;
@@ -227,9 +236,10 @@ describe('messages', () => {
       messageText: 'Hi owner, question about the club!',
     });
     const msg1 = (sent.data as Record<string, unknown>).message as Record<string, unknown>;
+    const sentThread = (sent.data as Record<string, unknown>).thread as Record<string, unknown>;
     const threadId = msg1.threadId as string;
     assert.equal(msg1.senderMemberId, alice.id);
-    assert.equal(msg1.recipientMemberId, owner.id);
+    assert.equal(sentThread.recipientMemberId, owner.id);
 
     // Owner sees it in their inbox
     const ownerInbox = await readInbox(owner.token);
@@ -310,12 +320,15 @@ describe('messages', () => {
       recipientMemberId: alice.id,
       messageText: 'No club needed',
     });
-    const message = (result.data as Record<string, unknown>).message as Record<string, unknown>;
+    const data = result.data as Record<string, unknown>;
+    const message = data.message as Record<string, unknown>;
+    const thread = data.thread as Record<string, unknown>;
     assert.ok(message.threadId, 'should succeed without clubId');
     assert.equal(message.messageText, 'No club needed');
 
-    // sharedClubs should include both clubs
-    const sharedClubs = message.sharedClubs as Array<Record<string, unknown>>;
+    // sharedClubs should include both clubs and live on the thread context.
+    const sharedClubs = thread.sharedClubs as Array<Record<string, unknown>>;
+    assert.equal(Object.hasOwn(message, 'sharedClubs'), false);
     assert.ok(Array.isArray(sharedClubs), 'send response should have sharedClubs');
     assert.ok(sharedClubs.length >= 2, 'should show both shared clubs');
     const slugs = sharedClubs.map(c => c.slug);
@@ -331,9 +344,12 @@ describe('messages', () => {
       recipientMemberId: alice.id,
       messageText: 'Shape check',
     });
-    const message = (result.data as Record<string, unknown>).message as Record<string, unknown>;
+    const data = result.data as Record<string, unknown>;
+    const message = data.message as Record<string, unknown>;
+    const thread = data.thread as Record<string, unknown>;
     assert.ok(!('clubId' in message), 'send response should not have clubId');
-    const sharedClubs = message.sharedClubs as Array<Record<string, unknown>>;
+    assert.ok(!('sharedClubs' in message), 'message should not have thread sharedClubs');
+    const sharedClubs = thread.sharedClubs as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(sharedClubs), 'send response should have sharedClubs');
     assert.ok(sharedClubs.length >= 1);
     assert.ok(sharedClubs[0].clubId);
@@ -442,8 +458,9 @@ describe('messages', () => {
       messageText: 'After diverge',
     });
     const replyMsg = (reply.data as Record<string, unknown>).message as Record<string, unknown>;
+    const replyThread = (reply.data as Record<string, unknown>).thread as Record<string, unknown>;
     assert.equal(replyMsg.threadId, threadId, 'reply should be in the same thread');
-    const sharedClubs = replyMsg.sharedClubs as Array<Record<string, unknown>>;
+    const sharedClubs = replyThread.sharedClubs as Array<Record<string, unknown>>;
     assert.equal(sharedClubs.length, 0, 'sharedClubs should be empty after diverge');
 
     // Owner can also reply
@@ -823,7 +840,7 @@ describe('messages read-state and stream', () => {
       const included = threadData.included as Record<string, unknown>;
       const matchingMessage = messages.find((message) => message.messageId === messageId);
 
-      assert.equal(frameThread.counterpartMemberId, thread.counterpartMemberId);
+      assert.deepEqual(frameThread.counterpart, thread.counterpart);
       assert.deepEqual(frameThread.sharedClubs, thread.sharedClubs);
       assert.ok(matchingMessage);
       assert.deepEqual(frameMessages[0], matchingMessage);

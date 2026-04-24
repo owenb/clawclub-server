@@ -458,21 +458,19 @@ test('superadmin.clubs.get returns club detail with AI budget usage', async () =
     async adminGetClub({ clubId }) {
       if (clubId !== 'club-1') return null;
       return {
-        club: {
-          clubId: 'club-1',
-          slug: 'alpha',
-          name: 'Alpha',
-          summary: 'First club',
-          admissionPolicy: null,
-          archivedAt: null,
-          owner: { memberId: 'member-1', publicName: 'Alice', email: null },
-          version: {
-            no: 1,
-            status: 'active',
-            reason: null,
-            createdAt: '2026-03-14T10:00:00Z',
-            createdByMember: { memberId: 'member-1', publicName: 'Alice' },
-          },
+        clubId: 'club-1',
+        slug: 'alpha',
+        name: 'Alpha',
+        summary: 'First club',
+        admissionPolicy: null,
+        archivedAt: null,
+        owner: { memberId: 'member-1', publicName: 'Alice', email: null },
+        version: {
+          no: 1,
+          status: 'active',
+          reason: null,
+          createdAt: '2026-03-14T10:00:00Z',
+          createdByMember: { memberId: 'member-1', publicName: 'Alice' },
         },
         memberCounts: { active: 4, removed: 1 },
         contentCount: 12,
@@ -532,7 +530,7 @@ test('superadmin.clubs.get returns club detail with AI budget usage', async () =
     const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.get', { clubId: 'club-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.data.club.club.slug, 'alpha');
+    assert.equal(body.data.club.slug, 'alpha');
     assert.equal(body.data.club.aiSpend.budget.dailyMaxCents, 100);
     assert.equal(body.data.club.aiSpend.usage[0].usedMicroCents, 1095);
     assert.equal(body.data.club.llmOutputTokens.usage[0].usedTokens, 7);

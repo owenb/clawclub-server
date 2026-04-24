@@ -160,7 +160,8 @@ describe('events', () => {
       response: 'yes',
       note: 'Count me in',
     });
-    const yesEntity = (afterYes.data as Record<string, unknown>).event as Record<string, unknown>;
+    assert.equal(Object.hasOwn(afterYes.data as Record<string, unknown>, 'event'), false);
+    const yesEntity = (afterYes.data as Record<string, unknown>).content as Record<string, unknown>;
     assert.equal((yesEntity.rsvps as Record<string, unknown>).viewerResponse, 'yes');
     assert.deepEqual((yesEntity.rsvps as Record<string, unknown>).counts, {
       yes: 1,
@@ -174,7 +175,8 @@ describe('events', () => {
       eventId: created.id,
       response: null,
     });
-    const cancelledEntity = (afterCancel.data as Record<string, unknown>).event as Record<string, unknown>;
+    assert.equal(Object.hasOwn(afterCancel.data as Record<string, unknown>, 'event'), false);
+    const cancelledEntity = (afterCancel.data as Record<string, unknown>).content as Record<string, unknown>;
     assert.equal((cancelledEntity.rsvps as Record<string, unknown>).viewerResponse, null);
     assert.deepEqual((cancelledEntity.rsvps as Record<string, unknown>).counts, {
       yes: 0,
@@ -213,7 +215,7 @@ describe('events', () => {
       response: 'yes',
       note: 'Second attendee should waitlist',
     });
-    const event = (waitlisted.data as Record<string, unknown>).event as Record<string, unknown>;
+    const event = (waitlisted.data as Record<string, unknown>).content as Record<string, unknown>;
     const rsvps = event.rsvps as Record<string, unknown>;
     assert.equal(rsvps.viewerResponse, 'waitlist');
     assert.deepEqual(rsvps.counts, {
@@ -245,7 +247,7 @@ describe('events', () => {
       response: 'waitlist',
       note: 'Opt me into the waitlist',
     });
-    const event = (waitlisted.data as Record<string, unknown>).event as Record<string, unknown>;
+    const event = (waitlisted.data as Record<string, unknown>).content as Record<string, unknown>;
     const rsvps = event.rsvps as Record<string, unknown>;
     assert.equal(rsvps.viewerResponse, 'waitlist');
     assert.deepEqual(rsvps.counts, {
@@ -361,8 +363,8 @@ describe('events', () => {
         }),
       ]);
 
-      const firstResponse = (((first.data as Record<string, unknown>).event as Record<string, unknown>).rsvps as Record<string, unknown>).viewerResponse;
-      const secondResponse = (((second.data as Record<string, unknown>).event as Record<string, unknown>).rsvps as Record<string, unknown>).viewerResponse;
+      const firstResponse = (((first.data as Record<string, unknown>).content as Record<string, unknown>).rsvps as Record<string, unknown>).viewerResponse;
+      const secondResponse = (((second.data as Record<string, unknown>).content as Record<string, unknown>).rsvps as Record<string, unknown>).viewerResponse;
       assert.deepEqual([firstResponse, secondResponse].sort(), ['waitlist', 'yes']);
     });
 

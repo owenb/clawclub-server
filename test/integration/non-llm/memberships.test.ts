@@ -123,6 +123,27 @@ describe('superadmin.memberships.create', () => {
   });
 });
 
+describe('clubadmin.members.get', () => {
+  it('uses memberId as the canonical input identifier', async () => {
+    const owner = await h.seedOwner('member-get-club', 'Member Get Club');
+    const member = await h.seedCompedMember(owner.club.id, 'Member Get Target');
+
+    const result = await h.apiOk(owner.token, 'clubadmin.members.get', {
+      clubId: owner.club.id,
+      memberId: member.id,
+    });
+    const data = result.data as { member: { memberId: string } };
+    assert.equal(data.member.memberId, member.id);
+
+    const legacy = await h.apiErr(owner.token, 'clubadmin.members.get', {
+      clubId: owner.club.id,
+      membershipId: member.membership.id,
+    });
+    assert.equal(legacy.status, 400);
+    assert.equal(legacy.code, 'invalid_input');
+  });
+});
+
 describe('clubadmin.members.update', () => {
   it('removed memberships revoke access and write applicant blocks', async () => {
     const owner = await h.seedOwner('removed-club', 'Removed Club');
