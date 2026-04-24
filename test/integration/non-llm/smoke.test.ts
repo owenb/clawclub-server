@@ -155,6 +155,7 @@ describe('smoke', () => {
         'application_not_mutable',
         'invitation_ambiguous',
         'invitation_not_found',
+        'client_key_conflict',
       ]),
       'clubs.apply should document the real application-entry errors',
     );
@@ -174,6 +175,10 @@ describe('smoke', () => {
     const clubsApplyApplicationProperties = clubsApplyApplication?.properties as Record<string, Record<string, unknown>> | undefined;
     assert.match(String(clubsApplyApplicationProperties?.submissionPath?.description ?? ''), /historical metadata/i, 'submissionPath should be explained as historical metadata');
 
+    const clubsApplicationsRevise = data.actions.find((a) => a.action === 'clubs.applications.revise');
+    const clubsApplicationsReviseErrors = new Set(clubsApplicationsRevise?.businessErrors?.map((error) => error.code) ?? []);
+    assert.ok(clubsApplicationsReviseErrors.has('client_key_conflict'), 'clubs.applications.revise should document client_key_conflict');
+
     const invitationsRedeem = data.actions.find((a) => a.action === 'invitations.redeem');
     assert.ok(invitationsRedeem, 'invitations.redeem should exist');
     const invitationsRedeemErrors = new Set(invitationsRedeem?.businessErrors?.map((error) => error.code) ?? []);
@@ -183,6 +188,7 @@ describe('smoke', () => {
     assert.ok(invitationsRedeemErrors.has('member_already_active'), 'invitations.redeem should document member_already_active');
     assert.ok(invitationsRedeemErrors.has('membership_exists'), 'invitations.redeem should document membership_exists');
     assert.ok(invitationsRedeemErrors.has('application_not_mutable'), 'invitations.redeem should document application_not_mutable');
+    assert.ok(invitationsRedeemErrors.has('client_key_conflict'), 'invitations.redeem should document client_key_conflict');
     assert.equal(invitationsRedeemErrors.has('invite_email_mismatch'), false, 'invitations.redeem should not require an email match');
     const invitationsRedeemInput = invitationsRedeem?.input as Record<string, unknown> | undefined;
     const invitationsRedeemProperties = invitationsRedeemInput?.properties as Record<string, Record<string, unknown>> | undefined;

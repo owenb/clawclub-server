@@ -66,6 +66,17 @@ async function withInsertDelay(run: () => Promise<void>): Promise<void> {
   }
 }
 
+async function countAdmissionLlmReservations(memberId: string): Promise<number> {
+  const rows = await h.sql<{ count: number }>(
+    `select count(*)::int as count
+     from ai_llm_quota_reservations
+     where member_id = $1
+       and action_name = 'clubs.apply'`,
+    [memberId],
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
 describe('clubs.applications.list', () => {
   it('returns only queued-or-active applications by default and keeps revision_required opt-in', async () => {
     const applicant = await h.seedMember('Applicant One');
@@ -366,6 +377,40 @@ describe('clubs.apply', () => {
     const firstData = first.data as Record<string, unknown>;
     const secondData = second.data as Record<string, unknown>;
     assert.deepEqual(secondData, firstData);
+  });
+
+  it('concurrent same-clientKey retries replay without duplicate admission LLM reservations', async () => {
+    const owner = await h.seedMember('Applications Barrier Owner');
+    const created = await h.apiOk(owner.token, 'clubs.create', {
+      clientKey: 'applications-barrier-club-create-1',
+      slug: 'applications-barrier-club',
+      name: 'Applications Barrier Club',
+      summary: 'A club used to verify admission idempotency barrier placement.',
+      admissionPolicy: 'Tell us what you have built recently and link one concrete example.',
+    });
+    const club = (created.data as Record<string, unknown>).club as Record<string, unknown>;
+    const applicant = await h.seedMember('Applications Barrier Applicant');
+    const request = {
+      clubSlug: String(club.slug),
+      draft: {
+        name: 'Applications Barrier Applicant',
+        socials: '@barrier',
+        application: 'I recently shipped a useful project and can share concrete notes with the club.',
+      },
+      clientKey: 'applications-barrier-apply-1',
+    };
+    const before = await countAdmissionLlmReservations(applicant.id);
+
+    await withInsertDelay(async () => {
+      const [first, second] = await Promise.all([
+        h.apiOk(applicant.token, 'clubs.apply', request),
+        h.apiOk(applicant.token, 'clubs.apply', request),
+      ]);
+      assert.deepEqual(second.data, first.data);
+    });
+
+    const after = await countAdmissionLlmReservations(applicant.id);
+    assert.equal(after - before, 2, 'exact in-flight replay should reuse the original profile/gate reservations');
   });
 
   it('allows a fresh application after the earlier live application terminates', async () => {

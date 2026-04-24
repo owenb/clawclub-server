@@ -225,6 +225,11 @@ const clubsApply: ActionDefinition = {
       meaning: 'The supplied invitationId is not a live in-app invitation for this member in the target club.',
       recovery: 'Retry without invitationId for a cold application, or use one of the live invitations returned by invitation_ambiguous.',
     },
+    {
+      code: 'client_key_conflict',
+      meaning: 'The clientKey has already been used for a different application intent.',
+      recovery: 'Generate a new clientKey for a different application, or resend the exact same payload to replay safely.',
+    },
   ],
   wire: {
     input: z.object({
@@ -249,6 +254,14 @@ const clubsApply: ActionDefinition = {
         application: parseApplicationText,
       }),
       clientKey: parseRequiredString,
+    }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey: string }).clientKey,
+    getScopeKey: (_input, ctx) => `member:${ctx.actor.member.id}:clubs.apply`,
+    getRequestValue: (input, ctx) => ({
+      actorMemberId: ctx.actor.member.id,
+      ...(input as Record<string, unknown>),
     }),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -291,6 +304,11 @@ const clubsApplicationsRevise: ActionDefinition = {
       meaning: 'Only applications currently in revision_required can be revised.',
       recovery: 'Read the canonical application state returned in error.details and follow its workflow/next fields. If it is already awaiting_review, the draft has already been submitted to club admins and the applicant must wait.',
     },
+    {
+      code: 'client_key_conflict',
+      meaning: 'The clientKey has already been used for a different application revision intent.',
+      recovery: 'Generate a new clientKey for a different revision, or resend the exact same payload to replay safely.',
+    },
   ],
   wire: {
     input: z.object({
@@ -313,6 +331,14 @@ const clubsApplicationsRevise: ActionDefinition = {
         application: parseApplicationText,
       }),
       clientKey: parseRequiredString,
+    }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey: string }).clientKey,
+    getScopeKey: (input, ctx) => `member:${ctx.actor.member.id}:clubs.applications.revise:${(input as { applicationId: string }).applicationId}`,
+    getRequestValue: (input, ctx) => ({
+      actorMemberId: ctx.actor.member.id,
+      ...(input as Record<string, unknown>),
     }),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {

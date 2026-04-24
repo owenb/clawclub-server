@@ -241,6 +241,7 @@ Revision and lifetime rules:
 - Revising is only allowed in `revision_required`. Once the phase becomes `awaiting_review`, the applicant must stop and wait for admins.
 - Treat `awaiting_review` / `workflow.currentlySubmittedToAdmins = true` as the first moment the human has actually submitted the application to club admins. Before that, the human only has a saved draft on file.
 - Each revise counts against the same rolling per-member application quota bucket as `clubs.apply` / `invitations.redeem`.
+- `clubs.apply`, `clubs.applications.revise`, and `invitations.redeem` are `clientKey`-idempotent across the whole admission path. Reusing a key with a different payload returns `client_key_conflict`; reusing the exact same payload replays without rerunning admission preflight, quota, or gate work.
 - By default that quota is **10 application submits/revises per rolling 24 hours**.
 - The application record itself does **not** auto-expire once it exists. A `revision_required` draft can stay on file indefinitely until the applicant revises it, withdraws it, or some later terminal state is written.
 - Do not confuse invitation expiry with application expiry: invitation codes expire, but the resulting application record does not have its own TTL.

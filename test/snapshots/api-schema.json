@@ -4086,6 +4086,11 @@
           "code": "application_not_mutable",
           "meaning": "Only applications currently in revision_required can be revised.",
           "recovery": "Read the canonical application state returned in error.details and follow its workflow/next fields. If it is already awaiting_review, the draft has already been submitted to club admins and the applicant must wait."
+        },
+        {
+          "code": "client_key_conflict",
+          "meaning": "The clientKey has already been used for a different application revision intent.",
+          "recovery": "Generate a new clientKey for a different revision, or resend the exact same payload to replay safely."
         }
       ],
       "description": "Replace the saved draft on a revision_required application and rerun the admission gate. This is only allowed while the applicant still owns the draft.",
@@ -4863,6 +4868,11 @@
           "code": "invitation_not_found",
           "meaning": "The supplied invitationId is not a live in-app invitation for this member in the target club.",
           "recovery": "Retry without invitationId for a cold application, or use one of the live invitations returned by invitation_ambiguous."
+        },
+        {
+          "code": "client_key_conflict",
+          "meaning": "The clientKey has already been used for a different application intent.",
+          "recovery": "Generate a new clientKey for a different application, or resend the exact same payload to replay safely."
         }
       ],
       "description": "Submit a new application to a club using the caller’s existing bearer-authenticated account.",
@@ -10858,6 +10868,11 @@
           "code": "application_not_mutable",
           "meaning": "The invitation changed while the redemption request was being prepared, so the write was rejected.",
           "recovery": "Refresh the invitation state and retry redemption from the latest code state."
+        },
+        {
+          "code": "client_key_conflict",
+          "meaning": "The clientKey has already been used for a different invitation redemption intent.",
+          "recovery": "Generate a new clientKey for a different redemption, or resend the exact same payload to replay safely."
         }
       ],
       "description": "Redeem an external invitation code and submit the linked club application using the caller’s existing account.",
@@ -18990,5 +19005,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "492881187c519a89"
+  "schemaHash": "7ef9435461f164fc"
 }

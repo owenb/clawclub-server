@@ -405,6 +405,11 @@ const invitationsRedeem: ActionDefinition = {
       meaning: 'The invitation changed while the redemption request was being prepared, so the write was rejected.',
       recovery: 'Refresh the invitation state and retry redemption from the latest code state.',
     },
+    {
+      code: 'client_key_conflict',
+      meaning: 'The clientKey has already been used for a different invitation redemption intent.',
+      recovery: 'Generate a new clientKey for a different redemption, or resend the exact same payload to replay safely.',
+    },
   ],
   wire: {
     input: z.object({
@@ -427,6 +432,14 @@ const invitationsRedeem: ActionDefinition = {
         application: parseApplicationText,
       }),
       clientKey: parseRequiredString,
+    }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey: string }).clientKey,
+    getScopeKey: (_input, ctx) => `member:${ctx.actor.member.id}:invitations.redeem`,
+    getRequestValue: (input, ctx) => ({
+      actorMemberId: ctx.actor.member.id,
+      ...(input as Record<string, unknown>),
     }),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
