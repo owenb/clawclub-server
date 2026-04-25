@@ -117,10 +117,12 @@ export type SeededInvitation = {
   candidateName: string;
   candidateEmail: string;
   code: string;
+  deliveryKind: 'notification' | 'code';
   expiresAt: string;
   usedAt: string | null;
   usedMembershipId: string | null;
   revokedAt: string | null;
+  supportWithdrawnAt: string | null;
 };
 
 type ApiOptions = {
@@ -197,6 +199,7 @@ export class TestHarness {
   port: number;
   private previousEmbeddingStub: string | undefined;
   private previousPowDifficulty: string | undefined;
+  private previousInvitedPowDifficulty: string | undefined;
 
   private constructor(
     pools: { super: Pool; app: Pool },
@@ -207,6 +210,7 @@ export class TestHarness {
     port: number,
     previousEmbeddingStub: string | undefined,
     previousPowDifficulty: string | undefined,
+    previousInvitedPowDifficulty: string | undefined,
   ) {
     this.pools = pools;
     this.dbName = dbName;
@@ -216,6 +220,7 @@ export class TestHarness {
     this.port = port;
     this.previousEmbeddingStub = previousEmbeddingStub;
     this.previousPowDifficulty = previousPowDifficulty;
+    this.previousInvitedPowDifficulty = previousInvitedPowDifficulty;
   }
 
   static async start(options: {
@@ -227,6 +232,7 @@ export class TestHarness {
     const dbName = createDbName();
     const previousEmbeddingStub = process.env.CLAWCLUB_EMBEDDING_STUB;
     const previousPowDifficulty = process.env.CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY;
+    const previousInvitedPowDifficulty = process.env.CLAWCLUB_TEST_INVITED_REGISTRATION_DIFFICULTY;
     if (options.embeddingStub ?? true) {
       process.env.CLAWCLUB_EMBEDDING_STUB = '1';
     } else if (previousEmbeddingStub === undefined) {
@@ -234,6 +240,9 @@ export class TestHarness {
     }
     if (previousPowDifficulty === undefined) {
       process.env.CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY = '3';
+    }
+    if (previousInvitedPowDifficulty === undefined) {
+      process.env.CLAWCLUB_TEST_INVITED_REGISTRATION_DIFFICULTY = '2';
     }
     initializeConfigForTests(options.config ?? DEFAULT_CONFIG_V1);
 
@@ -317,6 +326,7 @@ export class TestHarness {
       port,
       previousEmbeddingStub,
       previousPowDifficulty,
+      previousInvitedPowDifficulty,
     );
   }
 
@@ -343,6 +353,11 @@ export class TestHarness {
         delete process.env.CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY;
       } else {
         process.env.CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY = this.previousPowDifficulty;
+      }
+      if (this.previousInvitedPowDifficulty === undefined) {
+        delete process.env.CLAWCLUB_TEST_INVITED_REGISTRATION_DIFFICULTY;
+      } else {
+        process.env.CLAWCLUB_TEST_INVITED_REGISTRATION_DIFFICULTY = this.previousInvitedPowDifficulty;
       }
       resetConfigForTests();
     }
@@ -709,10 +724,14 @@ export class TestHarness {
       usedAt?: string | null;
       usedMembershipId?: string | null;
       revokedAt?: string | null;
+      supportWithdrawnAt?: string | null;
+      deliveryKind?: 'notification' | 'code';
+      code?: string;
       metadata?: Record<string, unknown>;
     } = {},
   ): Promise<SeededInvitation> {
-    const code = buildInvitationCode();
+    const code = options.code ?? buildInvitationCode();
+    const deliveryKind = options.deliveryKind ?? 'code';
     const candidateName = options.candidateName ?? 'Invited Candidate';
     const reason = options.reason ?? 'Seed invitation';
     const expiresAt = options.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -723,6 +742,7 @@ export class TestHarness {
       used_at: string | null;
       used_membership_id: string | null;
       revoked_at: string | null;
+      support_withdrawn_at: string | null;
     }>(
       `insert into invite_requests (
          club_id,
@@ -749,16 +769,16 @@ export class TestHarness {
          null,
          'email',
          $5,
-         'code',
+         $12,
          $6::timestamptz,
          $7::timestamptz,
          $8::timestamptz,
          $9::short_id,
          $10::timestamptz,
-         null,
+         $13::timestamptz,
          $11::jsonb
        )
-       returning id, expires_at::text, used_at::text, used_membership_id, revoked_at::text`,
+       returning id, expires_at::text, used_at::text, used_membership_id, revoked_at::text, support_withdrawn_at::text`,
       [
         clubId,
         sponsorId,
@@ -771,15 +791,19 @@ export class TestHarness {
         options.usedMembershipId ?? null,
         options.revokedAt ?? null,
         JSON.stringify(options.metadata ?? {}),
+        deliveryKind,
+        options.supportWithdrawnAt ?? null,
       ],
     );
 
     const row = rows[0]!;
-    await this.sql(
-      `insert into invite_codes (invite_request_id, code)
-       values ($1::short_id, $2)`,
-      [row.id, code],
-    );
+    if (deliveryKind === 'code') {
+      await this.sql(
+        `insert into invite_codes (invite_request_id, code)
+         values ($1::short_id, $2)`,
+        [row.id, code],
+      );
+    }
     return {
       id: row.id,
       clubId,
@@ -787,10 +811,12 @@ export class TestHarness {
       candidateName,
       candidateEmail,
       code,
+      deliveryKind,
       expiresAt: row.expires_at,
       usedAt: row.used_at,
       usedMembershipId: row.used_membership_id,
       revokedAt: row.revoked_at,
+      supportWithdrawnAt: row.support_withdrawn_at,
     };
   }
 

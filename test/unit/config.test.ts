@@ -215,4 +215,15 @@ describe('public instance policy', () => {
     delete (validated as { $schema?: string }).$schema;
     assert.deepEqual(validated, DEFAULT_CONFIG_V1);
   });
+
+  it('rejects invited registration PoW difficulty above cold registration difficulty', () => {
+    const config = JSON.parse(JSON.stringify(DEFAULT_CONFIG_V1)) as typeof DEFAULT_CONFIG_V1;
+    config.policy.pow.registrationDifficulty = 3;
+    config.policy.pow.invitedRegistrationDifficulty = 4;
+
+    assert.throws(
+      () => configSchema.parse(config),
+      /invitedRegistrationDifficulty must be <= registrationDifficulty/,
+    );
+  });
 });

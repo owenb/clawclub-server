@@ -17,6 +17,28 @@ import { registerActions, type ActionDefinition, type ActionResult, type ColdHan
 
 const wireAsciiEmail = wireEmail.describe('ASCII email address. Server trims, lowercases, and validates address shape.');
 const parseAsciiEmail = parseEmail.refine((value) => /^[\x00-\x7F]+$/.test(value), 'Email must use ASCII characters only');
+const INVITATION_CODE_MAX_CHARS = 64;
+const wireInvitationCode = z.string()
+  .max(INVITATION_CODE_MAX_CHARS)
+  .describe('Optional invitation code for reduced registration proof-of-work. Max 64 characters; blank strings are treated as absent.');
+const parseOptionalInvitationCode = z.string()
+  .max(INVITATION_CODE_MAX_CHARS)
+  .trim()
+  .transform((value) => value.length === 0 ? undefined : value)
+  .optional();
+
+function invitationDiscoverFieldsArePaired(input: { invitationCode?: string; email?: string }): boolean {
+  return (input.invitationCode === undefined) === (input.email === undefined);
+}
+
+function addInvitationDiscoverPairingIssue(input: { invitationCode?: string; email?: string }, ctx: z.RefinementCtx): void {
+  if (invitationDiscoverFieldsArePaired(input)) return;
+  ctx.addIssue({
+    code: 'custom',
+    path: input.invitationCode === undefined ? ['invitationCode'] : ['email'],
+    message: 'invitationCode and email must be supplied together for invited registration discovery.',
+  });
+}
 
 const registerChallenge = z.object({
   challengeBlob: z.string(),
@@ -120,12 +142,44 @@ const accountsRegister: ActionDefinition = {
       meaning: 'The supplied nonce does not satisfy the challenge difficulty.',
       recovery: 'Solve the challenge correctly and retry submit before it expires.',
     },
+    {
+      code: 'invitation_invalid',
+      meaning: 'No invitation matches the supplied code.',
+      recovery: 'Call accounts.register discover again with the correct invitation code and email, or ask the sponsor to confirm the code.',
+    },
+    {
+      code: 'invitation_revoked',
+      meaning: 'The invitation has been revoked.',
+      recovery: 'Ask the sponsor to issue a new invitation, then call accounts.register discover again with the new code and matching email.',
+    },
+    {
+      code: 'invitation_expired',
+      meaning: 'The invitation has expired.',
+      recovery: 'Ask the sponsor to issue a new invitation, then call accounts.register discover again with the new code and matching email.',
+    },
+    {
+      code: 'invitation_used',
+      meaning: 'The invitation has already been redeemed.',
+      recovery: 'Ask the sponsor to confirm whether this invitation has already been used, or request a new invitation.',
+    },
+    {
+      code: 'invitation_support_withdrawn',
+      meaning: 'The sponsor has withdrawn support for this invitation.',
+      recovery: 'Contact the sponsor before retrying. Registration with this invitation cannot continue while support is withdrawn.',
+    },
+    {
+      code: 'email_does_not_match_invite',
+      meaning: 'The submitted email does not match the candidate email on this invitation.',
+      recovery: 'Call accounts.register discover again with the email address the sponsor invited, or ask the sponsor to issue a new invitation for the correct email.',
+    },
   ],
   wire: {
     input: z.discriminatedUnion('mode', [
       z.object({
         mode: z.literal('discover').describe('First call: get a registration proof-of-work challenge.'),
-      }),
+        invitationCode: wireInvitationCode.optional(),
+        email: wireAsciiEmail.optional(),
+      }).superRefine(addInvitationDiscoverPairingIssue),
       z.object({
         mode: z.literal('submit').describe('Second call: complete registration with the solved nonce.'),
         clientKey: wireRequiredString.describe(describeClientKey('Client-generated idempotency key for the registration submit step.')),
@@ -133,6 +187,7 @@ const accountsRegister: ActionDefinition = {
         email: wireAsciiEmail,
         challengeBlob: wireRequiredString.describe('Challenge blob returned by accounts.register discover'),
         nonce: wireRequiredString.describe('Proof-of-work solution for the supplied challenge'),
+        invitationCode: wireInvitationCode.optional(),
       }),
     ]),
     output: registerOutput,
@@ -141,7 +196,9 @@ const accountsRegister: ActionDefinition = {
     input: z.discriminatedUnion('mode', [
       z.object({
         mode: z.literal('discover'),
-      }),
+        invitationCode: parseOptionalInvitationCode,
+        email: parseAsciiEmail.optional(),
+      }).superRefine(addInvitationDiscoverPairingIssue),
       z.object({
         mode: z.literal('submit'),
         clientKey: parseRequiredString,
@@ -149,6 +206,7 @@ const accountsRegister: ActionDefinition = {
         email: parseAsciiEmail,
         challengeBlob: parseRequiredString,
         nonce: parseRequiredString,
+        invitationCode: parseOptionalInvitationCode,
       }),
     ]),
   },
@@ -160,6 +218,7 @@ const accountsRegister: ActionDefinition = {
       email?: string;
       challengeBlob?: string;
       nonce?: string;
+      invitationCode?: string;
     });
     return { data: result };
   },

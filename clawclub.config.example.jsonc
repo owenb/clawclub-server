@@ -59,6 +59,7 @@
     },
     "pow": {
       "registrationDifficulty": 7,
+      "invitedRegistrationDifficulty": 6,
       "challengeTtlMs": 3600000
     },
     "transport": {

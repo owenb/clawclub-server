@@ -509,6 +509,7 @@ export type Repository = {
     email?: string;
     challengeBlob?: string;
     nonce?: string;
+    invitationCode?: string;
   }): Promise<Record<string, unknown>>;
   updateContactEmail?(input: {
     actorMemberId: string;

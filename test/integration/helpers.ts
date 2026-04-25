@@ -91,8 +91,9 @@ export function findInvalidPowNonce(challengeId: string, difficulty: number): st
 export async function prepareAccountRegistration(
   h: TestHarness,
   _clientKey = 'register-discover',
+  input: { invitationCode?: string; email?: string } = {},
 ): Promise<{ challengeBlob: string; challengeId: string; difficulty: number; expiresAt: string }> {
-  const body = await h.apiOk(null, 'accounts.register', { mode: 'discover' }, {
+  const body = await h.apiOk(null, 'accounts.register', { mode: 'discover', ...input }, {
     headers: { 'x-forwarded-for': nextDiscoverClientIp() },
   });
   const data = body.data as Record<string, unknown>;
@@ -107,9 +108,13 @@ export async function prepareAccountRegistration(
 
 export async function registerWithPow(
   h: TestHarness,
-  input: { name: string; email: string; clientKey?: string },
+  input: { name: string; email: string; clientKey?: string; invitationCode?: string },
 ): Promise<{ body: Record<string, unknown>; bearerToken: string; memberId: string }> {
-  const challenge = await prepareAccountRegistration(h, input.clientKey ?? 'register-discover');
+  const challenge = await prepareAccountRegistration(
+    h,
+    input.clientKey ?? 'register-discover',
+    input.invitationCode ? { invitationCode: input.invitationCode, email: input.email } : {},
+  );
   const nonce = findPowNonce(challenge.challengeId, challenge.difficulty);
   const body = await h.apiOk(null, 'accounts.register', {
     mode: 'submit',
@@ -118,6 +123,7 @@ export async function registerWithPow(
     email: input.email,
     challengeBlob: challenge.challengeBlob,
     nonce,
+    ...(input.invitationCode ? { invitationCode: input.invitationCode } : {}),
   });
   const data = body.data as Record<string, unknown>;
   const member = data.member as Record<string, unknown>;

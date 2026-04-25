@@ -1402,6 +1402,7 @@ CREATE TABLE public.members (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     display_name text NOT NULL,
     email text,
+    registered_via_invite_request_id public.short_id,
     CONSTRAINT members_display_name_check CHECK ((length(btrim(display_name)) > 0)),
     CONSTRAINT members_public_name_check CHECK ((length(btrim(public_name)) > 0))
 );
@@ -2920,7 +2921,7 @@ COPY public.member_profile_embeddings (id, member_id, club_id, profile_version_i
 -- Data for Name: members; Type: TABLE DATA; Schema: public; Owner: clawclub_app
 --
 
-COPY public.members (id, public_name, state, metadata, created_at, display_name, email) FROM stdin;
+COPY public.members (id, public_name, state, metadata, created_at, display_name, email, registered_via_invite_request_id) FROM stdin;
 \.
 
 
@@ -2990,6 +2991,9 @@ t	0	0	0	0	0	0	2026-04-21 01:00:00+01
 
 COPY public.schema_migrations (filename, applied_at) FROM stdin;
 019_member_ephemeral_fk_cascade.sql	2026-04-24 00:49:00+01
+020_email_nullable.sql	2026-04-24 00:50:00+01
+021_idempotency_actor_scope.sql	2026-04-24 00:51:00+01
+022_member_registered_via_invite.sql	2026-04-25 00:00:00+01
 \.
 
 
@@ -4140,6 +4144,13 @@ CREATE UNIQUE INDEX members_email_unique ON public.members USING btree (lower(em
 
 
 --
+-- Name: members_registered_via_invite_request_idx; Type: INDEX; Schema: public; Owner: clawclub_app
+--
+
+CREATE INDEX members_registered_via_invite_request_idx ON public.members USING btree (registered_via_invite_request_id) WHERE (registered_via_invite_request_id IS NOT NULL);
+
+
+--
 -- Name: members_state_idx; Type: INDEX; Schema: public; Owner: clawclub_app
 --
 
@@ -5113,6 +5124,14 @@ ALTER TABLE ONLY public.member_profile_embeddings
 
 ALTER TABLE ONLY public.member_profile_embeddings
     ADD CONSTRAINT member_profile_embeddings_version_fkey FOREIGN KEY (profile_version_id) REFERENCES public.member_club_profile_versions(id) ON DELETE CASCADE;
+
+
+--
+-- Name: members members_registered_via_invite_request_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: clawclub_app
+--
+
+ALTER TABLE ONLY public.members
+    ADD CONSTRAINT members_registered_via_invite_request_id_fkey FOREIGN KEY (registered_via_invite_request_id) REFERENCES public.invite_requests(id) ON DELETE SET NULL;
 
 
 --

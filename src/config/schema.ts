@@ -63,8 +63,15 @@ const policySchema = z.object({
   }).strict().default(DEFAULT_CONFIG_V1.policy.quotas),
   pow: z.object({
     registrationDifficulty: z.int().min(1).default(DEFAULT_CONFIG_V1.policy.pow.registrationDifficulty),
+    invitedRegistrationDifficulty: z.int().min(1).default(DEFAULT_CONFIG_V1.policy.pow.invitedRegistrationDifficulty),
     challengeTtlMs: z.int().min(1).default(DEFAULT_CONFIG_V1.policy.pow.challengeTtlMs),
-  }).strict().default(DEFAULT_CONFIG_V1.policy.pow),
+  }).strict().refine(
+    (pow) => pow.invitedRegistrationDifficulty <= pow.registrationDifficulty,
+    {
+      message: 'invitedRegistrationDifficulty must be <= registrationDifficulty',
+      path: ['invitedRegistrationDifficulty'],
+    },
+  ).default(DEFAULT_CONFIG_V1.policy.pow),
   transport: z.object({
     maxStreamsPerMember: z.int().min(1).default(DEFAULT_CONFIG_V1.policy.transport.maxStreamsPerMember),
   }).strict().default(DEFAULT_CONFIG_V1.policy.transport),

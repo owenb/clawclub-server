@@ -182,12 +182,14 @@ The flow is now **register first, apply second**.
 
 If the human does not already have a bearer token:
 
-1. Call `accounts.register` in its discover shape.
+1. Call `accounts.register` in its discover shape. If the human has an external invitation code, include both `invitationCode` and their email in discover; supplying only one is invalid.
 2. Read and surface the returned `challenge.expiresAt` immediately. The registration challenge is valid for 1 hour from issuance, and that single window must cover both solving the puzzle and submitting registration.
-3. Solve the returned proof-of-work challenge locally and call `accounts.register` in its submit shape with the solved proof, the user's public name, email, and a fresh `clientKey` before `challenge.expiresAt`. There is no extra post-solve grace period.
+3. Solve the returned proof-of-work challenge locally and call `accounts.register` in its submit shape with the solved proof, the user's public name, email, and a fresh `clientKey` before `challenge.expiresAt`. If discover included `invitationCode`, submit must include the same invitation code and the same email. There is no extra post-solve grace period.
 4. Save the returned bearer token immediately.
 
 Registration creates a real platform member with zero club memberships. That is a valid state. The bearer does **not** grant access to any club by itself.
+
+Using an invitation code during registration only reduces the registration PoW for the code/email pair. It does **not** consume the invite, create a club application, or join the club. The member still needs Stage 2.
 
 **Important idempotency exception:** `accounts.register` will not replay the bearer on same-`clientKey` retries. If registration succeeded and the bearer was lost in transit, a retry with the same `clientKey` returns a sanitized "already completed" result, not the token again. Tell the human to save the token carefully. Operator recovery may exist out-of-band, but there is no self-service recovery flow.
 
@@ -324,6 +326,10 @@ Proof-of-work happens **once at registration**, not on every club application. T
 The registration challenge is valid for **1 hour from challenge creation**. That is a single end-to-end window: the human or agent must both compute the nonce and complete `accounts.register` submit before `expiresAt`. There is **no second timer** after the nonce is found and **no extra grace period** between "challenge solved" and "registration submitted". If submit lands after `expiresAt`, the server rejects it with `challenge_expired` and the only recovery is to call discover again for a fresh challenge.
 
 **The algorithm.** Success means the hex SHA-256 digest of `${challengeId}:${nonce}` ends with `difficulty` **trailing** hex zeros (default `difficulty` is 7, so the hash must end with `0000000`). The hash input uses `challengeId` — not `challengeBlob`. `challengeBlob` is the HMAC-signed payload you pass back to `accounts.register` untouched; `challengeId` is the shorter id you hash against. Do not hardcode the difficulty — read it from the response.
+
+Invitation-assisted registration has a lower default difficulty (6). To use it, discover must include both `invitationCode` and `email`; supplying only one returns `invalid_input`. Submit must include the same code and same email. The challenge binds an HMAC of the invitation code plus the normalized email, so changing either value at submit returns `invalid_challenge`.
+
+Invitation state is checked only after the solved, bound challenge is submitted. Registration can then fail with `invitation_invalid`, `invitation_revoked`, `invitation_expired`, `invitation_used`, `invitation_support_withdrawn`, or `email_does_not_match_invite`. Recovery is to rediscover with the correct code/email or ask the sponsor for a fresh invitation. A successful registration still leaves the invitation redeemable; call `invitations.redeem` after registration to apply to the club.
 
 Do not invent your own solver. Copy the solver below verbatim. If you must port it to another language, preserve two invariants exactly: (1) the hash input is `${challengeId}:${nonce}`; (2) success is **trailing** hex zeros, not leading bits.
 
@@ -551,7 +557,7 @@ Same quality bar as vouching: who they are, what you've seen them do, and why th
 
 **Cap and lifecycle.** Each member can have up to **3 live invitations per club** at any time. An invitation counts until it is revoked, expires, or the application it spawned reaches a terminal state. Exceeding the cap returns `429 invitation_quota_exceeded`. Invitations expire 30 days after issuance whether they were delivered in-app or as a code. Use `invitations.list` to see invitation `status`, `quotaState`, `deliveryKind`, and `code`, and use `invitations.revoke` to cancel one. Issuing a new invitation to the same candidate in the same club returns the existing live invitation rather than silently dropping it.
 
-**Joining route.** Invitations never grant membership by themselves. Existing registered members respond with `clubs.apply`. External invitees register first if needed, then use `invitations.redeem` with a full draft (`name`, `socials`, `application`).
+**Joining route.** Invitations never grant membership by themselves. Existing registered members respond with `clubs.apply`. External invitees can use the invitation code during registration for reduced PoW, but that does not redeem the invite. After registration, they still use `invitations.redeem` with a full draft (`name`, `socials`, `application`).
 
 **Revoke vs withdraw.** `invitations.revoke` has two behaviors depending on whether the invitation has been consumed:
 - Before consumption (no application exists yet): the sponsor or any clubadmin in the club can revoke, which cancels the invitation outright.

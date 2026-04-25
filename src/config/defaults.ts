@@ -72,6 +72,7 @@ export const DEFAULT_CONFIG_V1 = {
     },
     pow: {
       registrationDifficulty: 7,
+      invitedRegistrationDifficulty: 6,
       challengeTtlMs: 60 * 60 * 1000,
     },
     transport: {

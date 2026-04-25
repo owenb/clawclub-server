@@ -5,6 +5,10 @@ import { logger } from './logger.ts';
 import { toIsoFromMillis } from './timestamps.ts';
 
 const POW_CHALLENGE_ID_LENGTH = 20;
+const INVITE_CODE_MAC_CONTEXT = 'registration-invite-code:';
+const INVITE_CODE_MAC_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const INVITE_CODE_MAC_BYTES = 32;
+const BOUND_INVITE_EMAIL_MAX_CHARS = 500;
 
 type PowChallengePayload = {
   v: 1;
@@ -12,6 +16,8 @@ type PowChallengePayload = {
   clubId: string;
   difficulty: number;
   expiresAt: number;
+  inviteCodeMac?: string;
+  email?: string;
 };
 
 let devFallbackPowKey: Buffer | null = null;
@@ -60,6 +66,10 @@ function signChallengePayload(rawPayload: string, key: Buffer): Buffer {
   return createHmac('sha256', key).update(rawPayload, 'utf8').digest();
 }
 
+function computeInviteCodeMacBytes(normalizedCode: string, key: Buffer): Buffer {
+  return createHmac('sha256', key).update(`${INVITE_CODE_MAC_CONTEXT}${normalizedCode}`, 'utf8').digest();
+}
+
 function encodeBase64Url(value: Buffer | string): string {
   return Buffer.isBuffer(value) ? value.toString('base64url') : Buffer.from(value, 'utf8').toString('base64url');
 }
@@ -78,12 +88,24 @@ function parseChallengePayload(rawPayload: string): PowChallengePayload | null {
     if (typeof parsed.clubId !== 'string' || parsed.clubId.length === 0) return null;
     if (typeof difficulty !== 'number' || !Number.isInteger(difficulty) || difficulty < 1) return null;
     if (typeof expiresAt !== 'number' || !Number.isInteger(expiresAt) || expiresAt < 1) return null;
+    const hasInviteCodeMac = parsed.inviteCodeMac !== undefined;
+    const hasEmail = parsed.email !== undefined;
+    if (hasInviteCodeMac !== hasEmail) return null;
+    if (hasInviteCodeMac) {
+      if (typeof parsed.inviteCodeMac !== 'string' || !INVITE_CODE_MAC_PATTERN.test(parsed.inviteCodeMac)) return null;
+      if (
+        typeof parsed.email !== 'string'
+        || parsed.email.length === 0
+        || parsed.email.length > BOUND_INVITE_EMAIL_MAX_CHARS
+      ) return null;
+    }
     return {
       v: 1,
       id: parsed.id,
       clubId: parsed.clubId,
       difficulty,
       expiresAt,
+      ...(hasInviteCodeMac ? { inviteCodeMac: parsed.inviteCodeMac, email: parsed.email } : {}),
     };
   } catch {
     return null;
@@ -94,6 +116,10 @@ export function getColdApplicationDifficulty(): number {
   return getPositiveIntegerEnv('CLAWCLUB_TEST_COLD_APPLICATION_DIFFICULTY') ?? getConfig().policy.pow.registrationDifficulty;
 }
 
+export function getInvitedRegistrationDifficulty(): number {
+  return getPositiveIntegerEnv('CLAWCLUB_TEST_INVITED_REGISTRATION_DIFFICULTY') ?? getConfig().policy.pow.invitedRegistrationDifficulty;
+}
+
 export function getPowChallengeTtlMs(): number {
   return getConfig().policy.pow.challengeTtlMs;
 }
@@ -102,10 +128,40 @@ export function ensurePowChallengeConfig(): void {
   getRuntimePowKeys();
 }
 
+export function computeInviteCodeMac(normalizedCode: string): string {
+  const { active } = getRuntimePowKeys();
+  return encodeBase64Url(computeInviteCodeMacBytes(normalizedCode, active));
+}
+
+export function verifyInviteCodeMac(normalizedCode: string, inviteCodeMac: string): boolean {
+  if (!INVITE_CODE_MAC_PATTERN.test(inviteCodeMac)) {
+    return false;
+  }
+
+  let supplied: Buffer;
+  try {
+    supplied = decodeBase64Url(inviteCodeMac);
+  } catch {
+    return false;
+  }
+  if (supplied.length !== INVITE_CODE_MAC_BYTES) {
+    return false;
+  }
+
+  const { active, previous } = getRuntimePowKeys();
+  const candidates = [active, previous].filter((key): key is Buffer => key !== null);
+  return candidates.some((key) => {
+    const expected = computeInviteCodeMacBytes(normalizedCode, key);
+    return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+  });
+}
+
 export function issuePowChallenge(input: {
   clubId: string;
   difficulty?: number;
   nowMs?: number;
+  inviteCodeMac?: string;
+  email?: string;
 }): {
   challengeBlob: string;
   challengeId: string;
@@ -116,12 +172,17 @@ export function issuePowChallenge(input: {
   const difficulty = input.difficulty ?? getColdApplicationDifficulty();
   const challengeId = randomChallengePart(POW_CHALLENGE_ID_LENGTH);
   const expiresAtMs = (input.nowMs ?? Date.now()) + getPowChallengeTtlMs();
+  const hasInviteBinding = input.inviteCodeMac !== undefined || input.email !== undefined;
+  if (hasInviteBinding && (!input.inviteCodeMac || !input.email)) {
+    throw new Error('inviteCodeMac and email must be supplied together');
+  }
   const payload: PowChallengePayload = {
     v: 1,
     id: challengeId,
     clubId: input.clubId,
     difficulty,
     expiresAt: expiresAtMs,
+    ...(hasInviteBinding ? { inviteCodeMac: input.inviteCodeMac, email: input.email } : {}),
   };
   const rawPayload = JSON.stringify(payload);
   const signature = signChallengePayload(rawPayload, active);

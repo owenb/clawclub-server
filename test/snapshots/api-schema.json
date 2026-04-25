@@ -262,6 +262,36 @@
           "code": "invalid_proof",
           "meaning": "The supplied nonce does not satisfy the challenge difficulty.",
           "recovery": "Solve the challenge correctly and retry submit before it expires."
+        },
+        {
+          "code": "invitation_invalid",
+          "meaning": "No invitation matches the supplied code.",
+          "recovery": "Call accounts.register discover again with the correct invitation code and email, or ask the sponsor to confirm the code."
+        },
+        {
+          "code": "invitation_revoked",
+          "meaning": "The invitation has been revoked.",
+          "recovery": "Ask the sponsor to issue a new invitation, then call accounts.register discover again with the new code and matching email."
+        },
+        {
+          "code": "invitation_expired",
+          "meaning": "The invitation has expired.",
+          "recovery": "Ask the sponsor to issue a new invitation, then call accounts.register discover again with the new code and matching email."
+        },
+        {
+          "code": "invitation_used",
+          "meaning": "The invitation has already been redeemed.",
+          "recovery": "Ask the sponsor to confirm whether this invitation has already been used, or request a new invitation."
+        },
+        {
+          "code": "invitation_support_withdrawn",
+          "meaning": "The sponsor has withdrawn support for this invitation.",
+          "recovery": "Contact the sponsor before retrying. Registration with this invitation cannot continue while support is withdrawn."
+        },
+        {
+          "code": "email_does_not_match_invite",
+          "meaning": "The submitted email does not match the candidate email on this invitation.",
+          "recovery": "Call accounts.register discover again with the email address the sponsor invited, or ask the sponsor to issue a new invitation for the correct email."
         }
       ],
       "description": "Create a platform account. Registration is a two-step flow: discover a proof-of-work challenge, then submit name, email, challengeBlob, nonce, and clientKey.",
@@ -271,6 +301,16 @@
           {
             "additionalProperties": false,
             "properties": {
+              "email": {
+                "description": "ASCII email address. Server trims, lowercases, and validates address shape.",
+                "maxLength": 500,
+                "type": "string"
+              },
+              "invitationCode": {
+                "description": "Optional invitation code for reduced registration proof-of-work. Max 64 characters; blank strings are treated as absent.",
+                "maxLength": 64,
+                "type": "string"
+              },
               "mode": {
                 "description": "First call: get a registration proof-of-work challenge. Current registration challenge TTL: 3600000 ms (1 hour) from issuance. Read challenge.expiresAt and submit before it.",
                 "enum": [
@@ -300,6 +340,11 @@
               "email": {
                 "description": "ASCII email address. Server trims, lowercases, and validates address shape.",
                 "maxLength": 500,
+                "type": "string"
+              },
+              "invitationCode": {
+                "description": "Optional invitation code for reduced registration proof-of-work. Max 64 characters; blank strings are treated as absent.",
+                "maxLength": 64,
                 "type": "string"
               },
               "mode": {
@@ -18275,6 +18320,7 @@
     },
     "pow": {
       "challengeTtlMs": 3600000,
+      "invitedRegistrationDifficulty": 6,
       "registrationDifficulty": 7
     },
     "quotas": {
@@ -19281,5 +19327,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "54326d3900100566"
+  "schemaHash": "36b6c218865098c2"
 }

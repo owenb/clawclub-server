@@ -5,7 +5,15 @@ import type { DbClient } from './db.ts';
 import { EMAIL_ALREADY_REGISTERED_MESSAGE, isMembersEmailUniqueViolation, normalizeEmail } from './email.ts';
 import { createBearerTokenInDb } from './identity/tokens.ts';
 import { normalizeInvitationCode } from './token.ts';
-import { issuePowChallenge, verifyPowChallenge, validatePowSolution, getColdApplicationDifficulty } from './pow-challenge.ts';
+import {
+  computeInviteCodeMac,
+  getColdApplicationDifficulty,
+  getInvitedRegistrationDifficulty,
+  issuePowChallenge,
+  validatePowSolution,
+  verifyInviteCodeMac,
+  verifyPowChallenge,
+} from './pow-challenge.ts';
 import {
   mapApplicationGateVerdict,
   type StoredApplicationGateResult,
@@ -76,6 +84,18 @@ type InvitationRedeemRow = {
   revoked_at: string | null;
 };
 
+type InvitationRegistrationRow = {
+  invitation_id: string;
+  candidate_email_normalized: string;
+  delivery_kind: 'notification' | 'code';
+  expires_at: string;
+  expires_at_in_past: boolean;
+  expired_at: string | null;
+  used_at: string | null;
+  revoked_at: string | null;
+  support_withdrawn_at: string | null;
+};
+
 type ApplicationRow = {
   application_id: string;
   club_id: string;
@@ -115,6 +135,33 @@ type ApplicationRow = {
 };
 
 const INVALID_INVITATION_CODE_MESSAGE = 'Invitation code is invalid or no longer usable.';
+
+function canonicalizeInvitationCodeForRegistrationMac(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+function readOptionalInvitationCode(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function throwInvalidRegistrationChallenge(): never {
+  throw new AppError('invalid_challenge', 'The registration challenge is invalid or expired.');
+}
+
+function readVerifiedInviteBinding(payload: {
+  inviteCodeMac?: string;
+  email?: string;
+}): { inviteCodeMac: string; email: string } | null {
+  if (payload.inviteCodeMac === undefined && payload.email === undefined) {
+    return null;
+  }
+  if (!payload.inviteCodeMac || !payload.email) {
+    throwInvalidRegistrationChallenge();
+  }
+  return { inviteCodeMac: payload.inviteCodeMac, email: payload.email };
+}
 
 function assertInvitationSponsorAvailable(
   invitation: InvitationRedeemRow,
@@ -256,6 +303,30 @@ async function readInvitationForRedeem(
     throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
   }
   return row;
+}
+
+async function loadInvitationForRegistration(
+  client: DbClient,
+  normalizedCode: string,
+): Promise<InvitationRegistrationRow | null> {
+  const result = await client.query<InvitationRegistrationRow>(
+    `select
+        ir.id as invitation_id,
+        ir.candidate_email_normalized,
+        ir.delivery_kind::text as delivery_kind,
+        ir.expires_at::text as expires_at,
+        (ir.expires_at <= now()) as expires_at_in_past,
+        ir.expired_at::text as expired_at,
+        ir.used_at::text as used_at,
+        ir.revoked_at::text as revoked_at,
+        ir.support_withdrawn_at::text as support_withdrawn_at
+     from invite_codes ic
+     join invite_requests ir on ir.id = ic.invite_request_id
+     where ic.code = $1
+     limit 1`,
+    [normalizedCode],
+  );
+  return result.rows[0] ?? null;
 }
 
 async function readMemberEmail(client: DbClient, memberId: string): Promise<string | null> {
@@ -1434,11 +1505,26 @@ export async function registerAccount(pool: Pool, input: {
   email?: string;
   challengeBlob?: string;
   nonce?: string;
+  invitationCode?: string;
 }): Promise<Record<string, unknown>> {
   if (input.mode === 'discover') {
+    const invitationCode = readOptionalInvitationCode(input.invitationCode);
+    const invitationEmail = typeof input.email === 'string' && input.email.trim().length > 0
+      ? normalizeEmail(input.email)
+      : undefined;
+    if ((invitationCode === undefined) !== (invitationEmail === undefined)) {
+      throw new AppError('invalid_input', 'Registration discover requires invitationCode and email to be supplied together.');
+    }
+    const inviteBinding = invitationCode && invitationEmail
+      ? {
+        inviteCodeMac: computeInviteCodeMac(canonicalizeInvitationCodeForRegistrationMac(invitationCode)),
+        email: invitationEmail,
+      }
+      : null;
     const challenge = issuePowChallenge({
       clubId: REGISTER_POW_SCOPE,
-      difficulty: getColdApplicationDifficulty(),
+      difficulty: inviteBinding ? getInvitedRegistrationDifficulty() : getColdApplicationDifficulty(),
+      ...(inviteBinding ?? {}),
     });
     return {
       phase: 'proof_required',
@@ -1470,6 +1556,7 @@ export async function registerAccount(pool: Pool, input: {
         email,
         challengeBlob,
         nonce,
+        invitationCode: input.invitationCode,
       },
       execute: async () => {
         const verified = verifyPowChallenge({
@@ -1486,6 +1573,27 @@ export async function registerAccount(pool: Pool, input: {
           throw new AppError('invalid_proof', 'The supplied nonce does not satisfy the registration challenge.');
         }
         const normalizedEmail = normalizeEmail(email);
+        const inviteBinding = readVerifiedInviteBinding(verified.payload);
+
+        let normalizedInvitationCodeForLookup: string | null = null;
+        let invitedRegistration: InvitationRegistrationRow | null = null;
+        if (inviteBinding) {
+          const submittedInvitationCode = readOptionalInvitationCode(input.invitationCode);
+          if (!submittedInvitationCode) {
+            throwInvalidRegistrationChallenge();
+          }
+          const canonicalSubmittedInvitationCode = canonicalizeInvitationCodeForRegistrationMac(submittedInvitationCode);
+          if (!verifyInviteCodeMac(canonicalSubmittedInvitationCode, inviteBinding.inviteCodeMac)) {
+            throwInvalidRegistrationChallenge();
+          }
+          if (normalizedEmail !== inviteBinding.email) {
+            throwInvalidRegistrationChallenge();
+          }
+          normalizedInvitationCodeForLookup = normalizeInvitationCode(submittedInvitationCode);
+        } else if (readOptionalInvitationCode(input.invitationCode)) {
+          throwInvalidRegistrationChallenge();
+        }
+
         const existingMember = await client.query<{ id: string }>(
           `select id
            from members
@@ -1506,13 +1614,40 @@ export async function registerAccount(pool: Pool, input: {
           throw new AppError('challenge_already_used', 'That registration challenge was already used.');
         }
 
+        if (inviteBinding) {
+          // Post-PoW invitation business errors roll back the consumed marker;
+          // the signed code/email binding keeps retries pinned to the same intent.
+          if (!normalizedInvitationCodeForLookup) {
+            throw new AppError('invitation_invalid', 'No invitation matches the supplied code.');
+          }
+          invitedRegistration = await loadInvitationForRegistration(client, normalizedInvitationCodeForLookup);
+          if (!invitedRegistration || invitedRegistration.delivery_kind !== 'code') {
+            throw new AppError('invitation_invalid', 'No invitation matches the supplied code.');
+          }
+          if (invitedRegistration.revoked_at) {
+            throw new AppError('invitation_revoked', 'The invitation has been revoked.');
+          }
+          if (invitedRegistration.support_withdrawn_at) {
+            throw new AppError('invitation_support_withdrawn', 'The sponsor has withdrawn support for this invitation.');
+          }
+          if (invitedRegistration.used_at) {
+            throw new AppError('invitation_used', 'The invitation has already been redeemed.');
+          }
+          if (invitedRegistration.expired_at || invitedRegistration.expires_at_in_past) {
+            throw new AppError('invitation_expired', 'The invitation has expired.');
+          }
+          if (invitedRegistration.candidate_email_normalized !== normalizedEmail) {
+            throw new AppError('email_does_not_match_invite', 'The submitted email does not match the candidate email on this invitation.');
+          }
+        }
+
         let member;
         try {
           member = await client.query<{ member_id: string; public_name: string; email: string; created_at: string }>(
-            `insert into members (public_name, display_name, email, state)
-             values ($1, $1, $2, 'active')
+            `insert into members (public_name, display_name, email, state, registered_via_invite_request_id)
+             values ($1, $1, $2, 'active', $3)
              returning id as member_id, public_name, email, created_at::text as created_at`,
-            [name, normalizedEmail],
+            [name, normalizedEmail, invitedRegistration?.invitation_id ?? null],
           );
         } catch (error) {
           if (isMembersEmailUniqueViolation(error)) {
