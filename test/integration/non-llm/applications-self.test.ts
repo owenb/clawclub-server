@@ -379,6 +379,34 @@ describe('clubs.apply', () => {
     assert.deepEqual(secondData, firstData);
   });
 
+  it('same clientKey with divergent apply payload returns client_key_conflict', async () => {
+    const owner = await h.seedOwner('applications-client-key-conflict-club', 'Applications Client Key Conflict Club');
+    const applicant = await h.seedMember('Apply ClientKey Conflict Applicant');
+    const clientKey = 'applications-apply-client-key-conflict';
+
+    await h.apiOk(applicant.token, 'clubs.apply', {
+      clubSlug: owner.club.slug,
+      draft: {
+        name: 'Apply ClientKey Conflict Applicant',
+        socials: '@applyconflict',
+        application: 'Original application draft for the idempotency conflict path.',
+      },
+      clientKey,
+    });
+
+    const err = await h.apiErr(applicant.token, 'clubs.apply', {
+      clubSlug: owner.club.slug,
+      draft: {
+        name: 'Apply ClientKey Conflict Applicant',
+        socials: '@applyconflict',
+        application: 'Divergent application draft should not replay or overwrite.',
+      },
+      clientKey,
+    });
+    assert.equal(err.status, 409);
+    assert.equal(err.code, 'client_key_conflict');
+  });
+
   it('concurrent same-clientKey retries replay without duplicate admission LLM reservations', async () => {
     const owner = await h.seedMember('Applications Barrier Owner');
     const created = await h.apiOk(owner.token, 'clubs.create', {

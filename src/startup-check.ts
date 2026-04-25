@@ -5,7 +5,7 @@ export function assertStartupConfig(input: {
   env?: NodeJS.ProcessEnv;
 }): void {
   const env = input.env ?? process.env;
-  if (env.NODE_ENV !== 'production') {
+  if (!isProductionRuntime(env)) {
     return;
   }
 
@@ -23,4 +23,9 @@ export function assertStartupConfig(input: {
       `[${input.entrypoint}] missing required production environment variables: ${missing.join(', ')}`,
     );
   }
+}
+
+function isProductionRuntime(env: NodeJS.ProcessEnv): boolean {
+  return env.NODE_ENV === 'production'
+    || (typeof env.RAILWAY_ENVIRONMENT === 'string' && env.RAILWAY_ENVIRONMENT.trim().length > 0);
 }

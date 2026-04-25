@@ -531,7 +531,7 @@ export function createServer(options: {
 } = {}) {
   assertStartupConfig({
     entrypoint: 'server',
-    required: ['OPENAI_API_KEY', 'CLAWCLUB_POW_HMAC_KEY'],
+    required: ['OPENAI_API_KEY', 'CLAWCLUB_POW_HMAC_KEY', 'BASE_URL'],
   });
   if (!hasInitializedConfig()) {
     initializeConfigFromFile();

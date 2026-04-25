@@ -152,6 +152,34 @@ describe('accounts.register', () => {
     assert.equal('credentials' in data, false, 'replayed register response must never include the bearer');
   });
 
+  it('same anonymous clientKey with divergent registration payload returns client_key_conflict', async () => {
+    const firstChallenge = await prepareAccountRegistration(h, 'register-conflict-discover-1');
+    const secondChallenge = await prepareAccountRegistration(h, 'register-conflict-discover-2');
+    const firstNonce = findPowNonce(firstChallenge.challengeId, firstChallenge.difficulty);
+    const secondNonce = findPowNonce(secondChallenge.challengeId, secondChallenge.difficulty);
+    const clientKey = 'register-conflict-submit';
+
+    await h.apiOk(null, 'accounts.register', {
+      mode: 'submit',
+      clientKey,
+      name: 'Register Conflict One',
+      email: 'register-conflict-one@example.com',
+      challengeBlob: firstChallenge.challengeBlob,
+      nonce: firstNonce,
+    });
+
+    const err = await h.apiErr(null, 'accounts.register', {
+      mode: 'submit',
+      clientKey,
+      name: 'Register Conflict Two',
+      email: 'register-conflict-two@example.com',
+      challengeBlob: secondChallenge.challengeBlob,
+      nonce: secondNonce,
+    });
+    assert.equal(err.status, 409);
+    assert.equal(err.code, 'client_key_conflict');
+  });
+
   it('rejects duplicate email registration case-insensitively', async () => {
     await registerWithPow(h, {
       name: 'First Email Holder',

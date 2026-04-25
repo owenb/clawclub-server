@@ -18,7 +18,7 @@ test('assertStartupConfig throws in production when required env vars are missin
     () => {
       assertStartupConfig({
         entrypoint: 'server',
-        required: ['OPENAI_API_KEY', 'CLAWCLUB_POW_HMAC_KEY'],
+        required: ['OPENAI_API_KEY', 'CLAWCLUB_POW_HMAC_KEY', 'BASE_URL'],
         env: {
           NODE_ENV: 'production',
           DATABASE_URL: 'postgresql://example.test/db',
@@ -26,8 +26,40 @@ test('assertStartupConfig throws in production when required env vars are missin
         },
       });
     },
-    /OPENAI_API_KEY, CLAWCLUB_POW_HMAC_KEY/,
+    /OPENAI_API_KEY, CLAWCLUB_POW_HMAC_KEY, BASE_URL/,
   );
+});
+
+test('assertStartupConfig treats Railway runtime as production-like', () => {
+  assert.throws(
+    () => {
+      assertStartupConfig({
+        entrypoint: 'server',
+        required: ['BASE_URL'],
+        env: {
+          RAILWAY_ENVIRONMENT: 'production',
+          DATABASE_URL: 'postgresql://example.test/db',
+        },
+      });
+    },
+    /BASE_URL/,
+  );
+});
+
+test('assertStartupConfig accepts production server BASE_URL', () => {
+  assert.doesNotThrow(() => {
+    assertStartupConfig({
+      entrypoint: 'server',
+      required: ['OPENAI_API_KEY', 'CLAWCLUB_POW_HMAC_KEY', 'BASE_URL'],
+      env: {
+        NODE_ENV: 'production',
+        DATABASE_URL: 'postgresql://example.test/db',
+        OPENAI_API_KEY: 'sk-test',
+        CLAWCLUB_POW_HMAC_KEY: 'pow-secret',
+        BASE_URL: 'https://api.example.test',
+      },
+    });
+  });
 });
 
 test('assertStartupConfig requires DATABASE_URL by default', () => {
