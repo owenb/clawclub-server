@@ -27,9 +27,10 @@ export async function lookupIdempotency<T>(
   }>(
     `select actor_context, request_hash, response_envelope
      from idempotency_keys
-     where client_key = $1
+     where actor_context = $1
+       and client_key = $2
      limit 1`,
-    [input.clientKey],
+    [input.actorContext, input.clientKey],
   );
 
   const row = existing.rows[0];
@@ -44,8 +45,9 @@ export async function lookupIdempotency<T>(
   await client.query(
     `update idempotency_keys
      set last_seen_at = now()
-     where client_key = $1`,
-    [input.clientKey],
+     where actor_context = $1
+       and client_key = $2`,
+    [input.actorContext, input.clientKey],
   );
 
   return {
@@ -63,7 +65,8 @@ export async function withIdempotency<T>(
     execute: () => Promise<{ responseValue: T; storedValue?: unknown }>;
   },
 ): Promise<T> {
-  await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [input.clientKey]);
+  const scopedClientKey = `${input.actorContext}:${input.clientKey}`;
+  await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [scopedClientKey]);
   const existing = await lookupIdempotency<T>(client, {
     clientKey: input.clientKey,
     actorContext: input.actorContext,
@@ -91,9 +94,10 @@ export async function withIdempotency<T>(
 
 export async function withClientKeyBarrier<T>(pool: Pool, input: {
   clientKey: string;
+  actorContext: string;
   execute: () => Promise<T>;
 }): Promise<T> {
-  const barrierKey = `client-key-barrier:${input.clientKey}`;
+  const barrierKey = `client-key-barrier:${input.actorContext}:${input.clientKey}`;
   const client = new Client(getBarrierClientConfig(pool));
   try {
     await client.connect();

@@ -913,6 +913,7 @@ export type Repository = {
   }): Promise<boolean>;
   withClientKeyBarrier?<T>(input: {
     clientKey: string;
+    actorContext: string;
     execute: () => Promise<T>;
   }): Promise<T>;
   enforceEmbeddingQueryQuota?(input: {

@@ -72,6 +72,33 @@ describe('invitations.list', () => {
     assert.deepEqual(second.data, first.data);
   });
 
+  it('clientKey is scoped to the sponsor, not global across actors', async () => {
+    const firstSponsor = await h.seedOwner('invite-actor-scope-a', 'Invite Actor Scope A');
+    const secondSponsor = await h.seedOwner('invite-actor-scope-b', 'Invite Actor Scope B');
+    const clientKey = 'shared-invitation-sponsor-key';
+
+    const first = await h.apiOk(firstSponsor.token, 'invitations.issue', {
+      clubId: firstSponsor.club.id,
+      candidateName: 'Actor Scope One',
+      candidateEmail: 'actor-scope-one@example.com',
+      reason: 'This candidate has helped with repeated operator workflows and community moderation.',
+      clientKey,
+    });
+    const second = await h.apiOk(secondSponsor.token, 'invitations.issue', {
+      clubId: secondSponsor.club.id,
+      candidateName: 'Actor Scope Two',
+      candidateEmail: 'actor-scope-two@example.com',
+      reason: 'This candidate has helped with repeated operator workflows and community moderation.',
+      clientKey,
+    });
+
+    const firstInvitation = (first.data as Record<string, unknown>).invitation as Record<string, unknown>;
+    const secondInvitation = (second.data as Record<string, unknown>).invitation as Record<string, unknown>;
+    assert.notEqual(firstInvitation.invitationId, secondInvitation.invitationId);
+    assert.equal(firstInvitation.clubId, firstSponsor.club.id);
+    assert.equal(secondInvitation.clubId, secondSponsor.club.id);
+  });
+
   it('settles concurrent same-tuple issue attempts to one success and one invitation_already_open conflict', async () => {
     const sponsor = await h.seedOwner('invite-race-club', 'Invite Race Club');
 
@@ -196,6 +223,46 @@ describe('invitations.list', () => {
       String(((selfRevoked.data as Record<string, unknown>).invitation as Record<string, unknown>).code ?? ''),
       /^[A-HJ-KM-NP-TV-Z2-9]{4}-[A-HJ-KM-NP-TV-Z2-9]{4}$/,
     );
+  });
+
+  it('redeem uses the same invalid_invitation_code message for revoked and garbage codes', async () => {
+    const sponsor = await h.seedOwner('invite-redeem-oracle', 'Invite Redeem Oracle');
+    const candidate = await h.seedMember('Redeem Oracle Candidate', 'redeem-oracle@example.com');
+    const issued = await h.apiOk(sponsor.token, 'invitations.issue', {
+      clubId: sponsor.club.id,
+      candidateName: 'Redeem Oracle Candidate',
+      candidateEmail: 'external-redeem-oracle@example.com',
+      reason: 'This candidate has helped with careful community operations and moderation.',
+      clientKey: 'invite-redeem-oracle-issue',
+    });
+    const invitation = (issued.data as Record<string, unknown>).invitation as Record<string, unknown>;
+    const code = String(invitation.code);
+    await h.apiOk(sponsor.token, 'invitations.revoke', {
+      invitationId: String(invitation.invitationId),
+    });
+
+    const revoked = await h.apiErr(candidate.token, 'invitations.redeem', {
+      code,
+      draft: {
+        name: 'Redeem Oracle Candidate',
+        socials: '@redeemoracle',
+        application: 'I can contribute practical community operations experience.',
+      },
+      clientKey: 'invite-redeem-oracle-revoked',
+    });
+    const garbage = await h.apiErr(candidate.token, 'invitations.redeem', {
+      code: 'NOPE-NOPE',
+      draft: {
+        name: 'Redeem Oracle Candidate',
+        socials: '@redeemoracle',
+        application: 'I can contribute practical community operations experience.',
+      },
+      clientKey: 'invite-redeem-oracle-garbage',
+    });
+
+    assert.equal(revoked.code, 'invalid_invitation_code');
+    assert.equal(garbage.code, 'invalid_invitation_code');
+    assert.equal(revoked.message, garbage.message);
   });
 
   it('revoke-then-revoke returns invitation_already_revoked with canonical invitation details', async () => {

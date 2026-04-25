@@ -3388,7 +3388,7 @@ ALTER TABLE ONLY public.event_version_details
 --
 
 ALTER TABLE ONLY public.idempotency_keys
-    ADD CONSTRAINT idempotency_keys_pkey PRIMARY KEY (client_key);
+    ADD CONSTRAINT idempotency_keys_pkey PRIMARY KEY (actor_context, client_key);
 
 
 --

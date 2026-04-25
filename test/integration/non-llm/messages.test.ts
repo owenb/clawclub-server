@@ -743,6 +743,30 @@ describe('messages', () => {
     assert.equal(err.code, 'client_key_conflict');
   });
 
+  it('clientKey is scoped to the sender, not global across actors', async () => {
+    const owner = await h.seedOwner('msg-ck-actor-scope', 'MsgCKActorScope');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice CKActorScope');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob CKActorScope');
+    const clientKey = 'shared-sender-scoped-key';
+
+    const first = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Alice uses a sender-scoped key.',
+      clientKey,
+    });
+    const second = await h.apiOk(bob.token, 'messages.send', {
+      recipientMemberId: alice.id,
+      messageText: 'Bob may reuse the same key independently.',
+      clientKey,
+    });
+
+    const firstMessage = (first.data as Record<string, unknown>).message as Record<string, unknown>;
+    const secondMessage = (second.data as Record<string, unknown>).message as Record<string, unknown>;
+    assert.notEqual(firstMessage.messageId, secondMessage.messageId);
+    assert.equal(firstMessage.senderMemberId, alice.id);
+    assert.equal(secondMessage.senderMemberId, bob.id);
+  });
+
   it('oversized messageText returns 400', async () => {
     const owner = await h.seedOwner('msg-long', 'MsgLong');
     const alice = await h.seedCompedMember(owner.club.id, 'Alice Long');

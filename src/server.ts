@@ -116,20 +116,24 @@ function resolveBaseUrl(request: http.IncomingMessage): string {
     return envBaseUrl.replace(/\/+$/, '');
   }
 
-  const forwardedProtoHeader = request.headers['x-forwarded-proto'];
-  const forwardedProto = typeof forwardedProtoHeader === 'string'
-    ? forwardedProtoHeader.split(',')[0]?.trim()
-    : Array.isArray(forwardedProtoHeader)
-      ? forwardedProtoHeader[0]?.trim()
-      : undefined;
-  const protocol = forwardedProto && forwardedProto.length > 0 ? forwardedProto : 'http';
+  const localPort = request.socket.localPort ?? Number(process.env.PORT ?? 8787);
+  const localAddress = request.socket.localAddress;
+  const host = normalizeLocalBaseHost(localAddress);
 
-  const hostHeader = request.headers.host;
-  const host = typeof hostHeader === 'string' && hostHeader.length > 0
-    ? hostHeader
-    : `127.0.0.1:${process.env.PORT ?? 8787}`;
+  return `http://${host}:${localPort}`;
+}
 
-  return `${protocol}://${host}`;
+function normalizeLocalBaseHost(address: string | undefined): string {
+  if (!address || address === '::' || address === '0.0.0.0') {
+    return '127.0.0.1';
+  }
+  if (address.startsWith('::ffff:')) {
+    return address.slice('::ffff:'.length);
+  }
+  if (address.includes(':')) {
+    return `[${address}]`;
+  }
+  return address;
 }
 
 function renderSkill(baseUrl: string): string {
@@ -1046,6 +1050,11 @@ export function createServer(options: {
       }
 
       const body = await readJsonBody(request);
+      if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+        const err = new AppError('invalid_input', 'Request body must be a JSON object');
+        err.requestTemplate = GENERIC_REQUEST_TEMPLATE;
+        throw err;
+      }
 
       if (typeof body.action === 'string') {
         metadataRequest.clawclubAction = body.action;
@@ -1068,8 +1077,13 @@ export function createServer(options: {
         err.requestTemplate = def ? generateRequestTemplate(def) : GENERIC_REQUEST_TEMPLATE;
         throw err;
       }
-      if (body.input !== undefined && (typeof body.input !== 'object' || body.input === null || Array.isArray(body.input))) {
-        const err = new AppError('invalid_input', '"input" must be a JSON object');
+      if (
+        !Object.prototype.hasOwnProperty.call(body, 'input')
+        || typeof body.input !== 'object'
+        || body.input === null
+        || Array.isArray(body.input)
+      ) {
+        const err = new AppError('invalid_input', 'Request body must include "input" as a JSON object');
         const def = getAction(body.action);
         err.requestTemplate = def ? generateRequestTemplate(def) : GENERIC_REQUEST_TEMPLATE;
         throw err;

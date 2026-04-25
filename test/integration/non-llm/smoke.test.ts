@@ -268,13 +268,13 @@ describe('smoke', () => {
     assert.ok(result.data);
   });
 
-  it('accepts request without input key (treated as empty input)', async () => {
+  it('rejects request without input key at the transport envelope', async () => {
     const { status, body } = await rawPost(h.port, null, { action: 'accounts.register' });
-    // Should be 400 from the ACTION's validation (missing mode/clientKey), not from transport validation.
-    // The key indicator: if the transport rejected it, the error code would be 'invalid_input' with 'top-level'.
-    // The action rejection gives 'invalid_input' about the missing required field.
     assert.equal(status, 400);
-    assert.ok(!(body.error as any).message.includes('top-level'), 'should not be a transport rejection');
+    const error = body.error as Record<string, unknown>;
+    assert.equal(error.code, 'invalid_input');
+    assert.match(String(error.message), /input/i);
+    assert.ok(error.requestTemplate, 'transport rejection should include the generic request template');
   });
 
   it('GET /api/schema includes self-sufficient transport section', async () => {
@@ -399,7 +399,7 @@ describe('smoke', () => {
 
   it('error response includes generic requestTemplate for unknown action', async () => {
     const owner = await h.seedOwner('template-unknown', 'TemplateUnknown');
-    const { status, body } = await rawPost(h.port, owner.token, { action: 'bogus.nonexistent' });
+    const { status, body } = await rawPost(h.port, owner.token, { action: 'bogus.nonexistent', input: {} });
     assert.equal(status, 400);
     const error = body.error as Record<string, unknown>;
     assert.equal(error.code, 'unknown_action');

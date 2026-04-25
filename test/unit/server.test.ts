@@ -312,8 +312,7 @@ test('createServer substitutes BASE_URL into the served skill document', async (
   }
 });
 
-test('createServer falls back to the request host when BASE_URL is unset', async () => {
-  const requestFetch = globalThis.fetch;
+test('createServer falls back to the socket address when BASE_URL is unset', async () => {
   const previousBaseUrl = process.env.BASE_URL;
   delete process.env.BASE_URL;
 
@@ -324,11 +323,30 @@ test('createServer falls back to the request host when BASE_URL is unset', async
 
   try {
     const port = await listenOnRandomPort(server);
-    const response = await requestFetch(`http://127.0.0.1:${port}/skill`);
-    const body = await response.text();
+    const response = await new Promise<string>((resolve, reject) => {
+      const socket = net.createConnection({ host: '127.0.0.1', port }, () => {
+        socket.write([
+          'GET /skill HTTP/1.1',
+          'Host: attacker.example',
+          'Connection: close',
+          '',
+          '',
+        ].join('\r\n'));
+      });
+      let raw = '';
+      socket.setEncoding('utf8');
+      socket.on('data', (chunk) => {
+        raw += chunk;
+      });
+      socket.on('end', () => resolve(raw));
+      socket.on('close', () => resolve(raw));
+      socket.on('error', reject);
+    });
+    const body = response.split('\r\n\r\n').slice(1).join('\r\n\r\n');
 
-    assert.equal(response.status, 200);
+    assert.match(response, /^HTTP\/1\.1 200 OK/);
     assert.doesNotMatch(body, /\{baseUrl\}/);
+    assert.doesNotMatch(body, /attacker\.example/);
     assert.match(body, new RegExp(`POST http://127\\.0\\.0\\.1:${port}/api\\b`));
     assert.match(body, new RegExp(`GET http://127\\.0\\.0\\.1:${port}/api/schema\\b`));
   } finally {

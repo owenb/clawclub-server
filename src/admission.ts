@@ -114,12 +114,14 @@ type ApplicationRow = {
   membership_role: 'clubadmin' | 'member' | null;
 };
 
+const INVALID_INVITATION_CODE_MESSAGE = 'Invitation code is invalid or no longer usable.';
+
 function assertInvitationSponsorAvailable(
   invitation: InvitationRedeemRow,
 ): asserts invitation is InvitationRedeemRow & { sponsor_member_id: string; sponsor_public_name: string } {
   if (!invitation.sponsor_member_id || !invitation.sponsor_public_name) {
     // Orphaned invitation rows are intentionally non-redeemable.
-    throw new AppError('invalid_invitation_code', 'Invitation code is no longer usable.');
+    throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
   }
 }
 
@@ -213,7 +215,7 @@ async function readInvitationForRedeem(
 ): Promise<InvitationRedeemRow | null> {
   const normalizedCode = normalizeInvitationCode(code);
   if (!normalizedCode) {
-    throw new AppError('invalid_invitation_code', 'Invitation code is invalid.');
+    throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
   }
 
   const lockClause = options.forUpdate ? 'for update of i' : '';
@@ -251,7 +253,7 @@ async function readInvitationForRedeem(
   );
   const row = result.rows[0] ?? null;
   if (row && row.delivery_kind !== 'code') {
-    throw new AppError('invalid_invitation_code', 'Invitation code is no longer usable.');
+    throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
   }
   return row;
 }
@@ -1779,7 +1781,7 @@ export async function redeemInvitationApplication(pool: Pool, input: {
 
   const preparedInvitation = await readInvitationForRedeem(pool, input.code);
   if (!preparedInvitation) {
-    throw new AppError('invalid_invitation_code', 'Invitation code is invalid.');
+    throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
   }
   assertInvitationSponsorAvailable(preparedInvitation);
   await runApplicationPreflight(pool, {
@@ -1792,7 +1794,7 @@ export async function redeemInvitationApplication(pool: Pool, input: {
     || preparedInvitation.used_at
     || Date.parse(preparedInvitation.expires_at) <= Date.now()
   ) {
-    throw new AppError('invalid_invitation_code', 'Invitation code is no longer usable.');
+    throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
   }
   const preparedClub: ClubRow = {
     club_id: preparedInvitation.club_id,
@@ -1820,7 +1822,7 @@ export async function redeemInvitationApplication(pool: Pool, input: {
       execute: async () => {
         const invitation = await readInvitationForRedeem(client, input.code, { forUpdate: true });
         if (!invitation) {
-          throw new AppError('invalid_invitation_code', 'Invitation code is invalid.');
+          throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
         }
         assertInvitationSponsorAvailable(invitation);
 
@@ -1838,7 +1840,7 @@ export async function redeemInvitationApplication(pool: Pool, input: {
         }
 
         if (invitation.revoked_at || invitation.expired_at || invitation.used_at || Date.parse(invitation.expires_at) <= Date.now()) {
-          throw new AppError('invalid_invitation_code', 'Invitation code is no longer usable.');
+          throw new AppError('invalid_invitation_code', INVALID_INVITATION_CODE_MESSAGE);
         }
         assertPreparedInvitationStillCurrent(preparedInvitation, invitation);
         const club: ClubRow = {

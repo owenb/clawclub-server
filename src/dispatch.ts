@@ -450,6 +450,7 @@ async function runQuotaFor(
 async function executeWithClientKeyBarrierIfPresent<T>(
   def: ActionDefinition,
   parsedInput: unknown,
+  actor: AuthenticatedActor | null,
   repository: Repository,
   execute: () => Promise<T>,
 ): Promise<T> {
@@ -461,6 +462,9 @@ async function executeWithClientKeyBarrierIfPresent<T>(
   if (!clientKey) {
     return execute();
   }
+  if (!actor) {
+    throw new AppError('invalid_data', `Action ${def.action} declared idempotency without an authenticated actor`);
+  }
 
   if (!repository.withClientKeyBarrier) {
     throw new AppError('invalid_data', `Action ${def.action} declared idempotency without clientKey replay barrier plumbing`);
@@ -468,6 +472,7 @@ async function executeWithClientKeyBarrierIfPresent<T>(
 
   return repository.withClientKeyBarrier({
     clientKey,
+    actorContext: def.idempotency.getScopeKey(parsedInput, { actor }),
     execute,
   });
 }
@@ -619,7 +624,7 @@ async function dispatchCold(
   // Parse
   const parsedInput = parseActionInput(def, payload);
 
-  return executeWithClientKeyBarrierIfPresent(def, parsedInput, repository, async () => {
+  return executeWithClientKeyBarrierIfPresent(def, parsedInput, null, repository, async () => {
     await runLlmGateFor(def, parsedInput, null, repository, extractRequestedClubId(parsedInput as Record<string, unknown>), runLlmGate);
     const notices: ResponseNotice[] = [];
 
@@ -669,43 +674,49 @@ async function dispatchOptionalMember(
 
   const parsedInput = parseActionInput(def, payload);
 
-  return executeWithClientKeyBarrierIfPresent(def, parsedInput, repository, async () => {
-    await runLlmGateFor(
-      def,
-      parsedInput,
-      actor.kind === 'authenticated' ? actor : null,
-      repository,
-      extractRequestedClubId(parsedInput as Record<string, unknown>),
-      runLlmGate,
-    );
-    const notices: ResponseNotice[] = [];
+  return executeWithClientKeyBarrierIfPresent(
+    def,
+    parsedInput,
+    actor.kind === 'authenticated' ? actor : null,
+    repository,
+    async () => {
+      await runLlmGateFor(
+        def,
+        parsedInput,
+        actor.kind === 'authenticated' ? actor : null,
+        repository,
+        extractRequestedClubId(parsedInput as Record<string, unknown>),
+        runLlmGate,
+      );
+      const notices: ResponseNotice[] = [];
 
-    if (!def.handleOptionalMember) {
-      throw new AppError('not_implemented', `Action ${actionName} has no optional-member handler`);
-    }
+      if (!def.handleOptionalMember) {
+        throw new AppError('not_implemented', `Action ${actionName} has no optional-member handler`);
+      }
 
-    const ctx: OptionalHandlerContext = {
-      actor,
-      bearerToken,
-      requestScope: defaultRequestScope,
-      sharedContext,
-      repository,
-      getNotifications: async () => {
-        if (actor.kind !== 'authenticated') return { items: [], nextCursor: null };
-        if (!notificationsMemo) {
-          notificationsMemo = fetchNotifications(repository, actor);
-        }
-        return notificationsMemo;
-      },
-    };
+      const ctx: OptionalHandlerContext = {
+        actor,
+        bearerToken,
+        requestScope: defaultRequestScope,
+        sharedContext,
+        repository,
+        getNotifications: async () => {
+          if (actor.kind !== 'authenticated') return { items: [], nextCursor: null };
+          if (!notificationsMemo) {
+            notificationsMemo = fetchNotifications(repository, actor);
+          }
+          return notificationsMemo;
+        },
+      };
 
-    const result = await def.handleOptionalMember(parsedInput, ctx);
+      const result = await def.handleOptionalMember(parsedInput, ctx);
 
-    if (actor.kind === 'authenticated') {
-      return assembleAuthenticatedResponse(actionName, result, actor, defaultRequestScope, sharedContext, notices);
-    }
-    return assembleUnauthenticatedResponse(actionName, result, notices);
-  });
+      if (actor.kind === 'authenticated') {
+        return assembleAuthenticatedResponse(actionName, result, actor, defaultRequestScope, sharedContext, notices);
+      }
+      return assembleUnauthenticatedResponse(actionName, result, notices);
+    },
+  );
 }
 
 async function dispatchAuthenticated(
@@ -794,7 +805,7 @@ async function dispatchAuthenticated(
     }
   }
 
-  return executeWithClientKeyBarrierIfPresent(def, parsedInput, repository, async () => {
+  return executeWithClientKeyBarrierIfPresent(def, parsedInput, actor, repository, async () => {
     await maybeFireReplayAwareRequestLog();
     preAuthorizeAuthenticatedAction(def, parsedInput, actor);
     checkRequiredCapabilities(repository, def, actionName);
