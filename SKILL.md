@@ -106,7 +106,7 @@ There are now explicit actions for creating, updating, removing, and restoring c
 
 On hosted/free instances, do not guess the self-serve limits. Read them from the published instance policy in the schema handshake:
 
-- `instancePolicy.clubs.maxFreeClubsPerMember`
+- `instancePolicy.clubs.maxClubsPerMember`
 - `instancePolicy.clubs.freeClubMemberCap`
 
 Current hosted intent is:
@@ -605,6 +605,41 @@ For superadmin removal work:
 - use the exact slug for `confirmSlug`
 - provide a short factual `reason`
 - if the club may need to come back, mention that removed clubs can be restored through `superadmin.removedClubs.list` / `superadmin.removedClubs.restore` while within retention
+
+## Auth and scope error codes
+
+The server splits authorization failures into specific codes so an agent can recover precisely instead of guessing from message text:
+
+- `unauthenticated` (401) — no bearer, malformed bearer, or revoked/unknown bearer. Recovery: re-authenticate or ask the human for a fresh bearer; do not retry.
+- `invalid_auth_header` (401) — the `Authorization` header is shaped wrong. The server requires literally `Bearer <token>` with no trailing whitespace, no double spaces, no embedded newlines. Recovery: re-send with the canonical shape.
+- `forbidden_role` (403) — the actor is authenticated but lacks the required global or club role (e.g. a non-superadmin calling a `superadmin.*` action, or a non-clubadmin calling a `clubadmin.*` action). Recovery: this is a hard wall; do not retry. If the human believes they should have the role, escalate.
+- `forbidden_scope` (403) — the actor has the right role but is targeting a club or member outside their scope (e.g. a clubadmin of ClubA calling a clubadmin action with `clubId` for ClubB, or any member passing a `clubId` they do not belong to). Recovery: re-issue the call against an in-scope `clubId` from `actor.activeMemberships`. Reading the scope from `actor.requestScope.activeClubIds` is the safe source of truth — it reflects only verified scope, never raw input.
+
+The legacy `unauthorized` and `forbidden` codes still appear in some responses for backwards compatibility but new logic should branch on the specific codes above.
+
+## Idempotency strategies and replay
+
+Every authenticated mutating action declares one of three replay strategies:
+
+- **`clientKey` (most common)** — the action accepts a `clientKey` field. Same actor + same key + same payload replays the original response without re-running quota or gate work. Same actor + same key + *different* payload returns `client_key_conflict` (409) with `error.details` carrying the canonical prior response. Read `error.details` instead of guessing — that is the authoritative current state.
+- **`naturallyIdempotent`** — actions like `events.setRsvp`, `updates.acknowledge`, and similar set/ack operations whose final state is identical regardless of how many times the same input is sent. Safe to retry without a `clientKey`.
+- **`secretMint`** — credential-producing actions like `accessTokens.create`, `superadmin.notificationProducers.create`, and similar. Exact replay returns `secret_replay_unavailable` (409) with safe metadata about the prior mint (`tokenId`, `expiresAt`, `label`) but **never re-emits the plaintext credential**. If the agent loses the original bearer/secret in transit, do not retry expecting recovery — guide the human to mint a fresh credential and discard the conflicted `clientKey`.
+
+`clientKey` is scoped per-actor: two different members can use the same `clientKey` value without colliding. Anonymous `accounts.register` is scoped by validated client IP rather than a single global namespace.
+
+## Resource not-found codes
+
+Specific resource-miss codes follow `<resource>_not_found`:
+
+- `content_not_found` — `content.get` with an unknown `contentId`
+- `thread_not_found` — `content.get` with an unknown `threadId`, or any thread-scoped lookup against an inaccessible thread
+- `club_not_found`, `application_not_found`, `member_not_found`, `token_not_found`, `invitation_not_found`, `event_not_found`, `club_archive_not_found` — same pattern across the rest of the surface
+
+The generic `not_found` is reserved for transport-level protocol errors and should not appear on business reads.
+
+## `content.create` reply rule
+
+When replying to an existing thread, pass `threadId` and **do not** pass `clubId`. Reply scope is derived from the thread; passing both is redundant and the server will reject mismatches. For top-level (non-reply) content, pass `clubId` and omit `threadId`.
 
 ## Legality gate
 

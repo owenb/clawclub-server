@@ -111,11 +111,14 @@ The split exists because chasing 100% green on the full suite in CI would mean o
 - `AppError` takes a public code and a message; status is derived, not passed separately
 - generic `not_found` is not used in business logic; typed codes (`club_not_found`, `application_not_found`, `content_not_found`, `thread_not_found`, `invitation_not_found`, `club_archive_not_found`, etc.) disambiguate the resource
 - transport-level protocol errors (`invalid_json`, `unknown_action`, `unsupported_media_type`) keep a narrower shared set because those are truly generic
-- `client_key_conflict` is the canonical idempotency-conflict code surfaced when the same `clientKey` is reused with a different payload hash
+- `client_key_conflict` is the canonical idempotency-conflict code surfaced when the same `clientKey` is reused with a different payload hash. Conflict bodies carry `error.details` populated from the stored prior response in `idempotency_keys`, scoped per-actor
+- `secret_replay_unavailable` is the canonical conflict code for `secretMint` actions on exact-replay: the server confirms the prior mint by metadata but does not re-emit the plaintext credential
 - worker-fatal conditions surface as `AppError` with `kind: 'worker_fatal'`; there is no separate error class for workers
+- canonical auth codes split three concerns: `unauthenticated` (401, no/bad/revoked bearer), `invalid_auth_header` (401, malformed `Authorization` header — exact match `Bearer <token>` with no trailing whitespace), `forbidden_role` (403, actor lacks the required global or club role), and `forbidden_scope` (403, actor has the role but the requested club/member is outside their scope). The legacy `unauthorized` and `forbidden` codes are retained for backwards compatibility but new throw sites should use the specific codes
 
 Status mapping:
-- `403`: actor may not perform this action
+- `401`: actor cannot be authenticated (missing bearer, malformed header, unknown/revoked token)
+- `403`: actor may not perform this action — split into `forbidden_role` (wrong role) and `forbidden_scope` (right role, wrong club/member)
 - `404`: requested entity does not exist
 - `409`: valid request, wrong current state
 - `422`: semantically wrong input
@@ -130,6 +133,9 @@ Status mapping:
 - the runtime database role is non-superuser with no special privileges
 - `clubadmin.members.update` is the single membership-mutation surface for club admins. Status changes validate against `ADMIN_VALID_TRANSITIONS`; terminal states (`banned`, `declined`, `withdrawn`, `removed`) cannot be reopened through the admin surface; billing-owned transitions (`payment_pending → active`, `active → renewal_pending`, `active → cancelled`, re-subscribe paths) cannot be fabricated through it; role changes (member ↔ clubadmin) narrow to club owner or superadmin; demoting the owner is forbidden
 - action-level `auth` declares the minimum role required to enter an action. In-handler authorization narrows permissions further when an action has mixed authorization rules. `clubadmin.clubs.update` is an example: it is declared `auth: 'clubadmin'` but the handler narrows to the club owner or a superadmin before mutating anything
+- actions also declare an orthogonal `scope` field describing how dispatch should locate the relevant club/member from the input *before* full Zod parse. Strategies are `'rawClubId'` (extract `clubId` — or the configured `key` — from the raw payload and verify the actor's scope), `'rawMemberId'` (same shape on `memberId`), `'handler'` (scope cannot be determined without a DB lookup; dispatch role-checks only and the handler narrows after loading the row), and `'none'` (no scope check at dispatch). The default for `auth: 'clubadmin'` actions is `'rawClubId'`; everything else defaults to `'none'`
+- dispatch order for authenticated actions is: (1) authenticate the bearer, (2) `preAuthorizeRole` against `def.auth`, (3) `preAuthorizeRawScope` against `def.scope` using the *raw* payload — peeking at the scope key without parsing, (4) full strict Zod parse, (5) idempotency / gate / quota / handler. A non-admin sending `{}` to a privileged action is rejected with `forbidden_role` before any schema is exposed. A clubadmin of the wrong club is rejected with `forbidden_scope` at step 3 even if their input is otherwise malformed. The handler-level `ctx.requireAccessibleClub` / `ctx.requireClubAdmin` / `ctx.requireSuperadmin` checks remain as defense-in-depth and are the *only* line for `scope.strategy: 'handler'` actions
+- the trusted-proxy boundary for client-IP attribution (rate limiting, request logging) is configured via `CLAWCLUB_TRUSTED_PROXY_CIDRS` (also accepts `TRUSTED_PROXY_CIDRS`) — comma-separated CIDR list. `127.0.0.1/32` and `::1/128` are always trusted. The `X-Forwarded-For` header is only honored when the immediate peer's IP matches a trusted CIDR; otherwise the socket address is used as the client IP. This closes the rate-limit-bypass class where any direct caller could spoof `X-Forwarded-For` to dodge per-IP throttles. **Production deployments behind a real proxy (Railway, Cloudflare, etc.) must configure this env var to the proxy's egress range; otherwise every request looks like it comes from the proxy and per-IP rate limits collapse to a single bucket**
 - typed TypeScript surfaces are derived from the Zod schemas in `src/schemas/*.ts` via `z.infer<>`; there is no parallel hand-written public contract. Infrastructure types live in focused modules (`src/errors.ts`, `src/repository.ts`, `src/actors.ts`, `src/notifications.ts`)
 
 ## Database architecture
@@ -231,6 +237,13 @@ The membership graph is built in two stages: first register a platform account, 
 ### Sponsor primitive: invitations
 
 The invitation surface is public as four actions: `invitations.issue`, `invitations.list`, `invitations.revoke`, `invitations.redeem`. Internally the storage is split so that provenance and bootstrap are tracked independently.
+
+Threat model — invitation codes are not access credentials:
+- an invitation code does not grant membership. It is two things and only two things: (1) a PoW-discount voucher that lowers the difficulty of `accounts.register` for a cold caller (the binding is enforced by the `inviteCodeMac` embedded in the registration challenge blob), and (2) a recorded sponsor link that becomes the `submission_path = 'invitation'` provenance on the resulting application
+- redeeming a code does not create a `club_memberships` row, does not grant any read access to club content, and does not bypass any admission step. The full path still applies: register (PoW-gated; the code lowers difficulty but does not skip the gate), submit a draft via `invitations.redeem` or auto-bound `clubs.apply`, run the admission completeness gate, and wait for clubadmin review. Until a clubadmin accepts the application, the redeemer is exactly an applicant in `awaiting_review` or `revision_required` — same as anyone who arrived with a slug and no code
+- the `candidateEmail` and `candidateName` fields on `invite_requests` are administrative metadata, **not** a binding constraint at redeem time. They tell the sponsor who they meant to invite and route the in-app `invitation.received` notification to a registered member if the email resolves to one. For external codes (`delivery_kind = 'code'`) the email is a label on the row — not a check on `invitations.redeem`. A registered member who obtains the code through any side channel can redeem it as themselves; the clubadmin then sees the sponsor and the redeemer's actual identity on the application and decides whether to accept
+- treat "I have the code" as equivalent to "I know the slug and a sponsor will vouch on the application." The code adds friction reduction and provenance, not access. The access boundary lives in the admission review, not in the code
+- consequence for security audits: the absence of `actor.member.email == invitation.candidateEmail` enforcement on `invitations.redeem` is **by design**, not a leak. Do not file it as a vulnerability. If the design ever changes — e.g. paid-tier reserved seats that *do* require email binding — that change goes here first, then propagates to the schema and SKILL
 
 Storage split:
 - `invite_requests` is the durable provenance record for every invitation, whether it ends up delivered in-app or as a code
@@ -339,6 +352,8 @@ Members and club owners have no self-serve destructive action on the club itself
 The polling surface is unified:
 - `updates.list` is the one-call poll for activity, notifications, and DM inbox summaries as three parallel slices, each independently paginated with `{ results, hasMore, nextCursor }`
 - `updates.acknowledge` is the unified acknowledgement surface for both DM threads and notifications, discriminated by `target.kind` (`'thread'` or `'notification'`)
+- the notification path returns one receipt per requested id: `{ notificationId, state: 'processed' | 'suppressed', acknowledgedAt: string | null }`. `processed` carries the server-recorded acknowledgement timestamp; `suppressed` collapses unknown / inaccessible / already-acknowledged ids into one indistinguishable signal so callers cannot enumerate notification ids by acknowledgement-shape oracle. The thread path is unchanged and still returns explicit `thread_not_found` for inaccessible threads
+- DM inbox read-state is durable on `dm_inbox_entries.acknowledged_at timestamptz` (nullable). The legacy boolean `acknowledged` column persists during the deploy-1 / deploy-2 migration window for rollback safety; the server dual-writes both columns and reads from `acknowledged_at`. Deploy 2 will drop the legacy column and old partial indexes once the runtime cutover is stable
 
 The realtime side channel is `GET /stream`:
 - activity frames, DM frames, and notification-invalidation frames travel over one SSE channel
@@ -439,9 +454,14 @@ Each gated LLM call is additionally hard-capped at `gateMaxOutputTokens = 64` to
 `quotas.getUsage` returns effective per-actor limits (after any multiplier) for every accessible club. Exceeding a quota returns 429 `quota_exceeded`.
 
 Idempotency:
-- `clientKey` is routed through one shared `withIdempotency` helper in `src/idempotency.ts`, covering admissions flows, `content.create`, `content.update`, `messages.send`, `vouches.create`, `members.updateProfile`, `clubs.create`, and the superadmin club lifecycle actions
-- conflicts surface as `client_key_conflict` when the same `clientKey` is reused with a different payload hash
-- the `idempotency_keys` table stores response envelopes keyed by `(clientKey, actorContext, requestHash)`
+- every authenticated `safety: 'mutating'` action declares an `idempotencyStrategy` on its registry entry. The action registry refuses to construct if any such action lacks a strategy — the server fails to boot, mirroring the existing `llmGate` reserve/finalize invariant
+- three strategies are supported:
+  - `{ kind: 'clientKey', requirement: 'required' | 'optional' }` — the wire surface accepts a `clientKey` and replay is dispatched through the shared `withIdempotency` helper in `src/idempotency.ts`. `required` actions reject calls without a `clientKey`; `optional` actions allow one but do not require it
+  - `{ kind: 'naturallyIdempotent' }` — the action's database state after N consecutive byte-identical calls is identical to the state after one call. Version bumps, audit-log appends, notification appends, and counter increments disqualify an action from this strategy. Used for true set/ack operations like `events.setRsvp`, `updates.acknowledge`, and idempotent revocations
+  - `{ kind: 'secretMint' }` — the action produces a credential on first call. Exact replay returns `secret_replay_unavailable` (409) with metadata about the prior mint (token id, expiry, label) but never re-emits the plaintext secret. Applies to access-token mints, producer-secret rotations, and similar credential-producing actions
+- `clientKey` is scoped per-actor: anonymous `accounts.register` is scoped by validated client IP rather than a single global namespace, and authenticated actions are scoped by `actorContext = member:<memberId>:<action>`. Cross-actor `clientKey` collisions cannot occur
+- conflicts surface as `client_key_conflict` (or `secret_replay_unavailable` for the secret-mint case) and the response body carries `error.details` populated from the stored prior response in `idempotency_keys` so the agent can reconcile against canonical state instead of guessing
+- the `idempotency_keys` table stores response envelopes keyed by `(actorContext, clientKey, requestHash)`. `requestHash` excludes server-derived state (e.g. `accessibleClubIds`) so a clean retry across membership churn does not produce a spurious conflict
 
 ## Pagination and cursors
 
@@ -455,6 +475,8 @@ Idempotency:
 - in-memory rate limiting (shared anonymous `accounts.register` IP buckets) and per-process SSE stream tracking are acceptable only because of this
 - if multi-node is needed later, rate limiting moves to Postgres and SSE coordination needs a shared notification channel
 - startup config validation (`src/startup-check.ts`) fails the server fast in production when required env (`DATABASE_URL`, `OPENAI_API_KEY`, `CLAWCLUB_POW_HMAC_KEY`) is missing. Workers are not gated on `CLAWCLUB_POW_HMAC_KEY` — only the public HTTP server is
+- `CLAWCLUB_TRUSTED_PROXY_CIDRS` (also accepts `TRUSTED_PROXY_CIDRS`) is the canonical env var for declaring which immediate peer IPs are allowed to attribute a `X-Forwarded-For` value. Localhost (`127.0.0.1/32`, `::1/128`) is always trusted; anything else must be configured per deployment. In production behind a real edge (Railway, Cloudflare, etc.), set this to the proxy's egress range before deploy — otherwise per-IP rate limits will key off the proxy address and collapse to a single bucket
+- the action-registry construction asserts two boot-time invariants in `src/schemas/registry.ts`: (1) every action declaring `llmGate` has matching reserve/finalize budget plumbing, and (2) every authenticated `safety: 'mutating'` action declares an `idempotencyStrategy`. Either failure aborts process startup with a descriptive error; misconfigured actions cannot ship
 
 ## Media and UI assumptions
 
