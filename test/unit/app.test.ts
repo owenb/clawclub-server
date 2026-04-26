@@ -844,7 +844,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return withIncluded({ content: makeEvent() });
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -1668,7 +1668,7 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -1773,7 +1773,7 @@ test('members.list returns active members with flattened public member summaries
       return withIncluded({ content: makeEvent() });
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -1873,7 +1873,7 @@ test('accounts.updateIdentity updates the actor displayName globally', async () 
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -1980,7 +1980,7 @@ test('members.updateProfile normalizes nullable strings for club-scoped fields',
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -2102,7 +2102,7 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -2493,7 +2493,7 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
       return withIncluded({ content: makeEvent() });
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -2611,7 +2611,7 @@ test('events.list stays inside accessible scope and forwards optional query', as
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -2976,7 +2976,7 @@ test('members.get returns 404 when the target member is not in the requested clu
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -3071,7 +3071,7 @@ test('messages.send picks a shared club, appends the request scope, and returns 
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -3171,7 +3171,7 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -3345,7 +3345,7 @@ test('messages.get scopes thread access server-side and returns DM entries', asy
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -3423,8 +3423,8 @@ test('accessTokens.list returns the actor token inventory', async () => {
   });
 
   assert.equal(result.action, 'accessTokens.list');
-  assert.equal(result.data.tokens.length, 1);
-  assert.equal(result.data.tokens[0]?.tokenId, 'token-1');
+  assert.equal(result.data.results.length, 1);
+  assert.equal(result.data.results[0]?.tokenId, 'token-1');
 });
 
 test('accessTokens.create mints a new bearer token for the actor member', async () => {
@@ -3465,7 +3465,7 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken(input) {
       capturedInput = input as Record<string, unknown>;
@@ -3576,7 +3576,7 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();
@@ -3890,7 +3890,7 @@ test('messages.get returns 404 when the thread is outside actor scope', async ()
       return makeEvent();
     },
     async listBearerTokens() {
-      return [makeBearerTokenSummary()];
+      return { results: [makeBearerTokenSummary()], hasMore: false, nextCursor: null };
     },
     async createBearerToken() {
       return makeCreatedBearerToken();

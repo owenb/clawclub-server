@@ -324,6 +324,34 @@ describe('clubadmin.members.update', () => {
     }
   });
 
+  it('lists removed and banned memberships when explicitly filtered', async () => {
+    const owner = await h.seedOwner('member-list-terminal-club', 'Member List Terminal Club');
+    const removed = await h.seedCompedMember(owner.club.id, 'Member List Removed');
+    const banned = await h.seedCompedMember(owner.club.id, 'Member List Banned');
+
+    await h.apiOk(owner.token, 'clubadmin.members.update', {
+      clubId: owner.club.id,
+      memberId: removed.id,
+      patch: { status: 'removed', reason: 'Testing removed filter.' },
+    });
+    await h.apiOk(owner.token, 'clubadmin.members.update', {
+      clubId: owner.club.id,
+      memberId: banned.id,
+      patch: { status: 'banned', reason: 'Testing banned filter.' },
+    });
+
+    const listed = await h.apiOk(owner.token, 'clubadmin.members.list', {
+      clubId: owner.club.id,
+      statuses: ['removed', 'banned'],
+      limit: 20,
+    });
+    const results = (listed.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
+    const byMemberId = new Map(results.map((member) => [member.memberId, member]));
+
+    assert.equal((byMemberId.get(removed.id)?.version as Record<string, unknown>)?.status, 'removed');
+    assert.equal((byMemberId.get(banned.id)?.version as Record<string, unknown>)?.status, 'banned');
+  });
+
   it('forbids a non-owner clubadmin from banning the club owner', async () => {
     const owner = await h.seedOwner('owner-ban-guard-club', 'Owner Ban Guard Club');
     const admin = await h.seedCompedMember(owner.club.id, 'Owner Ban Guard Admin');

@@ -214,6 +214,13 @@ function extractRequestedClubId(payload: Record<string, unknown>): string | null
   return typeof clubId === 'string' && clubId.trim().length > 0 ? clubId.trim() : null;
 }
 
+function extractRequestedClubIdForGate(def: Pick<ActionDefinition, 'action'>, payload: Record<string, unknown>): string | null {
+  if (def.action === 'content.create' && readRawString(payload, 'threadId')) {
+    return null;
+  }
+  return extractRequestedClubId(payload);
+}
+
 function fireAndForgetLlmLog(repository: Repository, entry: LogLlmUsageInput): void {
   if (!repository.logLlmUsage) return;
   repository.logLlmUsage(entry).catch((err) => {
@@ -653,7 +660,14 @@ async function dispatchCold(
   const parsedInput = parseActionInput(def, payload);
 
   return executeWithClientKeyBarrierIfPresent(def, parsedInput, null, repository, async () => {
-    await runLlmGateFor(def, parsedInput, null, repository, extractRequestedClubId(parsedInput as Record<string, unknown>), runLlmGate);
+    await runLlmGateFor(
+      def,
+      parsedInput,
+      null,
+      repository,
+      extractRequestedClubIdForGate(def, parsedInput as Record<string, unknown>),
+      runLlmGate,
+    );
     const notices: ResponseNotice[] = [];
 
     if (!def.handleCold) {
@@ -711,7 +725,7 @@ async function dispatchOptionalMember(
         parsedInput,
         actor.kind === 'authenticated' ? actor : null,
         repository,
-        extractRequestedClubId(parsedInput as Record<string, unknown>),
+        extractRequestedClubIdForGate(def, parsedInput as Record<string, unknown>),
         runLlmGate,
       );
       const notices: ResponseNotice[] = [];
@@ -823,7 +837,7 @@ async function dispatchAuthenticated(
 
   // Pre-gate club access check: reject unauthorized requests before running the LLM gate
   if (def.llmGate && !def.skipRequestedClubScopePrecheck) {
-    const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
+    const requestedClubId = extractRequestedClubIdForGate(def, parsedInput as Record<string, unknown>);
     if (
       requestedClubId
       && !auth.requestScope.activeClubIds.includes(requestedClubId)
@@ -859,7 +873,7 @@ async function dispatchAuthenticated(
       parsedInput,
       actor,
       repository,
-      extractRequestedClubId(parsedInput as Record<string, unknown>),
+      extractRequestedClubIdForGate(def, parsedInput as Record<string, unknown>),
       runLlmGate,
     );
     const notices: ResponseNotice[] = [];

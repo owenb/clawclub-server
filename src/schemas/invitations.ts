@@ -146,6 +146,7 @@ const invitationsIssue: ActionDefinition = {
   domain: 'invitations',
   description: 'Issue a new invitation for a candidate in a specific club.',
   auth: 'member',
+  scope: { strategy: 'rawClubId' },
   safety: 'mutating',
   idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   notes: [
@@ -259,6 +260,7 @@ const invitationsListMine: ActionDefinition = {
   domain: 'invitations',
   description: 'List invitations issued by the calling member.',
   auth: 'member',
+  scope: { strategy: 'rawClubId' },
   safety: 'read_only',
   notes: [
     'Each invitation includes quotaState so sponsors can see whether it still occupies one of their live invitation slots.',
@@ -286,17 +288,22 @@ const invitationsListMine: ActionDefinition = {
       limit: number;
       cursor: string | null;
     };
+    const clubScope = clubId
+      ? [ctx.requireAccessibleClub(clubId)]
+      : ctx.actor.memberships;
+    const clubIds = clubScope.map((membership) => membership.clubId);
     const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, invitationId]) => ({ createdAt, invitationId }));
     const invitations = await ctx.repository.listIssuedInvitations({
       actorMemberId: ctx.actor.member.id,
       clubId,
+      clubIds: clubId ? clubIds : null,
       status,
       limit,
       cursor,
     });
     return {
       data: invitations,
-      requestScope: requestScopeForClubs(clubId ?? null, clubId ? [clubId] : []),
+      requestScope: requestScopeForClubs(clubId ?? null, clubIds),
     };
   },
 };

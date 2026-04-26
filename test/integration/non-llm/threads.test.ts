@@ -93,6 +93,17 @@ describe('content.get', () => {
     assert.deepEqual(secondPageIds, [root.id]);
   });
 
+  it('returns content_not_found for unknown contentId misses', async () => {
+    const owner = await h.seedOwner('thread-content-miss', 'Thread Content Miss Club');
+    const author = await h.seedCompedMember(owner.club.id, 'Thread Content Miss Author');
+
+    const err = await h.apiErr(author.token, 'content.get', {
+      contentId: 'unknown-content',
+    });
+    assert.equal(err.status, 404);
+    assert.equal(err.code, 'content_not_found');
+  });
+
   it('keeps removed contents redacted inline but hides threads whose entire history is removed', async () => {
     const owner = await h.seedOwner('thread-redact', 'Thread Redact Club');
     const author = await h.seedCompedMember(owner.club.id, 'Thread Remover');
@@ -237,5 +248,27 @@ describe('content.create thread quota scoping', () => {
     });
     assert.equal(err.status, 404);
     assert.equal(err.code, 'thread_not_found');
+  });
+
+  it('ignores clubId when replying with threadId', async () => {
+    const owner = await h.seedOwner('thread-reply-ignore-club', 'Thread Reply Ignore Club');
+    const author = await h.seedCompedMember(owner.club.id, 'Thread Reply Ignore Author');
+    const foreign = await h.seedOwner('thread-reply-foreign-club', 'Thread Reply Foreign Club');
+
+    const threadRoot = await createPost(author.token, {
+      clubId: owner.club.id,
+      title: 'Reply target',
+      body: 'Replies should use the thread club.',
+    });
+
+    const reply = await h.apiOk(author.token, 'content.create', {
+      clubId: foreign.club.id,
+      threadId: threadRoot.threadId,
+      kind: 'post',
+      body: 'Reply with irrelevant clubId',
+    });
+    const created = content(reply);
+    assert.equal(created.threadId, threadRoot.threadId);
+    assert.equal(created.clubId, owner.club.id);
   });
 });

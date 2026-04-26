@@ -97,13 +97,32 @@
       "domain": "accessTokens",
       "input": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results. Must be between 1 and 50.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "output": {
         "additionalProperties": false,
         "properties": {
-          "tokens": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
+          },
+          "results": {
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -157,7 +176,9 @@
           }
         },
         "required": [
-          "tokens"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -2828,7 +2849,7 @@
             "type": "array"
           },
           "statuses": {
-            "description": "Optional membership-state filter limited to active and cancelled",
+            "description": "Optional membership-state filter limited to active, cancelled, removed, and banned",
             "items": {
               "enum": [
                 "active",
@@ -10115,6 +10136,11 @@
           "code": "invalid_state",
           "meaning": "The target content exists but is not an event.",
           "recovery": "Use events.setRsvp only on content where kind=event."
+        },
+        {
+          "code": "event_rsvp_closed",
+          "meaning": "The event has already started, so RSVP changes are closed.",
+          "recovery": "Do not retry automatically. Show the closed state to the member."
         }
       ],
       "description": "Create, change, or clear the actor’s RSVP to a specific event. RSVP updates and cancellations close once the event starts and return event_rsvp_closed.",
@@ -13530,6 +13556,17 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "cursor": {
+            "description": "Opaque pagination cursor from previous response. Omit or null for first page.",
+            "nullable": true,
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max results. Must be between 1 and 50.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "integer"
+          },
           "memberId": {
             "description": "Member whose tokens to list",
             "maxLength": 100000,
@@ -13544,7 +13581,14 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "tokens": {
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "nullable": true,
+            "type": "string"
+          },
+          "results": {
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -13598,7 +13642,9 @@
           }
         },
         "required": [
-          "tokens"
+          "results",
+          "hasMore",
+          "nextCursor"
         ],
         "type": "object"
       },
@@ -19444,5 +19490,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "75264b05f5f36554"
+  "schemaHash": "3825ad1822b5976b"
 }

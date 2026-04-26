@@ -63,7 +63,7 @@ const CLUBADMIN_AUTH_ERRORS = [
   CLUBADMIN_FORBIDDEN_ROLE_ERROR,
 ] as const;
 
-const MEMBER_STATUSES = ['active', 'cancelled'] as const;
+const MEMBER_STATUSES = ['active', 'cancelled', 'removed', 'banned'] as const;
 const CLUBADMIN_MEMBERS_PAGINATION = paginationFields({ defaultLimit: 50, maxLimit: 50 });
 const CLUBADMIN_APPLICATIONS_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
 
@@ -152,7 +152,7 @@ const clubadminMembersList: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to list members for.')),
-      statuses: wireMembershipStates.describe('Optional membership-state filter limited to active and cancelled'),
+      statuses: wireMembershipStates.describe('Optional membership-state filter limited to active, cancelled, removed, and banned'),
       roles: wireMembershipRoles.describe('Optional role filter limited to clubadmin/member'),
       ...CLUBADMIN_MEMBERS_PAGINATION.wire,
     }),
@@ -185,7 +185,7 @@ const clubadminMembersList: ActionDefinition = {
       actorMemberId: ctx.actor.member.id,
       clubId,
       limit,
-      statuses: (statuses as Array<'active' | 'cancelled'> | undefined) ?? null,
+      statuses: statuses ?? null,
       roles: roles ?? null,
       cursor,
     });

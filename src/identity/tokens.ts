@@ -3,11 +3,12 @@
  */
 
 import type { Pool } from 'pg';
-import { AppError, type BearerTokenSummary, type CreateBearerTokenInput, type CreatedBearerToken, type RevokeBearerTokenInput } from '../repository.ts';
+import { AppError, type BearerTokenSummary, type CreateBearerTokenInput, type CreatedBearerToken, type Paginated, type RevokeBearerTokenInput } from '../repository.ts';
 import { getConfig } from '../config/index.ts';
 import { buildBearerToken } from '../token.ts';
 import { withTransaction, type DbClient } from '../db.ts';
 import { throwSecretReplayUnavailable, withIdempotency } from '../idempotency.ts';
+import { encodeCursor } from '../schemas/fields.ts';
 
 type BearerTokenRow = {
   token_id: string;
@@ -44,14 +45,30 @@ const SELECT_COLS = `
   metadata
 `;
 
-export async function listBearerTokens(pool: Pool, actorMemberId: string): Promise<BearerTokenSummary[]> {
+export async function listBearerTokens(pool: Pool, input: {
+  actorMemberId: string;
+  limit: number;
+  cursor?: { createdAt: string; tokenId: string } | null;
+}): Promise<Paginated<BearerTokenSummary>> {
+  const fetchLimit = input.limit + 1;
   const result = await pool.query<BearerTokenRow>(
     `select ${SELECT_COLS} from member_bearer_tokens
      where member_id = $1
-     order by created_at desc, id desc`,
-    [actorMemberId],
+       and ($2::timestamptz is null
+         or created_at < $2
+         or (created_at = $2 and id < $3))
+     order by created_at desc, id desc
+     limit $4`,
+    [input.actorMemberId, input.cursor?.createdAt ?? null, input.cursor?.tokenId ?? null, fetchLimit],
   );
-  return result.rows.map(mapRow);
+  const hasMore = result.rows.length > input.limit;
+  const rows = hasMore ? result.rows.slice(0, input.limit) : result.rows;
+  const last = rows[rows.length - 1];
+  return {
+    results: rows.map(mapRow),
+    hasMore,
+    nextCursor: hasMore && last ? encodeCursor([last.created_at, last.token_id]) : null,
+  };
 }
 
 export async function createBearerTokenInDb(client: DbClient, input: {

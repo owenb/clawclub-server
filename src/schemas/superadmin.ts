@@ -60,6 +60,7 @@ const wireMemberCap = z.number().int().min(1).nullable().optional()
 const parseMemberCap = z.number().int().min(1).nullable().optional();
 const SUPERADMIN_DEFAULT_PAGINATION = paginationFields({ defaultLimit: 8, maxLimit: 20 });
 const SUPERADMIN_CLUBS_LIST_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 50 });
+const SUPERADMIN_ACCESS_TOKENS_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 50 });
 const notificationProducerStatus = z.enum(['active', 'disabled']);
 const notificationDeliveryClass = z.enum(['transactional', 'informational', 'suggestion']);
 const notificationProducerTopicInput = z.object({
@@ -1085,26 +1086,31 @@ const superadminTokensList: ActionDefinition = {
   wire: {
     input: z.object({
       memberId: wireRequiredString.describe('Member whose tokens to list'),
+      ...SUPERADMIN_ACCESS_TOKENS_PAGINATION.wire,
     }),
-    output: z.object({ tokens: z.array(bearerTokenSummary) }),
+    output: paginatedOutput(bearerTokenSummary),
   },
 
   parse: {
     input: z.object({
       memberId: parseRequiredString,
+      ...SUPERADMIN_ACCESS_TOKENS_PAGINATION.parse,
     }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const { memberId } = input as { memberId: string };
+    const { memberId, limit, cursor: rawCursor } = input as { memberId: string; limit: number; cursor: string | null };
+    const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, tokenId]) => ({ createdAt, tokenId }));
 
     const tokens = await ctx.repository.adminListMemberTokens({
       actorMemberId: ctx.actor.member.id,
       memberId,
+      limit,
+      cursor,
     });
 
-    return { data: { tokens } };
+    return { data: tokens };
   },
 };
 

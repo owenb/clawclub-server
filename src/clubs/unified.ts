@@ -602,8 +602,10 @@ export async function issueInvitation(
       `select exists(
          select 1
          from accessible_club_memberships
-         where club_id = $1
-           and member_id = $2
+         join clubs on clubs.id = accessible_club_memberships.club_id
+         where accessible_club_memberships.club_id = $1
+           and accessible_club_memberships.member_id = $2
+           and clubs.archived_at is null
        ) as ok`,
       [input.clubId, input.actorMemberId],
     );
@@ -718,10 +720,14 @@ export async function issueInvitation(
 export async function listIssuedInvitations(pool: Pool, input: {
   actorMemberId: string;
   clubId?: string;
+  clubIds?: string[] | null;
   status?: InvitationStatus;
   limit: number;
   cursor?: { createdAt: string; invitationId: string } | null;
 }): Promise<{ results: InvitationSummary[]; hasMore: boolean; nextCursor: string | null }> {
+  if (input.clubIds?.length === 0) {
+    return { results: [], hasMore: false, nextCursor: null };
+  }
   const fetchLimit = input.limit + 1;
   const result = await pool.query<InvitationRow>(
     `select
@@ -760,9 +766,10 @@ export async function listIssuedInvitations(pool: Pool, input: {
        on live_app.invitation_id = ir.id
       and live_app.phase in ('revision_required', 'awaiting_review')
      where ir.sponsor_member_id = $1
-       and ($2::short_id is null or ir.club_id = $2)
+       and ($2::text[] is null or ir.club_id = any($2))
+       and ($3::short_id is null or ir.club_id = $3)
        and (
-         $3::text is null
+         $4::text is null
          or (
            case
              when ir.revoked_at is not null then 'revoked'
@@ -770,17 +777,18 @@ export async function listIssuedInvitations(pool: Pool, input: {
              when ir.expired_at is not null or ir.expires_at <= now() then 'expired'
              else 'open'
            end
-         ) = $3
+         ) = $4
        )
        and (
-         $4::timestamptz is null
-         or ir.created_at < $4
-         or (ir.created_at = $4 and ir.id < $5)
+         $5::timestamptz is null
+         or ir.created_at < $5
+         or (ir.created_at = $5 and ir.id < $6)
        )
      order by ir.created_at desc, ir.id desc
-     limit $6`,
+     limit $7`,
     [
       input.actorMemberId,
+      input.clubIds ?? null,
       input.clubId ?? null,
       input.status ?? null,
       input.cursor?.createdAt ?? null,

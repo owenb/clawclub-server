@@ -1865,11 +1865,13 @@ describe('superadmin.accessTokens.list', () => {
 
     const result = await h.apiOk(admin.token, 'superadmin.accessTokens.list', { memberId: member.id });
     const data = result.data as Record<string, unknown>;
-    const tokens = data.tokens as Array<Record<string, unknown>>;
+    const tokens = data.results as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(tokens));
     assert.ok(tokens.length >= 1);
     assert.ok(tokens.every((t) => typeof t.tokenId === 'string'));
     assert.ok(tokens.every((t) => t.memberId === member.id));
+    assert.equal(data.hasMore, false);
+    assert.equal(data.nextCursor, null);
   });
 
   it('rejects missing memberId', async () => {
@@ -1894,7 +1896,7 @@ describe('superadmin.accessTokens.revoke', () => {
 
     const listResult = await h.apiOk(admin.token, 'superadmin.accessTokens.list', { memberId: member.id });
     const listData = listResult.data as Record<string, unknown>;
-    const tokens = listData.tokens as Array<Record<string, unknown>>;
+    const tokens = listData.results as Array<Record<string, unknown>>;
     const tokenId = tokens[0]?.tokenId as string;
     assert.ok(tokenId, 'member should have at least one token');
 
@@ -1931,10 +1933,50 @@ describe('accessTokens.list', () => {
 
     const result = await h.apiOk(member.token, 'accessTokens.list', {});
     const data = result.data as Record<string, unknown>;
-    const tokens = data.tokens as Array<Record<string, unknown>>;
+    const tokens = data.results as Array<Record<string, unknown>>;
     assert.ok(Array.isArray(tokens));
     assert.ok(tokens.length >= 1);
     assert.ok(tokens.every((t) => t.memberId === member.id));
+    assert.equal(data.hasMore, false);
+    assert.equal(data.nextCursor, null);
+  });
+
+  it('uses canonical cursor pagination for self and superadmin token lists', async () => {
+    const admin = await h.seedSuperadmin('Token Pagination Admin');
+    const member = await h.seedMember('Token Pagination Member');
+    await h.apiOk(member.token, 'accessTokens.create', {
+      clientKey: randomUUID(),
+      label: 'pagination-token-one',
+    });
+    await h.apiOk(member.token, 'accessTokens.create', {
+      clientKey: randomUUID(),
+      label: 'pagination-token-two',
+    });
+
+    const first = await h.apiOk(member.token, 'accessTokens.list', { limit: 1 });
+    const firstData = first.data as Record<string, unknown>;
+    const firstResults = firstData.results as Array<Record<string, unknown>>;
+    assert.equal(firstResults.length, 1);
+    assert.equal(firstData.hasMore, true);
+    assert.equal(typeof firstData.nextCursor, 'string');
+
+    const second = await h.apiOk(member.token, 'accessTokens.list', {
+      limit: 1,
+      cursor: firstData.nextCursor,
+    });
+    const secondData = second.data as Record<string, unknown>;
+    const secondResults = secondData.results as Array<Record<string, unknown>>;
+    assert.equal(secondResults.length, 1);
+    assert.notEqual(secondResults[0]?.tokenId, firstResults[0]?.tokenId);
+
+    const adminFirst = await h.apiOk(admin.token, 'superadmin.accessTokens.list', {
+      memberId: member.id,
+      limit: 1,
+    });
+    const adminData = adminFirst.data as Record<string, unknown>;
+    assert.equal((adminData.results as Array<Record<string, unknown>>).length, 1);
+    assert.equal(adminData.hasMore, true);
+    assert.equal(typeof adminData.nextCursor, 'string');
   });
 });
 
@@ -2058,7 +2100,7 @@ describe('accessTokens.revoke', () => {
 
     // Get memberB's token ID
     const listResult = await h.apiOk(memberB.token, 'accessTokens.list', {});
-    const tokens = (listResult.data as Record<string, unknown>).tokens as Array<Record<string, unknown>>;
+    const tokens = (listResult.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
     const tokenId = tokens[0]?.tokenId as string;
 
     // memberA tries to revoke memberB's token

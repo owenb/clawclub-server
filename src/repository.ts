@@ -701,6 +701,7 @@ export type Repository = {
   listIssuedInvitations(input: {
     actorMemberId: string;
     clubId?: string;
+    clubIds?: string[] | null;
     status?: InvitationStatus;
     limit: number;
     cursor?: { createdAt: string; invitationId: string } | null;
@@ -759,7 +760,7 @@ export type Repository = {
     actorMemberId: string;
     clubId: string;
     limit: number;
-    statuses?: Extract<MembershipState, 'active' | 'cancelled'>[] | null;
+    statuses?: MembershipState[] | null;
     roles?: Array<'clubadmin' | 'member'> | null;
     cursor?: { joinedAt: string; membershipId: string } | null;
   }): Promise<Paginated<AdminMemberSummary>>;
@@ -824,7 +825,11 @@ export type Repository = {
   listEvents(input: ListEventsInput): Promise<WithIncluded<Paginated<Content>>>;
   rsvpEvent(input: RsvpEventInput): Promise<WithIncluded<{ content: Content }> | null>;
   cancelEventRsvp(input: { actorMemberId: string; eventId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ content: Content }> | null>;
-  listBearerTokens(input: { actorMemberId: string }): Promise<BearerTokenSummary[]>;
+  listBearerTokens(input: {
+    actorMemberId: string;
+    limit: number;
+    cursor?: { createdAt: string; tokenId: string } | null;
+  }): Promise<Paginated<BearerTokenSummary>>;
   createBearerToken(input: CreateBearerTokenInput): Promise<CreatedBearerToken>;
   revokeBearerToken(input: RevokeBearerTokenInput): Promise<BearerTokenSummary | null>;
   listClubActivity(input: {
@@ -917,7 +922,12 @@ export type Repository = {
     limit: number;
     cursor?: { createdAt: string; messageId: string } | null;
   }): Promise<WithIncluded<{ thread: AdminThreadSummary; messages: Paginated<DirectMessageEntry> }> | null>;
-  adminListMemberTokens(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
+  adminListMemberTokens(input: {
+    actorMemberId: string;
+    memberId: string;
+    limit: number;
+    cursor?: { createdAt: string; tokenId: string } | null;
+  }): Promise<Paginated<BearerTokenSummary>>;
   adminRevokeMemberToken(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
   adminCreateAccessToken(input: {
     actorMemberId: string;

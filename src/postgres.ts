@@ -1765,7 +1765,7 @@ export function createRepository(
       };
     },
 
-    adminListMemberTokens: ({ memberId }) => identity.listBearerTokens({ actorMemberId: memberId }),
+    adminListMemberTokens: ({ memberId, limit, cursor }) => identity.listBearerTokens({ actorMemberId: memberId, limit, cursor }),
 
     async adminRevokeMemberToken({ memberId, tokenId }) {
       return identity.revokeBearerToken({ actorMemberId: memberId, tokenId });

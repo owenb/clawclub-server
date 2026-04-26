@@ -375,7 +375,7 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async listEvents() { return { results: [], hasMore: false, nextCursor: null }; },
     async rsvpEvent() { return null; },
     async cancelEventRsvp() { return null; },
-    async listBearerTokens() { return []; },
+    async listBearerTokens() { return { results: [], hasMore: false, nextCursor: null }; },
     async createBearerToken() { throw new Error('not used'); },
     async revokeBearerToken() { return null; },
     async listClubActivity() { return { items: [], highWaterMark: 0, hasMore: false }; },
@@ -420,7 +420,7 @@ export function makeRepository(overrides: Partial<Repository> = {}): Repository 
     async adminListContent() { return { results: [], hasMore: false, nextCursor: null, included: { membersById: {} } }; },
     async adminListThreads() { return { results: [], hasMore: false, nextCursor: null }; },
     async adminReadThread() { return null; },
-    async adminListMemberTokens() { return []; },
+    async adminListMemberTokens() { return { results: [], hasMore: false, nextCursor: null }; },
     async adminRevokeMemberToken() { return null; },
     async adminCreateAccessToken() { return null; },
     async adminCreateNotificationProducer() {

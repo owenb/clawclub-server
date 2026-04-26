@@ -277,13 +277,15 @@ const contentsCreate: ActionDefinition = {
     },
     async resolveBudgetClubId(input, ctx): Promise<string | null> {
       const parsed = input as CreateInput;
+      if (parsed.threadId) {
+        return ctx.repository.resolveContentThreadClubIdForGate({
+          actorMemberId: ctx.actor.member.id,
+          threadId: parsed.threadId,
+          accessibleClubIds: membershipScopes(ctx.actor.memberships).clubIds,
+        }) ?? null;
+      }
       if (parsed.clubId) return parsed.clubId;
-      if (!parsed.threadId) return null;
-      return ctx.repository.resolveContentThreadClubIdForGate({
-        actorMemberId: ctx.actor.member.id,
-        threadId: parsed.threadId,
-        accessibleClubIds: membershipScopes(ctx.actor.memberships).clubIds,
-      }) ?? null;
+      return null;
     },
   },
   quotaAction: QUOTA_ACTIONS.contentCreate,
@@ -314,7 +316,7 @@ const contentsCreate: ActionDefinition = {
     await ctx.repository.preflightCreateContentMentions({
       actorMemberId: ctx.actor.member.id,
       actorClubIds: membershipScopes(ctx.actor.memberships).clubIds,
-      clubId: parsed.clubId,
+      clubId: parsed.threadId ? undefined : parsed.clubId,
       threadId: parsed.threadId,
       title: parsed.title,
       summary: parsed.summary,
@@ -331,7 +333,7 @@ const contentsCreate: ActionDefinition = {
       throw new AppError('invalid_input', 'clubId is required when starting a new thread');
     }
 
-    if (parsed.clubId) {
+    if (!parsed.threadId && parsed.clubId) {
       ctx.requireAccessibleClub(parsed.clubId);
     }
 
@@ -692,7 +694,10 @@ const contentGetThread: ActionDefinition = {
     });
 
     if (!result) {
-      throw new AppError('thread_not_found', 'Thread not found inside the actor scope');
+      throw new AppError(
+        contentId ? 'content_not_found' : 'thread_not_found',
+        contentId ? 'Content not found inside the actor scope' : 'Thread not found inside the actor scope',
+      );
     }
 
     return clubScopedResult(result.thread, {

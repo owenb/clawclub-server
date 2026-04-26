@@ -54,6 +54,51 @@ describe('invitations.list', () => {
     const invitations = ((listed.data as Record<string, unknown>).results as Array<Record<string, unknown>>);
     const listedInvitation = invitations.find((invitation) => invitation.invitationId === firstInvitation.invitationId);
     assert.equal(listedInvitation?.code, code);
+    const actor = listed.actor as Record<string, unknown>;
+    const requestScope = actor.requestScope as Record<string, unknown>;
+    assert.deepEqual(requestScope.activeClubIds, [sponsor.club.id]);
+  });
+
+  it('rejects unknown or inaccessible club filters before listing', async () => {
+    const sponsor = await h.seedOwner('invite-scope-source', 'Invite Scope Source');
+    const other = await h.seedOwner('invite-scope-other', 'Invite Scope Other');
+
+    const unknown = await h.apiErr(sponsor.token, 'invitations.list', {
+      clubId: 'unknown-club',
+    });
+    assert.equal(unknown.status, 403);
+    assert.equal(unknown.code, 'forbidden_scope');
+
+    const foreign = await h.apiErr(sponsor.token, 'invitations.list', {
+      clubId: other.club.id,
+    });
+    assert.equal(foreign.status, 403);
+    assert.equal(foreign.code, 'forbidden_scope');
+  });
+
+  it('rejects invitation issue on archived clubs before creating a row', async () => {
+    const admin = await h.seedSuperadmin('Invite Archived Admin');
+    const sponsor = await h.seedOwner('invite-archived-club', 'Invite Archived Club');
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', {
+      clientKey: 'invite-archived-club-archive',
+      clubId: sponsor.club.id,
+    });
+
+    const err = await h.apiErr(sponsor.token, 'invitations.issue', {
+      clubId: sponsor.club.id,
+      candidateName: 'Archived Candidate',
+      candidateEmail: 'archived-candidate@example.com',
+      reason: 'This candidate has helped with repeated operator workflows and community moderation.',
+      clientKey: 'invite-archived-club-issue',
+    });
+    assert.equal(err.status, 403);
+    assert.equal(err.code, 'forbidden_scope');
+
+    const rows = await h.sql<{ count: string }>(
+      `select count(*)::text as count from invite_requests where club_id = $1`,
+      [sponsor.club.id],
+    );
+    assert.equal(rows[0]?.count, '0');
   });
 
   it('replays the original success for same clientKey and same payload', async () => {

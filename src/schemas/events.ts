@@ -103,6 +103,11 @@ const eventsSetRsvp: ActionDefinition = {
       meaning: 'The target content exists but is not an event.',
       recovery: 'Use events.setRsvp only on content where kind=event.',
     },
+    {
+      code: 'event_rsvp_closed',
+      meaning: 'The event has already started, so RSVP changes are closed.',
+      recovery: 'Do not retry automatically. Show the closed state to the member.',
+    },
   ],
 
   wire: {

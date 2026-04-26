@@ -974,16 +974,20 @@ test('admin.accessTokens.list returns tokens for a member', async () => {
       return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
     },
     async adminListMemberTokens({ memberId }) {
-      return [{
-        tokenId: 'token-1',
-        memberId,
-        label: 'default',
-        createdAt: '2026-03-14T10:00:00Z',
-        lastUsedAt: null,
-        revokedAt: null,
-        expiresAt: null,
-        metadata: {},
-      }];
+      return {
+        results: [{
+          tokenId: 'token-1',
+          memberId,
+          label: 'default',
+          createdAt: '2026-03-14T10:00:00Z',
+          lastUsedAt: null,
+          revokedAt: null,
+          expiresAt: null,
+          metadata: {},
+        }],
+        hasMore: false,
+        nextCursor: null,
+      };
     },
   };
 
@@ -1000,8 +1004,8 @@ test('admin.accessTokens.list returns tokens for a member', async () => {
     const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.accessTokens.list', { memberId: 'member-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
-    assert.equal(body.data.tokens.length, 1);
-    assert.equal(body.data.tokens[0].label, 'default');
+    assert.equal(body.data.results.length, 1);
+    assert.equal(body.data.results[0].label, 'default');
   } finally {
     await shutdown();
   }

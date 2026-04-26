@@ -6,6 +6,9 @@ import { membershipScopes } from '../actors.ts';
 import { AppError } from '../repository.ts';
 import {
   describeClientKey,
+  decodeOptionalCursor,
+  paginatedOutput,
+  paginationFields,
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   wireOptionalRecord, parseOptionalRecord,
@@ -15,6 +18,8 @@ import {
   quotaAllowance, bearerTokenSummary, createdBearerToken,
 } from './responses.ts';
 import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
+
+const ACCESS_TOKENS_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 50 });
 
 // ── quotas.getUsage ───────────────────────────────────────
 
@@ -65,20 +70,28 @@ const tokensList: ActionDefinition = {
   safety: 'read_only',
 
   wire: {
-    input: z.object({}),
-    output: z.object({ tokens: z.array(bearerTokenSummary) }),
+    input: z.object({
+      ...ACCESS_TOKENS_PAGINATION.wire,
+    }),
+    output: paginatedOutput(bearerTokenSummary),
   },
 
   parse: {
-    input: z.object({}),
+    input: z.object({
+      ...ACCESS_TOKENS_PAGINATION.parse,
+    }),
   },
 
-  async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+  async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
+    const { limit, cursor: rawCursor } = input as { limit: number; cursor: string | null };
+    const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, tokenId]) => ({ createdAt, tokenId }));
     const tokens = await ctx.repository.listBearerTokens({
       actorMemberId: ctx.actor.member.id,
+      limit,
+      cursor,
     });
 
-    return { data: { tokens } };
+    return { data: tokens };
   },
 };
 

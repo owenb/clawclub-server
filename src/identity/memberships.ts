@@ -876,7 +876,7 @@ export async function getMember(pool: Pool, input: {
 export async function listAdminMembers(pool: Pool, input: {
   clubId: string;
   limit: number;
-  statuses?: Array<Extract<MembershipState, 'active' | 'cancelled'>> | null;
+  statuses?: MembershipState[] | null;
   roles?: Array<'clubadmin' | 'member'> | null;
   cursor?: { joinedAt: string; membershipId: string } | null;
 }): Promise<{ results: AdminMemberSummary[]; hasMore: boolean; nextCursor: string | null }> {
