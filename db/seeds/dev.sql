@@ -1578,4 +1578,9 @@ with msg as (
 insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
 select :'founder_id', :'t_founder_diana', id, false, now() - interval '3 days' from msg;
 
+update dm_inbox_entries
+   set acknowledged_at = created_at
+ where acknowledged = true
+   and acknowledged_at is null;
+
 commit;

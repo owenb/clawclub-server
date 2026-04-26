@@ -536,6 +536,15 @@ describe('messages', () => {
     assert.equal((ack.data as Record<string, unknown>).threadId, threadId);
     assert.equal((ack.data as Record<string, unknown>).acknowledgedCount, 1);
 
+    const acknowledgedRows = await h.sql<{ acknowledged: boolean; acknowledged_at: string | null }>(
+      `select acknowledged, acknowledged_at::text as acknowledged_at
+       from dm_inbox_entries
+       where recipient_member_id = $1 and thread_id = $2`,
+      [owner.id, threadId],
+    );
+    assert.equal(acknowledgedRows[0]?.acknowledged, true);
+    assert.match(String(acknowledgedRows[0]?.acknowledged_at), /^\d{4}-\d{2}-\d{2}/);
+
     const inboxAfter = await readInbox(owner.token, { unreadOnly: true });
     const afterThreads = inboxAfter.results;
     assert.equal(afterThreads.length, 0, 'thread should disappear from unread-only inbox after acknowledgement');

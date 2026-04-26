@@ -83,7 +83,7 @@ describe('contents', () => {
 
     // Outsider requesting the specific club should be forbidden
     const err = await h.apiErr(outsider.token, 'content.list', { clubId: owner.club.id });
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_scope');
   });
 
   it('author can update the post via content.update and change is visible in list', async () => {

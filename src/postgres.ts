@@ -290,7 +290,7 @@ async function listInboxFramesSince(pool: Pool, input: {
               ie.created_at::text as created_at
        from dm_inbox_entries ie
        where ie.recipient_member_id = $1
-         and ie.acknowledged = false
+         and ie.acknowledged_at is null
          and not exists (
            select 1 from dm_message_removals rmv where rmv.message_id = ie.message_id
          )
@@ -342,7 +342,7 @@ async function listInboxFramesSince(pool: Pool, input: {
             ie.created_at::text as created_at
      from dm_inbox_entries ie
      where ie.recipient_member_id = $1
-       and ie.acknowledged = false
+       and ie.acknowledged_at is null
        and not exists (
          select 1 from dm_message_removals rmv where rmv.message_id = ie.message_id
        )
@@ -1289,13 +1289,17 @@ export function createRepository(
         const receiptsById = new Map<string, NotificationReceipt>(
           result.map((row) => [row.id, {
             notificationId: row.id,
+            state: 'processed',
             acknowledgedAt: row.acknowledgedAt,
           }]),
         );
 
         return notificationIds
-          .map((notificationId) => receiptsById.get(notificationId))
-          .filter((receipt): receipt is NotificationReceipt => receipt !== undefined);
+          .map((notificationId) => receiptsById.get(notificationId) ?? {
+            notificationId,
+            state: 'suppressed',
+            acknowledgedAt: null,
+          });
       });
     },
 

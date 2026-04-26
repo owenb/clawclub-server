@@ -17480,14 +17480,23 @@
                   "properties": {
                     "acknowledgedAt": {
                       "clawclubType": "timestamp",
+                      "nullable": true,
                       "type": "string"
                     },
                     "notificationId": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "enum": [
+                        "processed",
+                        "suppressed"
+                      ],
                       "type": "string"
                     }
                   },
                   "required": [
                     "notificationId",
+                    "state",
                     "acknowledgedAt"
                   ],
                   "type": "object"
@@ -19490,5 +19499,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "3825ad1822b5976b"
+  "schemaHash": "be91e7ef6693bb4a"
 }

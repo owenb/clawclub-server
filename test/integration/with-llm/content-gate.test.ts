@@ -106,8 +106,8 @@ describe('content gate anchor — clear-cut pass cases', () => {
       summary: 'Small breakfast for founders working on consumer products. We will each share one live challenge and one metric that moved.',
       event: {
         location: 'The Wolseley, 160 Piccadilly, London W1J 9EB',
-        startsAt: '2026-05-20T07:30:00Z',
-        endsAt: '2026-05-20T09:00:00Z',
+        startsAt: '2026-05-20T06:30:00Z',
+        endsAt: '2026-05-20T08:00:00Z',
         timezone: 'Europe/London',
       },
     });

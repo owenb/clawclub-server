@@ -103,6 +103,7 @@ describe('activity and notifications surfaces', () => {
     const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
     assert.equal(receipts.length, 1);
     assert.equal(receipts[0]?.notificationId, listedItem!.notificationId);
+    assert.equal(receipts[0]?.state, 'processed');
     assert.match(String(receipts[0]?.acknowledgedAt), /^\d{4}-\d{2}-\d{2}T/);
 
     const afterAck = getNotifications((await h.getNotifications(applicant.bearerToken, { limit: 20 })).body);
@@ -175,6 +176,7 @@ describe('activity and notifications surfaces', () => {
     const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
     assert.equal(receipts.length, 1);
     assert.equal(receipts[0]?.notificationId, ownerPending!.notificationId);
+    assert.equal(receipts[0]?.state, 'processed');
     assert.match(String(receipts[0]?.acknowledgedAt), /^\d{4}-\d{2}-\d{2}T/);
 
     const afterAck = getNotifications((await h.getNotifications(owner.token, { limit: 20 })).body);
@@ -280,6 +282,7 @@ describe('activity and notifications surfaces', () => {
     const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
     assert.equal(receipts.length, 1);
     assert.equal(receipts[0]?.notificationId, notificationId);
+    assert.equal(receipts[0]?.state, 'processed');
     assert.match(String(receipts[0]?.acknowledgedAt), /^\d{4}-\d{2}-\d{2}T/);
 
     const dbRows = await h.sqlClubs<{ acknowledged_at: string | null }>(
@@ -311,6 +314,7 @@ describe('activity and notifications surfaces', () => {
     });
     const firstReceipts = (firstAck.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
     assert.equal(firstReceipts.length, 1);
+    assert.equal(firstReceipts[0]?.state, 'processed');
 
     const secondAck = await h.apiOk(owner.token, 'updates.acknowledge', {
       target: {
@@ -319,13 +323,57 @@ describe('activity and notifications surfaces', () => {
       },
     });
     const secondReceipts = (secondAck.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
-    assert.deepEqual(secondReceipts, []);
+    assert.deepEqual(secondReceipts, [{
+      notificationId,
+      state: 'suppressed',
+      acknowledgedAt: null,
+    }]);
 
     const dbRows = await h.sqlClubs<{ acknowledged_at: string | null }>(
       `select acknowledged_at::text as acknowledged_at from member_notifications where id = $1`,
       [rows[0]!.id],
     );
     assertParseableTimestamp(dbRows[0]?.acknowledged_at);
+  });
+
+  it('updates.acknowledge returns suppressed receipts for unknown or inaccessible notification IDs', async () => {
+    const owner = await h.seedOwner('notif-suppress-owner', 'Notif Suppress Owner');
+    const otherOwner = await h.seedOwner('notif-suppress-other', 'Notif Suppress Other');
+
+    const rows = await h.sqlClubs<{ id: string; acknowledged_at: string | null }>(
+      `insert into member_notifications (club_id, recipient_member_id, topic, payload)
+       values ($1, $2, 'core.example_foreign', '{"kind":"core.example_foreign"}'::jsonb)
+       returning id, acknowledged_at::text as acknowledged_at`,
+      [otherOwner.club.id, otherOwner.id],
+    );
+    const foreignNotificationId = rows[0]!.id;
+    const unknownNotificationId = 'missing-notification-id';
+
+    const ack = await h.apiOk(owner.token, 'updates.acknowledge', {
+      target: {
+        kind: 'notification',
+        notificationIds: [foreignNotificationId, unknownNotificationId],
+      },
+    });
+    const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
+    assert.deepEqual(receipts, [
+      {
+        notificationId: foreignNotificationId,
+        state: 'suppressed',
+        acknowledgedAt: null,
+      },
+      {
+        notificationId: unknownNotificationId,
+        state: 'suppressed',
+        acknowledgedAt: null,
+      },
+    ]);
+
+    const dbRows = await h.sqlClubs<{ acknowledged_at: string | null }>(
+      `select acknowledged_at::text as acknowledged_at from member_notifications where id = $1`,
+      [foreignNotificationId],
+    );
+    assert.equal(dbRows[0]?.acknowledged_at, null);
   });
 
   it('vouches.create emits an acknowledgeable vouch.received notification with server-authored message', async () => {
@@ -371,6 +419,7 @@ describe('activity and notifications surfaces', () => {
     });
     const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
     assert.equal(receipts[0]?.notificationId, item!.notificationId);
+    assert.equal(receipts[0]?.state, 'processed');
     assert.match(String(receipts[0]?.acknowledgedAt), /^\d{4}-\d{2}-\d{2}T/);
 
     const dbRows = await h.sqlClubs<{ acknowledged_at: string | null }>(
@@ -399,6 +448,8 @@ describe('activity and notifications surfaces', () => {
     });
     const receipts = (ack.data as Record<string, unknown>).receipts as Array<Record<string, unknown>>;
     assert.equal(receipts[0]?.notificationId, notificationId);
+    assert.equal(receipts[0]?.state, 'processed');
+    assert.match(String(receipts[0]?.acknowledgedAt), /^\d{4}-\d{2}-\d{2}T/);
   });
 
   it('updates.list activity.cursor=latest skips backlog and returns only later activity', async () => {

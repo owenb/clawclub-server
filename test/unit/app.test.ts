@@ -124,6 +124,7 @@ function makeNotificationItem(overrides: Partial<NotificationItem> = {}): Notifi
 function makeNotificationReceipt(overrides: Partial<NotificationReceipt> = {}): NotificationReceipt {
   return {
     notificationId: 'notification-1',
+    state: 'processed',
     acknowledgedAt: '2026-03-12T00:02:00Z',
     ...overrides,
   };
@@ -3822,6 +3823,7 @@ test('updates.acknowledge appends receipts and removes items from shared context
   assert.deepEqual(result.actor.sharedContext.notifications, []);
   assert.equal(result.data.kind, 'notification');
   assert.equal(result.data.receipts[0]?.notificationId, 'notification-1');
+  assert.equal(result.data.receipts[0]?.state, 'processed');
   assert.equal(result.data.receipts[0]?.acknowledgedAt, '2026-03-12T00:02:00Z');
 });
 
@@ -3831,7 +3833,13 @@ test('updates.acknowledge passes raw notification ids through without topic pars
     ...makeRepository(),
     async acknowledgeNotifications(input) {
       capturedInput = input as Record<string, unknown>;
-      return [];
+      return [
+        makeNotificationReceipt({
+          notificationId: 'application-notification-404',
+          state: 'suppressed',
+          acknowledgedAt: null,
+        }),
+      ];
     },
   };
 
@@ -3854,7 +3862,13 @@ test('updates.acknowledge passes raw notification ids through without topic pars
   });
   assert.equal(result.action, 'updates.acknowledge');
   assert.equal(result.data.kind, 'notification');
-  assert.deepEqual(result.data.receipts, []);
+  assert.deepEqual(result.data.receipts, [
+    {
+      notificationId: 'application-notification-404',
+      state: 'suppressed',
+      acknowledgedAt: null,
+    },
+  ]);
 });
 
 test('messages.get returns 404 when the thread is outside actor scope', async () => {

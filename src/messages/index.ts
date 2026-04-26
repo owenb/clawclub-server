@@ -244,8 +244,9 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         // Replying in a thread implies the sender has seen any unread items already waiting for them there.
         await client.query(
           `update dm_inbox_entries
-           set acknowledged = true
-           where recipient_member_id = $1 and thread_id = $2 and acknowledged = false`,
+           set acknowledged = true,
+               acknowledged_at = coalesce(acknowledged_at, now())
+           where recipient_member_id = $1 and thread_id = $2 and acknowledged_at is null`,
           [senderMemberId, ensuredThreadId],
         );
 
@@ -382,11 +383,11 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
          ),
          inbox_stats as (
            select ie.thread_id,
-                  count(*) filter (where not ie.acknowledged)::int as unread_count,
-                  bool_or(not ie.acknowledged) as has_unread,
-                  max(ie.created_at) filter (where not ie.acknowledged)::text as latest_unread_at
+                  count(*) filter (where ie.acknowledged_at is null)::int as unread_count,
+                  bool_or(ie.acknowledged_at is null) as has_unread,
+                  max(ie.created_at) filter (where ie.acknowledged_at is null)::text as latest_unread_at
            from dm_inbox_entries ie
-           where ie.recipient_member_id = $1 and ie.acknowledged = false
+           where ie.recipient_member_id = $1 and ie.acknowledged_at is null
            group by ie.thread_id
          ),
          latest_msg as (
@@ -687,8 +688,9 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
 
       const result = await pool.query<{ id: string }>(
         `update dm_inbox_entries
-         set acknowledged = true
-         where recipient_member_id = $1 and thread_id = $2 and acknowledged = false`,
+         set acknowledged = true,
+             acknowledged_at = coalesce(acknowledged_at, now())
+         where recipient_member_id = $1 and thread_id = $2 and acknowledged_at is null`,
         [memberId, threadId],
       );
       return { threadId, acknowledgedCount: result.rowCount ?? 0 };

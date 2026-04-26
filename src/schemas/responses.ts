@@ -424,7 +424,8 @@ export const notificationItem = z.object({
 
 export const notificationReceipt = z.object({
   notificationId: z.string(),
-  acknowledgedAt: timestampString,
+  state: z.enum(['processed', 'suppressed']),
+  acknowledgedAt: timestampString.nullable(),
 });
 
 // ── Clubs ────────────────────────────────────────────────

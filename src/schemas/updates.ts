@@ -211,7 +211,9 @@ const updatesAcknowledge: ActionDefinition = {
       });
       return {
         data: { kind: 'notification', receipts },
-        acknowledgedNotificationIds: receipts.map((receipt) => receipt.notificationId),
+        acknowledgedNotificationIds: receipts
+          .filter((receipt) => receipt.state === 'processed')
+          .map((receipt) => receipt.notificationId),
       };
     }
 
