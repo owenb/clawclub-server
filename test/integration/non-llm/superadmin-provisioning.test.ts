@@ -676,7 +676,7 @@ describe('superadmin.accessTokens.create', () => {
       memberId: target.id,
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('non-superadmin (club owner / clubadmin) cannot call the action', async () => {
@@ -687,7 +687,7 @@ describe('superadmin.accessTokens.create', () => {
       memberId: target.id,
     });
     assert.equal(err.status, 403, 'club owners must not be able to mint tokens for their members');
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('unauthenticated call is rejected with 401', async () => {

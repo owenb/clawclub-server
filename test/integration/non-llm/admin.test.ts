@@ -64,7 +64,7 @@ describe('superadmin.clubs.list', () => {
     const member = await h.seedMember('Regular List');
     const err = await h.apiErr(member.token, 'superadmin.clubs.list', {});
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 });
 
@@ -355,7 +355,7 @@ describe('superadmin.clubs.create', () => {
       summary: 'Should be rejected',
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('does not return manifestoMarkdown in response', async () => {
@@ -417,7 +417,7 @@ describe('superadmin.clubs.archive', () => {
     const ownerCtx = await h.seedOwner('archive-auth-club', 'Archive Auth Club');
     const err = await h.apiErr(ownerCtx.token, 'superadmin.clubs.archive', { clubId: ownerCtx.club.id });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 });
 
@@ -493,7 +493,7 @@ describe('superadmin.clubs.assignOwner', () => {
       ownerMemberId: newOwner.id,
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('new owner gets active membership; old owner demoted to member role', async () => {
@@ -668,7 +668,7 @@ describe('superadmin.clubs.update', () => {
       name: 'Nope',
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('rejects empty name', async () => {
@@ -794,7 +794,7 @@ describe('superadmin.platform.getOverview', () => {
     const member = await h.seedMember('Regular Overview');
     const err = await h.apiErr(member.token, 'superadmin.platform.getOverview', {});
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 });
 
@@ -830,7 +830,7 @@ describe('superadmin.members.list', () => {
     const member = await h.seedMember('Regular ListM');
     const err = await h.apiErr(member.token, 'superadmin.members.list', { limit: 10 });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 });
 
@@ -867,7 +867,7 @@ describe('superadmin.members.get', () => {
     const member = await h.seedMember('Regular GetM');
     const err = await h.apiErr(member.token, 'superadmin.members.get', { memberId: member.id });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 });
 
@@ -1034,7 +1034,7 @@ describe('superadmin.members.remove', () => {
 
     const authErr = await h.apiErr(target.token, 'session.getContext', {});
     assert.equal(authErr.status, 401);
-    assert.equal(authErr.code, 'unauthorized');
+    assert.equal(authErr.code, 'unauthenticated');
   });
 
   it('blocks deleting a member who still owns clubs', async () => {
@@ -1472,7 +1472,7 @@ describe('clubadmin.clubs.getStatistics', () => {
     const member = await h.seedCompedMember(ownerCtx.club.id, 'Stats Regular');
     const err = await h.apiErr(member.token, 'clubadmin.clubs.getStatistics', { clubId: ownerCtx.club.id });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('club owner can access club stats', async () => {
@@ -1562,7 +1562,7 @@ describe('clubadmin.members.update', () => {
       patch: { role: 'clubadmin' },
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('regular member cannot promote', async () => {
@@ -1576,7 +1576,7 @@ describe('clubadmin.members.update', () => {
       patch: { role: 'clubadmin' },
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('returns 404 for non-existent member', async () => {
@@ -1704,7 +1704,7 @@ describe('clubadmin.members.update', () => {
       patch: { role: 'member' },
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('regular member cannot demote', async () => {
@@ -1719,7 +1719,7 @@ describe('clubadmin.members.update', () => {
       patch: { role: 'member' },
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('returns 404 for non-existent member', async () => {
@@ -2273,7 +2273,7 @@ describe('platform authorization', () => {
     for (const [action, input] of superadminActions) {
       const err = await h.apiErr(regularMember.token, action, input);
       assert.equal(err.status, 403, `${action} should reject non-superadmin`);
-      assert.equal(err.code, 'forbidden', `${action} should return forbidden code`);
+      assert.equal(err.code, 'forbidden_role', `${action} should return forbidden_role code`);
     }
   });
 

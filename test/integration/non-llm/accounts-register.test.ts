@@ -214,7 +214,7 @@ describe('accounts.register', () => {
       clubId: owner.club.id,
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_scope');
   });
 
   it('rate-limits unauthenticated discover calls by validated client IP', async () => {

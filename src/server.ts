@@ -265,8 +265,11 @@ function getBearerToken(request: http.IncomingMessage): string | null {
     return null;
   }
 
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : null;
+  const match = header.match(/^Bearer ([^\s]+)$/i);
+  if (!match) {
+    throw new AppError('invalid_auth_header', 'Authorization must use Bearer <token>');
+  }
+  return match[1];
 }
 
 function normalizeStreamLimit(value: string | null): number {
@@ -465,30 +468,84 @@ function isRegistrationDiscoverRequest(body: Record<string, unknown>): boolean {
     && (input as Record<string, unknown>).mode === 'discover';
 }
 
-function getClientIp(request: http.IncomingMessage): string {
-  const forwarded = request.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    const first = forwarded.split(',')[0].trim();
-    if (first.length > 0) {
-      return first;
-    }
-  }
-
-  return request.socket.remoteAddress ?? 'unknown';
+function configuredTrustedProxyCidrs(): string[] {
+  const configured = (process.env.CLAWCLUB_TRUSTED_PROXY_CIDRS ?? process.env.TRUSTED_PROXY_CIDRS ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return ['127.0.0.1/32', '::1/128', ...configured];
 }
 
-function getForwardedClientIp(request: http.IncomingMessage): string | null {
-  const forwarded = request.headers['x-forwarded-for'];
+function normalizeIpAddress(value: string | undefined | null): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (trimmed.startsWith('::ffff:')) {
+    const mapped = trimmed.slice('::ffff:'.length);
+    return isIP(mapped) ? mapped : null;
+  }
+  return isIP(trimmed) ? trimmed : null;
+}
+
+function ipv4ToNumber(ip: string): number | null {
+  if (isIP(ip) !== 4) return null;
+  const parts = ip.split('.').map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return null;
+  }
+  return ((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3];
+}
+
+function ipv4CidrContains(ip: string, cidr: string): boolean {
+  const [rawBase, rawPrefix] = cidr.split('/');
+  const base = normalizeIpAddress(rawBase);
+  const prefix = Number.parseInt(rawPrefix ?? '', 10);
+  if (!base || !Number.isInteger(prefix) || prefix < 0 || prefix > 32) return false;
+  const ipNumber = ipv4ToNumber(ip);
+  const baseNumber = ipv4ToNumber(base);
+  if (ipNumber === null || baseNumber === null) return false;
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  return (ipNumber & mask) === (baseNumber & mask);
+}
+
+function proxyCidrMatches(ip: string, cidr: string): boolean {
+  const trimmed = cidr.trim();
+  if (trimmed.length === 0) return false;
+  if (trimmed.includes('/')) {
+    if (isIP(ip) === 4) {
+      return ipv4CidrContains(ip, trimmed);
+    }
+    const [base, prefix] = trimmed.split('/');
+    return normalizeIpAddress(base) === ip && prefix === '128';
+  }
+  return normalizeIpAddress(trimmed) === ip;
+}
+
+export function resolveTrustedClientIp(input: {
+  remoteAddress?: string | null;
+  forwardedFor?: string | string[] | undefined;
+  trustedProxyCidrs?: string[];
+}): string {
+  const remoteAddress = normalizeIpAddress(input.remoteAddress) ?? 'unknown';
+  const trustedProxyCidrs = input.trustedProxyCidrs ?? configuredTrustedProxyCidrs();
+  const remoteIsTrusted = remoteAddress !== 'unknown'
+    && trustedProxyCidrs.some((cidr) => proxyCidrMatches(remoteAddress, cidr));
+  if (!remoteIsTrusted) {
+    return remoteAddress;
+  }
+
+  const forwarded = Array.isArray(input.forwardedFor) ? input.forwardedFor[0] : input.forwardedFor;
   if (typeof forwarded !== 'string') {
-    return null;
+    return remoteAddress;
   }
+  const firstForwarded = normalizeIpAddress(forwarded.split(',')[0]?.trim() ?? '');
+  return firstForwarded ?? remoteAddress;
+}
 
-  const first = forwarded.split(',')[0]?.trim() ?? '';
-  if (first.length === 0) {
-    return null;
-  }
-
-  return isIP(first) ? first : null;
+function getClientIp(request: http.IncomingMessage): string {
+  return resolveTrustedClientIp({
+    remoteAddress: request.socket.remoteAddress,
+    forwardedFor: request.headers['x-forwarded-for'],
+  });
 }
 
 function createTimeoutOnlyNotifier(): MemberUpdateNotifier {
@@ -626,7 +683,7 @@ export function createServer(options: {
         const producerId = readProducerIdHeader(request);
         const secret = getBearerToken(request);
         if (!producerId || !secret) {
-          throw new AppError('unauthorized', 'Producer credentials are required.');
+          throw new AppError('unauthenticated', 'Producer credentials are required.');
         }
 
         const auth = await repository.authenticateProducer({
@@ -634,10 +691,10 @@ export function createServer(options: {
           secret,
         });
         if (!auth) {
-          throw new AppError('unauthorized', 'Unknown producer credentials.');
+          throw new AppError('unauthenticated', 'Unknown producer credentials.');
         }
         if (auth.status !== 'active') {
-          throw new AppError('forbidden', 'Producer is disabled.');
+          throw new AppError('forbidden_role', 'Producer is disabled.');
         }
 
         const body = await readJsonBody(request);
@@ -705,12 +762,12 @@ export function createServer(options: {
       try {
         const bearerToken = getBearerToken(request);
         if (!bearerToken) {
-          throw new AppError('unauthorized', 'Unknown bearer token');
+          throw new AppError('unauthenticated', 'Unknown bearer token');
         }
 
         const auth = await repository.authenticateBearerToken(bearerToken);
         if (!auth) {
-          throw new AppError('unauthorized', 'Unknown bearer token');
+          throw new AppError('unauthenticated', 'Unknown bearer token');
         }
 
         const memberId = auth.actor.member.id;
@@ -1029,7 +1086,7 @@ export function createServer(options: {
       }
 
       const bearerToken = getBearerToken(request);
-      const clientIp = getForwardedClientIp(request);
+      const clientIp = getClientIp(request);
       const schemaSeen = typeof request.headers['clawclub-schema-seen'] === 'string'
         ? request.headers['clawclub-schema-seen'].trim()
         : '';
@@ -1091,7 +1148,7 @@ export function createServer(options: {
 
       if (isRegistrationDiscoverRequest(body)) {
         const now = Date.now();
-        const key = getForwardedClientIp(request) ?? request.socket.remoteAddress ?? 'unknown';
+        const key = getClientIp(request);
         const current = registrationDiscoverRateLimits.get(key);
         const entry = !current || current.windowStart <= now - REGISTRATION_DISCOVER_RATE_LIMIT_WINDOW_MS
           ? { count: 0, windowStart: now }

@@ -181,6 +181,12 @@ export type IdempotencyDeclaration = {
   getRequestValue?: (parsedInput: unknown, ctx: { actor: AuthenticatedActor }) => unknown;
 };
 
+export type ActionScopeDeclaration =
+  | { strategy: 'rawClubId'; key?: string }
+  | { strategy: 'rawMemberId'; key?: string }
+  | { strategy: 'handler' }
+  | { strategy: 'none' };
+
 export type ActionDefinition = {
   // ── Public metadata (exposed by schema endpoint) ──
   action: string;
@@ -206,6 +212,7 @@ export type ActionDefinition = {
   llmGate?: LlmGateDeclaration;
   quotaAction?: SupportedQuotaAction;
   idempotency?: IdempotencyDeclaration;
+  scope?: ActionScopeDeclaration;
   refreshActorOnSuccess?: boolean;
   skipNotificationsInResponse?: boolean;
   skipRequestedClubScopePrecheck?: boolean;

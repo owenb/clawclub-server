@@ -333,7 +333,10 @@ describe('smoke', () => {
     assert.ok(errorCodes.length >= 11, 'should have all transport error codes');
     const codes = errorCodes.map(e => e.code);
     assert.ok(codes.includes('invalid_input'));
-    assert.ok(codes.includes('unauthorized'));
+    assert.ok(codes.includes('unauthenticated'));
+    assert.ok(codes.includes('invalid_auth_header'));
+    assert.ok(codes.includes('forbidden_role'));
+    assert.ok(codes.includes('forbidden_scope'));
     assert.ok(codes.includes('unknown_action'));
     assert.ok(codes.includes('not_found'), 'should include not_found for unsupported routes');
     assert.equal(codes.includes('too_many_streams'), false, 'should not advertise retired stream-cap errors');

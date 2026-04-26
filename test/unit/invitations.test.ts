@@ -199,7 +199,7 @@ test('invitations.issue rejects clubs outside the caller access scope before run
     }),
     (err: any) => {
       assert.equal(err.statusCode, 403);
-      assert.equal(err.code, 'forbidden');
+      assert.equal(err.code, 'forbidden_scope');
       return true;
     },
   );

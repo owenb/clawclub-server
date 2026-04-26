@@ -35,6 +35,7 @@ import {
   type HandlerContext,
   type ColdHandlerContext,
   type OptionalHandlerContext,
+  type ActionScopeDeclaration,
 } from './schemas/registry.ts';
 import {
   checkLlmGate as defaultCheckLlmGate,
@@ -84,7 +85,7 @@ function createRequireAccessibleClub(actor: AuthenticatedActor) {
   return (clubId: string): MembershipSummary => {
     const allowed = actor.memberships.find(m => m.clubId === clubId);
     if (!allowed) {
-      throw new AppError('forbidden', 'Requested club is outside your access scope');
+      throw new AppError('forbidden_scope', 'Requested club is outside your access scope');
     }
     return allowed;
   };
@@ -95,10 +96,10 @@ function createRequireClubAdmin(actor: AuthenticatedActor) {
     if (actor.globalRoles.includes('superadmin')) return;
     const membership = actor.memberships.find(m => m.clubId === clubId);
     if (!membership) {
-      throw new AppError('forbidden', 'Requested club is outside your access scope');
+      throw new AppError('forbidden_scope', 'Requested club is outside your access scope');
     }
     if (membership.role !== 'clubadmin') {
-      throw new AppError('forbidden', 'This action requires club admin role in the requested club');
+      throw new AppError('forbidden_role', 'This action requires club admin role in the requested club');
     }
   };
 }
@@ -108,7 +109,7 @@ function createRequireClubOwner(actor: AuthenticatedActor) {
     if (actor.globalRoles.includes('superadmin')) return;
     const membership = actor.memberships.find(m => m.clubId === clubId);
     if (!membership || !membership.isOwner) {
-      throw new AppError('forbidden', 'This action requires club owner status');
+      throw new AppError(membership ? 'forbidden_role' : 'forbidden_scope', 'This action requires club owner status');
     }
   };
 }
@@ -116,7 +117,7 @@ function createRequireClubOwner(actor: AuthenticatedActor) {
 function createRequireSuperadmin(actor: AuthenticatedActor) {
   return (): void => {
     if (!actor.globalRoles.includes('superadmin')) {
-      throw new AppError('forbidden', 'This action requires superadmin role');
+      throw new AppError('forbidden_role', 'This action requires superadmin role');
     }
   };
 }
@@ -128,30 +129,82 @@ function createResolveScopedClubs(actor: AuthenticatedActor) {
       return [requireAccessibleClub(clubId)];
     }
     if (actor.memberships.length === 0) {
-      throw new AppError('forbidden', 'This member does not currently have access to any clubs');
+      throw new AppError('forbidden_scope', 'This member does not currently have access to any clubs');
     }
     return actor.memberships;
   };
 }
 
-function preAuthorizeAuthenticatedAction(
-  def: Pick<ActionDefinition, 'auth' | 'action'>,
-  parsedInput: unknown,
-  actor: AuthenticatedActor,
-): void {
+function hasAnyClubAdminRole(actor: AuthenticatedActor): boolean {
+  return actor.globalRoles.includes('superadmin') || actor.memberships.some(m => m.role === 'clubadmin');
+}
+
+function preAuthorizeRole(def: Pick<ActionDefinition, 'auth' | 'action'>, actor: AuthenticatedActor): void {
   if (def.auth === 'superadmin') {
     createRequireSuperadmin(actor)();
     return;
   }
-  if (def.auth !== 'clubadmin') {
+  if (def.auth === 'clubadmin' && !hasAnyClubAdminRole(actor)) {
+    throw new AppError('forbidden_role', 'This action requires club admin role');
+  }
+}
+
+function readRawString(payload: unknown, key: string): string | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function scopeDeclarationFor(def: Pick<ActionDefinition, 'auth' | 'scope'>): ActionScopeDeclaration {
+  if (def.scope) return def.scope;
+  if (def.auth === 'clubadmin') return { strategy: 'rawClubId' };
+  return { strategy: 'none' };
+}
+
+function preAuthorizeRawScope(def: Pick<ActionDefinition, 'auth' | 'scope'>, payload: unknown, actor: AuthenticatedActor): void {
+  const scope = scopeDeclarationFor(def);
+  if (scope.strategy === 'none' || scope.strategy === 'handler') return;
+  if (scope.strategy === 'rawClubId') {
+    const clubId = readRawString(payload, scope.key ?? 'clubId');
+    if (!clubId) return;
+    if (def.auth === 'clubadmin') {
+      createRequireClubAdmin(actor)(clubId);
+      return;
+    }
+    createRequireAccessibleClub(actor)(clubId);
     return;
   }
-
-  const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
-  if (!requestedClubId) {
-    throw new AppError('invalid_data', `Action ${def.action} declared clubadmin auth without a clubId input`);
+  if (scope.strategy === 'rawMemberId') {
+    const memberId = readRawString(payload, scope.key ?? 'memberId');
+    if (memberId && memberId !== actor.member.id && !actor.globalRoles.includes('superadmin')) {
+      throw new AppError('forbidden_scope', 'Requested member is outside your access scope');
+    }
   }
-  createRequireClubAdmin(actor)(requestedClubId);
+}
+
+function preAuthorizeParsedScope(def: Pick<ActionDefinition, 'auth' | 'action' | 'scope'>, parsedInput: unknown, actor: AuthenticatedActor): void {
+  const scope = scopeDeclarationFor(def);
+  if (scope.strategy === 'rawClubId') {
+    const requestedClubId = extractRequestedClubId(parsedInput as Record<string, unknown>);
+    if (!requestedClubId) {
+      if (def.auth === 'clubadmin') {
+        throw new AppError('invalid_data', `Action ${def.action} declared clubadmin auth without a clubId input`);
+      }
+      return;
+    }
+    if (def.auth === 'clubadmin') {
+      createRequireClubAdmin(actor)(requestedClubId);
+      return;
+    }
+    createRequireAccessibleClub(actor)(requestedClubId);
+    return;
+  }
+  if (scope.strategy === 'rawMemberId') {
+    const memberId = readRawString(parsedInput, scope.key ?? 'memberId');
+    if (memberId && memberId !== actor.member.id && !actor.globalRoles.includes('superadmin')) {
+      throw new AppError('forbidden_scope', 'Requested member is outside your access scope');
+    }
+  }
 }
 
 // ── Gate handling ────────────────────────────────────────
@@ -628,11 +681,11 @@ async function dispatchOptionalMember(
 
   if (bearerToken !== null) {
     if (typeof bearerToken !== 'string' || bearerToken.trim().length === 0) {
-      throw new AppError('unauthorized', 'Authorization bearer token must be a non-empty string');
+      throw new AppError('unauthenticated', 'Authorization bearer token must be a non-empty string');
     }
     const auth = await repository.authenticateBearerToken(bearerToken);
     if (!auth) {
-      throw new AppError('unauthorized', 'Unknown bearer token');
+      throw new AppError('unauthenticated', 'Unknown bearer token');
     }
     actor = auth.actor;
     const authenticatedActor = auth.actor;
@@ -703,14 +756,16 @@ async function dispatchAuthenticated(
 ) {
   // Authenticate
   if (typeof bearerToken !== 'string' || bearerToken.trim().length === 0) {
-    throw new AppError('unauthorized', 'Authorization bearer token must be a non-empty string');
+    throw new AppError('unauthenticated', 'Authorization bearer token must be a non-empty string');
   }
   const auth = await repository.authenticateBearerToken(bearerToken);
   if (!auth) {
-    throw new AppError('unauthorized', 'Unknown bearer token');
+    throw new AppError('unauthenticated', 'Unknown bearer token');
   }
 
   let actor = auth.actor;
+  preAuthorizeRole(def, actor);
+  preAuthorizeRawScope(def, payload, actor);
   stampAuthenticatedMemberId?.(actor.member.id);
   const requestLogEntry: LogApiRequestInput = {
     memberId: actor.member.id,
@@ -773,13 +828,13 @@ async function dispatchAuthenticated(
       && !auth.requestScope.activeClubIds.includes(requestedClubId)
       && !auth.actor.globalRoles.includes('superadmin')
     ) {
-      throw new AppError('forbidden', 'Requested club is outside your access scope');
+      throw new AppError('forbidden_scope', 'Requested club is outside your access scope');
     }
   }
 
   return executeWithClientKeyBarrierIfPresent(def, parsedInput, actor, repository, async () => {
     await maybeFireReplayAwareRequestLog();
-    preAuthorizeAuthenticatedAction(def, parsedInput, actor);
+    preAuthorizeParsedScope(def, parsedInput, actor);
     const requireAccessibleClub = createRequireAccessibleClub(actor);
     const requireClubAdmin = createRequireClubAdmin(actor);
     const requireClubOwner = createRequireClubOwner(actor);
@@ -839,7 +894,7 @@ async function dispatchAuthenticated(
     if (def.refreshActorOnSuccess) {
       const refreshed = await repository.authenticateBearerToken(bearerToken);
       if (!refreshed) {
-        throw new AppError('unauthorized', 'Bearer token became invalid after the action completed');
+        throw new AppError('unauthenticated', 'Bearer token became invalid after the action completed');
       }
       actor = refreshed.actor;
       defaultRequestScope = {

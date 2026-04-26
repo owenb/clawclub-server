@@ -149,6 +149,6 @@ describe('superadmin.diagnostics.getHealth', () => {
     const member = await h.seedMember('Regular Diag');
     const err = await h.apiErr(member.token, 'superadmin.diagnostics.getHealth', {});
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 });

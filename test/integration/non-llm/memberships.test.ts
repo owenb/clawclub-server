@@ -670,14 +670,14 @@ describe('clubadmin surfaces stay scoped', () => {
       limit: 20,
     });
     assert.equal(membersErr.status, 403);
-    assert.equal(membersErr.code, 'forbidden');
+    assert.equal(membersErr.code, 'forbidden_role');
 
     const applicationsErr = await h.apiErr(member.token, 'clubadmin.applications.list', {
       clubId: owner.club.id,
       limit: 20,
     });
     assert.equal(applicationsErr.status, 403);
-    assert.equal(applicationsErr.code, 'forbidden');
+    assert.equal(applicationsErr.code, 'forbidden_role');
   });
 
   it('superadmin can direct-add and transition memberships in unrelated clubs', async () => {

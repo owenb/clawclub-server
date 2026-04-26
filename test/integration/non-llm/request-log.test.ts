@@ -166,7 +166,7 @@ describe('api request log', () => {
     });
   });
 
-  it('stores null when the forwarded client IP is invalid', async () => {
+  it('falls back to the socket IP when the forwarded client IP is invalid', async () => {
     const owner = await h.seedOwner('request-log-invalid-ip', 'Request Log Invalid Ip');
 
     const { status, body } = await rawPost(
@@ -181,10 +181,10 @@ describe('api request log', () => {
 
     const rows = await waitForRequestLogs(h, owner.id, 1);
     assert.equal(rows.length, 1);
-    assert.equal(rows[0]?.ipAddress, null);
+    assert.equal(rows[0]?.ipAddress, '127.0.0.1');
   });
 
-  it('stores null when X-Forwarded-For is absent', async () => {
+  it('stores the socket IP when X-Forwarded-For is absent', async () => {
     const owner = await h.seedOwner('request-log-no-forwarded', 'Request Log No Forwarded');
 
     const { status, body } = await rawPost(
@@ -198,7 +198,7 @@ describe('api request log', () => {
 
     const rows = await waitForRequestLogs(h, owner.id, 1);
     assert.equal(rows.length, 1);
-    assert.equal(rows[0]?.ipAddress, null);
+    assert.equal(rows[0]?.ipAddress, '127.0.0.1');
   });
 
   it('logs forwarded IPv6 client addresses', async () => {
@@ -307,7 +307,7 @@ describe('api request log', () => {
 
     assert.equal(status, 401);
     assert.equal(body.ok, false);
-    assert.equal((body.error as { code?: string }).code, 'unauthorized');
+    assert.equal((body.error as { code?: string }).code, 'unauthenticated');
 
     await sleep(250);
 

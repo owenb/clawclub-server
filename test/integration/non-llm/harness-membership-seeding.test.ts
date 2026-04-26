@@ -46,7 +46,7 @@ test('seedApplication keeps pre-acceptance applicants out of access views and pr
       limit: 10,
     });
     assert.equal(error.status, 403);
-    assert.equal(error.code, 'forbidden');
+    assert.equal(error.code, 'forbidden_scope');
 
     const accessibleRows = await h.sql<{ count: string }>(
       `select count(*)::text as count

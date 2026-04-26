@@ -2824,7 +2824,70 @@ test('superadmin.clubs.create rejects non-superadmins', async () => {
     (error: unknown) => {
       assert.ok(error instanceof AppError);
       assert.equal(error.statusCode, 403);
-      assert.equal(error.code, 'forbidden');
+      assert.equal(error.code, 'forbidden_role');
+      return true;
+    },
+  );
+});
+
+test('superadmin role checks run before privileged input parsing', async () => {
+  const actor = makeActor();
+  actor.globalRoles = [];
+  const dispatcher = buildDispatcher({
+    repository: {
+      ...makeRepository(),
+      async authenticateBearerToken() {
+        return {
+          actor,
+          requestScope: { requestedClubId: null, activeClubIds: actor.memberships.map((membership) => membership.clubId) },
+          sharedContext: { notifications: [], notificationsTruncated: false },
+        };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => dispatcher.dispatch({
+      bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+      action: 'superadmin.clubs.create',
+      payload: { malformed: true },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 403);
+      assert.equal(error.code, 'forbidden_role');
+      return true;
+    },
+  );
+});
+
+test('raw club scope checks run before clubadmin input parsing', async () => {
+  const actor = makeActor();
+  actor.globalRoles = [];
+  actor.memberships = actor.memberships.filter((membership) => membership.clubId === 'club-1');
+  const dispatcher = buildDispatcher({
+    repository: {
+      ...makeRepository(),
+      async authenticateBearerToken() {
+        return {
+          actor,
+          requestScope: { requestedClubId: null, activeClubIds: actor.memberships.map((membership) => membership.clubId) },
+          sharedContext: { notifications: [], notificationsTruncated: false },
+        };
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => dispatcher.dispatch({
+      bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+      action: 'clubadmin.members.list',
+      payload: { clubId: 'club-2', limit: 'not-a-number' },
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 403);
+      assert.equal(error.code, 'forbidden_scope');
       return true;
     },
   );
@@ -2846,7 +2909,7 @@ test('members.searchByFullText rejects a club outside the actor scope', async ()
     (error: unknown) => {
       assert.ok(error instanceof AppError);
       assert.equal(error.statusCode, 403);
-      assert.equal(error.code, 'forbidden');
+      assert.equal(error.code, 'forbidden_scope');
       return true;
     },
   );
@@ -3846,7 +3909,7 @@ test('session.getContext rejects unknown bearer tokens', async () => {
     (error: unknown) => {
       assert.ok(error instanceof AppError);
       assert.equal(error.statusCode, 401);
-      assert.equal(error.code, 'unauthorized');
+      assert.equal(error.code, 'unauthenticated');
       return true;
     },
   );

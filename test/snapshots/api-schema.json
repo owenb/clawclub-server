@@ -808,9 +808,14 @@
       "authorizationNote": "Requires club admin role in the specified club.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
-          "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         },
         {
           "code": "application_already_decided",
@@ -1099,9 +1104,14 @@
       "authorizationNote": "Requires club admin role.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
-          "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         }
       ],
       "description": "Get one application in the specified club.",
@@ -1349,9 +1359,14 @@
       "authorizationNote": "Requires club admin role.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
-          "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         }
       ],
       "description": "List club applications in the specified club.",
@@ -1729,9 +1744,14 @@
       "authorizationNote": "Requires club admin role.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
-          "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         }
       ],
       "description": "Get statistics for the specified club.",
@@ -1811,9 +1831,14 @@
       "authorizationNote": "Requires clubadmin auth on the surface, then narrows to the club owner or a superadmin before mutation.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
-          "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         },
         {
           "code": "club_archived",
@@ -1996,9 +2021,14 @@
       "authorizationNote": "Club admin may remove any content in their club. Reason is required for moderation audit trail.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
-          "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         }
       ],
       "description": "Remove any content in the specified club (moderation).",
@@ -2447,9 +2477,14 @@
       "authorizationNote": "Requires club admin role.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
-          "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         }
       ],
       "description": "Get one accessible member in the specified club.",
@@ -2733,9 +2768,14 @@
       "authorizationNote": "Requires club admin role.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
-          "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         }
       ],
       "description": "List accessible members in the specified club.",
@@ -3146,9 +3186,14 @@
       "authorizationNote": "Status changes require clubadmin or superadmin. Role changes require the club owner or a superadmin. The club owner cannot be demoted.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
+          "meaning": "The requested club is outside the caller access scope.",
+          "recovery": "Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*."
+        },
+        {
+          "code": "forbidden_role",
           "meaning": "Caller is not a clubadmin in the requested club.",
-          "recovery": "Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == \"clubadmin\"."
+          "recovery": "Only call clubadmin.* for clubs where role == \"clubadmin\", or use a superadmin token."
         },
         {
           "code": "invalid_state_transition",
@@ -19292,11 +19337,19 @@
         "status": 415
       },
       {
-        "code": "unauthorized",
+        "code": "invalid_auth_header",
         "status": 401
       },
       {
-        "code": "forbidden",
+        "code": "unauthenticated",
+        "status": 401
+      },
+      {
+        "code": "forbidden_role",
+        "status": 403
+      },
+      {
+        "code": "forbidden_scope",
         "status": 403
       },
       {
@@ -19323,5 +19376,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "6e29cba5071fb57c"
+  "schemaHash": "335eef1c7ff8c120"
 }

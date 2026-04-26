@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createServer, DEFAULT_SERVER_LIMITS } from '../../src/server.ts';
+import { createServer, DEFAULT_SERVER_LIMITS, resolveTrustedClientIp } from '../../src/server.ts';
 import { DEFAULT_CONFIG_V1 } from '../../src/config/index.ts';
 import type { Repository } from '../../src/repository.ts';
 import { makeActivityEvent, makeAuthResult, makeNotificationItem, makeRepository, makeUpdatesNotifier } from './fixtures.ts';
@@ -234,6 +234,22 @@ test('createServer applies hardened HTTP server limits', async () => {
   } finally {
     await shutdown();
   }
+});
+
+test('resolveTrustedClientIp ignores spoofed X-Forwarded-For from untrusted remotes', () => {
+  assert.equal(resolveTrustedClientIp({
+    remoteAddress: '203.0.113.10',
+    forwardedFor: '198.51.100.99',
+    trustedProxyCidrs: ['10.0.0.0/8'],
+  }), '203.0.113.10');
+});
+
+test('resolveTrustedClientIp honors X-Forwarded-For only from trusted proxies', () => {
+  assert.equal(resolveTrustedClientIp({
+    remoteAddress: '10.42.0.5',
+    forwardedFor: '198.51.100.99, 10.42.0.5',
+    trustedProxyCidrs: ['10.0.0.0/8'],
+  }), '198.51.100.99');
 });
 
 test('createServer serves SKILL.md from uppercase path variants', async () => {
@@ -687,7 +703,7 @@ test('createServer rejects club-scoped polling for a bearer holder who is not a 
     const body = await response.json();
     assert.equal(response.status, 403);
     assert.equal(body.ok, false);
-    assert.equal(body.error.code, 'forbidden');
+    assert.equal(body.error.code, 'forbidden_scope');
     assert.equal(activityCalls, 0);
   } finally {
     await shutdown();
@@ -1723,6 +1739,32 @@ test('createServer rejects POST /api with wrong content-type and accepts charset
       body: JSON.stringify({ action: 'session.getContext', input: {} }),
     });
     assert.notEqual(withCharset.status, 415, 'application/json with charset should not be rejected as unsupported media type');
+  } finally {
+    await shutdown();
+  }
+});
+
+test('createServer rejects malformed Authorization headers distinctly', async () => {
+  const requestFetch = globalThis.fetch;
+  const { server, shutdown } = createServer({
+    repository: makeRepository(),
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    const port = await listenOnRandomPort(server);
+    const response = await requestFetch(`http://127.0.0.1:${port}/api`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Token cc_live_test',
+      },
+      body: JSON.stringify({ action: 'session.getContext', input: {} }),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 401);
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, 'invalid_auth_header');
   } finally {
     await shutdown();
   }

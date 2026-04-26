@@ -45,11 +45,22 @@ const CLUBADMIN_SCOPE_RULES = [
   'clubadmin actions require an explicit clubId. Use the stable clubId from session.getContext.activeMemberships; the server does not infer it from session context and does not accept clubSlug here.',
 ] as const;
 
-const CLUBADMIN_FORBIDDEN_ERROR = {
-  code: 'forbidden',
-  meaning: 'Caller is not a clubadmin in the requested club.',
-  recovery: 'Cross-check clubId against session.getContext.activeMemberships and only call clubadmin.* for clubs where role == "clubadmin".',
+const CLUBADMIN_FORBIDDEN_SCOPE_ERROR = {
+  code: 'forbidden_scope',
+  meaning: 'The requested club is outside the caller access scope.',
+  recovery: 'Cross-check clubId against session.getContext.activeMemberships before calling clubadmin.*.',
 } as const;
+
+const CLUBADMIN_FORBIDDEN_ROLE_ERROR = {
+  code: 'forbidden_role',
+  meaning: 'Caller is not a clubadmin in the requested club.',
+  recovery: 'Only call clubadmin.* for clubs where role == "clubadmin", or use a superadmin token.',
+} as const;
+
+const CLUBADMIN_AUTH_ERRORS = [
+  CLUBADMIN_FORBIDDEN_SCOPE_ERROR,
+  CLUBADMIN_FORBIDDEN_ROLE_ERROR,
+] as const;
 
 const MEMBER_STATUSES = ['active', 'cancelled'] as const;
 const CLUBADMIN_MEMBERS_PAGINATION = paginationFields({ defaultLimit: 50, maxLimit: 50 });
@@ -131,10 +142,11 @@ const clubadminMembersList: ActionDefinition = {
   domain: 'clubadmin',
   description: 'List accessible members in the specified club.',
   auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
+  businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
   wire: {
     input: z.object({
@@ -199,10 +211,11 @@ const clubadminApplicationsList: ActionDefinition = {
   domain: 'clubadmin',
   description: 'List club applications in the specified club.',
   auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
+  businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
   wire: {
     input: z.object({
@@ -261,11 +274,12 @@ const clubadminMembersUpdate: ActionDefinition = {
   domain: 'clubadmin',
   description: 'Update a member’s role and/or membership status inside one club.',
   auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
   safety: 'mutating',
   authorizationNote: 'Status changes require clubadmin or superadmin. Role changes require the club owner or a superadmin. The club owner cannot be demoted.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [
-    CLUBADMIN_FORBIDDEN_ERROR,
+    ...CLUBADMIN_AUTH_ERRORS,
     {
       code: 'invalid_state_transition',
       meaning: 'The requested membership status transition is not allowed from the current state.',
@@ -342,10 +356,11 @@ const clubadminMembersGet: ActionDefinition = {
   domain: 'clubadmin',
   description: 'Get one accessible member in the specified club.',
   auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
+  businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
   wire: {
     input: z.object({
@@ -405,10 +420,11 @@ const clubadminApplicationsGet: ActionDefinition = {
   domain: 'clubadmin',
   description: 'Get one application in the specified club.',
   auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
+  businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
   wire: {
     input: z.object({
@@ -452,11 +468,12 @@ const clubadminApplicationsDecide: ActionDefinition = {
   domain: 'clubadmin',
   description: 'Accept, decline, or ban one club application.',
   auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
   safety: 'mutating',
   authorizationNote: 'Requires club admin role in the specified club.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [
-    CLUBADMIN_FORBIDDEN_ERROR,
+    ...CLUBADMIN_AUTH_ERRORS,
     {
       code: 'application_already_decided',
       meaning: 'Another admin already accepted, declined, or banned this application.',
@@ -543,11 +560,12 @@ const clubadminClubsUpdate: ActionDefinition = {
   domain: 'clubadmin',
   description: 'Update club text as the club owner or a superadmin.',
   auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
   safety: 'mutating',
   authorizationNote: 'Requires clubadmin auth on the surface, then narrows to the club owner or a superadmin before mutation.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [
-    CLUBADMIN_FORBIDDEN_ERROR,
+    ...CLUBADMIN_AUTH_ERRORS,
     {
       code: 'club_archived',
       meaning: 'The club is archived and cannot be updated.',
@@ -634,10 +652,11 @@ const clubadminClubsStats: ActionDefinition = {
   domain: 'clubadmin',
   description: 'Get statistics for the specified club.',
   auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
+  businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
   wire: {
     input: z.object({
@@ -676,10 +695,11 @@ const clubadminContentRemove: ActionDefinition = {
   domain: 'clubadmin',
   description: 'Remove any content in the specified club (moderation).',
   auth: 'clubadmin',
+  scope: { strategy: 'rawClubId' },
   safety: 'mutating',
   authorizationNote: 'Club admin may remove any content in their club. Reason is required for moderation audit trail.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
+  businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
   wire: {
     input: z.object({

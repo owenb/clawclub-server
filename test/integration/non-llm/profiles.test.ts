@@ -169,7 +169,7 @@ describe('member profiles', () => {
     });
 
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_scope');
   });
 });
 
@@ -255,6 +255,6 @@ describe('members search & list', () => {
 
     const err = await h.apiErr(clubX.token, 'members.list', { clubId: clubY.club.id });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_scope');
   });
 });

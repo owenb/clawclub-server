@@ -91,7 +91,7 @@ test('admin actions reject non-superadmin users with 403', async () => {
     const { response, body } = await postAction(port, 'cc_live_user', 'superadmin.platform.getOverview');
     assert.equal(response.status, 403);
     assert.equal(body.ok, false);
-    assert.equal(body.error.code, 'forbidden');
+    assert.equal(body.error.code, 'forbidden_role');
   } finally {
     await shutdown();
   }

@@ -157,7 +157,7 @@ describe('clubadmin.clubs.update', () => {
       summary: 'Admin should not be allowed',
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 });
 
