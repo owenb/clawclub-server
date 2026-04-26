@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from '../../src/server.ts';
-import type { Repository } from '../../src/repository.ts';
+import { assertActionRepository, type Repository } from '../../src/repository.ts';
 import { makeAdminAuthResult, makeAuthResult, makeRepository, makeUpdatesNotifier } from './fixtures.ts';
 
 const passthroughGate = async () => ({
@@ -422,31 +422,16 @@ test('superadmin.clubs.list returns paginated clubs', async () => {
   }
 });
 
-test('superadmin.clubs.list returns not_available when listClubs capability is missing', async () => {
-  const repository: Repository = {
+test('action repository boundary rejects missing required action methods at construction', () => {
+  const repository = {
     ...makeRepository(),
-    async authenticateBearerToken(token) {
-      return token === 'cc_live_admin' ? makeAdminAuthResult() : null;
-    },
+    listClubs: undefined,
   };
 
-  const { server, shutdown } = createServer({
-    repository,
-    updatesNotifier: makeUpdatesNotifier(),
-  });
-
-  try {
-    await new Promise<void>((resolve) => server.listen(0, resolve));
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : 0;
-
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.list', {});
-    assert.equal(response.status, 501);
-    assert.equal(body.ok, false);
-    assert.equal(body.error.code, 'not_available');
-  } finally {
-    await shutdown();
-  }
+  assert.throws(
+    () => assertActionRepository(repository),
+    /Repository is missing required action method\(s\): listClubs/,
+  );
 });
 
 test('superadmin.clubs.get returns club detail with AI budget usage', async () => {

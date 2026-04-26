@@ -786,11 +786,53 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     async updateClubProfile() {
       return makeProfile();
     },
+    async loadProfileForGate() {
+      return {
+        tagline: 'Builder',
+        summary: 'Profile summary',
+        whatIDo: 'Builds useful things',
+        knownFor: 'Reliable work',
+        servicesSummary: null,
+        websiteUrl: null,
+        links: [],
+      };
+    },
+    async preflightCreateContentMentions() {},
+    async preflightUpdateContentMentions() {},
     async createContent() {
+      return withIncluded({ content: makeEntity() });
+    },
+    async readContent() {
       return withIncluded({ content: makeEntity() });
     },
     async updateContent() {
       return withIncluded({ content: makeEntity() });
+    },
+    async loadContentForGate() {
+      return {
+        contentKind: 'post' as const,
+        isReply: false,
+        title: 'Test',
+        summary: null,
+        body: 'Test body',
+        expiresAt: null,
+        event: null,
+      };
+    },
+    async resolveContentThreadClubIdForGate() {
+      return 'club-1';
+    },
+    async resolveContentClubIdForGate() {
+      return 'club-1';
+    },
+    async closeContentLoop() {
+      return withIncluded({ content: makeEntity({ openLoop: false }) });
+    },
+    async reopenContentLoop() {
+      return withIncluded({ content: makeEntity({ openLoop: true }) });
+    },
+    async removeContent() {
+      return withIncluded({ content: makeEntity({ state: 'removed' }) });
     },
     async createEvent() {
       return makeEvent();
@@ -827,6 +869,12 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
         nextCursor: null,
       });
     },
+    async listInboxSince() {
+      return { frames: [], nextCursor: null };
+    },
+    async acknowledgeDirectMessageInbox() {
+      return { threadId: 'thread-1', acknowledgedCount: 0 };
+    },
     async listClubActivity() {
       return {
         items: [],
@@ -842,6 +890,15 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
     },
     async acknowledgeNotifications() {
       return [];
+    },
+    async checkVouchTargetAccessible() {
+      return { vouchable: true };
+    },
+    async createVouch() {
+      return null;
+    },
+    async listVouches() {
+      return { results: [], hasMore: false, nextCursor: null };
     },
     async enforceContentCreateQuota() {
       return {
@@ -1557,6 +1614,7 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
   let capturedClubId: string | null = null;
 
   const repository: Repository = {
+    ...makeRepository(),
     async authenticateBearerToken() {
       return makeAuthResult();
     },
@@ -2296,6 +2354,7 @@ test('content.update rejects empty patches', async () => {
 
 test('content.update rejects non-author updates', async () => {
   const repository: Repository = {
+    ...makeRepository(),
     async authenticateBearerToken() {
       return makeAuthResult();
     },

@@ -277,7 +277,6 @@ function buildTransport(unauthenticatedActions: string[]): unknown {
       { code: 'payload_too_large', status: 413 },
       { code: 'stale_client', status: 409, meaning: 'The client cached an older schema. Refetch /api/schema and /skill, then retry.' },
       { code: 'internal_error', status: 500 },
-      { code: 'not_available', status: 501 },
       { code: 'not_implemented', status: 501 },
     ],
   };

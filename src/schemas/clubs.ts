@@ -63,7 +63,6 @@ const clubsCreate: ActionDefinition = {
   description: 'Create a new club owned by the authenticated member.',
   auth: 'member',
   safety: 'mutating',
-  requiredCapabilities: ['createClub', 'findClubBySlug', 'listClubs', 'enforceClubsCreateQuota'],
   refreshActorOnSuccess: true,
   businessErrors: [
     {
@@ -115,7 +114,7 @@ const clubsCreate: ActionDefinition = {
     }
 
     if (!replayHit) {
-      const slugMatch = await ctx.repository.findClubBySlug!({
+      const slugMatch = await ctx.repository.findClubBySlug({
         actorMemberId: ctx.actor.member.id,
         slug: parsed.slug,
       });
@@ -124,7 +123,7 @@ const clubsCreate: ActionDefinition = {
         throw new AppError('slug_conflict', 'A club with that slug already exists.');
       }
 
-      const existingClubs = await ctx.repository.listClubs!({
+      const existingClubs = await ctx.repository.listClubs({
         actorMemberId: ctx.actor.member.id,
         includeArchived: true,
         limit: 50,
@@ -137,7 +136,7 @@ const clubsCreate: ActionDefinition = {
         throw new AppError('owner_club_limit_reached', 'This member already owns the maximum number of clubs they may create themselves.');
       }
 
-      await ctx.repository.enforceClubsCreateQuota!({ memberId: ctx.actor.member.id });
+      await ctx.repository.enforceClubsCreateQuota({ memberId: ctx.actor.member.id });
       await runCreateGateCheck({
         actionName: 'clubs.create',
         actorMemberId: ctx.actor.member.id,
@@ -147,7 +146,7 @@ const clubsCreate: ActionDefinition = {
       });
     }
 
-    const club = await ctx.repository.createClub!({
+    const club = await ctx.repository.createClub({
       actorMemberId: ctx.actor.member.id,
       idempotencyActorContext: actorContext,
       idempotencyRequestValue: requestValue,
@@ -176,7 +175,6 @@ const clubsApply: ActionDefinition = {
   description: 'Submit a new application to a club using the caller’s existing bearer-authenticated account.',
   auth: 'member',
   safety: 'mutating',
-  requiredCapability: 'applyToClub',
   notes: [
     'Registration happens separately through accounts.register.',
     'A member may keep at most three live applications in flight at once.',
@@ -276,7 +274,7 @@ const clubsApply: ActionDefinition = {
       draft: { name: string; socials: string; application: string };
       clientKey: string;
     };
-    const result = await ctx.repository.applyToClub!({
+    const result = await ctx.repository.applyToClub({
       actorMemberId: ctx.actor.member.id,
       clubSlug,
       ...(invitationId ? { invitationId } : {}),
@@ -297,7 +295,6 @@ const clubsApplicationsRevise: ActionDefinition = {
   description: 'Replace the saved draft on a revision_required application and rerun the admission gate. This is only allowed while the applicant still owns the draft.',
   auth: 'member',
   safety: 'mutating',
-  requiredCapability: 'reviseClubApplication',
   businessErrors: [
     {
       code: 'quota_exceeded',
@@ -352,7 +349,7 @@ const clubsApplicationsRevise: ActionDefinition = {
       draft: { name: string; socials: string; application: string };
       clientKey: string;
     };
-    const result = await ctx.repository.reviseClubApplication!({
+    const result = await ctx.repository.reviseClubApplication({
       actorMemberId: ctx.actor.member.id,
       applicationId,
       draft,
@@ -372,7 +369,6 @@ const clubsApplicationsGet: ActionDefinition = {
   description: 'Read one application owned by the authenticated member.',
   auth: 'member',
   safety: 'read_only',
-  requiredCapability: 'getMemberApplicationById',
   wire: {
     input: z.object({
       applicationId: wireRequiredString.describe('Application to fetch'),
@@ -386,7 +382,7 @@ const clubsApplicationsGet: ActionDefinition = {
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { applicationId } = input as { applicationId: string };
-    const result = await ctx.repository.getMemberApplicationById!({
+    const result = await ctx.repository.getMemberApplicationById({
       actorMemberId: ctx.actor.member.id,
       applicationId,
     });
@@ -407,7 +403,6 @@ const clubsApplicationsList: ActionDefinition = {
   description: 'List applications owned by the authenticated member.',
   auth: 'member',
   safety: 'read_only',
-  requiredCapability: 'listMemberApplications',
   wire: {
     input: z.object({
       phases: z.array(applicationPhase).min(1).optional().describe('Optional application-phase filter. Defaults to awaiting_review + active. Include revision_required explicitly when you need saved drafts that are not yet in the admin queue.'),
@@ -430,7 +425,7 @@ const clubsApplicationsList: ActionDefinition = {
       limit: number;
       cursor: string | null;
     };
-    const result = await ctx.repository.listMemberApplications!({
+    const result = await ctx.repository.listMemberApplications({
       actorMemberId: ctx.actor.member.id,
       phases: phases ?? null,
       limit,
@@ -455,7 +450,6 @@ const clubsApplicationsWithdraw: ActionDefinition = {
   description: 'Withdraw a live application owned by the authenticated member.',
   auth: 'member',
   safety: 'mutating',
-  requiredCapability: 'withdrawClubApplication',
   businessErrors: [
     {
       code: 'application_not_mutable',
@@ -478,7 +472,7 @@ const clubsApplicationsWithdraw: ActionDefinition = {
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { applicationId, clientKey } = input as { applicationId: string; clientKey: string };
-    const result = await ctx.repository.withdrawClubApplication!({
+    const result = await ctx.repository.withdrawClubApplication({
       actorMemberId: ctx.actor.member.id,
       applicationId,
       clientKey,

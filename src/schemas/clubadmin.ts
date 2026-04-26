@@ -82,7 +82,7 @@ async function loadClubForUpdateGate(
   ctx: Pick<HandlerContext, 'repository' | 'actor'>,
   clubId: string,
 ) {
-  const club = await ctx.repository.loadClubForGate?.({
+  const club = await ctx.repository.loadClubForGate({
     actorMemberId: ctx.actor.member.id,
     clubId,
   });
@@ -202,7 +202,6 @@ const clubadminApplicationsList: ActionDefinition = {
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  requiredCapability: 'listAdminClubApplications',
   businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
 
   wire: {
@@ -230,7 +229,7 @@ const clubadminApplicationsList: ActionDefinition = {
     const { clubId, phases, limit, cursor: rawCursor } = input as ClubadminApplicationsListInput;
     const club = ctx.requireAccessibleClub(clubId);
     ctx.requireClubAdmin(clubId);
-    const result = await ctx.repository.listAdminClubApplications!({
+    const result = await ctx.repository.listAdminClubApplications({
       actorMemberId: ctx.actor.member.id,
       clubId,
       limit,
@@ -265,7 +264,6 @@ const clubadminMembersUpdate: ActionDefinition = {
   safety: 'mutating',
   authorizationNote: 'Status changes require clubadmin or superadmin. Role changes require the club owner or a superadmin. The club owner cannot be demoted.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  requiredCapability: 'updateMembership',
   businessErrors: [
     CLUBADMIN_FORBIDDEN_ERROR,
     {
@@ -316,7 +314,7 @@ const clubadminMembersUpdate: ActionDefinition = {
     }
 
     const isSuperadmin = ctx.actor.globalRoles.includes('superadmin');
-    const result = await ctx.repository.updateMembership!({
+    const result = await ctx.repository.updateMembership({
       actorMemberId: ctx.actor.member.id,
       actorIsSuperadmin: isSuperadmin,
       actorMemberships: ctx.actor.memberships,
@@ -410,7 +408,6 @@ const clubadminApplicationsGet: ActionDefinition = {
   safety: 'read_only',
   authorizationNote: 'Requires club admin role.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  requiredCapability: 'getAdminClubApplicationById',
   businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
 
   wire: {
@@ -434,7 +431,7 @@ const clubadminApplicationsGet: ActionDefinition = {
     const { clubId, applicationId } = input as { clubId: string; applicationId: string };
     ctx.requireClubAdmin(clubId);
 
-    const summary = await ctx.repository.getAdminClubApplicationById!({
+    const summary = await ctx.repository.getAdminClubApplicationById({
       actorMemberId: ctx.actor.member.id,
       clubId,
       applicationId,
@@ -458,7 +455,6 @@ const clubadminApplicationsDecide: ActionDefinition = {
   safety: 'mutating',
   authorizationNote: 'Requires club admin role in the specified club.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  requiredCapability: 'decideClubApplication',
   businessErrors: [
     CLUBADMIN_FORBIDDEN_ERROR,
     {
@@ -512,7 +508,7 @@ const clubadminApplicationsDecide: ActionDefinition = {
       clientKey: string;
     };
     ctx.requireClubAdmin(clubId);
-    const result = await ctx.repository.decideClubApplication!({
+    const result = await ctx.repository.decideClubApplication({
       actorMemberId: ctx.actor.member.id,
       actorPublicName: ctx.actor.member.publicName,
       clubId,
@@ -550,7 +546,6 @@ const clubadminClubsUpdate: ActionDefinition = {
   safety: 'mutating',
   authorizationNote: 'Requires clubadmin auth on the surface, then narrows to the club owner or a superadmin before mutation.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
-  requiredCapability: 'updateClub',
   businessErrors: [
     CLUBADMIN_FORBIDDEN_ERROR,
     {
@@ -612,7 +607,7 @@ const clubadminClubsUpdate: ActionDefinition = {
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { clubId, clientKey, ...patch } = input as ClubadminClubsUpdateInput;
-    const club = await ctx.repository.updateClub!({
+    const club = await ctx.repository.updateClub({
       actorMemberId: ctx.actor.member.id,
       clubId,
       clientKey,
@@ -644,8 +639,6 @@ const clubadminClubsStats: ActionDefinition = {
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
 
-  requiredCapability: 'adminGetClubStats',
-
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to inspect.')),
@@ -663,7 +656,7 @@ const clubadminClubsStats: ActionDefinition = {
     const { clubId } = input as { clubId: string };
     ctx.requireClubAdmin(clubId);
 
-    const stats = await ctx.repository.adminGetClubStats!({
+    const stats = await ctx.repository.adminGetClubStats({
       actorMemberId: ctx.actor.member.id,
       clubId,
     });
@@ -687,7 +680,6 @@ const clubadminContentRemove: ActionDefinition = {
   authorizationNote: 'Club admin may remove any content in their club. Reason is required for moderation audit trail.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [CLUBADMIN_FORBIDDEN_ERROR],
-  requiredCapability: 'removeContent',
 
   wire: {
     input: z.object({
@@ -710,7 +702,7 @@ const clubadminContentRemove: ActionDefinition = {
     const { clubId, id, reason } = input as { clubId: string; id: string; reason: string };
     ctx.requireClubAdmin(clubId);
 
-    const result = await ctx.repository.removeContent!({
+    const result = await ctx.repository.removeContent({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: [clubId],
       id,

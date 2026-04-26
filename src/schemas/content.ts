@@ -278,7 +278,7 @@ const contentsCreate: ActionDefinition = {
       const parsed = input as CreateInput;
       if (parsed.clubId) return parsed.clubId;
       if (!parsed.threadId) return null;
-      return ctx.repository.resolveContentThreadClubIdForGate?.({
+      return ctx.repository.resolveContentThreadClubIdForGate({
         actorMemberId: ctx.actor.member.id,
         threadId: parsed.threadId,
         accessibleClubIds: membershipScopes(ctx.actor.memberships).clubIds,
@@ -310,7 +310,7 @@ const contentsCreate: ActionDefinition = {
     if (!parsed.threadId && !parsed.clubId) {
       throw new AppError('invalid_input', 'clubId is required when starting a new thread');
     }
-    await ctx.repository.preflightCreateContentMentions?.({
+    await ctx.repository.preflightCreateContentMentions({
       actorMemberId: ctx.actor.member.id,
       actorClubIds: membershipScopes(ctx.actor.memberships).clubIds,
       clubId: parsed.clubId,
@@ -363,7 +363,7 @@ type UpdateInput = {
 };
 
 async function buildUpdateArtifact(input: UpdateInput, ctx: LlmGateBuildContext): Promise<NonApplicationArtifact> {
-  const current = await ctx.repository.loadContentForGate?.({
+  const current = await ctx.repository.loadContentForGate({
     actorMemberId: ctx.actor.member.id,
     id: input.id,
     accessibleClubIds: membershipScopes(ctx.actor.memberships).clubIds,
@@ -442,7 +442,7 @@ function contentUpdateHasEffectiveChange(
 }
 
 async function isContentUpdateNoOp(input: UpdateInput, ctx: LlmGateBuildContext): Promise<boolean> {
-  const current = await ctx.repository.loadContentForGate?.({
+  const current = await ctx.repository.loadContentForGate({
     actorMemberId: ctx.actor.member.id,
     id: input.id,
     accessibleClubIds: membershipScopes(ctx.actor.memberships).clubIds,
@@ -499,7 +499,7 @@ const contentsUpdate: ActionDefinition = {
     },
     async resolveBudgetClubId(input, ctx): Promise<string | null> {
       const parsed = input as UpdateInput;
-      return ctx.repository.resolveContentClubIdForGate?.({
+      return ctx.repository.resolveContentClubIdForGate({
         actorMemberId: ctx.actor.member.id,
         contentId: parsed.id,
         accessibleClubIds: membershipScopes(ctx.actor.memberships).clubIds,
@@ -529,7 +529,7 @@ const contentsUpdate: ActionDefinition = {
   preGate: async (input, ctx) => {
     const parsed = input as UpdateInput;
     validateUpdateEventPatch(parsed.event);
-    await ctx.repository.preflightUpdateContentMentions?.({
+    await ctx.repository.preflightUpdateContentMentions({
       actorMemberId: ctx.actor.member.id,
       actorClubIds: membershipScopes(ctx.actor.memberships).clubIds,
       id: parsed.id,
@@ -609,12 +609,10 @@ const contentsRemove: ActionDefinition = {
     }),
   },
 
-  requiredCapability: 'removeContent',
-
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { id, reason } = input as { id: string; reason: string | null };
 
-    const result = await ctx.repository.removeContent!({
+    const result = await ctx.repository.removeContent({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: membershipScopes(ctx.actor.memberships).clubIds,
       id,

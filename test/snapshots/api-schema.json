@@ -19317,15 +19317,11 @@
         "status": 500
       },
       {
-        "code": "not_available",
-        "status": 501
-      },
-      {
         "code": "not_implemented",
         "status": 501
       }
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "36b6c218865098c2"
+  "schemaHash": "6e29cba5071fb57c"
 }

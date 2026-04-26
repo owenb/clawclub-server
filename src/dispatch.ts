@@ -12,8 +12,6 @@
  * Behavioral change from previous code:
  *   - Legality gate now runs AFTER authentication (previously ran before auth,
  *     wasting LLM calls on unauthenticated requests).
- *   - Missing repository capabilities consistently return 501 'not_available'
- *     (previously mixed 500 'not_supported' and 501 'not_implemented').
  *
  * Any anonymous rate limiting is handled in server.ts before dispatch,
  * since it requires IP-level context that doesn't belong in the action layer.
@@ -37,7 +35,6 @@ import {
   type HandlerContext,
   type ColdHandlerContext,
   type OptionalHandlerContext,
-  type RepositoryCapability,
 } from './schemas/registry.ts';
 import {
   checkLlmGate as defaultCheckLlmGate,
@@ -135,28 +132,6 @@ function createResolveScopedClubs(actor: AuthenticatedActor) {
     }
     return actor.memberships;
   };
-}
-
-// ── Capability check ─────────────────────────────────────
-
-function checkCapability(
-  repository: Repository,
-  capability: RepositoryCapability,
-  action: string,
-): void {
-  if (!(repository as Record<string, unknown>)[capability]) {
-    throw new AppError('not_available', `Action ${action} is not available in this deployment`);
-  }
-}
-
-function checkRequiredCapabilities(
-  repository: Repository,
-  def: Pick<ActionDefinition, 'requiredCapabilities'>,
-  action: string,
-): void {
-  for (const capability of def.requiredCapabilities ?? []) {
-    checkCapability(repository, capability, action);
-  }
 }
 
 function preAuthorizeAuthenticatedAction(
@@ -619,7 +594,6 @@ async function dispatchCold(
   repository: Repository,
   runLlmGate: LlmGateFn,
 ) {
-  checkRequiredCapabilities(repository, def, actionName);
 
   // Parse
   const parsedInput = parseActionInput(def, payload);
@@ -669,8 +643,6 @@ async function dispatchOptionalMember(
       activeClubIds: auth.requestScope.activeClubIds,
     };
   }
-
-  checkRequiredCapabilities(repository, def, actionName);
 
   const parsedInput = parseActionInput(def, payload);
 
@@ -808,7 +780,6 @@ async function dispatchAuthenticated(
   return executeWithClientKeyBarrierIfPresent(def, parsedInput, actor, repository, async () => {
     await maybeFireReplayAwareRequestLog();
     preAuthorizeAuthenticatedAction(def, parsedInput, actor);
-    checkRequiredCapabilities(repository, def, actionName);
     const requireAccessibleClub = createRequireAccessibleClub(actor);
     const requireClubAdmin = createRequireClubAdmin(actor);
     const requireClubOwner = createRequireClubOwner(actor);

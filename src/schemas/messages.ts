@@ -220,12 +220,10 @@ const messagesRemove: ActionDefinition = {
     }),
   },
 
-  requiredCapability: 'removeMessage',
-
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { messageId, reason } = input as RemoveInput;
 
-    const result = await ctx.repository.removeMessage!({
+    const result = await ctx.repository.removeMessage({
       actorMemberId: ctx.actor.member.id,
       accessibleClubIds: membershipScopes(ctx.actor.memberships).clubIds,
       messageId,

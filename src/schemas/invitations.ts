@@ -147,7 +147,6 @@ const invitationsIssue: ActionDefinition = {
   description: 'Issue a new invitation for a candidate in a specific club.',
   auth: 'member',
   safety: 'mutating',
-  requiredCapability: 'issueInvitation',
   notes: [
     'Existing registered members can be targeted by candidateMemberId or by candidateEmail. If the email belongs to an active member, the server upgrades the invitation to in-app delivery automatically and no code is issued.',
     'Issuing an invitation never grants membership by itself. Existing members apply through clubs.apply; external invitees redeem a code and then submit an application.',
@@ -227,12 +226,12 @@ const invitationsIssue: ActionDefinition = {
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const parsed = input as InvitationsIssueInput;
-    const target = await ctx.repository.resolveInvitationTarget!({
+    const target = await ctx.repository.resolveInvitationTarget({
       candidateMemberId: parsed.candidateMemberId,
       candidateEmail: parsed.candidateEmail,
       candidateName: parsed.candidateName ?? null,
     });
-    const result = await ctx.repository.issueInvitation!({
+    const result = await ctx.repository.issueInvitation({
       actorMemberId: ctx.actor.member.id,
       idempotencyActorContext: `member:${ctx.actor.member.id}:invitations.issue`,
       idempotencyRequestValue: {
@@ -260,7 +259,6 @@ const invitationsListMine: ActionDefinition = {
   description: 'List invitations issued by the calling member.',
   auth: 'member',
   safety: 'read_only',
-  requiredCapability: 'listIssuedInvitations',
   notes: [
     'Each invitation includes quotaState so sponsors can see whether it still occupies one of their live invitation slots.',
     'Sponsors can recover a forgotten invitation code from the code field on their own code-backed invitations.',
@@ -288,7 +286,7 @@ const invitationsListMine: ActionDefinition = {
       cursor: string | null;
     };
     const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, invitationId]) => ({ createdAt, invitationId }));
-    const invitations = await ctx.repository.listIssuedInvitations!({
+    const invitations = await ctx.repository.listIssuedInvitations({
       actorMemberId: ctx.actor.member.id,
       clubId,
       status,
@@ -308,7 +306,6 @@ const invitationsRevoke: ActionDefinition = {
   description: 'Revoke one invitation issued by the caller or administered by the caller.',
   auth: 'member',
   safety: 'mutating',
-  requiredCapability: 'revokeInvitation',
   businessErrors: [
     {
       code: 'forbidden',
@@ -346,7 +343,7 @@ const invitationsRevoke: ActionDefinition = {
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { invitationId } = input as { invitationId: string };
-    const invitation = await ctx.repository.revokeInvitation!({
+    const invitation = await ctx.repository.revokeInvitation({
       actorMemberId: ctx.actor.member.id,
       invitationId,
       adminClubIds: membershipScopes(ctx.actor.memberships).adminClubIds,
@@ -367,7 +364,6 @@ const invitationsRedeem: ActionDefinition = {
   description: 'Redeem an external invitation code and submit the linked club application using the caller’s existing account.',
   auth: 'member',
   safety: 'mutating',
-  requiredCapability: 'redeemInvitationApplication',
   notes: [
     'Use invitations.redeem only for code-backed external invitations.',
     'Existing registered members who were invited in-app should call clubs.apply instead. They do not redeem a code.',
@@ -456,7 +452,7 @@ const invitationsRedeem: ActionDefinition = {
       draft: { name: string; socials: string; application: string };
       clientKey: string;
     };
-    const result = await ctx.repository.redeemInvitationApplication!({
+    const result = await ctx.repository.redeemInvitationApplication({
       actorMemberId: ctx.actor.member.id,
       code,
       draft,

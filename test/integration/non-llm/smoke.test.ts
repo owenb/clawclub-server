@@ -330,14 +330,14 @@ describe('smoke', () => {
 
     // Transport error codes
     const errorCodes = transport.transportErrorCodes as Array<Record<string, unknown>>;
-    assert.ok(errorCodes.length >= 12, 'should have all transport error codes');
+    assert.ok(errorCodes.length >= 11, 'should have all transport error codes');
     const codes = errorCodes.map(e => e.code);
     assert.ok(codes.includes('invalid_input'));
     assert.ok(codes.includes('unauthorized'));
     assert.ok(codes.includes('unknown_action'));
     assert.ok(codes.includes('not_found'), 'should include not_found for unsupported routes');
     assert.equal(codes.includes('too_many_streams'), false, 'should not advertise retired stream-cap errors');
-    assert.ok(codes.includes('not_available'), 'should include not_available for missing capabilities');
+    assert.equal(codes.includes('not_available'), false, 'should not advertise retired capability checks');
     assert.ok(codes.includes('stale_client'), 'should include stale_client for schema refresh mismatches');
 
     // schemaHash covers full payload

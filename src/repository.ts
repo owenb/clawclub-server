@@ -122,6 +122,118 @@ export type {
 export type Paginated<T> = { results: T[]; hasMore: boolean; nextCursor: string | null };
 export { AppError } from './errors.ts';
 
+export const ACTION_REPOSITORY_METHODS = [
+  'authenticateBearerToken',
+  'registerAccount',
+  'updateContactEmail',
+  'applyToClub',
+  'redeemInvitationApplication',
+  'reviseClubApplication',
+  'getMemberApplicationById',
+  'listMemberApplications',
+  'withdrawClubApplication',
+  'listAdminClubApplications',
+  'getAdminClubApplicationById',
+  'decideClubApplication',
+  'resolveInvitationTarget',
+  'issueInvitation',
+  'listIssuedInvitations',
+  'revokeInvitation',
+  'findClubBySlug',
+  'listClubs',
+  'createClub',
+  'archiveClub',
+  'assignClubOwner',
+  'updateClub',
+  'removeClub',
+  'listRemovedClubs',
+  'restoreRemovedClub',
+  'loadClubForGate',
+  'enforceClubsCreateQuota',
+  'enforceContentCreateQuota',
+  'createMembership',
+  'transitionMembershipState',
+  'updateMembership',
+  'listMembers',
+  'getMember',
+  'listAdminMembers',
+  'getAdminMember',
+  'buildMembershipSeedProfile',
+  'updateMemberIdentity',
+  'updateClubProfile',
+  'loadProfileForGate',
+  'preflightCreateContentMentions',
+  'preflightUpdateContentMentions',
+  'createContent',
+  'readContent',
+  'updateContent',
+  'loadContentForGate',
+  'resolveContentThreadClubIdForGate',
+  'resolveContentClubIdForGate',
+  'closeContentLoop',
+  'reopenContentLoop',
+  'removeContent',
+  'listContent',
+  'readContentThread',
+  'listEvents',
+  'rsvpEvent',
+  'cancelEventRsvp',
+  'listBearerTokens',
+  'createBearerToken',
+  'revokeBearerToken',
+  'listClubActivity',
+  'listNotifications',
+  'acknowledgeNotifications',
+  'sendDirectMessage',
+  'listDirectMessageThreads',
+  'listDirectMessageInbox',
+  'readDirectMessageThread',
+  'listInboxSince',
+  'acknowledgeDirectMessageInbox',
+  'checkVouchTargetAccessible',
+  'createVouch',
+  'listVouches',
+  'promoteMemberToAdmin',
+  'demoteMemberFromAdmin',
+  'getQuotaStatus',
+  'removeMessage',
+  'adminCreateMember',
+  'adminCreateMembership',
+  'adminGetOverview',
+  'adminListMembers',
+  'adminGetMember',
+  'adminRemoveMember',
+  'adminGetClub',
+  'adminGetClubStats',
+  'adminListContent',
+  'adminListThreads',
+  'adminReadThread',
+  'adminListMemberTokens',
+  'adminRevokeMemberToken',
+  'adminCreateAccessToken',
+  'adminCreateNotificationProducer',
+  'adminRotateNotificationProducerSecret',
+  'adminUpdateNotificationProducerStatus',
+  'adminUpdateNotificationProducerTopicStatus',
+  'adminGetDiagnostics',
+  'authenticateProducer',
+  'deliverProducerNotifications',
+  'acknowledgeProducerNotifications',
+  'logApiRequest',
+  'fullTextSearchMembers',
+  'findMembersViaEmbedding',
+  'findContentViaEmbedding',
+] as const;
+
+export type ActionRepositoryMethod = typeof ACTION_REPOSITORY_METHODS[number];
+
+export function assertActionRepository(repository: Partial<Record<ActionRepositoryMethod, unknown>>): asserts repository is Repository {
+  const missing = ACTION_REPOSITORY_METHODS.filter((method) => typeof repository[method] !== 'function');
+  if (missing.length > 0) {
+    throw new Error(`Repository is missing required action method(s): ${missing.join(', ')}`);
+  }
+}
+
 export type CreateMembershipInput = {
   actorMemberId: string;
   clubId: string;
@@ -502,7 +614,7 @@ export type CheckVouchTargetAccessibleInput = {
 export type Repository = {
   authenticateBearerToken(bearerToken: string): Promise<AuthResult | null>;
   validateBearerTokenPassive?(bearerToken: string): Promise<AuthResult | null>;
-  registerAccount?(input: {
+  registerAccount(input: {
     clientKey?: string;
     mode: 'discover' | 'submit';
     name?: string;
@@ -511,58 +623,58 @@ export type Repository = {
     nonce?: string;
     invitationCode?: string;
   }): Promise<Record<string, unknown>>;
-  updateContactEmail?(input: {
+  updateContactEmail(input: {
     actorMemberId: string;
     newEmail: string;
     clientKey: string;
   }): Promise<Record<string, unknown>>;
-  applyToClub?(input: {
+  applyToClub(input: {
     actorMemberId: string;
     clubSlug: string;
     invitationId?: string;
     draft: { name: string; socials: string; application: string };
     clientKey: string;
   }): Promise<Record<string, unknown>>;
-  redeemInvitationApplication?(input: {
+  redeemInvitationApplication(input: {
     actorMemberId: string;
     code: string;
     draft: { name: string; socials: string; application: string };
     clientKey: string;
   }): Promise<Record<string, unknown>>;
-  reviseClubApplication?(input: {
+  reviseClubApplication(input: {
     actorMemberId: string;
     applicationId: string;
     draft: { name: string; socials: string; application: string };
     clientKey: string;
   }): Promise<Record<string, unknown>>;
-  getMemberApplicationById?(input: {
+  getMemberApplicationById(input: {
     actorMemberId: string;
     applicationId: string;
   }): Promise<Record<string, unknown> | null>;
-  listMemberApplications?(input: {
+  listMemberApplications(input: {
     actorMemberId: string;
     phases?: string[] | null;
     limit: number;
     cursor?: { submittedAt: string; applicationId: string } | null;
   }): Promise<{ results: Record<string, unknown>[]; hasMore: boolean; nextCursor: string | null }>;
-  withdrawClubApplication?(input: {
+  withdrawClubApplication(input: {
     actorMemberId: string;
     applicationId: string;
     clientKey: string;
   }): Promise<Record<string, unknown> | null>;
-  listAdminClubApplications?(input: {
+  listAdminClubApplications(input: {
     actorMemberId: string;
     clubId: string;
     phases?: string[] | null;
     limit: number;
     cursor?: { submittedAt: string; applicationId: string } | null;
   }): Promise<{ results: Record<string, unknown>[]; hasMore: boolean; nextCursor: string | null }>;
-  getAdminClubApplicationById?(input: {
+  getAdminClubApplicationById(input: {
     actorMemberId: string;
     clubId: string;
     applicationId: string;
   }): Promise<Record<string, unknown> | null>;
-  decideClubApplication?(input: {
+  decideClubApplication(input: {
     actorMemberId: string;
     actorPublicName?: string;
     clubId: string;
@@ -571,51 +683,51 @@ export type Repository = {
     adminNote?: string | null;
     clientKey: string;
   }): Promise<Record<string, unknown> | null>;
-  resolveInvitationTarget?(input: ResolveInvitationTargetInput): Promise<ResolvedInvitationTarget>;
-  issueInvitation?(input: IssueInvitationInput): Promise<{ invitation: InvitationSummary } | null>;
-  listIssuedInvitations?(input: {
+  resolveInvitationTarget(input: ResolveInvitationTargetInput): Promise<ResolvedInvitationTarget>;
+  issueInvitation(input: IssueInvitationInput): Promise<{ invitation: InvitationSummary } | null>;
+  listIssuedInvitations(input: {
     actorMemberId: string;
     clubId?: string;
     status?: InvitationStatus;
     limit: number;
     cursor?: { createdAt: string; invitationId: string } | null;
   }): Promise<Paginated<InvitationSummary>>;
-  revokeInvitation?(input: {
+  revokeInvitation(input: {
     actorMemberId: string;
     invitationId: string;
     adminClubIds?: string[];
   }): Promise<InvitationSummary | null>;
-  findClubBySlug?(input: { actorMemberId: string; slug: string }): Promise<ClubSummary | null>;
-  listClubs?(input: {
+  findClubBySlug(input: { actorMemberId: string; slug: string }): Promise<ClubSummary | null>;
+  listClubs(input: {
     actorMemberId: string;
     includeArchived: boolean;
     limit: number;
     cursor?: { archivedAt: string; name: string; clubId: string } | null;
   }): Promise<Paginated<ClubSummary>>;
-  createClub?(input: CreateClubInput): Promise<ClubSummary | null>;
-  archiveClub?(input: ArchiveClubInput): Promise<ClubSummary | null>;
-  assignClubOwner?(input: AssignClubOwnerInput): Promise<ClubSummary | null>;
-  updateClub?(input: UpdateClubInput): Promise<ClubSummary | null>;
-  removeClub?(input: RemoveClubInput): Promise<{
+  createClub(input: CreateClubInput): Promise<ClubSummary | null>;
+  archiveClub(input: ArchiveClubInput): Promise<ClubSummary | null>;
+  assignClubOwner(input: AssignClubOwnerInput): Promise<ClubSummary | null>;
+  updateClub(input: UpdateClubInput): Promise<ClubSummary | null>;
+  removeClub(input: RemoveClubInput): Promise<{
     archiveId: string;
     clubId: string;
     clubSlug: string;
     removedAt: string;
     retainedUntil: string;
   } | null>;
-  listRemovedClubs?(input: {
+  listRemovedClubs(input: {
     actorMemberId: string;
     limit: number;
     cursor?: { removedAt: string; archiveId: string } | null;
     clubSlug?: string | null;
   }): Promise<Paginated<RemovedClubSummary>>;
-  restoreRemovedClub?(input: RestoreRemovedClubInput): Promise<ClubSummary | null>;
-  loadClubForGate?(input: { actorMemberId: string; clubId: string }): Promise<ClubForGate | null>;
-  enforceClubsCreateQuota?(input: { memberId: string }): Promise<QuotaAllowance>;
-  enforceContentCreateQuota?(input: { memberId: string; clubId: string }): Promise<QuotaAllowance>;
+  restoreRemovedClub(input: RestoreRemovedClubInput): Promise<ClubSummary | null>;
+  loadClubForGate(input: { actorMemberId: string; clubId: string }): Promise<ClubForGate | null>;
+  enforceClubsCreateQuota(input: { memberId: string }): Promise<QuotaAllowance>;
+  enforceContentCreateQuota(input: { memberId: string; clubId: string }): Promise<QuotaAllowance>;
   createMembership(input: CreateMembershipInput): Promise<MembershipAdminSummary | null>;
   transitionMembershipState(input: TransitionMembershipInput): Promise<MembershipAdminSummary | null>;
-  updateMembership?(input: UpdateMembershipInput): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
+  updateMembership(input: UpdateMembershipInput): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
   listMembers(input: {
     actorMemberId: string;
     clubId: string;
@@ -640,17 +752,17 @@ export type Repository = {
     clubId: string;
     memberId: string;
   }): Promise<AdminMemberSummary | null>;
-  buildMembershipSeedProfile?(input: {
+  buildMembershipSeedProfile(input: {
     memberId: string;
     clubId: string;
   }): Promise<ClubProfileFields>;
-  updateMemberIdentity?(input: { actor: AuthenticatedActor; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
-  updateClubProfile?(input: { actor: AuthenticatedActor; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
-  loadProfileForGate?(input: {
+  updateMemberIdentity(input: { actor: AuthenticatedActor; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
+  updateClubProfile(input: { actor: AuthenticatedActor; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
+  loadProfileForGate(input: {
     actorMemberId: string;
     clubId: string;
   }): Promise<ProfileForGate | null>;
-  preflightCreateContentMentions?(input: {
+  preflightCreateContentMentions(input: {
     actorMemberId: string;
     actorClubIds: string[];
     clubId?: string;
@@ -660,7 +772,7 @@ export type Repository = {
     body: string | null;
     clientKey?: string | null;
   }): Promise<void>;
-  preflightUpdateContentMentions?(input: {
+  preflightUpdateContentMentions(input: {
     actorMemberId: string;
     actorClubIds: string[];
     id: string;
@@ -671,26 +783,26 @@ export type Repository = {
     };
   }): Promise<void>;
   createContent(input: CreateContentInput): Promise<WithIncluded<{ content: Content }>>;
-  readContent?(input: ReadContentInput): Promise<WithIncluded<{ content: Content }> | null>;
+  readContent(input: ReadContentInput): Promise<WithIncluded<{ content: Content }> | null>;
   updateContent(input: UpdateContentInput): Promise<WithIncluded<{ content: Content }> | null>;
-  loadContentForGate?(input: {
+  loadContentForGate(input: {
     actorMemberId: string;
     id: string;
     accessibleClubIds: string[];
   }): Promise<ContentForGate | null>;
-  resolveContentThreadClubIdForGate?(input: {
+  resolveContentThreadClubIdForGate(input: {
     actorMemberId: string;
     threadId: string;
     accessibleClubIds: string[];
   }): Promise<string | null>;
-  resolveContentClubIdForGate?(input: {
+  resolveContentClubIdForGate(input: {
     actorMemberId: string;
     contentId: string;
     accessibleClubIds: string[];
   }): Promise<string | null>;
   closeContentLoop(input: SetContentLoopInput): Promise<WithIncluded<{ content: Content }> | null>;
   reopenContentLoop(input: SetContentLoopInput): Promise<WithIncluded<{ content: Content }> | null>;
-  removeContent?(input: RemoveContentInput): Promise<WithIncluded<{ content: Content }> | null>;
+  removeContent(input: RemoveContentInput): Promise<WithIncluded<{ content: Content }> | null>;
   listContent(input: ListContentInput): Promise<WithIncluded<Paginated<ContentThread>>>;
   readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: ContentThread; contents: Content[]; hasMore: boolean; nextCursor: string | null }> | null>;
   listEvents(input: ListEventsInput): Promise<WithIncluded<Paginated<Content>>>;
@@ -745,14 +857,14 @@ export type Repository = {
   checkVouchTargetAccessible(input: CheckVouchTargetAccessibleInput): Promise<{ vouchable: boolean }>;
   createVouch(input: CreateVouchInput): Promise<MembershipVouchSummary | null>;
   listVouches(input: { actorMemberId: string; clubIds: string[]; targetMemberId: string; limit: number; cursor?: { createdAt: string; edgeId: string } | null }): Promise<Paginated<MembershipVouchSummary>>;
-  promoteMemberToAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
-  demoteMemberFromAdmin?(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
+  promoteMemberToAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
+  demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
   getQuotaStatus(input: { actorMemberId: string; clubIds: string[]; memberships?: Array<{ clubId: string; role: 'member' | 'clubadmin'; isOwner: boolean }> }): Promise<QuotaAllowance[]>;
 
-  removeMessage?(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
+  removeMessage(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 
-  adminCreateMember?(input: { actorMemberId: string; publicName: string; email: string }): Promise<{ member: MemberRef; token: CreatedBearerToken }>;
-  adminCreateMembership?(input: {
+  adminCreateMember(input: { actorMemberId: string; publicName: string; email: string }): Promise<{ member: MemberRef; token: CreatedBearerToken }>;
+  adminCreateMembership(input: {
     actorMemberId: string;
     clubId: string;
     memberId: string;
@@ -765,23 +877,23 @@ export type Repository = {
       generationSource: 'membership_seed' | 'application_generated';
     };
   }): Promise<MembershipAdminSummary | null>;
-  adminGetOverview?(input: { actorMemberId: string }): Promise<AdminOverview>;
-  adminListMembers?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<SuperadminMemberSummary>>;
-  adminGetMember?(input: { actorMemberId: string; memberId: string }): Promise<SuperadminMemberDetail | null>;
-  adminRemoveMember?(input: RemoveMemberInput): Promise<RemovedMemberSummary | null>;
-  adminGetClub?(input: { actorMemberId: string; clubId: string }): Promise<SuperadminClubDetail | null>;
-  adminGetClubStats?(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
-  adminListContent?(input: { actorMemberId: string; clubId?: string; kind?: ContentKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<WithIncluded<Paginated<AdminContentSummary>>>;
-  adminListThreads?(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminThreadSummary>>;
-  adminReadThread?(input: {
+  adminGetOverview(input: { actorMemberId: string }): Promise<AdminOverview>;
+  adminListMembers(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<SuperadminMemberSummary>>;
+  adminGetMember(input: { actorMemberId: string; memberId: string }): Promise<SuperadminMemberDetail | null>;
+  adminRemoveMember(input: RemoveMemberInput): Promise<RemovedMemberSummary | null>;
+  adminGetClub(input: { actorMemberId: string; clubId: string }): Promise<SuperadminClubDetail | null>;
+  adminGetClubStats(input: { actorMemberId: string; clubId: string }): Promise<AdminClubStats | null>;
+  adminListContent(input: { actorMemberId: string; clubId?: string; kind?: ContentKind; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<WithIncluded<Paginated<AdminContentSummary>>>;
+  adminListThreads(input: { actorMemberId: string; limit: number; cursor?: { createdAt: string; id: string } | null }): Promise<Paginated<AdminThreadSummary>>;
+  adminReadThread(input: {
     actorMemberId: string;
     threadId: string;
     limit: number;
     cursor?: { createdAt: string; messageId: string } | null;
   }): Promise<WithIncluded<{ thread: AdminThreadSummary; messages: Paginated<DirectMessageEntry> }> | null>;
-  adminListMemberTokens?(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
-  adminRevokeMemberToken?(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
-  adminCreateAccessToken?(input: {
+  adminListMemberTokens(input: { actorMemberId: string; memberId: string }): Promise<BearerTokenSummary[]>;
+  adminRevokeMemberToken(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
+  adminCreateAccessToken(input: {
     actorMemberId: string;
     memberId: string;
     label?: string | null;
@@ -789,7 +901,7 @@ export type Repository = {
     reason?: string | null;
     metadata?: Record<string, unknown>;
   }): Promise<CreatedBearerToken | null>;
-  adminCreateNotificationProducer?(input: {
+  adminCreateNotificationProducer(input: {
     actorMemberId: string;
     producerId: string;
     namespacePrefix: string;
@@ -802,28 +914,28 @@ export type Repository = {
       status?: 'active' | 'disabled';
     }>;
   }): Promise<CreatedNotificationProducer>;
-  adminRotateNotificationProducerSecret?(input: {
+  adminRotateNotificationProducerSecret(input: {
     actorMemberId: string;
     producerId: string;
   }): Promise<RotatedNotificationProducerSecret | null>;
-  adminUpdateNotificationProducerStatus?(input: {
+  adminUpdateNotificationProducerStatus(input: {
     actorMemberId: string;
     producerId: string;
     status: 'active' | 'disabled';
   }): Promise<NotificationProducerSummary | null>;
-  adminUpdateNotificationProducerTopicStatus?(input: {
+  adminUpdateNotificationProducerTopicStatus(input: {
     actorMemberId: string;
     producerId: string;
     topic: string;
     status: 'active' | 'disabled';
   }): Promise<NotificationProducerTopicSummary | null>;
-  adminGetDiagnostics?(input: { actorMemberId: string }): Promise<AdminDiagnostics>;
+  adminGetDiagnostics(input: { actorMemberId: string }): Promise<AdminDiagnostics>;
 
-  authenticateProducer?(input: {
+  authenticateProducer(input: {
     producerId: string;
     secret: string;
   }): Promise<{ producerId: string; status: 'active' | 'disabled' } | null>;
-  deliverProducerNotifications?(input: {
+  deliverProducerNotifications(input: {
     producerId: string;
     notifications: Array<{
       topic: string;
@@ -857,7 +969,7 @@ export type Repository = {
       | 'ref_club_mismatch';
     notificationId: string | null;
   }>>;
-  acknowledgeProducerNotifications?(input: {
+  acknowledgeProducerNotifications(input: {
     producerId: string;
     notificationIds: string[];
   }): Promise<Array<{

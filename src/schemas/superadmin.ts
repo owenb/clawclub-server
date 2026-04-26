@@ -71,7 +71,7 @@ async function loadClubForUpdateGate(
   ctx: Pick<HandlerContext, 'repository' | 'actor'>,
   clubId: string,
 ) {
-  const club = await ctx.repository.loadClubForGate?.({
+  const club = await ctx.repository.loadClubForGate({
     actorMemberId: ctx.actor.member.id,
     clubId,
   });
@@ -122,8 +122,6 @@ const superadminOverview: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  requiredCapability: 'adminGetOverview',
-
   wire: {
     input: z.object({}),
     output: z.object({ overview: adminOverview }),
@@ -135,7 +133,7 @@ const superadminOverview: ActionDefinition = {
 
   async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const overview = await ctx.repository.adminGetOverview!({ actorMemberId: ctx.actor.member.id });
+    const overview = await ctx.repository.adminGetOverview({ actorMemberId: ctx.actor.member.id });
     return { data: { overview } };
   },
 };
@@ -153,8 +151,6 @@ const superadminMembersList: ActionDefinition = {
   description: 'List all members with summary info.',
   auth: 'superadmin',
   safety: 'read_only',
-
-  requiredCapability: 'adminListMembers',
 
   wire: {
     input: z.object({
@@ -174,7 +170,7 @@ const superadminMembersList: ActionDefinition = {
     const { limit, cursor: rawCursor } = input as SuperadminMembersListInput;
     const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, id]) => ({ createdAt, id }));
 
-    const result = await ctx.repository.adminListMembers!({
+    const result = await ctx.repository.adminListMembers({
       actorMemberId: ctx.actor.member.id,
       limit,
       cursor,
@@ -193,8 +189,6 @@ const superadminMembersGet: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  requiredCapability: 'adminGetMember',
-
   wire: {
     input: z.object({
       memberId: wireRequiredString.describe('Member to inspect'),
@@ -212,7 +206,7 @@ const superadminMembersGet: ActionDefinition = {
     ctx.requireSuperadmin();
     const { memberId } = input as { memberId: string };
 
-    const member = await ctx.repository.adminGetMember!({
+    const member = await ctx.repository.adminGetMember({
       actorMemberId: ctx.actor.member.id,
       memberId,
     });
@@ -240,8 +234,6 @@ const superadminMembersRemove: ActionDefinition = {
   description: 'Permanently remove a member and the rows that should disappear with them.',
   auth: 'superadmin',
   safety: 'mutating',
-
-  requiredCapability: 'adminRemoveMember',
 
   wire: {
     input: z.object({
@@ -272,7 +264,7 @@ const superadminMembersRemove: ActionDefinition = {
     ctx.requireSuperadmin();
     const { clientKey, memberId, confirmPublicName, reason } = input as SuperadminMembersRemoveInput;
 
-    const removedMember = await ctx.repository.adminRemoveMember!({
+    const removedMember = await ctx.repository.adminRemoveMember({
       actorMemberId: ctx.actor.member.id,
       idempotencyActorContext: `superadmin:${ctx.actor.member.id}:members.remove:${memberId}`,
       idempotencyRequestValue: input,
@@ -299,8 +291,6 @@ const superadminDiagnosticsHealth: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  requiredCapability: 'adminGetDiagnostics',
-
   wire: {
     input: z.object({}),
     output: z.object({ diagnostics: adminDiagnostics }),
@@ -312,7 +302,7 @@ const superadminDiagnosticsHealth: ActionDefinition = {
 
   async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const diagnostics = await ctx.repository.adminGetDiagnostics!({ actorMemberId: ctx.actor.member.id });
+    const diagnostics = await ctx.repository.adminGetDiagnostics({ actorMemberId: ctx.actor.member.id });
     return { data: { diagnostics } };
   },
 };
@@ -331,7 +321,6 @@ const superadminClubsList: ActionDefinition = {
   description: 'List all clubs (superadmin only).',
   auth: 'superadmin',
   safety: 'read_only',
-  requiredCapability: 'listClubs',
 
   wire: {
     input: z.object({
@@ -355,7 +344,7 @@ const superadminClubsList: ActionDefinition = {
     const { includeArchived, limit, cursor: rawCursor } = input as ClubsListInput;
     const cursor = decodeOptionalCursor(rawCursor, 3, ([archivedAt, name, clubId]) => ({ archivedAt, name, clubId }));
 
-    const clubs = await ctx.repository.listClubs!({
+    const clubs = await ctx.repository.listClubs({
       actorMemberId: ctx.actor.member.id,
       includeArchived,
       limit,
@@ -377,8 +366,6 @@ const superadminClubsGet: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  requiredCapability: 'adminGetClub',
-
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe('Club to inspect'),
@@ -395,7 +382,7 @@ const superadminClubsGet: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     const { clubId } = input as { clubId: string };
-    const club = await ctx.repository.adminGetClub!({
+    const club = await ctx.repository.adminGetClub({
       actorMemberId: ctx.actor.member.id,
       clubId,
     });
@@ -426,8 +413,6 @@ const superadminClubsCreate: ActionDefinition = {
   auth: 'superadmin',
   safety: 'mutating',
   refreshActorOnSuccess: true,
-
-  requiredCapabilities: ['createClub', 'findClubBySlug', 'adminGetMember'],
 
   wire: {
     input: z.object({
@@ -482,7 +467,7 @@ const superadminClubsCreate: ActionDefinition = {
     }
 
     if (!replayHit) {
-      const existingClub = await ctx.repository.findClubBySlug!({
+      const existingClub = await ctx.repository.findClubBySlug({
         actorMemberId: ctx.actor.member.id,
         slug: parsed.slug,
       });
@@ -490,7 +475,7 @@ const superadminClubsCreate: ActionDefinition = {
         throw new AppError('slug_conflict', 'A club with that slug already exists.');
       }
 
-      const owner = await ctx.repository.adminGetMember!({
+      const owner = await ctx.repository.adminGetMember({
         actorMemberId: ctx.actor.member.id,
         memberId: parsed.ownerMemberId,
       });
@@ -512,7 +497,7 @@ const superadminClubsCreate: ActionDefinition = {
       });
     }
 
-    const club = await ctx.repository.createClub!({
+    const club = await ctx.repository.createClub({
       actorMemberId: ctx.actor.member.id,
       idempotencyActorContext: actorContext,
       idempotencyRequestValue: requestValue,
@@ -551,8 +536,6 @@ const superadminClubsArchive: ActionDefinition = {
     },
   ],
 
-  requiredCapability: 'archiveClub',
-
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to archive.')),
@@ -570,7 +553,7 @@ const superadminClubsArchive: ActionDefinition = {
     ctx.requireSuperadmin();
     const { clubId } = input as { clubId: string };
 
-    const club = await ctx.repository.archiveClub!({
+    const club = await ctx.repository.archiveClub({
       actorMemberId: ctx.actor.member.id,
       clubId,
     });
@@ -599,8 +582,6 @@ const superadminClubsAssignOwner: ActionDefinition = {
     },
   ],
 
-  requiredCapability: 'assignClubOwner',
-
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to reassign.')),
@@ -620,7 +601,7 @@ const superadminClubsAssignOwner: ActionDefinition = {
     ctx.requireSuperadmin();
     const { clubId, ownerMemberId } = input as { clubId: string; ownerMemberId: string };
 
-    const club = await ctx.repository.assignClubOwner!({
+    const club = await ctx.repository.assignClubOwner({
       actorMemberId: ctx.actor.member.id,
       clubId,
       ownerMemberId,
@@ -659,8 +640,6 @@ const superadminClubsUpdate: ActionDefinition = {
       recovery: 'Restore the club before changing it.',
     },
   ],
-
-  requiredCapability: 'updateClub',
 
   wire: {
     input: z.object({
@@ -736,7 +715,7 @@ const superadminClubsUpdate: ActionDefinition = {
     ctx.requireSuperadmin();
     const { clubId, clientKey, ...patch } = input as ClubsUpdateInput;
 
-    const club = await ctx.repository.updateClub!({
+    const club = await ctx.repository.updateClub({
       actorMemberId: ctx.actor.member.id,
       idempotencyActorContext: `superadmin:${ctx.actor.member.id}:clubs.update:${clubId}`,
       idempotencyRequestValue: input,
@@ -768,7 +747,6 @@ const superadminClubsRemove: ActionDefinition = {
   description: 'Physically remove an archived club after writing one restore archive row.',
   auth: 'superadmin',
   safety: 'mutating',
-  requiredCapability: 'removeClub',
   wire: {
     input: z.object({
       clientKey: wireRequiredString.describe('Idempotency key for this club removal.'),
@@ -794,7 +772,7 @@ const superadminClubsRemove: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     const { clientKey, clubId, confirmSlug, reason } = input as ClubsRemoveInput;
-    const removedClub = await ctx.repository.removeClub!({
+    const removedClub = await ctx.repository.removeClub({
       actorMemberId: ctx.actor.member.id,
       idempotencyActorContext: `superadmin:${ctx.actor.member.id}:clubs.remove:${clubId}`,
       idempotencyRequestValue: input,
@@ -837,7 +815,6 @@ const superadminRemovedClubsList: ActionDefinition = {
   description: 'List archived removed-club snapshots that may still be restorable.',
   auth: 'superadmin',
   safety: 'read_only',
-  requiredCapability: 'listRemovedClubs',
   wire: {
     input: z.object({
       ...SUPERADMIN_DEFAULT_PAGINATION.wire,
@@ -855,7 +832,7 @@ const superadminRemovedClubsList: ActionDefinition = {
     ctx.requireSuperadmin();
     const { limit, cursor: rawCursor, clubSlug } = input as RemovedClubsListInput;
     const cursor = decodeOptionalCursor(rawCursor, 2, ([removedAt, archiveId]) => ({ removedAt, archiveId }));
-    const result = await ctx.repository.listRemovedClubs!({
+    const result = await ctx.repository.listRemovedClubs({
       actorMemberId: ctx.actor.member.id,
       limit,
       cursor,
@@ -884,7 +861,6 @@ const superadminRemovedClubsRestore: ActionDefinition = {
   description: 'Restore a previously removed club from its archived payload.',
   auth: 'superadmin',
   safety: 'mutating',
-  requiredCapability: 'restoreRemovedClub',
   wire: {
     input: z.object({
       clientKey: wireRequiredString.describe('Idempotency key for this restore.'),
@@ -906,7 +882,7 @@ const superadminRemovedClubsRestore: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     const { clientKey, archiveId } = input as RemovedClubsRestoreInput;
-    const club = await ctx.repository.restoreRemovedClub!({
+    const club = await ctx.repository.restoreRemovedClub({
       actorMemberId: ctx.actor.member.id,
       idempotencyActorContext: `superadmin:${ctx.actor.member.id}:removedClubs.restore:${archiveId}`,
       idempotencyRequestValue: input,
@@ -939,8 +915,6 @@ const superadminContentList: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  requiredCapability: 'adminListContent',
-
   wire: {
     input: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter.')),
@@ -963,7 +937,7 @@ const superadminContentList: ActionDefinition = {
     const { clubId, kind, limit, cursor: rawCursor } = input as SuperadminContentListInput;
     const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, id]) => ({ createdAt, id }));
 
-    const result = await ctx.repository.adminListContent!({
+    const result = await ctx.repository.adminListContent({
       actorMemberId: ctx.actor.member.id,
       clubId,
       kind,
@@ -989,8 +963,6 @@ const superadminMessagesThreads: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  requiredCapability: 'adminListThreads',
-
   wire: {
     input: z.object({
       ...SUPERADMIN_DEFAULT_PAGINATION.wire,
@@ -1009,7 +981,7 @@ const superadminMessagesThreads: ActionDefinition = {
     const { limit, cursor: rawCursor } = input as SuperadminMessagesThreadsInput;
     const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, id]) => ({ createdAt, id }));
 
-    const result = await ctx.repository.adminListThreads!({
+    const result = await ctx.repository.adminListThreads({
       actorMemberId: ctx.actor.member.id,
       limit,
       cursor,
@@ -1033,8 +1005,6 @@ const superadminMessagesRead: ActionDefinition = {
   description: 'Read a DM thread as superadmin.',
   auth: 'superadmin',
   safety: 'read_only',
-
-  requiredCapability: 'adminReadThread',
 
   wire: {
     input: z.object({
@@ -1060,7 +1030,7 @@ const superadminMessagesRead: ActionDefinition = {
     const { threadId, limit, cursor: rawCursor } = input as SuperadminMessagesReadInput;
     const cursor = decodeOptionalCursor(rawCursor, 2, ([createdAt, messageId]) => ({ createdAt, messageId }));
 
-    const result = await ctx.repository.adminReadThread!({
+    const result = await ctx.repository.adminReadThread({
       actorMemberId: ctx.actor.member.id,
       threadId,
       limit,
@@ -1084,8 +1054,6 @@ const superadminTokensList: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  requiredCapability: 'adminListMemberTokens',
-
   wire: {
     input: z.object({
       memberId: wireRequiredString.describe('Member whose tokens to list'),
@@ -1103,7 +1071,7 @@ const superadminTokensList: ActionDefinition = {
     ctx.requireSuperadmin();
     const { memberId } = input as { memberId: string };
 
-    const tokens = await ctx.repository.adminListMemberTokens!({
+    const tokens = await ctx.repository.adminListMemberTokens({
       actorMemberId: ctx.actor.member.id,
       memberId,
     });
@@ -1120,8 +1088,6 @@ const superadminTokensRevoke: ActionDefinition = {
   description: 'Revoke a bearer token for a specific member.',
   auth: 'superadmin',
   safety: 'mutating',
-
-  requiredCapability: 'adminRevokeMemberToken',
 
   wire: {
     input: z.object({
@@ -1142,7 +1108,7 @@ const superadminTokensRevoke: ActionDefinition = {
     ctx.requireSuperadmin();
     const { memberId, tokenId } = input as { memberId: string; tokenId: string };
 
-    const token = await ctx.repository.adminRevokeMemberToken!({
+    const token = await ctx.repository.adminRevokeMemberToken({
       actorMemberId: ctx.actor.member.id,
       memberId,
       tokenId,
@@ -1195,8 +1161,6 @@ const superadminTokensCreate: ActionDefinition = {
   safety: 'mutating',
   authorizationNote: 'Requires superadmin global role. The minted token is returned exactly once in plaintext; deliver it out-of-band.',
 
-  requiredCapability: 'adminCreateAccessToken',
-
   wire: {
     input: z.object({
       memberId: z.string().max(64).describe('Existing active member to mint a token for (short_id, max 64 characters)'),
@@ -1224,7 +1188,7 @@ const superadminTokensCreate: ActionDefinition = {
     ctx.requireSuperadmin();
     const { memberId, label, expiresAt, reason } = input as SuperadminAccessTokensCreateInput;
 
-    const created = await ctx.repository.adminCreateAccessToken!({
+    const created = await ctx.repository.adminCreateAccessToken({
       actorMemberId: ctx.actor.member.id,
       memberId,
       label,
@@ -1253,8 +1217,6 @@ const superadminMembersCreate: ActionDefinition = {
   description: 'Create a new platform member with a bearer token (no club membership).',
   auth: 'superadmin',
   safety: 'mutating',
-
-  requiredCapability: 'adminCreateMember',
   businessErrors: [
     {
       code: 'email_already_registered',
@@ -1285,7 +1247,7 @@ const superadminMembersCreate: ActionDefinition = {
     ctx.requireSuperadmin();
     const { publicName, email } = input as SuperadminMembersCreateInput;
 
-    const result = await ctx.repository.adminCreateMember!({
+    const result = await ctx.repository.adminCreateMember({
       actorMemberId: ctx.actor.member.id,
       publicName,
       email,
@@ -1325,8 +1287,6 @@ const superadminMembershipsCreate: ActionDefinition = {
     },
   ],
 
-  requiredCapability: 'adminCreateMembership',
-
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to add the member to.')),
@@ -1365,7 +1325,7 @@ const superadminMembershipsCreate: ActionDefinition = {
           links: [],
         };
 
-    const membership = await ctx.repository.adminCreateMembership!({
+    const membership = await ctx.repository.adminCreateMembership({
       actorMemberId: ctx.actor.member.id,
       clubId,
       memberId,
@@ -1412,8 +1372,6 @@ const superadminNotificationProducersCreate: ActionDefinition = {
   auth: 'superadmin',
   safety: 'mutating',
 
-  requiredCapability: 'adminCreateNotificationProducer',
-
   wire: {
     input: z.object({
       producerId: wireRequiredString.describe('Stable producer identifier used in headers and registry rows.'),
@@ -1443,7 +1401,7 @@ const superadminNotificationProducersCreate: ActionDefinition = {
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const created = await ctx.repository.adminCreateNotificationProducer!({
+    const created = await ctx.repository.adminCreateNotificationProducer({
       actorMemberId: ctx.actor.member.id,
       ...(input as SuperadminNotificationProducersCreateInput),
     });
@@ -1459,8 +1417,6 @@ const superadminNotificationProducersRotateSecret: ActionDefinition = {
   description: 'Rotate a producer secret with dual-secret overlap.',
   auth: 'superadmin',
   safety: 'mutating',
-
-  requiredCapability: 'adminRotateNotificationProducerSecret',
 
   wire: {
     input: z.object({
@@ -1478,7 +1434,7 @@ const superadminNotificationProducersRotateSecret: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     const { producerId } = input as { producerId: string };
-    const rotated = await ctx.repository.adminRotateNotificationProducerSecret!({
+    const rotated = await ctx.repository.adminRotateNotificationProducerSecret({
       actorMemberId: ctx.actor.member.id,
       producerId,
     });
@@ -1498,8 +1454,6 @@ const superadminNotificationProducersUpdateStatus: ActionDefinition = {
   auth: 'superadmin',
   safety: 'mutating',
 
-  requiredCapability: 'adminUpdateNotificationProducerStatus',
-
   wire: {
     input: z.object({
       producerId: wireRequiredString.describe('Producer to enable or disable.'),
@@ -1518,7 +1472,7 @@ const superadminNotificationProducersUpdateStatus: ActionDefinition = {
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
     const { producerId, status } = input as { producerId: string; status: 'active' | 'disabled' };
-    const producer = await ctx.repository.adminUpdateNotificationProducerStatus!({
+    const producer = await ctx.repository.adminUpdateNotificationProducerStatus({
       actorMemberId: ctx.actor.member.id,
       producerId,
       status,
@@ -1538,8 +1492,6 @@ const superadminNotificationProducerTopicsUpdateStatus: ActionDefinition = {
   description: 'Enable or disable a single producer topic.',
   auth: 'superadmin',
   safety: 'mutating',
-
-  requiredCapability: 'adminUpdateNotificationProducerTopicStatus',
 
   wire: {
     input: z.object({
@@ -1565,7 +1517,7 @@ const superadminNotificationProducerTopicsUpdateStatus: ActionDefinition = {
       topic: string;
       status: 'active' | 'disabled';
     };
-    const updatedTopic = await ctx.repository.adminUpdateNotificationProducerTopicStatus!({
+    const updatedTopic = await ctx.repository.adminUpdateNotificationProducerTopicStatus({
       actorMemberId: ctx.actor.member.id,
       producerId,
       topic,

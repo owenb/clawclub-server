@@ -108,7 +108,6 @@ const accountsRegister: ActionDefinition = {
   description: 'Create a platform account. Registration is a two-step flow: discover a proof-of-work challenge, then submit name, email, challengeBlob, nonce, and clientKey.',
   auth: 'none',
   safety: 'mutating',
-  requiredCapability: 'registerAccount',
   notes: [
     'This is the only anonymous action in the register-then-apply flow.',
     'Proof-of-work: see SKILL.md §Registration PoW for the algorithm (hex SHA-256 of challengeId:nonce, trailing zeros matching difficulty).',
@@ -211,7 +210,7 @@ const accountsRegister: ActionDefinition = {
     ]),
   },
   async handleCold(input: unknown, ctx: ColdHandlerContext): Promise<ActionResult> {
-    const result = await ctx.repository.registerAccount!(input as {
+    const result = await ctx.repository.registerAccount(input as {
       clientKey?: string;
       mode: 'discover' | 'submit';
       name?: string;
@@ -230,7 +229,6 @@ const accountsUpdateContactEmail: ActionDefinition = {
   description: 'Replace the member contact email used for out-of-band admin contact.',
   auth: 'member',
   safety: 'mutating',
-  requiredCapability: 'updateContactEmail',
   businessErrors: [
     {
       code: 'email_already_registered',
@@ -263,7 +261,7 @@ const accountsUpdateContactEmail: ActionDefinition = {
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { newEmail, clientKey } = input as { newEmail: string; clientKey: string };
-    const result = await ctx.repository.updateContactEmail!({
+    const result = await ctx.repository.updateContactEmail({
       actorMemberId: ctx.actor.member.id,
       newEmail,
       clientKey,
@@ -309,7 +307,7 @@ const accountsUpdateIdentity: ActionDefinition = {
       throw new AppError('invalid_input', 'At least one identity field must be provided');
     }
 
-    const identity = await ctx.repository.updateMemberIdentity!({
+    const identity = await ctx.repository.updateMemberIdentity({
       actor: ctx.actor,
       patch,
     });

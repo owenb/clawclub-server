@@ -275,7 +275,7 @@ async function isProfileUpdateNoOp(
   input: MembersUpdateProfileInput,
   ctx: { actor: import('../actors.ts').AuthenticatedActor; repository: import('../repository.ts').Repository },
 ): Promise<boolean> {
-  const current = await ctx.repository.loadProfileForGate?.({
+  const current = await ctx.repository.loadProfileForGate({
     actorMemberId: ctx.actor.member.id,
     clubId: input.clubId,
   });
@@ -342,7 +342,7 @@ const membersUpdateProfile: ActionDefinition = {
     },
     async buildArtifact(input, ctx) {
       const patch = input as MembersUpdateProfileInput;
-      const current = await ctx.repository.loadProfileForGate?.({
+      const current = await ctx.repository.loadProfileForGate({
         actorMemberId: ctx.actor.member.id,
         clubId: patch.clubId,
       });

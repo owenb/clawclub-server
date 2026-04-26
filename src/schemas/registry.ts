@@ -8,14 +8,11 @@
  *   - Wire schemas (input/output shapes for docs and schema endpoint)
  *   - Parse schemas (runtime normalization with transforms/defaults)
  *   - Handler functions
- *   - LLM gate and capability requirements
+ *   - LLM gate and idempotency requirements
  */
 import { z } from 'zod';
 import { AppError } from '../errors.ts';
-import type {
-  MembershipSummary,
-  Repository,
-} from '../repository.ts';
+import type { MembershipSummary, Repository } from '../repository.ts';
 import { requestScopeForClub, type Actor, type AuthenticatedActor, type RequestScope } from '../actors.ts';
 import type { ResponseNotice, ResponseNotifications } from '../notifications.ts';
 import type { GateVerdict, NonApplicationArtifact } from '../gate.ts';
@@ -25,61 +22,6 @@ import type { SupportedQuotaAction } from '../quota-metadata.ts';
 
 export type ActionAuth = 'none' | 'optional_member' | 'member' | 'clubadmin' | 'superadmin';
 export type ActionSafety = 'read_only' | 'mutating';
-
-// ── Repository capability ────────────────────────────────
-// Narrow union of optional Repository methods that back specific actions.
-// Used to check runtime availability before dispatch (→ 501 if missing).
-
-export type RepositoryCapability =
-  | 'registerAccount'
-  | 'updateContactEmail'
-  | 'applyToClub'
-  | 'redeemInvitationApplication'
-  | 'reviseClubApplication'
-  | 'getMemberApplicationById'
-  | 'listMemberApplications'
-  | 'withdrawClubApplication'
-  | 'listAdminClubApplications'
-  | 'getAdminClubApplicationById'
-  | 'decideClubApplication'
-  | 'issueInvitation'
-  | 'listIssuedInvitations'
-  | 'revokeInvitation'
-  | 'findClubBySlug'
-  | 'listClubs'
-  | 'createClub'
-  | 'archiveClub'
-  | 'assignClubOwner'
-  | 'updateClub'
-  | 'removeClub'
-  | 'listRemovedClubs'
-  | 'restoreRemovedClub'
-  | 'loadClubForGate'
-  | 'enforceClubsCreateQuota'
-  | 'updateMembership'
-  | 'removeContent'
-  | 'removeMessage'
-  | 'adminCreateMember'
-  | 'adminCreateMembership'
-  | 'adminGetOverview'
-  | 'adminListMembers'
-  | 'adminGetMember'
-  | 'adminRemoveMember'
-  | 'adminGetClub'
-  | 'adminGetClubStats'
-  | 'adminListContent'
-  | 'adminListThreads'
-  | 'adminReadThread'
-  | 'adminListMemberTokens'
-  | 'adminRevokeMemberToken'
-  | 'adminCreateAccessToken'
-  | 'adminCreateNotificationProducer'
-  | 'adminRotateNotificationProducerSecret'
-  | 'adminUpdateNotificationProducerStatus'
-  | 'adminUpdateNotificationProducerTopicStatus'
-  | 'adminGetDiagnostics'
-  | 'promoteMemberToAdmin'
-  | 'demoteMemberFromAdmin';
 
 // ── Handler context ──────────────────────────────────────
 // Passed to every handler. Authorization helpers are pre-bound to the actor.
@@ -268,11 +210,6 @@ export type ActionDefinition = {
   skipNotificationsInResponse?: boolean;
   skipRequestedClubScopePrecheck?: boolean;
 
-  /** Repository method that must exist for this action to be available (→ 501 if missing) */
-  requiredCapability?: RepositoryCapability;
-  /** Additional repository methods that must exist for this action to be available (→ 501 if missing) */
-  requiredCapabilities?: RepositoryCapability[];
-
   /**
    * Optional preflight hook for authenticated actions.
    * Runs after parsing and before any llm gate execution.
@@ -302,12 +239,6 @@ export type ActionDefinition = {
 // ── Registry ─────────────────────────────────────────────
 
 const registry = new Map<string, ActionDefinition>();
-
-function normalizeRequiredCapabilities(action: Pick<ActionDefinition, 'requiredCapability' | 'requiredCapabilities'>): RepositoryCapability[] | undefined {
-  const requiredCapabilities = action.requiredCapabilities
-    ?? (action.requiredCapability ? [action.requiredCapability] : undefined);
-  return requiredCapabilities ? [...new Set(requiredCapabilities)] : undefined;
-}
 
 function cloneWithDef(schema: z.ZodTypeAny, patch: Record<string, unknown>): z.ZodTypeAny {
   const cloned = ((schema as unknown) as {
@@ -369,17 +300,11 @@ export function registerActions(actions: ActionDefinition[]): void {
     if (registry.has(action.action)) {
       throw new Error(`Duplicate action registration: ${action.action}`);
     }
-    if (action.requiredCapability && action.requiredCapabilities && action.requiredCapabilities.length > 0) {
-      throw new Error(`Action ${action.action} must not declare both requiredCapability and requiredCapabilities`);
-    }
     if (action.auth === 'none' && action.preGate) {
       throw new Error(`Cold action ${action.action} must not define preGate`);
     }
-    const requiredCapabilities = normalizeRequiredCapabilities(action);
     registry.set(action.action, {
       ...action,
-      requiredCapability: undefined,
-      requiredCapabilities,
       wire: {
         ...action.wire,
         input: applyStrictInputCanon(action.wire.input),
