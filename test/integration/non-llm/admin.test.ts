@@ -8,6 +8,10 @@ import { passthroughGate } from '../../unit/fixtures.ts';
 
 let h: TestHarness;
 
+function withClientKey<T extends Record<string, unknown>>(input: T): T & { clientKey: string } {
+  return { clientKey: randomUUID(), ...input };
+}
+
 function buildAdminTestConfig(): AppConfig {
   const config = JSON.parse(JSON.stringify(DEFAULT_CONFIG_V1)) as AppConfig;
   config.policy.quotas.actions['content.create'].clubOverrides = {
@@ -48,7 +52,7 @@ describe('superadmin.clubs.list', () => {
   it('includes archived clubs when requested', async () => {
     const admin = await h.seedSuperadmin('Admin Archived');
     const { club } = await h.seedOwner('to-list-archived', 'List Archived Club');
-    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', withClientKey({ clubId: club.id }));
 
     const withArchived = await h.apiOk(admin.token, 'superadmin.clubs.list', { includeArchived: true });
     const clubsData = withArchived.data as Record<string, unknown>;
@@ -380,7 +384,7 @@ describe('superadmin.clubs.archive', () => {
     const admin = await h.seedSuperadmin('Admin Archiver');
     const { club } = await h.seedOwner('to-archive-club', 'To Archive Club');
 
-    const result = await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
+    const result = await h.apiOk(admin.token, 'superadmin.clubs.archive', withClientKey({ clubId: club.id }));
     const data = result.data as Record<string, unknown>;
     const archived = data.club as Record<string, unknown>;
     assert.equal(archived.clubId, club.id);
@@ -391,16 +395,16 @@ describe('superadmin.clubs.archive', () => {
     const admin = await h.seedSuperadmin('Admin DoubleArchive');
     const { club } = await h.seedOwner('double-archive-club', 'Double Archive Club');
 
-    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', withClientKey({ clubId: club.id }));
 
-    const err = await h.apiErr(admin.token, 'superadmin.clubs.archive', { clubId: club.id });
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.archive', withClientKey({ clubId: club.id }));
     assert.equal(err.status, 409);
     assert.equal(err.code, 'club_archived');
   });
 
   it('rejects missing clubId', async () => {
     const admin = await h.seedSuperadmin('Admin NoClubId');
-    const err = await h.apiErr(admin.token, 'superadmin.clubs.archive', {});
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.archive', withClientKey({}));
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
     assert.ok(err.message.includes('clubId'));
@@ -408,14 +412,14 @@ describe('superadmin.clubs.archive', () => {
 
   it('rejects non-existent club', async () => {
     const admin = await h.seedSuperadmin('Admin GhostClub');
-    const err = await h.apiErr(admin.token, 'superadmin.clubs.archive', { clubId: 'nonexistent-club-id' });
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.archive', withClientKey({ clubId: 'nonexistent-club-id' }));
     assert.equal(err.status, 404);
     assert.equal(err.code, 'club_not_found');
   });
 
   it('non-superadmin cannot archive clubs', async () => {
     const ownerCtx = await h.seedOwner('archive-auth-club', 'Archive Auth Club');
-    const err = await h.apiErr(ownerCtx.token, 'superadmin.clubs.archive', { clubId: ownerCtx.club.id });
+    const err = await h.apiErr(ownerCtx.token, 'superadmin.clubs.archive', withClientKey({ clubId: ownerCtx.club.id }));
     assert.equal(err.status, 403);
     assert.equal(err.code, 'forbidden_role');
   });
@@ -428,12 +432,14 @@ describe('superadmin.clubs.assignOwner', () => {
     const newOwner = await h.seedMember('New Club Owner');
 
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: club.id,
       memberId: newOwner.id,
       initialStatus: 'active',
     });
 
     const result = await h.apiOk(admin.token, 'superadmin.clubs.assignOwner', {
+      clientKey: randomUUID(),
       clubId: club.id,
       ownerMemberId: newOwner.id,
     });
@@ -448,7 +454,7 @@ describe('superadmin.clubs.assignOwner', () => {
   it('rejects missing clubId', async () => {
     const admin = await h.seedSuperadmin('Admin AssignNoClub');
     const member = await h.seedMember('Assign NoClub');
-    const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', { ownerMemberId: member.id });
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', withClientKey({ ownerMemberId: member.id }));
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
     assert.ok(err.message.includes('clubId'));
@@ -457,7 +463,7 @@ describe('superadmin.clubs.assignOwner', () => {
   it('rejects missing ownerMemberId', async () => {
     const admin = await h.seedSuperadmin('Admin AssignNoOwner');
     const { club } = await h.seedOwner('assign-no-owner-club', 'No Owner Club');
-    const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', { clubId: club.id });
+    const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', withClientKey({ clubId: club.id }));
     assert.equal(err.status, 400);
     assert.equal(err.code, 'invalid_input');
     assert.ok(err.message.includes('ownerMemberId'));
@@ -467,6 +473,7 @@ describe('superadmin.clubs.assignOwner', () => {
     const admin = await h.seedSuperadmin('Admin AssignGhost');
     const member = await h.seedMember('Assign Ghost');
     const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', {
+      clientKey: randomUUID(),
       clubId: 'nonexistent-id',
       ownerMemberId: member.id,
     });
@@ -478,6 +485,7 @@ describe('superadmin.clubs.assignOwner', () => {
     const admin = await h.seedSuperadmin('Admin AssignBadOwner');
     const { club } = await h.seedOwner('assign-bad-owner-club', 'Bad Owner Club');
     const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', {
+      clientKey: randomUUID(),
       clubId: club.id,
       ownerMemberId: 'nonexistent-member-id',
     });
@@ -489,6 +497,7 @@ describe('superadmin.clubs.assignOwner', () => {
     const ownerCtx = await h.seedOwner('assign-auth-club', 'Assign Auth Club');
     const newOwner = await h.seedMember('Auth New Owner');
     const err = await h.apiErr(ownerCtx.token, 'superadmin.clubs.assignOwner', {
+      clientKey: randomUUID(),
       clubId: ownerCtx.club.id,
       ownerMemberId: newOwner.id,
     });
@@ -502,6 +511,7 @@ describe('superadmin.clubs.assignOwner', () => {
     const newOwner = await h.seedMember('New Owner Swap');
 
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: oldOwnerCtx.club.id,
       memberId: newOwner.id,
       initialStatus: 'active',
@@ -509,6 +519,7 @@ describe('superadmin.clubs.assignOwner', () => {
 
     // Reassign ownership
     await h.apiOk(admin.token, 'superadmin.clubs.assignOwner', {
+      clientKey: randomUUID(),
       clubId: oldOwnerCtx.club.id,
       ownerMemberId: newOwner.id,
     });
@@ -536,6 +547,7 @@ describe('superadmin.clubs.assignOwner', () => {
     const newOwner = await h.seedMember('Owner Cap Target');
 
     const err = await h.apiErr(admin.token, 'superadmin.clubs.assignOwner', {
+      clientKey: randomUUID(),
       clubId: oldOwnerCtx.club.id,
       ownerMemberId: newOwner.id,
     });
@@ -879,6 +891,7 @@ describe('superadmin.members.remove', () => {
     const sponsored = await h.seedMember('Sponsored Survivor');
 
     const createMembership = await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: ownerCtx.club.id,
       memberId: sponsored.id,
       role: 'member',
@@ -1930,7 +1943,10 @@ describe('accessTokens.create', () => {
     const ownerCtx = await h.seedOwner('token-create-club', 'Token Create Club');
     const member = await h.seedCompedMember(ownerCtx.club.id, 'Token Creator');
 
-    const createResult = await h.apiOk(member.token, 'accessTokens.create', { label: 'my-new-token' });
+    const createResult = await h.apiOk(member.token, 'accessTokens.create', {
+      clientKey: randomUUID(),
+      label: 'my-new-token',
+    });
     const data = createResult.data as Record<string, unknown>;
     const newBearerToken = data.bearerToken as string;
 
@@ -1946,11 +1962,32 @@ describe('accessTokens.create', () => {
     assert.equal(actorMember.id, member.id);
   });
 
+  it('does not replay plaintext bearer tokens on exact clientKey retry', async () => {
+    const ownerCtx = await h.seedOwner('token-secret-replay-club', 'Token Secret Replay Club');
+    const member = await h.seedCompedMember(ownerCtx.club.id, 'Token Secret Replay Member');
+    const clientKey = randomUUID();
+    const input = { clientKey, label: 'secret-replay' };
+
+    const first = await h.apiOk(member.token, 'accessTokens.create', input);
+    const firstToken = first.data as Record<string, unknown>;
+    assert.ok(typeof firstToken.bearerToken === 'string');
+
+    const replay = await h.api(member.token, 'accessTokens.create', input);
+    assert.equal(replay.status, 409);
+    const error = replay.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'secret_replay_unavailable');
+    const details = error.details as Record<string, unknown>;
+    assert.equal(details.tokenId, firstToken.tokenId);
+    assert.equal(details.label, 'secret-replay');
+    assert.equal('bearerToken' in details, false, 'secret replay details must not include the plaintext token');
+  });
+
   it('rejects past expiresAt and still accepts null expiresAt', async () => {
     const ownerCtx = await h.seedOwner('token-expiry-club', 'Token Expiry Club');
     const member = await h.seedCompedMember(ownerCtx.club.id, 'Token Expiry Member');
 
     const pastErr = await h.apiErr(member.token, 'accessTokens.create', {
+      clientKey: randomUUID(),
       label: 'past-expiry',
       expiresAt: '2020-01-01T00:00:00Z',
     });
@@ -1958,6 +1995,7 @@ describe('accessTokens.create', () => {
     assert.equal(pastErr.code, 'invalid_input');
 
     const created = await h.apiOk(member.token, 'accessTokens.create', {
+      clientKey: randomUUID(),
       label: 'no-expiry',
       expiresAt: null,
     });
@@ -1976,7 +2014,10 @@ describe('accessTokens.create', () => {
       [member.id, `expired-quota-${member.id}-`],
     );
 
-    const created = await h.apiOk(member.token, 'accessTokens.create', { label: 'after-expired' });
+    const created = await h.apiOk(member.token, 'accessTokens.create', {
+      clientKey: randomUUID(),
+      label: 'after-expired',
+    });
     const token = created.data as Record<string, unknown>;
     assert.equal(token.label, 'after-expired');
   });
@@ -1988,7 +2029,10 @@ describe('accessTokens.revoke', () => {
     const member = await h.seedCompedMember(ownerCtx.club.id, 'Token Revoker');
 
     // Create a second token to revoke
-    const createResult = await h.apiOk(member.token, 'accessTokens.create', { label: 'to-revoke' });
+    const createResult = await h.apiOk(member.token, 'accessTokens.create', {
+      clientKey: randomUUID(),
+      label: 'to-revoke',
+    });
     const data = createResult.data as Record<string, unknown>;
     const tokenToRevoke = data.bearerToken as string;
     const tokenId = data.tokenId as string;
@@ -2251,8 +2295,8 @@ describe('platform authorization', () => {
     const superadminActions = [
       ['superadmin.clubs.list', {}],
       ['superadmin.clubs.create', { clientKey: 'x', slug: 'x', name: 'X', summary: 'X', ownerMemberId: 'x' }],
-      ['superadmin.clubs.archive', { clubId: 'x' }],
-      ['superadmin.clubs.assignOwner', { clubId: 'x', ownerMemberId: 'x' }],
+      ['superadmin.clubs.archive', { clientKey: 'x', clubId: 'x' }],
+      ['superadmin.clubs.assignOwner', { clientKey: 'x', clubId: 'x', ownerMemberId: 'x' }],
       ['superadmin.platform.getOverview', {}],
       ['superadmin.members.list', { limit: 1 }],
       ['superadmin.members.get', { memberId: 'x' }],
@@ -2263,8 +2307,8 @@ describe('platform authorization', () => {
       ['superadmin.messages.get', { threadId: 'x' }],
       ['superadmin.accessTokens.list', { memberId: 'x' }],
       ['superadmin.accessTokens.revoke', { memberId: 'x', tokenId: 'x' }],
-      ['superadmin.notificationProducers.create', { producerId: 'x', namespacePrefix: 'x.', topics: [{ topic: 'x.topic', deliveryClass: 'informational' }] }],
-      ['superadmin.notificationProducers.rotateSecret', { producerId: 'x' }],
+      ['superadmin.notificationProducers.create', { clientKey: 'x', producerId: 'x', namespacePrefix: 'x.', topics: [{ topic: 'x.topic', deliveryClass: 'informational' }] }],
+      ['superadmin.notificationProducers.rotateSecret', { clientKey: 'x', producerId: 'x' }],
       ['superadmin.notificationProducers.updateStatus', { producerId: 'x', status: 'disabled' }],
       ['superadmin.notificationProducerTopics.updateStatus', { producerId: 'x', topic: 'x.topic', status: 'disabled' }],
       ['superadmin.diagnostics.getHealth', {}],

@@ -267,6 +267,9 @@ export type UpdateMembershipInput = {
   actorMemberships?: Array<{ clubId: string; slug: string; name: string }>;
   clubId: string;
   memberId: string;
+  clientKey?: string | null;
+  idempotencyActorContext?: string;
+  idempotencyRequestValue?: unknown;
   patch: {
     role?: 'clubadmin' | 'member';
     status?: MembershipState;
@@ -329,12 +332,18 @@ export type CreateClubInput = {
 export type ArchiveClubInput = {
   actorMemberId: string;
   clubId: string;
+  clientKey?: string | null;
+  idempotencyActorContext?: string;
+  idempotencyRequestValue?: unknown;
 };
 
 export type AssignClubOwnerInput = {
   actorMemberId: string;
   clubId: string;
   ownerMemberId: string;
+  clientKey?: string | null;
+  idempotencyActorContext?: string;
+  idempotencyRequestValue?: unknown;
 };
 
 export type UpdateClubInput = {
@@ -531,6 +540,9 @@ export type WithIncluded<T> = T & {
 
 export type CreateBearerTokenInput = {
   actorMemberId: string;
+  clientKey?: string | null;
+  idempotencyActorContext?: string;
+  idempotencyRequestValue?: unknown;
   label?: string | null;
   expiresAt?: string | null;
   metadata?: Record<string, unknown>;
@@ -622,6 +634,7 @@ export type Repository = {
     challengeBlob?: string;
     nonce?: string;
     invitationCode?: string;
+    clientIp?: string | null;
   }): Promise<Record<string, unknown>>;
   updateContactEmail(input: {
     actorMemberId: string;
@@ -695,6 +708,9 @@ export type Repository = {
   revokeInvitation(input: {
     actorMemberId: string;
     invitationId: string;
+    clientKey?: string | null;
+    idempotencyActorContext?: string;
+    idempotencyRequestValue?: unknown;
     adminClubIds?: string[];
   }): Promise<InvitationSummary | null>;
   findClubBySlug(input: { actorMemberId: string; slug: string }): Promise<ClubSummary | null>;
@@ -756,7 +772,7 @@ export type Repository = {
     memberId: string;
     clubId: string;
   }): Promise<ClubProfileFields>;
-  updateMemberIdentity(input: { actor: AuthenticatedActor; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
+  updateMemberIdentity(input: { actor: AuthenticatedActor; patch: UpdateMemberIdentityInput; clientKey: string }): Promise<MemberIdentity>;
   updateClubProfile(input: { actor: AuthenticatedActor; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
   loadProfileForGate(input: {
     actorMemberId: string;
@@ -863,9 +879,19 @@ export type Repository = {
 
   removeMessage(input: RemoveMessageInput): Promise<MessageRemovalResult | null>;
 
-  adminCreateMember(input: { actorMemberId: string; publicName: string; email: string }): Promise<{ member: MemberRef; token: CreatedBearerToken }>;
+  adminCreateMember(input: {
+    actorMemberId: string;
+    clientKey: string;
+    idempotencyActorContext: string;
+    idempotencyRequestValue: unknown;
+    publicName: string;
+    email: string;
+  }): Promise<{ member: MemberRef; token: CreatedBearerToken }>;
   adminCreateMembership(input: {
     actorMemberId: string;
+    clientKey: string;
+    idempotencyActorContext: string;
+    idempotencyRequestValue: unknown;
     clubId: string;
     memberId: string;
     role: 'member' | 'clubadmin';
@@ -895,6 +921,9 @@ export type Repository = {
   adminRevokeMemberToken(input: { actorMemberId: string; memberId: string; tokenId: string }): Promise<BearerTokenSummary | null>;
   adminCreateAccessToken(input: {
     actorMemberId: string;
+    clientKey: string;
+    idempotencyActorContext: string;
+    idempotencyRequestValue: unknown;
     memberId: string;
     label?: string | null;
     expiresAt?: string | null;
@@ -903,6 +932,9 @@ export type Repository = {
   }): Promise<CreatedBearerToken | null>;
   adminCreateNotificationProducer(input: {
     actorMemberId: string;
+    clientKey: string;
+    idempotencyActorContext: string;
+    idempotencyRequestValue: unknown;
     producerId: string;
     namespacePrefix: string;
     burstLimit?: number | null;
@@ -916,6 +948,9 @@ export type Repository = {
   }): Promise<CreatedNotificationProducer>;
   adminRotateNotificationProducerSecret(input: {
     actorMemberId: string;
+    clientKey: string;
+    idempotencyActorContext: string;
+    idempotencyRequestValue: unknown;
     producerId: string;
   }): Promise<RotatedNotificationProducerSecret | null>;
   adminUpdateNotificationProducerStatus(input: {

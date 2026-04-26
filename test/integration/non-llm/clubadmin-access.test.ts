@@ -66,6 +66,7 @@ describe('ownership transfer auto-comps the new owner', () => {
     const newOwner = await h.seedPaidMember(oldOwner.club.id, 'Bob New Owner');
 
     await h.apiOk(admin.token, 'superadmin.clubs.assignOwner', {
+      clientKey: randomUUID(),
       clubId: oldOwner.club.id,
       ownerMemberId: newOwner.id,
     });

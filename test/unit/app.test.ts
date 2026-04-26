@@ -1183,6 +1183,7 @@ test('superadmin.clubs.assignOwner appends a new owner version via the superadmi
     payload: {
       clubId: 'club-2',
       ownerMemberId: 'member-9',
+      clientKey: 'assign-owner-unit',
     },
   });
 
@@ -1190,6 +1191,13 @@ test('superadmin.clubs.assignOwner appends a new owner version via the superadmi
     actorMemberId: 'member-1',
     clubId: 'club-2',
     ownerMemberId: 'member-9',
+    clientKey: 'assign-owner-unit',
+    idempotencyActorContext: 'superadmin:member-1:clubs.assignOwner:club-2',
+    idempotencyRequestValue: {
+      clubId: 'club-2',
+      ownerMemberId: 'member-9',
+      clientKey: 'assign-owner-unit',
+    },
   });
   assert.equal(result.data.club.owner.memberId, 'member-9');
   assert.equal(result.data.club.version.no, 2);
@@ -1324,6 +1332,7 @@ test('superadmin.memberships.create direct-adds an active member', async () => {
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'superadmin.memberships.create',
     payload: {
+      clientKey: 'membership-create-unit',
       clubId: 'club-2',
       memberId: 'member-9',
       initialStatus: 'active',
@@ -1333,6 +1342,17 @@ test('superadmin.memberships.create direct-adds an active member', async () => {
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
+    clientKey: 'membership-create-unit',
+    idempotencyActorContext: 'superadmin:member-1:memberships.create:club-2:member-9',
+    idempotencyRequestValue: {
+      clientKey: 'membership-create-unit',
+      clubId: 'club-2',
+      memberId: 'member-9',
+      role: 'member',
+      initialStatus: 'active',
+      reason: 'Direct add',
+      sponsorId: null,
+    },
     clubId: 'club-2',
     memberId: 'member-9',
     sponsorId: null,
@@ -1536,6 +1556,7 @@ test('accounts.register returns the unauthenticated envelope and forwards submit
     email: 'jane@example.com',
     challengeBlob: 'payload.signature',
     nonce: '42',
+    clientIp: null,
   });
   assert.equal(result.action, 'accounts.register');
   assert.equal(result.data.phase, 'registered');
@@ -1711,6 +1732,9 @@ test('members.list returns active members with flattened public member summaries
     async authenticateBearerToken() {
       return makeAuthResult();
     },
+    async withClientKeyBarrier({ execute }) {
+      return execute();
+    },
     async fullTextSearchMembers() {
       return { results: [], hasMore: false, nextCursor: null };
     },
@@ -1819,6 +1843,9 @@ test('accounts.updateIdentity updates the actor displayName globally', async () 
     async authenticateBearerToken() {
       return makeAuthResult();
     },
+    async withClientKeyBarrier({ execute }) {
+      return execute();
+    },
     async fullTextSearchMembers() {
       return { results: [], hasMore: false, nextCursor: null };
     },
@@ -1890,12 +1917,13 @@ test('accounts.updateIdentity updates the actor displayName globally', async () 
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'accounts.updateIdentity',
     payload: {
+      clientKey: 'identity-update-unit',
       displayName: 'Renamed Member',
     },
   });
 
   assert.equal(result.action, 'accounts.updateIdentity');
-  assert.deepEqual(capturedPatch, { displayName: 'Renamed Member' });
+  assert.deepEqual(capturedPatch, { clientKey: 'identity-update-unit', displayName: 'Renamed Member' });
   assert.equal(result.data.memberId, 'member-1');
   assert.equal(result.data.displayName, 'Renamed Member');
 });
@@ -2252,6 +2280,9 @@ test('content.remove appends a removed version on the shared content surface', a
   const repository: Repository = {
     async authenticateBearerToken() {
       return makeAuthResult();
+    },
+    async withClientKeyBarrier({ execute }) {
+      return execute();
     },
     async fullTextSearchMembers() {
       return { results: [], hasMore: false, nextCursor: null };
@@ -3403,6 +3434,9 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
     async authenticateBearerToken() {
       return makeAuthResult();
     },
+    async withClientKeyBarrier({ execute }) {
+      return execute();
+    },
     async fullTextSearchMembers() {
       return { results: [], hasMore: false, nextCursor: null };
     },
@@ -3481,6 +3515,7 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
     bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
     action: 'accessTokens.create',
     payload: {
+      clientKey: 'access-token-unit',
       label: 'laptop',
       metadata: { device: 'mbp' },
     },
@@ -3488,6 +3523,15 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
 
   assert.deepEqual(capturedInput, {
     actorMemberId: 'member-1',
+    clientKey: 'access-token-unit',
+    idempotencyActorContext: 'member:member-1:accessTokens.create',
+    idempotencyRequestValue: {
+      actorMemberId: 'member-1',
+      clientKey: 'access-token-unit',
+      label: 'laptop',
+      expiresAt: null,
+      metadata: { device: 'mbp' },
+    },
     label: 'laptop',
     expiresAt: null,
     metadata: { device: 'mbp' },

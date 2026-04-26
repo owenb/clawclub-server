@@ -23,7 +23,7 @@ import {
   type NotificationReceipt,
 } from './repository.ts';
 import { membershipScopes } from './actors.ts';
-import { withTransaction } from './db.ts';
+import { withTransaction, type DbClient } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
 import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
 import {
@@ -49,7 +49,7 @@ import {
   encodeCursor as paginationEncodeCursor,
   decodeCursor as paginationDecodeCursor,
 } from './schemas/fields.ts';
-import { lookupIdempotency, withClientKeyBarrier } from './idempotency.ts';
+import { lookupIdempotency, throwSecretReplayUnavailable, withClientKeyBarrier, withIdempotency } from './idempotency.ts';
 import {
   NOTIFICATIONS_PAGE_SIZE,
   encodeNotificationCursor,
@@ -1774,7 +1774,6 @@ export function createRepository(
     adminCreateAccessToken: (input) => identity.createBearerTokenAsSuperadmin(input),
 
     async adminCreateNotificationProducer(input) {
-      const secret = generateProducerSecret();
       const namespacePrefix = input.namespacePrefix.trim();
       const producerId = input.producerId.trim();
 
@@ -1791,7 +1790,8 @@ export function createRepository(
         }
       }
 
-      return withTransaction(pool, async (client) => {
+      const performCreate = async (client: DbClient) => {
+        const secret = generateProducerSecret();
         const producerResult = await client.query<NotificationProducerRow>(
           `insert into notification_producers (
              producer_id,
@@ -1858,37 +1858,64 @@ export function createRepository(
           topics: topicRows.map(mapNotificationProducerTopic),
           secret,
         };
-      });
+      };
+
+      return withTransaction(pool, (client) => withIdempotency(client, {
+        actorContext: input.idempotencyActorContext,
+        clientKey: input.clientKey,
+        requestValue: input.idempotencyRequestValue,
+        execute: async () => {
+          const created = await performCreate(client);
+          const { secret: _secret, ...safeCreated } = created;
+          return { responseValue: created, storedValue: safeCreated };
+        },
+        onReplay: (storedValue) => throwSecretReplayUnavailable(storedValue),
+      }));
     },
 
     async adminRotateNotificationProducerSecret(input) {
-      const secret = generateProducerSecret();
-      const result = await pool.query<NotificationProducerRow>(
-        `update notification_producers
-            set secret_hash_previous = secret_hash_current,
-                secret_hash_current = $2,
-                rotated_at = now()
-          where producer_id = $1
-        returning producer_id,
-                  namespace_prefix,
-                  burst_limit,
-                  hourly_limit,
-                  daily_limit,
-                  status,
-                  created_at::text as created_at,
-                  rotated_at::text as rotated_at`,
-        [input.producerId, hashProducerSecret(secret)],
-      );
+      const performRotate = async (client: DbClient) => {
+        const secret = generateProducerSecret();
+        const result = await client.query<NotificationProducerRow>(
+          `update notification_producers
+              set secret_hash_previous = secret_hash_current,
+                  secret_hash_current = $2,
+                  rotated_at = now()
+            where producer_id = $1
+          returning producer_id,
+                    namespace_prefix,
+                    burst_limit,
+                    hourly_limit,
+                    daily_limit,
+                    status,
+                    created_at::text as created_at,
+                    rotated_at::text as rotated_at`,
+          [input.producerId, hashProducerSecret(secret)],
+        );
 
-      const producer = result.rows[0];
-      if (!producer) {
-        return null;
-      }
+        const producer = result.rows[0];
+        if (!producer) {
+          return null;
+        }
 
-      return {
-        producer: mapNotificationProducer(producer),
-        secret,
+        return {
+          producer: mapNotificationProducer(producer),
+          secret,
+        };
       };
+
+      return withTransaction(pool, (client) => withIdempotency(client, {
+        actorContext: input.idempotencyActorContext,
+        clientKey: input.clientKey,
+        requestValue: input.idempotencyRequestValue,
+        execute: async () => {
+          const rotated = await performRotate(client);
+          if (!rotated) return { responseValue: null };
+          const { secret: _secret, ...safeRotated } = rotated;
+          return { responseValue: rotated, storedValue: safeRotated };
+        },
+        onReplay: (storedValue) => throwSecretReplayUnavailable(storedValue),
+      }));
     },
 
     async adminUpdateNotificationProducerStatus(input) {

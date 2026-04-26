@@ -147,6 +147,7 @@ const invitationsIssue: ActionDefinition = {
   description: 'Issue a new invitation for a candidate in a specific club.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   notes: [
     'Existing registered members can be targeted by candidateMemberId or by candidateEmail. If the email belongs to an active member, the server upgrades the invitation to in-app delivery automatically and no code is issued.',
     'Issuing an invitation never grants membership by itself. Existing members apply through clubs.apply; external invitees redeem a code and then submit an application.',
@@ -306,6 +307,7 @@ const invitationsRevoke: ActionDefinition = {
   description: 'Revoke one invitation issued by the caller or administered by the caller.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   businessErrors: [
     {
       code: 'forbidden',
@@ -331,6 +333,7 @@ const invitationsRevoke: ActionDefinition = {
   wire: {
     input: z.object({
       invitationId: wireRequiredString.describe('Invitation to revoke'),
+      clientKey: wireOptionalOpaqueString.describe(describeClientKey('Optional idempotency key for this invitation revoke.')),
     }),
     output: z.object({
       invitation: invitationSummary,
@@ -339,13 +342,29 @@ const invitationsRevoke: ActionDefinition = {
   parse: {
     input: z.object({
       invitationId: parseRequiredString,
+      clientKey: parseTrimmedNullableOpaqueString.default(null),
+    }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey?: string | null }).clientKey ?? null,
+    getScopeKey: (input, ctx) => `member:${ctx.actor.member.id}:invitations.revoke:${(input as { invitationId: string }).invitationId}`,
+    getRequestValue: (input, ctx) => ({
+      actorMemberId: ctx.actor.member.id,
+      ...(input as Record<string, unknown>),
     }),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { invitationId } = input as { invitationId: string };
+    const { invitationId, clientKey } = input as { invitationId: string; clientKey: string | null };
     const invitation = await ctx.repository.revokeInvitation({
       actorMemberId: ctx.actor.member.id,
       invitationId,
+      clientKey,
+      idempotencyActorContext: `member:${ctx.actor.member.id}:invitations.revoke:${invitationId}`,
+      idempotencyRequestValue: {
+        actorMemberId: ctx.actor.member.id,
+        invitationId,
+        clientKey,
+      },
       adminClubIds: membershipScopes(ctx.actor.memberships).adminClubIds,
     });
     if (!invitation) {
@@ -364,6 +383,7 @@ const invitationsRedeem: ActionDefinition = {
   description: 'Redeem an external invitation code and submit the linked club application using the caller’s existing account.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   notes: [
     'Use invitations.redeem only for code-backed external invitations.',
     'Existing registered members who were invited in-app should call clubs.apply instead. They do not redeem a code.',

@@ -1121,7 +1121,12 @@ export async function updateContent(pool: Pool, input: UpdateContentInput): Prom
     return withIdempotency(client, {
       clientKey: input.clientKey,
       actorContext: `member:${input.actorMemberId}:content.update:${input.id}`,
-      requestValue: input,
+      requestValue: {
+        actorMemberId: input.actorMemberId,
+        id: input.id,
+        clientKey: input.clientKey,
+        patch: input.patch,
+      },
       execute: async () => ({ responseValue: await performUpdate(client) }),
     });
   });

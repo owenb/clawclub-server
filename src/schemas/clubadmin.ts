@@ -17,6 +17,7 @@ import {
   wireRequiredString, parseRequiredString,
   wireHumanRequiredString, parseHumanRequiredString,
   wireOptionalString, parseTrimmedNullableString,
+  wireOptionalOpaqueString, parseTrimmedNullableOpaqueString,
   membershipState,
   membershipRole,
   wireMembershipStates,
@@ -262,6 +263,7 @@ const clubadminApplicationsList: ActionDefinition = {
 type ClubadminMembersUpdateInput = {
   clubId: string;
   memberId: string;
+  clientKey: string | null;
   patch: {
     role?: 'clubadmin' | 'member';
     status?: MembershipState;
@@ -276,6 +278,7 @@ const clubadminMembersUpdate: ActionDefinition = {
   auth: 'clubadmin',
   scope: { strategy: 'rawClubId' },
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   authorizationNote: 'Status changes require clubadmin or superadmin. Role changes require the club owner or a superadmin. The club owner cannot be demoted.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [
@@ -296,6 +299,7 @@ const clubadminMembersUpdate: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club the membership belongs to.')),
       memberId: wireRequiredString.describe('Member to update'),
+      clientKey: wireOptionalOpaqueString.describe(describeClientKey('Optional idempotency key for this membership update.')),
       patch: z.object({
         role: membershipRole.optional().describe('Optional role change'),
         status: membershipState.optional().describe('Optional membership status change'),
@@ -309,6 +313,7 @@ const clubadminMembersUpdate: ActionDefinition = {
     input: z.object({
       clubId: parseRequiredString,
       memberId: parseRequiredString,
+      clientKey: parseTrimmedNullableOpaqueString.default(null),
       patch: z.object({
         role: membershipRole.optional(),
         status: membershipState.optional(),
@@ -319,16 +324,21 @@ const clubadminMembersUpdate: ActionDefinition = {
       ),
     }),
   },
+  idempotency: {
+    getClientKey: (input) => (input as ClubadminMembersUpdateInput).clientKey ?? null,
+    getScopeKey: (input, ctx) => `member:${ctx.actor.member.id}:clubadmin.members.update:${(input as ClubadminMembersUpdateInput).clubId}:${(input as ClubadminMembersUpdateInput).memberId}`,
+    getRequestValue: (input) => input,
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { clubId, memberId, patch } = input as ClubadminMembersUpdateInput;
+    const { clubId, memberId, clientKey, patch } = input as ClubadminMembersUpdateInput;
     ctx.requireClubAdmin(clubId);
     if (patch.role !== undefined) {
       ctx.requireClubOwner(clubId);
     }
 
     const isSuperadmin = ctx.actor.globalRoles.includes('superadmin');
-    const result = await ctx.repository.updateMembership({
+    const updateInput = {
       actorMemberId: ctx.actor.member.id,
       actorIsSuperadmin: isSuperadmin,
       actorMemberships: ctx.actor.memberships,
@@ -336,7 +346,13 @@ const clubadminMembersUpdate: ActionDefinition = {
       memberId,
       patch,
       skipClubAdminCheck: isSuperadmin,
-    });
+      ...(clientKey ? {
+        clientKey,
+        idempotencyActorContext: `member:${ctx.actor.member.id}:clubadmin.members.update:${clubId}:${memberId}`,
+        idempotencyRequestValue: input,
+      } : {}),
+    };
+    const result = await ctx.repository.updateMembership(updateInput);
 
     if (!result) {
       throw new AppError('member_not_found', 'Membership not found in the specified club');
@@ -470,6 +486,7 @@ const clubadminApplicationsDecide: ActionDefinition = {
   auth: 'clubadmin',
   scope: { strategy: 'rawClubId' },
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   authorizationNote: 'Requires club admin role in the specified club.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [
@@ -515,6 +532,11 @@ const clubadminApplicationsDecide: ActionDefinition = {
       adminNote: parseTrimmedNullableString.default(null),
       clientKey: parseRequiredString,
     }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey: string }).clientKey,
+    getScopeKey: (input, ctx) => `member:${ctx.actor.member.id}:clubadmin.applications.decide:${(input as { clubId: string; applicationId: string }).clubId}:${(input as { clubId: string; applicationId: string }).applicationId}`,
+    getRequestValue: (input) => input,
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { clubId, applicationId, decision, adminNote, clientKey } = input as {
@@ -562,6 +584,7 @@ const clubadminClubsUpdate: ActionDefinition = {
   auth: 'clubadmin',
   scope: { strategy: 'rawClubId' },
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   authorizationNote: 'Requires clubadmin auth on the surface, then narrows to the club owner or a superadmin before mutation.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [
@@ -697,6 +720,10 @@ const clubadminContentRemove: ActionDefinition = {
   auth: 'clubadmin',
   scope: { strategy: 'rawClubId' },
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Repeated moderation removes leave the same removed content state; divergent reasons are rejected by content.remove.',
+  },
   authorizationNote: 'Club admin may remove any content in their club. Reason is required for moderation audit trail.',
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [...CLUBADMIN_AUTH_ERRORS],

@@ -20,6 +20,10 @@ test('dispatch fails closed when an llmGate action is missing budget plumbing', 
     description: 'llmGate fail-closed fixture',
     auth: 'member',
     safety: 'mutating',
+    idempotencyStrategy: {
+      kind: 'naturallyIdempotent',
+      reason: 'Test fixture has no side effects.',
+    },
     wire: {
       input: z.object({ body: z.string() }),
       output: z.object({ ok: z.boolean() }),
@@ -84,6 +88,10 @@ test('dispatch fails closed when an llmGate action is missing club spend plumbin
     description: 'club spend fail-closed fixture',
     auth: 'member',
     safety: 'mutating',
+    idempotencyStrategy: {
+      kind: 'naturallyIdempotent',
+      reason: 'Test fixture has no side effects.',
+    },
     wire: {
       input: z.object({ body: z.string() }),
       output: z.object({ ok: z.boolean() }),

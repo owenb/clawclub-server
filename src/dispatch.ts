@@ -612,7 +612,7 @@ export function buildDispatcher({ repository, llmGate }: { repository: Repositor
 
       // 3. Branch on auth
       if (def.auth === 'none') {
-        return await dispatchCold(def, actionName, payload, repository, runLlmGate);
+        return await dispatchCold(def, actionName, payload, input.clientIp ?? null, repository, runLlmGate);
       }
       if (def.auth === 'optional_member') {
         return await dispatchOptionalMember(
@@ -644,6 +644,7 @@ async function dispatchCold(
   def: ActionDefinition,
   actionName: string,
   payload: Record<string, unknown>,
+  clientIp: string | null,
   repository: Repository,
   runLlmGate: LlmGateFn,
 ) {
@@ -659,7 +660,7 @@ async function dispatchCold(
       throw new AppError('not_implemented', `Action ${actionName} has no cold handler`);
     }
 
-    const ctx: ColdHandlerContext = { repository };
+    const ctx: ColdHandlerContext = { repository, clientIp };
     const result = await def.handleCold(parsedInput, ctx);
     return assembleUnauthenticatedResponse(actionName, result, notices);
   });

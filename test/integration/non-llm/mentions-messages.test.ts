@@ -1,5 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
 
 let h: TestHarness;
@@ -43,6 +44,7 @@ describe('message mentions', () => {
 
     // Display name rename — authoredLabel preserved, hydration reflects new display.
     await h.apiOk(bob.token, 'accounts.updateIdentity', {
+      clientKey: randomUUID(),
       displayName: 'Bob (renamed)',
     });
 

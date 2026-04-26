@@ -42,6 +42,7 @@ test('accounts.register discover forwards the anonymous discover request and ret
 
   assert.deepEqual(capturedInput, {
     mode: 'discover',
+    clientIp: null,
   });
   assert.equal(result.action, 'accounts.register');
   assert.equal(result.data.phase, 'proof_required');
@@ -103,6 +104,7 @@ test('accounts.register submit normalizes fields and returns the bearer once', a
     email: 'jane@example.com',
     challengeBlob: 'payload.signature',
     nonce: '42',
+    clientIp: null,
   });
   assert.equal(result.action, 'accounts.register');
   assert.equal(result.data.phase, 'registered');

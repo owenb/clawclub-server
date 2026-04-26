@@ -7,6 +7,7 @@ import { AppError, type BearerTokenSummary, type CreateBearerTokenInput, type Cr
 import { getConfig } from '../config/index.ts';
 import { buildBearerToken } from '../token.ts';
 import { withTransaction, type DbClient } from '../db.ts';
+import { throwSecretReplayUnavailable, withIdempotency } from '../idempotency.ts';
 
 type BearerTokenRow = {
   token_id: string;
@@ -84,6 +85,7 @@ export async function createBearerTokenInDb(client: DbClient, input: {
 
 export async function createBearerToken(pool: Pool, input: CreateBearerTokenInput): Promise<CreatedBearerToken> {
   return withTransaction(pool, async (client) => {
+    const performCreate = async (): Promise<CreatedBearerToken> => {
     const maxActiveTokens = getConfig().policy.accessTokens.maxActivePerMember;
     const countResult = await client.query<{ count: string }>(
       `select count(*)::text as count
@@ -101,6 +103,24 @@ export async function createBearerToken(pool: Pool, input: CreateBearerTokenInpu
       label: input.label ?? null,
       expiresAt: input.expiresAt ?? null,
       metadata: input.metadata ?? {},
+    });
+    };
+    if (!input.clientKey) {
+      return performCreate();
+    }
+    if (!input.idempotencyActorContext) {
+      throw new AppError('invalid_data', 'Bearer token creation idempotency actor context is required when clientKey is supplied.');
+    }
+    return withIdempotency(client, {
+      clientKey: input.clientKey,
+      actorContext: input.idempotencyActorContext,
+      requestValue: input.idempotencyRequestValue ?? input,
+      execute: async () => {
+        const created = await performCreate();
+        const { bearerToken: _bearerToken, ...safeMetadata } = created;
+        return { responseValue: created, storedValue: safeMetadata };
+      },
+      onReplay: (storedValue) => throwSecretReplayUnavailable(storedValue),
     });
   });
 }
@@ -164,6 +184,9 @@ export async function createBearerTokenAsSuperadmin(
   pool: Pool,
   input: {
     actorMemberId: string;
+    clientKey: string;
+    idempotencyActorContext: string;
+    idempotencyRequestValue: unknown;
     memberId: string;
     label?: string | null;
     expiresAt?: string | null;
@@ -171,7 +194,7 @@ export async function createBearerTokenAsSuperadmin(
     metadata?: Record<string, unknown>;
   },
 ): Promise<CreatedBearerToken | null> {
-  return withTransaction(pool, async (client) => {
+  const performCreate = async (client: DbClient) => {
     const existing = await client.query<{ id: string }>(
       `select id from members where id = $1 and state = 'active'`,
       [input.memberId],
@@ -196,5 +219,18 @@ export async function createBearerTokenAsSuperadmin(
       expiresAt: input.expiresAt ?? null,
       metadata: auditMetadata,
     });
-  });
+  };
+
+  return withTransaction(pool, (client) => withIdempotency(client, {
+    actorContext: input.idempotencyActorContext,
+    clientKey: input.clientKey,
+    requestValue: input.idempotencyRequestValue,
+    execute: async () => {
+      const token = await performCreate(client);
+      if (!token) return null;
+      const { bearerToken: _bearerToken, ...safeToken } = token;
+      return { responseValue: token, storedValue: safeToken };
+    },
+    onReplay: (storedValue) => throwSecretReplayUnavailable(storedValue),
+  }));
 }

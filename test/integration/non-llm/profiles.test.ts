@@ -1,5 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
 
@@ -82,6 +83,7 @@ describe('member profiles', () => {
     const secondClub = await h.seedClub('profiles-identity-b', 'ProfilesIdentityB', owner.id);
 
     const result = await h.apiOk(owner.token, 'accounts.updateIdentity', {
+      clientKey: randomUUID(),
       displayName: 'Renamed Owner',
     });
     const identity = result.data as Record<string, unknown>;
@@ -104,6 +106,7 @@ describe('member profiles', () => {
     const loner = await h.seedMember('No Clubs Yet');
 
     const result = await h.apiOk(loner.token, 'accounts.updateIdentity', {
+      clientKey: randomUUID(),
       displayName: 'Solo Operator',
     });
     const identity = result.data as Record<string, unknown>;
@@ -117,6 +120,7 @@ describe('member profiles', () => {
     const tooLong = 'a'.repeat(501);
 
     const err = await h.apiErr(owner.token, 'accounts.updateIdentity', {
+      clientKey: randomUUID(),
       displayName: tooLong,
     });
 
@@ -128,6 +132,7 @@ describe('member profiles', () => {
     const owner = await h.seedOwner('profiles-identity-nullbyte', 'ProfilesIdentityNullByte');
 
     const err = await h.apiErr(owner.token, 'accounts.updateIdentity', {
+      clientKey: randomUUID(),
       displayName: 'Clean\u0000Name',
     });
 

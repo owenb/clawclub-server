@@ -76,7 +76,10 @@ describe('clubs.create', () => {
     });
     const firstClubId = String((((first.data as Record<string, unknown>).club as Record<string, unknown>).clubId));
 
-    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: firstClubId });
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', {
+      clientKey: randomUUID(),
+      clubId: firstClubId,
+    });
 
     const second = await h.apiOk(member.token, 'clubs.create', {
       clientKey: randomUUID(),
@@ -202,6 +205,7 @@ describe('member cap enforcement', () => {
     for (let index = 0; index < 4; index += 1) {
       const member = await h.seedMember(`Capacity Member ${index}`);
       await h.apiOk(admin.token, 'superadmin.memberships.create', {
+        clientKey: randomUUID(),
         clubId,
         memberId: member.id,
         initialStatus: 'active',
@@ -210,6 +214,7 @@ describe('member cap enforcement', () => {
 
     const extraMember = await h.seedMember('Capacity Overflow');
     const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId,
       memberId: extraMember.id,
       initialStatus: 'active',
@@ -238,7 +243,10 @@ describe('removed clubs', () => {
     const admin = await h.seedSuperadmin('Restore Admin');
     const owner = await h.seedOwner('restore-club', 'Restore Club');
 
-    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: owner.club.id });
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', {
+      clientKey: randomUUID(),
+      clubId: owner.club.id,
+    });
 
     const removed = await h.apiOk(admin.token, 'superadmin.clubs.remove', {
       clientKey: randomUUID(),

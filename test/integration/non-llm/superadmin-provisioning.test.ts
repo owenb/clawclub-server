@@ -13,6 +13,34 @@ function provisionEmail(label: string): string {
   return `${local}-${provisionEmailCounter}@provisioning.test`;
 }
 
+function withClientKey<T extends Record<string, unknown>>(input: T): T & { clientKey: string } {
+  return { clientKey: randomUUID(), ...input };
+}
+
+function createMemberWithAccessToken(token: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return h.apiOk(token, 'superadmin.members.createWithAccessToken', withClientKey(input));
+}
+
+function createMemberWithAccessTokenErr(token: string, input: Record<string, unknown>) {
+  return h.apiErr(token, 'superadmin.members.createWithAccessToken', withClientKey(input));
+}
+
+function createMembership(token: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return h.apiOk(token, 'superadmin.memberships.create', withClientKey(input));
+}
+
+function createMembershipErr(token: string, input: Record<string, unknown>) {
+  return h.apiErr(token, 'superadmin.memberships.create', withClientKey(input));
+}
+
+function createAccessToken(token: string, input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return h.apiOk(token, 'superadmin.accessTokens.create', withClientKey(input));
+}
+
+function createAccessTokenErr(token: string, input: Record<string, unknown>) {
+  return h.apiErr(token, 'superadmin.accessTokens.create', withClientKey(input));
+}
+
 before(async () => {
   h = await TestHarness.start({ llmGate: passthroughGate });
 }, { timeout: 60_000 });
@@ -26,7 +54,7 @@ after(async () => {
 describe('superadmin.members.createWithAccessToken', () => {
   it('creates a member with bearer token', async () => {
     const admin = await h.seedSuperadmin('Provisioner');
-    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const result = await createMemberWithAccessToken(admin.token, {
       publicName: 'New Person',
       email: provisionEmail('New Person'),
     });
@@ -44,7 +72,7 @@ describe('superadmin.members.createWithAccessToken', () => {
 
   it('created member can authenticate and call session.getContext', async () => {
     const admin = await h.seedSuperadmin('Provisioner2');
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Auth Test Member',
       email: provisionEmail('Auth Test Member'),
     });
@@ -59,7 +87,7 @@ describe('superadmin.members.createWithAccessToken', () => {
 
   it('created member can authenticate with the legacy cc_live_ prefix', async () => {
     const admin = await h.seedSuperadmin('Provisioner2b');
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Legacy Prefix Member',
       email: provisionEmail('Legacy Prefix Member'),
     });
@@ -74,7 +102,7 @@ describe('superadmin.members.createWithAccessToken', () => {
 
   it('created member has no club memberships', async () => {
     const admin = await h.seedSuperadmin('Provisioner3');
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'No Club Member',
       email: provisionEmail('No Club Member'),
     });
@@ -87,7 +115,7 @@ describe('superadmin.members.createWithAccessToken', () => {
 
   it('normalizes required email', async () => {
     const admin = await h.seedSuperadmin('Provisioner5');
-    const result = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const result = await createMemberWithAccessToken(admin.token, {
       publicName: 'Email Person',
       email: ' Test@Example.com ',
     });
@@ -104,12 +132,12 @@ describe('superadmin.members.createWithAccessToken', () => {
 
   it('rejects duplicate email case-insensitively', async () => {
     const admin = await h.seedSuperadmin('Provisioner-dup-email');
-    await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    await createMemberWithAccessToken(admin.token, {
       publicName: 'Existing Email Person',
       email: 'duplicate-superadmin@example.com',
     });
 
-    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
+    const err = await createMemberWithAccessTokenErr(admin.token, {
       publicName: 'Duplicate Email Person',
       email: ' Duplicate-Superadmin@Example.com ',
     });
@@ -119,7 +147,7 @@ describe('superadmin.members.createWithAccessToken', () => {
 
   it('rejects invalid email', async () => {
     const admin = await h.seedSuperadmin('Provisioner-ev');
-    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
+    const err = await createMemberWithAccessTokenErr(admin.token, {
       publicName: 'Bad Email',
       email: 'not-an-email',
     });
@@ -129,7 +157,7 @@ describe('superadmin.members.createWithAccessToken', () => {
 
   it('rejects email without TLD', async () => {
     const admin = await h.seedSuperadmin('Provisioner-ev2');
-    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
+    const err = await createMemberWithAccessTokenErr(admin.token, {
       publicName: 'No TLD',
       email: 'user@localhost',
     });
@@ -138,7 +166,7 @@ describe('superadmin.members.createWithAccessToken', () => {
 
   it('rejects null email', async () => {
     const admin = await h.seedSuperadmin('Provisioner-null-email');
-    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
+    const err = await createMemberWithAccessTokenErr(admin.token, {
       publicName: 'Null Email',
       email: null,
     });
@@ -147,7 +175,7 @@ describe('superadmin.members.createWithAccessToken', () => {
 
   it('rejects empty publicName', async () => {
     const admin = await h.seedSuperadmin('Provisioner7');
-    const err = await h.apiErr(admin.token, 'superadmin.members.createWithAccessToken', {
+    const err = await createMemberWithAccessTokenErr(admin.token, {
       publicName: '   ',
       email: provisionEmail('empty public name'),
     });
@@ -172,14 +200,14 @@ describe('superadmin.memberships.create', () => {
     const owner = await h.seedOwner('ms-club', 'MsClub');
 
     // Create a fresh member
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Club Joiner',
       email: provisionEmail('Club Joiner'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
     // Add to club
-    const result = await h.apiOk(admin.token, 'superadmin.memberships.create', {
+    const result = await createMembership(admin.token, {
       clubId: owner.club.id,
       memberId,
     });
@@ -196,13 +224,13 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin2');
     const owner = await h.seedOwner('ms-club2', 'MsClub2');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'New Admin',
       email: provisionEmail('New Admin'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
-    const result = await h.apiOk(admin.token, 'superadmin.memberships.create', {
+    const result = await createMembership(admin.token, {
       clubId: owner.club.id,
       memberId,
       role: 'clubadmin',
@@ -217,14 +245,14 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin3');
     const owner = await h.seedOwner('ms-club3', 'MsClub3');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Interactive Member',
       email: provisionEmail('Interactive Member'),
     });
     const { memberId } = (createResult.data as any).member;
     const memberToken = (createResult.data as any).token.bearerToken;
 
-    await h.apiOk(admin.token, 'superadmin.memberships.create', {
+    await createMembership(admin.token, {
       clubId: owner.club.id,
       memberId,
     });
@@ -243,13 +271,13 @@ describe('superadmin.memberships.create', () => {
     // Seed a sponsor who is a member of the club
     const sponsor = await h.seedCompedMember(owner.club.id, 'The Sponsor');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Sponsored Member',
       email: provisionEmail('Sponsored Member'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
-    const result = await h.apiOk(admin.token, 'superadmin.memberships.create', {
+    const result = await createMembership(admin.token, {
       clubId: owner.club.id,
       memberId,
       sponsorId: sponsor.id,
@@ -262,13 +290,13 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdminSp1');
     const owner = await h.seedOwner('ms-club-sp1', 'MsClubSp1');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Ghost Sponsor Target',
       email: provisionEmail('Ghost Sponsor Target'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
-    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+    const err = await createMembershipErr(admin.token, {
       clubId: owner.club.id,
       memberId,
       sponsorId: 'xxxxxxxxxxxx',
@@ -284,14 +312,14 @@ describe('superadmin.memberships.create', () => {
     // Seed a member only in club B
     const crossSponsor = await h.seedCompedMember(ownerB.club.id, 'Cross Sponsor');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Cross Target',
       email: provisionEmail('Cross Target'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
     // Try to use club B's member as sponsor in club A
-    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+    const err = await createMembershipErr(admin.token, {
       clubId: ownerA.club.id,
       memberId,
       sponsorId: crossSponsor.id,
@@ -303,14 +331,14 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdminSelf');
     const owner = await h.seedOwner('ms-club-self', 'MsClubSelf');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Self Sponsor Target',
       email: provisionEmail('Self Sponsor Target'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
     // The superadmin is NOT a member of this club — sponsorId = admin.id should fail
-    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+    const err = await createMembershipErr(admin.token, {
       clubId: owner.club.id,
       memberId,
       sponsorId: admin.id,
@@ -322,7 +350,7 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin5');
     const member = await h.seedMember('Orphan');
 
-    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+    const err = await createMembershipErr(admin.token, {
       clubId: 'xxxxxxxxxxxx',
       memberId: member.id,
     });
@@ -333,7 +361,7 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin6');
     const owner = await h.seedOwner('ms-club6', 'MsClub6');
 
-    const result = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+    const result = await createMembershipErr(admin.token, {
       clubId: owner.club.id,
       memberId: 'xxxxxxxxxxxx',
     });
@@ -344,18 +372,18 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin7');
     const owner = await h.seedOwner('ms-club7', 'MsClub7');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Double Joiner',
       email: provisionEmail('Double Joiner'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
-    await h.apiOk(admin.token, 'superadmin.memberships.create', {
+    await createMembership(admin.token, {
       clubId: owner.club.id,
       memberId,
     });
 
-    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+    const err = await createMembershipErr(admin.token, {
       clubId: owner.club.id,
       memberId,
     });
@@ -377,13 +405,13 @@ describe('superadmin.memberships.create', () => {
     const admin = await h.seedSuperadmin('MsAdmin9');
     const owner = await h.seedOwner('ms-club9', 'MsClub9');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Submitted Member',
       email: provisionEmail('Submitted Member'),
     });
     const memberId = (createResult.data as any).member.memberId;
 
-    const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+    const err = await createMembershipErr(admin.token, {
       clubId: owner.club.id,
       memberId,
       initialStatus: 'submitted',
@@ -400,7 +428,7 @@ describe('superadmin.clubs.create owner membership', () => {
     const admin = await h.seedSuperadmin('ClubCreator');
 
     // Create a member to be the owner
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'New Owner',
       email: provisionEmail('New Owner'),
     });
@@ -430,7 +458,7 @@ describe('superadmin.clubs.create owner membership', () => {
   it('owner can perform club admin actions immediately after club creation', async () => {
     const admin = await h.seedSuperadmin('ClubCreator2');
 
-    const createResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const createResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'Active Owner',
       email: provisionEmail('Active Owner'),
     });
@@ -463,7 +491,7 @@ describe('full superadmin provisioning workflow', () => {
     const admin = await h.seedSuperadmin('E2EAdmin');
 
     // 1. Create the owner
-    const ownerResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const ownerResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'E2E Owner',
       email: 'owner@e2e.test',
     });
@@ -480,7 +508,7 @@ describe('full superadmin provisioning workflow', () => {
     const clubId = (clubResult.data as any).club.clubId;
 
     // 3. Create a regular member
-    const memberResult = await h.apiOk(admin.token, 'superadmin.members.createWithAccessToken', {
+    const memberResult = await createMemberWithAccessToken(admin.token, {
       publicName: 'E2E Member',
       email: provisionEmail('E2E Member'),
     });
@@ -488,7 +516,7 @@ describe('full superadmin provisioning workflow', () => {
     const memberToken = (memberResult.data as any).token.bearerToken;
 
     // 4. Add member to club
-    await h.apiOk(admin.token, 'superadmin.memberships.create', {
+    await createMembership(admin.token, {
       clubId,
       memberId,
     });
@@ -529,7 +557,7 @@ describe('superadmin.accessTokens.create', () => {
     const admin = await h.seedSuperadmin('TokenMinter');
     const target = await h.seedMember('Target Human');
 
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
     });
     const data = result.data as {
@@ -574,7 +602,7 @@ describe('superadmin.accessTokens.create', () => {
     const owner = await h.seedOwner('role-isolation-club', 'RoleIsolationClub');
     const target = await h.seedCompedMember(owner.club.id, 'Regular Member');
 
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
     });
     const data = result.data as { bearerToken: string };
@@ -589,7 +617,7 @@ describe('superadmin.accessTokens.create', () => {
     const admin = await h.seedSuperadmin('AuditMinter');
     const target = await h.seedMember('Audit Target');
 
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
       reason: 'integration test audit trail',
     });
@@ -606,7 +634,7 @@ describe('superadmin.accessTokens.create', () => {
     const admin = await h.seedSuperadmin('LabelMinter1');
     const target = await h.seedMember('Default Label Target');
 
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
     });
     const data = result.data as { label: string | null };
@@ -617,7 +645,7 @@ describe('superadmin.accessTokens.create', () => {
     const admin = await h.seedSuperadmin('LabelMinter2');
     const target = await h.seedMember('Custom Label Target');
 
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
       label: 'recovery after lost device',
     });
@@ -632,7 +660,7 @@ describe('superadmin.accessTokens.create', () => {
     // target already has the token from seedMember
     const originalToken = target.token;
 
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
     });
     const data = result.data as { bearerToken: string };
@@ -655,7 +683,7 @@ describe('superadmin.accessTokens.create', () => {
     const owner = await h.seedOwner('scope-club', 'ScopeClub');
     const target = await h.seedCompedMember(owner.club.id, 'Scoped Human');
 
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
     });
     const data = result.data as { bearerToken: string };
@@ -702,7 +730,7 @@ describe('superadmin.accessTokens.create', () => {
   it('nonexistent memberId returns 404 not_found', async () => {
     const admin = await h.seedSuperadmin('NotFoundMinter');
 
-    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+    const err = await createAccessTokenErr(admin.token, {
       memberId: 'xxxxxxxxxxxx',
     });
     assert.equal(err.status, 404);
@@ -712,14 +740,14 @@ describe('superadmin.accessTokens.create', () => {
   it('missing memberId returns invalid_input', async () => {
     const admin = await h.seedSuperadmin('ValidationMinter');
 
-    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {});
+    const err = await createAccessTokenErr(admin.token, {});
     assert.equal(err.code, 'invalid_input');
   });
 
   it('empty-string memberId returns invalid_input', async () => {
     const admin = await h.seedSuperadmin('EmptyMinter');
 
-    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+    const err = await createAccessTokenErr(admin.token, {
       memberId: '   ',
     });
     assert.equal(err.code, 'invalid_input');
@@ -734,7 +762,7 @@ describe('superadmin.accessTokens.create', () => {
     // so even a minted token for a suspended member couldn't authenticate.
     await h.sql(`update members set state = 'suspended' where id = $1`, [target.id]);
 
-    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+    const err = await createAccessTokenErr(admin.token, {
       memberId: target.id,
     });
     assert.equal(err.status, 404, 'minting for a non-active member must fail with not_found');
@@ -748,16 +776,22 @@ describe('superadmin.accessTokens.create', () => {
     // target already has 1 token from seedMember. Create 9 more via the self-service
     // path using the target's own token. That brings them to MAX_ACTIVE_TOKENS.
     for (let i = 0; i < 9; i++) {
-      await h.apiOk(target.token, 'accessTokens.create', { label: `saturation-${i}` });
+      await h.apiOk(target.token, 'accessTokens.create', {
+        clientKey: randomUUID(),
+        label: `saturation-${i}`,
+      });
     }
 
     // Self-service should now reject (quota exceeded)
-    const selfErr = await h.apiErr(target.token, 'accessTokens.create', { label: 'overflow' });
+    const selfErr = await h.apiErr(target.token, 'accessTokens.create', {
+      clientKey: randomUUID(),
+      label: 'overflow',
+    });
     assert.equal(selfErr.status, 429);
     assert.equal(selfErr.code, 'quota_exceeded');
 
     // But the superadmin path MUST still succeed — this is the recovery guarantee.
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
       label: 'admin bypass for recovery',
     });
@@ -775,7 +809,7 @@ describe('superadmin.accessTokens.create', () => {
     const admin = await h.seedSuperadmin('ExpiresAtMinter');
     const target = await h.seedMember('ExpiresAt Target');
 
-    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+    const err = await createAccessTokenErr(admin.token, {
       memberId: target.id,
       expiresAt: 'not-an-iso-date',
     });
@@ -789,7 +823,7 @@ describe('superadmin.accessTokens.create', () => {
     const target = await h.seedMember('Valid ExpiresAt Target');
 
     const expiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
       expiresAt: expiry,
     });
@@ -806,7 +840,7 @@ describe('superadmin.accessTokens.create', () => {
     const target = await h.seedMember('Date Only Target');
     const dateOnly = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    const result = await h.apiOk(admin.token, 'superadmin.accessTokens.create', {
+    const result = await createAccessToken(admin.token, {
       memberId: target.id,
       expiresAt: dateOnly,
     });
@@ -818,7 +852,7 @@ describe('superadmin.accessTokens.create', () => {
     const admin = await h.seedSuperadmin('PastExpiresAtMinter');
     const target = await h.seedMember('Past ExpiresAt Target');
 
-    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+    const err = await createAccessTokenErr(admin.token, {
       memberId: target.id,
       expiresAt: '2020-01-01T00:00:00Z',
     });
@@ -829,7 +863,7 @@ describe('superadmin.accessTokens.create', () => {
   it('oversized memberId (>64 chars) returns invalid_input, not 404', async () => {
     const admin = await h.seedSuperadmin('OversizeMinter');
 
-    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+    const err = await createAccessTokenErr(admin.token, {
       memberId: 'x'.repeat(1024),
     });
     assert.equal(err.status, 400, 'oversized memberId must fail validation at the parse layer');
@@ -843,7 +877,7 @@ describe('superadmin.accessTokens.create', () => {
     // proves the 64-char boundary is inclusive at the parse layer.
     const admin = await h.seedSuperadmin('BoundaryMinter');
 
-    const err = await h.apiErr(admin.token, 'superadmin.accessTokens.create', {
+    const err = await createAccessTokenErr(admin.token, {
       memberId: 'a'.repeat(64),
     });
     assert.equal(err.status, 404, '64-char memberId must pass validation and reach the existence check');

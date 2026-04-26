@@ -15,6 +15,7 @@ import { AppError } from '../errors.ts';
 import { runCreateGateCheck } from '../gate-runner.ts';
 import {
   decodeOptionalCursor,
+  describeClientKey,
   describeOptionalScopedClubId,
   describeScopedClubId,
   paginatedOutput,
@@ -234,6 +235,7 @@ const superadminMembersRemove: ActionDefinition = {
   description: 'Permanently remove a member and the rows that should disappear with them.',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
 
   wire: {
     input: z.object({
@@ -412,6 +414,7 @@ const superadminClubsCreate: ActionDefinition = {
   description: 'Create a new club (superadmin only).',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   refreshActorOnSuccess: true,
 
   wire: {
@@ -528,6 +531,7 @@ const superadminClubsArchive: ActionDefinition = {
   description: 'Archive a club (superadmin only).',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   businessErrors: [
     {
       code: 'club_archived',
@@ -538,6 +542,7 @@ const superadminClubsArchive: ActionDefinition = {
 
   wire: {
     input: z.object({
+      clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this club archive.')),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to archive.')),
     }),
     output: z.object({ club: clubSummary }),
@@ -545,16 +550,25 @@ const superadminClubsArchive: ActionDefinition = {
 
   parse: {
     input: z.object({
+      clientKey: parseRequiredString,
       clubId: parseRequiredString,
     }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey: string }).clientKey,
+    getScopeKey: (input, ctx) => `superadmin:${ctx.actor.member.id}:clubs.archive:${(input as { clubId: string }).clubId}`,
+    getRequestValue: (input) => input,
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const { clubId } = input as { clubId: string };
+    const { clientKey, clubId } = input as { clientKey: string; clubId: string };
 
     const club = await ctx.repository.archiveClub({
       actorMemberId: ctx.actor.member.id,
+      idempotencyActorContext: `superadmin:${ctx.actor.member.id}:clubs.archive:${clubId}`,
+      idempotencyRequestValue: input,
+      clientKey,
       clubId,
     });
 
@@ -574,6 +588,7 @@ const superadminClubsAssignOwner: ActionDefinition = {
   description: 'Assign a new owner to a club (superadmin only).',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   businessErrors: [
     {
       code: 'member_not_found',
@@ -584,6 +599,7 @@ const superadminClubsAssignOwner: ActionDefinition = {
 
   wire: {
     input: z.object({
+      clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this owner assignment.')),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to reassign.')),
       ownerMemberId: wireRequiredString.describe('New owner member ID'),
     }),
@@ -592,17 +608,26 @@ const superadminClubsAssignOwner: ActionDefinition = {
 
   parse: {
     input: z.object({
+      clientKey: parseRequiredString,
       clubId: parseRequiredString,
       ownerMemberId: parseRequiredString,
     }),
   },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey: string }).clientKey,
+    getScopeKey: (input, ctx) => `superadmin:${ctx.actor.member.id}:clubs.assignOwner:${(input as { clubId: string }).clubId}`,
+    getRequestValue: (input) => input,
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const { clubId, ownerMemberId } = input as { clubId: string; ownerMemberId: string };
+    const { clientKey, clubId, ownerMemberId } = input as { clientKey: string; clubId: string; ownerMemberId: string };
 
     const club = await ctx.repository.assignClubOwner({
       actorMemberId: ctx.actor.member.id,
+      idempotencyActorContext: `superadmin:${ctx.actor.member.id}:clubs.assignOwner:${clubId}`,
+      idempotencyRequestValue: input,
+      clientKey,
       clubId,
       ownerMemberId,
     });
@@ -633,6 +658,7 @@ const superadminClubsUpdate: ActionDefinition = {
   description: 'Update mutable fields on a club (superadmin only).',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   businessErrors: [
     {
       code: 'club_archived',
@@ -747,6 +773,7 @@ const superadminClubsRemove: ActionDefinition = {
   description: 'Physically remove an archived club after writing one restore archive row.',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   wire: {
     input: z.object({
       clientKey: wireRequiredString.describe('Idempotency key for this club removal.'),
@@ -861,6 +888,7 @@ const superadminRemovedClubsRestore: ActionDefinition = {
   description: 'Restore a previously removed club from its archived payload.',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   wire: {
     input: z.object({
       clientKey: wireRequiredString.describe('Idempotency key for this restore.'),
@@ -1088,6 +1116,10 @@ const superadminTokensRevoke: ActionDefinition = {
   description: 'Revoke a bearer token for a specific member.',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Revoking the same token repeatedly leaves the same revoked token state and does not append audit rows.',
+  },
 
   wire: {
     input: z.object({
@@ -1147,6 +1179,7 @@ const superadminTokensRevoke: ActionDefinition = {
 //     and cannot retrieve it later. The admin must deliver it out-of-band.
 
 type SuperadminAccessTokensCreateInput = {
+  clientKey: string;
   memberId: string;
   label: string | null;
   expiresAt: string | null;
@@ -1159,10 +1192,12 @@ const superadminTokensCreate: ActionDefinition = {
   description: 'Mint a fresh bearer token for an existing active member. Recovery path for lost or never-persisted tokens.',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'secretMint' },
   authorizationNote: 'Requires superadmin global role. The minted token is returned exactly once in plaintext; deliver it out-of-band.',
 
   wire: {
     input: z.object({
+      clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this admin bearer token mint. Plaintext tokens are never replayed.')),
       memberId: z.string().max(64).describe('Existing active member to mint a token for (short_id, max 64 characters)'),
       label: wireOptionalString.describe('Human-readable label for the new token (default: "admin-minted")'),
       expiresAt: wireIsoDatetime.nullable().optional().describe('Optional ISO 8601 date or datetime (e.g. "2025-12-31T23:59:59Z"); null or omit for no expiry'),
@@ -1176,20 +1211,29 @@ const superadminTokensCreate: ActionDefinition = {
     // rather than falling through to Postgres and returning 500. Both edges were
     // caught by the second-agent security review.
     input: z.object({
+      clientKey: parseRequiredString,
       memberId: parseRequiredString.pipe(z.string().max(64, 'memberId must be at most 64 characters')),
       label: parseTrimmedNullableString.default(null),
       expiresAt: parseFutureIsoDatetime.default(null),
       reason: parseTrimmedNullableString.default(null),
     }),
   },
+  idempotency: {
+    getClientKey: (input) => (input as SuperadminAccessTokensCreateInput).clientKey,
+    getScopeKey: (input, ctx) => `superadmin:${ctx.actor.member.id}:accessTokens.create:${(input as SuperadminAccessTokensCreateInput).memberId}`,
+    getRequestValue: (input) => input,
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     // SECURITY: this MUST be the first line. Do not reorder.
     ctx.requireSuperadmin();
-    const { memberId, label, expiresAt, reason } = input as SuperadminAccessTokensCreateInput;
+    const { clientKey, memberId, label, expiresAt, reason } = input as SuperadminAccessTokensCreateInput;
 
     const created = await ctx.repository.adminCreateAccessToken({
       actorMemberId: ctx.actor.member.id,
+      clientKey,
+      idempotencyActorContext: `superadmin:${ctx.actor.member.id}:accessTokens.create:${memberId}`,
+      idempotencyRequestValue: input,
       memberId,
       label,
       expiresAt,
@@ -1207,6 +1251,7 @@ const superadminTokensCreate: ActionDefinition = {
 // ── superadmin.members.createWithAccessToken ───────────────────────────
 
 type SuperadminMembersCreateInput = {
+  clientKey: string;
   publicName: string;
   email: string;
 };
@@ -1217,6 +1262,7 @@ const superadminMembersCreate: ActionDefinition = {
   description: 'Create a new platform member with a bearer token (no club membership).',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'secretMint' },
   businessErrors: [
     {
       code: 'email_already_registered',
@@ -1227,6 +1273,7 @@ const superadminMembersCreate: ActionDefinition = {
 
   wire: {
     input: z.object({
+      clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this member + bearer token creation. Plaintext tokens are never replayed.')),
       publicName: wirePublicName.describe('Display name for the new member'),
       email: wireEmail.describe('Private contact email for the new member'),
     }),
@@ -1238,17 +1285,26 @@ const superadminMembersCreate: ActionDefinition = {
 
   parse: {
     input: z.object({
+      clientKey: parseRequiredString,
       publicName: parsePublicName,
       email: parseEmail,
     }),
   },
+  idempotency: {
+    getClientKey: (input) => (input as SuperadminMembersCreateInput).clientKey,
+    getScopeKey: (_input, ctx) => `superadmin:${ctx.actor.member.id}:members.createWithAccessToken`,
+    getRequestValue: (input) => input,
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const { publicName, email } = input as SuperadminMembersCreateInput;
+    const { clientKey, publicName, email } = input as SuperadminMembersCreateInput;
 
     const result = await ctx.repository.adminCreateMember({
       actorMemberId: ctx.actor.member.id,
+      clientKey,
+      idempotencyActorContext: `superadmin:${ctx.actor.member.id}:members.createWithAccessToken`,
+      idempotencyRequestValue: input,
       publicName,
       email,
     });
@@ -1260,6 +1316,7 @@ const superadminMembersCreate: ActionDefinition = {
 // ── superadmin.memberships.create ───────────────────────
 
 type SuperadminMembershipsCreateInput = {
+  clientKey: string;
   clubId: string;
   memberId: string;
   role: 'member' | 'clubadmin';
@@ -1274,6 +1331,7 @@ const superadminMembershipsCreate: ActionDefinition = {
   description: 'Add an existing member to a club (bypasses club admin requirement).',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   businessErrors: [
     {
       code: 'member_already_active',
@@ -1289,6 +1347,7 @@ const superadminMembershipsCreate: ActionDefinition = {
 
   wire: {
     input: z.object({
+      clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this membership creation.')),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to add the member to.')),
       memberId: wireRequiredString.describe('Member to add'),
       role: membershipRole.default('member').describe('Role: member or clubadmin'),
@@ -1301,6 +1360,7 @@ const superadminMembershipsCreate: ActionDefinition = {
 
   parse: {
     input: z.object({
+      clientKey: parseRequiredString,
       clubId: parseRequiredString,
       memberId: parseRequiredString,
       role: membershipRole.default('member'),
@@ -1309,10 +1369,15 @@ const superadminMembershipsCreate: ActionDefinition = {
       reason: parseTrimmedNullableString.default(null),
     }),
   },
+  idempotency: {
+    getClientKey: (input) => (input as SuperadminMembershipsCreateInput).clientKey,
+    getScopeKey: (input, ctx) => `superadmin:${ctx.actor.member.id}:memberships.create:${(input as SuperadminMembershipsCreateInput).clubId}:${(input as SuperadminMembershipsCreateInput).memberId}`,
+    getRequestValue: (input) => input,
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const { clubId, memberId, role, sponsorId, initialStatus, reason } = input as SuperadminMembershipsCreateInput;
+    const { clientKey, clubId, memberId, role, sponsorId, initialStatus, reason } = input as SuperadminMembershipsCreateInput;
     const initialProfile = ctx.repository.buildMembershipSeedProfile
       ? await ctx.repository.buildMembershipSeedProfile({ memberId, clubId })
       : {
@@ -1327,6 +1392,9 @@ const superadminMembershipsCreate: ActionDefinition = {
 
     const membership = await ctx.repository.adminCreateMembership({
       actorMemberId: ctx.actor.member.id,
+      clientKey,
+      idempotencyActorContext: `superadmin:${ctx.actor.member.id}:memberships.create:${clubId}:${memberId}`,
+      idempotencyRequestValue: input,
       clubId,
       memberId,
       role,
@@ -1353,6 +1421,7 @@ const superadminMembershipsCreate: ActionDefinition = {
 // ── superadmin.notificationProducers.create ───────────────────────
 
 type SuperadminNotificationProducersCreateInput = {
+  clientKey: string;
   producerId: string;
   namespacePrefix: string;
   burstLimit?: number | null;
@@ -1371,9 +1440,11 @@ const superadminNotificationProducersCreate: ActionDefinition = {
   description: 'Register a producer, issue its initial secret, and register its initial topics.',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'secretMint' },
 
   wire: {
     input: z.object({
+      clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this producer secret mint. Plaintext secrets are never replayed.')),
       producerId: wireRequiredString.describe('Stable producer identifier used in headers and registry rows.'),
       namespacePrefix: wireOptionalString.describe('Required topic prefix for this producer. Use empty string only for core-like internal producers.'),
       burstLimit: z.number().int().min(1).nullable().optional().describe('Optional burst cap applied to this producer.'),
@@ -1386,6 +1457,7 @@ const superadminNotificationProducersCreate: ActionDefinition = {
 
   parse: {
     input: z.object({
+      clientKey: parseRequiredString,
       producerId: parseRequiredString,
       namespacePrefix: parseTrimmedNullableString.transform((value) => value ?? ''),
       burstLimit: z.number().int().min(1).nullable().optional(),
@@ -1398,12 +1470,26 @@ const superadminNotificationProducersCreate: ActionDefinition = {
       })).min(1),
     }),
   },
+  idempotency: {
+    getClientKey: (input) => (input as SuperadminNotificationProducersCreateInput).clientKey,
+    getScopeKey: (input, ctx) => `superadmin:${ctx.actor.member.id}:notificationProducers.create:${(input as SuperadminNotificationProducersCreateInput).producerId}`,
+    getRequestValue: (input) => input,
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
+    const parsed = input as SuperadminNotificationProducersCreateInput;
     const created = await ctx.repository.adminCreateNotificationProducer({
       actorMemberId: ctx.actor.member.id,
-      ...(input as SuperadminNotificationProducersCreateInput),
+      clientKey: parsed.clientKey,
+      idempotencyActorContext: `superadmin:${ctx.actor.member.id}:notificationProducers.create:${parsed.producerId}`,
+      idempotencyRequestValue: input,
+      producerId: parsed.producerId,
+      namespacePrefix: parsed.namespacePrefix,
+      burstLimit: parsed.burstLimit,
+      hourlyLimit: parsed.hourlyLimit,
+      dailyLimit: parsed.dailyLimit,
+      topics: parsed.topics,
     });
     return { data: created };
   },
@@ -1417,9 +1503,11 @@ const superadminNotificationProducersRotateSecret: ActionDefinition = {
   description: 'Rotate a producer secret with dual-secret overlap.',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'secretMint' },
 
   wire: {
     input: z.object({
+      clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this producer secret rotation. Plaintext secrets are never replayed.')),
       producerId: wireRequiredString.describe('Producer whose secret should be rotated.'),
     }),
     output: rotatedNotificationProducerSecret,
@@ -1427,15 +1515,24 @@ const superadminNotificationProducersRotateSecret: ActionDefinition = {
 
   parse: {
     input: z.object({
+      clientKey: parseRequiredString,
       producerId: parseRequiredString,
     }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey: string }).clientKey,
+    getScopeKey: (input, ctx) => `superadmin:${ctx.actor.member.id}:notificationProducers.rotateSecret:${(input as { producerId: string }).producerId}`,
+    getRequestValue: (input) => input,
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
-    const { producerId } = input as { producerId: string };
+    const { clientKey, producerId } = input as { clientKey: string; producerId: string };
     const rotated = await ctx.repository.adminRotateNotificationProducerSecret({
       actorMemberId: ctx.actor.member.id,
+      clientKey,
+      idempotencyActorContext: `superadmin:${ctx.actor.member.id}:notificationProducers.rotateSecret:${producerId}`,
+      idempotencyRequestValue: input,
       producerId,
     });
     if (!rotated) {
@@ -1453,6 +1550,10 @@ const superadminNotificationProducersUpdateStatus: ActionDefinition = {
   description: 'Enable or disable a producer globally.',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Producer status updates set one status value; repeating the same status leaves the same producer state.',
+  },
 
   wire: {
     input: z.object({
@@ -1492,6 +1593,10 @@ const superadminNotificationProducerTopicsUpdateStatus: ActionDefinition = {
   description: 'Enable or disable a single producer topic.',
   auth: 'superadmin',
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Producer topic status updates set one status value; repeating the same status leaves the same topic state.',
+  },
 
   wire: {
     input: z.object({

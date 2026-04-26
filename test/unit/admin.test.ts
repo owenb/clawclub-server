@@ -672,7 +672,7 @@ test('superadmin.clubs.archive returns archived club', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.archive', { clubId: 'club-1' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.archive', { clubId: 'club-1', clientKey: 'archive-club-1' });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
     assert.ok(body.data.club.archivedAt !== null);
@@ -702,7 +702,7 @@ test('superadmin.clubs.archive returns 404 for non-existent club', async () => {
     const address = server.address();
     const port = typeof address === 'object' && address ? address.port : 0;
 
-    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.archive', { clubId: 'ghost' });
+    const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.archive', { clubId: 'ghost', clientKey: 'archive-ghost' });
     assert.equal(response.status, 404);
     assert.equal(body.ok, false);
   } finally {
@@ -745,6 +745,7 @@ test('superadmin.clubs.assignOwner returns updated club', async () => {
     const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.assignOwner', {
       clubId: 'club-1',
       ownerMemberId: 'member-2',
+      clientKey: 'assign-owner-1',
     });
     assert.equal(response.status, 200);
     assert.equal(body.ok, true);
@@ -779,6 +780,7 @@ test('superadmin.clubs.assignOwner returns 404 for non-existent club or member',
     const { response, body } = await postAction(port, 'cc_live_admin', 'superadmin.clubs.assignOwner', {
       clubId: 'ghost',
       ownerMemberId: 'ghost',
+      clientKey: 'assign-owner-ghost',
     });
     assert.equal(response.status, 404);
     assert.equal(body.ok, false);

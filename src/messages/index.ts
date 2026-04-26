@@ -183,52 +183,6 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
   return {
     async sendMessage({ senderMemberId, recipientMemberId, messageText, clientKey }) {
       const performSend = async (client: Pool | import('pg').PoolClient): Promise<WithIncluded<{ message: MessageSummary }>> => {
-        if (clientKey) {
-          const existing = await client.query<{
-            id: string; thread_id: string; member_a_id: string; member_b_id: string;
-            message_text: string | null; created_at: string;
-          }>(
-            `select m.id, m.thread_id, t.member_a_id, t.member_b_id,
-                    m.message_text, m.created_at::text as created_at
-             from dm_messages m
-             join dm_threads t on t.id = m.thread_id
-             where m.sender_member_id = $1 and m.client_key = $2`,
-            [senderMemberId, clientKey],
-          );
-          if (existing.rows[0]) {
-            const orig = existing.rows[0];
-            // Verify this is the same conversation (same member pair) AND same message text
-            const expectedA = senderMemberId < recipientMemberId ? senderMemberId : recipientMemberId;
-            const expectedB = senderMemberId < recipientMemberId ? recipientMemberId : senderMemberId;
-            if (orig.member_a_id !== expectedA || orig.member_b_id !== expectedB) {
-              throw new AppError('client_key_conflict',
-                'This clientKey was already used for a different conversation. Use a unique key per message.');
-            }
-            if ((orig.message_text ?? '') !== (messageText ?? '')) {
-              throw new AppError('client_key_conflict',
-                'This clientKey was already used with a different message. Use a unique key per message.');
-            }
-            const threadParticipantIds = [senderMemberId, recipientMemberId];
-            const hydrated = hasPotentialMentionChar(orig.message_text ?? messageText)
-              ? await loadDmMentions(client, [orig.id], {
-                participantIdsByMessageId: scopeDmMessageIds([orig.id], threadParticipantIds),
-              })
-              : { mentionsByMessageId: new Map<string, MentionSpan[]>(), included: emptyIncludedBundle() };
-            return {
-              message: {
-                threadId: orig.thread_id,
-                messageId: orig.id,
-                senderMemberId,
-                recipientMemberId,
-                messageText: orig.message_text ?? messageText,
-                mentions: hydrated.mentionsByMessageId.get(orig.id) ?? [],
-                createdAt: orig.created_at,
-              },
-              included: hydrated.included,
-            };
-          }
-        }
-
         await enforceActionQuota(client, {
           action: QUOTA_ACTIONS.messagesSend,
           memberId: senderMemberId,

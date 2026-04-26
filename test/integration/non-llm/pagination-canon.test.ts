@@ -1,5 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
 
@@ -38,7 +39,10 @@ describe('pagination canon', () => {
     const admin = await h.seedSuperadmin('Pagination Clubs Admin');
     const active = await h.seedOwner('pagination-active-club', 'ZZZ Pagination Active Club');
     const archived = await h.seedOwner('pagination-archived-club', 'AAA Pagination Archived Club');
-    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: archived.club.id });
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', {
+      clientKey: randomUUID(),
+      clubId: archived.club.id,
+    });
 
     const seen: Array<{ slug: string; archivedAt: string | null }> = [];
     let cursor: string | null = null;

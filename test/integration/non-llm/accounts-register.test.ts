@@ -180,6 +180,34 @@ describe('accounts.register', () => {
     assert.equal(err.code, 'client_key_conflict');
   });
 
+  it('scopes anonymous registration clientKey conflicts by validated client IP', async () => {
+    const firstChallenge = await prepareAccountRegistration(h, 'register-ip-scope-discover-1');
+    const secondChallenge = await prepareAccountRegistration(h, 'register-ip-scope-discover-2');
+    const firstNonce = findPowNonce(firstChallenge.challengeId, firstChallenge.difficulty);
+    const secondNonce = findPowNonce(secondChallenge.challengeId, secondChallenge.difficulty);
+    const clientKey = 'register-ip-scoped-submit';
+
+    await h.apiOk(null, 'accounts.register', {
+      mode: 'submit',
+      clientKey,
+      name: 'Register IP Scope One',
+      email: 'register-ip-scope-one@example.com',
+      challengeBlob: firstChallenge.challengeBlob,
+      nonce: firstNonce,
+    }, { headers: { 'x-forwarded-for': '203.0.113.51' } });
+
+    const second = await h.apiOk(null, 'accounts.register', {
+      mode: 'submit',
+      clientKey,
+      name: 'Register IP Scope Two',
+      email: 'register-ip-scope-two@example.com',
+      challengeBlob: secondChallenge.challengeBlob,
+      nonce: secondNonce,
+    }, { headers: { 'x-forwarded-for': '203.0.113.52' } });
+    const data = second.data as Record<string, unknown>;
+    assert.equal(data.phase, 'registered');
+  });
+
   it('rejects duplicate email registration case-insensitively', async () => {
     await registerWithPow(h, {
       name: 'First Email Holder',

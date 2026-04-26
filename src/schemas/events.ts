@@ -93,6 +93,10 @@ const eventsSetRsvp: ActionDefinition = {
   description: 'Create, change, or clear the actor’s RSVP to a specific event. RSVP updates and cancellations close once the event starts and return event_rsvp_closed.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'RSVP is a set operation for the actor/event pair; repeating the same response leaves one current RSVP row and no extra state transition.',
+  },
   businessErrors: [
     {
       code: 'invalid_state',

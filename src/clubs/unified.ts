@@ -801,9 +801,13 @@ export async function listIssuedInvitations(pool: Pool, input: {
 export async function revokeInvitation(pool: Pool, input: {
   actorMemberId: string;
   invitationId: string;
+  clientKey?: string | null;
+  idempotencyActorContext?: string;
+  idempotencyRequestValue?: unknown;
   adminClubIds?: string[];
 }): Promise<InvitationSummary | null> {
   return withTransaction(pool, async (client) => {
+    const performRevoke = async (): Promise<InvitationSummary | null> => {
     const invitation = await readInvitationForValidation(client, input.invitationId);
     if (!invitation) {
       return null;
@@ -895,5 +899,23 @@ export async function revokeInvitation(pool: Pool, input: {
       [input.invitationId, invitation.sponsor_public_name],
     );
     return updated.rows[0] ? mapInvitationSummary(updated.rows[0]) : mapInvitationSummary(invitation);
+    };
+
+    if (!input.clientKey) {
+      return performRevoke();
+    }
+    if (!input.idempotencyActorContext) {
+      throw new AppError('invalid_data', 'Invitation revoke idempotency actor context is required when clientKey is supplied.');
+    }
+    return withIdempotency(client, {
+      clientKey: input.clientKey,
+      actorContext: input.idempotencyActorContext,
+      requestValue: input.idempotencyRequestValue ?? {
+        actorMemberId: input.actorMemberId,
+        invitationId: input.invitationId,
+        clientKey: input.clientKey,
+      },
+      execute: async () => ({ responseValue: await performRevoke() }),
+    });
   });
 }

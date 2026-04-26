@@ -300,6 +300,7 @@ const membersUpdateProfile: ActionDefinition = {
   description: 'Update the current actor club-scoped profile fields for one club.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   authorizationNote: 'Updates own profile only.',
   businessErrors: [...PROFILE_UPDATE_ERRORS],
   notes: [
@@ -440,6 +441,7 @@ const vouchesCreate: ActionDefinition = {
   description: 'Vouch for another member in a club.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   authorizationNote: 'Requires club membership.',
   businessErrors: [...VOUCH_CREATE_ERRORS],
   skipRequestedClubScopePrecheck: true,

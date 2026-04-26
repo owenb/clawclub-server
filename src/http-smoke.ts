@@ -258,6 +258,7 @@ export async function runHttpSmoke(): Promise<{
     assert.equal(member.data?.member?.memberId, memberId);
 
     const updatedIdentity = await postAction(baseUrl, token.bearerToken, 'accounts.updateIdentity', {
+      clientKey: 'http-smoke-identity',
       displayName: 'HTTP Smoke Member',
     }, {
       'clawclub-schema-seen': schemaHash,

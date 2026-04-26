@@ -67,6 +67,7 @@ const messagesSend: ActionDefinition = {
   description: 'Send a direct message to another member. Requires at least one shared club, or an existing thread between the participants.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   businessErrors: [...MESSAGES_SEND_ERRORS],
   scopeRules: [
     'DMs are not club-scoped. Do not send clubId when calling messages.send.',
@@ -92,6 +93,17 @@ const messagesSend: ActionDefinition = {
       messageText: parseMessageText,
       clientKey: parseTrimmedNullableOpaqueString.default(null),
     }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as SendInput).clientKey ?? null,
+    getScopeKey: (_input, ctx) => `member:${ctx.actor.member.id}:messages.send`,
+    getRequestValue: (input) => {
+      const parsed = input as SendInput;
+      return {
+        recipientMemberId: parsed.recipientMemberId,
+        messageText: parsed.messageText,
+      };
+    },
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -196,6 +208,10 @@ const messagesRemove: ActionDefinition = {
   description: 'Remove a DM (sender only).',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Removing the same message twice leaves one removal row; same-reason replay is a semantic no-op and divergent reasons raise message_already_removed.',
+  },
   authorizationNote: 'Only the sender may remove their own message.',
   businessErrors: [
     {

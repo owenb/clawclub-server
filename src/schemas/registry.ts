@@ -50,6 +50,7 @@ export type HandlerContext = {
  */
 export type ColdHandlerContext = {
   repository: Repository;
+  clientIp?: string | null;
 };
 
 export type OptionalHandlerContext = {
@@ -181,6 +182,19 @@ export type IdempotencyDeclaration = {
   getRequestValue?: (parsedInput: unknown, ctx: { actor: AuthenticatedActor }) => unknown;
 };
 
+export type ActionIdempotencyStrategy =
+  | {
+    kind: 'clientKey';
+    requirement: 'required' | 'optional';
+  }
+  | {
+    kind: 'secretMint';
+  }
+  | {
+    kind: 'naturallyIdempotent';
+    reason: string;
+  };
+
 export type ActionScopeDeclaration =
   | { strategy: 'rawClubId'; key?: string }
   | { strategy: 'rawMemberId'; key?: string }
@@ -212,6 +226,7 @@ export type ActionDefinition = {
   llmGate?: LlmGateDeclaration;
   quotaAction?: SupportedQuotaAction;
   idempotency?: IdempotencyDeclaration;
+  idempotencyStrategy?: ActionIdempotencyStrategy;
   scope?: ActionScopeDeclaration;
   refreshActorOnSuccess?: boolean;
   skipNotificationsInResponse?: boolean;
@@ -298,6 +313,21 @@ function applyStrictInputCanon(schema: z.ZodType): z.ZodType {
   return strictRecursive(schema);
 }
 
+function validateIdempotencyStrategy(action: ActionDefinition): void {
+  if (action.auth === 'none' || action.safety !== 'mutating') {
+    return;
+  }
+  if (!action.idempotencyStrategy) {
+    throw new Error(`Mutating authenticated action ${action.action} must declare an idempotencyStrategy`);
+  }
+  if (
+    (action.idempotencyStrategy.kind === 'clientKey' || action.idempotencyStrategy.kind === 'secretMint')
+    && !action.idempotency
+  ) {
+    throw new Error(`Action ${action.action} declares ${action.idempotencyStrategy.kind} idempotency without an idempotency declaration`);
+  }
+}
+
 /**
  * Register action definitions from a domain module.
  * Called by each domain schema file during module initialization.
@@ -310,6 +340,7 @@ export function registerActions(actions: ActionDefinition[]): void {
     if (action.auth === 'none' && action.preGate) {
       throw new Error(`Cold action ${action.action} must not define preGate`);
     }
+    validateIdempotencyStrategy(action);
     registry.set(action.action, {
       ...action,
       wire: {

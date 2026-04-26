@@ -8,6 +8,11 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key for this bearer token mint. Plaintext tokens are never replayed. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
           "expiresAt": {
             "description": "ISO 8601 expiration timestamp",
             "nullable": true,
@@ -25,6 +30,9 @@
             "type": "object"
           }
         },
+        "required": [
+          "clientKey"
+        ],
         "type": "object"
       },
       "output": {
@@ -768,12 +776,20 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key for this identity update. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
           "displayName": {
             "description": "Global display name, max 500 characters",
             "maxLength": 500,
             "type": "string"
           }
         },
+        "required": [
+          "clientKey"
+        ],
         "type": "object"
       },
       "notes": [
@@ -3211,6 +3227,11 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Optional idempotency key for this membership update. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "nullable": true,
+            "type": "string"
+          },
           "clubId": {
             "description": "Club the membership belongs to. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
             "maxLength": 100000,
@@ -11378,6 +11399,11 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Optional idempotency key for this invitation revoke. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "nullable": true,
+            "type": "string"
+          },
           "invitationId": {
             "description": "Invitation to revoke",
             "maxLength": 100000,
@@ -13407,6 +13433,11 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key for this admin bearer token mint. Plaintext tokens are never replayed. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
           "expiresAt": {
             "description": "Optional ISO 8601 date or datetime (e.g. \"2025-12-31T23:59:59Z\"); null or omit for no expiry",
             "nullable": true,
@@ -13431,6 +13462,7 @@
           }
         },
         "required": [
+          "clientKey",
           "memberId"
         ],
         "type": "object"
@@ -13672,6 +13704,11 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key for this club archive. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
           "clubId": {
             "description": "Club to archive. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
             "maxLength": 100000,
@@ -13679,6 +13716,7 @@
           }
         },
         "required": [
+          "clientKey",
           "clubId"
         ],
         "type": "object"
@@ -13825,6 +13863,11 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key for this owner assignment. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
           "clubId": {
             "description": "Club to reassign. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
             "maxLength": 100000,
@@ -13837,6 +13880,7 @@
           }
         },
         "required": [
+          "clientKey",
           "clubId",
           "ownerMemberId"
         ],
@@ -15324,6 +15368,11 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key for this member + bearer token creation. Plaintext tokens are never replayed. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
           "email": {
             "description": "Private contact email for the new member",
             "maxLength": 500,
@@ -15336,6 +15385,7 @@
           }
         },
         "required": [
+          "clientKey",
           "publicName",
           "email"
         ],
@@ -15951,6 +16001,11 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key for this membership creation. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
           "clubId": {
             "description": "Club to add the member to. Use the stable clubId from session.getContext.activeMemberships; scoped and post-membership surfaces take clubId, not clubSlug.",
             "maxLength": 100000,
@@ -15992,6 +16047,7 @@
           }
         },
         "required": [
+          "clientKey",
           "clubId",
           "memberId"
         ],
@@ -16498,6 +16554,11 @@
             "nullable": true,
             "type": "integer"
           },
+          "clientKey": {
+            "description": "Idempotency key for this producer secret mint. Plaintext secrets are never replayed. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
           "dailyLimit": {
             "description": "Optional daily cap applied to this producer.",
             "maximum": 9007199254740991,
@@ -16563,6 +16624,7 @@
           }
         },
         "required": [
+          "clientKey",
           "producerId",
           "topics"
         ],
@@ -16689,6 +16751,11 @@
       "input": {
         "additionalProperties": false,
         "properties": {
+          "clientKey": {
+            "description": "Idempotency key for this producer secret rotation. Plaintext secrets are never replayed. Any non-empty string you generate. Scope it per-caller per-call. Retrying with the same key and the same payload replays the stored response.",
+            "maxLength": 100000,
+            "type": "string"
+          },
           "producerId": {
             "description": "Producer whose secret should be rotated.",
             "maxLength": 100000,
@@ -16696,6 +16763,7 @@
           }
         },
         "required": [
+          "clientKey",
           "producerId"
         ],
         "type": "object"
@@ -19376,5 +19444,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "335eef1c7ff8c120"
+  "schemaHash": "75264b05f5f36554"
 }

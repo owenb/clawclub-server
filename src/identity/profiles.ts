@@ -442,17 +442,29 @@ export async function updateMemberIdentity(
   pool: Pool,
   actor: AuthenticatedActor,
   patch: UpdateMemberIdentityInput,
+  clientKey: string,
 ): Promise<MemberIdentity> {
   return withTransaction(pool, async (client) => {
-    if (patch.displayName !== undefined) {
-      await client.query(`update members set display_name = $2 where id = $1`, [actor.member.id, patch.displayName]);
-    }
+    return withIdempotency(client, {
+      clientKey,
+      actorContext: `member:${actor.member.id}:accounts.updateIdentity`,
+      requestValue: {
+        actorMemberId: actor.member.id,
+        clientKey,
+        ...patch,
+      },
+      execute: async () => {
+        if (patch.displayName !== undefined) {
+          await client.query(`update members set display_name = $2 where id = $1`, [actor.member.id, patch.displayName]);
+        }
 
-    const identity = await readMemberIdentity(client, actor.member.id);
-    if (!identity) {
-      throw new AppError('missing_row', 'Updated identity could not be reloaded');
-    }
-    return mapIdentityRow(identity);
+        const identity = await readMemberIdentity(client, actor.member.id);
+        if (!identity) {
+          throw new AppError('missing_row', 'Updated identity could not be reloaded');
+        }
+        return { responseValue: mapIdentityRow(identity) };
+      },
+    });
   });
 }
 

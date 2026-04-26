@@ -734,13 +734,19 @@ describe('messages', () => {
       clientKey,
     });
 
-    const err = await h.apiErr(owner.token, 'messages.send', {
+    const conflict = await h.api(owner.token, 'messages.send', {
       recipientMemberId: alice.id,
       messageText: 'Different message text',
       clientKey,
     });
-    assert.equal(err.status, 409);
-    assert.equal(err.code, 'client_key_conflict');
+    assert.equal(conflict.status, 409);
+    assert.equal(conflict.body.ok, false);
+    const error = conflict.body.error as Record<string, unknown>;
+    assert.equal(error.code, 'client_key_conflict');
+    const details = error.details as Record<string, unknown>;
+    const storedMessage = details.message as Record<string, unknown>;
+    assert.equal(storedMessage.messageText, 'Original message');
+    assert.ok(storedMessage.messageId, 'conflict details should include the canonical stored message state');
   });
 
   it('clientKey is scoped to the sender, not global across actors', async () => {

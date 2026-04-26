@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Client, type ClientConfig, type Pool } from 'pg';
 import type { DbClient } from './db.ts';
 import { AppError } from './errors.ts';
+import { logger } from './logger.ts';
 
 function hashRequest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex');
@@ -10,6 +11,14 @@ function hashRequest(value: unknown): string {
 type IdempotencyLookupResult<T> =
   | { status: 'miss' }
   | { status: 'hit'; responseValue: T };
+
+export function throwSecretReplayUnavailable(details: unknown): never {
+  throw new AppError(
+    'secret_replay_unavailable',
+    'This clientKey already minted a secret. The secret plaintext cannot be replayed.',
+    { details },
+  );
+}
 
 export async function lookupIdempotency<T>(
   client: DbClient,
@@ -39,7 +48,11 @@ export async function lookupIdempotency<T>(
   }
 
   if (row.actor_context !== input.actorContext || row.request_hash !== requestHash) {
-    throw new AppError('client_key_conflict', 'This clientKey was already used for a different request.');
+    throw new AppError(
+      'client_key_conflict',
+      'This clientKey was already used for a different request.',
+      { details: row.response_envelope },
+    );
   }
 
   await client.query(
@@ -62,7 +75,8 @@ export async function withIdempotency<T>(
     clientKey: string;
     actorContext: string;
     requestValue: unknown;
-    execute: () => Promise<{ responseValue: T; storedValue?: unknown }>;
+    execute: () => Promise<T | { responseValue: T; storedValue?: unknown }>;
+    onReplay?: (storedValue: T) => T | Promise<T>;
   },
 ): Promise<T> {
   const scopedClientKey = `${input.actorContext}:${input.clientKey}`;
@@ -73,11 +87,18 @@ export async function withIdempotency<T>(
     requestValue: input.requestValue,
   });
   if (existing.status === 'hit') {
+    if (input.onReplay) {
+      return await input.onReplay(existing.responseValue);
+    }
     return existing.responseValue;
   }
 
   const requestHash = hashRequest(input.requestValue);
-  const executed = await input.execute();
+  const rawExecuted = await input.execute();
+  const executed =
+    rawExecuted && typeof rawExecuted === 'object' && 'responseValue' in rawExecuted
+      ? rawExecuted as { responseValue: T; storedValue?: unknown }
+      : { responseValue: rawExecuted as T };
   await client.query(
     `insert into idempotency_keys (client_key, actor_context, request_hash, response_envelope)
      values ($1, $2, $3, $4::jsonb)`,
@@ -106,6 +127,11 @@ export async function withClientKeyBarrier<T>(pool: Pool, input: {
   } finally {
     try {
       await client.query(`select pg_advisory_unlock(hashtext($1))`, [barrierKey]);
+    } catch (error) {
+      logger.error('client_key_barrier_unlock_failed', error, {
+        actorContext: input.actorContext,
+        clientKey: input.clientKey,
+      });
     } finally {
       await client.end().catch(() => {});
     }

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
 
@@ -19,7 +20,10 @@ async function createProducer(
     }>;
   },
 ): Promise<{ secret: string }> {
-  const result = await h.apiOk(adminToken, 'superadmin.notificationProducers.create', input);
+  const result = await h.apiOk(adminToken, 'superadmin.notificationProducers.create', {
+    clientKey: randomUUID(),
+    ...input,
+  });
   const data = result.data as Record<string, unknown>;
   return {
     secret: data.secret as string,
@@ -162,6 +166,7 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
   );
 
   const rotated = await h.apiOk(admin.token, 'superadmin.notificationProducers.rotateSecret', {
+    clientKey: randomUUID(),
     producerId: 'test_producer',
   });
   const newSecret = ((rotated.data as Record<string, unknown>).secret as string);

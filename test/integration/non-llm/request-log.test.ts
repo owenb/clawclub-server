@@ -1,6 +1,7 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
 import { processApiRequestLogRetention } from '../../../src/workers/request-log-retention.ts';
 
@@ -361,6 +362,7 @@ describe('api request log', () => {
     const superadmin = await h.seedSuperadmin('Request Log Replay Admin');
 
     await h.apiOk(superadmin.token, 'superadmin.clubs.archive', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
     });
 

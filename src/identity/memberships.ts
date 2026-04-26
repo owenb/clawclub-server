@@ -32,6 +32,7 @@ import { encodeCursor } from '../schemas/fields.ts';
 import { buildSecondClubWelcome } from '../clubs/welcome.ts';
 import { appendClubActivity } from '../clubs/content.ts';
 import { deliverCoreNotifications, type NotificationRefInput } from '../notification-substrate.ts';
+import { throwSecretReplayUnavailable, withIdempotency } from '../idempotency.ts';
 import { createInitialClubProfileVersion, emptyClubProfileFields } from './profiles.ts';
 import { createBearerTokenInDb } from './tokens.ts';
 
@@ -1100,7 +1101,7 @@ export async function transitionMembershipState(
 }
 
 export async function updateMembership(pool: Pool, input: UpdateMembershipInput): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null> {
-  return withTransaction(pool, async (client) => {
+  const performUpdate = async (client: DbClient) => {
     const membershipResult = await client.query<{
       membership_id: string;
       club_id: string;
@@ -1245,7 +1246,24 @@ export async function updateMembership(pool: Pool, input: UpdateMembershipInput)
     const summary = await readMembershipSummary(client, membership.membership_id);
     if (!summary) return null;
     return { membership: summary, changed };
-  });
+  };
+
+  if (!input.clientKey) {
+    return withTransaction(pool, performUpdate);
+  }
+  if (!input.idempotencyActorContext) {
+    throw new AppError('invalid_data', 'Membership update idempotency actor context is required when clientKey is supplied.');
+  }
+  return withTransaction(pool, (client) => withIdempotency(client, {
+    actorContext: input.idempotencyActorContext!,
+    clientKey: input.clientKey!,
+    requestValue: input.idempotencyRequestValue ?? {
+      clubId: input.clubId,
+      memberId: input.memberId,
+      patch: input.patch,
+    },
+    execute: async () => ({ responseValue: await performUpdate(client) }),
+  }));
 }
 
 export async function promoteMemberToAdmin(pool: Pool, input: {
@@ -1306,12 +1324,15 @@ export { applyActivationFanout };
  */
 export async function createMemberDirect(pool: Pool, input: {
   actorMemberId: string;
+  clientKey: string;
+  idempotencyActorContext: string;
+  idempotencyRequestValue: unknown;
   publicName: string;
   email: string;
 }): Promise<{ member: MemberRef; token: CreatedBearerToken }> {
   const email = normalizeEmail(input.email);
 
-  return withTransaction(pool, async (client) => {
+  const performCreate = async (client: DbClient) => {
     let memberResult;
     try {
       memberResult = await client.query<{ id: string }>(
@@ -1344,7 +1365,22 @@ export async function createMemberDirect(pool: Pool, input: {
       },
       token,
     };
-  });
+  };
+
+  return withTransaction(pool, (client) => withIdempotency(client, {
+    actorContext: input.idempotencyActorContext,
+    clientKey: input.clientKey,
+    requestValue: input.idempotencyRequestValue,
+    execute: async () => {
+      const result = await performCreate(client);
+      const { bearerToken: _bearerToken, ...safeToken } = result.token;
+      return {
+        responseValue: result,
+        storedValue: { member: result.member, token: safeToken },
+      };
+    },
+    onReplay: (storedValue) => throwSecretReplayUnavailable(storedValue),
+  }));
 }
 
 /**
@@ -1353,6 +1389,9 @@ export async function createMemberDirect(pool: Pool, input: {
  */
 export async function createMembershipAsSuperadmin(pool: Pool, input: {
   actorMemberId: string;
+  clientKey: string;
+  idempotencyActorContext: string;
+  idempotencyRequestValue: unknown;
   clubId: string;
   memberId: string;
   role: 'member' | 'clubadmin';
@@ -1364,7 +1403,7 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
     generationSource: 'membership_seed' | 'application_generated';
   };
 }): Promise<MembershipAdminSummary | null> {
-  return withTransaction(pool, async (client) => {
+  const performCreate = async (client: DbClient) => {
     const clubResult = await client.query<{ owner_member_id: string }>(
       `select owner_member_id from clubs where id = $1 and archived_at is null limit 1`,
       [input.clubId],
@@ -1446,5 +1485,12 @@ export async function createMembershipAsSuperadmin(pool: Pool, input: {
     }
 
     return readMembershipSummary(client, membershipId);
-  });
+  };
+
+  return withTransaction(pool, (client) => withIdempotency(client, {
+    actorContext: input.idempotencyActorContext,
+    clientKey: input.clientKey,
+    requestValue: input.idempotencyRequestValue,
+    execute: async () => ({ responseValue: await performCreate(client) }),
+  }));
 }

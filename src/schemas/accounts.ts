@@ -210,7 +210,8 @@ const accountsRegister: ActionDefinition = {
     ]),
   },
   async handleCold(input: unknown, ctx: ColdHandlerContext): Promise<ActionResult> {
-    const result = await ctx.repository.registerAccount(input as {
+    const result = await ctx.repository.registerAccount({
+      ...(input as {
       clientKey?: string;
       mode: 'discover' | 'submit';
       name?: string;
@@ -218,6 +219,8 @@ const accountsRegister: ActionDefinition = {
       challengeBlob?: string;
       nonce?: string;
       invitationCode?: string;
+      }),
+      clientIp: ctx.clientIp ?? null,
     });
     return { data: result };
   },
@@ -229,6 +232,7 @@ const accountsUpdateContactEmail: ActionDefinition = {
   description: 'Replace the member contact email used for out-of-band admin contact.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   businessErrors: [
     {
       code: 'email_already_registered',
@@ -259,6 +263,14 @@ const accountsUpdateContactEmail: ActionDefinition = {
       clientKey: parseRequiredString,
     }),
   },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey: string }).clientKey,
+    getScopeKey: (_input, ctx) => `member:${ctx.actor.member.id}:accounts.updateContactEmail`,
+    getRequestValue: (input, ctx) => ({
+      actorMemberId: ctx.actor.member.id,
+      ...(input as Record<string, unknown>),
+    }),
+  },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { newEmail, clientKey } = input as { newEmail: string; clientKey: string };
     const result = await ctx.repository.updateContactEmail({
@@ -273,6 +285,7 @@ const accountsUpdateContactEmail: ActionDefinition = {
 };
 
 type AccountsUpdateIdentityInput = {
+  clientKey: string;
   displayName?: string;
 };
 
@@ -282,6 +295,7 @@ const accountsUpdateIdentity: ActionDefinition = {
   description: 'Update the current actor’s global identity fields.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   authorizationNote: 'Updates own global identity only.',
   notes: [
     'Use this action for platform-level identity fields like displayName.',
@@ -290,6 +304,7 @@ const accountsUpdateIdentity: ActionDefinition = {
 
   wire: {
     input: z.object({
+      clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this identity update.')),
       displayName: wireBoundedString.optional().describe('Global display name, max 500 characters'),
     }),
     output: memberIdentity,
@@ -297,7 +312,16 @@ const accountsUpdateIdentity: ActionDefinition = {
 
   parse: {
     input: z.object({
+      clientKey: parseRequiredString,
       displayName: parseBoundedString.optional(),
+    }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as AccountsUpdateIdentityInput).clientKey,
+    getScopeKey: (_input, ctx) => `member:${ctx.actor.member.id}:accounts.updateIdentity`,
+    getRequestValue: (input, ctx) => ({
+      actorMemberId: ctx.actor.member.id,
+      ...(input as Record<string, unknown>),
     }),
   },
 
@@ -310,6 +334,7 @@ const accountsUpdateIdentity: ActionDefinition = {
     const identity = await ctx.repository.updateMemberIdentity({
       actor: ctx.actor,
       patch,
+      clientKey: patch.clientKey,
     });
 
     return {

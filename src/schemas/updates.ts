@@ -150,6 +150,10 @@ const updatesAcknowledge: ActionDefinition = {
   description: 'Acknowledge notifications or mark a DM thread read.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Acknowledging the same notification IDs or thread repeatedly leaves the same acknowledged/read state after the first call.',
+  },
   scopeRules: [
     'Use target.kind=notification to acknowledge notifications from the personal queue.',
     'Use target.kind=thread to mark a DM thread read without replying.',

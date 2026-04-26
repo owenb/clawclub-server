@@ -235,6 +235,7 @@ const contentsCreate: ActionDefinition = {
   description: 'Create public content or respond inside an existing content thread.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   authorizationNote: 'Requires club membership. Subject to the rolling unified content quota.',
   businessErrors: [...CONTENT_CREATE_ERRORS],
   notes: [
@@ -459,6 +460,7 @@ const contentsUpdate: ActionDefinition = {
   description: 'Update existing public content (author only).',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   authorizationNote: 'Only the original author may update. At least one field must change.',
   businessErrors: [...CONTENT_UPDATE_ERRORS],
 
@@ -519,7 +521,6 @@ const contentsUpdate: ActionDefinition = {
       }
       return {
         actorMemberId: ctx.actor.member.id,
-        accessibleClubIds: membershipScopes(ctx.actor.memberships).clubIds,
         id: parsed.id,
         clientKey: parsed.clientKey,
         patch,
@@ -580,6 +581,10 @@ const contentsRemove: ActionDefinition = {
   description: 'Remove content inside a public content thread (author only).',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Removing the same content twice leaves the database in the same removed state; divergent terminal retries raise content_already_removed.',
+  },
   authorizationNote: 'Only the original author may remove their own content.',
   businessErrors: [
     {
@@ -941,6 +946,10 @@ const contentSetLoopState: ActionDefinition = {
   description: 'Open or close an ask, gift, service, or opportunity (author only).',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Setting a loop to the same open/closed state repeatedly leaves one current published loop state.',
+  },
   authorizationNote: 'Only the original author may change the loop state of their own published loopable content.',
   businessErrors: [
     {

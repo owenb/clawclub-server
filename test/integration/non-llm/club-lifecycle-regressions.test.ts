@@ -189,7 +189,10 @@ describe('superadmin club-cap updates', () => {
   it('rejects archived club updates before running the gate', async () => {
     const admin = await h.seedSuperadmin('Lifecycle Archived Update Admin');
     const owner = await h.seedOwner('archived-update-club', 'Archived Update Club');
-    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: owner.club.id });
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', {
+      clientKey: randomUUID(),
+      clubId: owner.club.id,
+    });
 
     gateCalls = 0;
     const err = await h.apiErr(admin.token, 'superadmin.clubs.update', {
@@ -224,11 +227,13 @@ describe('superadmin club-cap updates', () => {
     const firstExtra = await h.seedMember('Cap Floor Member One');
     const secondExtra = await h.seedMember('Cap Floor Member Two');
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId,
       memberId: firstExtra.id,
       initialStatus: 'active',
     });
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId,
       memberId: secondExtra.id,
       initialStatus: 'active',
@@ -267,6 +272,7 @@ describe('superadmin club-cap updates', () => {
     for (let index = 0; index < 4; index += 1) {
       const member = await h.seedMember(`Cap Race Member ${index}`);
       await h.apiOk(admin.token, 'superadmin.memberships.create', {
+        clientKey: randomUUID(),
         clubId,
         memberId: member.id,
         initialStatus: 'active',
@@ -281,6 +287,7 @@ describe('superadmin club-cap updates', () => {
         usesFreeAllowance: true,
       }),
       h.api(admin.token, 'superadmin.memberships.create', {
+        clientKey: randomUUID(),
         clubId,
         memberId: overflow.id,
         initialStatus: 'active',
@@ -336,7 +343,10 @@ describe('removed club survivor guards', () => {
   it('rejects a mismatched confirmSlug', async () => {
     const admin = await h.seedSuperadmin('Removal Confirm Admin');
     const owner = await h.seedOwner('confirm-slug-club', 'Confirm Slug Club');
-    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: owner.club.id });
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', {
+      clientKey: randomUUID(),
+      clubId: owner.club.id,
+    });
 
     const err = await h.apiErr(admin.token, 'superadmin.clubs.remove', {
       clientKey: randomUUID(),
@@ -400,7 +410,10 @@ describe('removed club survivor guards', () => {
     );
     const usageLogId = usageRows[0]!.id;
 
-    await h.apiOk(admin.token, 'superadmin.clubs.archive', { clubId: owner.club.id });
+    await h.apiOk(admin.token, 'superadmin.clubs.archive', {
+      clientKey: randomUUID(),
+      clubId: owner.club.id,
+    });
     const removed = await h.apiOk(admin.token, 'superadmin.clubs.remove', {
       clientKey: randomUUID(),
       clubId: owner.club.id,

@@ -63,6 +63,7 @@ const clubsCreate: ActionDefinition = {
   description: 'Create a new club owned by the authenticated member.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   refreshActorOnSuccess: true,
   businessErrors: [
     {
@@ -175,6 +176,7 @@ const clubsApply: ActionDefinition = {
   description: 'Submit a new application to a club using the caller’s existing bearer-authenticated account.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   notes: [
     'Registration happens separately through accounts.register.',
     'A member may keep at most three live applications in flight at once.',
@@ -295,6 +297,7 @@ const clubsApplicationsRevise: ActionDefinition = {
   description: 'Replace the saved draft on a revision_required application and rerun the admission gate. This is only allowed while the applicant still owns the draft.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   businessErrors: [
     {
       code: 'quota_exceeded',
@@ -450,6 +453,7 @@ const clubsApplicationsWithdraw: ActionDefinition = {
   description: 'Withdraw a live application owned by the authenticated member.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   businessErrors: [
     {
       code: 'application_not_mutable',
@@ -468,6 +472,14 @@ const clubsApplicationsWithdraw: ActionDefinition = {
     input: z.object({
       applicationId: parseRequiredString,
       clientKey: parseRequiredString,
+    }),
+  },
+  idempotency: {
+    getClientKey: (input) => (input as { clientKey: string }).clientKey,
+    getScopeKey: (input, ctx) => `member:${ctx.actor.member.id}:clubs.applications.withdraw:${(input as { applicationId: string }).applicationId}`,
+    getRequestValue: (input, ctx) => ({
+      actorMemberId: ctx.actor.member.id,
+      ...(input as Record<string, unknown>),
     }),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {

@@ -57,6 +57,9 @@ export type IdentityRepository = {
   }): Promise<{ bearerToken: string }>;
   createBearerTokenAsSuperadmin(input: {
     actorMemberId: string;
+    clientKey: string;
+    idempotencyActorContext: string;
+    idempotencyRequestValue: unknown;
     memberId: string;
     label?: string | null;
     expiresAt?: string | null;
@@ -84,10 +87,20 @@ export type IdentityRepository = {
   demoteMemberFromAdmin(input: { actorMemberId: string; clubId: string; memberId: string }): Promise<{ membership: MembershipAdminSummary; changed: boolean } | null>;
 
   // Superadmin member/membership creation
-  createMemberDirect(input: { actorMemberId: string; publicName: string; email: string }): Promise<{ member: MemberRef; token: CreatedBearerToken }>;
+  createMemberDirect(input: {
+    actorMemberId: string;
+    clientKey: string;
+    idempotencyActorContext: string;
+    idempotencyRequestValue: unknown;
+    publicName: string;
+    email: string;
+  }): Promise<{ member: MemberRef; token: CreatedBearerToken }>;
   removeMember(input: import('../repository.ts').RemoveMemberInput): Promise<import('../repository.ts').RemovedMemberSummary | null>;
   createMembershipAsSuperadmin(input: {
     actorMemberId: string;
+    clientKey: string;
+    idempotencyActorContext: string;
+    idempotencyRequestValue: unknown;
     clubId: string;
     memberId: string;
     role: 'member' | 'clubadmin';
@@ -101,7 +114,7 @@ export type IdentityRepository = {
   }): Promise<MembershipAdminSummary | null>;
 
   // Profiles
-  updateMemberIdentity(input: { actor: AuthenticatedActor; patch: UpdateMemberIdentityInput }): Promise<MemberIdentity>;
+  updateMemberIdentity(input: { actor: AuthenticatedActor; patch: UpdateMemberIdentityInput; clientKey: string }): Promise<MemberIdentity>;
   updateClubProfile(input: { actor: AuthenticatedActor; patch: UpdateClubProfileInput }): Promise<MemberProfileEnvelope>;
   loadProfileForGate(input: { actorMemberId: string; clubId: string }): Promise<ProfileForGate | null>;
 
@@ -169,7 +182,7 @@ export function createIdentityRepository(pool: Pool): IdentityRepository {
     createMembershipAsSuperadmin: (input) => memberships.createMembershipAsSuperadmin(pool, input),
 
     // Profiles
-    updateMemberIdentity: ({ actor, patch }) => profiles.updateMemberIdentity(pool, actor, patch),
+    updateMemberIdentity: ({ actor, patch, clientKey }) => profiles.updateMemberIdentity(pool, actor, patch, clientKey),
     updateClubProfile: ({ actor, patch }) => profiles.updateClubProfile(pool, actor, patch),
     loadProfileForGate: ({ actorMemberId, clubId }) => profiles.loadProfileForGate(pool, { actorMemberId, clubId }),
 

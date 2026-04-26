@@ -1,5 +1,6 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
 import { passthroughGate } from '../../unit/fixtures.ts';
 
@@ -53,6 +54,7 @@ describe('content mentions', () => {
 
     // Update display name globally — hydrated display name follows, authoredLabel stays.
     await h.apiOk(kilian.token, 'accounts.updateIdentity', {
+      clientKey: randomUUID(),
       displayName: 'Kilian (renamed)',
     });
 

@@ -479,6 +479,7 @@ export async function createClub(pool: Pool, input: CreateClubInput): Promise<Cl
 
 export async function archiveClub(pool: Pool, input: ArchiveClubInput): Promise<ClubSummary | null> {
   return withTransaction(pool, async (client) => {
+    const performArchive = async (): Promise<ClubSummary | null> => {
     const result = await client.query<{ archived_at: string | null }>(
       `select archived_at::text as archived_at
        from clubs
@@ -492,11 +493,26 @@ export async function archiveClub(pool: Pool, input: ArchiveClubInput): Promise<
     }
     await client.query(`update clubs set archived_at = now() where id = $1`, [input.clubId]);
     return readClub(client, input.clubId);
+    };
+
+    if (!input.clientKey) {
+      return performArchive();
+    }
+    if (!input.idempotencyActorContext) {
+      throw new AppError('invalid_data', 'Club archive idempotency actor context is required when clientKey is supplied.');
+    }
+    return withIdempotency(client, {
+      clientKey: input.clientKey,
+      actorContext: input.idempotencyActorContext,
+      requestValue: input.idempotencyRequestValue ?? input,
+      execute: async () => ({ responseValue: await performArchive() }),
+    });
   });
 }
 
 export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): Promise<ClubSummary | null> {
   return withTransaction(pool, async (client) => {
+    const performAssign = async (): Promise<ClubSummary | null> => {
     const currentResult = await client.query<{
       club_id: string;
       current_version_id: string;
@@ -616,6 +632,20 @@ export async function assignClubOwner(pool: Pool, input: AssignClubOwnerInput): 
     }
 
     return readClub(client, input.clubId);
+    };
+
+    if (!input.clientKey) {
+      return performAssign();
+    }
+    if (!input.idempotencyActorContext) {
+      throw new AppError('invalid_data', 'Club owner assignment idempotency actor context is required when clientKey is supplied.');
+    }
+    return withIdempotency(client, {
+      clientKey: input.clientKey,
+      actorContext: input.idempotencyActorContext,
+      requestValue: input.idempotencyRequestValue ?? input,
+      execute: async () => ({ responseValue: await performAssign() }),
+    });
   });
 }
 

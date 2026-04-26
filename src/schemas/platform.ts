@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { membershipScopes } from '../actors.ts';
 import { AppError } from '../repository.ts';
 import {
+  describeClientKey,
   wireRequiredString, parseRequiredString,
   wireOptionalString, parseTrimmedNullableString,
   wireOptionalRecord, parseOptionalRecord,
@@ -84,6 +85,7 @@ const tokensList: ActionDefinition = {
 // ── accessTokens.create ───────────────────────────────────────
 
 type TokensCreateInput = {
+  clientKey: string;
   label: string | null;
   expiresAt: string | null;
   metadata: Record<string, unknown>;
@@ -95,9 +97,11 @@ const tokensCreate: ActionDefinition = {
   description: 'Create a new bearer token.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: { kind: 'secretMint' },
 
   wire: {
     input: z.object({
+      clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this bearer token mint. Plaintext tokens are never replayed.')),
       label: wireOptionalString.describe('Human-readable label'),
       expiresAt: wireIsoDatetime.nullable().optional().describe('ISO 8601 expiration timestamp'),
       metadata: wireOptionalRecord.describe('Freeform metadata'),
@@ -107,17 +111,35 @@ const tokensCreate: ActionDefinition = {
 
   parse: {
     input: z.object({
+      clientKey: parseRequiredString,
       label: parseTrimmedNullableString.default(null),
       expiresAt: parseFutureIsoDatetime.default(null),
       metadata: parseOptionalRecord,
     }),
   },
+  idempotency: {
+    getClientKey: (input) => (input as TokensCreateInput).clientKey,
+    getScopeKey: (_input, ctx) => `member:${ctx.actor.member.id}:accessTokens.create`,
+    getRequestValue: (input, ctx) => ({
+      actorMemberId: ctx.actor.member.id,
+      ...(input as Record<string, unknown>),
+    }),
+  },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
-    const { label, expiresAt, metadata } = input as TokensCreateInput;
+    const { clientKey, label, expiresAt, metadata } = input as TokensCreateInput;
 
     const created = await ctx.repository.createBearerToken({
       actorMemberId: ctx.actor.member.id,
+      clientKey,
+      idempotencyActorContext: `member:${ctx.actor.member.id}:accessTokens.create`,
+      idempotencyRequestValue: {
+        actorMemberId: ctx.actor.member.id,
+        clientKey,
+        label,
+        expiresAt,
+        metadata,
+      },
       label,
       expiresAt,
       metadata,
@@ -135,6 +157,10 @@ const tokensRevoke: ActionDefinition = {
   description: 'Revoke a bearer token.',
   auth: 'member',
   safety: 'mutating',
+  idempotencyStrategy: {
+    kind: 'naturallyIdempotent',
+    reason: 'Revocation sets revoked_at once with coalesce; repeating the same token revoke leaves the same token state.',
+  },
 
   wire: {
     input: z.object({

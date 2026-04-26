@@ -1506,6 +1506,7 @@ export async function registerAccount(pool: Pool, input: {
   challengeBlob?: string;
   nonce?: string;
   invitationCode?: string;
+  clientIp?: string | null;
 }): Promise<Record<string, unknown>> {
   if (input.mode === 'discover') {
     const invitationCode = readOptionalInvitationCode(input.invitationCode);
@@ -1547,9 +1548,10 @@ export async function registerAccount(pool: Pool, input: {
   const { clientKey, name, email, challengeBlob, nonce } = input;
 
   return withTransaction(pool, async (client) => {
+    const anonymousScope = `anonymous:${input.clientIp ?? 'unknown'}:accounts.register`;
     return withIdempotency(client, {
       clientKey,
-      actorContext: 'anonymous:accounts.register',
+      actorContext: anonymousScope,
       requestValue: {
         mode: input.mode,
         name,

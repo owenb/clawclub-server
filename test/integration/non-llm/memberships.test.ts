@@ -1,5 +1,6 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { TestHarness } from '../harness.ts';
 import { activeMemberships, getActivity } from '../helpers.ts';
 
@@ -24,6 +25,7 @@ describe('superadmin.memberships.create', () => {
     })).body).nextCursor;
 
     const createBody = await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
       memberId: member.id,
       initialStatus: 'active',
@@ -114,6 +116,7 @@ describe('superadmin.memberships.create', () => {
     });
 
     const err = await h.apiErr(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
       memberId: member.id,
       initialStatus: 'active',
@@ -444,6 +447,7 @@ describe('clubadmin.members.update', () => {
     });
 
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
       memberId: member.id,
       initialStatus: 'active',
@@ -456,6 +460,7 @@ describe('clubadmin.members.update', () => {
     });
 
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
       memberId: filler.id,
       initialStatus: 'active',
@@ -476,6 +481,7 @@ describe('clubadmin.members.update', () => {
     const member = await h.seedMember('Noop Membership');
 
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
       memberId: member.id,
       initialStatus: 'active',
@@ -513,6 +519,7 @@ describe('clubadmin.members.update', () => {
     })).body).nextCursor;
 
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
       memberId: member.id,
       initialStatus: 'active',
@@ -620,6 +627,7 @@ describe('clubadmin.members.update', () => {
     assert.equal(ownerBanErr.code, 'forbidden');
 
     await h.apiOk(admin.token, 'superadmin.clubs.assignOwner', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
       ownerMemberId: successor.id,
     });
@@ -686,6 +694,7 @@ describe('clubadmin surfaces stay scoped', () => {
     const member = await h.seedMember('Remote Managed Member');
 
     const created = await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
       memberId: member.id,
       initialStatus: 'active',
@@ -714,6 +723,7 @@ describe('clubadmin surfaces stay scoped', () => {
     })).body).nextCursor;
 
     await h.apiOk(admin.token, 'superadmin.memberships.create', {
+      clientKey: randomUUID(),
       clubId: owner.club.id,
       memberId: member.id,
       initialStatus: 'active',
