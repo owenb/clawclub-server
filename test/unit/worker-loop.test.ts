@@ -124,6 +124,45 @@ test('runWorkerLoop resets the failure counter after a successful iteration', as
   assert.equal(getEndCalls(), 1);
 });
 
+test('runWorkerLoop backs off consecutive transient failures', async (t) => {
+  resetInstalledWorkerProcessHandlersForTests();
+  t.after(() => { resetInstalledWorkerProcessHandlersForTests(); });
+
+  const { pools, getEndCalls } = makeFakePools();
+  let calls = 0;
+  const sleepDelays: number[] = [];
+
+  await runWorkerLoop(
+    'example-worker',
+    pools,
+    async () => {
+      calls += 1;
+      if (calls <= 2) {
+        throw new Error(`failure ${calls}`);
+      }
+      return 0;
+    },
+    {
+      pollIntervalMs: 10,
+      retryBackoffBaseMs: 5,
+      retryBackoffMaxMs: 12,
+      consecutiveFailureLimit: 4,
+      logger: () => {},
+      sleep: async (ms) => {
+        sleepDelays.push(ms);
+        if (sleepDelays.length === 3) {
+          process.emit('SIGTERM');
+        }
+      },
+      terminate: () => {},
+    },
+  );
+
+  assert.equal(calls, 3);
+  assert.deepEqual(sleepDelays, [5, 10, 10]);
+  assert.equal(getEndCalls(), 1);
+});
+
 test('runWorkerLoop exits immediately for fatal Postgres errors', async (t) => {
   resetInstalledWorkerProcessHandlersForTests();
   t.after(() => { resetInstalledWorkerProcessHandlersForTests(); });

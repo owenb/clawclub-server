@@ -34,6 +34,8 @@ export type PoolConfig = {
 
 export type WorkerLoopOptions = {
   pollIntervalMs: number;
+  retryBackoffBaseMs?: number;
+  retryBackoffMaxMs?: number;
   consecutiveFailureLimit?: number;
   logger?: WorkerLogger;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
@@ -72,6 +74,13 @@ let installedUncaughtExceptionHandler: ((error: unknown) => void) | null = null;
 
 const DEFAULT_CONSECUTIVE_FAILURE_LIMIT = 3;
 const FATAL_POSTGRES_ERROR_CODES = new Set(['42P01', '42703', '28P01', '42501']);
+
+function retryDelayMs(consecutiveFailures: number, opts: WorkerLoopOptions): number {
+  const baseMs = Math.max(0, opts.retryBackoffBaseMs ?? opts.pollIntervalMs);
+  const maxMs = Math.max(baseMs, opts.retryBackoffMaxMs ?? Math.max(baseMs, opts.pollIntervalMs * 8));
+  if (baseMs === 0) return 0;
+  return Math.min(maxMs, baseMs * (2 ** Math.max(0, consecutiveFailures - 1)));
+}
 
 function getDefaultWorkerName(): string {
   const entrypoint = process.argv[1];
@@ -322,7 +331,7 @@ export async function runWorkerLoop(
         }
 
         if (!shutdownController.signal.aborted) {
-          await sleepFn(opts.pollIntervalMs, shutdownController.signal);
+          await sleepFn(retryDelayMs(consecutiveFailures, opts), shutdownController.signal);
         }
       }
     }
