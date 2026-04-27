@@ -408,6 +408,16 @@ describe('messages', () => {
       messageText: 'Should fail',
     });
     assert.equal(err.code, 'member_not_found');
+    assert.equal(err.message, 'Recipient is not reachable from your current member scope.');
+
+    const unknown = await h.apiErr(ownerA.token, 'messages.send', {
+      recipientMemberId: 'member-does-not-exist',
+      messageText: 'Should also fail',
+    });
+    assert.deepEqual(
+      { code: unknown.code, message: unknown.message },
+      { code: err.code, message: err.message },
+    );
   });
 
   it('stream message frame carries sharedClubs on the thread', async () => {

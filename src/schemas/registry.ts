@@ -520,30 +520,64 @@ function buildObjectTemplate(action: string, schema: z.ZodObject, overrides: Rec
     }
 
     const req = required.has(key) ? 'required' : 'optional';
-
-    if (prop.const !== undefined) {
-      input[key] = `(exactly: ${String(prop.const)})`;
-      continue;
-    }
-
-    if (prop.enum && Array.isArray(prop.enum)) {
-      input[key] = `(one of: ${prop.enum.join(', ')})`;
-      continue;
-    }
-
-    let typeStr = typeof prop.type === 'string' ? prop.type : 'unknown';
-
-    if (typeStr === 'array') {
-      const items = prop.items as Record<string, unknown> | undefined;
-      const itemType = items && typeof items.type === 'string' ? items.type : 'unknown';
-      input[key] = `(array of ${itemType}, ${req})`;
-      continue;
-    }
-
-    input[key] = `(${typeStr}, ${req})`;
+    input[key] = describeTemplateProperty(prop, req);
   }
 
   return { action, input };
+}
+
+function describeTemplateProperty(prop: Record<string, unknown>, req: 'required' | 'optional'): string {
+  const core = unwrapTemplateProperty(prop);
+
+  if (core.const !== undefined) {
+    return `(exactly: ${String(core.const)})`;
+  }
+
+  if (core.enum && Array.isArray(core.enum)) {
+    return `(one of: ${core.enum.join(', ')})`;
+  }
+
+  const typeStr = readTemplateType(core);
+  if (typeStr === 'array') {
+    const items = core.items as Record<string, unknown> | undefined;
+    const itemCore = items ? unwrapTemplateProperty(items) : null;
+    const itemType = itemCore ? readTemplateType(itemCore) : 'unknown';
+    return `(array of ${itemType}, ${req})`;
+  }
+
+  if (typeStr === 'object' || typeStr === 'unknown') {
+    return `(<complex>, ${req})`;
+  }
+
+  return `(${typeStr}, ${req})`;
+}
+
+function unwrapTemplateProperty(prop: Record<string, unknown>): Record<string, unknown> {
+  const variants = (prop.anyOf ?? prop.oneOf) as unknown;
+  if (!Array.isArray(variants)) {
+    return prop;
+  }
+  const nonNull = variants.filter((variant): variant is Record<string, unknown> => (
+    variant !== null
+    && typeof variant === 'object'
+    && !Array.isArray(variant)
+    && (variant as Record<string, unknown>).type !== 'null'
+  ));
+  return nonNull.length === 1 ? nonNull[0]! : prop;
+}
+
+function readTemplateType(prop: Record<string, unknown>): string {
+  if (typeof prop.type === 'string') {
+    return prop.type;
+  }
+  if (Array.isArray(prop.type)) {
+    const nonNullTypes = prop.type.filter((type): type is string => typeof type === 'string' && type !== 'null');
+    return nonNullTypes.length === 1 ? nonNullTypes[0]! : 'unknown';
+  }
+  if (prop.properties && typeof prop.properties === 'object') {
+    return 'object';
+  }
+  return 'unknown';
 }
 
 /**

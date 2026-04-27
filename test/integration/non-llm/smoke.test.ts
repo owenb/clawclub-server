@@ -377,6 +377,9 @@ describe('smoke', () => {
     assert.ok(input.kind, 'template should show kind');
     assert.ok(input.kind.includes('one of'), 'kind should be described as the required enum selector');
     assert.equal(input.clubId, '(string, optional)');
+    assert.equal(input.title, '(string, optional)');
+    assert.equal(input.expiresAt, '(string, optional)');
+    assert.equal(input.event, '(<complex>, optional)');
   });
 
   it('accounts.register discriminator errors name the accepted modes and provide a useful template', async () => {

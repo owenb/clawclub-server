@@ -33,6 +33,8 @@ type SendInput = {
   clientKey?: string | null;
 };
 
+const RECIPIENT_NOT_REACHABLE_MESSAGE = 'Recipient is not reachable from your current member scope.';
+
 const MESSAGES_SEND_ERRORS = [
   {
     code: 'quota_exceeded',
@@ -121,7 +123,7 @@ const messagesSend: ActionDefinition = {
     });
 
     if (!result) {
-      throw new AppError('member_not_found', 'Recipient not found or no shared club with recipient');
+      throw new AppError('member_not_found', RECIPIENT_NOT_REACHABLE_MESSAGE);
     }
 
     return { data: result };
