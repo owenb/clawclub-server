@@ -33,6 +33,11 @@ type Waiter = {
   onAbort?: () => void;
 };
 
+type PostgresMemberUpdateNotifierOptions = {
+  reconnectBaseDelayMs?: number;
+  reconnectMaxDelayMs?: number;
+};
+
 async function sleep(timeoutMs: number, signal?: AbortSignal): Promise<WaitResult> {
   if (signal?.aborted) {
     throw new Error('Update wait aborted');
@@ -64,16 +69,19 @@ async function sleep(timeoutMs: number, signal?: AbortSignal): Promise<WaitResul
  */
 export function createPostgresMemberUpdateNotifier(
   connectionString: string,
+  options: PostgresMemberUpdateNotifierOptions = {},
 ): MemberUpdateNotifier {
-  const client = new Client({ connectionString });
+  const reconnectBaseDelayMs = Math.max(1, options.reconnectBaseDelayMs ?? 250);
+  const reconnectMaxDelayMs = Math.max(reconnectBaseDelayMs, options.reconnectMaxDelayMs ?? 5_000);
   const waiters = new Set<Waiter>();
-  let failed = false;
+  let client: Client | null = null;
+  let connectPromise: Promise<void> | null = null;
+  let reconnectTimer: NodeJS.Timeout | null = null;
+  let state: 'connecting' | 'listening' | 'fallback' | 'closed' = 'connecting';
+  let reconnectAttempt = 0;
   let fallbackLogged = false;
 
-  function markFailed(reason: 'listen_startup_failed' | 'listen_runtime_failed', error: unknown): void {
-    if (!failed) {
-      failed = true;
-    }
+  function logFallback(reason: 'listen_startup_failed' | 'listen_runtime_failed', error: unknown): void {
     if (fallbackLogged) {
       return;
     }
@@ -87,14 +95,6 @@ export function createPostgresMemberUpdateNotifier(
       error: errorContext,
     });
   }
-
-  const ready = (async () => {
-    await client.connect();
-    await client.query('listen stream');
-  })().catch((error) => {
-    markFailed('listen_startup_failed', error);
-    throw error;
-  });
 
   function finishWaiter(waiter: Waiter, cause?: StreamWakeupCause, error?: Error) {
     if (!waiters.has(waiter)) {
@@ -113,6 +113,12 @@ export function createPostgresMemberUpdateNotifier(
     }
 
     waiter.resolve(cause);
+  }
+
+  function rejectWaiters(error: Error): void {
+    for (const waiter of [...waiters]) {
+      finishWaiter(waiter, undefined, error);
+    }
   }
 
   function handleNotification(message: { channel: string; payload?: string }) {
@@ -158,25 +164,113 @@ export function createPostgresMemberUpdateNotifier(
     }
   }
 
-  function handleError(error: unknown) {
-    markFailed('listen_runtime_failed', error);
-    for (const waiter of [...waiters]) {
-      finishWaiter(waiter, undefined, error instanceof Error ? error : new Error('updates notifier failed'));
+  function scheduleReconnect(): void {
+    if (state === 'closed' || reconnectTimer !== null) {
+      return;
+    }
+
+    const delayMs = Math.min(
+      reconnectMaxDelayMs,
+      reconnectBaseDelayMs * (2 ** Math.min(reconnectAttempt, 8)),
+    );
+    reconnectAttempt += 1;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void connectListener();
+    }, delayMs);
+    reconnectTimer.unref?.();
+  }
+
+  function enterFallback(
+    reason: 'listen_startup_failed' | 'listen_runtime_failed',
+    error: unknown,
+  ): void {
+    if (state === 'closed') {
+      return;
+    }
+
+    state = 'fallback';
+    logFallback(reason, error);
+    scheduleReconnect();
+  }
+
+  async function disconnectClient(current: Client): Promise<void> {
+    current.removeAllListeners('notification');
+    current.removeAllListeners('error');
+    try {
+      await current.end();
+    } catch {
+      // The reconnect loop already moved to fallback; a failed close should not
+      // permanently disable LISTEN recovery.
     }
   }
 
-  client.on('notification', handleNotification);
-  client.on('error', handleError);
+  function handleClientError(current: Client, error: unknown): void {
+    if (state === 'closed' || client !== current) {
+      return;
+    }
+
+    client = null;
+    enterFallback('listen_runtime_failed', error);
+    rejectWaiters(error instanceof Error ? error : new Error('updates notifier failed'));
+    void disconnectClient(current);
+  }
+
+  function connectListener(): Promise<void> {
+    if (state === 'closed') {
+      return Promise.resolve();
+    }
+    if (connectPromise !== null) {
+      return connectPromise;
+    }
+
+    state = 'connecting';
+    const nextClient = new Client({ connectionString });
+    client = nextClient;
+    nextClient.on('notification', handleNotification);
+    nextClient.on('error', (error) => handleClientError(nextClient, error));
+
+    const promise = (async () => {
+      await nextClient.connect();
+      await nextClient.query('listen stream');
+      if (client !== nextClient) {
+        await disconnectClient(nextClient);
+        return;
+      }
+
+      state = 'listening';
+      reconnectAttempt = 0;
+      if (fallbackLogged) {
+        fallbackLogged = false;
+        logger.warn('updates_notifier_recovered');
+      }
+    })();
+
+    const managedPromise = promise
+      .catch((error) => {
+        if (client === nextClient) {
+          client = null;
+        }
+        void disconnectClient(nextClient);
+        enterFallback('listen_startup_failed', error);
+        throw error;
+      })
+      .finally(() => {
+        if (connectPromise === managedPromise) {
+          connectPromise = null;
+        }
+      });
+
+    connectPromise = managedPromise;
+    return connectPromise;
+  }
+
+  void connectListener();
 
   return {
     async waitForUpdate({ recipientMemberId, clubIds, afterStreamSeq, timeoutMs, signal }) {
-      try {
-        await ready;
-      } catch {
-        return sleep(timeoutMs, signal);
-      }
-
-      if (failed) {
+      await (connectPromise ?? Promise.resolve()).catch(() => undefined);
+      if (state !== 'listening') {
         return sleep(timeoutMs, signal);
       }
 
@@ -217,17 +311,21 @@ export function createPostgresMemberUpdateNotifier(
     },
 
     async close() {
+      state = 'closed';
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       for (const waiter of [...waiters]) {
         finishWaiter(waiter, undefined, new Error('updates notifier closed'));
       }
 
-      try {
-        await ready;
-      } catch {
-        return;
+      const current = client;
+      client = null;
+      await (connectPromise ?? Promise.resolve()).catch(() => undefined);
+      if (current !== null) {
+        await disconnectClient(current);
       }
-
-      await client.end();
     },
   };
 }
