@@ -304,9 +304,11 @@ async function listInboxFramesSince(pool: Pool, input: {
          and exists (
            select 1
            from dm_thread_participants self
+           join dm_messages m on m.id = ie.message_id
            where self.thread_id = ie.thread_id
              and self.member_id = $1
              and self.left_at is null
+             and m.created_at >= self.joined_at
          )
          and exists (
            select 1
@@ -356,9 +358,11 @@ async function listInboxFramesSince(pool: Pool, input: {
        and exists (
          select 1
          from dm_thread_participants self
+         join dm_messages m on m.id = ie.message_id
          where self.thread_id = ie.thread_id
            and self.member_id = $1
            and self.left_at is null
+           and m.created_at >= self.joined_at
        )
        and exists (
          select 1

@@ -91,6 +91,57 @@ describe('messages', () => {
     assert.ok(typeof unread.unreadMessageCount === 'number', 'unreadMessageCount should be a number');
   });
 
+  it('does not count pre-session DM history as unread for a newly materialized receiver', async () => {
+    const owner = await h.seedOwner('msg-pre-session-history', 'MsgPreSessionHistory');
+    const alice = await h.seedCompedMember(owner.club.id, 'Alice History');
+    const bob = await h.seedCompedMember(owner.club.id, 'Bob History');
+    const [memberA, memberB] = [alice.id, bob.id].sort();
+
+    const threadRows = await h.sql<{ id: string }>(
+      `insert into dm_threads (kind, created_by_member_id, member_a_id, member_b_id, created_at)
+       values ('direct', $1, $2, $3, '2026-01-01T09:00:00Z')
+       returning id`,
+      [alice.id, memberA, memberB],
+    );
+    const threadId = threadRows[0]!.id;
+    await h.sql(
+      `insert into dm_thread_participants (thread_id, member_id, joined_at)
+       values
+         ($1, $2, '2026-01-01T09:00:00Z'),
+         ($1, $3, '2026-01-03T09:00:00Z')`,
+      [threadId, alice.id, bob.id],
+    );
+    const oldMessages = await h.sql<{ id: string; created_at: string }>(
+      `insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
+       values
+         ($1, $2, 'member', 'Old history 1', '2026-01-02T09:00:00Z'),
+         ($1, $2, 'member', 'Old history 2', '2026-01-02T10:00:00Z')
+       returning id, created_at::text as created_at`,
+      [threadId, alice.id],
+    );
+    for (const message of oldMessages) {
+      await h.sql(
+        `insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, created_at)
+         values ($1, $2, $3, $4::timestamptz)`,
+        [bob.id, threadId, message.id, message.created_at],
+      );
+    }
+
+    const sent = await h.apiOk(alice.token, 'messages.send', {
+      recipientMemberId: bob.id,
+      messageText: 'Fresh message after Bob joins',
+    });
+    assert.equal(((sent.data as Record<string, unknown>).message as Record<string, unknown>).threadId, threadId);
+
+    const inbox = await readInbox(bob.token, { unreadOnly: true });
+    const thread = inbox.results.find((entry) => entry.threadId === threadId);
+    assert.ok(thread, 'new post-join message should surface the thread as unread');
+    const unread = thread.unread as Record<string, unknown>;
+    assert.equal(unread.hasUnread, true);
+    assert.equal(unread.unreadMessageCount, 1);
+    assert.equal((thread.latestMessage as Record<string, unknown>).messageText, 'Fresh message after Bob joins');
+  });
+
   it('messages.get returns the thread and message list', async () => {
     const owner = await h.seedOwner('msg-club-4', 'MsgClub4');
     const alice = await h.seedCompedMember(owner.club.id, 'Alice Read');

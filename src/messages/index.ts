@@ -387,7 +387,13 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
                   bool_or(ie.acknowledged_at is null) as has_unread,
                   max(ie.created_at) filter (where ie.acknowledged_at is null)::text as latest_unread_at
            from dm_inbox_entries ie
+           join dm_messages unread_message on unread_message.id = ie.message_id
+           join dm_thread_participants self
+             on self.thread_id = ie.thread_id
+            and self.member_id = ie.recipient_member_id
+            and self.left_at is null
            where ie.recipient_member_id = $1 and ie.acknowledged_at is null
+             and unread_message.created_at >= self.joined_at
            group by ie.thread_id
          ),
          latest_msg as (
