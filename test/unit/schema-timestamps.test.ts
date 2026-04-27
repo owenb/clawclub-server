@@ -5,6 +5,7 @@ import '../../src/dispatch.ts';
 import { getRegistry } from '../../src/schemas/registry.ts';
 import {
   CLAWCLUB_TIMESTAMP_META,
+  timestampString,
 } from '../../src/schemas/fields.ts';
 import { isTimestampKey } from '../../src/timestamps.ts';
 import {
@@ -35,15 +36,6 @@ function isTimestampSchema(schema: z.ZodType): boolean {
   return unwrapSchema(schema).meta()?.clawclubType === CLAWCLUB_TIMESTAMP_META;
 }
 
-function isTimestampValueWrapper(schema: z.ZodType): boolean {
-  const unwrapped = unwrapSchema(schema);
-  if (!(unwrapped instanceof z.ZodObject)) {
-    return false;
-  }
-  const valueSchema = (unwrapped.shape as Record<string, z.ZodType>).value;
-  return valueSchema != null && isTimestampSchema(valueSchema);
-}
-
 function collectTimestampSchemaIssues(
   schema: z.ZodType,
   path: string,
@@ -52,14 +44,13 @@ function collectTimestampSchemaIssues(
 ): void {
   const unwrapped = unwrapSchema(schema);
   const schemaIsTimestamp = isTimestampSchema(unwrapped);
-  const schemaIsTimestampWrapper = isTimestampValueWrapper(unwrapped);
 
   if (propertyKey !== null) {
     const keyLooksTimestamp = isTimestampKey(propertyKey);
-    if (keyLooksTimestamp && !schemaIsTimestamp && !schemaIsTimestampWrapper) {
+    if (keyLooksTimestamp && !schemaIsTimestamp) {
       issues.push(`${path} ends with At/On/Until but does not use timestampString`);
     }
-    if (schemaIsTimestamp && !keyLooksTimestamp && propertyKey !== 'value') {
+    if (schemaIsTimestamp && !keyLooksTimestamp) {
       issues.push(`${path} uses timestampString but key does not end with At/On/Until`);
     }
   } else if (schemaIsTimestamp) {
@@ -118,4 +109,19 @@ test('public output schemas keep timestampString aligned with *At/*On/*Until nam
   collectTimestampSchemaIssues(sseClosedEvent, 'transport:sseClosedEvent', null, issues);
 
   assert.deepEqual(issues, []);
+});
+
+test('timestamp schema guard rejects generic value wrappers', () => {
+  const issues: string[] = [];
+  const schema = z.object({
+    wrapper: z.object({
+      value: timestampString,
+    }),
+  });
+
+  collectTimestampSchemaIssues(schema, 'test:genericWrapper', null, issues);
+
+  assert.deepEqual(issues, [
+    'test:genericWrapper.wrapper.value uses timestampString but key does not end with At/On/Until',
+  ]);
 });
