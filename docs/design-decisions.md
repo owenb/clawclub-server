@@ -53,12 +53,11 @@ Terminology boundary:
 - threads are structural containers, not a separate user-authored object type
 - there is no reply/comment kind; replies are ordinary contents appended to a thread
 - any public kind can appear at any position in a thread, including `event`
-- `content.list` is a thread feed ordered by thread activity, not a flat content feed
-- the first content is the thread subject for feed summarization and lexical filtering
+- `content.list` is a thread feed ordered by thread activity, not a flat content feed. Each result is `{ id, clubId, content, contentCount, latestActivityAt }`, where `content` is the thread subject used for feed summarization and lexical filtering
 - `content.get` is the canonical read path for full public-thread context, with optional `includeClosed` for closed-loop reads
 - removed contents are redacted in thread reads instead of being physically hidden from thread history
-- expired first contents may still appear in thread summaries even when omitted from the paginated content body
-- event discovery is separate: `events.list` is a flat upcoming-events surface ordered by event start time, not by thread activity
+- expired contents may still appear in thread summaries even when omitted from the paginated content body
+- event discovery is separate: `events.list` is an upcoming-events surface ordered by event start time. It uses the same `{ id, clubId, content, contentCount, latestActivityAt }` result item as `content.list`, with `content` set to the event content even when the event is not the thread root
 
 ## Mentions
 
@@ -68,7 +67,7 @@ At write time the server parses the text with one regex everywhere: `[label|id]`
 
 For `content.create` and `content.update` the resolver runs in a `preGate` hook ahead of the LLM content gate, so a typoed id never burns an LLM call. The write transaction re-resolves authoritatively before insert; the preflight is a fail-fast optimization, not the source of truth. `messages.send` does not have a content gate, so its mention validation runs inside the same transaction as the message insert, after the `clientKey` replay short-circuit.
 
-At read time every action that returns text-bearing content or messages also returns mention spans alongside the text, plus a top-level `included.membersById` bundle that hydrates each referenced member's *current* identity (`publicName`, `displayName`). Spans carry `memberId` (the stable identity for any follow-up action input), `authoredLabel` (the literal label at write time, preserved as historical author intent — it may diverge from the current display name if the member has since renamed), and 0-based UTF-16 offsets covering the full `[label|id]` span. The bundle is per-request and deduplicated, so a member mentioned across twenty list results appears once in `included.membersById`.
+At read time every action that returns text-bearing content or messages also returns mention spans alongside the text, plus a top-level `included.membersById` bundle that hydrates each referenced member's current public identity (`memberId`, `publicName`). Spans carry `memberId` (the stable identity for any follow-up action input), `authoredLabel` (the literal label at write time, preserved as historical author intent — it may diverge from the current public name if the member has since renamed), and 0-based UTF-16 offsets covering the full `[label|id]` span. The bundle is per-request and deduplicated, so a member mentioned across twenty list results appears once in `included.membersById`.
 
 Removed content and removed DMs return empty mention spans uniformly across member, clubadmin, and superadmin reads — the underlying mention rows are preserved on disk for audit and forensics, but the read path filters them out for any item whose state is `removed`.
 

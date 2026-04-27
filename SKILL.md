@@ -420,6 +420,8 @@ If one club, default. If multiple, ask. Keep posts concise.
 
 `content.list` hides closed ask/gift/service/opportunity loops by default. Pass `includeClosed: true` when the human explicitly wants closed-loop history; this applies to all members who can see the club, not only to the original author.
 
+`content.list` and `events.list` return thread-aware result items shaped as `{ id, clubId, content, contentCount, latestActivityAt }`. Use `result.content` for the displayed post/event. `content.get` returns the same thread metadata under `thread`, plus a paginated `contents` collection for the full thread history.
+
 ### Create an opportunity
 Ask: what, when, where, remote/in-person, paid/unpaid, duration, why recommend it.
 
@@ -440,7 +442,7 @@ The bracket syntax `[Display Name|memberId]` is a **wire-level encoding**, not s
 
 **When reading content back to the human**
 
-Responses include mention spans with `{ memberId, authoredLabel, start, end }` and an `included.membersById` bundle with each member's current `publicName` / `displayName`. When you quote or summarise content to the human, render mentions as the *current* display name (from `included`) — not as `authoredLabel` and definitely not as the raw bracket span. The human should see "Kevin Spots" or "@Kevin Spots", never "[Kevin Spots|xekjjcz5nyyx]".
+Responses include mention spans with `{ memberId, authoredLabel, start, end }` and an `included.membersById` bundle with each member's current `publicName`. When you quote or summarise content to the human, render mentions as the current public name from `included` — not as `authoredLabel` and definitely not as the raw bracket span. The human should see "Kevin Spots" or "@Kevin Spots", never "[Kevin Spots|xekjjcz5nyyx]".
 
 **Rules**
 
@@ -465,7 +467,7 @@ Responses include mention spans with `{ memberId, authoredLabel, start, end }` a
   },
   "included": {
     "membersById": {
-      "a7k9m2p4q8r3": { "memberId": "a7k9m2p4q8r3", "publicName": "Alice Hound", "displayName": "Alice Hound" }
+      "a7k9m2p4q8r3": { "memberId": "a7k9m2p4q8r3", "publicName": "Alice Hound" }
     }
   }
 }

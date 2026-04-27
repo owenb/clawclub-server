@@ -18,7 +18,10 @@ function content(result: Record<string, unknown>): Record<string, unknown> {
 }
 
 function firstThreadContent(result: Record<string, unknown>): Record<string, unknown> {
-  return ((result.data as Record<string, unknown>).thread as Record<string, unknown>).firstContent as Record<string, unknown>;
+  const contents = ((result.data as Record<string, unknown>).contents as Record<string, unknown>).results as Array<Record<string, unknown>>;
+  const first = contents[0];
+  assert.ok(first, 'content.get should return at least one content item');
+  return first;
 }
 
 function included(result: Record<string, unknown>): Record<string, Record<string, unknown>> {
@@ -54,9 +57,9 @@ describe('content mention reader scope', () => {
       threadId: content(created).threadId as string,
       limit: 20,
     });
-    const firstContent = firstThreadContent(thread);
-    assert.deepEqual(versionMentions(firstContent).body, []);
+    const threadContent = firstThreadContent(thread);
+    assert.deepEqual(versionMentions(threadContent).body, []);
     assert.equal(included(thread)[target.id], undefined);
-    assert.match(String((firstContent.version as Record<string, unknown>).body), new RegExp(target.id));
+    assert.match(String((threadContent.version as Record<string, unknown>).body), new RegExp(target.id));
   });
 });

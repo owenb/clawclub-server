@@ -263,7 +263,8 @@ export async function runHttpSmoke(): Promise<{
     }, {
       'clawclub-schema-seen': schemaHash,
     });
-    assert.equal(updatedIdentity.data?.displayName, 'HTTP Smoke Member');
+    assert.equal(updatedIdentity.data?.memberId, memberId);
+    assert.equal(Object.hasOwn(updatedIdentity.data ?? {}, 'displayName'), false);
 
     const updatedProfile = await postAction(baseUrl, token.bearerToken, 'members.updateProfile', {
       clubId,
@@ -310,7 +311,7 @@ export async function runHttpSmoke(): Promise<{
     const entityResults = contents.data?.results as Array<Record<string, unknown>> | undefined;
     assert.ok(Array.isArray(entityResults), 'content.list should return a results array');
     const listedEntity = entityResults
-      ?.map((thread) => thread.firstContent as Record<string, unknown>)
+      ?.map((thread) => thread.content as Record<string, unknown>)
       .find((content) => content.id === createdContentId);
     assert.ok(listedEntity, 'content.list should include the created post');
 

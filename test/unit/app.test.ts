@@ -641,7 +641,7 @@ function makeThreadSummary(overrides: Record<string, unknown> = {}) {
   return {
     id: 'thread-1',
     clubId: 'club-1',
-    firstContent: makeEntity(),
+    content: makeEntity(),
     contentCount: 1,
     latestActivityAt: '2026-03-12T00:00:00Z',
     ...overrides,
@@ -839,7 +839,7 @@ function makeRepository(results: MemberSearchResult[] = []): Repository {
       return makeEvent();
     },
     async listEvents() {
-      return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
+      return withIncluded({ results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
       return withIncluded({ content: makeEvent() });
@@ -1663,7 +1663,7 @@ test('members.searchByFullText narrows scope when a permitted club is requested'
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -1768,7 +1768,7 @@ test('members.list returns active members with flattened public member summaries
       return makeEvent();
     },
     async listEvents() {
-      return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
+      return withIncluded({ results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
       return withIncluded({ content: makeEvent() });
@@ -1858,7 +1858,6 @@ test('accounts.updateIdentity updates the actor displayName globally', async () 
       return {
         memberId: 'member-1',
         publicName: 'Member One',
-        displayName: String((patch as Record<string, unknown>).displayName ?? 'Member One'),
       };
     },
     async createContent() {
@@ -1868,7 +1867,7 @@ test('accounts.updateIdentity updates the actor displayName globally', async () 
       return withIncluded({ content: makeEntity() });
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -1926,7 +1925,7 @@ test('accounts.updateIdentity updates the actor displayName globally', async () 
   assert.equal(result.action, 'accounts.updateIdentity');
   assert.deepEqual(capturedPatch, { clientKey: 'identity-update-unit', displayName: 'Renamed Member' });
   assert.equal(result.data.memberId, 'member-1');
-  assert.equal(result.data.displayName, 'Renamed Member');
+  assert.equal(Object.hasOwn(result.data, 'displayName'), false);
 });
 
 test('members.updateProfile normalizes nullable strings for club-scoped fields', async () => {
@@ -1975,7 +1974,7 @@ test('members.updateProfile normalizes nullable strings for club-scoped fields',
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2097,7 +2096,7 @@ test('content.create uses one shared flow for post/ask/service/opportunity kinds
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2488,7 +2487,7 @@ test('content.create(kind=event) writes the smallest sane event payload', async 
       });
     },
     async listEvents() {
-      return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
+      return withIncluded({ results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null });
     },
     async rsvpEvent() {
       return withIncluded({ content: makeEvent() });
@@ -2606,7 +2605,7 @@ test('events.list stays inside accessible scope and forwards optional query', as
     },
     async listEvents(input) {
       capturedInput = input;
-      return { results: [makeEvent({ clubId: 'club-2' })], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ clubId: 'club-2', content: makeEvent({ clubId: 'club-2' }) })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -2698,7 +2697,7 @@ test('events.setRsvp uses the actor membership in the event club', async () => {
       return makeEvent();
     },
     async listEvents() {
-      return withIncluded({ results: [makeEvent()], hasMore: false, nextCursor: null });
+      return withIncluded({ results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null });
     },
     async rsvpEvent(input) {
       capturedInput = input;
@@ -2794,14 +2793,14 @@ test('content.list can span accessible clubs and filter by kinds with optional q
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
     },
     async listContent(input) {
       capturedInput = input;
-      return { results: [makeThreadSummary({ firstContent: { ...makeEntity(), kind: 'ask' } })], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: { ...makeEntity(), kind: 'ask' } })], hasMore: false, nextCursor: null };
     },
   };
 
@@ -2827,7 +2826,7 @@ test('content.list can span accessible clubs and filter by kinds with optional q
   });
   assert.equal(result.action, 'content.list');
   assert.equal(result.data.query, 'backend');
-  assert.equal(result.data.results[0]?.firstContent.kind, 'ask');
+  assert.equal(result.data.results[0]?.content.kind, 'ask');
   assert.deepEqual(result.actor.requestScope.activeClubIds, ['club-1', 'club-2']);
 });
 
@@ -2971,7 +2970,7 @@ test('members.get returns 404 when the target member is not in the requested clu
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -3066,7 +3065,7 @@ test('messages.send picks a shared club, appends the request scope, and returns 
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -3166,7 +3165,7 @@ test('messages.send returns 404 when the recipient is outside shared scope', asy
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -3370,7 +3369,7 @@ test('messages.get scopes thread access server-side and returns DM entries', asy
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -3490,7 +3489,7 @@ test('accessTokens.create mints a new bearer token for the actor member', async 
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -3601,7 +3600,7 @@ test('accessTokens.revoke only revokes actor-owned tokens', async () => {
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();
@@ -3928,7 +3927,7 @@ test('messages.get returns 404 when the thread is outside actor scope', async ()
       return makeEvent();
     },
     async listEvents() {
-      return { results: [makeEvent()], hasMore: false, nextCursor: null };
+      return { results: [makeThreadSummary({ content: makeEvent() })], hasMore: false, nextCursor: null };
     },
     async rsvpEvent() {
       return makeEvent();

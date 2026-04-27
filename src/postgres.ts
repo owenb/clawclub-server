@@ -1454,10 +1454,10 @@ export function createRepository(
 
     async adminGetMember({ memberId }) {
       const memberResult = await pool.query<{
-        member_id: string; public_name: string; display_name: string;
+        member_id: string; public_name: string;
         state: string; created_at: string;
       }>(
-        `select id as member_id, public_name, display_name, state::text as state, created_at::text as created_at
+        `select id as member_id, public_name, state::text as state, created_at::text as created_at
          from members where id = $1 limit 1`,
         [memberId],
       );
@@ -1525,7 +1525,6 @@ export function createRepository(
 
       return {
         memberId: m.member_id, publicName: m.public_name,
-        displayName: m.display_name,
         state: m.state, createdAt: m.created_at,
         memberships: membershipsResult.rows.map((r) => ({
           membershipId: r.membership_id, clubId: r.club_id, clubName: r.club_name,

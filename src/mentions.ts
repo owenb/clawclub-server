@@ -247,7 +247,6 @@ export async function loadIncludedMembers(client: DbClient, memberIds: string[])
     membersById[row.member_id] = {
       memberId: row.member_id,
       publicName: row.public_name,
-      displayName: row.display_name,
     };
   }
 

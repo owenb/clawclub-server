@@ -78,7 +78,7 @@ describe('member profiles', () => {
     assert.equal(secondMember.summary, 'Working mainly on cat fostering and adoption logistics.');
   });
 
-  it('accounts.updateIdentity changes displayName globally across clubs', async () => {
+  it('accounts.updateIdentity accepts displayName without exposing it on member responses', async () => {
     const owner = await h.seedOwner('profiles-identity-a', 'ProfilesIdentityA');
     const secondClub = await h.seedClub('profiles-identity-b', 'ProfilesIdentityB', owner.id);
 
@@ -87,7 +87,9 @@ describe('member profiles', () => {
       displayName: 'Renamed Owner',
     });
     const identity = result.data as Record<string, unknown>;
-    assert.equal(identity.displayName, 'Renamed Owner');
+    assert.equal(identity.memberId, owner.id);
+    assert.equal(identity.publicName, owner.publicName);
+    assert.equal(Object.hasOwn(identity, 'displayName'), false);
 
     const first = await h.apiOk(owner.token, 'members.get', {
       clubId: owner.club.id,
@@ -98,8 +100,8 @@ describe('member profiles', () => {
       memberId: owner.id,
     });
 
-    assert.equal(((first.data as Record<string, unknown>).member as Record<string, unknown>).displayName, 'Renamed Owner');
-    assert.equal(((second.data as Record<string, unknown>).member as Record<string, unknown>).displayName, 'Renamed Owner');
+    assert.equal(Object.hasOwn((first.data as Record<string, unknown>).member as Record<string, unknown>, 'displayName'), false);
+    assert.equal(Object.hasOwn((second.data as Record<string, unknown>).member as Record<string, unknown>, 'displayName'), false);
   });
 
   it('accounts.updateIdentity works for a zero-membership member', async () => {
@@ -112,7 +114,7 @@ describe('member profiles', () => {
     const identity = result.data as Record<string, unknown>;
 
     assert.equal(identity.memberId, loner.id);
-    assert.equal(identity.displayName, 'Solo Operator');
+    assert.equal(Object.hasOwn(identity, 'displayName'), false);
   });
 
   it('accounts.updateIdentity rejects a displayName longer than 500 characters', async () => {

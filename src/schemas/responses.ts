@@ -50,7 +50,6 @@ const versionBase = z.object({
 export const includedMember = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  displayName: z.string(),
 });
 
 export const includedBundle = z.object({
@@ -123,7 +122,6 @@ export const publicMemberSummary = z.object({
   membershipId: z.string(),
   memberId: z.string(),
   publicName: z.string(),
-  displayName: z.string(),
   tagline: z.string().nullable(),
   summary: z.string().nullable(),
   whatIDo: z.string().nullable(),
@@ -141,7 +139,6 @@ export const publicMemberSummary = z.object({
 export const memberSearchResult = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  displayName: z.string(),
   tagline: z.string().nullable(),
   summary: z.string().nullable(),
   whatIDo: z.string().nullable(),
@@ -181,13 +178,11 @@ export const clubProfile = z.object({
 export const memberIdentity = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  displayName: z.string(),
 });
 
 export const memberProfileEnvelope = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  displayName: z.string(),
   profiles: z.array(clubProfile),
 });
 
@@ -196,7 +191,6 @@ export const memberProfileEnvelope = z.object({
 export const contentAuthorRef = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  displayName: z.string(),
 });
 
 export const eventRsvpAttendee = z.object({
@@ -259,12 +253,15 @@ export const contentSearchResult = content.extend({
   score: z.number(),
 });
 
-export const contentThread = z.object({
+export const contentThreadSummary = z.object({
   id: z.string(),
   clubId: z.string(),
-  firstContent: content,
   contentCount: z.number(),
   latestActivityAt: timestampString,
+});
+
+export const contentThread = contentThreadSummary.extend({
+  content,
 });
 
 // ── Messages ─────────────────────────────────────────────
@@ -532,7 +529,6 @@ export const superadminMemberSummary = z.object({
 export const superadminMemberDetail = z.object({
   memberId: z.string(),
   publicName: z.string(),
-  displayName: z.string(),
   state: z.string(),
   createdAt: timestampString,
   memberships: z.array(z.object({
@@ -695,6 +691,7 @@ export type ContentWithIncluded = z.infer<typeof contentWithIncluded>;
 export type EventWithIncluded = z.infer<typeof eventWithIncluded>;
 export type ContentSearchResult = z.infer<typeof contentSearchResult>;
 export type ContentThread = z.infer<typeof contentThread>;
+export type ContentThreadSummary = z.infer<typeof contentThreadSummary>;
 export type DirectMessageSummary = z.infer<typeof directMessageSummary>;
 export type DirectMessageThreadSummary = z.infer<typeof directMessageThreadSummary>;
 export type DirectMessageEntry = z.infer<typeof directMessageEntry>;

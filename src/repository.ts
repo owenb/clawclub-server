@@ -23,6 +23,7 @@ import type {
   Content,
   ContentSearchResult,
   ContentThread,
+  ContentThreadSummary,
   CreatedNotificationProducer,
   CreatedBearerToken,
   DirectMessageEntry,
@@ -84,6 +85,7 @@ export type {
   Content,
   ContentSearchResult,
   ContentThread,
+  ContentThreadSummary,
   CreatedNotificationProducer,
   CreatedBearerToken,
   DirectMessageEntry,
@@ -821,8 +823,8 @@ export type Repository = {
   reopenContentLoop(input: SetContentLoopInput): Promise<WithIncluded<{ content: Content }> | null>;
   removeContent(input: RemoveContentInput): Promise<WithIncluded<{ content: Content }> | null>;
   listContent(input: ListContentInput): Promise<WithIncluded<Paginated<ContentThread>>>;
-  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: ContentThread; contents: Content[]; hasMore: boolean; nextCursor: string | null }> | null>;
-  listEvents(input: ListEventsInput): Promise<WithIncluded<Paginated<Content>>>;
+  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: ContentThreadSummary; contents: Content[]; hasMore: boolean; nextCursor: string | null }> | null>;
+  listEvents(input: ListEventsInput): Promise<WithIncluded<Paginated<ContentThread>>>;
   rsvpEvent(input: RsvpEventInput): Promise<WithIncluded<{ content: Content }> | null>;
   cancelEventRsvp(input: { actorMemberId: string; eventId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ content: Content }> | null>;
   listBearerTokens(input: {

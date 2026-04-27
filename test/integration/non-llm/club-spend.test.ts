@@ -195,9 +195,9 @@ describe('club spend budget', () => {
       h.apiOk(owner.token, 'content.create', payload),
     ]);
 
-    const firstContent = (first.data as Record<string, unknown>).content as Record<string, unknown>;
+    const content = (first.data as Record<string, unknown>).content as Record<string, unknown>;
     const secondContent = (second.data as Record<string, unknown>).content as Record<string, unknown>;
-    assert.equal(firstContent.id, secondContent.id);
+    assert.equal(content.id, secondContent.id);
     assert.equal(gateCalls, 1);
 
     const spendRows = await h.sql<{ count: string }>(

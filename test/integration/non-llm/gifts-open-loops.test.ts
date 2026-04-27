@@ -26,9 +26,9 @@ async function seedContentEmbedding(id: string, contentVersionId: string, vector
   );
 }
 
-function listedFirstContentIds(result: Record<string, unknown>): string[] {
+function listedContentIds(result: Record<string, unknown>): string[] {
   const threads = (result.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-  return threads.map((thread) => ((thread.firstContent as Record<string, unknown>).id as string));
+  return threads.map((thread) => ((thread.content as Record<string, unknown>).id as string));
 }
 
 describe('gifts and open loops', () => {
@@ -132,7 +132,7 @@ describe('gifts and open loops', () => {
     const authorDefaultList = await h.apiOk(author.token, 'content.list', {
       clubId: owner.club.id,
     });
-    const defaultIds = listedFirstContentIds(authorDefaultList as Record<string, unknown>);
+    const defaultIds = listedContentIds(authorDefaultList as Record<string, unknown>);
     assert.equal(defaultIds.includes(gift.id as string), false);
     assert.equal(defaultIds.includes(post.id as string), true);
 
@@ -140,14 +140,14 @@ describe('gifts and open loops', () => {
       clubId: owner.club.id,
       includeClosed: true,
     });
-    const closedIds = listedFirstContentIds(authorClosedList as Record<string, unknown>);
+    const closedIds = listedContentIds(authorClosedList as Record<string, unknown>);
     assert.equal(closedIds.includes(gift.id as string), true);
     assert.equal(closedIds.includes(post.id as string), true);
 
     const viewerDefaultList = await h.apiOk(viewer.token, 'content.list', {
       clubId: owner.club.id,
     });
-    const viewerDefaultIds = listedFirstContentIds(viewerDefaultList as Record<string, unknown>);
+    const viewerDefaultIds = listedContentIds(viewerDefaultList as Record<string, unknown>);
     assert.equal(viewerDefaultIds.includes(gift.id as string), false);
     assert.equal(viewerDefaultIds.includes(post.id as string), true);
 
@@ -155,7 +155,7 @@ describe('gifts and open loops', () => {
       clubId: owner.club.id,
       includeClosed: true,
     });
-    const viewerIds = listedFirstContentIds(viewerClosedList as Record<string, unknown>);
+    const viewerIds = listedContentIds(viewerClosedList as Record<string, unknown>);
     assert.equal(viewerIds.includes(gift.id as string), true);
     assert.equal(viewerIds.includes(post.id as string), true);
 
@@ -168,7 +168,7 @@ describe('gifts and open loops', () => {
     const reopenedList = await h.apiOk(author.token, 'content.list', {
       clubId: owner.club.id,
     });
-    const reopenedIds = listedFirstContentIds(reopenedList as Record<string, unknown>);
+    const reopenedIds = listedContentIds(reopenedList as Record<string, unknown>);
     assert.equal(reopenedIds.includes(gift.id as string), true);
   });
 

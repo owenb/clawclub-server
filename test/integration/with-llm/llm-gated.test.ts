@@ -40,7 +40,7 @@ describe('members.updateProfile (LLM-gated)', () => {
     const profile = result.data as Record<string, unknown>;
     const profiles = profile.profiles as Array<Record<string, unknown>>;
 
-    assert.equal(profile.displayName, carol.publicName);
+    assert.equal(Object.hasOwn(profile, 'displayName'), false);
     assert.equal(profiles[0]?.tagline, 'Backend engineer building carbon tracking tools for small manufacturers');
   });
 

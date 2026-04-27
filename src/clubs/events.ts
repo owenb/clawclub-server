@@ -3,7 +3,7 @@
  */
 
 import type { Pool } from 'pg';
-import type { Content, EventRsvpState, WithIncluded } from '../repository.ts';
+import type { Content, ContentThread, EventRsvpState, WithIncluded } from '../repository.ts';
 import { translate23505, translatePgCode, withTransaction, type DbClient } from '../db.ts';
 import { AppError } from '../repository.ts';
 import { deliverCoreNotifications } from '../notification-substrate.ts';
@@ -247,16 +247,26 @@ export async function listEvents(pool: Pool, input: {
   limit: number;
   query?: string;
   cursor?: { startsAt: string; contentId: string } | null;
-}): Promise<WithIncluded<{ results: Content[]; hasMore: boolean; nextCursor: string | null }>> {
+}): Promise<WithIncluded<{ results: ContentThread[]; hasMore: boolean; nextCursor: string | null }>> {
   if (input.clubIds.length === 0) return { results: [], hasMore: false, nextCursor: null, included: emptyIncludedBundle() };
 
   const trimmedQuery = input.query?.trim().slice(0, 120) || null;
   const likePattern = trimmedQuery ? `%${trimmedQuery.replace(/[%_\\]/g, '\\$&')}%` : null;
   const fetchLimit = input.limit + 1;
 
-  const identityRows = await pool.query<{ content_id: string; starts_at: string }>(
-    `select e.id as content_id, evd.starts_at::text as starts_at
+  const identityRows = await pool.query<{ content_id: string; thread_id: string; club_id: string; content_count: number; latest_activity_at: string; starts_at: string }>(
+    `select e.id as content_id,
+            e.thread_id,
+            e.club_id,
+            (select count(*)::int
+             from contents sibling
+             where sibling.thread_id = e.thread_id
+               and sibling.archived_at is null
+               and sibling.deleted_at is null) as content_count,
+            ct.last_activity_at::text as latest_activity_at,
+            evd.starts_at::text as starts_at
      from contents e
+     join content_threads ct on ct.id = e.thread_id
      join current_content_versions cev on cev.content_id = e.id
      join event_version_details evd on evd.content_version_id = cev.id
      where e.kind = 'event'
@@ -303,8 +313,21 @@ export async function listEvents(pool: Pool, input: {
     );
 
     const last = pageRows[pageRows.length - 1];
+    const contentById = new Map(bundle.contents.map((content) => [content.id, content]));
     return {
-      results: bundle.contents,
+      results: pageRows
+        .map((row) => {
+          const content = contentById.get(row.content_id);
+          if (!content) return null;
+          return {
+            id: row.thread_id,
+            clubId: row.club_id,
+            content,
+            contentCount: Number(row.content_count),
+            latestActivityAt: row.latest_activity_at,
+          } satisfies ContentThread;
+        })
+        .filter((row): row is ContentThread => row !== null),
       hasMore,
       nextCursor: hasMore && last ? encodeCursor([last.starts_at, last.content_id]) : null,
       included: bundle.included,

@@ -494,7 +494,7 @@ export type ClubsRepository = {
     moderatorRemoval?: { restrictToClubId: string } | null;
   }): Promise<WithIncluded<{ content: Content }> | null>;
   listContent(input: ListContentInput): Promise<import('./content.ts').PaginatedThreads>;
-  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: import('../repository.ts').ContentThread; contents: import('../repository.ts').Content[]; hasMore: boolean; nextCursor: string | null }> | null>;
+  readContentThread(input: ReadContentThreadInput): Promise<WithIncluded<{ thread: import('../repository.ts').ContentThreadSummary; contents: import('../repository.ts').Content[]; hasMore: boolean; nextCursor: string | null }> | null>;
 
   checkVouchTargetAccessible(input: { actorMemberId: string; clubId: string; targetMemberId: string }): Promise<{ vouchable: boolean }>;
   createVouch(input: { actorMemberId: string; clubId: string; targetMemberId: string; reason: string; clientKey?: string | null }): Promise<{ edgeId: string; fromMemberId: string; fromPublicName: string; reason: string; metadata: Record<string, unknown>; createdAt: string; creatorMemberId: string | null } | null>;
@@ -560,7 +560,7 @@ export type ClubsRepository = {
 
   findContentViaEmbedding(input: { actorMemberId: string; clubIds: string[]; queryEmbedding: string; kinds?: string[]; limit: number; cursor?: { distance: string; contentId: string } | null }): Promise<PaginatedContentSearch>;
 
-  listEvents(input: { actorMemberId: string; clubIds: string[]; limit: number; query?: string; cursor?: { startsAt: string; contentId: string } | null }): Promise<WithIncluded<{ results: import('../repository.ts').Content[]; hasMore: boolean; nextCursor: string | null }>>;
+  listEvents(input: { actorMemberId: string; clubIds: string[]; limit: number; query?: string; cursor?: { startsAt: string; contentId: string } | null }): Promise<WithIncluded<{ results: import('../repository.ts').ContentThread[]; hasMore: boolean; nextCursor: string | null }>>;
   rsvpEvent(input: { actorMemberId: string; eventId: string; response: import('../repository.ts').EventRsvpState; note?: string | null; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ content: import('../repository.ts').Content }> | null>;
   cancelEventRsvp(input: { actorMemberId: string; eventId: string; accessibleMemberships: Array<{ membershipId: string; clubId: string }> }): Promise<WithIncluded<{ content: import('../repository.ts').Content }> | null>;
 };

@@ -12,7 +12,7 @@ import {
   decodeOptionalCursor,
   paginationFields,
 } from './fields.ts';
-import { content, eventWithIncluded, membershipSummary, paginatedOutputWithIncluded } from './responses.ts';
+import { contentThread, eventWithIncluded, membershipSummary, paginatedOutputWithIncluded } from './responses.ts';
 import { clubScopedResult, registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 type EventListInput = {
@@ -37,7 +37,7 @@ const eventsList: ActionDefinition = {
       query: wireOptionalString.describe('Search text'),
       ...EVENTS_LIST_PAGINATION.wire,
     }),
-    output: paginatedOutputWithIncluded(content, {
+    output: paginatedOutputWithIncluded(contentThread, {
       query: z.string().nullable(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),

@@ -213,7 +213,6 @@ function mapPublicMemberRow(row: PublicMemberRow): PublicMemberSummary {
     membershipId: row.membership_id,
     memberId: row.member_id,
     publicName: row.public_name,
-    displayName: row.display_name,
     tagline: row.tagline,
     summary: row.summary,
     whatIDo: row.what_i_do,

@@ -30,6 +30,7 @@ import {
   content,
   contentSearchResult,
   contentThread,
+  contentThreadSummary,
   contentWithIncluded,
   includedBundle,
   membershipSummary,
@@ -658,7 +659,7 @@ const contentGetThread: ActionDefinition = {
       ...CONTENT_GET_PAGINATION.wire,
     }),
     output: z.object({
-      thread: contentThread,
+      thread: contentThreadSummary,
       contents: paginatedOutput(content),
       included: includedBundle,
     }),
@@ -733,8 +734,8 @@ const contentsList: ActionDefinition = {
     input: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for content listing.')),
       kinds: wireContentKinds,
-      query: wireOptionalString.describe('Search first-content text'),
-      includeClosed: z.boolean().optional().describe('Include closed first-content asks, gifts, services, and opportunities'),
+      query: wireOptionalString.describe('Search thread subject text'),
+      includeClosed: z.boolean().optional().describe('Include closed ask, gift, service, and opportunity subjects'),
       ...CONTENT_LIST_PAGINATION.wire,
     }),
     output: paginatedOutputWithIncluded(contentThread, {
@@ -800,7 +801,7 @@ type ContentFindViaEmbeddingInput = {
 const contentsFindViaEmbedding: ActionDefinition = {
   action: 'content.searchBySemanticSimilarity',
   domain: 'content',
-  description: 'Find public content contents by semantic similarity.',
+  description: 'Find public content by semantic similarity.',
   auth: 'member',
   safety: 'read_only',
   businessErrors: [

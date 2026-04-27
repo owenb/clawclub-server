@@ -18,7 +18,7 @@ function findListedFirstContent(
 ): Record<string, unknown> | undefined {
   const results = (listResult.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
   return results
-    .map((thread) => thread.firstContent as Record<string, unknown>)
+    .map((thread) => thread.content as Record<string, unknown>)
     .find((content) => content.id === contentId);
 }
 
@@ -180,7 +180,7 @@ describe('contents', () => {
       limit: 20,
     });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const foundKinds = new Set(results.map((thread) => (thread.firstContent as Record<string, unknown>).kind));
+    const foundKinds = new Set(results.map((thread) => (thread.content as Record<string, unknown>).kind));
     for (const kind of kinds) {
       assert.ok(foundKinds.has(kind), `list should include kind=${kind}`);
     }
@@ -217,7 +217,7 @@ describe('events', () => {
 
     const list = await h.apiOk(member.token, 'events.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const found = results.find((e) => e.id === event.id);
+    const found = results.find((thread) => ((thread.content as Record<string, unknown>).id) === event.id);
     assert.ok(found, 'created event should appear in events.list');
   });
 
@@ -273,7 +273,7 @@ describe('events', () => {
 
     const list = await h.apiOk(viewer.token, 'events.list', { clubId: owner.club.id });
     const results = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const found = results.find((e) => e.id === event.id);
+    const found = results.find((thread) => ((thread.content as Record<string, unknown>).id) === event.id);
     assert.ok(found, 'event should be visible to other club members');
   });
 

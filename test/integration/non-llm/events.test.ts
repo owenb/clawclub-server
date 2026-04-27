@@ -134,9 +134,9 @@ describe('events', () => {
     });
 
     const results = (listed.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    const match = results.find(result => result.id === created.id);
+    const match = results.find(result => ((result.content as Record<string, unknown>).id) === created.id);
     assert.ok(match, 'events.list should include the created event');
-    assert.equal(match?.kind, 'event');
+    assert.equal((match?.content as Record<string, unknown> | undefined)?.kind, 'event');
   });
 
   it('events.setRsvp updates and clears the public event view', async () => {
@@ -642,12 +642,12 @@ describe('content.create clientKey', () => {
     };
 
     const first = await h.apiOk(owner.token, 'content.create', payload);
-    const firstContent = (first.data as Record<string, unknown>).content as Record<string, unknown>;
+    const content = (first.data as Record<string, unknown>).content as Record<string, unknown>;
 
     const second = await h.apiOk(owner.token, 'content.create', payload);
     const secondContent = (second.data as Record<string, unknown>).content as Record<string, unknown>;
 
-    assert.equal(secondContent.id, firstContent.id, 'same clientKey + payload should return the same content');
+    assert.equal(secondContent.id, content.id, 'same clientKey + payload should return the same content');
   });
 
   it('same key + different payload returns 409 client_key_conflict', async () => {

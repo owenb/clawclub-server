@@ -78,16 +78,17 @@ describe('timestamp normalization', () => {
     });
     const contentData = contentResult.data as Record<string, unknown>;
     const thread = (contentData.thread ?? {}) as Record<string, unknown>;
-    const firstContent = (thread.firstContent ?? {}) as Record<string, unknown>;
-    const version = (firstContent.version ?? {}) as Record<string, unknown>;
-    const event = (firstContent.event ?? {}) as Record<string, unknown>;
+    const contents = ((contentData.contents as Record<string, unknown>).results ?? []) as Array<Record<string, unknown>>;
+    const content = (contents[0] ?? {}) as Record<string, unknown>;
+    const version = (content.version ?? {}) as Record<string, unknown>;
+    const event = (content.event ?? {}) as Record<string, unknown>;
 
     assertCanonicalTimestamp(thread.latestActivityAt, 'content.get thread.latestActivityAt');
-    assertCanonicalTimestamp(firstContent.createdAt, 'content.get thread.firstContent.createdAt');
-    assertCanonicalTimestamp(version.createdAt, 'content.get thread.firstContent.version.createdAt');
-    assertCanonicalTimestamp(version.effectiveAt, 'content.get thread.firstContent.version.effectiveAt');
-    assertCanonicalTimestamp(event.startsAt, 'content.get thread.firstContent.event.startsAt');
-    assertCanonicalTimestamp(event.endsAt, 'content.get thread.firstContent.event.endsAt');
+    assertCanonicalTimestamp(content.createdAt, 'content.get contents.results[0].createdAt');
+    assertCanonicalTimestamp(version.createdAt, 'content.get contents.results[0].version.createdAt');
+    assertCanonicalTimestamp(version.effectiveAt, 'content.get contents.results[0].version.effectiveAt');
+    assertCanonicalTimestamp(event.startsAt, 'content.get contents.results[0].event.startsAt');
+    assertCanonicalTimestamp(event.endsAt, 'content.get contents.results[0].event.endsAt');
 
     const application = await h.seedApplication(owner.club.id, applicant.id, {
       phase: 'declined',

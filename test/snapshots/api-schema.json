@@ -820,9 +820,6 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "displayName": {
-            "type": "string"
-          },
           "memberId": {
             "type": "string"
           },
@@ -832,8 +829,7 @@
         },
         "required": [
           "memberId",
-          "publicName",
-          "displayName"
+          "publicName"
         ],
         "type": "object"
       },
@@ -2106,9 +2102,6 @@
               "author": {
                 "additionalProperties": false,
                 "properties": {
-                  "displayName": {
-                    "type": "string"
-                  },
                   "memberId": {
                     "type": "string"
                   },
@@ -2118,8 +2111,7 @@
                 },
                 "required": [
                   "memberId",
-                  "publicName",
-                  "displayName"
+                  "publicName"
                 ],
                 "type": "object"
               },
@@ -2472,9 +2464,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -2484,8 +2473,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -2576,9 +2564,6 @@
               "acceptedCovenantAt": {
                 "clawclubType": "timestamp",
                 "nullable": true,
-                "type": "string"
-              },
-              "displayName": {
                 "type": "string"
               },
               "isOwner": {
@@ -2769,7 +2754,6 @@
               "membershipId",
               "memberId",
               "publicName",
-              "displayName",
               "tagline",
               "summary",
               "whatIDo",
@@ -2967,9 +2951,6 @@
                   "nullable": true,
                   "type": "string"
                 },
-                "displayName": {
-                  "type": "string"
-                },
                 "isOwner": {
                   "type": "boolean"
                 },
@@ -3158,7 +3139,6 @@
                 "membershipId",
                 "memberId",
                 "publicName",
-                "displayName",
                 "tagline",
                 "summary",
                 "whatIDo",
@@ -5732,9 +5712,6 @@
               "author": {
                 "additionalProperties": false,
                 "properties": {
-                  "displayName": {
-                    "type": "string"
-                  },
                   "memberId": {
                     "type": "string"
                   },
@@ -5744,8 +5721,7 @@
                 },
                 "required": [
                   "memberId",
-                  "publicName",
-                  "displayName"
+                  "publicName"
                 ],
                 "type": "object"
               },
@@ -6098,9 +6074,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -6110,8 +6083,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -6188,9 +6160,6 @@
                     "author": {
                       "additionalProperties": false,
                       "properties": {
-                        "displayName": {
-                          "type": "string"
-                        },
                         "memberId": {
                           "type": "string"
                         },
@@ -6200,8 +6169,7 @@
                       },
                       "required": [
                         "memberId",
-                        "publicName",
-                        "displayName"
+                        "publicName"
                       ],
                       "type": "object"
                     },
@@ -6564,9 +6532,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -6576,8 +6541,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -6598,371 +6562,6 @@
               "contentCount": {
                 "type": "number"
               },
-              "firstContent": {
-                "additionalProperties": false,
-                "properties": {
-                  "author": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "displayName": {
-                        "type": "string"
-                      },
-                      "memberId": {
-                        "type": "string"
-                      },
-                      "publicName": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "memberId",
-                      "publicName",
-                      "displayName"
-                    ],
-                    "type": "object"
-                  },
-                  "clubId": {
-                    "type": "string"
-                  },
-                  "createdAt": {
-                    "clawclubType": "timestamp",
-                    "type": "string"
-                  },
-                  "event": {
-                    "additionalProperties": false,
-                    "nullable": true,
-                    "properties": {
-                      "capacity": {
-                        "nullable": true,
-                        "type": "number"
-                      },
-                      "endsAt": {
-                        "clawclubType": "timestamp",
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "location": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "recurrenceRule": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "startsAt": {
-                        "clawclubType": "timestamp",
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "timezone": {
-                        "nullable": true,
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "location",
-                      "startsAt",
-                      "endsAt",
-                      "timezone",
-                      "recurrenceRule",
-                      "capacity"
-                    ],
-                    "type": "object"
-                  },
-                  "id": {
-                    "type": "string"
-                  },
-                  "kind": {
-                    "enum": [
-                      "post",
-                      "opportunity",
-                      "service",
-                      "ask",
-                      "gift",
-                      "event"
-                    ],
-                    "type": "string"
-                  },
-                  "openLoop": {
-                    "nullable": true,
-                    "type": "boolean"
-                  },
-                  "rsvps": {
-                    "additionalProperties": false,
-                    "nullable": true,
-                    "properties": {
-                      "attendees": {
-                        "items": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "createdAt": {
-                              "clawclubType": "timestamp",
-                              "type": "string"
-                            },
-                            "memberId": {
-                              "type": "string"
-                            },
-                            "membershipId": {
-                              "type": "string"
-                            },
-                            "note": {
-                              "nullable": true,
-                              "type": "string"
-                            },
-                            "publicName": {
-                              "type": "string"
-                            },
-                            "response": {
-                              "enum": [
-                                "yes",
-                                "maybe",
-                                "no",
-                                "waitlist"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "membershipId",
-                            "memberId",
-                            "publicName",
-                            "response",
-                            "note",
-                            "createdAt"
-                          ],
-                          "type": "object"
-                        },
-                        "type": "array"
-                      },
-                      "counts": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "maybe": {
-                            "type": "number"
-                          },
-                          "no": {
-                            "type": "number"
-                          },
-                          "waitlist": {
-                            "type": "number"
-                          },
-                          "yes": {
-                            "type": "number"
-                          }
-                        },
-                        "required": [
-                          "yes",
-                          "maybe",
-                          "no",
-                          "waitlist"
-                        ],
-                        "type": "object"
-                      },
-                      "viewerResponse": {
-                        "enum": [
-                          "yes",
-                          "maybe",
-                          "no",
-                          "waitlist"
-                        ],
-                        "nullable": true,
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "viewerResponse",
-                      "counts",
-                      "attendees"
-                    ],
-                    "type": "object"
-                  },
-                  "threadId": {
-                    "type": "string"
-                  },
-                  "version": {
-                    "additionalProperties": false,
-                    "description": "Body is always present on non-removed content. Title and summary may be null. For a short display label, prefer title, then summary, then a truncated excerpt of body.",
-                    "properties": {
-                      "body": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "createdAt": {
-                        "clawclubType": "timestamp",
-                        "type": "string"
-                      },
-                      "createdByMember": {
-                        "additionalProperties": false,
-                        "nullable": true,
-                        "properties": {
-                          "memberId": {
-                            "type": "string"
-                          },
-                          "publicName": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "memberId",
-                          "publicName"
-                        ],
-                        "type": "object"
-                      },
-                      "effectiveAt": {
-                        "clawclubType": "timestamp",
-                        "type": "string"
-                      },
-                      "expiresAt": {
-                        "clawclubType": "timestamp",
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "mentions": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "body": {
-                            "items": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "authoredLabel": {
-                                  "type": "string"
-                                },
-                                "end": {
-                                  "type": "number"
-                                },
-                                "memberId": {
-                                  "type": "string"
-                                },
-                                "start": {
-                                  "type": "number"
-                                }
-                              },
-                              "required": [
-                                "memberId",
-                                "authoredLabel",
-                                "start",
-                                "end"
-                              ],
-                              "type": "object"
-                            },
-                            "type": "array"
-                          },
-                          "summary": {
-                            "items": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "authoredLabel": {
-                                  "type": "string"
-                                },
-                                "end": {
-                                  "type": "number"
-                                },
-                                "memberId": {
-                                  "type": "string"
-                                },
-                                "start": {
-                                  "type": "number"
-                                }
-                              },
-                              "required": [
-                                "memberId",
-                                "authoredLabel",
-                                "start",
-                                "end"
-                              ],
-                              "type": "object"
-                            },
-                            "type": "array"
-                          },
-                          "title": {
-                            "items": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "authoredLabel": {
-                                  "type": "string"
-                                },
-                                "end": {
-                                  "type": "number"
-                                },
-                                "memberId": {
-                                  "type": "string"
-                                },
-                                "start": {
-                                  "type": "number"
-                                }
-                              },
-                              "required": [
-                                "memberId",
-                                "authoredLabel",
-                                "start",
-                                "end"
-                              ],
-                              "type": "object"
-                            },
-                            "type": "array"
-                          }
-                        },
-                        "required": [
-                          "title",
-                          "summary",
-                          "body"
-                        ],
-                        "type": "object"
-                      },
-                      "no": {
-                        "type": "number"
-                      },
-                      "reason": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "status": {
-                        "enum": [
-                          "draft",
-                          "published",
-                          "removed"
-                        ],
-                        "type": "string"
-                      },
-                      "summary": {
-                        "nullable": true,
-                        "type": "string"
-                      },
-                      "title": {
-                        "nullable": true,
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "no",
-                      "status",
-                      "reason",
-                      "title",
-                      "summary",
-                      "body",
-                      "effectiveAt",
-                      "expiresAt",
-                      "createdAt",
-                      "createdByMember",
-                      "mentions"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "id",
-                  "threadId",
-                  "clubId",
-                  "kind",
-                  "openLoop",
-                  "author",
-                  "version",
-                  "event",
-                  "rsvps",
-                  "createdAt"
-                ],
-                "type": "object"
-              },
               "id": {
                 "type": "string"
               },
@@ -6974,7 +6573,6 @@
             "required": [
               "id",
               "clubId",
-              "firstContent",
               "contentCount",
               "latestActivityAt"
             ],
@@ -7009,7 +6607,7 @@
             "type": "string"
           },
           "includeClosed": {
-            "description": "Include closed first-content asks, gifts, services, and opportunities",
+            "description": "Include closed ask, gift, service, and opportunity subjects",
             "type": "boolean"
           },
           "kinds": {
@@ -7036,7 +6634,7 @@
             "type": "integer"
           },
           "query": {
-            "description": "Search first-content text",
+            "description": "Search thread subject text",
             "maxLength": 2000,
             "nullable": true,
             "type": "string"
@@ -7134,9 +6732,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -7146,8 +6741,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -7191,18 +6785,12 @@
                 "clubId": {
                   "type": "string"
                 },
-                "contentCount": {
-                  "type": "number"
-                },
-                "firstContent": {
+                "content": {
                   "additionalProperties": false,
                   "properties": {
                     "author": {
                       "additionalProperties": false,
                       "properties": {
-                        "displayName": {
-                          "type": "string"
-                        },
                         "memberId": {
                           "type": "string"
                         },
@@ -7212,8 +6800,7 @@
                       },
                       "required": [
                         "memberId",
-                        "publicName",
-                        "displayName"
+                        "publicName"
                       ],
                       "type": "object"
                     },
@@ -7559,6 +7146,9 @@
                   ],
                   "type": "object"
                 },
+                "contentCount": {
+                  "type": "number"
+                },
                 "id": {
                   "type": "string"
                 },
@@ -7570,9 +7160,9 @@
               "required": [
                 "id",
                 "clubId",
-                "firstContent",
                 "contentCount",
-                "latestActivityAt"
+                "latestActivityAt",
+                "content"
               ],
               "type": "object"
             },
@@ -7641,9 +7231,6 @@
               "author": {
                 "additionalProperties": false,
                 "properties": {
-                  "displayName": {
-                    "type": "string"
-                  },
                   "memberId": {
                     "type": "string"
                   },
@@ -7653,8 +7240,7 @@
                 },
                 "required": [
                   "memberId",
-                  "publicName",
-                  "displayName"
+                  "publicName"
                 ],
                 "type": "object"
               },
@@ -8007,9 +7593,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -8019,8 +7602,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -8051,7 +7633,7 @@
           "recovery": "Inform the user, check quotas.getUsage for remaining budget, or retry after the oldest usage ages out of the quota window."
         }
       ],
-      "description": "Find public content contents by semantic similarity.",
+      "description": "Find public content by semantic similarity.",
       "domain": "content",
       "input": {
         "additionalProperties": false,
@@ -8187,9 +7769,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -8199,8 +7778,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -8229,9 +7807,6 @@
                 "author": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -8241,8 +7816,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -8658,9 +8232,6 @@
               "author": {
                 "additionalProperties": false,
                 "properties": {
-                  "displayName": {
-                    "type": "string"
-                  },
                   "memberId": {
                     "type": "string"
                   },
@@ -8670,8 +8241,7 @@
                 },
                 "required": [
                   "memberId",
-                  "publicName",
-                  "displayName"
+                  "publicName"
                 ],
                 "type": "object"
               },
@@ -9024,9 +8594,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -9036,8 +8603,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -9197,9 +8763,6 @@
               "author": {
                 "additionalProperties": false,
                 "properties": {
-                  "displayName": {
-                    "type": "string"
-                  },
                   "memberId": {
                     "type": "string"
                   },
@@ -9209,8 +8772,7 @@
                 },
                 "required": [
                   "memberId",
-                  "publicName",
-                  "displayName"
+                  "publicName"
                 ],
                 "type": "object"
               },
@@ -9563,9 +9125,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -9575,8 +9134,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -9717,9 +9275,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -9729,8 +9284,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -9757,199 +9311,14 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "author": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
-                    "memberId": {
-                      "type": "string"
-                    },
-                    "publicName": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "memberId",
-                    "publicName",
-                    "displayName"
-                  ],
-                  "type": "object"
-                },
                 "clubId": {
                   "type": "string"
                 },
-                "createdAt": {
-                  "clawclubType": "timestamp",
-                  "type": "string"
-                },
-                "event": {
+                "content": {
                   "additionalProperties": false,
-                  "nullable": true,
                   "properties": {
-                    "capacity": {
-                      "nullable": true,
-                      "type": "number"
-                    },
-                    "endsAt": {
-                      "clawclubType": "timestamp",
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "location": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "recurrenceRule": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "startsAt": {
-                      "clawclubType": "timestamp",
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "timezone": {
-                      "nullable": true,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "location",
-                    "startsAt",
-                    "endsAt",
-                    "timezone",
-                    "recurrenceRule",
-                    "capacity"
-                  ],
-                  "type": "object"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "kind": {
-                  "enum": [
-                    "post",
-                    "opportunity",
-                    "service",
-                    "ask",
-                    "gift",
-                    "event"
-                  ],
-                  "type": "string"
-                },
-                "openLoop": {
-                  "nullable": true,
-                  "type": "boolean"
-                },
-                "rsvps": {
-                  "additionalProperties": false,
-                  "nullable": true,
-                  "properties": {
-                    "attendees": {
-                      "items": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "createdAt": {
-                            "clawclubType": "timestamp",
-                            "type": "string"
-                          },
-                          "memberId": {
-                            "type": "string"
-                          },
-                          "membershipId": {
-                            "type": "string"
-                          },
-                          "note": {
-                            "nullable": true,
-                            "type": "string"
-                          },
-                          "publicName": {
-                            "type": "string"
-                          },
-                          "response": {
-                            "enum": [
-                              "yes",
-                              "maybe",
-                              "no",
-                              "waitlist"
-                            ],
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "membershipId",
-                          "memberId",
-                          "publicName",
-                          "response",
-                          "note",
-                          "createdAt"
-                        ],
-                        "type": "object"
-                      },
-                      "type": "array"
-                    },
-                    "counts": {
+                    "author": {
                       "additionalProperties": false,
-                      "properties": {
-                        "maybe": {
-                          "type": "number"
-                        },
-                        "no": {
-                          "type": "number"
-                        },
-                        "waitlist": {
-                          "type": "number"
-                        },
-                        "yes": {
-                          "type": "number"
-                        }
-                      },
-                      "required": [
-                        "yes",
-                        "maybe",
-                        "no",
-                        "waitlist"
-                      ],
-                      "type": "object"
-                    },
-                    "viewerResponse": {
-                      "enum": [
-                        "yes",
-                        "maybe",
-                        "no",
-                        "waitlist"
-                      ],
-                      "nullable": true,
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "viewerResponse",
-                    "counts",
-                    "attendees"
-                  ],
-                  "type": "object"
-                },
-                "threadId": {
-                  "type": "string"
-                },
-                "version": {
-                  "additionalProperties": false,
-                  "description": "Body is always present on non-removed content. Title and summary may be null. For a short display label, prefer title, then summary, then a truncated excerpt of body.",
-                  "properties": {
-                    "body": {
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "createdAt": {
-                      "clawclubType": "timestamp",
-                      "type": "string"
-                    },
-                    "createdByMember": {
-                      "additionalProperties": false,
-                      "nullable": true,
                       "properties": {
                         "memberId": {
                           "type": "string"
@@ -9964,158 +9333,365 @@
                       ],
                       "type": "object"
                     },
-                    "effectiveAt": {
+                    "clubId": {
+                      "type": "string"
+                    },
+                    "createdAt": {
                       "clawclubType": "timestamp",
                       "type": "string"
                     },
-                    "expiresAt": {
-                      "clawclubType": "timestamp",
-                      "nullable": true,
-                      "type": "string"
-                    },
-                    "mentions": {
+                    "event": {
                       "additionalProperties": false,
+                      "nullable": true,
                       "properties": {
-                        "body": {
-                          "items": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "authoredLabel": {
-                                "type": "string"
-                              },
-                              "end": {
-                                "type": "number"
-                              },
-                              "memberId": {
-                                "type": "string"
-                              },
-                              "start": {
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "memberId",
-                              "authoredLabel",
-                              "start",
-                              "end"
-                            ],
-                            "type": "object"
-                          },
-                          "type": "array"
+                        "capacity": {
+                          "nullable": true,
+                          "type": "number"
                         },
-                        "summary": {
-                          "items": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "authoredLabel": {
-                                "type": "string"
-                              },
-                              "end": {
-                                "type": "number"
-                              },
-                              "memberId": {
-                                "type": "string"
-                              },
-                              "start": {
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "memberId",
-                              "authoredLabel",
-                              "start",
-                              "end"
-                            ],
-                            "type": "object"
-                          },
-                          "type": "array"
+                        "endsAt": {
+                          "clawclubType": "timestamp",
+                          "nullable": true,
+                          "type": "string"
                         },
-                        "title": {
-                          "items": {
-                            "additionalProperties": false,
-                            "properties": {
-                              "authoredLabel": {
-                                "type": "string"
-                              },
-                              "end": {
-                                "type": "number"
-                              },
-                              "memberId": {
-                                "type": "string"
-                              },
-                              "start": {
-                                "type": "number"
-                              }
-                            },
-                            "required": [
-                              "memberId",
-                              "authoredLabel",
-                              "start",
-                              "end"
-                            ],
-                            "type": "object"
-                          },
-                          "type": "array"
+                        "location": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "recurrenceRule": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "startsAt": {
+                          "clawclubType": "timestamp",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "timezone": {
+                          "nullable": true,
+                          "type": "string"
                         }
                       },
                       "required": [
-                        "title",
-                        "summary",
-                        "body"
+                        "location",
+                        "startsAt",
+                        "endsAt",
+                        "timezone",
+                        "recurrenceRule",
+                        "capacity"
                       ],
                       "type": "object"
                     },
-                    "no": {
-                      "type": "number"
-                    },
-                    "reason": {
-                      "nullable": true,
+                    "id": {
                       "type": "string"
                     },
-                    "status": {
+                    "kind": {
                       "enum": [
-                        "draft",
-                        "published",
-                        "removed"
+                        "post",
+                        "opportunity",
+                        "service",
+                        "ask",
+                        "gift",
+                        "event"
                       ],
                       "type": "string"
                     },
-                    "summary": {
+                    "openLoop": {
                       "nullable": true,
+                      "type": "boolean"
+                    },
+                    "rsvps": {
+                      "additionalProperties": false,
+                      "nullable": true,
+                      "properties": {
+                        "attendees": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "createdAt": {
+                                "clawclubType": "timestamp",
+                                "type": "string"
+                              },
+                              "memberId": {
+                                "type": "string"
+                              },
+                              "membershipId": {
+                                "type": "string"
+                              },
+                              "note": {
+                                "nullable": true,
+                                "type": "string"
+                              },
+                              "publicName": {
+                                "type": "string"
+                              },
+                              "response": {
+                                "enum": [
+                                  "yes",
+                                  "maybe",
+                                  "no",
+                                  "waitlist"
+                                ],
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "membershipId",
+                              "memberId",
+                              "publicName",
+                              "response",
+                              "note",
+                              "createdAt"
+                            ],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        },
+                        "counts": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "maybe": {
+                              "type": "number"
+                            },
+                            "no": {
+                              "type": "number"
+                            },
+                            "waitlist": {
+                              "type": "number"
+                            },
+                            "yes": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "yes",
+                            "maybe",
+                            "no",
+                            "waitlist"
+                          ],
+                          "type": "object"
+                        },
+                        "viewerResponse": {
+                          "enum": [
+                            "yes",
+                            "maybe",
+                            "no",
+                            "waitlist"
+                          ],
+                          "nullable": true,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "viewerResponse",
+                        "counts",
+                        "attendees"
+                      ],
+                      "type": "object"
+                    },
+                    "threadId": {
                       "type": "string"
                     },
-                    "title": {
-                      "nullable": true,
-                      "type": "string"
+                    "version": {
+                      "additionalProperties": false,
+                      "description": "Body is always present on non-removed content. Title and summary may be null. For a short display label, prefer title, then summary, then a truncated excerpt of body.",
+                      "properties": {
+                        "body": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "createdAt": {
+                          "clawclubType": "timestamp",
+                          "type": "string"
+                        },
+                        "createdByMember": {
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "properties": {
+                            "memberId": {
+                              "type": "string"
+                            },
+                            "publicName": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "memberId",
+                            "publicName"
+                          ],
+                          "type": "object"
+                        },
+                        "effectiveAt": {
+                          "clawclubType": "timestamp",
+                          "type": "string"
+                        },
+                        "expiresAt": {
+                          "clawclubType": "timestamp",
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "mentions": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "body": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authoredLabel": {
+                                    "type": "string"
+                                  },
+                                  "end": {
+                                    "type": "number"
+                                  },
+                                  "memberId": {
+                                    "type": "string"
+                                  },
+                                  "start": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "memberId",
+                                  "authoredLabel",
+                                  "start",
+                                  "end"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "summary": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authoredLabel": {
+                                    "type": "string"
+                                  },
+                                  "end": {
+                                    "type": "number"
+                                  },
+                                  "memberId": {
+                                    "type": "string"
+                                  },
+                                  "start": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "memberId",
+                                  "authoredLabel",
+                                  "start",
+                                  "end"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "title": {
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "authoredLabel": {
+                                    "type": "string"
+                                  },
+                                  "end": {
+                                    "type": "number"
+                                  },
+                                  "memberId": {
+                                    "type": "string"
+                                  },
+                                  "start": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "memberId",
+                                  "authoredLabel",
+                                  "start",
+                                  "end"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "title",
+                            "summary",
+                            "body"
+                          ],
+                          "type": "object"
+                        },
+                        "no": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "draft",
+                            "published",
+                            "removed"
+                          ],
+                          "type": "string"
+                        },
+                        "summary": {
+                          "nullable": true,
+                          "type": "string"
+                        },
+                        "title": {
+                          "nullable": true,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "no",
+                        "status",
+                        "reason",
+                        "title",
+                        "summary",
+                        "body",
+                        "effectiveAt",
+                        "expiresAt",
+                        "createdAt",
+                        "createdByMember",
+                        "mentions"
+                      ],
+                      "type": "object"
                     }
                   },
                   "required": [
-                    "no",
-                    "status",
-                    "reason",
-                    "title",
-                    "summary",
-                    "body",
-                    "effectiveAt",
-                    "expiresAt",
-                    "createdAt",
-                    "createdByMember",
-                    "mentions"
+                    "id",
+                    "threadId",
+                    "clubId",
+                    "kind",
+                    "openLoop",
+                    "author",
+                    "version",
+                    "event",
+                    "rsvps",
+                    "createdAt"
                   ],
                   "type": "object"
+                },
+                "contentCount": {
+                  "type": "number"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "latestActivityAt": {
+                  "clawclubType": "timestamp",
+                  "type": "string"
                 }
               },
               "required": [
                 "id",
-                "threadId",
                 "clubId",
-                "kind",
-                "openLoop",
-                "author",
-                "version",
-                "event",
-                "rsvps",
-                "createdAt"
+                "contentCount",
+                "latestActivityAt",
+                "content"
               ],
               "type": "object"
             },
@@ -10193,9 +9769,6 @@
               "author": {
                 "additionalProperties": false,
                 "properties": {
-                  "displayName": {
-                    "type": "string"
-                  },
                   "memberId": {
                     "type": "string"
                   },
@@ -10205,8 +9778,7 @@
                 },
                 "required": [
                   "memberId",
-                  "publicName",
-                  "displayName"
+                  "publicName"
                 ],
                 "type": "object"
               },
@@ -10559,9 +10131,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -10571,8 +10140,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -11605,9 +11173,6 @@
           "member": {
             "additionalProperties": false,
             "properties": {
-              "displayName": {
-                "type": "string"
-              },
               "isOwner": {
                 "type": "boolean"
               },
@@ -11741,7 +11306,6 @@
               "membershipId",
               "memberId",
               "publicName",
-              "displayName",
               "tagline",
               "summary",
               "whatIDo",
@@ -11887,9 +11451,6 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "displayName": {
-                  "type": "string"
-                },
                 "isOwner": {
                   "type": "boolean"
                 },
@@ -12023,7 +11584,6 @@
                 "membershipId",
                 "memberId",
                 "publicName",
-                "displayName",
                 "tagline",
                 "summary",
                 "whatIDo",
@@ -12183,9 +11743,6 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "displayName": {
-                  "type": "string"
-                },
                 "knownFor": {
                   "nullable": true,
                   "type": "string"
@@ -12243,7 +11800,6 @@
               "required": [
                 "memberId",
                 "publicName",
-                "displayName",
                 "tagline",
                 "summary",
                 "whatIDo",
@@ -12406,9 +11962,6 @@
             "items": {
               "additionalProperties": false,
               "properties": {
-                "displayName": {
-                  "type": "string"
-                },
                 "knownFor": {
                   "nullable": true,
                   "type": "string"
@@ -12466,7 +12019,6 @@
               "required": [
                 "memberId",
                 "publicName",
-                "displayName",
                 "tagline",
                 "summary",
                 "whatIDo",
@@ -12612,9 +12164,6 @@
       "output": {
         "additionalProperties": false,
         "properties": {
-          "displayName": {
-            "type": "string"
-          },
           "memberId": {
             "type": "string"
           },
@@ -12751,7 +12300,6 @@
         "required": [
           "memberId",
           "publicName",
-          "displayName",
           "profiles"
         ],
         "type": "object"
@@ -12798,9 +12346,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -12810,8 +12355,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -13190,9 +12734,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -13202,8 +12743,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -15047,9 +14587,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -15059,8 +14596,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -15554,9 +15090,6 @@
                 "clawclubType": "timestamp",
                 "type": "string"
               },
-              "displayName": {
-                "type": "string"
-              },
               "memberId": {
                 "type": "string"
               },
@@ -15739,7 +15272,6 @@
             "required": [
               "memberId",
               "publicName",
-              "displayName",
               "state",
               "createdAt",
               "memberships",
@@ -16288,9 +15820,6 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
-                    "displayName": {
-                      "type": "string"
-                    },
                     "memberId": {
                       "type": "string"
                     },
@@ -16300,8 +15829,7 @@
                   },
                   "required": [
                     "memberId",
-                    "publicName",
-                    "displayName"
+                    "publicName"
                   ],
                   "type": "object"
                 },
@@ -17815,9 +17343,6 @@
                     "additionalProperties": {
                       "additionalProperties": false,
                       "properties": {
-                        "displayName": {
-                          "type": "string"
-                        },
                         "memberId": {
                           "type": "string"
                         },
@@ -17827,8 +17352,7 @@
                       },
                       "required": [
                         "memberId",
-                        "publicName",
-                        "displayName"
+                        "publicName"
                       ],
                       "type": "object"
                     },
@@ -19053,9 +18577,6 @@
                 "membersById": {
                   "additionalProperties": {
                     "properties": {
-                      "displayName": {
-                        "type": "string"
-                      },
                       "memberId": {
                         "type": "string"
                       },
@@ -19065,8 +18586,7 @@
                     },
                     "required": [
                       "memberId",
-                      "publicName",
-                      "displayName"
+                      "publicName"
                     ],
                     "type": "object"
                   },
@@ -19508,5 +19028,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "d1885848557ca00e"
+  "schemaHash": "d955951e51787b08"
 }

@@ -78,7 +78,7 @@ describe('content.get', () => {
     const firstPageIds = threadEntities(firstPage as Record<string, unknown>).map(row => row.id);
 
     assert.equal(firstPageThread.id, root.threadId);
-    assert.equal((firstPageThread.firstContent as Record<string, unknown>).id, root.id);
+    assert.equal(Object.hasOwn(firstPageThread, 'content'), false);
     assert.deepEqual(firstPageIds, [reply1.id, reply2.id]);
     assert.equal((firstPageData.contents as Record<string, unknown>).hasMore, true);
     assert.ok((firstPageData.contents as Record<string, unknown>).nextCursor);
@@ -164,11 +164,11 @@ describe('content.get', () => {
     const visibleData = threadData(visible as Record<string, unknown>);
     const visibleIds = threadEntities(visible as Record<string, unknown>).map(row => row.id);
 
-    assert.equal(((visibleData.thread as Record<string, unknown>).firstContent as Record<string, unknown>).id, gift.id);
+    assert.equal((visibleData.thread as Record<string, unknown>).id, gift.threadId);
     assert.deepEqual(visibleIds, [gift.id]);
   });
 
-  it('returns an expired firstContent in the summary while omitting it from contents and counts only visible rows', async () => {
+  it('omits expired content from contents and counts only visible rows', async () => {
     const owner = await h.seedOwner('thread-expired-summary', 'Thread Expired Summary Club');
     const author = await h.seedCompedMember(owner.club.id, 'Expired Author');
 
@@ -220,7 +220,8 @@ describe('content.get', () => {
     const summary = data.thread as Record<string, unknown>;
     const ids = threadEntities(thread as Record<string, unknown>).map(row => row.id);
 
-    assert.equal((summary.firstContent as Record<string, unknown>).id, expiredRoot.id);
+    assert.equal(summary.id, expiredRoot.threadId);
+    assert.equal(Object.hasOwn(summary, 'content'), false);
     assert.deepEqual(ids, [reply.id]);
     assert.equal(summary.contentCount, 1);
   });

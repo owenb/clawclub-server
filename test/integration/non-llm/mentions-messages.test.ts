@@ -42,7 +42,7 @@ describe('message mentions', () => {
     assert.equal(mentions[0]?.authoredLabel, 'DM Bob');
     assert.equal(included(firstSend)[bob.id]?.publicName, 'DM Bob');
 
-    // Display name rename — authoredLabel preserved, hydration reflects new display.
+    // Display name rename — authoredLabel preserved, public mention hydration stays on publicName.
     await h.apiOk(bob.token, 'accounts.updateIdentity', {
       clientKey: randomUUID(),
       displayName: 'Bob (renamed)',
@@ -55,7 +55,8 @@ describe('message mentions', () => {
     const msgs = (((threadAfterRename.data as Record<string, unknown>).messages as Record<string, unknown>).results) as Array<Record<string, unknown>>;
     const msgMentions = (msgs[0]!.mentions as Array<Record<string, unknown>>);
     assert.equal(msgMentions[0]?.authoredLabel, 'DM Bob');
-    assert.equal(included(threadAfterRename)[bob.id]?.displayName, 'Bob (renamed)');
+    assert.equal(included(threadAfterRename)[bob.id]?.publicName, bob.publicName);
+    assert.equal(Object.hasOwn(included(threadAfterRename)[bob.id] ?? {}, 'displayName'), false);
   });
 
   it('rejects DM mentions with unknown member ids', async () => {

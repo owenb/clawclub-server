@@ -1040,9 +1040,7 @@ describe('superadmin.members.remove', () => {
       limit: 10,
     });
     const threadData = threadResult.data as Record<string, unknown>;
-    const thread = threadData.thread as Record<string, unknown>;
     const contents = (((threadData.contents as Record<string, unknown>).results) as Array<Record<string, unknown>>);
-    assert.equal((thread.firstContent as Record<string, unknown>).id, reply.id);
     assert.deepEqual(contents.map((content) => content.id), [reply.id]);
 
     const authErr = await h.apiErr(target.token, 'session.getContext', {});

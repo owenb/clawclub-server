@@ -22,6 +22,13 @@ function included(result: Record<string, unknown>): Record<string, Record<string
   return ((result.data as Record<string, unknown>).included as Record<string, unknown>).membersById as Record<string, Record<string, unknown>>;
 }
 
+function firstThreadContent(result: Record<string, unknown>): Record<string, unknown> {
+  const contents = ((result.data as Record<string, unknown>).contents as Record<string, unknown>).results as Array<Record<string, unknown>>;
+  const first = contents[0];
+  assert.ok(first, 'content.get should return at least one content item');
+  return first;
+}
+
 function versionMentions(contentResult: Record<string, unknown>): Record<string, Array<Record<string, unknown>>> {
   return ((contentResult.version as Record<string, unknown>).mentions as Record<string, Array<Record<string, unknown>>>);
 }
@@ -31,7 +38,7 @@ function mentionSpan(label: string, memberId: string): string {
 }
 
 describe('content mentions', () => {
-  it('hydrates [Name|id] mentions with current display name across reads', async () => {
+  it('hydrates [Name|id] mentions with publicName across reads', async () => {
     const owner = await h.seedOwner('mention-thread-club', 'Mention Thread Club');
     const author = await h.seedCompedMember(owner.club.id, 'Mention Author');
     const kilian = await h.seedCompedMember(owner.club.id, 'Kilian Valdman');
@@ -52,7 +59,7 @@ describe('content mentions', () => {
     assert.equal(rootMentions.body[0]?.authoredLabel, 'Kilian Valdman');
     assert.equal(included(rootResult)[kilian.id]?.publicName, 'Kilian Valdman');
 
-    // Update display name globally — hydrated display name follows, authoredLabel stays.
+    // Update display name globally — public mention hydration stays on publicName and authoredLabel stays.
     await h.apiOk(kilian.token, 'accounts.updateIdentity', {
       clientKey: randomUUID(),
       displayName: 'Kilian (renamed)',
@@ -62,9 +69,10 @@ describe('content mentions', () => {
       threadId: root.threadId as string,
       limit: 20,
     });
-    const firstContent = ((thread.data as Record<string, unknown>).thread as Record<string, unknown>).firstContent as Record<string, unknown>;
-    assert.equal(versionMentions(firstContent).title[0]?.authoredLabel, 'Kilian Valdman');
-    assert.equal(included(thread)[kilian.id]?.displayName, 'Kilian (renamed)');
+    const threadContent = firstThreadContent(thread);
+    assert.equal(versionMentions(threadContent).title[0]?.authoredLabel, 'Kilian Valdman');
+    assert.equal(included(thread)[kilian.id]?.publicName, 'Kilian Valdman');
+    assert.equal(Object.hasOwn(included(thread)[kilian.id] ?? {}, 'displayName'), false);
   });
 
   it('rejects mentions with unknown member ids', async () => {
@@ -132,8 +140,8 @@ describe('content mentions', () => {
     );
 
     const readResult = await h.apiOk(author.token, 'content.get', { threadId });
-    const firstContent = ((readResult.data as Record<string, unknown>).thread as Record<string, unknown>).firstContent as Record<string, unknown>;
-    const mentions = versionMentions(firstContent).body;
+    const readContent = firstThreadContent(readResult);
+    const mentions = versionMentions(readContent).body;
 
     assert.equal(mentions.length, 1);
     assert.equal(mentions[0]?.memberId, target.id);

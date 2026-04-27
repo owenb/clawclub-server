@@ -43,7 +43,6 @@ const clubProfileFieldsSchema = z.object({
 type MemberIdentityRow = {
   member_id: string;
   public_name: string;
-  display_name: string;
 };
 
 type ClubProfileRow = {
@@ -89,7 +88,6 @@ type SeedSourceRow = {
 type MemberSearchRow = {
   member_id: string;
   public_name: string;
-  display_name: string;
   tagline: string | null;
   summary: string | null;
   what_i_do: string | null;
@@ -109,7 +107,6 @@ function mapIdentityRow(row: MemberIdentityRow): MemberIdentity {
   return {
     memberId: row.member_id,
     publicName: row.public_name,
-    displayName: row.display_name,
   };
 }
 
@@ -186,7 +183,7 @@ async function enqueueEmbeddingJob(client: DbClient, subjectVersionId: string): 
 
 async function readMemberIdentity(client: DbClient, memberId: string): Promise<MemberIdentityRow | null> {
   const result = await client.query<MemberIdentityRow>(
-    `select id as member_id, public_name, display_name
+    `select id as member_id, public_name
      from members
      where id = $1 and state = 'active'
      limit 1`,
@@ -686,7 +683,6 @@ function mapSearchRow(row: MemberSearchRow): MemberSearchResult {
   return {
     memberId: row.member_id,
     publicName: row.public_name,
-    displayName: row.display_name,
     tagline: row.tagline,
     summary: row.summary,
     whatIDo: row.what_i_do,

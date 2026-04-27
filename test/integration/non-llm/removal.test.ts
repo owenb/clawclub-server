@@ -26,9 +26,9 @@ function content(result: Record<string, unknown>) {
   return (result.data as Record<string, unknown>).content as Record<string, unknown>;
 }
 
-function listedFirstContentIds(result: Record<string, unknown>): string[] {
+function listedContentIds(result: Record<string, unknown>): string[] {
   const threads = (result.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-  return threads.map((thread) => ((thread.firstContent as Record<string, unknown>).id as string));
+  return threads.map((thread) => ((thread.content as Record<string, unknown>).id as string));
 }
 
 async function createPost(token: string, clubId: string, title: string, body = 'Body'): Promise<Record<string, unknown>> {
@@ -71,7 +71,7 @@ describe('content.remove', () => {
     assert.equal((removed.version as Record<string, unknown>).status, 'removed');
 
     const list = await h.apiOk(author.token, 'content.list', { clubId: owner.club.id });
-    const ids = listedFirstContentIds(list as Record<string, unknown>);
+    const ids = listedContentIds(list as Record<string, unknown>);
     assert.ok(!ids.includes(post.id as string), 'removed root thread should not appear in list');
   });
 
@@ -384,7 +384,7 @@ describe('event removal via unified content actions', () => {
 
     const list = await h.apiOk(author.token, 'events.list', { clubId: owner.club.id });
     const items = (list.data as Record<string, unknown>).results as Array<Record<string, unknown>>;
-    assert.ok(!items.find((item) => item.id === eventEntity.id));
+    assert.ok(!items.find((item) => ((item.content as Record<string, unknown>).id) === eventEntity.id));
   });
 
   it('non-author cannot remove an event', async () => {

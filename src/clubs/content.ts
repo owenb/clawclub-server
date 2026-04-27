@@ -7,6 +7,7 @@ import type {
   Content,
   ContentForGate,
   ContentThread,
+  ContentThreadSummary,
   CreateContentInput,
   EventFields,
   IncludedBundle,
@@ -271,7 +272,6 @@ function mapContentRow(row: ContentRow): Content {
     author: {
       memberId: row.author_member_id,
       publicName: row.author_public_name,
-      displayName: row.author_display_name,
     },
     version: {
       no: row.version_no,
@@ -1578,7 +1578,7 @@ export async function listContent(pool: Pool, input: ListContentInput): Promise<
         return {
           id: row.thread_id,
           clubId: row.club_id,
-          firstContent,
+          content: firstContent,
           contentCount: Number(row.content_count),
           latestActivityAt: row.last_activity_at,
         } satisfies ContentThread;
@@ -1682,7 +1682,7 @@ async function loadThreadHeader(
 export async function readContentThread(
   pool: Pool,
   input: ReadContentThreadInput,
-): Promise<WithIncluded<{ thread: ContentThread; contents: Content[]; hasMore: boolean; nextCursor: string | null }> | null> {
+): Promise<WithIncluded<{ thread: ContentThreadSummary; contents: Content[]; hasMore: boolean; nextCursor: string | null }> | null> {
   return withTransaction(pool, async (client) => {
     const resolvedThreadId = input.threadId
       ? (await client.query<{ id: string }>(
@@ -1776,7 +1776,6 @@ export async function readContentThread(
       thread: {
         id: threadRow.thread_id,
         clubId: threadRow.club_id,
-        firstContent: firstContentBundle.content,
         contentCount: Number(threadRow.content_count),
         latestActivityAt: threadRow.last_activity_at,
       },
