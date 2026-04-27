@@ -12,6 +12,7 @@ import { requestScopeForClub, requestScopeForClubs } from '../actors.ts';
 import { AppError } from '../repository.ts';
 import { adminApplicationState, applicationPhase } from './application-shapes.ts';
 import {
+  boundedArray,
   describeClientKey,
   describeScopedClubId,
   wireRequiredString, parseRequiredString,
@@ -67,14 +68,14 @@ const MEMBER_STATUSES = ['active', 'cancelled', 'removed', 'banned'] as const;
 const CLUBADMIN_MEMBERS_PAGINATION = paginationFields({ defaultLimit: 50, maxLimit: 50 });
 const CLUBADMIN_APPLICATIONS_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 20 });
 
-const wireMembershipRoles = z.array(membershipRole).min(1).optional();
-const parseOptionalMembershipStates = z.array(membershipState).min(1)
+const wireMembershipRoles = boundedArray(membershipRole, { minItems: 1, maxItems: 2 }).optional();
+const parseOptionalMembershipStates = boundedArray(membershipState, { minItems: 1, maxItems: 4 })
   .optional()
   .transform((states) => states ? [...new Set(states)] : undefined);
-const parseMembershipRoles = z.array(membershipRole).min(1)
+const parseMembershipRoles = boundedArray(membershipRole, { minItems: 1, maxItems: 2 })
   .optional()
   .transform((roles) => roles ? [...new Set(roles)] : undefined);
-const parseApplicationPhases = z.array(applicationPhase).min(1)
+const parseApplicationPhases = boundedArray(applicationPhase, { minItems: 1, maxItems: 7 })
   .optional()
   .transform((phases) => phases ? [...new Set(phases)] : undefined);
 
@@ -221,7 +222,7 @@ const clubadminApplicationsList: ActionDefinition = {
   wire: {
     input: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to list applications for.')),
-      phases: z.array(applicationPhase).min(1).optional().describe('Optional application-phase filter. Defaults to awaiting_review. Include revision_required explicitly to inspect drafts that are still with the applicant.'),
+      phases: boundedArray(applicationPhase, { minItems: 1, maxItems: 7 }).optional().describe('Optional application-phase filter. Defaults to awaiting_review. Include revision_required explicitly to inspect drafts that are still with the applicant.'),
       ...CLUBADMIN_APPLICATIONS_PAGINATION.wire,
     }),
     output: paginatedOutput(adminApplicationState).extend({

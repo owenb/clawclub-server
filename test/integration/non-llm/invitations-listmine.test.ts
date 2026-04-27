@@ -532,7 +532,7 @@ describe('invitations.issue existing-member delivery', () => {
       invitationId: invitation.invitationId,
     });
     assert.equal(adminErr.status, 403);
-    assert.equal(adminErr.code, 'forbidden');
+    assert.equal(adminErr.code, 'forbidden_scope');
 
     const sponsorWithdraw = await h.apiOk(sponsor.token, 'invitations.revoke', {
       invitationId: invitation.invitationId,

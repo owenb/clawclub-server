@@ -121,6 +121,36 @@ export function paginatedOutput<T extends z.ZodTypeAny>(itemSchema: T) {
   });
 }
 
+export type BoundedArrayOptions = {
+  minItems?: number;
+  maxItems?: number;
+  description?: string;
+  enforcedBy?: 'schema' | 'policy';
+};
+
+export function boundedArray<T extends z.ZodTypeAny>(
+  itemSchema: T,
+  options: BoundedArrayOptions,
+) {
+  const enforcedBy = options.enforcedBy ?? 'schema';
+  let schema = z.array(itemSchema);
+  if (options.minItems !== undefined) {
+    schema = schema.min(options.minItems);
+  }
+  if (enforcedBy === 'schema') {
+    if (options.maxItems === undefined) {
+      throw new Error('boundedArray with schema enforcement requires maxItems');
+    }
+    schema = schema.max(options.maxItems);
+  } else {
+    schema = schema.meta({ clawclubEnforcedBy: 'policy' });
+  }
+  if (options.description) {
+    schema = schema.describe(options.description);
+  }
+  return schema;
+}
+
 /**
  * Build a wire limit schema with a custom max.
  */
@@ -408,13 +438,13 @@ export const parseEmail = safeString.pipe(z.string().trim().min(1).max(500))
 /**
  * Wire: content kinds array filter
  */
-export const wireContentKinds = z.array(contentKind).min(1).optional()
+export const wireContentKinds = boundedArray(contentKind, { minItems: 1, maxItems: 6 }).optional()
   .describe('Filter by content kind. Defaults to all kinds.');
 
 /**
  * Parse: defaults to all kinds, deduplicates.
  */
-export const parseContentKinds = z.array(contentKind).min(1)
+export const parseContentKinds = boundedArray(contentKind, { minItems: 1, maxItems: 6 })
   .optional()
   .default(['post', 'opportunity', 'service', 'ask', 'gift', 'event'])
   .transform(kinds => [...new Set(kinds)]);
@@ -422,13 +452,13 @@ export const parseContentKinds = z.array(contentKind).min(1)
 /**
  * Wire: membership states array filter
  */
-export const wireMembershipStates = z.array(membershipState).min(1).optional();
+export const wireMembershipStates = boundedArray(membershipState, { minItems: 1, maxItems: 4 }).optional();
 
 /**
  * Parse: deduplicates.
  */
 export const parseMembershipStates = (defaultStates: MembershipState[]) =>
-  z.array(membershipState).min(1)
+  boundedArray(membershipState, { minItems: 1, maxItems: 4 })
     .optional()
     .default(defaultStates)
     .transform(states => [...new Set(states)]);
@@ -532,9 +562,9 @@ export const parseSlug = safeString.pipe(z.string().trim().max(63))
 // ── Nested object builders ───────────────────────────────
 
 /** Wire: update IDs array */
-export const wireUpdateIds = z.array(z.string().min(1)).min(1)
+export const wireUpdateIds = boundedArray(z.string().min(1), { minItems: 1, maxItems: 100 })
   .describe('Non-empty array of update IDs.');
 
 /** Parse: deduplicates */
-export const parseUpdateIds = z.array(safeString.pipe(z.string().trim().min(1))).min(1)
+export const parseUpdateIds = boundedArray(safeString.pipe(z.string().trim().min(1)), { minItems: 1, maxItems: 100 })
   .transform(ids => [...new Set(ids)]);

@@ -225,7 +225,7 @@ describe('gifts and open loops', () => {
       state: 'closed',
     });
     assert.equal(foreignErr.status, 403);
-    assert.equal(foreignErr.code, 'forbidden');
+    assert.equal(foreignErr.code, 'forbidden_scope');
   });
 
   it('closed loops are excluded from embedding search results', async () => {

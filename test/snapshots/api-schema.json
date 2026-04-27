@@ -1441,6 +1441,7 @@
               ],
               "type": "string"
             },
+            "maxItems": 7,
             "minItems": 1,
             "type": "array"
           }
@@ -2845,6 +2846,7 @@
               ],
               "type": "string"
             },
+            "maxItems": 2,
             "minItems": 1,
             "type": "array"
           },
@@ -2859,6 +2861,7 @@
               ],
               "type": "string"
             },
+            "maxItems": 4,
             "minItems": 1,
             "type": "array"
           }
@@ -3825,6 +3828,7 @@
               ],
               "type": "string"
             },
+            "maxItems": 7,
             "minItems": 1,
             "type": "array"
           }
@@ -7021,6 +7025,7 @@
               ],
               "type": "string"
             },
+            "maxItems": 6,
             "minItems": 1,
             "type": "array"
           },
@@ -7595,7 +7600,7 @@
       "authorizationNote": "Only the original author may remove their own content.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
           "meaning": "The content exists, but the caller is not the author.",
           "recovery": "Do not retry as this actor. Ask the author or a club admin to remove the content."
         },
@@ -8074,6 +8079,8 @@
               ],
               "type": "string"
             },
+            "maxItems": 6,
+            "minItems": 1,
             "type": "array"
           },
           "limit": {
@@ -8607,7 +8614,7 @@
       "authorizationNote": "Only the original author may change the loop state of their own published loopable content.",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
           "meaning": "The content exists, but the caller is not the author.",
           "recovery": "Do not retry as this actor. Ask the original author to change the loop state."
         },
@@ -9062,7 +9069,7 @@
           "recovery": "Generate a fresh clientKey for a different update intent, or resend the exact same payload to replay safely."
         },
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
           "meaning": "The content exists, but the caller is not allowed to update it.",
           "recovery": "Only the original author can update content through content.update."
         },
@@ -11400,7 +11407,7 @@
       "auth": "member",
       "businessErrors": [
         {
-          "code": "forbidden",
+          "code": "forbidden_scope",
           "meaning": "Only the sponsor or a clubadmin in the invitation’s club may revoke it.",
           "recovery": "Use your own invitation, or choose a club where you are a clubadmin."
         },
@@ -16665,6 +16672,7 @@
               ],
               "type": "object"
             },
+            "maxItems": 100,
             "minItems": 1,
             "type": "array"
           }
@@ -17424,6 +17432,7 @@
                       "minLength": 1,
                       "type": "string"
                     },
+                    "maxItems": 100,
                     "minItems": 1,
                     "type": "array"
                   }
@@ -19499,5 +19508,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "be91e7ef6693bb4a"
+  "schemaHash": "828f8bb1e53064fc"
 }

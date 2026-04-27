@@ -615,7 +615,7 @@ The server splits authorization failures into specific codes so an agent can rec
 - `forbidden_role` (403) — the actor is authenticated but lacks the required global or club role (e.g. a non-superadmin calling a `superadmin.*` action, or a non-clubadmin calling a `clubadmin.*` action). Recovery: this is a hard wall; do not retry. If the human believes they should have the role, escalate.
 - `forbidden_scope` (403) — the actor has the right role but is targeting a club or member outside their scope (e.g. a clubadmin of ClubA calling a clubadmin action with `clubId` for ClubB, or any member passing a `clubId` they do not belong to). Recovery: re-issue the call against an in-scope `clubId` from `actor.activeMemberships`. Reading the scope from `actor.requestScope.activeClubIds` is the safe source of truth — it reflects only verified scope, never raw input.
 
-The legacy `unauthorized` and `forbidden` codes still appear in some responses for backwards compatibility but new logic should branch on the specific codes above.
+The legacy `unauthorized` and `forbidden` codes are no longer part of the public error set. Branch on the specific codes above.
 
 ## Idempotency strategies and replay
 

@@ -368,7 +368,7 @@ describe('clubadmin.members.update', () => {
       patch: { status: 'banned', reason: 'Attempted owner ban.' },
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
 
     const [membership] = await h.sql<{ status: string; role: string }>(
       `select status::text as status, role::text as role
@@ -397,7 +397,7 @@ describe('clubadmin.members.update', () => {
       patch: { status: 'removed', reason: 'Attempted owner removal.' },
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('forbids a non-owner clubadmin from cancelling the club owner', async () => {
@@ -416,7 +416,7 @@ describe('clubadmin.members.update', () => {
       patch: { status: 'cancelled', reason: 'Attempted owner cancellation.' },
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('keeps the self-revoke guard ahead of owner demotion for owner self-ban attempts', async () => {
@@ -428,7 +428,7 @@ describe('clubadmin.members.update', () => {
       patch: { status: 'banned', reason: 'Self-ban should be rejected.' },
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('still allows the owner to ban a non-owner member', async () => {
@@ -652,7 +652,7 @@ describe('clubadmin.members.update', () => {
       patch: { status: 'banned', reason: 'Attempted owner ban.' },
     });
     assert.equal(ownerBanErr.status, 403);
-    assert.equal(ownerBanErr.code, 'forbidden');
+    assert.equal(ownerBanErr.code, 'forbidden_role');
 
     await h.apiOk(admin.token, 'superadmin.clubs.assignOwner', {
       clientKey: randomUUID(),

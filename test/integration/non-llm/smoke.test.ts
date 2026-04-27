@@ -103,7 +103,7 @@ describe('smoke', () => {
     const contentUpdate = data.actions.find((a) => a.action === 'content.update');
     const contentUpdateErrorCodes = new Set(contentUpdate?.businessErrors?.map((error) => error.code) ?? []);
     assert.ok(contentUpdateErrorCodes.has('invalid_mentions'), 'content.update should document invalid_mentions');
-    assert.ok(contentUpdateErrorCodes.has('forbidden'), 'content.update should document forbidden');
+    assert.ok(contentUpdateErrorCodes.has('forbidden_scope'), 'content.update should document forbidden_scope');
 
     const messagesSendAction = data.actions.find((a) => a.action === 'messages.send');
     const messagesSendErrorCodes = new Set(messagesSendAction?.businessErrors?.map((error) => error.code) ?? []);

@@ -328,6 +328,40 @@ function validateIdempotencyStrategy(action: ActionDefinition): void {
   }
 }
 
+function validateWireInputArrayBounds(action: ActionDefinition): void {
+  const root = z.toJSONSchema(action.wire.input) as Record<string, unknown>;
+  const visit = (node: unknown, path: string): void => {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) {
+      return;
+    }
+
+    const schema = node as Record<string, unknown>;
+    if (schema.type === 'array') {
+      const enforcedBy = schema.clawclubEnforcedBy;
+      if (typeof schema.maxItems !== 'number' && enforcedBy !== 'policy') {
+        throw new Error(`Action ${action.action} input array at ${path} must declare maxItems or policy enforcement`);
+      }
+    }
+
+    for (const key of ['properties', 'items', 'oneOf', 'anyOf', 'allOf', '$defs']) {
+      const child = schema[key];
+      if (Array.isArray(child)) {
+        child.forEach((item, index) => visit(item, `${path}.${key}[${index}]`));
+      } else if (child && typeof child === 'object') {
+        if (key === 'properties' || key === '$defs') {
+          for (const [propKey, propSchema] of Object.entries(child as Record<string, unknown>)) {
+            visit(propSchema, `${path}.${propKey}`);
+          }
+        } else {
+          visit(child, `${path}.${key}`);
+        }
+      }
+    }
+  };
+
+  visit(root, 'input');
+}
+
 /**
  * Register action definitions from a domain module.
  * Called by each domain schema file during module initialization.
@@ -341,6 +375,7 @@ export function registerActions(actions: ActionDefinition[]): void {
       throw new Error(`Cold action ${action.action} must not define preGate`);
     }
     validateIdempotencyStrategy(action);
+    validateWireInputArrayBounds(action);
     registry.set(action.action, {
       ...action,
       wire: {

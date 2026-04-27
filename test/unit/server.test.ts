@@ -1769,3 +1769,73 @@ test('createServer rejects malformed Authorization headers distinctly', async ()
     await shutdown();
   }
 });
+
+test('producer notification endpoints use the canonical response envelope', async () => {
+  const requestFetch = globalThis.fetch;
+  const { server, shutdown } = createServer({
+    repository: makeRepository({
+      async authenticateProducer(input) {
+        assert.equal(input.producerId, 'producer-1');
+        assert.equal(input.secret, 'producer-secret');
+        return { producerId: 'producer-1', status: 'active' };
+      },
+      async deliverProducerNotifications() {
+        return [{ notificationId: 'notification-1', outcome: 'delivered' }];
+      },
+      async acknowledgeProducerNotifications() {
+        return [{ notificationId: 'notification-1', outcome: 'acknowledged' }];
+      },
+    }),
+    updatesNotifier: makeUpdatesNotifier(),
+  });
+
+  try {
+    const port = await listenOnRandomPort(server);
+    const headers = {
+      'content-type': 'application/json',
+      'x-clawclub-producer-id': 'producer-1',
+      authorization: 'Bearer producer-secret',
+    };
+    const deliver = await requestFetch(`http://127.0.0.1:${port}/internal/notifications/deliver`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        notifications: [{
+          topic: 'test.topic',
+          recipientMemberId: 'member-1',
+          payloadVersion: 1,
+          payload: {},
+        }],
+      }),
+    });
+    const deliverBody = await deliver.json();
+    assert.equal(deliver.status, 200);
+    assert.equal(deliverBody.ok, true);
+    assert.deepEqual(deliverBody.data.results, [{ notificationId: 'notification-1', outcome: 'delivered' }]);
+    assert.equal('results' in deliverBody, false);
+
+    const acknowledge = await requestFetch(`http://127.0.0.1:${port}/internal/notifications/acknowledge`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ notificationIds: ['notification-1'] }),
+    });
+    const acknowledgeBody = await acknowledge.json();
+    assert.equal(acknowledge.status, 200);
+    assert.equal(acknowledgeBody.ok, true);
+    assert.deepEqual(acknowledgeBody.data.results, [{ notificationId: 'notification-1', outcome: 'acknowledged' }]);
+    assert.equal('results' in acknowledgeBody, false);
+
+    const invalid = await requestFetch(`http://127.0.0.1:${port}/internal/notifications/deliver`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ notifications: [{ topic: 'missing-fields' }] }),
+    });
+    const invalidBody = await invalid.json();
+    assert.equal(invalid.status, 400);
+    assert.equal(invalidBody.ok, false);
+    assert.equal(invalidBody.error.code, 'invalid_input');
+    assert.deepEqual(invalidBody.error.requestTemplate, { notifications: '(array, max 100)' });
+  } finally {
+    await shutdown();
+  }
+});

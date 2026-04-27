@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import type net from 'node:net';
 import { URL } from 'node:url';
-import { gzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { Pool } from 'pg';
 import { z } from 'zod';
@@ -12,7 +11,7 @@ import { DEFAULT_SERVER_LIMITS } from './config/defaults.ts';
 import { AppError, type Repository } from './repository.ts';
 import { buildDispatcher, type LlmGateFn } from './dispatch.ts';
 import { getConfig, hasInitializedConfig, initializeConfigFromFile } from './config/index.ts';
-import { decodeCursor, encodeCursor } from './schemas/fields.ts';
+import { boundedArray, decodeCursor, encodeCursor } from './schemas/fields.ts';
 import { getAction, generateRequestTemplate, GENERIC_REQUEST_TEMPLATE } from './schemas/registry.ts';
 import { createPostgresMemberUpdateNotifier, type MemberUpdateNotifier } from './member-updates-notifier.ts';
 import { NOTIFICATIONS_PAGE_SIZE } from './notifications-core.ts';
@@ -24,6 +23,12 @@ import { assertStartupConfig } from './startup-check.ts';
 import { PACKAGE_VERSION } from './version.ts';
 import { fireAndForgetRequestLog, logger, STALE_CLIENT_LOG_ACTION } from './logger.ts';
 import { canonicalizeTimestampFields } from './timestamps.ts';
+import {
+  getBearerToken,
+  readJsonBody,
+  writeCachedText,
+  writeJson as writeBoundaryJson,
+} from './http-boundary.ts';
 
 export { DEFAULT_SERVER_LIMITS } from './config/defaults.ts';
 
@@ -143,7 +148,7 @@ function renderSkill(baseUrl: string): string {
 const NOTIFICATION_WAKEUP_KINDS = new Set(['notification']);
 const producerNotificationRefKindSchema = z.enum(NOTIFICATION_REF_KINDS);
 const producerDeliverRequestSchema = z.object({
-  notifications: z.array(z.object({
+  notifications: boundedArray(z.object({
     topic: z.string().min(1),
     recipientMemberId: z.string().min(1),
     clubId: z.string().min(1).nullable().optional(),
@@ -151,16 +156,24 @@ const producerDeliverRequestSchema = z.object({
     payload: z.record(z.string(), z.unknown()),
     idempotencyKey: z.string().min(1).nullable().optional(),
     expiresAt: z.string().datetime().nullable().optional(),
-    refs: z.array(z.object({
+    refs: boundedArray(z.object({
       role: z.string().min(1),
       kind: producerNotificationRefKindSchema,
       id: z.string().min(1),
-    })).optional(),
-  })).default([]),
+    }), { maxItems: 20 }).optional(),
+  }), { maxItems: 100 }).default([]),
 });
 const producerAcknowledgeRequestSchema = z.object({
-  notificationIds: z.array(z.string().min(1)).default([]),
+  notificationIds: boundedArray(z.string().min(1), { maxItems: 500 }).default([]),
 });
+const producerRequestTemplates = {
+  '/internal/notifications/deliver': {
+    notifications: '(array, max 100)',
+  },
+  '/internal/notifications/acknowledge': {
+    notificationIds: '(array of string, max 500)',
+  },
+} as const;
 
 function readProducerIdHeader(request: http.IncomingMessage): string | null {
   const header = request.headers['x-clawclub-producer-id'];
@@ -169,107 +182,6 @@ function readProducerIdHeader(request: http.IncomingMessage): string | null {
   }
   const producerId = header.trim();
   return producerId.length > 0 ? producerId : null;
-}
-
-function readJsonBody(
-  request: http.IncomingMessage,
-  maxBodyBytes = DEFAULT_SERVER_LIMITS.maxBodyBytes,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let totalBytes = 0;
-    let settled = false;
-
-    const cleanup = () => {
-      request.off('data', onData);
-      request.off('end', onEnd);
-      request.off('error', onError);
-      request.off('aborted', onAborted);
-    };
-
-    const resolveOnce = (value: Record<string, unknown>) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      cleanup();
-      resolve(value);
-    };
-
-    const rejectOnce = (error: unknown) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      cleanup();
-      reject(error);
-    };
-
-    const onData = (chunk: Buffer | string) => {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      totalBytes += buffer.byteLength;
-
-      if (totalBytes > maxBodyBytes) {
-        request.pause();
-        rejectOnce(new AppError('payload_too_large', 'Request body exceeded 1MB', { closeConnection: true }));
-        request.resume();
-        return;
-      }
-
-      chunks.push(buffer);
-    };
-
-    const onEnd = () => {
-      const body = Buffer.concat(chunks).toString('utf8');
-
-      if (body.trim().length === 0) {
-        resolveOnce({});
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(body);
-
-        if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-          rejectOnce(new AppError('invalid_json', 'Request body must be a JSON object'));
-          return;
-        }
-
-        resolveOnce(parsed as Record<string, unknown>);
-      } catch {
-        rejectOnce(new AppError('invalid_json', 'Request body must be valid JSON'));
-      }
-    };
-
-    const onError = (error: Error) => {
-      rejectOnce(error);
-    };
-
-    const onAborted = () => {
-      rejectOnce(new Error('Request body was aborted'));
-    };
-
-    request.on('data', onData);
-    request.on('end', onEnd);
-    request.on('error', onError);
-    request.on('aborted', onAborted);
-  });
-}
-
-function getBearerToken(request: http.IncomingMessage): string | null {
-  const header = request.headers.authorization;
-
-  if (!header) {
-    return null;
-  }
-
-  const match = header.match(/^Bearer ([^\s]+)$/i);
-  if (!match) {
-    throw new AppError('invalid_auth_header', 'Authorization must use Bearer <token>');
-  }
-  return match[1];
 }
 
 function normalizeStreamLimit(value: string | null): number {
@@ -328,34 +240,6 @@ function parseActivityResumeSeq(value: string | null): number | null {
   }
 }
 
-function writeCompressed(
-  request: http.IncomingMessage,
-  response: http.ServerResponse,
-  statusCode: number,
-  contentType: string,
-  body: string,
-  extraHeaders?: Record<string, string>,
-  onEnd?: () => void,
-) {
-  const accept = String(request.headers['accept-encoding'] ?? '');
-  const headers: Record<string, string> = {
-    'content-type': contentType,
-    'x-content-type-options': 'nosniff',
-    ...extraHeaders,
-  };
-
-  if (/\bgzip\b/.test(accept)) {
-    const compressed = gzipSync(Buffer.from(body, 'utf-8'));
-    headers['content-encoding'] = 'gzip';
-    headers['vary'] = 'Accept-Encoding';
-    response.writeHead(statusCode, headers);
-    response.end(compressed, onEnd);
-  } else {
-    response.writeHead(statusCode, headers);
-    response.end(body, onEnd);
-  }
-}
-
 function getDefaultResponseHeaders(): Record<string, string> {
   const schemaHash = (getSchemaPayload() as { schemaHash: string }).schemaHash;
   return {
@@ -379,17 +263,10 @@ function writeJson(
     destroySocketAfterResponse?: boolean;
   } = {},
 ) {
-  const body = JSON.stringify(canonicalizeTimestampFields(payload));
-  writeCompressed(request, response, statusCode, 'application/json; charset=utf-8', body, {
-    'cache-control': 'no-store, no-cache, max-age=0',
-    pragma: 'no-cache',
-    ...(options.extraHeaders ?? {}),
-  }, options.destroySocketAfterResponse ? () => {
-    request.socket.destroy();
-  } : undefined);
-  if (statusCode >= 400) {
-    logNon2xx(request, statusCode, payload, body.length);
-  }
+  writeBoundaryJson(request, response, statusCode, payload, {
+    ...options,
+    onNon2xx: (code, body, bytes) => logNon2xx(request, code, body, bytes),
+  });
 }
 
 function logNon2xx(
@@ -707,7 +584,7 @@ export function createServer(options: {
             producerId: auth.producerId,
             notifications: parsed.data.notifications,
           });
-          writeJson(request, response, 200, { results });
+          writeJson(request, response, 200, { ok: true, data: { results } });
           return;
         }
 
@@ -719,15 +596,19 @@ export function createServer(options: {
           producerId: auth.producerId,
           notificationIds: parsed.data.notificationIds,
         });
-        writeJson(request, response, 200, { results });
+        writeJson(request, response, 200, { ok: true, data: { results } });
       } catch (error) {
         if (error instanceof AppError) {
+          const requestTemplate = producerRequestTemplates[
+            url.pathname as keyof typeof producerRequestTemplates
+          ];
           writeJson(request, response, error.statusCode, {
             ok: false,
             error: {
               code: error.code,
               message: error.message,
               ...(error.details !== undefined ? { details: error.details } : {}),
+              ...(requestTemplate ? { requestTemplate } : {}),
             },
           });
           return;
@@ -1041,22 +922,37 @@ export function createServer(options: {
 
     const skillCanonicalPath = normalizedPath.replace(/\/+$/, '');
     if (request.method === 'GET' && (skillCanonicalPath === '/skill' || skillCanonicalPath === '/skill.md')) {
-      const body = renderSkill(resolveBaseUrl(request));
-      writeCompressed(request, response, 200, 'text/markdown; charset=utf-8', body);
+      const baseUrl = resolveBaseUrl(request);
+      const schemaHash = (getSchemaPayload() as { schemaHash: string }).schemaHash;
+      writeCachedText(
+        request,
+        response,
+        200,
+        'text/markdown; charset=utf-8',
+        `skill:${baseUrl}:${schemaHash}`,
+        () => renderSkill(baseUrl),
+      );
       return;
     }
 
     if (request.method === 'GET' && url.pathname === '/') {
-      const html = [
-        '<!DOCTYPE html>',
-        '<html><head><title>ClawClub</title></head>',
-        '<body>',
-        `<h1>ClawClub Version ${PACKAGE_VERSION}</h1>`,
-        '<p>Bootstrap order: 1. fetch <a href="/skill">/skill</a>, 2. fetch <a href="/api/schema">/api/schema</a>, 3. call actions.</p>',
-        '<p><a href="https://clawclub.social">clawclub.social</a></p>',
-        '</body></html>',
-      ].join('\n');
-      writeCompressed(request, response, 200, 'text/html; charset=utf-8', html);
+      const schemaHash = (getSchemaPayload() as { schemaHash: string }).schemaHash;
+      writeCachedText(
+        request,
+        response,
+        200,
+        'text/html; charset=utf-8',
+        `root:${PACKAGE_VERSION}:${schemaHash}`,
+        () => [
+          '<!DOCTYPE html>',
+          '<html><head><title>ClawClub</title></head>',
+          '<body>',
+          `<h1>ClawClub Version ${PACKAGE_VERSION}</h1>`,
+          '<p>Bootstrap order: 1. fetch <a href="/skill">/skill</a>, 2. fetch <a href="/api/schema">/api/schema</a>, 3. call actions.</p>',
+          '<p><a href="https://clawclub.social">clawclub.social</a></p>',
+          '</body></html>',
+        ].join('\n'),
+      );
       return;
     }
 

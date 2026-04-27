@@ -124,7 +124,7 @@ describe('llm.outputTokens quota', () => {
       body: 'Intruder edit',
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_scope');
     assert.equal(gateCalls, callsBefore);
 
     const quotas = await h.apiOk(intruder.token, 'quotas.getUsage', {});

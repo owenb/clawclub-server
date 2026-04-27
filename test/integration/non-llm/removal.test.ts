@@ -95,7 +95,7 @@ describe('content.remove', () => {
     const post = await createPost(author.token, owner.club.id, 'Protected');
     const err = await h.apiErr(bystander.token, 'content.remove', { id: post.id });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_scope');
   });
 
   it('non-author cannot update a visible post', async () => {
@@ -109,7 +109,7 @@ describe('content.remove', () => {
       title: 'Bystander rewrite',
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_scope');
   });
 
   it('double remove returns content_already_removed with the canonical removed content', async () => {
@@ -395,7 +395,7 @@ describe('event removal via unified content actions', () => {
     const eventEntity = await createEvent(author.token, owner.club.id, 'Not Yours');
     const err = await h.apiErr(other.token, 'content.remove', { id: eventEntity.id });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_scope');
   });
 
   it('removed events reject new RSVPs', async () => {

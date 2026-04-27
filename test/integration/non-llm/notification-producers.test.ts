@@ -66,8 +66,8 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
     }],
   });
   assert.equal(delivered.status, 200);
-  assert.equal((delivered.body.results as Array<Record<string, unknown>>)[0]?.outcome, 'delivered');
-  const deliveredId = (delivered.body.results as Array<Record<string, unknown>>)[0]?.notificationId as string;
+  assert.equal((delivered.body.data.results as Array<Record<string, unknown>>)[0]?.outcome, 'delivered');
+  const deliveredId = (delivered.body.data.results as Array<Record<string, unknown>>)[0]?.notificationId as string;
   assert.ok(deliveredId);
 
   const duplicate = await h.internalProducerDeliver('test_producer', created.secret, {
@@ -84,7 +84,7 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
       ],
     }],
   });
-  assert.equal((duplicate.body.results as Array<Record<string, unknown>>)[0]?.outcome, 'duplicate');
+  assert.equal((duplicate.body.data.results as Array<Record<string, unknown>>)[0]?.outcome, 'duplicate');
 
   const mismatch = await h.internalProducerDeliver('test_producer', created.secret, {
     notifications: [{
@@ -100,7 +100,7 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
       ],
     }],
   });
-  assert.equal((mismatch.body.results as Array<Record<string, unknown>>)[0]?.outcome, 'idempotency_key_mismatch');
+  assert.equal((mismatch.body.data.results as Array<Record<string, unknown>>)[0]?.outcome, 'idempotency_key_mismatch');
 
   const rateLimited = await h.internalProducerDeliver('test_producer', created.secret, {
     notifications: [{
@@ -116,7 +116,7 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
       ],
     }],
   });
-  assert.equal((rateLimited.body.results as Array<Record<string, unknown>>)[0]?.outcome, 'rate_limited');
+  assert.equal((rateLimited.body.data.results as Array<Record<string, unknown>>)[0]?.outcome, 'rate_limited');
 
   const transactional = await h.internalProducerDeliver('test_producer', created.secret, {
     notifications: [{
@@ -132,22 +132,22 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
       ],
     }],
   });
-  assert.equal((transactional.body.results as Array<Record<string, unknown>>)[0]?.outcome, 'delivered');
-  const transactionalId = (transactional.body.results as Array<Record<string, unknown>>)[0]?.notificationId as string;
+  assert.equal((transactional.body.data.results as Array<Record<string, unknown>>)[0]?.outcome, 'delivered');
+  const transactionalId = (transactional.body.data.results as Array<Record<string, unknown>>)[0]?.notificationId as string;
 
   const acked = await h.internalProducerAcknowledge('test_producer', created.secret, {
     notificationIds: [deliveredId, transactionalId],
   });
   assert.equal(acked.status, 200);
   assert.deepEqual(
-    (acked.body.results as Array<Record<string, unknown>>).map((row) => row.outcome),
+    (acked.body.data.results as Array<Record<string, unknown>>).map((row) => row.outcome),
     ['acknowledged', 'acknowledged'],
   );
 
   const ackedAgain = await h.internalProducerAcknowledge('test_producer', created.secret, {
     notificationIds: [deliveredId],
   });
-  assert.equal((ackedAgain.body.results as Array<Record<string, unknown>>)[0]?.outcome, 'already_acknowledged');
+  assert.equal((ackedAgain.body.data.results as Array<Record<string, unknown>>)[0]?.outcome, 'already_acknowledged');
 
   const otherProducer = await createProducer(h, admin.token, {
     producerId: 'other_producer',
@@ -161,7 +161,7 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
     notificationIds: [transactionalId, 'missing_notification'],
   });
   assert.deepEqual(
-    (wrongProducer.body.results as Array<Record<string, unknown>>).map((row) => row.outcome),
+    (wrongProducer.body.data.results as Array<Record<string, unknown>>).map((row) => row.outcome),
     ['wrong_producer', 'not_found'],
   );
 
@@ -187,7 +187,7 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
       ],
     }],
   });
-  assert.equal((oldSecretStillWorks.body.results as Array<Record<string, unknown>>)[0]?.outcome, 'delivered');
+  assert.equal((oldSecretStillWorks.body.data.results as Array<Record<string, unknown>>)[0]?.outcome, 'delivered');
 
   const newSecretWorks = await h.internalProducerDeliver('test_producer', newSecret, {
     notifications: [{
@@ -203,7 +203,7 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
       ],
     }],
   });
-  assert.equal((newSecretWorks.body.results as Array<Record<string, unknown>>)[0]?.outcome, 'duplicate');
+  assert.equal((newSecretWorks.body.data.results as Array<Record<string, unknown>>)[0]?.outcome, 'duplicate');
 
   const disabledTopic = await h.apiOk(admin.token, 'superadmin.notificationProducerTopics.updateStatus', {
     producerId: 'test_producer',
@@ -222,7 +222,7 @@ test('producer transport delivers, rate-limits by delivery class, and acknowledg
       payload: { message: 'disabled topic' },
     }],
   });
-  assert.equal((topicDisabledDeliver.body.results as Array<Record<string, unknown>>)[0]?.outcome, 'topic_disabled');
+  assert.equal((topicDisabledDeliver.body.data.results as Array<Record<string, unknown>>)[0]?.outcome, 'topic_disabled');
 
   await h.apiOk(admin.token, 'superadmin.notificationProducers.updateStatus', {
     producerId: 'test_producer',
@@ -358,7 +358,7 @@ test('producer transport returns the full row-level outcome matrix for generic p
 
   assert.equal(response.status, 200);
   assert.deepEqual(
-    (response.body.results as Array<Record<string, unknown>>).map((row) => row.outcome),
+    (response.body.data.results as Array<Record<string, unknown>>).map((row) => row.outcome),
     [
       'delivered',
       'expired',

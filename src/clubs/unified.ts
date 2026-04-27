@@ -825,7 +825,7 @@ export async function revokeInvitation(pool: Pool, input: {
     const actorIsClubAdmin = (input.adminClubIds ?? []).includes(invitation.club_id);
     const allowed = actorIsSponsor || actorIsClubAdmin;
     if (!allowed) {
-      throw new AppError('forbidden',
+      throw new AppError('forbidden_scope',
         'You may only revoke your own invitations or invitations in clubs you administer',
       );
     }
@@ -836,7 +836,7 @@ export async function revokeInvitation(pool: Pool, input: {
         throw new AppError('invalid_state', 'Used invitations cannot be changed after the resulting application becomes terminal.');
       }
       if (!actorIsSponsor) {
-        throw new AppError('forbidden', 'Only the original sponsor may withdraw support after the invitation has already been consumed into a live application.');
+        throw new AppError('forbidden_scope', 'Only the original sponsor may withdraw support after the invitation has already been consumed into a live application.');
       }
       if (invitation.support_withdrawn_at) {
         return mapInvitationSummary(invitation);

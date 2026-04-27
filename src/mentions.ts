@@ -546,7 +546,7 @@ export async function preflightContentCreateMentions(
   }
   if (!input.actorClubIds.includes(clubId)) {
     throw new AppError(
-      input.threadId ? 'thread_not_found' : 'forbidden',
+      input.threadId ? 'thread_not_found' : 'forbidden_scope',
       input.threadId ? 'Thread not found inside the actor scope' : 'Requested club is outside your access scope',
     );
   }
@@ -608,7 +608,7 @@ export async function preflightContentUpdateMentions(
     throw new AppError('content_not_found', 'Content not found inside the actor scope');
   }
   if (current.author_member_id !== input.actorMemberId) {
-    throw new AppError('forbidden', 'Only the original author may update this content.');
+    throw new AppError('forbidden_scope', 'Only the original author may update this content.');
   }
 
   const changedFields: ContentMentionField[] = [];

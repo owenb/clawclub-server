@@ -49,3 +49,46 @@ test('registerActions rejects clientKey strategies without an idempotency declar
     /declares clientKey idempotency without an idempotency declaration/,
   );
 });
+
+test('registerActions rejects input arrays without schema or policy bounds', () => {
+  assert.throws(
+    () => registerActions([{
+      action: `test.array.unbounded.${Date.now()}`,
+      domain: 'test',
+      description: 'Read action with unbounded input array',
+      auth: 'member',
+      safety: 'read_only',
+      wire: {
+        input: z.object({ ids: z.array(z.string()) }),
+        output: z.object({ ok: z.boolean() }),
+      },
+      parse: {
+        input: z.object({ ids: z.array(z.string()) }),
+      },
+      async handle() {
+        return { data: { ok: true } };
+      },
+    }]),
+    /must declare maxItems or policy enforcement/,
+  );
+});
+
+test('registerActions allows policy-bounded input arrays', () => {
+  assert.doesNotThrow(() => registerActions([{
+    action: `test.array.policy.${Date.now()}`,
+    domain: 'test',
+    description: 'Read action with policy-bounded input array',
+    auth: 'member',
+    safety: 'read_only',
+    wire: {
+      input: z.object({ ids: z.array(z.string()).meta({ clawclubEnforcedBy: 'policy' }) }),
+      output: z.object({ ok: z.boolean() }),
+    },
+    parse: {
+      input: z.object({ ids: z.array(z.string()) }),
+    },
+    async handle() {
+      return { data: { ok: true } };
+    },
+  }]));
+});

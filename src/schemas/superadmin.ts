@@ -14,6 +14,7 @@ import { requestScopeForClub, requestScopeForClubs } from '../actors.ts';
 import { AppError } from '../errors.ts';
 import { runCreateGateCheck } from '../gate-runner.ts';
 import {
+  boundedArray,
   decodeOptionalCursor,
   describeClientKey,
   describeOptionalScopedClubId,
@@ -1456,7 +1457,11 @@ const superadminNotificationProducersCreate: ActionDefinition = {
       burstLimit: z.number().int().min(1).nullable().optional().describe('Optional burst cap applied to this producer.'),
       hourlyLimit: z.number().int().min(1).nullable().optional().describe('Optional hourly cap applied to this producer.'),
       dailyLimit: z.number().int().min(1).nullable().optional().describe('Optional daily cap applied to this producer.'),
-      topics: z.array(notificationProducerTopicInput).min(1).describe('Initial registered topics owned by this producer.'),
+      topics: boundedArray(notificationProducerTopicInput, {
+        minItems: 1,
+        maxItems: 100,
+        description: 'Initial registered topics owned by this producer.',
+      }),
     }),
     output: createdNotificationProducer,
   },
@@ -1469,11 +1474,11 @@ const superadminNotificationProducersCreate: ActionDefinition = {
       burstLimit: z.number().int().min(1).nullable().optional(),
       hourlyLimit: z.number().int().min(1).nullable().optional(),
       dailyLimit: z.number().int().min(1).nullable().optional(),
-      topics: z.array(z.object({
+      topics: boundedArray(z.object({
         topic: parseRequiredString,
         deliveryClass: notificationDeliveryClass,
         status: notificationProducerStatus.default('active'),
-      })).min(1),
+      }), { minItems: 1, maxItems: 100 }),
     }),
   },
   idempotency: {

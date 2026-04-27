@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AppError } from '../errors.ts';
 import {
+  boundedArray,
   describeOptionalScopedClubId,
   wireRequiredString,
   parseRequiredString,
@@ -163,7 +164,7 @@ const updatesAcknowledge: ActionDefinition = {
       target: z.discriminatedUnion('kind', [
         z.object({
           kind: z.literal('notification'),
-          notificationIds: z.array(z.string().min(1)).min(1),
+          notificationIds: boundedArray(z.string().min(1), { minItems: 1, maxItems: 100 }),
         }).strict(),
         z.object({
           kind: z.literal('thread'),
@@ -188,7 +189,7 @@ const updatesAcknowledge: ActionDefinition = {
       target: z.discriminatedUnion('kind', [
         z.object({
           kind: z.literal('notification'),
-          notificationIds: z.array(z.string().trim().min(1)).min(1).transform((ids) => [...new Set(ids)]),
+          notificationIds: boundedArray(z.string().trim().min(1), { minItems: 1, maxItems: 100 }).transform((ids) => [...new Set(ids)]),
         }).strict(),
         z.object({
           kind: z.literal('thread'),

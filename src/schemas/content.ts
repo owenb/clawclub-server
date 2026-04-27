@@ -18,6 +18,7 @@ import {
   wirePatchString, parsePatchString,
   wireLargePatchString, parseLargePatchString,
   wireContentKinds, parseContentKinds,
+  boundedArray,
   contentKind,
   decodeOptionalCursor,
   paginatedOutput,
@@ -104,7 +105,7 @@ const CONTENT_UPDATE_ERRORS = [
     recovery: 'Generate a fresh clientKey for a different update intent, or resend the exact same payload to replay safely.',
   },
   {
-    code: 'forbidden',
+    code: 'forbidden_scope',
     meaning: 'The content exists, but the caller is not allowed to update it.',
     recovery: 'Only the original author can update content through content.update.',
   },
@@ -590,7 +591,7 @@ const contentsRemove: ActionDefinition = {
   authorizationNote: 'Only the original author may remove their own content.',
   businessErrors: [
     {
-      code: 'forbidden',
+      code: 'forbidden_scope',
       meaning: 'The content exists, but the caller is not the author.',
       recovery: 'Do not retry as this actor. Ask the author or a club admin to remove the content.',
     },
@@ -814,7 +815,7 @@ const contentsFindViaEmbedding: ActionDefinition = {
     input: z.object({
       query: z.string().max(1000).describe('Natural-language search query (max 1000 chars)'),
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for semantic content search.')),
-      kinds: z.array(contentKind).optional().describe('Filter by content kinds'),
+      kinds: boundedArray(contentKind, { minItems: 1, maxItems: 6 }).optional().describe('Filter by content kinds'),
       ...CONTENT_SEMANTIC_SEARCH_PAGINATION.wire,
     }),
     output: paginatedOutputWithIncluded(contentSearchResult, {
@@ -828,7 +829,7 @@ const contentsFindViaEmbedding: ActionDefinition = {
     input: z.object({
       query: z.string().trim().min(1).max(1000),
       clubId: parseRequiredString.optional(),
-      kinds: z.array(contentKind).optional(),
+      kinds: boundedArray(contentKind, { minItems: 1, maxItems: 6 }).optional(),
       ...CONTENT_SEMANTIC_SEARCH_PAGINATION.parse,
     }),
   },
@@ -844,7 +845,7 @@ const contentsFindViaEmbedding: ActionDefinition = {
       : membershipScopes(ctx.actor.memberships).clubIds;
 
     if (clubIds.length === 0) {
-      throw new AppErr('forbidden', 'This member does not currently have access to any clubs');
+      throw new AppErr('forbidden_scope', 'This member does not currently have access to any clubs');
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -958,7 +959,7 @@ const contentSetLoopState: ActionDefinition = {
   authorizationNote: 'Only the original author may change the loop state of their own published loopable content.',
   businessErrors: [
     {
-      code: 'forbidden',
+      code: 'forbidden_scope',
       meaning: 'The content exists, but the caller is not the author.',
       recovery: 'Do not retry as this actor. Ask the original author to change the loop state.',
     },

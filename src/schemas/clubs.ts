@@ -5,6 +5,7 @@ import { getConfig } from '../config/index.ts';
 import { runCreateGateCheck } from '../gate-runner.ts';
 import { applicationPhase, memberApplicationState } from './application-shapes.ts';
 import {
+  boundedArray,
   decodeOptionalCursor,
   describeClientKey,
   describePublicClubSlug,
@@ -408,7 +409,7 @@ const clubsApplicationsList: ActionDefinition = {
   safety: 'read_only',
   wire: {
     input: z.object({
-      phases: z.array(applicationPhase).min(1).optional().describe('Optional application-phase filter. Defaults to awaiting_review + active. Include revision_required explicitly when you need saved drafts that are not yet in the admin queue.'),
+      phases: boundedArray(applicationPhase, { minItems: 1, maxItems: 7 }).optional().describe('Optional application-phase filter. Defaults to awaiting_review + active. Include revision_required explicitly when you need saved drafts that are not yet in the admin queue.'),
       ...CLUB_APPLICATIONS_LIST_PAGINATION.wire,
     }),
     output: paginatedOutput(memberApplicationState).extend({
@@ -418,7 +419,7 @@ const clubsApplicationsList: ActionDefinition = {
   },
   parse: {
     input: z.object({
-      phases: z.array(applicationPhase).min(1).optional(),
+      phases: boundedArray(applicationPhase, { minItems: 1, maxItems: 7 }).optional(),
       ...CLUB_APPLICATIONS_LIST_PAGINATION.parse,
     }),
   },

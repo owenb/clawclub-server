@@ -317,7 +317,7 @@ const invitationsRevoke: ActionDefinition = {
   idempotencyStrategy: { kind: 'clientKey', requirement: 'optional' },
   businessErrors: [
     {
-      code: 'forbidden',
+      code: 'forbidden_scope',
       meaning: 'Only the sponsor or a clubadmin in the invitation’s club may revoke it.',
       recovery: 'Use your own invitation, or choose a club where you are a clubadmin.',
     },

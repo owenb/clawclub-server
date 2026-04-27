@@ -1686,7 +1686,7 @@ describe('clubadmin.members.update', () => {
       patch: { role: 'member' },
     });
     assert.equal(err.status, 403);
-    assert.equal(err.code, 'forbidden');
+    assert.equal(err.code, 'forbidden_role');
   });
 
   it('demoting a regular member is idempotent with changed: false', async () => {

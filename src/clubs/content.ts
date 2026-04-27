@@ -952,7 +952,7 @@ export async function updateContent(pool: Pool, input: UpdateContentInput): Prom
     const current = currentResult.rows[0];
     if (!current) return null;
     if (current.author_member_id !== input.actorMemberId) {
-      throw new AppError('forbidden', 'Only the original author may update this content.');
+      throw new AppError('forbidden_scope', 'Only the original author may update this content.');
     }
 
     if (input.patch.event !== undefined && current.kind !== 'event') {
@@ -1255,7 +1255,7 @@ export async function removeContent(pool: Pool, input: {
 
     const isModeratorRemoval = input.moderatorRemoval !== undefined && input.moderatorRemoval !== null;
     if (!isModeratorRemoval && current.author_member_id !== input.actorMemberId) {
-      throw new AppError('forbidden', 'Only the original author may remove this content.');
+      throw new AppError('forbidden_scope', 'Only the original author may remove this content.');
     }
 
     const viewerMembershipIds = await getViewerMembershipIds(client, input.actorMemberId, current.club_id);
@@ -1364,7 +1364,7 @@ async function setContentLoopState(
     const row = currentResult.rows[0];
     if (!row) return null;
     if (row.author_member_id !== input.actorMemberId) {
-      throw new AppError('forbidden', 'Only the original author may change this content loop state.');
+      throw new AppError('forbidden_scope', 'Only the original author may change this content loop state.');
     }
     if (row.open_loop === null) {
       throw new AppError('invalid_state', 'Content is not loopable.', {

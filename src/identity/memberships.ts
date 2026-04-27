@@ -162,7 +162,7 @@ async function assertAdminStatusChangeAllowed(client: DbClient, input: {
   nextStatus: MembershipState;
 }): Promise<void> {
   if (input.memberId === input.actorMemberId && input.nextStatus !== 'active' && input.nextStatus !== input.currentStatus) {
-    throw new AppError('forbidden', 'Admins may not self-revoke or self-reject through this surface');
+    throw new AppError('forbidden_role', 'Admins may not self-revoke or self-reject through this surface');
   }
 
   if (input.nextStatus !== 'active') {
@@ -171,7 +171,7 @@ async function assertAdminStatusChangeAllowed(client: DbClient, input: {
       [input.clubId],
     );
     if (ownerResult.rows[0]?.owner_member_id === input.memberId) {
-      throw new AppError('forbidden', 'Cannot demote the club owner');
+      throw new AppError('forbidden_role', 'Cannot demote the club owner');
     }
   }
 
@@ -1150,7 +1150,7 @@ export async function updateMembership(pool: Pool, input: UpdateMembershipInput)
           [membership.club_id],
         );
         if (ownerCheck.rows[0]?.owner_member_id === membership.member_id) {
-          throw new AppError('forbidden', 'Cannot demote the club owner');
+          throw new AppError('forbidden_role', 'Cannot demote the club owner');
         }
       }
       await syncMembershipRole(client, membership.membership_id, nextRole);
@@ -1296,7 +1296,7 @@ export async function demoteMemberFromAdmin(pool: Pool, input: {
       [input.clubId],
     );
     if (ownerCheck.rows[0]?.owner_member_id === input.memberId) {
-      throw new AppError('forbidden', 'Cannot demote the club owner');
+      throw new AppError('forbidden_role', 'Cannot demote the club owner');
     }
 
     const result = await client.query<{ id: string; role: string }>(
