@@ -13,6 +13,10 @@ function makeEmbeddingPools() {
       query: async (sql: string, params?: unknown[]) => {
         const normalized = sql.replace(/\s+/g, ' ').trim();
 
+        if (normalized.startsWith("update ai_club_spend_reservations set status = 'released',")) {
+          return { rows: [], rowCount: 0 };
+        }
+
         if (normalized.startsWith("with claimable as ( select id, state from ai_embedding_jobs where next_attempt_at <= now() and subject_kind = $1 and state in ('queued', 'budget_blocked')")) {
           return {
             rows: [{
