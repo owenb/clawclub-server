@@ -15,6 +15,10 @@ test('accounts.register discover forwards the anonymous discover request and ret
         challenge: {
           challengeBlob: 'payload.signature',
           challengeId: 'challenge-1',
+          hashInput: '${challengeId}:${nonce}',
+          hashDigest: 'sha256-hex',
+          successCondition: 'trailing_hex_zeroes',
+          difficultyUnit: 'hex_nibbles',
           difficulty: 7,
           expiresAt: '2026-04-03T00:00:00Z',
         },

@@ -43,6 +43,10 @@ function addInvitationDiscoverPairingIssue(input: { invitationCode?: string; ema
 const registerChallenge = z.object({
   challengeBlob: z.string(),
   challengeId: z.string(),
+  hashInput: z.literal('${challengeId}:${nonce}'),
+  hashDigest: z.literal('sha256-hex'),
+  successCondition: z.literal('trailing_hex_zeroes'),
+  difficultyUnit: z.literal('hex_nibbles'),
   difficulty: z.number(),
   expiresAt: timestampString,
 });
@@ -81,20 +85,6 @@ const registerOutput = z.discriminatedUnion('phase', [
       inFlightCount: z.number(),
       maxInFlight: z.number(),
     }),
-    messages: z.object({
-      summary: z.string(),
-      details: z.string(),
-    }),
-  }),
-  z.object({
-    phase: z.literal('registration_already_completed'),
-      member: z.object({
-        memberId: z.string(),
-        publicName: z.string(),
-        email: z.string(),
-        registeredAt: timestampString,
-      }),
-    next: nextDirective,
     messages: z.object({
       summary: z.string(),
       details: z.string(),
@@ -170,6 +160,11 @@ const accountsRegister: ActionDefinition = {
       code: 'email_does_not_match_invite',
       meaning: 'The submitted email does not match the candidate email on this invitation.',
       recovery: 'Call accounts.register discover again with the email address the sponsor invited, or ask the sponsor to issue a new invitation for the correct email.',
+    },
+    {
+      code: 'secret_replay_unavailable',
+      meaning: 'This clientKey already completed registration and minted a bearer token that cannot be replayed.',
+      recovery: 'Use the bearer from the first successful response, register again with a fresh clientKey and challenge, or ask the operator for out-of-band recovery.',
     },
   ],
   input: defineInput({

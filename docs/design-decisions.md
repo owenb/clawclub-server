@@ -210,7 +210,7 @@ The membership graph is built in two stages: first register a platform account, 
 - background workers do not depend on `CLAWCLUB_POW_HMAC_KEY` at all; missing PoW config only fails the `accounts.register` path
 - platform emails are unique. Registration with an already-registered email returns `email_already_registered`
 - registration mints a bearer token and creates a platform member with zero club memberships. This is a valid state; the bearer alone does not grant access to any club, but it *is* the precondition for every post-registration action — applying to a club, redeeming an invitation, creating a club, polling `updates.list`, or updating the contact email
-- registration is not replayable on same-`clientKey` retry: a retry returns a sanitized "already completed" result, not the original bearer. The token must be saved on first success. Lost-token recovery is operator-only, via `superadmin.accessTokens.create`
+- registration is not replayable on same-`clientKey` retry: a retry returns `secret_replay_unavailable` with safe member metadata, not the original bearer and not a success-shaped phase. The token must be saved on first success. Lost-token recovery is operator-only, via `superadmin.accessTokens.create`
 
 ### Creating a club
 

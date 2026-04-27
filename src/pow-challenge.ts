@@ -165,6 +165,10 @@ export function issuePowChallenge(input: {
 }): {
   challengeBlob: string;
   challengeId: string;
+  hashInput: '${challengeId}:${nonce}';
+  hashDigest: 'sha256-hex';
+  successCondition: 'trailing_hex_zeroes';
+  difficultyUnit: 'hex_nibbles';
   difficulty: number;
   expiresAt: string;
 } {
@@ -189,6 +193,10 @@ export function issuePowChallenge(input: {
   return {
     challengeBlob: `${encodeBase64Url(rawPayload)}.${encodeBase64Url(signature)}`,
     challengeId,
+    hashInput: '${challengeId}:${nonce}',
+    hashDigest: 'sha256-hex',
+    successCondition: 'trailing_hex_zeroes',
+    difficultyUnit: 'hex_nibbles',
     difficulty,
     expiresAt: toIsoFromMillis(expiresAtMs),
   };

@@ -321,6 +321,11 @@
           "code": "email_does_not_match_invite",
           "meaning": "The submitted email does not match the candidate email on this invitation.",
           "recovery": "Call accounts.register discover again with the email address the sponsor invited, or ask the sponsor to issue a new invitation for the correct email."
+        },
+        {
+          "code": "secret_replay_unavailable",
+          "meaning": "This clientKey already completed registration and minted a bearer token that cannot be replayed.",
+          "recovery": "Use the bearer from the first successful response, register again with a fresh clientKey and challenge, or ask the operator for out-of-band recovery."
         }
       ],
       "description": "Create a platform account. Registration is a two-step flow: discover a proof-of-work challenge, then submit name, email, challengeBlob, nonce, and clientKey.",
@@ -431,15 +436,43 @@
                   "difficulty": {
                     "type": "number"
                   },
+                  "difficultyUnit": {
+                    "enum": [
+                      "hex_nibbles"
+                    ],
+                    "type": "string"
+                  },
                   "expiresAt": {
                     "clawclubType": "timestamp",
                     "description": "Authoritative ISO 8601 expiry for this specific registration challenge. Current configured TTL is 3600000 ms (1 hour) from issuance. The same window covers both solving and submit; there is no extra post-solve grace period.",
+                    "type": "string"
+                  },
+                  "hashDigest": {
+                    "enum": [
+                      "sha256-hex"
+                    ],
+                    "type": "string"
+                  },
+                  "hashInput": {
+                    "enum": [
+                      "${challengeId}:${nonce}"
+                    ],
+                    "type": "string"
+                  },
+                  "successCondition": {
+                    "enum": [
+                      "trailing_hex_zeroes"
+                    ],
                     "type": "string"
                   }
                 },
                 "required": [
                   "challengeBlob",
                   "challengeId",
+                  "hashInput",
+                  "hashDigest",
+                  "successCondition",
+                  "difficultyUnit",
                   "difficulty",
                   "expiresAt"
                 ],
@@ -618,88 +651,6 @@
               "credentials",
               "next",
               "applicationLimits",
-              "messages"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "member": {
-                "additionalProperties": false,
-                "properties": {
-                  "email": {
-                    "type": "string"
-                  },
-                  "memberId": {
-                    "type": "string"
-                  },
-                  "publicName": {
-                    "type": "string"
-                  },
-                  "registeredAt": {
-                    "clawclubType": "timestamp",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "memberId",
-                  "publicName",
-                  "email",
-                  "registeredAt"
-                ],
-                "type": "object"
-              },
-              "messages": {
-                "additionalProperties": false,
-                "properties": {
-                  "details": {
-                    "type": "string"
-                  },
-                  "summary": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "summary",
-                  "details"
-                ],
-                "type": "object"
-              },
-              "next": {
-                "additionalProperties": false,
-                "properties": {
-                  "action": {
-                    "nullable": true,
-                    "type": "string"
-                  },
-                  "reason": {
-                    "type": "string"
-                  },
-                  "requiredInputs": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "action",
-                  "reason"
-                ],
-                "type": "object"
-              },
-              "phase": {
-                "enum": [
-                  "registration_already_completed"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "phase",
-              "member",
-              "next",
               "messages"
             ],
             "type": "object"
@@ -20111,5 +20062,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "a86e1bcae3ddb7f5"
+  "schemaHash": "664052434b518710"
 }

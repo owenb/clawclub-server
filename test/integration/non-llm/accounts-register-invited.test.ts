@@ -366,9 +366,8 @@ describe('accounts.register invited proof-of-work', () => {
     const first = await h.apiOk(null, 'accounts.register', request);
     assert.equal((first.data as Record<string, unknown>).phase, 'registered');
 
-    const replay = await h.apiOk(null, 'accounts.register', request);
-    assert.equal((replay.data as Record<string, unknown>).phase, 'registration_already_completed');
-    assert.equal('credentials' in (replay.data as Record<string, unknown>), false);
+    const replay = await h.apiErr(null, 'accounts.register', request, 'secret_replay_unavailable');
+    assert.equal(replay.status, 409);
 
     const conflict = await h.apiErr(null, 'accounts.register', {
       ...request,

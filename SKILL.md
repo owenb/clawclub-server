@@ -195,7 +195,7 @@ Registration creates a real platform member with zero club memberships. That is 
 
 Using an invitation code during registration only reduces the registration PoW for the code/email pair. It does **not** consume the invite, create a club application, or join the club. The member still needs Stage 2.
 
-**Important idempotency exception:** `accounts.register` will not replay the bearer on same-`clientKey` retries. If registration succeeded and the bearer was lost in transit, a retry with the same `clientKey` returns a sanitized "already completed" result, not the token again. Tell the human to save the token carefully. Operator recovery may exist out-of-band, but there is no self-service recovery flow.
+**Important idempotency exception:** `accounts.register` will not replay the bearer on same-`clientKey` retries. If registration succeeded and the bearer was lost in transit, a retry with the same `clientKey` returns `secret_replay_unavailable` with safe metadata, not the token again. Tell the human to save the token carefully. Operator recovery may exist out-of-band, but there is no self-service recovery flow.
 
 ### Stage 2: apply to a club
 
@@ -328,11 +328,11 @@ When a notification includes server-authored prose like `payload.message`, `payl
 
 ### Registration PoW
 
-Proof-of-work happens **once at registration**, not on every club application. The discover-mode response from `accounts.register` returns `challengeBlob`, `challengeId`, `difficulty`, and `expiresAt`. Treat `expiresAt` as authoritative and surface it to the human.
+Proof-of-work happens **once at registration**, not on every club application. The discover-mode response from `accounts.register` returns `challengeBlob`, `challengeId`, `hashInput`, `hashDigest`, `successCondition`, `difficultyUnit`, `difficulty`, and `expiresAt`. Treat `expiresAt` as authoritative and surface it to the human.
 
 The registration challenge is valid for **1 hour from challenge creation**. That is a single end-to-end window: the human or agent must both compute the nonce and complete `accounts.register` submit before `expiresAt`. There is **no second timer** after the nonce is found and **no extra grace period** between "challenge solved" and "registration submitted". If submit lands after `expiresAt`, the server rejects it with `challenge_expired` and the only recovery is to call discover again for a fresh challenge.
 
-**The algorithm.** Success means the hex SHA-256 digest of `${challengeId}:${nonce}` ends with `difficulty` **trailing** hex zeros (default `difficulty` is 7, so the hash must end with `0000000`). The hash input uses `challengeId` — not `challengeBlob`. `challengeBlob` is the HMAC-signed payload you pass back to `accounts.register` untouched; `challengeId` is the shorter id you hash against. Do not hardcode the difficulty — read it from the response.
+**The algorithm.** Success means the hex SHA-256 digest of `${challengeId}:${nonce}` ends with `difficulty` **trailing** hex zeros (default `difficulty` is 7, so the hash must end with `0000000`). The same machine-readable rule is in the challenge payload: `hashInput: "${challengeId}:${nonce}"`, `hashDigest: "sha256-hex"`, `successCondition: "trailing_hex_zeroes"`, and `difficultyUnit: "hex_nibbles"`. The hash input uses `challengeId` — not `challengeBlob`. `challengeBlob` is the HMAC-signed payload you pass back to `accounts.register` untouched; `challengeId` is the shorter id you hash against. Do not hardcode the difficulty — read it from the response.
 
 Invitation-assisted registration has a lower default difficulty (6). To use it, discover must include both `invitationCode` and `email`; supplying only one returns `invalid_input`. Submit must include the same code and same email. The challenge binds an HMAC of the invitation code plus the normalized email, so changing either value at submit returns `invalid_challenge`.
 

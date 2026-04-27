@@ -82,6 +82,10 @@ describe('accounts.register', () => {
     const challenge = await prepareAccountRegistration(h, 'register-discover-1');
     assert.ok(challenge.challengeBlob);
     assert.ok(challenge.challengeId);
+    assert.equal(challenge.hashInput, '${challengeId}:${nonce}');
+    assert.equal(challenge.hashDigest, 'sha256-hex');
+    assert.equal(challenge.successCondition, 'trailing_hex_zeroes');
+    assert.equal(challenge.difficultyUnit, 'hex_nibbles');
     assert.ok(challenge.difficulty > 0);
 
     const registered = await registerWithPow(h, {
@@ -138,18 +142,17 @@ describe('accounts.register', () => {
     assert.equal(firstData.phase, 'registered');
     assert.equal((firstData.credentials as Record<string, unknown>).kind, 'member_bearer');
 
-    const replay = await h.apiOk(null, 'accounts.register', {
+    const replay = await h.apiErr(null, 'accounts.register', {
       mode: 'submit',
       clientKey: 'register-replay',
       name: 'Replay Member',
       email: 'replay@example.com',
       challengeBlob: challenge.challengeBlob,
       nonce,
-    });
+    }, 'secret_replay_unavailable');
 
-    const data = replay.data as Record<string, unknown>;
-    assert.equal(data.phase, 'registration_already_completed');
-    assert.equal('credentials' in data, false, 'replayed register response must never include the bearer');
+    assert.equal(replay.status, 409);
+    assert.equal(replay.code, 'secret_replay_unavailable');
   });
 
   it('same anonymous clientKey with divergent registration payload returns client_key_conflict', async () => {

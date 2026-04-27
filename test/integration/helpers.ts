@@ -92,7 +92,16 @@ export async function prepareAccountRegistration(
   h: TestHarness,
   _clientKey = 'register-discover',
   input: { invitationCode?: string; email?: string } = {},
-): Promise<{ challengeBlob: string; challengeId: string; difficulty: number; expiresAt: string }> {
+): Promise<{
+  challengeBlob: string;
+  challengeId: string;
+  hashInput: string;
+  hashDigest: string;
+  successCondition: string;
+  difficultyUnit: string;
+  difficulty: number;
+  expiresAt: string;
+}> {
   const body = await h.apiOk(null, 'accounts.register', { mode: 'discover', ...input }, {
     headers: { 'x-forwarded-for': nextDiscoverClientIp() },
   });
@@ -101,6 +110,10 @@ export async function prepareAccountRegistration(
   return {
     challengeBlob: challenge.challengeBlob as string,
     challengeId: challenge.challengeId as string,
+    hashInput: challenge.hashInput as string,
+    hashDigest: challenge.hashDigest as string,
+    successCondition: challenge.successCondition as string,
+    difficultyUnit: challenge.difficultyUnit as string,
     difficulty: challenge.difficulty as number,
     expiresAt: challenge.expiresAt as string,
   };

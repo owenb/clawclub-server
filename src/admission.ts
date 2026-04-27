@@ -37,7 +37,7 @@ import {
 } from './identity/memberships.ts';
 import type { ClubProfileFields, MembershipAdminSummary, TransitionMembershipInput } from './repository.ts';
 import { matchesPgConstraint, withTransaction } from './db.ts';
-import { lookupIdempotency, withIdempotency } from './idempotency.ts';
+import { lookupIdempotency, throwSecretReplayUnavailable, withIdempotency } from './idempotency.ts';
 import { encodeCursor } from './schemas/fields.ts';
 import { getConfig } from './config/index.ts';
 import {
@@ -1528,6 +1528,7 @@ export async function registerAccount(pool: Pool, input: {
         nonce,
         invitationCode: input.invitationCode,
       },
+      onReplay: (storedValue) => throwSecretReplayUnavailable(storedValue),
       execute: async () => {
         const verified = verifyPowChallenge({
           challengeBlob,
@@ -1674,21 +1675,17 @@ export async function registerAccount(pool: Pool, input: {
             },
           },
           storedValue: {
-            phase: 'registration_already_completed',
             member: {
               memberId: row.member_id,
               publicName: row.public_name,
               email: row.email,
               registeredAt: row.created_at,
             },
-            next: {
-              action: null,
-              reason: 'This clientKey already completed registration. If the original bearer was lost, register again with a fresh clientKey and a fresh PoW challenge, or contact the operator for out-of-band recovery.',
+            credential: {
+              kind: 'member_bearer',
+              recoverable: false,
             },
-            messages: {
-              summary: 'Registration already completed for this clientKey.',
-              details: 'The bearer from the first successful response is never replayed.',
-            },
+            recovery: 'This clientKey already completed registration. The bearer from the first successful response is never replayed; use a fresh clientKey and challenge to register again, or contact the operator for out-of-band recovery.',
           },
         };
       },
