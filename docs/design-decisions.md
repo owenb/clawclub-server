@@ -351,9 +351,12 @@ Members and club owners have no self-serve destructive action on the club itself
 
 The polling surface is unified:
 - `updates.list` is the one-call poll for activity, notifications, and DM inbox summaries as three parallel slices, each independently paginated with `{ results, hasMore, nextCursor }`
+- the DM inbox slice defaults to the full inbox (`unreadOnly: false`). Agents that are specifically triaging unread work should opt into `unreadOnly: true`
 - `updates.acknowledge` is the unified acknowledgement surface for both DM threads and notifications, discriminated by `target.kind` (`'thread'` or `'notification'`)
 - the notification path returns one receipt per requested id: `{ notificationId, state: 'processed' | 'suppressed', acknowledgedAt: string | null }`. `processed` carries the server-recorded acknowledgement timestamp; `suppressed` collapses unknown / inaccessible / already-acknowledged ids into one indistinguishable signal so callers cannot enumerate notification ids by acknowledgement-shape oracle. The thread path is unchanged and still returns explicit `thread_not_found` for inaccessible threads
 - DM inbox read-state is durable on `dm_inbox_entries.acknowledged_at timestamptz` (nullable). The legacy boolean `acknowledged` column persists during the deploy-1 / deploy-2 migration window for rollback safety; the server dual-writes both columns and reads from `acknowledged_at`. Deploy 2 will drop the legacy column and old partial indexes once the runtime cutover is stable
+- Direct-message thread summaries are projected from the actor's perspective through one repository path. The projection owns counterpart, shared-club context, latest-message, and unread-state hydration so `messages.get`, `updates.list.inbox`, and stream message frames cannot drift
+- Direct-message message pages are newest-first everywhere (`messages.get`, `superadmin.messages.get`, and stream-derived single-message frames)
 
 The realtime side channel is `GET /stream`:
 - activity frames, DM frames, and notification-invalidation frames travel over one SSE channel

@@ -52,7 +52,7 @@ const updatesList: ActionDefinition = {
     'Use this for the general "has anything happened?" poll path.',
     'The activity slice supports after="latest" to seed from the current activity tip.',
     'Activity nextCursor is a stable resume cursor: when hasMore is false, keep that cursor and poll again later instead of discarding it.',
-    'The inbox slice defaults to unreadOnly=true so the DM part answers "anything I need to know?" by default.',
+    'The inbox slice defaults to unreadOnly=false so the DM part answers "show my DM inbox" by default; pass unreadOnly=true for unread-only triage.',
   ],
 
   wire: {
@@ -67,7 +67,7 @@ const updatesList: ActionDefinition = {
       }).optional(),
       inbox: z.object({
         ...UPDATES_INBOX_PAGINATION.wire,
-        unreadOnly: wireOptionalBoolean.describe('Only show threads with unread messages. Defaults to true on updates.list.'),
+        unreadOnly: wireOptionalBoolean.describe('Only show threads with unread messages. Defaults to false on updates.list.'),
       }).optional(),
     }),
     output: z.object({
@@ -97,8 +97,8 @@ const updatesList: ActionDefinition = {
       }).optional().default({ limit: NOTIFICATIONS_PAGE_SIZE, cursor: null }),
       inbox: z.object({
         ...UPDATES_INBOX_PAGINATION.parse,
-        unreadOnly: z.boolean().optional().default(true),
-      }).optional().default({ limit: 20, unreadOnly: true, cursor: null }),
+        unreadOnly: z.boolean().optional().default(false),
+      }).optional().default({ limit: 20, unreadOnly: false, cursor: null }),
     }),
   },
 

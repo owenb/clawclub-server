@@ -142,7 +142,7 @@ const MESSAGES_GET_PAGINATION = paginationFields({ defaultLimit: 50, maxLimit: 5
 const messagesGetThread: ActionDefinition = {
   action: 'messages.get',
   domain: 'messages',
-  description: 'Read a DM thread. Only participants can read a thread.',
+  description: 'Read a DM thread newest-first. Only participants can read a thread.',
   auth: 'member',
   safety: 'read_only',
 

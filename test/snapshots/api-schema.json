@@ -12761,7 +12761,7 @@
     {
       "action": "messages.get",
       "auth": "member",
-      "description": "Read a DM thread. Only participants can read a thread.",
+      "description": "Read a DM thread newest-first. Only participants can read a thread.",
       "domain": "messages",
       "input": {
         "additionalProperties": false,
@@ -16251,7 +16251,7 @@
     {
       "action": "superadmin.messages.get",
       "auth": "superadmin",
-      "description": "Read a DM thread as superadmin.",
+      "description": "Read a DM thread newest-first as superadmin.",
       "domain": "superadmin",
       "input": {
         "additionalProperties": false,
@@ -17595,7 +17595,7 @@
                 "type": "integer"
               },
               "unreadOnly": {
-                "description": "Only show threads with unread messages. Defaults to true on updates.list.",
+                "description": "Only show threads with unread messages. Defaults to false on updates.list.",
                 "type": "boolean"
               }
             },
@@ -17625,7 +17625,7 @@
         "Use this for the general \"has anything happened?\" poll path.",
         "The activity slice supports after=\"latest\" to seed from the current activity tip.",
         "Activity nextCursor is a stable resume cursor: when hasMore is false, keep that cursor and poll again later instead of discarding it.",
-        "The inbox slice defaults to unreadOnly=true so the DM part answers \"anything I need to know?\" by default."
+        "The inbox slice defaults to unreadOnly=false so the DM part answers \"show my DM inbox\" by default; pass unreadOnly=true for unread-only triage."
       ],
       "output": {
         "additionalProperties": false,
@@ -19508,5 +19508,5 @@
     ]
   },
   "version": "0.1.15",
-  "schemaHash": "828f8bb1e53064fc"
+  "schemaHash": "d1885848557ca00e"
 }

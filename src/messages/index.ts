@@ -592,7 +592,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         mentions: row.is_removed ? [] : (pageMentions.mentionsByMessageId.get(row.message_id) ?? []),
         payload: row.payload ?? {},
         createdAt: row.created_at,
-      })).reverse();
+      }));
 
       return {
         thread,

@@ -3268,6 +3268,36 @@ test('updates.list returns inbox summaries inside actor scope', async () => {
   assert.equal(result.data.inbox.results[0]?.unread.hasUnread, true);
 });
 
+test('updates.list inbox defaults to the full inbox', async () => {
+  let capturedInput: Record<string, unknown> | null = null;
+
+  const repository: Repository = {
+    ...makeRepository(),
+    async authenticateBearerToken() {
+      return makeAuthResult();
+    },
+    async listDirectMessageInbox(input) {
+      capturedInput = input as Record<string, unknown>;
+      return { results: [], hasMore: false, nextCursor: null, included: EMPTY_INCLUDED };
+    },
+  };
+
+  const dispatcher = buildDispatcher({ repository, llmGate: passthroughGate });
+  const result = await dispatcher.dispatch({
+    bearerToken: 'cc_live_23456789abcd_23456789abcdefghjkmnpqrs',
+    action: 'updates.list',
+    payload: { inbox: { limit: 4 } },
+  });
+
+  assert.deepEqual(capturedInput, {
+    actorMemberId: 'member-1',
+    limit: 4,
+    unreadOnly: false,
+    cursor: null,
+  });
+  assert.equal(result.data.inbox.unreadOnly, false);
+});
+
 test('updates.list inbox unreadOnly returns thread-focused unread summaries inside actor scope', async () => {
   let capturedInput: Record<string, unknown> | null = null;
 

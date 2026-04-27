@@ -1032,7 +1032,7 @@ type SuperadminMessagesReadInput = {
 const superadminMessagesRead: ActionDefinition = {
   action: 'superadmin.messages.get',
   domain: 'superadmin',
-  description: 'Read a DM thread as superadmin.',
+  description: 'Read a DM thread newest-first as superadmin.',
   auth: 'superadmin',
   safety: 'read_only',
 

@@ -14,6 +14,8 @@ import {
   type SuperadminMemberSummary,
   type Repository,
   type Content,
+  type DirectMessageInboxSummary,
+  type DirectMessageThreadSummary,
   type MembershipVouchSummary,
   type PublicMemberSummary,
   type IncludedBundle,
@@ -25,7 +27,12 @@ import {
 import { membershipScopes } from './actors.ts';
 import { withTransaction, type DbClient } from './db.ts';
 import { createIdentityRepository, type IdentityRepository } from './identity/index.ts';
-import { createMessagingRepository, type MessagingRepository } from './messages/index.ts';
+import {
+  createMessagingRepository,
+  type InboxEntry as MessagingInboxEntry,
+  type MessagingRepository,
+  type ThreadSummary as MessagingThreadSummary,
+} from './messages/index.ts';
 import {
   createClubsRepository,
   batchListVouches,
@@ -488,20 +495,13 @@ async function listInboxFramesSince(pool: Pool, input: {
     pool,
     [input.actorMemberId, ...new Set(threadResult.rows.map((row) => row.counterpart_member_id))],
   );
-  const sharedClubsMap = await batchResolveSharedClubs(
+  const threadSummaries = await directThreadSummariesFor(
     pool,
     input.actorMemberId,
-    [...new Set(threadResult.rows.map((row) => row.counterpart_member_id))],
-  );
-
-  const threadsById = new Map(threadResult.rows.map((row) => {
-    const thread = {
+    threadResult.rows.map((row): MessagingThreadSummary => ({
       threadId: row.thread_id,
-      sharedClubs: sharedClubsMap.get(row.counterpart_member_id) ?? [],
-      counterpart: {
-        memberId: row.counterpart_member_id,
-        publicName: row.counterpart_public_name,
-      },
+      counterpartMemberId: row.counterpart_member_id,
+      counterpartPublicName: row.counterpart_public_name,
       latestMessage: {
         messageId: row.latest_message_id,
         senderMemberId: row.latest_sender_member_id,
@@ -511,9 +511,10 @@ async function listInboxFramesSince(pool: Pool, input: {
         createdAt: row.latest_created_at,
       },
       messageCount: Number(row.message_count),
-    };
-    return [row.thread_id, thread];
-  }));
+    })),
+  );
+
+  const threadsById = new Map(threadSummaries.map((thread) => [thread.threadId, thread]));
 
   const frames = inboxRows.rows.flatMap((row) => {
     const thread = threadsById.get(row.thread_id);
@@ -622,6 +623,44 @@ async function batchResolveSharedClubs(
     arr.push({ clubId: r.club_id, slug: r.slug, name: r.name });
   }
   return map;
+}
+
+async function directThreadSummariesFor(
+  pool: Pool,
+  actorMemberId: string,
+  threads: readonly MessagingThreadSummary[],
+): Promise<DirectMessageThreadSummary[]> {
+  const counterpartIds = [...new Set(threads.map((thread) => thread.counterpartMemberId))];
+  const sharedClubsMap = await batchResolveSharedClubs(pool, actorMemberId, counterpartIds);
+
+  return threads.map((thread) => ({
+    threadId: thread.threadId,
+    sharedClubs: sharedClubsMap.get(thread.counterpartMemberId) ?? [],
+    counterpart: {
+      memberId: thread.counterpartMemberId,
+      publicName: thread.counterpartPublicName,
+    },
+    latestMessage: thread.latestMessage,
+    messageCount: thread.messageCount,
+  }));
+}
+
+async function directInboxSummariesFor(
+  pool: Pool,
+  actorMemberId: string,
+  entries: readonly MessagingInboxEntry[],
+): Promise<DirectMessageInboxSummary[]> {
+  const threadSummaries = await directThreadSummariesFor(pool, actorMemberId, entries);
+
+  return entries.map((entry, index) => ({
+    ...threadSummaries[index]!,
+    unread: {
+      hasUnread: entry.hasUnread,
+      unreadMessageCount: entry.unreadCount,
+      unreadUpdateCount: entry.unreadCount,
+      latestUnreadMessageCreatedAt: entry.latestUnreadAt,
+    },
+  }));
 }
 
 /** Batch-resolve shared clubs for multiple member pairs keyed by an opaque ID (e.g. threadId). */
@@ -1135,19 +1174,7 @@ export function createRepository(
 
     async listDirectMessageThreads({ actorMemberId, limit }) {
       const threads = await messaging.listDirectThreads({ memberId: actorMemberId, limit });
-      const counterpartIds = threads.map((t) => t.counterpartMemberId);
-      const sharedClubsMap = await batchResolveSharedClubs(pool, actorMemberId, counterpartIds);
-
-      return threads.map((t) => ({
-        threadId: t.threadId,
-        sharedClubs: sharedClubsMap.get(t.counterpartMemberId) ?? [],
-        counterpart: {
-          memberId: t.counterpartMemberId,
-          publicName: t.counterpartPublicName,
-        },
-        latestMessage: t.latestMessage,
-        messageCount: t.messageCount,
-      }));
+      return directThreadSummariesFor(pool, actorMemberId, threads);
     },
 
     async listDirectMessageInbox(input) {
@@ -1158,26 +1185,9 @@ export function createRepository(
         cursor: input.cursor,
       });
       const entries = paginated.results;
-      const counterpartIds = entries.map((e) => e.counterpartMemberId);
-      const sharedClubsMap = await batchResolveSharedClubs(pool, input.actorMemberId, counterpartIds);
 
       return {
-        results: entries.map((e) => ({
-          threadId: e.threadId,
-          sharedClubs: sharedClubsMap.get(e.counterpartMemberId) ?? [],
-          counterpart: {
-            memberId: e.counterpartMemberId,
-            publicName: e.counterpartPublicName,
-          },
-          latestMessage: e.latestMessage,
-          messageCount: e.messageCount,
-          unread: {
-            hasUnread: e.hasUnread,
-            unreadMessageCount: e.unreadCount,
-            unreadUpdateCount: e.unreadCount,
-            latestUnreadMessageCreatedAt: e.latestUnreadAt,
-          },
-        })),
+        results: await directInboxSummariesFor(pool, input.actorMemberId, entries),
         hasMore: paginated.hasMore,
         nextCursor: paginated.nextCursor,
         included: paginated.included,
@@ -1193,19 +1203,10 @@ export function createRepository(
       });
       if (!result) return null;
 
-      const sharedClubs = await resolveSharedClubsUnscoped(pool, input.actorMemberId, result.thread.counterpartMemberId);
+      const thread = (await directThreadSummariesFor(pool, input.actorMemberId, [result.thread]))[0];
 
       return {
-        thread: {
-          threadId: result.thread.threadId,
-          sharedClubs,
-          counterpart: {
-            memberId: result.thread.counterpartMemberId,
-            publicName: result.thread.counterpartPublicName,
-          },
-          latestMessage: result.thread.latestMessage,
-          messageCount: result.thread.messageCount,
-        },
+        thread: thread!,
         messages: result.messages,
         hasMore: result.hasMore,
         nextCursor: result.nextCursor,
@@ -1761,7 +1762,7 @@ export function createRepository(
           mentions: r.is_removed ? [] : (mentionBundle.mentionsByMessageId.get(r.message_id) ?? []),
           payload: r.payload ?? {},
           createdAt: r.created_at,
-          })).reverse(),
+          })),
           hasMore,
           nextCursor: hasMore && lastRow ? paginationEncodeCursor([lastRow.created_at, lastRow.message_id]) : null,
         },

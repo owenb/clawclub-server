@@ -15,7 +15,7 @@ after(async () => {
 
 async function readInbox(
   token: string,
-  params: { limit?: number; unreadOnly?: boolean; cursor?: string | null } = { unreadOnly: false },
+  params: { limit?: number; unreadOnly?: boolean; cursor?: string | null } = {},
 ) {
   return getInbox((await h.getInbox(token, params)).body);
 }
@@ -60,6 +60,7 @@ describe('messages', () => {
     const threadId = sentMessage.threadId as string;
 
     const inbox = await readInbox(alice.token);
+    assert.equal(inbox.unreadOnly, false);
     const results = inbox.results;
     const found = results.find((t) => t.threadId === threadId);
     assert.ok(found, 'sender should see the thread in their inbox');
@@ -297,7 +298,7 @@ describe('messages', () => {
     assert.equal(messages.length, 3, 'thread should have exactly 3 messages');
     assert.deepEqual(
       messages.map((m) => m.messageText),
-      ['Message 1', 'Message 2', 'Message 3'],
+      ['Message 3', 'Message 2', 'Message 1'],
     );
   });
 
