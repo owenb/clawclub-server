@@ -270,6 +270,54 @@ describe('club spend budget', () => {
        returning id`,
       [owner.club.id, owner.id],
     );
+    const finalized = await h.sql<{ id: string }>(
+      `insert into ai_club_spend_reservations (
+         club_id,
+         member_id,
+         action_name,
+         usage_kind,
+         provider,
+         model,
+         status,
+         reserved_micro_cents,
+         actual_micro_cents,
+         reserved_input_tokens_estimate,
+         reserved_output_tokens,
+         actual_prompt_tokens,
+         actual_completion_tokens,
+         actual_embedding_tokens,
+         expires_at,
+         finalized_at
+       )
+       values ($1, $2, 'content.create', 'gate', 'openai', 'gpt-5.4-nano', 'finalized',
+               1000, 250, 10, 64, 9, 12, null, now() - interval '10 minutes', '2026-01-01T00:00:00Z')
+       returning id`,
+      [owner.club.id, owner.id],
+    );
+    const released = await h.sql<{ id: string }>(
+      `insert into ai_club_spend_reservations (
+         club_id,
+         member_id,
+         action_name,
+         usage_kind,
+         provider,
+         model,
+         status,
+         reserved_micro_cents,
+         actual_micro_cents,
+         reserved_input_tokens_estimate,
+         reserved_output_tokens,
+         actual_prompt_tokens,
+         actual_completion_tokens,
+         actual_embedding_tokens,
+         expires_at,
+         finalized_at
+       )
+       values ($1, $2, 'content.create', 'gate', 'openai', 'gpt-5.4-nano', 'released',
+               1000, 0, 10, 64, null, null, null, now() - interval '10 minutes', '2026-01-02T00:00:00Z')
+       returning id`,
+      [owner.club.id, owner.id],
+    );
 
     await processEmbeddings({ db: h.pools.super });
 
@@ -283,7 +331,7 @@ describe('club spend budget', () => {
        from ai_club_spend_reservations
        where id = any($1::text[])
        order by id`,
-      [[expired[0]!.id, live[0]!.id]],
+      [[expired[0]!.id, live[0]!.id, finalized[0]!.id, released[0]!.id]],
     );
     const byId = new Map(rows.map((row) => [row.id, row]));
     assert.equal(byId.get(expired[0]!.id)?.status, 'released');
@@ -292,5 +340,11 @@ describe('club spend budget', () => {
     assert.equal(byId.get(live[0]!.id)?.status, 'pending');
     assert.equal(byId.get(live[0]!.id)?.actual_micro_cents, null);
     assert.equal(byId.get(live[0]!.id)?.finalized_at, null);
+    assert.equal(byId.get(finalized[0]!.id)?.status, 'finalized');
+    assert.equal(byId.get(finalized[0]!.id)?.actual_micro_cents, '250');
+    assert.match(String(byId.get(finalized[0]!.id)?.finalized_at), /^2026-01-01/);
+    assert.equal(byId.get(released[0]!.id)?.status, 'released');
+    assert.equal(byId.get(released[0]!.id)?.actual_micro_cents, '0');
+    assert.match(String(byId.get(released[0]!.id)?.finalized_at), /^2026-01-02/);
   });
 });

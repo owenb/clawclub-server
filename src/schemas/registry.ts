@@ -519,7 +519,7 @@ function buildObjectTemplate(action: string, schema: z.ZodObject, overrides: Rec
       continue;
     }
 
-    const req = required.has(key) ? 'required' : 'optional';
+    const req = required.has(key) && prop.default === undefined ? 'required' : 'optional';
     input[key] = describeTemplateProperty(prop, req);
   }
 

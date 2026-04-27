@@ -127,6 +127,13 @@ describe('messages', () => {
       );
     }
 
+    const inboxBeforeFreshMessage = await readInbox(bob.token, { unreadOnly: true });
+    assert.equal(
+      inboxBeforeFreshMessage.results.some((entry) => entry.threadId === threadId),
+      false,
+      'pre-session history alone should not make the thread unread',
+    );
+
     const sent = await h.apiOk(alice.token, 'messages.send', {
       recipientMemberId: bob.id,
       messageText: 'Fresh message after Bob joins',
