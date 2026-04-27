@@ -244,8 +244,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
         // Replying in a thread implies the sender has seen any unread items already waiting for them there.
         await client.query(
           `update dm_inbox_entries
-           set acknowledged = true,
-               acknowledged_at = coalesce(acknowledged_at, now())
+           set acknowledged_at = coalesce(acknowledged_at, now())
            where recipient_member_id = $1 and thread_id = $2 and acknowledged_at is null`,
           [senderMemberId, ensuredThreadId],
         );
@@ -694,8 +693,7 @@ export function createMessagingRepository(pool: Pool): MessagingRepository {
 
       const result = await pool.query<{ id: string }>(
         `update dm_inbox_entries
-         set acknowledged = true,
-             acknowledged_at = coalesce(acknowledged_at, now())
+         set acknowledged_at = coalesce(acknowledged_at, now())
          where recipient_member_id = $1 and thread_id = $2 and acknowledged_at is null`,
         [memberId, threadId],
       );

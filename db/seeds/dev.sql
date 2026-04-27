@@ -1240,40 +1240,40 @@ with msg as (
   values (:'t_alice_bob', :'alice_id', 'member', 'Hey Bob! Have you tried that new grain-free cat food from the local co-op? My cats seem to love it.', now() - interval '10 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'bob_id', :'t_alice_bob', id, true, now() - interval '10 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'bob_id', :'t_alice_bob', id, now() - interval '10 days', now() - interval '10 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'bob_id', 'member', 'Yes! We switched the shelter cats over last month. The coat quality improvement has been noticeable. Which variety are you using?', now() - interval '10 days' + interval '30 minutes')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'alice_id', :'t_alice_bob', id, true, now() - interval '10 days' + interval '30 minutes' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'alice_id', :'t_alice_bob', id, now() - interval '10 days' + interval '30 minutes', now() - interval '10 days' + interval '30 minutes' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'alice_id', 'member', 'The salmon and sweet potato one. My older cat was a bit picky at first but came around after a few days.', now() - interval '9 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'bob_id', :'t_alice_bob', id, true, now() - interval '9 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'bob_id', :'t_alice_bob', id, now() - interval '9 days', now() - interval '9 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'bob_id', 'member', 'Good to know. We''ve been using the turkey formula mostly. By the way, did you see Julia''s post about the shy rescue cat? Sounds like she could use some advice.', now() - interval '8 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'alice_id', :'t_alice_bob', id, true, now() - interval '8 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'alice_id', :'t_alice_bob', id, now() - interval '8 days', now() - interval '8 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_bob', :'alice_id', 'member', 'Yes, I commented on it. From my training experience, the key is patience and creating positive associations. Two weeks is still early for a fearful rescue cat.', now() - interval '7 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'bob_id', :'t_alice_bob', id, true, now() - interval '7 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'bob_id', :'t_alice_bob', id, now() - interval '7 days', now() - interval '7 days' from msg;
 
 -- Last message from Bob — unread by Alice
 with msg as (
@@ -1281,8 +1281,8 @@ with msg as (
   values (:'t_alice_bob', :'bob_id', 'member', 'Totally agree. I was thinking we could offer to do a home visit together — your training eye plus my shelter experience might help Julia feel more confident. Want to reach out to her?', now() - interval '1 day')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'alice_id', :'t_alice_bob', id, false, now() - interval '1 day' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'alice_id', :'t_alice_bob', id, null, now() - interval '1 day' from msg;
 
 -- ============================================================
 -- Thread 2: Alice <-> Charlie (3 messages about dog meetup)
@@ -1305,24 +1305,24 @@ with msg as (
   values (:'t_alice_charlie', :'alice_id', 'member', 'Charlie, are you bringing all three huskies to the April meetup? I want to make sure we have enough space in the off-leash area.', now() - interval '6 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'charlie_id', :'t_alice_charlie', id, true, now() - interval '6 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'charlie_id', :'t_alice_charlie', id, now() - interval '6 days', now() - interval '6 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_charlie', :'charlie_id', 'member', 'Yep, all three! Blizzard, Storm, and Aurora. They''ve been cooped up all week so they''ll be extra energetic. Should I bring the portable agility set?', now() - interval '5 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'alice_id', :'t_alice_charlie', id, true, now() - interval '5 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'alice_id', :'t_alice_charlie', id, now() - interval '5 days', now() - interval '5 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_alice_charlie', :'alice_id', 'member', 'That would be perfect! Let''s set it up in the flat area near the picnic tables. See you there!', now() - interval '5 days' + interval '1 hour')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'charlie_id', :'t_alice_charlie', id, true, now() - interval '5 days' + interval '1 hour' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'charlie_id', :'t_alice_charlie', id, now() - interval '5 days' + interval '1 hour', now() - interval '5 days' + interval '1 hour' from msg;
 
 -- ============================================================
 -- Thread 3: Bob <-> Charlie (1 message about fox sighting)
@@ -1346,8 +1346,8 @@ with msg as (
   values (:'t_bob_charlie', :'bob_id', 'member', 'Charlie, I spotted a vixen with three cubs near the old railway bridge this morning! First sighting in that area in two years. Might be worth checking with Ivan if he can get photos before the den gets disturbed.', now() - interval '4 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'charlie_id', :'t_bob_charlie', id, false, now() - interval '4 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'charlie_id', :'t_bob_charlie', id, null, now() - interval '4 days' from msg;
 
 -- ============================================================
 -- Thread 4: Morgan <-> Alice (4 messages about club admin)
@@ -1370,32 +1370,32 @@ with msg as (
   values (:'t_founder_alice', :'founder_id', 'member', 'Alice, I''m thinking about making you a co-admin for DogClub. You''re already doing so much for the community. Would you be up for it?', now() - interval '12 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'alice_id', :'t_founder_alice', id, true, now() - interval '12 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'alice_id', :'t_founder_alice', id, now() - interval '12 days', now() - interval '12 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_founder_alice', :'alice_id', 'member', 'Morgan that''s really kind of you! I''d love to help out more. What would the responsibilities look like?', now() - interval '11 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'founder_id', :'t_founder_alice', id, true, now() - interval '11 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'founder_id', :'t_founder_alice', id, now() - interval '11 days', now() - interval '11 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_founder_alice', :'founder_id', 'member', 'Mainly reviewing new member applications and helping moderate content. You''d also be able to manage events and approve posts. I''ll handle the technical side.', now() - interval '11 days' + interval '2 hours')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'alice_id', :'t_founder_alice', id, true, now() - interval '11 days' + interval '2 hours' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'alice_id', :'t_founder_alice', id, now() - interval '11 days' + interval '2 hours', now() - interval '11 days' + interval '2 hours' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_founder_alice', :'alice_id', 'member', 'Sounds great, count me in! I''ll start by reviewing the pending applications this week.', now() - interval '10 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'founder_id', :'t_founder_alice', id, true, now() - interval '10 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'founder_id', :'t_founder_alice', id, now() - interval '10 days', now() - interval '10 days' from msg;
 
 -- ============================================================
 -- Thread 5: Morgan <-> Bob (2 messages about fox conservation)
@@ -1418,16 +1418,16 @@ with msg as (
   values (:'t_founder_bob', :'founder_id', 'member', 'Bob, that Q1 conservation update was excellent. Have you considered writing a monthly newsletter for the club? I think it would keep engagement up.', now() - interval '7 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'bob_id', :'t_founder_bob', id, true, now() - interval '7 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'bob_id', :'t_founder_bob', id, now() - interval '7 days', now() - interval '7 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_founder_bob', :'bob_id', 'member', 'Thanks Morgan! A monthly newsletter is a great idea. I could include sighting reports, conservation news, and member spotlights. Let me draft a template.', now() - interval '6 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'founder_id', :'t_founder_bob', id, true, now() - interval '6 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'founder_id', :'t_founder_bob', id, now() - interval '6 days', now() - interval '6 days' from msg;
 
 -- ============================================================
 -- Thread 6: Diana <-> Julia (4 messages about cat rescue)
@@ -1450,24 +1450,24 @@ with msg as (
   values (:'t_diana_julia', :'diana_id', 'member', 'Julia, I saw your post about the shy rescue cat. I''d be happy to do a free health check if you think stress might be a factor. Sometimes underlying pain makes cats hide.', now() - interval '5 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'julia_id', :'t_diana_julia', id, true, now() - interval '5 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'julia_id', :'t_diana_julia', id, now() - interval '5 days', now() - interval '5 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_diana_julia', :'julia_id', 'member', 'That''s so generous, thank you Diana! The shelter said she was healthy but they were quite busy. I''d feel much better with a proper check from you.', now() - interval '4 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'diana_id', :'t_diana_julia', id, true, now() - interval '4 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'diana_id', :'t_diana_julia', id, now() - interval '4 days', now() - interval '4 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_diana_julia', :'diana_id', 'member', 'Of course! I can come by this Saturday morning. In the meantime, try placing a worn t-shirt near her hiding spot — your scent helps build familiarity.', now() - interval '3 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'julia_id', :'t_diana_julia', id, true, now() - interval '3 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'julia_id', :'t_diana_julia', id, now() - interval '3 days', now() - interval '3 days' from msg;
 
 -- Unread by Diana
 with msg as (
@@ -1475,8 +1475,8 @@ with msg as (
   values (:'t_diana_julia', :'julia_id', 'member', 'Saturday works perfectly! And I tried the t-shirt trick — she actually sniffed it this morning instead of running away. Small progress!', now() - interval '2 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'diana_id', :'t_diana_julia', id, false, now() - interval '2 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'diana_id', :'t_diana_julia', id, null, now() - interval '2 days' from msg;
 
 -- ============================================================
 -- Thread 7: Ivan <-> Charlie (3 messages about wildlife photography)
@@ -1499,24 +1499,24 @@ with msg as (
   values (:'t_ivan_charlie', :'ivan_id', 'member', 'Charlie, loved your photography tips post! You''re really progressing fast. Want to do a dawn session at the meadow this weekend? The foxes have been active there.', now() - interval '8 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'charlie_id', :'t_ivan_charlie', id, true, now() - interval '8 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'charlie_id', :'t_ivan_charlie', id, now() - interval '8 days', now() - interval '8 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_ivan_charlie', :'charlie_id', 'member', 'I''d love that! What time should I be there? And should I bring the 200mm or the 400mm?', now() - interval '7 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'ivan_id', :'t_ivan_charlie', id, true, now() - interval '7 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'ivan_id', :'t_ivan_charlie', id, now() - interval '7 days', now() - interval '7 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_ivan_charlie', :'ivan_id', 'member', 'Meet at 5:15am — we want to be set up before first light. Bring the 400mm, the foxes keep their distance at that spot. I''ll bring a hide cloth.', now() - interval '7 days' + interval '3 hours')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'charlie_id', :'t_ivan_charlie', id, true, now() - interval '7 days' + interval '3 hours' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'charlie_id', :'t_ivan_charlie', id, now() - interval '7 days' + interval '3 hours', now() - interval '7 days' + interval '3 hours' from msg;
 
 -- ============================================================
 -- Thread 8: Morgan <-> Diana (5 messages, one removed)
@@ -1539,32 +1539,32 @@ with msg as (
   values (:'t_founder_diana', :'founder_id', 'member', 'Diana, thanks for handling the spam post removal so quickly. George seems like a good person but he needs to understand that CatClub isn''t a marketplace.', now() - interval '9 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'diana_id', :'t_founder_diana', id, true, now() - interval '9 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'diana_id', :'t_founder_diana', id, now() - interval '9 days', now() - interval '9 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_founder_diana', :'diana_id', 'member', 'Agreed. I sent him a friendly DM explaining the guidelines. He was apologetic. I think it was a genuine mistake — he''s very enthusiastic about his bird feeder business.', now() - interval '8 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'founder_id', :'t_founder_diana', id, true, now() - interval '8 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'founder_id', :'t_founder_diana', id, now() - interval '8 days', now() - interval '8 days' from msg;
 
 with msg as (
   insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
   values (:'t_founder_diana', :'founder_id', 'member', 'Good call. On another topic — the cat cafe partnership you posted about sounds amazing. I might be interested in the vet welfare side. Can we chat about it?', now() - interval '7 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'diana_id', :'t_founder_diana', id, true, now() - interval '7 days' from msg;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'diana_id', :'t_founder_diana', id, now() - interval '7 days', now() - interval '7 days' from msg;
 
 -- This message will be removed
 insert into dm_messages (thread_id, sender_member_id, role, message_text, created_at)
 values (:'t_founder_diana', :'founder_id', 'member', 'Oops, sent this to the wrong thread — ignore!', now() - interval '6 days')
 returning id as removed_msg \gset
 
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-values (:'diana_id', :'t_founder_diana', :'removed_msg', true, now() - interval '6 days');
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+values (:'diana_id', :'t_founder_diana', :'removed_msg', now() - interval '6 days', now() - interval '6 days');
 
 insert into dm_message_removals (message_id, removed_by_member_id, reason, removed_at)
 values (:'removed_msg', :'founder_id', 'Sent to wrong thread', now() - interval '6 days' + interval '1 minute');
@@ -1575,12 +1575,7 @@ with msg as (
   values (:'t_founder_diana', :'diana_id', 'member', 'Absolutely! I''d love to discuss the welfare protocols. I have some ideas about stress-free rotation schedules for the cats. Free Saturday afternoon?', now() - interval '3 days')
   returning id
 )
-insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged, created_at)
-select :'founder_id', :'t_founder_diana', id, false, now() - interval '3 days' from msg;
-
-update dm_inbox_entries
-   set acknowledged_at = created_at
- where acknowledged = true
-   and acknowledged_at is null;
+insert into dm_inbox_entries (recipient_member_id, thread_id, message_id, acknowledged_at, created_at)
+select :'founder_id', :'t_founder_diana', id, null, now() - interval '3 days' from msg;
 
 commit;

@@ -605,13 +605,12 @@ describe('messages', () => {
     assert.equal((ack.data as Record<string, unknown>).threadId, threadId);
     assert.equal((ack.data as Record<string, unknown>).acknowledgedCount, 1);
 
-    const acknowledgedRows = await h.sql<{ acknowledged: boolean; acknowledged_at: string | null }>(
-      `select acknowledged, acknowledged_at::text as acknowledged_at
+    const acknowledgedRows = await h.sql<{ acknowledged_at: string | null }>(
+      `select acknowledged_at::text as acknowledged_at
        from dm_inbox_entries
        where recipient_member_id = $1 and thread_id = $2`,
       [owner.id, threadId],
     );
-    assert.equal(acknowledgedRows[0]?.acknowledged, true);
     assert.match(String(acknowledgedRows[0]?.acknowledged_at), /^\d{4}-\d{2}-\d{2}/);
 
     const inboxAfter = await readInbox(owner.token, { unreadOnly: true });
@@ -865,6 +864,26 @@ describe('messages', () => {
 // ── Stream / Read State ──────────────────────────────────────────────────────
 
 describe('messages read-state and stream', () => {
+  it('uses acknowledged_at only for DM inbox read state', async () => {
+    const columnRows = await h.sql<{ count: string }>(
+      `select count(*)::text as count
+         from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'dm_inbox_entries'
+          and column_name = 'acknowledged'`,
+    );
+    assert.equal(columnRows[0]?.count, '0');
+
+    const indexRows = await h.sql<{ index_name: string | null }>(
+      `select to_regclass('public.dm_inbox_entries_unread_idx')::text as index_name
+       union all
+       select to_regclass('public.dm_inbox_entries_unread_poll_idx')::text
+       union all
+       select to_regclass('public.dm_inbox_entries_unread_thread_idx')::text`,
+    );
+    assert.deepEqual(indexRows.map((row) => row.index_name), [null, null, null]);
+  });
+
   it('ready frame carries notification seed and activity cursor', async () => {
     const owner = await h.seedOwner('sse-club-1', 'SSEClub1');
     const stream = h.connectStream(owner.token, { after: 'latest' });

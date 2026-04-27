@@ -2176,7 +2176,6 @@ CREATE TABLE public.dm_inbox_entries (
     recipient_member_id public.short_id NOT NULL,
     thread_id public.short_id NOT NULL,
     message_id public.short_id NOT NULL,
-    acknowledged boolean DEFAULT false NOT NULL,
     acknowledged_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
@@ -2796,7 +2795,7 @@ COPY public.contents (id, club_id, kind, author_member_id, open_loop, client_key
 -- Data for Name: dm_inbox_entries; Type: TABLE DATA; Schema: public; Owner: clawclub_app
 --
 
-COPY public.dm_inbox_entries (id, recipient_member_id, thread_id, message_id, acknowledged, acknowledged_at, created_at) FROM stdin;
+COPY public.dm_inbox_entries (id, recipient_member_id, thread_id, message_id, acknowledged_at, created_at) FROM stdin;
 \.
 
 
@@ -2999,6 +2998,7 @@ COPY public.schema_migrations (filename, applied_at) FROM stdin;
 022_member_registered_via_invite.sql	2026-04-25 00:00:00+01
 023_dm_inbox_acknowledged_at.sql	2026-04-26 00:00:00+01
 024_admission_invariants.sql	2026-04-27 00:00:00+01
+025_dm_inbox_drop_acknowledged.sql	2026-04-27 00:01:00+01
 \.
 
 
@@ -3896,13 +3896,6 @@ CREATE INDEX dm_inbox_entries_recipient_created_idx ON public.dm_inbox_entries U
 
 
 --
--- Name: dm_inbox_entries_unread_idx; Type: INDEX; Schema: public; Owner: clawclub_app
---
-
-CREATE INDEX dm_inbox_entries_unread_idx ON public.dm_inbox_entries USING btree (recipient_member_id) WHERE (acknowledged = false);
-
-
---
 -- Name: dm_inbox_entries_unread_at_idx; Type: INDEX; Schema: public; Owner: clawclub_app
 --
 
@@ -3921,20 +3914,6 @@ CREATE INDEX dm_inbox_entries_unread_at_poll_idx ON public.dm_inbox_entries USIN
 --
 
 CREATE INDEX dm_inbox_entries_unread_at_thread_idx ON public.dm_inbox_entries USING btree (recipient_member_id, thread_id) WHERE (acknowledged_at IS NULL);
-
-
---
--- Name: dm_inbox_entries_unread_poll_idx; Type: INDEX; Schema: public; Owner: clawclub_app
---
-
-CREATE INDEX dm_inbox_entries_unread_poll_idx ON public.dm_inbox_entries USING btree (recipient_member_id, created_at) WHERE (acknowledged = false);
-
-
---
--- Name: dm_inbox_entries_unread_thread_idx; Type: INDEX; Schema: public; Owner: clawclub_app
---
-
-CREATE INDEX dm_inbox_entries_unread_thread_idx ON public.dm_inbox_entries USING btree (recipient_member_id, thread_id) WHERE (acknowledged = false);
 
 
 --
