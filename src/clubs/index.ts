@@ -416,12 +416,15 @@ export async function findContentViaEmbedding(pool: Pool, input: {
 
   const result = await pool.query<{ content_id: string; _distance: number }>(
     `select e.id as content_id,
-            (select min(eea.embedding <=> $2::vector)
-             from content_embeddings eea
-             where eea.content_id = e.id and eea.content_version_id = cev.id
-            ) as _distance
+            embedding_distance.distance as _distance
      from contents e
      join current_content_versions cev on cev.content_id = e.id
+     join lateral (
+       select min(eea.embedding <=> $2::vector) as distance
+       from content_embeddings eea
+       where eea.content_id = e.id
+         and eea.content_version_id = cev.id
+     ) embedding_distance on true
      where e.club_id = any($1::text[])
        and e.archived_at is null
        and e.deleted_at is null
@@ -429,14 +432,11 @@ export async function findContentViaEmbedding(pool: Pool, input: {
        and (e.open_loop is null or e.open_loop = true)
        and (cev.expires_at is null or cev.expires_at > now())
        and ($3::text[] is null or e.kind::text = any($3))
-       and exists (
-         select 1 from content_embeddings eea
-         where eea.content_id = e.id and eea.content_version_id = cev.id
-       )
+       and embedding_distance.distance is not null
        and ($5::float8 is null
-         or (select min(eea.embedding <=> $2::vector) from content_embeddings eea where eea.content_id = e.id and eea.content_version_id = cev.id) > $5
-         or ((select min(eea.embedding <=> $2::vector) from content_embeddings eea where eea.content_id = e.id and eea.content_version_id = cev.id) = $5 and e.id > $6))
-     order by _distance asc, e.id asc
+         or embedding_distance.distance > $5
+         or (embedding_distance.distance = $5 and e.id > $6))
+     order by embedding_distance.distance asc, e.id asc
      limit $4`,
     [input.clubIds, input.queryEmbedding, input.kinds ?? null, fetchLimit, cursorDist, cursorId],
   );
