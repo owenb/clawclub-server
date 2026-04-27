@@ -13,7 +13,7 @@ import {
   paginationFields,
 } from './fields.ts';
 import { contentThread, eventWithIncluded, membershipSummary, paginatedOutputWithIncluded } from './responses.ts';
-import { clubScopedResult, registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
+import { clubScopedResult, defineInput, registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 type EventListInput = {
   clubId?: string;
@@ -31,24 +31,23 @@ const eventsList: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for events.')),
       query: wireOptionalString.describe('Search text'),
       ...EVENTS_LIST_PAGINATION.wire,
     }),
+    parse: z.object({
+      clubId: parseRequiredString.optional(),
+      query: parseTrimmedNullableString,
+      ...EVENTS_LIST_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: paginatedOutputWithIncluded(contentThread, {
       query: z.string().nullable(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString.optional(),
-      query: parseTrimmedNullableString,
-      ...EVENTS_LIST_PAGINATION.parse,
     }),
   },
 
@@ -110,21 +109,20 @@ const eventsSetRsvp: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       eventId: wireRequiredString.describe('Event content ID'),
       response: eventRsvpState.nullable().describe('RSVP response. Use null to cancel the current RSVP. Use waitlist to opt into the waitlist explicitly; yes auto-waitlists when the event is full.'),
       note: wireOptionalString.describe('Optional note'),
     }),
-    output: eventWithIncluded,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       eventId: parseRequiredString,
       response: eventRsvpState.nullable(),
       note: parseTrimmedNullableString,
     }),
+  }),
+  wire: {
+    output: eventWithIncluded,
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {

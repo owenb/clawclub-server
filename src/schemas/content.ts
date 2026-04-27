@@ -39,6 +39,7 @@ import {
 import {
   clubScopedResult,
   paginatedResultData,
+  defineInput,
   registerActions,
   type ActionDefinition,
   type HandlerContext,
@@ -244,8 +245,8 @@ const contentsCreate: ActionDefinition = {
     'Publishes immediately. There is no draft-save state.',
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Required when starting a new thread. Ignored when threadId is provided.')),
       threadId: wireRequiredString.optional().describe('Existing content thread to respond to. Omit to start a new thread.'),
       kind: contentKind.describe('Content kind'),
@@ -256,11 +257,7 @@ const contentsCreate: ActionDefinition = {
       clientKey: wireOptionalOpaqueString.describe(describeClientKey('Idempotency key for this content creation.')),
       event: wireEventFieldsCreate.describe('Required when kind=event.'),
     }),
-    output: contentWithIncluded,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString.optional(),
       threadId: parseRequiredString.optional(),
       kind: contentKind,
@@ -271,6 +268,9 @@ const contentsCreate: ActionDefinition = {
       clientKey: parseTrimmedNullableOpaqueString.default(null),
       event: parseEventFieldsCreate,
     }),
+  }),
+  wire: {
+    output: contentWithIncluded,
   },
 
   llmGate: {
@@ -468,8 +468,8 @@ const contentsUpdate: ActionDefinition = {
   authorizationNote: 'Only the original author may update. At least one field must change.',
   businessErrors: [...CONTENT_UPDATE_ERRORS],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       id: wireRequiredString.describe('Content to update'),
       clientKey: wireOptionalOpaqueString.describe(describeClientKey('Idempotency key for this content update.')),
       title: wirePatchString.describe('New title'),
@@ -478,11 +478,7 @@ const contentsUpdate: ActionDefinition = {
       expiresAt: wirePatchString.describe('New expiration timestamp'),
       event: wireEventFieldsPatch.describe('Event patch fields (only valid for event contents)'),
     }),
-    output: contentWithIncluded,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       id: parseRequiredString,
       clientKey: parseTrimmedNullableOpaqueString.default(null),
       title: parsePatchString,
@@ -494,6 +490,9 @@ const contentsUpdate: ActionDefinition = {
       const { id: _id, clientKey: _clientKey, ...patch } = input;
       return Object.values(patch).some(value => value !== undefined);
     }, 'content.update requires at least one field to change'),
+  }),
+  wire: {
+    output: contentWithIncluded,
   },
 
   llmGate: {
@@ -603,19 +602,18 @@ const contentsRemove: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       id: wireRequiredString.describe('Content to remove'),
       reason: wireOptionalString.describe('Reason for removal (optional)'),
     }),
-    output: contentWithIncluded,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       id: parseRequiredString,
       reason: parseTrimmedNullableString.default(null),
     }),
+  }),
+  wire: {
+    output: contentWithIncluded,
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -651,22 +649,14 @@ const contentGetThread: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       contentId: wireRequiredString.optional().describe('Any content id inside the target thread'),
       threadId: wireRequiredString.optional().describe('Thread ID to read directly'),
       includeClosed: z.boolean().optional().describe('Include closed asks, gifts, services, and opportunities in thread reads'),
       ...CONTENT_GET_PAGINATION.wire,
     }),
-    output: z.object({
-      thread: contentThreadSummary,
-      contents: paginatedOutput(content),
-      included: includedBundle,
-    }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       contentId: parseRequiredString.optional(),
       threadId: parseRequiredString.optional(),
       includeClosed: z.boolean().optional().default(false),
@@ -675,6 +665,13 @@ const contentGetThread: ActionDefinition = {
       input => !!input.contentId !== !!input.threadId,
       'Provide exactly one of contentId or threadId',
     ),
+  }),
+  wire: {
+    output: z.object({
+      thread: contentThreadSummary,
+      contents: paginatedOutput(content),
+      included: includedBundle,
+    }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -730,30 +727,29 @@ const contentsList: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for content listing.')),
       kinds: wireContentKinds,
       query: wireOptionalString.describe('Search thread subject text'),
       includeClosed: z.boolean().optional().describe('Include closed ask, gift, service, and opportunity subjects'),
       ...CONTENT_LIST_PAGINATION.wire,
     }),
+    parse: z.object({
+      clubId: parseRequiredString.optional(),
+      kinds: parseContentKinds,
+      query: parseTrimmedNullableString,
+      includeClosed: z.boolean().optional().default(false),
+      ...CONTENT_LIST_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: paginatedOutputWithIncluded(contentThread, {
       query: z.string().nullable(),
       kinds: z.array(contentKind),
       includeClosed: z.boolean(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString.optional(),
-      kinds: parseContentKinds,
-      query: parseTrimmedNullableString,
-      includeClosed: z.boolean().optional().default(false),
-      ...CONTENT_LIST_PAGINATION.parse,
     }),
   },
 
@@ -812,26 +808,25 @@ const contentsFindViaEmbedding: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       query: z.string().max(1000).describe('Natural-language search query (max 1000 chars)'),
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for semantic content search.')),
       kinds: boundedArray(contentKind, { minItems: 1, maxItems: 6 }).optional().describe('Filter by content kinds'),
       ...CONTENT_SEMANTIC_SEARCH_PAGINATION.wire,
     }),
-    output: paginatedOutputWithIncluded(contentSearchResult, {
-      query: z.string(),
-      limit: z.number(),
-      clubScope: z.array(membershipSummary),
-    }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       query: z.string().trim().min(1).max(1000),
       clubId: parseRequiredString.optional(),
       kinds: boundedArray(contentKind, { minItems: 1, maxItems: 6 }).optional(),
       ...CONTENT_SEMANTIC_SEARCH_PAGINATION.parse,
+    }),
+  }),
+  wire: {
+    output: paginatedOutputWithIncluded(contentSearchResult, {
+      query: z.string(),
+      limit: z.number(),
+      clubScope: z.array(membershipSummary),
     }),
   },
 
@@ -971,19 +966,18 @@ const contentSetLoopState: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       id: wireRequiredString.describe('Content whose loop state should change'),
       state: z.enum(['open', 'closed']).describe('Target loop state'),
     }),
-    output: contentWithIncluded,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       id: parseRequiredString,
       state: z.enum(['open', 'closed']),
     }),
+  }),
+  wire: {
+    output: contentWithIncluded,
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {

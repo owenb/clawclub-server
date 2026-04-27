@@ -27,7 +27,7 @@ import {
   wireSlug,
 } from './fields.ts';
 import { clubSummary } from './responses.ts';
-import { clubScopedResult, registerActions, type ActionDefinition, type ActionResult, type HandlerContext } from './registry.ts';
+import { clubScopedResult, defineInput, registerActions, type ActionDefinition, type ActionResult, type HandlerContext } from './registry.ts';
 
 const clubsCreateInputSchema = z.object({
   clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this club creation.')),
@@ -85,18 +85,18 @@ const clubsCreate: ActionDefinition = {
       recovery: 'Choose a different slug and retry with a new clientKey.',
     },
   ],
-  wire: {
-    input: clubsCreateInputSchema,
-    output: z.object({ club: clubSummary }),
-  },
-  parse: {
-    input: z.object({
+  input: defineInput({
+    wire: clubsCreateInputSchema,
+    parse: z.object({
       clientKey: parseRequiredString,
       slug: parseSlug,
       name: parseHumanRequiredString,
       summary: parseHumanRequiredString,
       admissionPolicy: parseHumanRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ club: clubSummary }),
   },
   idempotency: {
     getClientKey: (input) => (input as ClubsCreateInput).clientKey,
@@ -239,8 +239,8 @@ const clubsApply: ActionDefinition = {
       recovery: 'Generate a new clientKey for a different application, or resend the exact same payload to replay safely.',
     },
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubSlug: wireRequiredString.describe(describePublicClubSlug('Club to apply to.')),
       invitationId: wireRequiredString.optional().describe('Optional invitation to bind when applying through an existing in-app invite. Omit this unless multiple live invites exist for the same club.'),
       draft: z.object({
@@ -250,10 +250,7 @@ const clubsApply: ActionDefinition = {
       }),
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this club application submit.')),
     }),
-    output: memberApplicationState,
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubSlug: parseRequiredString,
       invitationId: parseRequiredString.optional(),
       draft: z.object({
@@ -263,6 +260,9 @@ const clubsApply: ActionDefinition = {
       }),
       clientKey: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: memberApplicationState,
   },
   idempotency: {
     getClientKey: (input) => (input as { clientKey: string }).clientKey,
@@ -318,8 +318,8 @@ const clubsApplicationsRevise: ActionDefinition = {
       recovery: 'Generate a new clientKey for a different revision, or resend the exact same payload to replay safely.',
     },
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       applicationId: wireRequiredString.describe('Application to revise'),
       draft: z.object({
         name: wirePersonName,
@@ -328,10 +328,7 @@ const clubsApplicationsRevise: ActionDefinition = {
       }),
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this application revision.')),
     }),
-    output: memberApplicationState,
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       applicationId: parseRequiredString,
       draft: z.object({
         name: parsePersonName,
@@ -340,6 +337,9 @@ const clubsApplicationsRevise: ActionDefinition = {
       }),
       clientKey: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: memberApplicationState,
   },
   idempotency: {
     getClientKey: (input) => (input as { clientKey: string }).clientKey,
@@ -375,16 +375,16 @@ const clubsApplicationsGet: ActionDefinition = {
   description: 'Read one application owned by the authenticated member.',
   auth: 'member',
   safety: 'read_only',
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       applicationId: wireRequiredString.describe('Application to fetch'),
     }),
-    output: memberApplicationState,
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       applicationId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: memberApplicationState,
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { applicationId } = input as { applicationId: string };
@@ -409,20 +409,20 @@ const clubsApplicationsList: ActionDefinition = {
   description: 'List applications owned by the authenticated member.',
   auth: 'member',
   safety: 'read_only',
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       phases: boundedArray(applicationPhase, { minItems: 1, maxItems: 7 }).optional().describe('Optional application-phase filter. Defaults to awaiting_review + active. Include revision_required explicitly when you need saved drafts that are not yet in the admin queue.'),
       ...CLUB_APPLICATIONS_LIST_PAGINATION.wire,
     }),
+    parse: z.object({
+      phases: boundedArray(applicationPhase, { minItems: 1, maxItems: 7 }).optional(),
+      ...CLUB_APPLICATIONS_LIST_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: paginatedOutput(memberApplicationState).extend({
       limit: z.number(),
       phases: z.array(applicationPhase).nullable(),
-    }),
-  },
-  parse: {
-    input: z.object({
-      phases: boundedArray(applicationPhase, { minItems: 1, maxItems: 7 }).optional(),
-      ...CLUB_APPLICATIONS_LIST_PAGINATION.parse,
     }),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -464,18 +464,18 @@ const clubsApplicationsWithdraw: ActionDefinition = {
       recovery: 'Read the canonical application state returned in error.details and follow its workflow/next fields instead of retrying this withdraw call.',
     },
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       applicationId: wireRequiredString.describe('Application to withdraw'),
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this application withdrawal.')),
     }),
-    output: memberApplicationState,
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       applicationId: parseRequiredString,
       clientKey: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: memberApplicationState,
   },
   idempotency: {
     getClientKey: (input) => (input as { clientKey: string }).clientKey,

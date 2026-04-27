@@ -17,7 +17,7 @@ import {
 import {
   quotaAllowance, bearerTokenSummary, createdBearerToken,
 } from './responses.ts';
-import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
+import { defineInput, registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 const ACCESS_TOKENS_PAGINATION = paginationFields({ defaultLimit: 20, maxLimit: 50 });
 
@@ -35,13 +35,11 @@ const quotasStatus: ActionDefinition = {
     'llm.outputTokens is tracked per club-member so club cost can be aggregated later.',
   ],
 
+  input: defineInput({
+    wire: z.object({}),
+  }),
   wire: {
-    input: z.object({}),
     output: z.object({ quotas: z.array(quotaAllowance) }),
-  },
-
-  parse: {
-    input: z.object({}),
   },
 
   async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -69,17 +67,16 @@ const tokensList: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       ...ACCESS_TOKENS_PAGINATION.wire,
     }),
-    output: paginatedOutput(bearerTokenSummary),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       ...ACCESS_TOKENS_PAGINATION.parse,
     }),
+  }),
+  wire: {
+    output: paginatedOutput(bearerTokenSummary),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -112,23 +109,22 @@ const tokensCreate: ActionDefinition = {
   safety: 'mutating',
   idempotencyStrategy: { kind: 'secretMint' },
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this bearer token mint. Plaintext tokens are never replayed.')),
       label: wireOptionalString.describe('Human-readable label'),
       expiresAt: wireIsoDatetime.nullable().optional().describe('ISO 8601 expiration timestamp'),
       metadata: wireOptionalRecord.describe('Freeform metadata'),
     }),
-    output: createdBearerToken,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       label: parseTrimmedNullableString.default(null),
       expiresAt: parseFutureIsoDatetime.default(null),
       metadata: parseOptionalRecord,
     }),
+  }),
+  wire: {
+    output: createdBearerToken,
   },
   idempotency: {
     getClientKey: (input) => (input as TokensCreateInput).clientKey,
@@ -175,17 +171,16 @@ const tokensRevoke: ActionDefinition = {
     reason: 'Revocation sets revoked_at once with coalesce; repeating the same token revoke leaves the same token state.',
   },
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       tokenId: wireRequiredString.describe('Token to revoke'),
     }),
-    output: z.object({ token: bearerTokenSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       tokenId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ token: bearerTokenSummary }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {

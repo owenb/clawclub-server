@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { AppError, type Repository } from '../../src/repository.ts';
 import { buildDispatcher } from '../../src/dispatch.ts';
-import { registerActions, type ActionDefinition } from '../../src/schemas/registry.ts';
+import { defineInput, registerActions, type ActionDefinition } from '../../src/schemas/registry.ts';
 import { makeAuthResult, makeRepository, passthroughGate } from './fixtures.ts';
 
 let actionCounter = 0;
@@ -24,12 +24,11 @@ test('dispatch fails closed when an llmGate action is missing budget plumbing', 
       kind: 'naturallyIdempotent',
       reason: 'Test fixture has no side effects.',
     },
+    input: defineInput({
+      wire: z.object({ body: z.string() }),
+    }),
     wire: {
-      input: z.object({ body: z.string() }),
       output: z.object({ ok: z.boolean() }),
-    },
-    parse: {
-      input: z.object({ body: z.string() }),
     },
     llmGate: {
       async buildArtifact() {
@@ -92,12 +91,11 @@ test('dispatch fails closed when an llmGate action is missing club spend plumbin
       kind: 'naturallyIdempotent',
       reason: 'Test fixture has no side effects.',
     },
+    input: defineInput({
+      wire: z.object({ body: z.string() }),
+    }),
     wire: {
-      input: z.object({ body: z.string() }),
       output: z.object({ ok: z.boolean() }),
-    },
-    parse: {
-      input: z.object({ body: z.string() }),
     },
     llmGate: {
       async buildArtifact() {

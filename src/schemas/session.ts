@@ -2,7 +2,7 @@
  * Action contract: session.getContext
  */
 import { z } from 'zod';
-import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
+import { defineInput, registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 const sessionGetContext: ActionDefinition = {
   action: 'session.getContext',
@@ -14,13 +14,11 @@ const sessionGetContext: ActionDefinition = {
     'Returns the standard authenticated envelope. The useful session data is in actor, not data.',
   ],
 
+  input: defineInput({
+    wire: z.object({}),
+  }),
   wire: {
-    input: z.object({}),
     output: z.object({}),
-  },
-
-  parse: {
-    input: z.object({}),
   },
 
   async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {

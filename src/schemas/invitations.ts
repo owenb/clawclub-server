@@ -31,7 +31,7 @@ import {
   wireRequiredString,
 } from './fields.ts';
 import { invitationSummary } from './responses.ts';
-import { clubScopedResult, registerActions, type ActionDefinition, type ActionResult, type HandlerContext } from './registry.ts';
+import { clubScopedResult, defineInput, registerActions, type ActionDefinition, type ActionResult, type HandlerContext } from './registry.ts';
 
 const wireAsciiEmail = wireEmail.describe('ASCII email address. Server trims, lowercases, and validates address shape.');
 const parseAsciiEmail = parseEmail.refine((value) => /^[\x00-\x7F]+$/.test(value), 'Email must use ASCII characters only');
@@ -205,12 +205,12 @@ const invitationsIssue: ActionDefinition = {
       recovery: 'Do not retry automatically. Wait until the temporary block expires, or ask a club admin whether a persistent block should be reconsidered.',
     },
   ],
+  input: defineInput({
+    wire: invitationsIssueInputSchema,
+    parse: invitationsIssueParseSchema,
+  }),
   wire: {
-    input: invitationsIssueInputSchema,
     output: invitationsIssueOutputSchema,
-  },
-  parse: {
-    input: invitationsIssueParseSchema,
   },
   llmGate: {
     async buildArtifact(input): Promise<NonApplicationArtifact> {
@@ -266,20 +266,20 @@ const invitationsListMine: ActionDefinition = {
     'Each invitation includes quotaState so sponsors can see whether it still occupies one of their live invitation slots.',
     'Sponsors can recover a forgotten invitation code from the code field on their own code-backed invitations.',
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for issued invitations.')),
       status: invitationStatus.optional().describe('Optional invitation status filter'),
       ...INVITATIONS_LIST_PAGINATION.wire,
     }),
-    output: paginatedOutput(invitationSummary),
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseTrimmedNullableString.transform((value) => value ?? undefined),
       status: invitationStatus.optional(),
       ...INVITATIONS_LIST_PAGINATION.parse,
     }),
+  }),
+  wire: {
+    output: paginatedOutput(invitationSummary),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { clubId, status, limit, cursor: rawCursor } = input as {
@@ -337,19 +337,19 @@ const invitationsRevoke: ActionDefinition = {
       recovery: 'Read the canonical invitation in error.details.invitation and issue a new invitation if appropriate.',
     },
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       invitationId: wireRequiredString.describe('Invitation to revoke'),
       clientKey: wireOptionalOpaqueString.describe(describeClientKey('Optional idempotency key for this invitation revoke.')),
     }),
-    output: z.object({
-      invitation: invitationSummary,
-    }),
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       invitationId: parseRequiredString,
       clientKey: parseTrimmedNullableOpaqueString.default(null),
+    }),
+  }),
+  wire: {
+    output: z.object({
+      invitation: invitationSummary,
     }),
   },
   idempotency: {
@@ -442,8 +442,8 @@ const invitationsRedeem: ActionDefinition = {
       recovery: 'Generate a new clientKey for a different redemption, or resend the exact same payload to replay safely.',
     },
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       code: wireInvitationCode,
       draft: z.object({
         name: wireBoundedString,
@@ -452,10 +452,7 @@ const invitationsRedeem: ActionDefinition = {
       }),
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this invitation redemption submit.')),
     }),
-    output: memberApplicationState,
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       code: parseRequiredString,
       draft: z.object({
         name: parseBoundedString,
@@ -464,6 +461,9 @@ const invitationsRedeem: ActionDefinition = {
       }),
       clientKey: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: memberApplicationState,
   },
   idempotency: {
     getClientKey: (input) => (input as { clientKey: string }).clientKey,

@@ -289,7 +289,7 @@ function buildSchema(): unknown {
   const actions: SchemaAction[] = [];
 
   for (const [, def] of registry) {
-    const inputSchema = toActionJsonSchema(def.wire.input);
+    const inputSchema = toActionJsonSchema(def.input.wire);
 
     const entry: SchemaAction = {
       action: def.action,

@@ -50,6 +50,7 @@ import {
 import {
   clubScopedResult,
   paginatedResultData,
+  defineInput,
   registerActions,
   type ActionDefinition,
   type HandlerContext,
@@ -125,13 +126,11 @@ const superadminOverview: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
+  input: defineInput({
+    wire: z.object({}),
+  }),
   wire: {
-    input: z.object({}),
     output: z.object({ overview: adminOverview }),
-  },
-
-  parse: {
-    input: z.object({}),
   },
 
   async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -155,17 +154,16 @@ const superadminMembersList: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       ...SUPERADMIN_DEFAULT_PAGINATION.wire,
     }),
-    output: paginatedOutput(superadminMemberSummary),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       ...SUPERADMIN_DEFAULT_PAGINATION.parse,
     }),
+  }),
+  wire: {
+    output: paginatedOutput(superadminMemberSummary),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -192,17 +190,16 @@ const superadminMembersGet: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       memberId: wireRequiredString.describe('Member to inspect'),
     }),
-    output: z.object({ member: superadminMemberDetail }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       memberId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ member: superadminMemberDetail }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -239,23 +236,22 @@ const superadminMembersRemove: ActionDefinition = {
   safety: 'mutating',
   idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe('Idempotency key for this hard delete.'),
       memberId: wireRequiredString.describe('Member to permanently delete.'),
       confirmPublicName: wireRequiredString.describe('Exact current publicName, used as a destructive-action confirmation.'),
       reason: wireHumanRequiredString.describe('Operator reason for the permanent delete.'),
     }),
-    output: z.object({ removedMember: removedMemberSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       memberId: parseRequiredString,
       confirmPublicName: parseRequiredString,
       reason: parseHumanRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ removedMember: removedMemberSummary }),
   },
 
   idempotency: {
@@ -295,13 +291,11 @@ const superadminDiagnosticsHealth: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
+  input: defineInput({
+    wire: z.object({}),
+  }),
   wire: {
-    input: z.object({}),
     output: z.object({ diagnostics: adminDiagnostics }),
-  },
-
-  parse: {
-    input: z.object({}),
   },
 
   async handle(_input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -326,20 +320,19 @@ const superadminClubsList: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       includeArchived: wireOptionalBoolean.describe('Include archived clubs'),
       ...SUPERADMIN_CLUBS_LIST_PAGINATION.wire,
     }),
-    output: paginatedOutput(clubSummary).extend({
-      includeArchived: z.boolean(),
-    }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       includeArchived: z.boolean().optional().default(false),
       ...SUPERADMIN_CLUBS_LIST_PAGINATION.parse,
+    }),
+  }),
+  wire: {
+    output: paginatedOutput(clubSummary).extend({
+      includeArchived: z.boolean(),
     }),
   },
 
@@ -370,17 +363,16 @@ const superadminClubsGet: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe('Club to inspect'),
     }),
-    output: z.object({ club: superadminClubDetail }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ club: superadminClubDetail }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -419,8 +411,8 @@ const superadminClubsCreate: ActionDefinition = {
   idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
   refreshActorOnSuccess: true,
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe('Idempotency key for this club creation.'),
       slug: wireSlug.describe('URL-safe slug for the club'),
       name: wireHumanRequiredString.describe('Club display name'),
@@ -430,11 +422,7 @@ const superadminClubsCreate: ActionDefinition = {
       usesFreeAllowance: wireOptionalBoolean.describe('When true, this club still counts against the owner’s free-club allowance.'),
       memberCap: wireMemberCap,
     }),
-    output: z.object({ club: clubSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       slug: parseSlug,
       name: parseHumanRequiredString,
@@ -449,6 +437,9 @@ const superadminClubsCreate: ActionDefinition = {
         : input.memberCap !== undefined && input.memberCap !== null,
       'usesFreeAllowance=false requires an explicit memberCap; usesFreeAllowance=true forbids one',
     ),
+  }),
+  wire: {
+    output: z.object({ club: clubSummary }),
   },
   idempotency: {
     getClientKey: (input) => (input as ClubsCreateInput).clientKey,
@@ -542,19 +533,18 @@ const superadminClubsArchive: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this club archive.')),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to archive.')),
     }),
-    output: z.object({ club: clubSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       clubId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ club: clubSummary }),
   },
   idempotency: {
     getClientKey: (input) => (input as { clientKey: string }).clientKey,
@@ -599,21 +589,20 @@ const superadminClubsAssignOwner: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this owner assignment.')),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to reassign.')),
       ownerMemberId: wireRequiredString.describe('New owner member ID'),
     }),
-    output: z.object({ club: clubSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       clubId: parseRequiredString,
       ownerMemberId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ club: clubSummary }),
   },
   idempotency: {
     getClientKey: (input) => (input as { clientKey: string }).clientKey,
@@ -669,8 +658,8 @@ const superadminClubsUpdate: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe('Idempotency key for this club update.'),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to update.')),
       name: wireHumanRequiredString.optional().describe('New club name (cannot be empty if provided)'),
@@ -679,11 +668,7 @@ const superadminClubsUpdate: ActionDefinition = {
       usesFreeAllowance: wireOptionalBoolean.describe('Set true to put the club back onto the free allowance; false to move it out.'),
       memberCap: wireMemberCap,
     }),
-    output: z.object({ club: clubSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       clubId: parseRequiredString,
       name: parseHumanRequiredString.optional(),
@@ -702,6 +687,9 @@ const superadminClubsUpdate: ActionDefinition = {
       (input) => input.usesFreeAllowance !== true || input.memberCap === undefined || input.memberCap === null,
       'usesFreeAllowance=true forbids an explicit memberCap',
     ),
+  }),
+  wire: {
+    output: z.object({ club: clubSummary }),
   },
   llmGate: {
     async shouldSkip(input, ctx): Promise<boolean> {
@@ -776,22 +764,22 @@ const superadminClubsRemove: ActionDefinition = {
   auth: 'superadmin',
   safety: 'mutating',
   idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe('Idempotency key for this club removal.'),
       clubId: wireRequiredString.describe(describeScopedClubId('Archived club to remove.')),
       confirmSlug: wireRequiredString.describe('Exact current slug, used as a destructive-action confirmation.'),
       reason: wireHumanRequiredString.describe('Operator reason for removal.'),
     }),
-    output: z.object({ removedClub: removedClubSummary }),
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       clubId: parseRequiredString,
       confirmSlug: parseRequiredString,
       reason: parseHumanRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ removedClub: removedClubSummary }),
   },
   idempotency: {
     getClientKey: (input) => (input as ClubsRemoveInput).clientKey,
@@ -844,18 +832,18 @@ const superadminRemovedClubsList: ActionDefinition = {
   description: 'List archived removed-club snapshots that may still be restorable.',
   auth: 'superadmin',
   safety: 'read_only',
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       ...SUPERADMIN_DEFAULT_PAGINATION.wire,
       clubSlug: wireOptionalString.describe('Optional slug filter for one removed club lineage.'),
     }),
-    output: paginatedOutput(removedClubSummary),
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       ...SUPERADMIN_DEFAULT_PAGINATION.parse,
       clubSlug: parseTrimmedNullableString.transform((value) => value ?? undefined),
     }),
+  }),
+  wire: {
+    output: paginatedOutput(removedClubSummary),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     ctx.requireSuperadmin();
@@ -891,18 +879,18 @@ const superadminRemovedClubsRestore: ActionDefinition = {
   auth: 'superadmin',
   safety: 'mutating',
   idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe('Idempotency key for this restore.'),
       archiveId: wireRequiredString.describe('Removed-club archive to restore.'),
     }),
-    output: z.object({ club: clubSummary }),
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       archiveId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ club: clubSummary }),
   },
   idempotency: {
     getClientKey: (input) => (input as RemovedClubsRestoreInput).clientKey,
@@ -945,21 +933,20 @@ const superadminContentList: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter.')),
       kind: contentKind.optional().describe('Filter by content kind'),
       ...SUPERADMIN_DEFAULT_PAGINATION.wire,
     }),
-    output: paginatedOutputWithIncluded(adminContentSummary),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString.optional(),
       kind: contentKind.optional().catch(undefined),
       ...SUPERADMIN_DEFAULT_PAGINATION.parse,
     }),
+  }),
+  wire: {
+    output: paginatedOutputWithIncluded(adminContentSummary),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -993,17 +980,16 @@ const superadminMessagesThreads: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       ...SUPERADMIN_DEFAULT_PAGINATION.wire,
     }),
-    output: paginatedOutput(adminThreadSummary),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       ...SUPERADMIN_DEFAULT_PAGINATION.parse,
     }),
+  }),
+  wire: {
+    output: paginatedOutput(adminThreadSummary),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -1036,22 +1022,21 @@ const superadminMessagesRead: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       threadId: wireRequiredString.describe('Thread to read'),
       ...SUPERADMIN_DEFAULT_PAGINATION.wire,
     }),
+    parse: z.object({
+      threadId: parseRequiredString,
+      ...SUPERADMIN_DEFAULT_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: z.object({
       thread: adminThreadSummary,
       messages: paginatedOutput(directMessageEntry),
       included: includedBundle,
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      threadId: parseRequiredString,
-      ...SUPERADMIN_DEFAULT_PAGINATION.parse,
     }),
   },
 
@@ -1084,19 +1069,18 @@ const superadminTokensList: ActionDefinition = {
   auth: 'superadmin',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       memberId: wireRequiredString.describe('Member whose tokens to list'),
       ...SUPERADMIN_ACCESS_TOKENS_PAGINATION.wire,
     }),
-    output: paginatedOutput(bearerTokenSummary),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       memberId: parseRequiredString,
       ...SUPERADMIN_ACCESS_TOKENS_PAGINATION.parse,
     }),
+  }),
+  wire: {
+    output: paginatedOutput(bearerTokenSummary),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -1128,19 +1112,18 @@ const superadminTokensRevoke: ActionDefinition = {
     reason: 'Revoking the same token repeatedly leaves the same revoked token state and does not append audit rows.',
   },
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       memberId: wireRequiredString.describe('Member who owns the token'),
       tokenId: wireRequiredString.describe('Token to revoke'),
     }),
-    output: z.object({ token: bearerTokenSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       memberId: parseRequiredString,
       tokenId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ token: bearerTokenSummary }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -1202,28 +1185,24 @@ const superadminTokensCreate: ActionDefinition = {
   idempotencyStrategy: { kind: 'secretMint' },
   authorizationNote: 'Requires superadmin global role. The minted token is returned exactly once in plaintext; deliver it out-of-band.',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this admin bearer token mint. Plaintext tokens are never replayed.')),
       memberId: z.string().max(64).describe('Existing active member to mint a token for (short_id, max 64 characters)'),
       label: wireOptionalString.describe('Human-readable label for the new token (default: "admin-minted")'),
       expiresAt: wireIsoDatetime.nullable().optional().describe('Optional ISO 8601 date or datetime (e.g. "2025-12-31T23:59:59Z"); null or omit for no expiry'),
       reason: wireOptionalString.describe('Optional free-text reason recorded in the token metadata for audit'),
     }),
-    output: createdBearerToken,
-  },
-
-  parse: {
-    // Validate at the parse layer so malformed input fails with 400 invalid_input
-    // rather than falling through to Postgres and returning 500. Both edges were
-    // caught by the second-agent security review.
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       memberId: parseRequiredString.pipe(z.string().max(64, 'memberId must be at most 64 characters')),
       label: parseTrimmedNullableString.default(null),
       expiresAt: parseFutureIsoDatetime.default(null),
       reason: parseTrimmedNullableString.default(null),
     }),
+  }),
+  wire: {
+    output: createdBearerToken,
   },
   idempotency: {
     getClientKey: (input) => (input as SuperadminAccessTokensCreateInput).clientKey,
@@ -1278,23 +1257,22 @@ const superadminMembersCreate: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this member + bearer token creation. Plaintext tokens are never replayed.')),
       publicName: wirePublicName.describe('Display name for the new member'),
       email: wireEmail.describe('Private contact email for the new member'),
     }),
-    output: z.object({
-      member: memberRef,
-      token: createdBearerToken,
-    }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       publicName: parsePublicName,
       email: parseEmail,
+    }),
+  }),
+  wire: {
+    output: z.object({
+      member: memberRef,
+      token: createdBearerToken,
     }),
   },
   idempotency: {
@@ -1352,8 +1330,8 @@ const superadminMembershipsCreate: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this membership creation.')),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to add the member to.')),
       memberId: wireRequiredString.describe('Member to add'),
@@ -1362,11 +1340,7 @@ const superadminMembershipsCreate: ActionDefinition = {
       initialStatus: membershipCreateInitialStatus.default('active').describe('Initial membership status (always active in the reference implementation)'),
       reason: wireOptionalString.describe('Reason for creation'),
     }),
-    output: z.object({ membership: membershipAdminSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       clubId: parseRequiredString,
       memberId: parseRequiredString,
@@ -1375,6 +1349,9 @@ const superadminMembershipsCreate: ActionDefinition = {
       initialStatus: membershipCreateInitialStatus.default('active'),
       reason: parseTrimmedNullableString.default(null),
     }),
+  }),
+  wire: {
+    output: z.object({ membership: membershipAdminSummary }),
   },
   idempotency: {
     getClientKey: (input) => (input as SuperadminMembershipsCreateInput).clientKey,
@@ -1449,8 +1426,8 @@ const superadminNotificationProducersCreate: ActionDefinition = {
   safety: 'mutating',
   idempotencyStrategy: { kind: 'secretMint' },
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this producer secret mint. Plaintext secrets are never replayed.')),
       producerId: wireRequiredString.describe('Stable producer identifier used in headers and registry rows.'),
       namespacePrefix: wireOptionalString.describe('Required topic prefix for this producer. Use empty string only for core-like internal producers.'),
@@ -1463,11 +1440,7 @@ const superadminNotificationProducersCreate: ActionDefinition = {
         description: 'Initial registered topics owned by this producer.',
       }),
     }),
-    output: createdNotificationProducer,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       producerId: parseRequiredString,
       namespacePrefix: parseTrimmedNullableString.transform((value) => value ?? ''),
@@ -1480,6 +1453,9 @@ const superadminNotificationProducersCreate: ActionDefinition = {
         status: notificationProducerStatus.default('active'),
       }), { minItems: 1, maxItems: 100 }),
     }),
+  }),
+  wire: {
+    output: createdNotificationProducer,
   },
   idempotency: {
     getClientKey: (input) => (input as SuperadminNotificationProducersCreateInput).clientKey,
@@ -1516,19 +1492,18 @@ const superadminNotificationProducersRotateSecret: ActionDefinition = {
   safety: 'mutating',
   idempotencyStrategy: { kind: 'secretMint' },
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this producer secret rotation. Plaintext secrets are never replayed.')),
       producerId: wireRequiredString.describe('Producer whose secret should be rotated.'),
     }),
-    output: rotatedNotificationProducerSecret,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       producerId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: rotatedNotificationProducerSecret,
   },
   idempotency: {
     getClientKey: (input) => (input as { clientKey: string }).clientKey,
@@ -1566,19 +1541,18 @@ const superadminNotificationProducersUpdateStatus: ActionDefinition = {
     reason: 'Producer status updates set one status value; repeating the same status leaves the same producer state.',
   },
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       producerId: wireRequiredString.describe('Producer to enable or disable.'),
       status: notificationProducerStatus.describe('New producer status.'),
     }),
-    output: z.object({ producer: notificationProducerSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       producerId: parseRequiredString,
       status: notificationProducerStatus,
     }),
+  }),
+  wire: {
+    output: z.object({ producer: notificationProducerSummary }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -1609,21 +1583,20 @@ const superadminNotificationProducerTopicsUpdateStatus: ActionDefinition = {
     reason: 'Producer topic status updates set one status value; repeating the same status leaves the same topic state.',
   },
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       producerId: wireRequiredString.describe('Producer that owns the topic.'),
       topic: wireRequiredString.describe('Registered topic to update.'),
       status: notificationProducerStatus.describe('New topic status.'),
     }),
-    output: z.object({ topic: notificationProducerTopicSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       producerId: parseRequiredString,
       topic: parseRequiredString,
       status: notificationProducerStatus,
     }),
+  }),
+  wire: {
+    output: z.object({ topic: notificationProducerTopicSummary }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {

@@ -5,8 +5,8 @@
  * and assembled here into a single registry. The registry is the single
  * source of truth for:
  *   - Action metadata (description, auth, safety)
- *   - Wire schemas (input/output shapes for docs and schema endpoint)
- *   - Parse schemas (runtime normalization with transforms/defaults)
+ *   - Input specs (single source for wire/docs, parse, and request-template hints)
+ *   - Wire output schemas
  *   - Handler functions
  *   - LLM gate and idempotency requirements
  */
@@ -201,6 +201,26 @@ export type ActionScopeDeclaration =
   | { strategy: 'handler' }
   | { strategy: 'none' };
 
+export type RequestTemplate = { action: string; input: Record<string, string> };
+
+export type ActionInputSpec = {
+  wire: z.ZodType;
+  parse: z.ZodType;
+  buildRequestTemplate?: (action: string) => RequestTemplate;
+};
+
+export function defineInput(input: {
+  wire: z.ZodType;
+  parse?: z.ZodType;
+  buildRequestTemplate?: (action: string) => RequestTemplate;
+}): ActionInputSpec {
+  return {
+    wire: input.wire,
+    parse: input.parse ?? input.wire,
+    ...(input.buildRequestTemplate ? { buildRequestTemplate: input.buildRequestTemplate } : {}),
+  };
+}
+
 export type ActionDefinition = {
   // ── Public metadata (exposed by schema endpoint) ──
   action: string;
@@ -213,14 +233,10 @@ export type ActionDefinition = {
   scopeRules?: string[];
   notes?: string[];
 
-  wire: {
-    input: z.ZodType;
-    output: z.ZodType;
-  };
+  input: ActionInputSpec;
 
-  // ── Internal (not exposed publicly) ──
-  parse: {
-    input: z.ZodType;
+  wire: {
+    output: z.ZodType;
   };
 
   llmGate?: LlmGateDeclaration;
@@ -328,8 +344,25 @@ function validateIdempotencyStrategy(action: ActionDefinition): void {
   }
 }
 
+function validateInputSpec(action: ActionDefinition): void {
+  const candidate = action as unknown as {
+    input?: Partial<ActionInputSpec>;
+    wire?: { input?: unknown };
+    parse?: unknown;
+  };
+  if (candidate.wire && Object.prototype.hasOwnProperty.call(candidate.wire, 'input')) {
+    throw new Error(`Action ${action.action} must declare input via defineInput(), not wire.input`);
+  }
+  if (Object.prototype.hasOwnProperty.call(candidate, 'parse')) {
+    throw new Error(`Action ${action.action} must declare input via defineInput(), not parse.input`);
+  }
+  if (!candidate.input || !candidate.input.wire || !candidate.input.parse) {
+    throw new Error(`Action ${action.action} must declare an input spec with defineInput()`);
+  }
+}
+
 function validateWireInputArrayBounds(action: ActionDefinition): void {
-  const root = z.toJSONSchema(action.wire.input) as Record<string, unknown>;
+  const root = z.toJSONSchema(action.input.wire) as Record<string, unknown>;
   const visit = (node: unknown, path: string): void => {
     if (!node || typeof node !== 'object' || Array.isArray(node)) {
       return;
@@ -374,17 +407,18 @@ export function registerActions(actions: ActionDefinition[]): void {
     if (action.auth === 'none' && action.preGate) {
       throw new Error(`Cold action ${action.action} must not define preGate`);
     }
+    validateInputSpec(action);
     validateIdempotencyStrategy(action);
     validateWireInputArrayBounds(action);
     registry.set(action.action, {
       ...action,
+      input: {
+        ...action.input,
+        wire: applyStrictInputCanon(action.input.wire),
+        parse: applyStrictInputCanon(action.input.parse),
+      },
       wire: {
         ...action.wire,
-        input: applyStrictInputCanon(action.wire.input),
-      },
-      parse: {
-        ...action.parse,
-        input: applyStrictInputCanon(action.parse.input),
       },
     });
   }
@@ -409,10 +443,10 @@ export function getAction(action: string): ActionDefinition | undefined {
  * self-correct envelope and top-level shape mistakes.
  */
 export function parseActionInput<T>(def: ActionDefinition, payload: unknown): T {
-  const result = def.parse.input.safeParse(payload);
+  const result = def.input.parse.safeParse(payload);
   if (!result.success) {
     const err = result.error.issues[0];
-    const discriminatorMessage = formatDiscriminatorMismatch(def.parse.input, err, payload);
+    const discriminatorMessage = formatDiscriminatorMismatch(def.input.parse, err, payload);
     const path = err.path.length > 0 ? `${err.path.join('.')}: ` : '';
     const appErr = new AppError('invalid_input', discriminatorMessage ?? `${path}${err.message}`);
     appErr.details = {
@@ -517,11 +551,15 @@ function buildObjectTemplate(action: string, schema: z.ZodObject, overrides: Rec
  * Walks the JSON Schema properties to produce placeholder descriptors.
  * Helps agents recover from envelope and top-level shape mistakes.
  */
-export function generateRequestTemplate(def: ActionDefinition): { action: string; input: Record<string, string> } {
-  if (def.wire.input instanceof z.ZodDiscriminatedUnion) {
-    const discriminator = ((def.wire.input as unknown) as { _def: { discriminator: string } })._def.discriminator;
-    const values = extractDiscriminatorValues(def.wire.input);
-    const firstOption = ((def.wire.input as unknown) as { options: z.ZodObject[] }).options[0];
+export function generateRequestTemplate(def: ActionDefinition): RequestTemplate {
+  if (def.input.buildRequestTemplate) {
+    return def.input.buildRequestTemplate(def.action);
+  }
+
+  if (def.input.wire instanceof z.ZodDiscriminatedUnion) {
+    const discriminator = ((def.input.wire as unknown) as { _def: { discriminator: string } })._def.discriminator;
+    const values = extractDiscriminatorValues(def.input.wire);
+    const firstOption = ((def.input.wire as unknown) as { options: z.ZodObject[] }).options[0];
     if (firstOption) {
       return buildObjectTemplate(def.action, firstOption, {
         [discriminator]: `(one of: ${values.join(', ')})`,
@@ -529,8 +567,8 @@ export function generateRequestTemplate(def: ActionDefinition): { action: string
     }
   }
 
-  if (def.wire.input instanceof z.ZodObject) {
-    return buildObjectTemplate(def.action, def.wire.input);
+  if (def.input.wire instanceof z.ZodObject) {
+    return buildObjectTemplate(def.action, def.input.wire);
   }
 
   return { action: def.action, input: {} };

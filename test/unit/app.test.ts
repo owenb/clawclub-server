@@ -32,7 +32,7 @@ import {
 } from '../../src/repository.ts';
 import type { AuthResult, AuthenticatedActor } from '../../src/actors.ts';
 import { buildDispatcher } from '../../src/dispatch.ts';
-import { registerActions } from '../../src/schemas/registry.ts';
+import { defineInput, registerActions } from '../../src/schemas/registry.ts';
 import { passthroughGate } from './fixtures.ts';
 import { encodeNotificationCursor } from '../../src/notifications-core.ts';
 
@@ -4239,12 +4239,11 @@ test('gated actions fail closed when no budget club can be resolved', async () =
         return null;
       },
     },
+    input: defineInput({
+      wire: z.object({}),
+    }),
     wire: {
-      input: z.object({}),
       output: z.object({ ok: z.boolean() }),
-    },
-    parse: {
-      input: z.object({}),
     },
     handle: async () => ({ data: { ok: true } }),
   }]);
@@ -4298,12 +4297,12 @@ test('dispatcher runs preGate after parse and before the llm gate', async () => 
         return 'club-1';
       },
     },
+    input: defineInput({
+      wire: z.object({ text: z.string() }),
+      parse: z.object({ text: z.string().trim() }),
+    }),
     wire: {
-      input: z.object({ text: z.string() }),
       output: z.object({ ok: z.boolean() }),
-    },
-    parse: {
-      input: z.object({ text: z.string().trim() }),
     },
     preGate: async (input) => {
       const parsed = input as { text: string };
@@ -4341,12 +4340,12 @@ test('dispatcher runs preGate even when no llm gate is configured', async () => 
     description: 'PreGate without llm gate',
     auth: 'member',
     safety: 'read_only',
+    input: defineInput({
+      wire: z.object({ text: z.string() }),
+      parse: z.object({ text: z.string().trim() }),
+    }),
     wire: {
-      input: z.object({ text: z.string() }),
       output: z.object({ ok: z.boolean() }),
-    },
-    parse: {
-      input: z.object({ text: z.string().trim() }),
     },
     preGate: async (input) => {
       calls.push(`preGate:${(input as { text: string }).text}`);
@@ -4376,12 +4375,11 @@ test('AppError thrown from preGate propagates through the dispatcher unchanged',
     description: 'PreGate failure test',
     auth: 'member',
     safety: 'read_only',
+    input: defineInput({
+      wire: z.object({}),
+    }),
     wire: {
-      input: z.object({}),
       output: z.object({ ok: z.boolean() }),
-    },
-    parse: {
-      input: z.object({}),
     },
     preGate: async () => {
       throw new AppError('invalid_input', 'preGate rejected this input');
@@ -4416,12 +4414,11 @@ test('registerActions rejects cold actions that define preGate', () => {
       description: 'Cold preGate rejection test',
       auth: 'none',
       safety: 'read_only',
+      input: defineInput({
+        wire: z.object({}),
+      }),
       wire: {
-        input: z.object({}),
         output: z.object({ ok: z.boolean() }),
-      },
-      parse: {
-        input: z.object({}),
       },
       preGate: async () => {},
       handleCold: async () => ({ data: { ok: true } }),

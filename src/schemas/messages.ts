@@ -23,7 +23,7 @@ import {
   directMessageEntry,
   directMessageWithIncluded, includedBundle, messageRemovalResult,
 } from './responses.ts';
-import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
+import { defineInput, registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 
 // ── messages.send ───────────────────────────────────────
 
@@ -78,21 +78,20 @@ const messagesSend: ActionDefinition = {
     'Sending a reply implicitly marks that thread read for the sender; use updates.acknowledge when you read without replying.',
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       recipientMemberId: wireRequiredString.describe('Recipient member ID'),
       messageText: wireMessageText.describe('Message text'),
       clientKey: wireOptionalOpaqueString.describe(describeClientKey('Idempotency key for this direct message send.')),
     }),
-    output: directMessageWithIncluded,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       recipientMemberId: parseRequiredString,
       messageText: parseMessageText,
       clientKey: parseTrimmedNullableOpaqueString.default(null),
     }),
+  }),
+  wire: {
+    output: directMessageWithIncluded,
   },
   idempotency: {
     getClientKey: (input) => (input as SendInput).clientKey ?? null,
@@ -146,22 +145,21 @@ const messagesGetThread: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       threadId: wireRequiredString.describe('Thread ID to read'),
       ...MESSAGES_GET_PAGINATION.wire,
     }),
+    parse: z.object({
+      threadId: parseRequiredString,
+      ...MESSAGES_GET_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: z.object({
       thread: directMessageThreadSummary,
       messages: paginatedOutput(directMessageEntry),
       included: includedBundle,
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      threadId: parseRequiredString,
-      ...MESSAGES_GET_PAGINATION.parse,
     }),
   },
 
@@ -221,19 +219,18 @@ const messagesRemove: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       messageId: wireRequiredString.describe('Message to remove'),
       reason: wireOptionalString.describe('Reason for removal (optional)'),
     }),
-    output: z.object({ removal: messageRemovalResult }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       messageId: parseRequiredString,
       reason: parseTrimmedNullableString.default(null),
     }),
+  }),
+  wire: {
+    output: z.object({ removal: messageRemovalResult }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {

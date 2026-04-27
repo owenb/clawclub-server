@@ -31,6 +31,7 @@ import {
 import {
   clubScopedPaginatedResult,
   clubScopedResult,
+  defineInput,
   registerActions,
   type ActionDefinition,
   type HandlerContext,
@@ -60,24 +61,23 @@ const membersFullTextSearch: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       query: wireHumanRequiredString.describe('Search text'),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to search within.')),
       ...MEMBERS_FULL_TEXT_PAGINATION.wire,
     }),
+    parse: z.object({
+      query: parseHumanRequiredString,
+      clubId: parseRequiredString,
+      ...MEMBERS_FULL_TEXT_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: paginatedOutput(memberSearchResult).extend({
       query: z.string(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      query: parseHumanRequiredString,
-      clubId: parseRequiredString,
-      ...MEMBERS_FULL_TEXT_PAGINATION.parse,
     }),
   },
 
@@ -115,21 +115,20 @@ const membersList: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to list members from.')),
       ...MEMBERS_LIST_PAGINATION.wire,
     }),
+    parse: z.object({
+      clubId: parseRequiredString,
+      ...MEMBERS_LIST_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: paginatedOutput(publicMemberSummary).extend({
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      ...MEMBERS_LIST_PAGINATION.parse,
     }),
   },
 
@@ -165,11 +164,17 @@ const membersGet: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to fetch the member from.')),
       memberId: wireRequiredString.describe('Member to fetch'),
     }),
+    parse: z.object({
+      clubId: parseRequiredString,
+      memberId: parseRequiredString,
+    }),
+  }),
+  wire: {
     output: z.object({
       club: z.object({
         clubId: z.string(),
@@ -177,13 +182,6 @@ const membersGet: ActionDefinition = {
         name: z.string(),
       }),
       member: publicMemberSummary,
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      memberId: parseRequiredString,
     }),
   },
 
@@ -308,8 +306,8 @@ const membersUpdateProfile: ActionDefinition = {
     'members.updateProfile only changes club-scoped profile fields.',
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club whose profile should be updated.')),
       clientKey: wireOptionalOpaqueString.describe(describeClientKey('Idempotency key for this club profile update.')),
       tagline: wirePatchString.describe('Short tagline'),
@@ -320,11 +318,7 @@ const membersUpdateProfile: ActionDefinition = {
       websiteUrl: wirePatchHttpUrl.describe('Website URL'),
       links: z.array(profileLink).max(20).optional(),
     }),
-    output: memberProfileEnvelope,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString,
       clientKey: parseTrimmedNullableOpaqueString.default(null),
       tagline: parsePatchString,
@@ -335,6 +329,9 @@ const membersUpdateProfile: ActionDefinition = {
       websiteUrl: parsePatchHttpUrl,
       links: z.array(parseProfileLink).max(20).optional(),
     }),
+  }),
+  wire: {
+    output: memberProfileEnvelope,
   },
 
   llmGate: {
@@ -446,23 +443,22 @@ const vouchesCreate: ActionDefinition = {
   businessErrors: [...VOUCH_CREATE_ERRORS],
   skipRequestedClubScopePrecheck: true,
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club context for the vouch.')),
       memberId: wireRequiredString.describe('Member to vouch for'),
       reason: wireBoundedString.describe('Reason for vouching'),
       clientKey: wireOptionalOpaqueString.describe(describeClientKey('Idempotency key for this vouch creation.')),
     }),
-    output: z.object({ vouch: vouchSummary }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString,
       memberId: parseRequiredString,
       reason: parseBoundedString,
       clientKey: parseTrimmedNullableOpaqueString.default(null),
     }),
+  }),
+  wire: {
+    output: z.object({ vouch: vouchSummary }),
   },
 
   llmGate: {
@@ -541,24 +537,23 @@ const vouchesList: ActionDefinition = {
   auth: 'member',
   safety: 'read_only',
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       memberId: wireRequiredString.optional().describe('Member that is the subject of the vouches — i.e. vouches received (defaults to the calling member). Each result row already carries the creator as fromMemberId.'),
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club filter for vouches.')),
       ...VOUCHES_LIST_PAGINATION.wire,
     }),
+    parse: z.object({
+      memberId: parseRequiredString.optional(),
+      clubId: parseRequiredString.optional(),
+      ...VOUCHES_LIST_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: paginatedOutput(vouchSummary).extend({
       memberId: z.string(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      memberId: parseRequiredString.optional(),
-      clubId: parseRequiredString.optional(),
-      ...VOUCHES_LIST_PAGINATION.parse,
     }),
   },
 
@@ -621,24 +616,23 @@ const membersFindViaEmbedding: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       query: z.string().max(1000).describe('Natural-language search query (max 1000 chars)'),
       clubId: wireRequiredString.describe(describeScopedClubId('Club to search semantically within.')),
       ...MEMBERS_SEMANTIC_SEARCH_PAGINATION.wire,
     }),
+    parse: z.object({
+      query: z.string().trim().min(1).max(1000),
+      clubId: parseRequiredString,
+      ...MEMBERS_SEMANTIC_SEARCH_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: paginatedOutput(memberSearchResult).extend({
       query: z.string(),
       limit: z.number(),
       clubScope: z.array(membershipSummary),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      query: z.string().trim().min(1).max(1000),
-      clubId: parseRequiredString,
-      ...MEMBERS_SEMANTIC_SEARCH_PAGINATION.parse,
     }),
   },
 

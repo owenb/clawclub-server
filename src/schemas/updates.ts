@@ -18,7 +18,7 @@ import {
   includedBundle,
   membershipSummary,
 } from './responses.ts';
-import { registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
+import { defineInput, registerActions, type ActionDefinition, type HandlerContext, type ActionResult } from './registry.ts';
 import { NOTIFICATIONS_PAGE_SIZE } from '../notifications-core.ts';
 import { toIsoNow } from '../timestamps.ts';
 import {
@@ -55,8 +55,8 @@ const updatesList: ActionDefinition = {
     'The inbox slice defaults to unreadOnly=false so the DM part answers "show my DM inbox" by default; pass unreadOnly=true for unread-only triage.',
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.optional().describe(describeOptionalScopedClubId('Optional club scope for the activity slice only. Notifications and inbox remain personal.')),
       activity: z.object({
         ...UPDATES_ACTIVITY_PAGINATION.wire,
@@ -70,6 +70,21 @@ const updatesList: ActionDefinition = {
         unreadOnly: wireOptionalBoolean.describe('Only show threads with unread messages. Defaults to false on updates.list.'),
       }).optional(),
     }),
+    parse: z.object({
+      clubId: parseRequiredString.optional(),
+      activity: z.object({
+        ...UPDATES_ACTIVITY_PAGINATION.parse,
+      }).optional().default({ limit: 20, cursor: null }),
+      notifications: z.object({
+        ...UPDATES_NOTIFICATIONS_PAGINATION.parse,
+      }).optional().default({ limit: NOTIFICATIONS_PAGE_SIZE, cursor: null }),
+      inbox: z.object({
+        ...UPDATES_INBOX_PAGINATION.parse,
+        unreadOnly: z.boolean().optional().default(false),
+      }).optional().default({ limit: 20, unreadOnly: false, cursor: null }),
+    }),
+  }),
+  wire: {
     output: z.object({
       activity: paginatedOutput(activityEvent).extend({
         limit: z.number(),
@@ -83,22 +98,6 @@ const updatesList: ActionDefinition = {
         included: includedBundle,
       }),
       polledAt: timestampString,
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString.optional(),
-      activity: z.object({
-        ...UPDATES_ACTIVITY_PAGINATION.parse,
-      }).optional().default({ limit: 20, cursor: null }),
-      notifications: z.object({
-        ...UPDATES_NOTIFICATIONS_PAGINATION.parse,
-      }).optional().default({ limit: NOTIFICATIONS_PAGE_SIZE, cursor: null }),
-      inbox: z.object({
-        ...UPDATES_INBOX_PAGINATION.parse,
-        unreadOnly: z.boolean().optional().default(false),
-      }).optional().default({ limit: 20, unreadOnly: false, cursor: null }),
     }),
   },
 
@@ -159,8 +158,8 @@ const updatesAcknowledge: ActionDefinition = {
     'Use target.kind=notification to acknowledge notifications from the personal queue.',
     'Use target.kind=thread to mark a DM thread read without replying.',
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       target: z.discriminatedUnion('kind', [
         z.object({
           kind: z.literal('notification'),
@@ -172,20 +171,7 @@ const updatesAcknowledge: ActionDefinition = {
         }).strict(),
       ]),
     }),
-    output: z.discriminatedUnion('kind', [
-      z.object({
-        kind: z.literal('notification'),
-        receipts: z.array(notificationReceipt),
-      }),
-      z.object({
-        kind: z.literal('thread'),
-        threadId: z.string(),
-        acknowledgedCount: z.number(),
-      }),
-    ]),
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       target: z.discriminatedUnion('kind', [
         z.object({
           kind: z.literal('notification'),
@@ -197,6 +183,19 @@ const updatesAcknowledge: ActionDefinition = {
         }).strict(),
       ]),
     }),
+  }),
+  wire: {
+    output: z.discriminatedUnion('kind', [
+      z.object({
+        kind: z.literal('notification'),
+        receipts: z.array(notificationReceipt),
+      }),
+      z.object({
+        kind: z.literal('thread'),
+        threadId: z.string(),
+        acknowledgedCount: z.number(),
+      }),
+    ]),
   },
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
     const { target } = input as {

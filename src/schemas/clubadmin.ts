@@ -37,6 +37,7 @@ import {
 } from './responses.ts';
 import {
   clubScopedPaginatedResult,
+  defineInput,
   registerActions,
   type ActionDefinition,
   type HandlerContext,
@@ -150,27 +151,26 @@ const clubadminMembersList: ActionDefinition = {
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to list members for.')),
       statuses: wireMembershipStates.describe('Optional membership-state filter limited to active, cancelled, removed, and banned'),
       roles: wireMembershipRoles.describe('Optional role filter limited to clubadmin/member'),
       ...CLUBADMIN_MEMBERS_PAGINATION.wire,
     }),
+    parse: z.object({
+      clubId: parseRequiredString,
+      statuses: parseOptionalMembershipStates,
+      roles: parseMembershipRoles,
+      ...CLUBADMIN_MEMBERS_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: paginatedOutput(adminMemberSummary).extend({
       limit: z.number(),
       clubScope: z.array(membershipSummary),
       statuses: z.array(membershipState).nullable(),
       roles: z.array(membershipRole).nullable(),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      statuses: parseOptionalMembershipStates,
-      roles: parseMembershipRoles,
-      ...CLUBADMIN_MEMBERS_PAGINATION.parse,
     }),
   },
 
@@ -219,24 +219,23 @@ const clubadminApplicationsList: ActionDefinition = {
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to list applications for.')),
       phases: boundedArray(applicationPhase, { minItems: 1, maxItems: 7 }).optional().describe('Optional application-phase filter. Defaults to awaiting_review. Include revision_required explicitly to inspect drafts that are still with the applicant.'),
       ...CLUBADMIN_APPLICATIONS_PAGINATION.wire,
     }),
+    parse: z.object({
+      clubId: parseRequiredString,
+      phases: parseApplicationPhases,
+      ...CLUBADMIN_APPLICATIONS_PAGINATION.parse,
+    }),
+  }),
+  wire: {
     output: paginatedOutput(adminApplicationState).extend({
       limit: z.number(),
       clubScope: z.array(membershipSummary),
       phases: z.array(applicationPhase).nullable(),
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      phases: parseApplicationPhases,
-      ...CLUBADMIN_APPLICATIONS_PAGINATION.parse,
     }),
   },
 
@@ -296,8 +295,8 @@ const clubadminMembersUpdate: ActionDefinition = {
     },
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club the membership belongs to.')),
       memberId: wireRequiredString.describe('Member to update'),
       clientKey: wireOptionalOpaqueString.describe(describeClientKey('Optional idempotency key for this membership update.')),
@@ -307,11 +306,7 @@ const clubadminMembersUpdate: ActionDefinition = {
         reason: wireOptionalString.describe('Reason for the status change').optional(),
       }),
     }),
-    output: z.object({ membership: membershipAdminSummary, changed: z.boolean() }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString,
       memberId: parseRequiredString,
       clientKey: parseTrimmedNullableOpaqueString.default(null),
@@ -324,6 +319,9 @@ const clubadminMembersUpdate: ActionDefinition = {
         'patch must include role and/or status',
       ),
     }),
+  }),
+  wire: {
+    output: z.object({ membership: membershipAdminSummary, changed: z.boolean() }),
   },
   idempotency: {
     getClientKey: (input) => (input as ClubadminMembersUpdateInput).clientKey ?? null,
@@ -379,11 +377,17 @@ const clubadminMembersGet: ActionDefinition = {
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club the membership belongs to.')),
       memberId: wireRequiredString.describe('Member to fetch in the club'),
     }),
+    parse: z.object({
+      clubId: parseRequiredString,
+      memberId: parseRequiredString,
+    }),
+  }),
+  wire: {
     output: z.object({
       club: z.object({
         clubId: z.string(),
@@ -391,13 +395,6 @@ const clubadminMembersGet: ActionDefinition = {
         name: z.string(),
       }),
       member: adminMemberSummary,
-    }),
-  },
-
-  parse: {
-    input: z.object({
-      clubId: parseRequiredString,
-      memberId: parseRequiredString,
     }),
   },
 
@@ -443,20 +440,19 @@ const clubadminApplicationsGet: ActionDefinition = {
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club the application belongs to.')),
       applicationId: wireRequiredString.describe('Application to fetch'),
     }),
-    output: z.object({
-      application: adminApplicationState,
-    }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString,
       applicationId: parseRequiredString,
+    }),
+  }),
+  wire: {
+    output: z.object({
+      application: adminApplicationState,
     }),
   },
 
@@ -513,25 +509,25 @@ const clubadminApplicationsDecide: ActionDefinition = {
       recovery: 'Increase the member cap or free capacity before accepting the application.',
     },
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club the application belongs to.')),
       applicationId: wireRequiredString.describe('Application to decide'),
       decision: z.enum(['accept', 'decline', 'ban']),
       adminNote: wireOptionalString.describe('Optional admin note stored on the application'),
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this admin application decision.')),
     }),
-    output: z.object({
-      application: adminApplicationState,
-    }),
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString,
       applicationId: parseRequiredString,
       decision: z.enum(['accept', 'decline', 'ban']),
       adminNote: parseTrimmedNullableString.default(null),
       clientKey: parseRequiredString,
+    }),
+  }),
+  wire: {
+    output: z.object({
+      application: adminApplicationState,
     }),
   },
   idempotency: {
@@ -596,18 +592,15 @@ const clubadminClubsUpdate: ActionDefinition = {
       recovery: 'Restore the club before changing its text.',
     },
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to update.')),
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this club update.')),
       name: wireHumanRequiredString.optional().describe('New club name.'),
       summary: wireOptionalString.describe('New summary.'),
       admissionPolicy: wireOptionalString.describe('New admission policy.'),
     }),
-    output: z.object({ club: clubSummary }),
-  },
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString,
       clientKey: parseRequiredString,
       name: parseHumanRequiredString.optional(),
@@ -618,6 +611,9 @@ const clubadminClubsUpdate: ActionDefinition = {
         Object.values(patch).some((value) => value !== undefined),
       'clubadmin.clubs.update requires at least one field to change',
     ),
+  }),
+  wire: {
+    output: z.object({ club: clubSummary }),
   },
   llmGate: {
     async shouldSkip(input, ctx): Promise<boolean> {
@@ -682,17 +678,16 @@ const clubadminClubsStats: ActionDefinition = {
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club to inspect.')),
     }),
-    output: z.object({ stats: adminClubStats }),
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString,
     }),
+  }),
+  wire: {
+    output: z.object({ stats: adminClubStats }),
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {
@@ -729,21 +724,20 @@ const clubadminContentRemove: ActionDefinition = {
   scopeRules: [...CLUBADMIN_SCOPE_RULES],
   businessErrors: [...CLUBADMIN_AUTH_ERRORS],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clubId: wireRequiredString.describe(describeScopedClubId('Club the content belongs to.')),
       id: wireRequiredString.describe('Content to remove'),
       reason: wireHumanRequiredString.describe('Reason for removal (required for moderation)'),
     }),
-    output: contentWithIncluded,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clubId: parseRequiredString,
       id: parseRequiredString,
       reason: parseHumanRequiredString,
     }),
+  }),
+  wire: {
+    output: contentWithIncluded,
   },
 
   async handle(input: unknown, ctx: HandlerContext): Promise<ActionResult> {

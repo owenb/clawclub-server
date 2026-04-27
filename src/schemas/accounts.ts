@@ -13,7 +13,7 @@ import {
   wireRequiredString,
 } from './fields.ts';
 import { memberIdentity } from './responses.ts';
-import { registerActions, type ActionDefinition, type ActionResult, type ColdHandlerContext, type HandlerContext } from './registry.ts';
+import { defineInput, registerActions, type ActionDefinition, type ActionResult, type ColdHandlerContext, type HandlerContext } from './registry.ts';
 
 const wireAsciiEmail = wireEmail.describe('ASCII email address. Server trims, lowercases, and validates address shape.');
 const parseAsciiEmail = parseEmail.refine((value) => /^[\x00-\x7F]+$/.test(value), 'Email must use ASCII characters only');
@@ -172,8 +172,8 @@ const accountsRegister: ActionDefinition = {
       recovery: 'Call accounts.register discover again with the email address the sponsor invited, or ask the sponsor to issue a new invitation for the correct email.',
     },
   ],
-  wire: {
-    input: z.discriminatedUnion('mode', [
+  input: defineInput({
+    wire: z.discriminatedUnion('mode', [
       z.object({
         mode: z.literal('discover').describe('First call: get a registration proof-of-work challenge.'),
         invitationCode: wireInvitationCode.optional(),
@@ -189,10 +189,7 @@ const accountsRegister: ActionDefinition = {
         invitationCode: wireInvitationCode.optional(),
       }),
     ]),
-    output: registerOutput,
-  },
-  parse: {
-    input: z.discriminatedUnion('mode', [
+    parse: z.discriminatedUnion('mode', [
       z.object({
         mode: z.literal('discover'),
         invitationCode: parseOptionalInvitationCode,
@@ -208,6 +205,9 @@ const accountsRegister: ActionDefinition = {
         invitationCode: parseOptionalInvitationCode,
       }),
     ]),
+  }),
+  wire: {
+    output: registerOutput,
   },
   async handleCold(input: unknown, ctx: ColdHandlerContext): Promise<ActionResult> {
     const result = await ctx.repository.registerAccount({
@@ -240,11 +240,17 @@ const accountsUpdateContactEmail: ActionDefinition = {
       recovery: 'Use a different email, or ask the operator for out-of-band recovery if you already own that address.',
     },
   ],
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       newEmail: wireAsciiEmail,
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this contact-email replacement.')),
     }),
+    parse: z.object({
+      newEmail: parseAsciiEmail,
+      clientKey: parseRequiredString,
+    }),
+  }),
+  wire: {
     output: z.object({
       member: z.object({
         memberId: z.string(),
@@ -255,12 +261,6 @@ const accountsUpdateContactEmail: ActionDefinition = {
         summary: z.string(),
         details: z.string(),
       }),
-    }),
-  },
-  parse: {
-    input: z.object({
-      newEmail: parseAsciiEmail,
-      clientKey: parseRequiredString,
     }),
   },
   idempotency: {
@@ -302,19 +302,18 @@ const accountsUpdateIdentity: ActionDefinition = {
     'Club-scoped profile fields belong on members.updateProfile.',
   ],
 
-  wire: {
-    input: z.object({
+  input: defineInput({
+    wire: z.object({
       clientKey: wireRequiredString.describe(describeClientKey('Idempotency key for this identity update.')),
       displayName: wireBoundedString.optional().describe('Global display name, max 500 characters'),
     }),
-    output: memberIdentity,
-  },
-
-  parse: {
-    input: z.object({
+    parse: z.object({
       clientKey: parseRequiredString,
       displayName: parseBoundedString.optional(),
     }),
+  }),
+  wire: {
+    output: memberIdentity,
   },
   idempotency: {
     getClientKey: (input) => (input as AccountsUpdateIdentityInput).clientKey,

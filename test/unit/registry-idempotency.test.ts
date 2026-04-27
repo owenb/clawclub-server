@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { registerActions } from '../../src/schemas/registry.ts';
+import { defineInput, registerActions } from '../../src/schemas/registry.ts';
 
 test('registerActions rejects authenticated mutating actions without an idempotency strategy', () => {
   assert.throws(
@@ -11,6 +11,28 @@ test('registerActions rejects authenticated mutating actions without an idempote
       description: 'Mutating action missing idempotency strategy',
       auth: 'member',
       safety: 'mutating',
+      input: defineInput({
+        wire: z.object({}),
+      }),
+      wire: {
+        output: z.object({ ok: z.boolean() }),
+      },
+      async handle() {
+        return { data: { ok: true } };
+      },
+    }]),
+    /must declare an idempotencyStrategy/,
+  );
+});
+
+test('registerActions rejects legacy parallel input schema declarations', () => {
+  assert.throws(
+    () => registerActions([{
+      action: `test.input.legacy.${Date.now()}`,
+      domain: 'test',
+      description: 'Legacy input schema shape',
+      auth: 'member',
+      safety: 'read_only',
       wire: {
         input: z.object({}),
         output: z.object({ ok: z.boolean() }),
@@ -21,8 +43,8 @@ test('registerActions rejects authenticated mutating actions without an idempote
       async handle() {
         return { data: { ok: true } };
       },
-    }]),
-    /must declare an idempotencyStrategy/,
+    } as unknown as Parameters<typeof registerActions>[0][number]]),
+    /must declare input via defineInput/,
   );
 });
 
@@ -35,12 +57,11 @@ test('registerActions rejects clientKey strategies without an idempotency declar
       auth: 'member',
       safety: 'mutating',
       idempotencyStrategy: { kind: 'clientKey', requirement: 'required' },
+      input: defineInput({
+        wire: z.object({ clientKey: z.string() }),
+      }),
       wire: {
-        input: z.object({ clientKey: z.string() }),
         output: z.object({ ok: z.boolean() }),
-      },
-      parse: {
-        input: z.object({ clientKey: z.string() }),
       },
       async handle() {
         return { data: { ok: true } };
@@ -58,12 +79,11 @@ test('registerActions rejects input arrays without schema or policy bounds', () 
       description: 'Read action with unbounded input array',
       auth: 'member',
       safety: 'read_only',
+      input: defineInput({
+        wire: z.object({ ids: z.array(z.string()) }),
+      }),
       wire: {
-        input: z.object({ ids: z.array(z.string()) }),
         output: z.object({ ok: z.boolean() }),
-      },
-      parse: {
-        input: z.object({ ids: z.array(z.string()) }),
       },
       async handle() {
         return { data: { ok: true } };
@@ -80,12 +100,12 @@ test('registerActions allows policy-bounded input arrays', () => {
     description: 'Read action with policy-bounded input array',
     auth: 'member',
     safety: 'read_only',
+    input: defineInput({
+      wire: z.object({ ids: z.array(z.string()).meta({ clawclubEnforcedBy: 'policy' }) }),
+      parse: z.object({ ids: z.array(z.string()) }),
+    }),
     wire: {
-      input: z.object({ ids: z.array(z.string()).meta({ clawclubEnforcedBy: 'policy' }) }),
       output: z.object({ ok: z.boolean() }),
-    },
-    parse: {
-      input: z.object({ ids: z.array(z.string()) }),
     },
     async handle() {
       return { data: { ok: true } };
